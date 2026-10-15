@@ -16,6 +16,7 @@ pub const driver = @import("driver/zigcc.zig");
 pub const emit_options = @import("emit_options.zig");
 pub const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 pub const emit_js = @import("emit_js.zig");
+pub const emit_c = @import("emit_c.zig");
 pub const interp = @import("interp.zig");
 pub const layout = @import("layout.zig");
 pub const llvm2sa = @import("llvm2sa.zig");

@@ -10,6 +10,7 @@ const driver = @import("driver/zigcc.zig");
 const emit_options = @import("emit_options.zig");
 const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 const emit_js = @import("emit_js.zig");
+const emit_c = @import("emit_c.zig");
 const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
 const sab = @import("sab.zig");
@@ -720,6 +721,7 @@ const Command = enum {
     build_exe,
     build_wasm,
     build_js,
+    build_c,
     build_obj,
     bc2sa,
     audit,
@@ -1192,6 +1194,7 @@ fn commandName(cmd: Command) []const u8 {
         .build_exe => "build-exe",
         .build_wasm => "build-wasm",
         .build_js => "build-js",
+        .build_c => "build-c",
         .build_obj => "build-obj",
         .bc2sa => "bc2sa",
         .audit => "audit",
@@ -1420,6 +1423,13 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --format esm|cjs              Select the JS module format (default: esm)\n");
             try writeBuildOptionsHelp(writer, "the js module", false);
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .build_c => {
+            try writer.writeAll("usage: sa build-c <file> [options]\n\n");
+            try writer.writeAll("Build a portable C file from a .sa source file or .sab binary (C backend, MVP).\n\n");
+            try writer.writeAll("Options:\n");
+            try writeBuildOptionsHelp(writer, "the c file", false);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .run => {
@@ -1704,6 +1714,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  build-obj    <file>            Build an object file (.o)\n");
     try writer.writeAll("  build-wasm   <file>            Build a WebAssembly module (.wasm)\n");
     try writer.writeAll("  build-js     <file>            Build a JavaScript module (.js, JS backend)\n");
+    try writer.writeAll("  build-c      <file>            Build a portable C file (.c, C backend)\n");
     try writer.writeAll("  test         <file>            Run @test blocks in a .sa/.sab file\n");
     try writer.writeAll("  check        <file>            Flatten and verify without codegen\n");
     try writer.writeAll("  fetch        <url>             Fetch and cache a remote package (compat)\n");
@@ -2008,7 +2019,7 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.UnknownCommand => .{
             .code = "SA-CLI-013",
             .message = "unknown command",
-            .hint = "use build, build-workspace, run, build-exe, build-wasm, build-js, build-obj, pkg, cache, graph, layout, size, test, explain, fix, skills, bc2sa, help, or version",
+            .hint = "use build, build-workspace, run, build-exe, build-wasm, build-js, build-c, build-obj, pkg, cache, graph, layout, size, test, explain, fix, skills, bc2sa, help, or version",
         },
         error.UnexpectedArgument => .{
             .code = "SA-CLI-014",
@@ -7524,6 +7535,40 @@ fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_pat
     }
 }
 
+fn executeBuildC(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
+    const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
+    const compiled = try compileSource(allocator, source_path, compile_options);
+    switch (compiled) {
+        .trap => |report| {
+            try printTrapReport(stderr, report, diagnostics_mode);
+            return 1;
+        },
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(allocator);
+            try ensureParentDir(out_path);
+            const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
+            const size_bits = sizeBitsForTriple(compile_options.target_triple);
+            emit_c.emitCToFile(allocator, owned.verified, source_path, size_bits, .{ .debug_comments = debug }, out_path) catch |err| {
+                try stderr.print("error: C backend emit failed: {s}", .{@errorName(err)});
+                if (emit_c.last_c_func.len != 0) try stderr.print(" in {s}", .{emit_c.last_c_func});
+                if (emit_c.last_c_inst.len != 0) try stderr.print(": {s}", .{std.mem.trim(u8, emit_c.last_c_inst, " \t\r\n")});
+                try stderr.writeAll("\n");
+                return 1;
+            };
+            const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
+            recordMetricMemoryAfterEmit(&owned.metrics);
+            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
+            recordMetricMemoryEnd(&owned.metrics);
+            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
+            finishProfileMetrics(&owned.metrics, emit_ns, null, if (total_start) |start| elapsedNs(start) else null);
+            attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
+            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
+            return 0;
+        },
+    }
+}
+
 fn executeLayout(
     allocator: std.mem.Allocator,
     args: []const []const u8,
@@ -8822,6 +8867,46 @@ pub fn executeWithWritersAndOptions(
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildJs(allocator, final_source_path, if (out_path) |p| p else owned_out, js_format, debug, compile_options, stderr, if (json_mode) .json else .human);
+        },
+        .build_c => {
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
+            var source_path: ?[]const u8 = null;
+            var out_path: ?[]const u8 = null;
+            var debug = false;
+            var i: usize = 2;
+            while (i < args.len) : (i += 1) {
+                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "-o")) {
+                    if (i + 1 >= args.len) return error.MissingOutputPath;
+                    out_path = args[i + 1];
+                    i += 1;
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "-g")) {
+                    debug = true;
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "--no-debug")) {
+                    debug = false;
+                    continue;
+                }
+                return error.UnexpectedArgument;
+            }
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, ".c");
+            defer if (out_path == null) allocator.free(owned_out);
+            configureCompileDiagnostics(&compile_options, json_mode);
+            return try executeBuildC(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, compile_options, stderr, if (json_mode) .json else .human);
         },
         .bc2sa => {
             if (args.len < 3) return error.MissingSourcePath;
