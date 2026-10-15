@@ -87,7 +87,13 @@ comptime {
     }
 }
 
-const RegexC = extern struct {
+const RegexC = if (is_wasm) extern struct {
+    re_nsub: usize,
+    __opaque: ?*anyopaque,
+    __padding: [4]?*anyopaque,
+    __nsub2: usize,
+    __padding2: u8,
+} else extern struct {
     buffer: ?*anyopaque,
     allocated: c_ulong,
     used: c_ulong,
