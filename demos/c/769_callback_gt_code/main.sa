@@ -1,0 +1,50 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"769\n"
+@const GT_VT = vtable { invoke = @gt_fn }
+
+// 769 - Callback gt: 769 > 700 yields 769 through indirect call.
+@gt_fn(a: i64, b: i64) -> i64:
+L_ENTRY:
+    big = slt b, a
+    br big -> L_YES, L_NO
+L_YES:
+    !a
+    !b
+    !big
+    return 769
+L_NO:
+    !a
+    !b
+    !big
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    t = &GT_VT
+    fp = load t + 0 as ptr
+    x = 769 as i64
+    y = 700 as i64
+    v = call_indirect fp(x, y)
+    want = 769 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

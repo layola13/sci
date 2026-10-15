@@ -1,0 +1,63 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"631\n"
+
+// 631 - Ok chain of 4 steps, 600 + 31 == 631.
+@ostep(fail: i64) -> i64:
+L_ENTRY:
+    bad = eq fail, 1
+    br bad -> L_FAIL, L_SUCC
+L_SUCC:
+    !fail
+    !bad
+    return 0
+L_FAIL:
+    !fail
+    !bad
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    c0 = call @ostep(z)
+    c1 = call @ostep(c0)
+    c2 = call @ostep(c1)
+    c3 = call @ostep(c2)
+    x = 600 as i64
+    y = 31 as i64
+    v = add x, y
+    want = 631 as i64
+    ok_v = eq v, want
+    ok0 = eq c0, 0
+    ok1 = eq c1, 0
+    ok2 = eq c2, 0
+    ok3 = eq c3, 0
+    t0 = and ok_v, ok0
+    t1 = and ok1, ok2
+    t2 = and t0, t1
+    ok = and t2, ok3
+    !z
+    !c0
+    !c1
+    !c2
+    !c3
+    !x
+    !y
+    !v
+    !want
+    !ok_v
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !t0
+    !t1
+    !t2
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

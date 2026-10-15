@@ -1,0 +1,71 @@
+@import "sa_std/io/print.sai"
+
+@const VT_DBL = vtable { call = @dbl_fn }
+@const VT_TPL = vtable { call = @tpl_fn }
+@const OUT = utf8:"458\n"
+
+// 458 - two same-shape float vtables: 2x and 3x of 1.5 (3.0 + 4.5).
+@dbl_fn(x: f64, ctx: ptr) -> f64:
+    two_i = 2 as i32
+    two_f = sitofp two_i as f64
+    r = fmul x, two_f
+    !ctx
+    !x
+    !two_i
+    !two_f
+    return r
+
+@tpl_fn(x: f64, ctx: ptr) -> f64:
+    three_i = 3 as i32
+    three_f = sitofp three_i as f64
+    r = fmul x, three_f
+    !ctx
+    !x
+    !three_i
+    !three_f
+    return r
+
+@main() -> i32:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    t0 = &VT_DBL
+    fp0 = load t0 + 0 as ptr
+    ctx0 = alloc 8
+    r0 = call_indirect fp0(one_half, ctx0)
+    !ctx0
+    !fp0
+    !t0
+    t1 = &VT_TPL
+    fp1 = load t1 + 0 as ptr
+    ctx1 = alloc 8
+    r1 = call_indirect fp1(one_half, ctx1)
+    !ctx1
+    !fp1
+    !t1
+    s = fadd r0, r1
+    fifteen = 15 as i32
+    fifteen_f = sitofp fifteen as f64
+    half_expect = fdiv fifteen_f, two_f
+    ok = fcmp_eq s, half_expect
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    !r0
+    !r1
+    !s
+    !fifteen
+    !fifteen_f
+    !half_expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

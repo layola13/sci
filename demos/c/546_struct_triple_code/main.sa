@@ -1,0 +1,61 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"546\n"
+
+#def Triple_SIZE = 24
+
+// 546 - Struct triple spills (code 0, 1.5 + 2.5 == 4.0).
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    five_f = sitofp five as f64
+    one_half = fdiv three_f, two_f
+    two_half = fdiv five_f, two_f
+    s = fadd one_half, two_half
+    p = alloc 24
+    store p+0, 0 as i64
+    store p+8, one_half as f64
+    store p+16, two_half as f64
+    code = load p+0 as i64
+    a = load p+8 as f64
+    b = load p+16 as f64
+    got = fadd a, b
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    ok_c = eq code, 0
+    ok_v = fcmp_eq got, four
+    ok_s = fcmp_eq s, four
+    t0 = and ok_c, ok_v
+    ok = and t0, ok_s
+    !three
+    !two_i
+    !five
+    !three_f
+    !two_f
+    !five_f
+    !one_half
+    !two_half
+    !s
+    !p
+    !code
+    !a
+    !b
+    !got
+    !four_i
+    !four
+    !ok_c
+    !ok_v
+    !ok_s
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

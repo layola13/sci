@@ -1,0 +1,41 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"749\n"
+@const ZR_VT = vtable { invoke = @zero_fn }
+
+// 749 - Callback zero-plus: 0 + 749 == 749 through indirect call.
+@zero_fn(dummy: i64) -> i64:
+L_ENTRY:
+    base = 749 as i64
+    r = add dummy, base
+    !dummy
+    !base
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    t = &ZR_VT
+    fp = load t + 0 as ptr
+    z = 0 as i64
+    v = call_indirect fp(z)
+    want = 749 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !z
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

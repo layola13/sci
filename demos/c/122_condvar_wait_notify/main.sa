@@ -1,0 +1,49 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"4\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Cond_SIZE = 8
+#def Cond_ready = +0
+#def Cond_value = +4
+
+@main() -> i32:
+L_ENTRY:
+    cond = alloc Cond_SIZE
+    store cond+Cond_ready, 0 as i32
+    store cond+Cond_value, 0 as i32
+    jmp L_NOTIFY
+
+L_NOTIFY:
+    store cond+Cond_value, 4 as i32
+    store cond+Cond_ready, 1 as i32
+    jmp L_WAIT
+
+L_WAIT:
+    ready = load cond+Cond_ready as i32
+    waiting = eq ready, 0
+    br waiting -> L_WAIT_AGAIN, L_WAKE
+
+L_WAIT_AGAIN:
+    !ready
+    !waiting
+    jmp L_WAIT
+
+L_WAKE:
+    value = load cond+Cond_value as i32
+    ok = eq value, 4
+    !ready
+    !waiting
+    !value
+    !cond
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

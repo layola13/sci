@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"886\n"
+
+// 886 - Stack pair: push 800, 86 then pop-add == 886.
+@main() -> i32:
+L_ENTRY:
+    st = alloc 16
+    store st+0, 800 as i64
+    store st+8, 86 as i64
+    a = load st+0 as i64
+    b = load st+8 as i64
+    got = add a, b
+    want = 886 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !st
+    !a
+    !b
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

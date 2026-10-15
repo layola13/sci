@@ -1,0 +1,28 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"12\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@take_jobs(a: i32, b: i32) -> i32:
+L_ENTRY:
+    total = add a, b
+    !a
+    !b
+    return total
+
+@main() -> i32:
+L_ENTRY:
+    total = call @take_jobs(5, 7)
+    ok = eq total, 12
+    !total
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

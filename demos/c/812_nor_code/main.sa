@@ -1,0 +1,42 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"812\n"
+
+// 812 - Nor: not((0==0) or (1==0)) is false; not-case yields 812.
+@main() -> i32:
+L_ENTRY:
+    a = 0 as i64
+    b = 0 as i64
+    c = 1 as i64
+    d = 0 as i64
+    t = eq a, b
+    f = eq c, d
+    o = or t, f
+    n = eq o, 0
+    base = 812 as i64
+    got = add base, n
+    want = 812 as i64
+    ok_v = eq got, want
+    ok_n = eq n, 0
+    ok = and ok_v, ok_n
+    !a
+    !b
+    !c
+    !d
+    !t
+    !f
+    !o
+    !n
+    !base
+    !got
+    !want
+    !ok_v
+    !ok_n
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

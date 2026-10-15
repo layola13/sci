@@ -1,0 +1,57 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"621\n"
+
+// 621 - Guard chain of 3 ok steps, 600 + 21 == 621.
+@gstep(fail: i64) -> i64:
+L_ENTRY:
+    bad = eq fail, 1
+    br bad -> L_FAIL, L_SUCC
+L_SUCC:
+    !fail
+    !bad
+    return 0
+L_FAIL:
+    !fail
+    !bad
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    c0 = call @gstep(z)
+    c1 = call @gstep(c0)
+    c2 = call @gstep(c1)
+    x = 600 as i64
+    y = 21 as i64
+    v = add x, y
+    want = 621 as i64
+    ok_v = eq v, want
+    ok0 = eq c0, 0
+    ok1 = eq c1, 0
+    ok2 = eq c2, 0
+    t0 = and ok_v, ok0
+    t1 = and ok1, ok2
+    ok = and t0, t1
+    !z
+    !c0
+    !c1
+    !c2
+    !x
+    !y
+    !v
+    !want
+    !ok_v
+    !ok0
+    !ok1
+    !ok2
+    !t0
+    !t1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

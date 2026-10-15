@@ -1,0 +1,49 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"414\n"
+
+// 414 - fadd accumulates in a loop (0.5 added 4 times == 2.0).
+@main() -> i32:
+L_ENTRY:
+    zero_i = 0 as i32
+    one_i = 1 as i32
+    two_i = 2 as i32
+    four_i = 4 as i32
+    zero_f = sitofp zero_i as f64
+    one_f = sitofp one_i as f64
+    two_f = sitofp two_i as f64
+    half = fdiv one_f, two_f
+    acc = sitofp zero_i as f64
+    i = 0 as i64
+    jmp L_LOOP
+L_LOOP:
+    c = slt i, 4
+    br c -> L_BODY, L_DONE
+L_BODY:
+    acc = fadd acc, half
+    i = add i, one_i
+    !c
+    jmp L_LOOP
+L_DONE:
+    !c
+    expect = sitofp two_i as f64
+    ok = fcmp_eq acc, expect
+    !zero_i
+    !one_i
+    !two_i
+    !four_i
+    !zero_f
+    !one_f
+    !two_f
+    !half
+    !acc
+    !i
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,53 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"455\n"
+
+// 455 - struct fields swap through a temp slot value
+// ({1.5, 2.5} -> {2.5, 1.5}; difference is 1.0).
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    one_i = 1 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    five_f = sitofp five as f64
+    two_half = fdiv five_f, two_f
+    buf = alloc 16
+    store buf+0, one_half as f64
+    store buf+8, two_half as f64
+    t0 = load buf+0 as f64
+    t1 = load buf+8 as f64
+    store buf+0, t1 as f64
+    store buf+8, t0 as f64
+    x = load buf+0 as f64
+    y = load buf+8 as f64
+    d = fsub x, y
+    one = sitofp one_i as f64
+    ok = fcmp_eq d, one
+    !three
+    !two_i
+    !five
+    !one_i
+    !three_f
+    !two_f
+    !one_half
+    !five_f
+    !two_half
+    !buf
+    !t0
+    !t1
+    !x
+    !y
+    !d
+    !one
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

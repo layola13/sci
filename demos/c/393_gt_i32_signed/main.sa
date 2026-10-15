@@ -1,0 +1,33 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"393\n"
+
+// 393 - the `gt` alias on signed operands (armor: -1 > 0 is false,
+// 5 > 3 is true).
+@main() -> i32:
+L_ENTRY:
+    m1 = -1 as i64
+    z = 0 as i64
+    g0 = gt m1, z
+    ok_a = eq g0, 0
+    five = 5 as i64
+    three = 3 as i64
+    g1 = gt five, three
+    ok_b = eq g1, 1
+    ok = and ok_a, ok_b
+    !m1
+    !z
+    !g0
+    !five
+    !three
+    !g1
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

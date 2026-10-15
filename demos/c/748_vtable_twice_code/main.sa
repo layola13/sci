@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"748\n"
+@const TW_VT = vtable { twice = @twice_fn }
+
+// 748 - Vtable twice: 374 + 374 == 748 through indirect call.
+@twice_fn(x: i64) -> i64:
+L_ENTRY:
+    r = add x, x
+    !x
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    t = &TW_VT
+    fp = load t + 0 as ptr
+    v0 = 374 as i64
+    v = call_indirect fp(v0)
+    want = 748 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !v0
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

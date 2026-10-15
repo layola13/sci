@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"913\n"
+
+// 913 - Float split: 5.5 = 2.5 + 3.0 with code 0.
+@main() -> i32:
+L_ENTRY:
+    eleven = 11 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    three = 3 as i32
+    eleven_f = sitofp eleven as f64
+    two_f = sitofp two_i as f64
+    five_f = sitofp five as f64
+    three_f = sitofp three as f64
+    five_half = fdiv eleven_f, two_f
+    two_half = fdiv five_f, two_f
+    got = fadd two_half, three_f
+    ok_v = fcmp_eq got, five_half
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !eleven
+    !two_i
+    !five
+    !three
+    !eleven_f
+    !two_f
+    !five_f
+    !three_f
+    !five_half
+    !two_half
+    !got
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

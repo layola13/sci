@@ -1,0 +1,33 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"5\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@worker_a() -> i32:
+L_ENTRY:
+    return 2
+
+@worker_b() -> i32:
+L_ENTRY:
+    return 3
+
+@main() -> i32:
+L_ENTRY:
+    left = call @worker_a()
+    right = call @worker_b()
+    total = add left, right
+    ok = eq total, 5
+    !left
+    !right
+    !total
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

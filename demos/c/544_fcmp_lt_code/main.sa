@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"544\n"
+
+// 544 - Float lt code: 1.5 < 2.5 holds with code 0.
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    five_f = sitofp five as f64
+    small = fdiv three_f, two_f
+    big = fdiv five_f, two_f
+    lt = fcmp_lt small, big
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and lt, ok_c
+    !three
+    !two_i
+    !five
+    !three_f
+    !two_f
+    !five_f
+    !small
+    !big
+    !zero
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

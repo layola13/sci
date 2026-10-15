@@ -1,0 +1,68 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"2\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Value_SIZE = 8
+#def Value_raw = +0
+#def Value_shadow = +4
+
+@ffi_wrapper rewrite_attr(*value: ptr) -> i32:
+L_ENTRY:
+    view = assume_borrow value
+    safe = assume_safe value
+    raw = load safe+Value_raw as i32
+    shadow = load safe+Value_shadow as i32
+    next = add raw, 0
+    result = add next, 0
+    store safe+Value_raw, next as i32
+    ok0 = eq next, 2
+    ok1 = eq shadow, 7
+    ok = and ok0, ok1
+    !raw
+    !shadow
+    !next
+    !view
+    !safe
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    return result
+
+L_ERR:
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    value = alloc Value_SIZE
+    store value+Value_raw, 2 as i32
+    store value+Value_shadow, 7 as i32
+    result = call @rewrite_attr(*value)
+    raw = load value+Value_raw as i32
+    shadow = load value+Value_shadow as i32
+    ok = eq result, 2
+    ok0 = eq raw, 2
+    ok1 = eq shadow, 7
+    ok2 = and ok, ok0
+    ok3 = and ok2, ok1
+    !result
+    !raw
+    !shadow
+    !ok
+    !ok0
+    !ok1
+    !ok2
+    cond = eq ok3, 1
+    !ok3
+    !value
+    br cond -> L_OK, L_ERR
+
+L_OK:
+    !cond
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !cond
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

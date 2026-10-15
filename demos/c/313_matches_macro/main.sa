@@ -1,0 +1,105 @@
+// 313 - matches! Macro
+// SA: 用 MATCHES_TAG_AND 宏模拟 Rust 的 matches!(x, Variant(v) if cond)
+// 检查 tag 匹配且满足额外条件
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"1\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def TAG_ACTIVE = 0
+#def TAG_INACTIVE = 1
+#def TAG_ERROR = 2
+
+#def Status_SIZE = 8
+#def Status_tag = +0
+#def Status_val = +4
+
+// MATCHES_TAG_AND: 检查 tag == %target_tag 且 %extra_cond 为 true
+[MACRO] MATCHES_TAG_AND %out, %tag, %target_tag, %extra_cond
+    _mt_tag = eq %tag, %target_tag
+    %out = and _mt_tag, %extra_cond
+    !_mt_tag
+[END_MACRO]
+
+// MATCHES_TAG: 只检查 tag == %target_tag
+[MACRO] MATCHES_TAG %out, %tag, %target_tag
+    %out = eq %tag, %target_tag
+[END_MACRO]
+
+@is_active_positive(&s: ptr) -> i32:
+L_ENTRY:
+    tag = load s+Status_tag as u32
+    // matches!(s, Active(v) if v > 0)
+    is_active = eq tag, TAG_ACTIVE
+    // 只有 Active 时才检查 val
+    br is_active -> L_CHECK_VAL, L_NOT_MATCH
+
+L_CHECK_VAL:
+    val = load s+Status_val as i32
+    is_positive = sgt val, 0
+    EXPAND MATCHES_TAG_AND result, tag, TAG_ACTIVE, is_positive
+    !val
+    !is_positive
+    !is_active
+    !tag
+    !s
+    return result
+
+L_NOT_MATCH:
+    !is_active
+    !tag
+    !s
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    // items = [Active(5), Inactive, Active(-1), Error]
+    s0 = alloc Status_SIZE
+    store s0+Status_tag, TAG_ACTIVE as u32
+    store s0+Status_val, 5 as i32
+
+    s1 = alloc Status_SIZE
+    store s1+Status_tag, TAG_INACTIVE as u32
+    store s1+Status_val, 0 as i32
+
+    s2 = alloc Status_SIZE
+    store s2+Status_tag, TAG_ACTIVE as u32
+    store s2+Status_val, -1 as i32
+
+    s3 = alloc Status_SIZE
+    store s3+Status_tag, TAG_ERROR as u32
+    store s3+Status_val, 0 as i32
+
+    r0 = call @is_active_positive(&s0)
+    r1 = call @is_active_positive(&s1)
+    r2 = call @is_active_positive(&s2)
+    r3 = call @is_active_positive(&s3)
+
+    count0 = add r0, r1
+    count1 = add r2, r3
+    count = add count0, count1
+
+    ok = eq count, 1
+    !r0
+    !r1
+    !r2
+    !r3
+    !count0
+    !count1
+    !count
+    !s0
+    !s1
+    !s2
+    !s3
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

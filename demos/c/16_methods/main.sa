@@ -1,0 +1,43 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"25\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Vec2_SIZE = 8
+#def Vec2_x = +0
+#def Vec2_y = +4
+
+@square_len(&v: ptr) -> i32:
+L_ENTRY:
+    x = load v+Vec2_x as i32
+    y = load v+Vec2_y as i32
+    xx = mul x, x
+    yy = mul y, y
+    sum = add xx, yy
+    !x
+    !y
+    !xx
+    !yy
+    !v
+    return sum
+
+@main() -> i32:
+L_ENTRY:
+    vec = alloc Vec2_SIZE
+    store vec+Vec2_x, 3 as i32
+    store vec+Vec2_y, 4 as i32
+    result = call @square_len(&vec)
+    ok = eq result, 25
+    !result
+    !vec
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

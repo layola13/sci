@@ -1,0 +1,65 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"539\n"
+@const CB_C_VT = vtable { invoke = @cb_code }
+@const CB_V_VT = vtable { invoke = @cb_val }
+
+// 539 - Callback via call_indirect returns code 0 and 1.5.
+@cb_code(x: i64) -> i64:
+L_ENTRY:
+    !x
+    return 0
+
+@cb_val(x: i64) -> f64:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    h = fdiv three_f, two_f
+    !x
+    !three
+    !two_i
+    !three_f
+    !two_f
+    return h
+
+@main() -> i32:
+L_ENTRY:
+    t_c = &CB_C_VT
+    fp_c = load t_c + 0 as ptr
+    t_v = &CB_V_VT
+    fp_v = load t_v + 0 as ptr
+    z = 0 as i64
+    code = call_indirect fp_c(z)
+    v = call_indirect fp_v(z)
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    expect = fdiv three_f, two_f
+    ok_c = eq code, 0
+    ok_v = fcmp_eq v, expect
+    ok = and ok_c, ok_v
+    !t_c
+    !fp_c
+    !t_v
+    !fp_v
+    !z
+    !code
+    !v
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !expect
+    !ok_c
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

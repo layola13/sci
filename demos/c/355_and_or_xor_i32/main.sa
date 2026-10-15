@@ -1,0 +1,33 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"355\n"
+
+// 355 - and/or/xor basics on 32-bit values.
+@main() -> i32:
+L_ENTRY:
+    a = 12 as i32
+    b = 10 as i32
+    m = and a, b
+    ok_a = eq m, 8
+    o = or a, b
+    ok_b = eq o, 14
+    x = xor a, b
+    ok_c = eq x, 6
+    ok = and ok_a, ok_b
+    ok = and ok, ok_c
+    !a
+    !b
+    !m
+    !o
+    !x
+    !ok_a
+    !ok_b
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

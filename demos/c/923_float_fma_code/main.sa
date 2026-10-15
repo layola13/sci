@@ -1,0 +1,40 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"923\n"
+
+// 923 - Float fma-walk: (1.5 * 2.0) + 2.0 == 5.0 with code 0.
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    five_f = sitofp five as f64
+    one_half = fdiv three_f, two_f
+    prod = fmul one_half, two_f
+    got = fadd prod, two_f
+    ok_v = fcmp_eq got, five_f
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !three
+    !two_i
+    !five
+    !three_f
+    !two_f
+    !five_f
+    !one_half
+    !prod
+    !got
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

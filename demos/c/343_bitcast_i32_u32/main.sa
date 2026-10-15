@@ -1,0 +1,33 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"343\n"
+
+// 343 - bitcast i32/u32 reinterprets the same 32 bits (i32 source
+// forced with trunc; bare `N as i32` immediates fold to i64).
+// Comparisons stay same-typed: mixed u32/i64 `eq` follows the
+// interpreter's signed-kind rule, which differs from LLVM here.
+@main() -> i32:
+L_ENTRY:
+    big = 4294967295 as u64
+    m1 = trunc big as i32
+    u = bitcast m1 as u32
+    exp = trunc big as u32
+    ok_a = eq u, exp
+    back = bitcast u as i32
+    ok_b = eq back, m1
+    ok = and ok_a, ok_b
+    !big
+    !m1
+    !u
+    !exp
+    !back
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

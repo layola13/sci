@@ -1,0 +1,42 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"948\n"
+@const W2_VT = vtable { wrap = @wrap2_fn }
+
+// 948 - Vtable wrap2: 900 + 48 == 948 through indirect call.
+@wrap2_fn(a: i64, b: i64) -> i64:
+L_ENTRY:
+    r = add a, b
+    !a
+    !b
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    t = &W2_VT
+    fp = load t + 0 as ptr
+    x = 900 as i64
+    y = 48 as i64
+    v = call_indirect fp(x, y)
+    want = 948 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

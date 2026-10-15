@@ -1,0 +1,136 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"TWFu\n"
+@const RESULT_ERR = utf8:"error\n"
+@const B64 = utf8:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+#def Input_SIZE = 4
+#def Input_b0 = +0
+#def Input_b1 = +1
+#def Input_b2 = +2
+
+#def Out_SIZE = 8
+#def Out_c0 = +0
+#def Out_c1 = +1
+#def Out_c2 = +2
+#def Out_c3 = +3
+
+@encode_block(&out: ptr, &input: ptr) -> i32:
+L_ENTRY:
+    b0 = load input+Input_b0 as u8
+    b1 = load input+Input_b1 as u8
+    b2 = load input+Input_b2 as u8
+    q0 = div b0, 4
+    q1_hi_mod = rem b0, 4
+    q1_mask = mul q1_hi_mod, 16
+    q1_lo = div b1, 16
+    q1 = add q1_mask, q1_lo
+    q2_hi_mod = rem b1, 16
+    q2_mask = mul q2_hi_mod, 4
+    q2_lo = div b2, 64
+    q2 = add q2_mask, q2_lo
+    q3 = rem b2, 64
+    alpha = &B64
+    p0 = ptr_add alpha, q0
+    p1 = ptr_add alpha, q1
+    p2 = ptr_add alpha, q2
+    p3 = ptr_add alpha, q3
+    c0 = load p0+0 as u8
+    c1 = load p1+0 as u8
+    c2 = load p2+0 as u8
+    c3 = load p3+0 as u8
+    store out+Out_c0, c0 as u8
+    store out+Out_c1, c1 as u8
+    store out+Out_c2, c2 as u8
+    store out+Out_c3, c3 as u8
+    ok0 = eq c0, 84
+    ok1 = eq c1, 87
+    ok2 = eq c2, 70
+    ok3 = eq c3, 117
+    ok = and ok0, ok1
+    ok1a = and ok2, ok3
+    ok2a = and ok, ok1a
+    !b0
+    !b1
+    !b2
+    !q0
+    !q1_hi_mod
+    !q1_mask
+    !q1_lo
+    !q1
+    !q2_hi_mod
+    !q2_mask
+    !q2_lo
+    !q2
+    !q3
+    !alpha
+    !c0
+    !c1
+    !c2
+    !c3
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ok
+    !ok1a
+    !input
+    !out
+    br ok2a -> L_OK, L_ERR
+
+L_OK:
+    !ok2a
+    return 4
+
+L_ERR:
+    !ok2a
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    input = alloc Input_SIZE
+    out = alloc Out_SIZE
+    store input+Input_b0, 77 as u8
+    store input+Input_b1, 97 as u8
+    store input+Input_b2, 110 as u8
+    store input+3, 0 as u8
+    len = call @encode_block(&out, &input)
+    c0 = load out+Out_c0 as u8
+    c1 = load out+Out_c1 as u8
+    c2 = load out+Out_c2 as u8
+    c3 = load out+Out_c3 as u8
+    ok0 = eq c0, 84
+    ok1 = eq c1, 87
+    ok2 = eq c2, 70
+    ok3 = eq c3, 117
+    ok4 = eq len, 4
+    pair0 = and ok0, ok1
+    pair1 = and ok2, ok3
+    pair2 = and pair0, pair1
+    ok = and pair2, ok4
+    !c0
+    !c1
+    !c2
+    !c3
+    !len
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !pair0
+    !pair1
+    !pair2
+    !input
+    !out
+    br ok -> L_OK_MAIN, L_ERR_MAIN
+
+L_OK_MAIN:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 5)
+    return 0
+
+L_ERR_MAIN:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

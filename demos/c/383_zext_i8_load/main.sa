@@ -1,0 +1,29 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"383\n"
+
+// 383 - zext from an i8-loaded slot zero-extends from 8 bits (255,
+// not 4294967295). The emitter tracks load-typed widths for this;
+// plain value inference would read the 32-bit domain instead.
+// KNOWN LLVM-BACKEND BUG (not JS): `sa run` prints 383 but the
+// `sa build-exe` binary exits 1 (same source-width blindness as 338).
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 8
+    store buf+0, -1 as i8
+    a = load buf+0 as i8
+    z = zext a as i64
+    e = trunc z as u32
+    ok = eq e, 255
+    !buf
+    !a
+    !z
+    !e
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

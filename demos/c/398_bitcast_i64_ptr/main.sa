@@ -1,0 +1,23 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"398\n"
+
+// 398 - bitcast i64<->ptr roundtrips full 64-bit patterns (pointers
+// carry all 64 bits; only real heap bases are 32-bit).
+@main() -> i32:
+L_ENTRY:
+    m = -1 as i64
+    p = bitcast m as ptr
+    q = bitcast p as i64
+    ok = eq q, -1
+    !m
+    !p
+    !q
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

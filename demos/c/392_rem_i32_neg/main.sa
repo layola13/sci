@@ -1,0 +1,22 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"392\n"
+
+// 392 - the `rem` alias on signed operands keeps the dividend's sign.
+@main() -> i32:
+L_ENTRY:
+    m7 = -7 as i64
+    two = 2 as i64
+    r = rem m7, two
+    ok = eq r, -1
+    !m7
+    !two
+    !r
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

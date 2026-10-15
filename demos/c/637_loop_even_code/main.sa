@@ -1,0 +1,45 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"637\n"
+
+// 637 - Even sum loop 0+2+4+6 == 12, plus 625 == 637.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    i = 0 as i64
+    two = 2 as i64
+    jmp L_COND
+L_COND:
+    done = eq i, 8
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    acc = add acc, i
+    i = add i, two
+    jmp L_COND
+L_DONE:
+    !done
+    want_sum = 12 as i64
+    ok_sum = eq acc, want_sum
+    base = 625 as i64
+    got = add acc, base
+    want = 637 as i64
+    ok_v = eq got, want
+    ok = and ok_sum, ok_v
+    !acc
+    !i
+    !two
+    !want_sum
+    !ok_sum
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,40 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"822\n"
+
+// 822 - De Morgan: not(A and B) == ((not A) or (not B)) with A=1,B=0.
+@main() -> i32:
+L_ENTRY:
+    a = 1 as i64
+    b = 0 as i64
+    zero = 0 as i64
+    na = eq a, zero
+    nb = eq b, zero
+    both = and na, nb
+    lhs = eq both, 0
+    nota = eq a, zero
+    notb = eq b, zero
+    rhs = or nota, notb
+    ok_v = eq lhs, rhs
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !a
+    !b
+    !zero
+    !na
+    !nb
+    !both
+    !lhs
+    !nota
+    !notb
+    !rhs
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

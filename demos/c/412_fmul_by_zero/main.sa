@@ -1,0 +1,32 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"412\n"
+
+// 412 - fmul by zero annihilates (13.5 * 0.0 == 0.0).
+@main() -> i32:
+L_ENTRY:
+    twentyseven = 27 as i32
+    two_i = 2 as i32
+    zero_i = 0 as i32
+    twentyseven_f = sitofp twentyseven as f64
+    two_f = sitofp two_i as f64
+    x = fdiv twentyseven_f, two_f
+    zero = sitofp zero_i as f64
+    z = fmul x, zero
+    ok = fcmp_eq z, zero
+    !twentyseven
+    !two_i
+    !zero_i
+    !twentyseven_f
+    !two_f
+    !x
+    !zero
+    !z
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

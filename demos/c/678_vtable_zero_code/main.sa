@@ -1,0 +1,40 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"678\n"
+@const Z_VT = vtable { get = @get_zero }
+
+// 678 - Vtable zero: slot returns 0, plus 678 == 678.
+@get_zero(dummy: i64) -> i64:
+L_ENTRY:
+    !dummy
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    t = &Z_VT
+    fp = load t + 0 as ptr
+    z = 0 as i64
+    c = call_indirect fp(z)
+    base = 678 as i64
+    got = add c, base
+    want = 678 as i64
+    ok_v = eq got, want
+    ok_c = eq c, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !z
+    !c
+    !base
+    !got
+    !want
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,56 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"372\n"
+
+// 372 - `?` meets br_null: a fallible function yields a nullable
+// pointer, unpacked first and null-checked after.
+// (The br_null parts share 356's LLVM/wasm gap; the `?` parts have
+// full native parity.)
+@maybe_alloc(which: i64) -> ptr!:
+L_ENTRY:
+    c = eq which, 0
+    br c -> L_NULL, L_ALLOC
+L_NULL:
+    !which
+    !c
+    null = 0 as ptr
+    return null
+L_ALLOC:
+    !which
+    !c
+    p = alloc 8
+    return p
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    r0 = call @maybe_alloc(z)
+    v0 = ?r0
+    br_null v0 -> L_WASNULL, L_FAIL0
+L_WASNULL:
+    o = 1 as i64
+    r1 = call @maybe_alloc(o)
+    v1 = ?r1
+    br_null v1 -> L_FAIL1, L_DONE
+L_FAIL0:
+    !z
+    !r0
+    !v0
+    return 1
+L_FAIL1:
+    !z
+    !r0
+    !v0
+    !o
+    !r1
+    !v1
+    return 1
+L_DONE:
+    !z
+    !r0
+    !v0
+    !o
+    !r1
+    !v1
+    call @sa_print_bytes(&OUT, 4)
+    return 0

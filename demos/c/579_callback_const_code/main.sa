@@ -1,0 +1,38 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"579\n"
+@const K_VT = vtable { invoke = @k_const }
+
+// 579 - Callback const: indirect call returns 579, code 0.
+@k_const(dummy: i64) -> i64:
+L_ENTRY:
+    !dummy
+    return 579
+
+@main() -> i32:
+L_ENTRY:
+    t = &K_VT
+    fp = load t + 0 as ptr
+    z = 0 as i64
+    v = call_indirect fp(z)
+    want = 579 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !z
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

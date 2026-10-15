@@ -1,0 +1,38 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"754\n"
+
+// 754 - Split: 754 into 700 + 54 then re-added, code 0.
+@split754(x: i64) -> i64:
+L_ENTRY:
+    hi = 700 as i64
+    lo = sub x, hi
+    !x
+    !hi
+    return lo
+
+@main() -> i32:
+L_ENTRY:
+    base = 754 as i64
+    lo = call @split754(base)
+    hi = 700 as i64
+    got = add hi, lo
+    want = 754 as i64
+    ok_v = eq got, want
+    ok_lo = eq lo, 54
+    ok = and ok_v, ok_lo
+    !base
+    !lo
+    !hi
+    !got
+    !want
+    !ok_v
+    !ok_lo
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,88 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"474\n"
+@const SIGN_VT = vtable { call = @sign_cb }
+
+// 474 - callback branches on input sign (1.5 x 2 == 3.0;
+// -2.0 x 3 == -6.0; sum is -3.0).
+@sign_cb(x: f64, ctx: ptr) -> f64:
+    two_i = 2 as i32
+    three_i = 3 as i32
+    two_f = sitofp two_i as f64
+    three_f = sitofp three_i as f64
+    zero_i = 0 as i32
+    zero = sitofp zero_i as f64
+    pos = fcmp_gt x, zero
+    br pos -> L_POS, L_NEG
+L_POS:
+    r = fmul x, two_f
+    !x
+    !ctx
+    !two_i
+    !three_i
+    !two_f
+    !three_f
+    !zero_i
+    !zero
+    !pos
+    return r
+L_NEG:
+    r = fmul x, three_f
+    !x
+    !ctx
+    !two_i
+    !three_i
+    !two_f
+    !three_f
+    !zero_i
+    !zero
+    !pos
+    return r
+
+@main() -> i32:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    neg_two = -2 as i32
+    neg_two_f = sitofp neg_two as f64
+    t = &SIGN_VT
+    fp = load t + 0 as ptr
+    reg = alloc 8
+    store reg+0, fp as ptr
+    cb = load reg+0 as ptr
+    ctx0 = alloc 8
+    r0 = call_indirect cb(one_half, ctx0)
+    ctx1 = alloc 8
+    r1 = call_indirect cb(neg_two_f, ctx1)
+    s = fadd r0, r1
+    neg_three = -3 as i32
+    neg_three_f = sitofp neg_three as f64
+    ok = fcmp_eq s, neg_three_f
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    !neg_two
+    !neg_two_f
+    !t
+    !fp
+    !reg
+    !cb
+    !ctx0
+    !r0
+    !ctx1
+    !r1
+    !s
+    !neg_three
+    !neg_three_f
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,49 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"668\n"
+@const P2_VT = vtable { first = @ret_a, second = @ret_b }
+
+// 668 - Vtable pair: 600 + 68 == 668 through two slots.
+@ret_a(dummy: i64) -> i64:
+L_ENTRY:
+    !dummy
+    return 600
+
+@ret_b(dummy: i64) -> i64:
+L_ENTRY:
+    !dummy
+    return 68
+
+@main() -> i32:
+L_ENTRY:
+    t = &P2_VT
+    fp0 = load t + 0 as ptr
+    fp1 = load t + 8 as ptr
+    z = 0 as i64
+    a = call_indirect fp0(z)
+    b = call_indirect fp1(z)
+    got = add a, b
+    want = 668 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp0
+    !fp1
+    !z
+    !a
+    !b
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

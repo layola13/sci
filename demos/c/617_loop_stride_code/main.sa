@@ -1,0 +1,45 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"617\n"
+
+// 617 - Stride loop sums 0+3+6+9 == 18, plus 599 == 617.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    i = 0 as i64
+    three = 3 as i64
+    jmp L_COND
+L_COND:
+    done = eq i, 12
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    acc = add acc, i
+    i = add i, three
+    jmp L_COND
+L_DONE:
+    !done
+    want_sum = 18 as i64
+    ok_sum = eq acc, want_sum
+    base = 599 as i64
+    got = add acc, base
+    want = 617 as i64
+    ok_v = eq got, want
+    ok = and ok_sum, ok_v
+    !acc
+    !i
+    !three
+    !want_sum
+    !ok_sum
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

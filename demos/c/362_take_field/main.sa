@@ -1,0 +1,27 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"362\n"
+
+// 362 - take from a nonzero field offset (struct-field move-out shape,
+// as used by the sa_std hashmap/vec macros).
+@main() -> i32:
+L_ENTRY:
+    rec = alloc 16
+    store rec+0, 11 as i64
+    store rec+8, 22 as i64
+    a = take rec+0 as i64
+    b = take rec+8 as i64
+    s = add a, b
+    ok = eq s, 33
+    !rec
+    !a
+    !b
+    !s
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

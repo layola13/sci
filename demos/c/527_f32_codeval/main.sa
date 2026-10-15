@@ -1,0 +1,40 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"527\n"
+
+// 527 - f32 (code, value) pair: code 0 with payload 1.5f.
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    one32 = fptrunc one_half as f32
+    buf = alloc 16
+    store buf+0, 0 as i64
+    store buf+8, one32 as f32
+    code = load buf+0 as i64
+    val = load buf+8 as f32
+    ok_c = eq code, 0
+    ok_v = fcmp_eq val, one32
+    ok = and ok_c, ok_v
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    !one32
+    !buf
+    !code
+    !val
+    !ok_c
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

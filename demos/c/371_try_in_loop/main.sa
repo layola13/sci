@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"371\n"
+
+// 371 - `?` inside a loop: fallible call plus unpack per iteration
+// (0+2+4+6+8 = 20).
+@double(x: i64) -> i64!:
+L_ENTRY:
+    d = add x, x
+    !x
+    return d
+
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    i = 0 as i64
+    jmp L_LOOP
+L_LOOP:
+    c = slt i, 5
+    br c -> L_BODY, L_DONE
+L_BODY:
+    r = call @double(i)
+    v = ?r
+    acc = add acc, v
+    one = 1 as i64
+    i = add i, one
+    !c
+    !r
+    !v
+    !one
+    jmp L_LOOP
+L_DONE:
+    !c
+    ok = eq acc, 20
+    !acc
+    !i
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

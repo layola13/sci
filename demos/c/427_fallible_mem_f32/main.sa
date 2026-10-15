@@ -1,0 +1,52 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"427\n"
+
+// 427 - fallible fn roundtrips f32 through a memory slot (1.5).
+@slot32() -> f32!:
+L_ENTRY:
+    one = 1 as i32
+    two = 2 as i32
+    one_f = sitofp one as f64
+    two_f = sitofp two as f64
+    h = fdiv one_f, two_f
+    t = fptrunc h as f32
+    buf = alloc 8
+    store buf+0, t as f32
+    g = load buf+0 as f32
+    !one
+    !two
+    !one_f
+    !two_f
+    !h
+    !t
+    !buf
+    return g
+
+@main() -> i32:
+L_ENTRY:
+    r = call @slot32()
+    v = ?r
+    one = 1 as i32
+    two = 2 as i32
+    one_f = sitofp one as f64
+    two_f = sitofp two as f64
+    h = fdiv one_f, two_f
+    expect = fptrunc h as f32
+    ok = fcmp_eq v, expect
+    !r
+    !v
+    !one
+    !two
+    !one_f
+    !two_f
+    !h
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

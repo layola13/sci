@@ -1,0 +1,45 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"627\n"
+
+// 627 - Sum loop 1+2+3 == 6, plus 621 == 627 with code 0.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    i = 1 as i64
+    one = 1 as i64
+    jmp L_COND
+L_COND:
+    done = eq i, 4
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    acc = add acc, i
+    i = add i, one
+    jmp L_COND
+L_DONE:
+    !done
+    six = 6 as i64
+    ok_sum = eq acc, six
+    base = 621 as i64
+    got = add acc, base
+    want = 627 as i64
+    ok_v = eq got, want
+    ok = and ok_sum, ok_v
+    !acc
+    !i
+    !one
+    !six
+    !ok_sum
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

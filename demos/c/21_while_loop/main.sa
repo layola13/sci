@@ -1,0 +1,49 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"15\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@main() -> i32:
+L_ENTRY:
+    i_slot = stack_alloc 8
+    sum_slot = stack_alloc 8
+    more_slot = stack_alloc 8
+    store i_slot+0, 1 as i64
+    store sum_slot+0, 0 as i64
+    jmp L_COND
+
+L_COND:
+    i = load i_slot+0 as i64
+    sum = load sum_slot+0 as i64
+    more = sle i, 5
+    store more_slot+0, more as i64
+    br more -> L_BODY, L_END
+
+L_BODY:
+    sum_next = add sum, i
+    i_next = add i, 1
+    !sum
+    !i
+    !more
+    store sum_slot+0, sum_next as i64
+    store i_slot+0, i_next as i64
+    !sum_next
+    !i_next
+    jmp L_COND
+
+L_END:
+    ok = eq sum, 15
+    !i
+    !sum
+    !more
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

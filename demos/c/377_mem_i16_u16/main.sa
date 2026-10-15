@@ -1,0 +1,32 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"377\n"
+
+// 377 - i16/u16 memory roundtrip (same-typed comparisons, like 376).
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 8
+    store buf+0, -1 as i16
+    a = load buf+0 as i16
+    ok_a = eq a, -1
+    store buf+2, 65535 as u16
+    b = load buf+2 as u16
+    big = 65535 as u64
+    exp = trunc big as u16
+    ok_b = eq b, exp
+    ok = and ok_a, ok_b
+    !buf
+    !a
+    !b
+    !big
+    !exp
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

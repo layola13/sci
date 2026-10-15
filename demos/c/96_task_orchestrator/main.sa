@@ -1,0 +1,31 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"4\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@orchestrate(a: i32, b: i32, c: i32) -> i32:
+L_ENTRY:
+    ab = add a, b
+    total = add ab, c
+    !a
+    !b
+    !c
+    !ab
+    return total
+
+@main() -> i32:
+L_ENTRY:
+    total = call @orchestrate(1, 1, 2)
+    ok = eq total, 4
+    !total
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

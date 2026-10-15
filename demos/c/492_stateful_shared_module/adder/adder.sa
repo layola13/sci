@@ -1,0 +1,9 @@
+@export acc_add(buf: ptr, x: f64) -> f64:
+L_ENTRY:
+    cur = load buf+0 as f64
+    s = fadd cur, x
+    store buf+0, s as f64
+    !buf
+    !x
+    !cur
+    return s

@@ -1,0 +1,32 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"378\n"
+
+// 378 - u32-max and i32-min memory roundtrip.
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 8
+    store buf+0, 4294967295 as u32
+    a = load buf+0 as u32
+    big = 4294967295 as u64
+    exp = trunc big as u32
+    ok_a = eq a, exp
+    store buf+4, -2147483648 as i32
+    b = load buf+4 as i32
+    ok_b = eq b, -2147483648
+    ok = and ok_a, ok_b
+    !buf
+    !a
+    !big
+    !exp
+    !b
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

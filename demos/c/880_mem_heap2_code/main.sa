@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"880\n"
+
+// 880 - Heap2: 880 = 800 + 80 across heap slots, code 0.
+@main() -> i32:
+L_ENTRY:
+    h0 = alloc 8
+    h1 = alloc 8
+    store h0+0, 800 as i64
+    store h1+0, 80 as i64
+    a = load h0+0 as i64
+    b = load h1+0 as i64
+    got = add a, b
+    want = 880 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !h0
+    !h1
+    !a
+    !b
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

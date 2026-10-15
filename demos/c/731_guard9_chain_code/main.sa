@@ -1,0 +1,93 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"731\n"
+
+// 731 - Guard chain of 9 steps, 700 + 31 == 731.
+@s9step(fail: i64) -> i64:
+L_ENTRY:
+    bad = eq fail, 1
+    br bad -> L_FAIL, L_SUCC
+L_SUCC:
+    !fail
+    !bad
+    return 0
+L_FAIL:
+    !fail
+    !bad
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    c0 = call @s9step(z)
+    c1 = call @s9step(c0)
+    c2 = call @s9step(c1)
+    c3 = call @s9step(c2)
+    c4 = call @s9step(c3)
+    c5 = call @s9step(c4)
+    c6 = call @s9step(c5)
+    c7 = call @s9step(c6)
+    c8 = call @s9step(c7)
+    x = 700 as i64
+    y = 31 as i64
+    v = add x, y
+    want = 731 as i64
+    ok_v = eq v, want
+    ok0 = eq c0, 0
+    ok1 = eq c1, 0
+    ok2 = eq c2, 0
+    ok3 = eq c3, 0
+    ok4 = eq c4, 0
+    ok5 = eq c5, 0
+    ok6 = eq c6, 0
+    ok7 = eq c7, 0
+    ok8 = eq c8, 0
+    t0 = and ok_v, ok0
+    t1 = and ok1, ok2
+    t2 = and ok3, ok4
+    t3 = and ok5, ok6
+    t4 = and ok7, ok8
+    t5 = and t0, t1
+    t6 = and t2, t3
+    t7 = and t4, t5
+    ok = and t6, t7
+    !z
+    !c0
+    !c1
+    !c2
+    !c3
+    !c4
+    !c5
+    !c6
+    !c7
+    !c8
+    !x
+    !y
+    !v
+    !want
+    !ok_v
+    !ok0
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    !ok5
+    !ok6
+    !ok7
+    !ok8
+    !t0
+    !t1
+    !t2
+    !t3
+    !t4
+    !t5
+    !t6
+    !t7
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

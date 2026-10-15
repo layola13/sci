@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"693\n"
+
+// 693 - Float div: 12.0 / 4.0 == 3.0 with code 0.
+@main() -> i32:
+L_ENTRY:
+    twelve = 12 as i32
+    four_i = 4 as i32
+    three = 3 as i32
+    twelve_f = sitofp twelve as f64
+    four_f = sitofp four_i as f64
+    three_f = sitofp three as f64
+    got = fdiv twelve_f, four_f
+    ok_v = fcmp_eq got, three_f
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !twelve
+    !four_i
+    !three
+    !twelve_f
+    !four_f
+    !three_f
+    !got
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

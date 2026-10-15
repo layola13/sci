@@ -1,0 +1,40 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"823\n"
+
+// 823 - Float range: 1.5 < 2.5 < 4.0 chained with code 0.
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    four_i = 4 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    five_f = sitofp five as f64
+    four = sitofp four_i as f64
+    one_half = fdiv three_f, two_f
+    two_half = fdiv five_f, two_f
+    c0 = fcmp_lt one_half, two_half
+    c1 = fcmp_lt two_half, four
+    ok = and c0, c1
+    !three
+    !two_i
+    !five
+    !four_i
+    !three_f
+    !two_f
+    !five_f
+    !four
+    !one_half
+    !two_half
+    !c0
+    !c1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

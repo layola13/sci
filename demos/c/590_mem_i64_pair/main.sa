@@ -1,0 +1,30 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"590\n"
+
+// 590 - Mem i64 pair: (0, 590) round-trips through 16-byte slot.
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 16
+    store buf+0, 0 as i64
+    want = 590 as i64
+    store buf+8, want as i64
+    c0 = load buf+0 as i64
+    got = load buf+8 as i64
+    ok0 = eq c0, 0
+    ok1 = eq got, want
+    ok = and ok0, ok1
+    !buf
+    !want
+    !c0
+    !got
+    !ok0
+    !ok1
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"860\n"
+
+// 860 - Chunks: 860 = 400 + 460 across chunk slots, code 0.
+@main() -> i32:
+L_ENTRY:
+    ch = alloc 16
+    store ch+0, 400 as i64
+    store ch+8, 460 as i64
+    a = load ch+0 as i64
+    b = load ch+8 as i64
+    got = add a, b
+    want = 860 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !ch
+    !a
+    !b
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

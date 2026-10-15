@@ -1,0 +1,60 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"808\n"
+@const P3_VT = vtable { pick = @pick_third }
+
+// 808 - Vtable pick3: max(700, 750, 808) == 808 via two rounds.
+@pick_third(a: i64, b: i64) -> i64:
+L_ENTRY:
+    big = slt a, b
+    br big -> L_B, L_A
+L_B:
+    !a
+    !big
+    m = add b, 0
+    !b
+    jmp L_OUT
+L_A:
+    !b
+    !big
+    m = add a, 0
+    !a
+    jmp L_OUT
+L_OUT:
+    ret6 = add m, 0
+    !m
+    return ret6
+
+@main() -> i32:
+L_ENTRY:
+    t = &P3_VT
+    fp = load t + 0 as ptr
+    x = 700 as i64
+    y = 750 as i64
+    m1 = call_indirect fp(x, y)
+    z = 808 as i64
+    v = call_indirect fp(m1, z)
+    want = 808 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !m1
+    !z
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

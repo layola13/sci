@@ -1,0 +1,29 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"366\n"
+
+// 366 - `?` unpacks a fallible return on the success path.
+//
+// NOTE: only the success path is expressible in surface syntax;
+// error objects ({s: nonzero}) can only be produced by failing host
+// calls, so early-return-on-error has no demo. The emitter still
+// lowers it (return __t on !fok).
+@seven() -> i64!:
+L_ENTRY:
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    r = call @seven()
+    v = ?r
+    ok = eq v, 7
+    !r
+    !v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

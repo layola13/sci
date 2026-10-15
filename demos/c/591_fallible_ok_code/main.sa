@@ -1,0 +1,51 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"591\n"
+
+// 591 - Fallible ok chain: two steps code 0, 500 + 91 == 591.
+@step(fail: i64) -> i64:
+L_ENTRY:
+    bad = eq fail, 1
+    br bad -> L_FAIL, L_SUCC
+L_SUCC:
+    !fail
+    !bad
+    return 0
+L_FAIL:
+    !fail
+    !bad
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    c0 = call @step(z)
+    c1 = call @step(c0)
+    x = 500 as i64
+    y = 91 as i64
+    v = add x, y
+    want = 591 as i64
+    ok_v = eq v, want
+    ok0 = eq c0, 0
+    ok1 = eq c1, 0
+    t0 = and ok_v, ok0
+    ok = and t0, ok1
+    !z
+    !c0
+    !c1
+    !x
+    !y
+    !v
+    !want
+    !ok_v
+    !ok0
+    !ok1
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

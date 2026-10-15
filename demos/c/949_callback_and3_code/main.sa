@@ -1,0 +1,62 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"949\n"
+@const A3_VT = vtable { invoke = @and3_fn }
+
+// 949 - Callback and3: (1,1,1) all-nonzero yields 949.
+@and3_fn(a: i64, b: i64) -> i64:
+L_ENTRY:
+    za = eq a, 0
+    zb = eq b, 0
+    oka = eq za, 0
+    okb = eq zb, 0
+    both = and oka, okb
+    br both -> L_HIT, L_MISS
+L_HIT:
+    !a
+    !b
+    !za
+    !zb
+    !oka
+    !okb
+    !both
+    return 949
+L_MISS:
+    !a
+    !b
+    !za
+    !zb
+    !oka
+    !okb
+    !both
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    t = &A3_VT
+    fp = load t + 0 as ptr
+    x = 1 as i64
+    y = 1 as i64
+    v = call_indirect fp(x, y)
+    want = 949 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

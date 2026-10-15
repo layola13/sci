@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"760\n"
+
+// 760 - Deque: push back 700, 30, 30 then pop-front sum == 760.
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 24
+    store buf+0, 700 as i64
+    store buf+8, 30 as i64
+    store buf+16, 30 as i64
+    f0 = load buf+0 as i64
+    f1 = load buf+8 as i64
+    f2 = load buf+16 as i64
+    s0 = add f0, f1
+    got = add s0, f2
+    want = 760 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !buf
+    !f0
+    !f1
+    !f2
+    !s0
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

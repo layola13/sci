@@ -1,0 +1,38 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"937\n"
+
+// 937 - Clock: 12-hour wrap (10 + 5) mod 12 == 3, plus 934.
+@main() -> i32:
+L_ENTRY:
+    h = 10 as i64
+    step = 5 as i64
+    s = add h, step
+    twelve = 12 as i64
+    w = sub s, twelve
+    three = 3 as i64
+    ok_w = eq w, three
+    base = 934 as i64
+    got = add w, base
+    want = 937 as i64
+    ok_v = eq got, want
+    ok = and ok_w, ok_v
+    !h
+    !step
+    !s
+    !twelve
+    !w
+    !three
+    !ok_w
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

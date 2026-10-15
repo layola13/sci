@@ -1,0 +1,51 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"428\n"
+
+// 428 - fallible fn computes then spills: fadd result through a slot
+// (1.5 + 2.5 == 4.0).
+@sum() -> f64!:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    five_f = sitofp five as f64
+    two_half = fdiv five_f, two_f
+    s = fadd one_half, two_half
+    buf = alloc 8
+    store buf+0, s as f64
+    g = load buf+0 as f64
+    !three
+    !two_i
+    !five
+    !three_f
+    !two_f
+    !one_half
+    !five_f
+    !two_half
+    !s
+    !buf
+    return g
+
+@main() -> i32:
+L_ENTRY:
+    r = call @sum()
+    v = ?r
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    ok = fcmp_eq v, four
+    !r
+    !v
+    !four_i
+    !four
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

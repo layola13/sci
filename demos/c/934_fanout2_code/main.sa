@@ -1,0 +1,38 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"934\n"
+
+// 934 - Fanout2: two workers (900, 34) sum == 934.
+@big934() -> i64:
+L_ENTRY:
+    return 900
+
+@sml934() -> i64:
+L_ENTRY:
+    return 34
+
+@main() -> i32:
+L_ENTRY:
+    a = call @big934()
+    b = call @sml934()
+    got = add a, b
+    want = 934 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !a
+    !b
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

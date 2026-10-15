@@ -1,0 +1,61 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"837\n"
+
+// 837 - Tally loop counts 0..6 (7 iters), 7 * 100 + 137 == 837.
+@main() -> i32:
+L_ENTRY:
+    cnt = 0 as i64
+    i = 0 as i64
+    one = 1 as i64
+    jmp L_COND
+L_COND:
+    done = eq i, 7
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    cnt = add cnt, one
+    i = add i, one
+    jmp L_COND
+L_DONE:
+    !done
+    seven = 7 as i64
+    ok_cnt = eq cnt, seven
+    hund = 100 as i64
+    p0 = add cnt, hund
+    p1 = add p0, hund
+    p2 = add p1, hund
+    p3 = add p2, hund
+    p4 = add p3, hund
+    p5 = add p4, hund
+    p6 = add p5, hund
+    rest = 130 as i64
+    got = add p6, rest
+    want = 837 as i64
+    ok_v = eq got, want
+    ok = and ok_cnt, ok_v
+    !cnt
+    !i
+    !one
+    !seven
+    !ok_cnt
+    !hund
+    !p0
+    !p1
+    !p2
+    !p3
+    !p4
+    !p5
+    !p6
+    !rest
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

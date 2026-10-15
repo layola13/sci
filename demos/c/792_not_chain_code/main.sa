@@ -1,0 +1,26 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"792\n"
+
+// 792 - Not-chain: (792!=0) and (0==0) holds, code 0.
+@main() -> i32:
+L_ENTRY:
+    a = 792 as i64
+    z = 0 as i64
+    ne = eq a, z
+    is_nz = eq ne, 0
+    ok_z = eq z, z
+    ok = and is_nz, ok_z
+    !a
+    !z
+    !ne
+    !is_nz
+    !ok_z
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

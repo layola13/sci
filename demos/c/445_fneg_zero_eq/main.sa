@@ -1,0 +1,22 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"445\n"
+
+// 445 - negated zero still equals zero (fneg(0.0) == 0.0 under fcmp).
+@main() -> i32:
+L_ENTRY:
+    zero_i = 0 as i32
+    zero = sitofp zero_i as f64
+    n = fneg zero
+    ok = fcmp_eq n, zero
+    !zero_i
+    !zero
+    !n
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

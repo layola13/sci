@@ -1,0 +1,56 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"784\n"
+
+// 784 - Pipeline: 700 -> +40 -> +22 -> +22 == 784.
+@st1(x: i64) -> i64:
+L_ENTRY:
+    a = 40 as i64
+    r = add x, a
+    !x
+    !a
+    return r
+
+@st2(x: i64) -> i64:
+L_ENTRY:
+    b = 22 as i64
+    r = add x, b
+    !x
+    !b
+    return r
+
+@st3(x: i64) -> i64:
+L_ENTRY:
+    c = 22 as i64
+    r = add x, c
+    !x
+    !c
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    base = 700 as i64
+    v1 = call @st1(base)
+    v2 = call @st2(v1)
+    v = call @st3(v2)
+    want = 784 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !base
+    !v1
+    !v2
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

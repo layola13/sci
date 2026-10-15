@@ -1,0 +1,25 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"346\n"
+
+// 346 - lshr is always an unsigned (logical) shift of the full width.
+//
+// The JS backend used to arithmetic-shift negative BigInts and then
+// re-tag unsigned, so lshr(-1, 1) stayed all-ones instead of 2^63-1.
+@main() -> i32:
+L_ENTRY:
+    m1 = -1 as i64
+    one = 1 as i64
+    s = lshr m1, one
+    ok = eq s, 9223372036854775807
+    !m1
+    !one
+    !s
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

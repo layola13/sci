@@ -1,0 +1,56 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"899\n"
+@const MJ_VT = vtable { invoke = @maj_fn }
+
+// 899 - Callback majority-of-3 (1,1,0) yields 899.
+@maj_fn(a: i64, b: i64) -> i64:
+L_ENTRY:
+    ab = and a, b
+    one = 1 as i64
+    maj = eq ab, one
+    br maj -> L_HIT, L_MISS
+L_HIT:
+    !a
+    !b
+    !ab
+    !one
+    !maj
+    return 899
+L_MISS:
+    !a
+    !b
+    !ab
+    !one
+    !maj
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    t = &MJ_VT
+    fp = load t + 0 as ptr
+    x = 1 as i64
+    y = 1 as i64
+    v = call_indirect fp(x, y)
+    want = 899 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
