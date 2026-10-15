@@ -347,6 +347,27 @@ pub fn build(b: *std.Build) void {
     const js_matrix_step = b.step("js-matrix", "Run JS backend demo equivalence matrix under node");
     js_matrix_step.dependOn(&run_js_matrix.step);
 
+    const c_matrix_module = b.createModule(.{
+        .root_source_file = b.path("tests/c_matrix_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    c_matrix_module.addImport("sio", sio_module);
+    c_matrix_module.addImport("saasm", lib_module);
+    c_matrix_module.addOptions("build_options", build_options);
+    const c_matrix = b.addTest(.{
+        .root_module = c_matrix_module,
+    });
+    const run_c_matrix = b.addRunArtifact(c_matrix);
+    run_c_matrix.setCwd(repo_root_lazy);
+    addLlvmBinDirToRun(b, run_c_matrix, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    run_c_matrix.setEnvironmentVariable("SA_C_MATRIX_SHARD", b.option([]const u8, "c-matrix-shard", "Run only C matrix demos with sequence number seq % n == i (\"i/n\").") orelse "");
+    run_c_matrix.step.name = "c-matrix";
+    run_c_matrix.step.dependOn(&sync_sa_std_artifact.step);
+    test_step.dependOn(&run_c_matrix.step);
+    const c_matrix_step = b.step("c-matrix", "Run C backend demo equivalence matrix under cc");
+    c_matrix_step.dependOn(&run_c_matrix.step);
+
     const cli_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/cli_smoke.zig"),
         .target = target,
