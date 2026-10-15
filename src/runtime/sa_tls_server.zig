@@ -8,6 +8,7 @@
 // Status codes follow the sci convention: 0 = SA_STD_OK, negative = error.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const sio = @import("sio");
 
 const SA_STD_OK: i32 = 0;
@@ -15,6 +16,15 @@ const SA_STD_ERR_NO_MEMORY: i32 = -12;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
 const SA_STD_ERR_UNSUPPORTED: i32 = -1;
 const SA_STD_ERR_IO: i32 = -5;
+
+// wasm32-wasi: usize is 32-bit, C ABI passes u64 lengths. Checked conversion.
+fn u64ToUsize(v: u64) ?usize {
+    return std.math.cast(usize, v);
+}
+
+fn ptrFromU64(T: type, h: u64) *T {
+    return @ptrFromInt(@as(usize, @intCast(h)));
+}
 
 const SslCtx = opaque {};
 const Ssl = opaque {};
@@ -38,7 +48,7 @@ const ErrPeekError = *const fn () callconv(.c) u64;
 const SSL_FILETYPE_PEM: c_int = 1;
 
 const SslApi = struct {
-    lib: std.DynLib,
+    lib: if (builtin.cpu.arch.isWasm()) void else std.DynLib,
     ctx_new: SslCtxNew,
     ctx_free: SslCtxFree,
     use_cert_file: SslCtxUseCertFile,
@@ -57,6 +67,7 @@ var ssl_api: ?SslApi = null;
 var ssl_api_mutex = std.Io.Mutex.init;
 
 fn loadSslApi() ?*SslApi {
+    if (comptime builtin.cpu.arch.isWasm()) return null;
     ssl_api_mutex.lockUncancelable(sio.io());
     defer ssl_api_mutex.unlock(sio.io());
     if (ssl_api) |*api| return api;
@@ -158,8 +169,10 @@ pub export fn sa_std_tls_server_ctx_create(cert_path_ptr: ?[*]const u8, cert_pat
     const slot = out_ctx orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    const cert_path = if (cert_path_ptr) |p| p[0..cert_path_len] else return SA_STD_ERR_INVALID_ARGUMENT;
-    const key_path = if (key_path_ptr) |p| p[0..key_path_len] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const cert_n = u64ToUsize(cert_path_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const key_n = u64ToUsize(key_path_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const cert_path = if (cert_path_ptr) |p| p[0..cert_n] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const key_path = if (key_path_ptr) |p| p[0..key_n] else return SA_STD_ERR_INVALID_ARGUMENT;
     var cert_z: [4096]u8 = undefined;
     var key_z: [4096]u8 = undefined;
     if (cert_path.len >= cert_z.len) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -186,7 +199,7 @@ pub export fn sa_std_tls_server_ctx_create(cert_path_ptr: ?[*]const u8, cert_pat
 pub export fn sa_std_tls_server_ctx_free(ctx_handle: u64) i32 {
     if (ctx_handle == 0) return SA_STD_OK;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    api.ctx_free(@ptrFromInt(ctx_handle));
+    api.ctx_free(ptrFromU64(SslCtx, ctx_handle));
     return SA_STD_OK;
 }
 
@@ -195,7 +208,7 @@ pub export fn sa_std_tls_server_accept(ctx_handle: u64, fd: i32, out_ssl: ?*u64)
     slot.* = 0;
     if (ctx_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    const ctx: *SslCtx = @ptrFromInt(ctx_handle);
+    const ctx: *SslCtx = ptrFromU64(SslCtx, ctx_handle);
     const ssl = api.new(ctx) orelse return SA_STD_ERR_IO;
     if (api.set_fd(ssl, fd) != 1) {
         api.free(ssl);
@@ -218,7 +231,7 @@ pub export fn sa_std_tls_server_read(ssl_handle: u64, out: ?[*]u8, cap: u64, out
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
     const buf = out orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const root: [*]u8 = buf;
-    const rc = api.read(@ptrFromInt(ssl_handle), root, @intCast(@min(cap, @as(u64, @intCast(std.math.maxInt(c_int))))));
+    const rc = api.read(ptrFromU64(Ssl, ssl_handle), root, @intCast(@min(cap, @as(u64, @intCast(std.math.maxInt(c_int))))));
     if (rc <= 0) return SA_STD_ERR_IO;
     slot.* = @intCast(rc);
     return SA_STD_OK;
@@ -230,7 +243,7 @@ pub export fn sa_std_tls_server_write(ssl_handle: u64, buf: ?[*]const u8, len: u
     if (ssl_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     const src = buf orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    const rc = api.write(@ptrFromInt(ssl_handle), src, @intCast(@min(len, @as(u64, @intCast(std.math.maxInt(c_int))))));
+    const rc = api.write(ptrFromU64(Ssl, ssl_handle), src, @intCast(@min(len, @as(u64, @intCast(std.math.maxInt(c_int))))));
     if (rc <= 0) return SA_STD_ERR_IO;
     slot.* = @intCast(rc);
     return SA_STD_OK;
@@ -239,8 +252,8 @@ pub export fn sa_std_tls_server_write(ssl_handle: u64, buf: ?[*]const u8, len: u
 pub export fn sa_std_tls_server_close(ssl_handle: u64) i32 {
     if (ssl_handle == 0) return SA_STD_OK;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    _ = api.shutdown(@ptrFromInt(ssl_handle));
-    api.free(@ptrFromInt(ssl_handle));
+    _ = api.shutdown(ptrFromU64(Ssl, ssl_handle));
+    api.free(ptrFromU64(Ssl, ssl_handle));
     return SA_STD_OK;
 }
 

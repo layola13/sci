@@ -1,6 +1,60 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const sio = @import("sio");
+
+// wasm32-wasi compat (stage1: archive must compile; sockets/process/dlopen
+// stubbed to UNSUPPORTED): SockAddrT/W/SIG are `void` on wasi, and
+// std.os.linux has no wasm syscalls. Provide minimal layout-compatible
+// aliases so signatures type-check; bodies return UNSUPPORTED via
+// `if (comptime is_wasm)` guards.
+const is_wasm = builtin.cpu.arch.isWasm();
+const WasiSockAddrUn = extern struct { family: u16 = 0, path: [108]u8 = undefined };
+const WasiSockAddrIn = extern struct { port: u16 = 0, addr: u32 = 0, zero: [8]u8 = undefined };
+const WasiSockAddrIn6 = extern struct { port: u16 = 0, flowinfo: u32 = 0, addr: [16]u8 = undefined, scope_id: u32 = 0 };
+const WasiSockAddrStorage = extern struct { family: u16 = 0, __pad: [126]u8 = undefined };
+const WasiSockAddr = extern struct { family: u16 = 0, data: [14]u8 = undefined };
+const SockAddrUnT = if (is_wasm) WasiSockAddrUn else std.posix.sockaddr.un;
+const SockAddrInT = if (is_wasm) WasiSockAddrIn else std.posix.sockaddr.in;
+const SockAddrIn6T = if (is_wasm) WasiSockAddrIn6 else std.posix.sockaddr.in6;
+const SockAddrStorageT = if (is_wasm) WasiSockAddrStorage else std.posix.sockaddr.storage;
+const SockAddrT = if (is_wasm) WasiSockAddr else std.posix.sockaddr;
+const SockLenT = if (is_wasm) u32 else std.posix.socklen_t;
+const UnixSockAddr = struct { addr: SockAddrUnT, len: SockLenT };
+// wasi has no wait macros/signals (std.posix.W/SIG are void); dummies so
+// status helpers type-check (callers stubbed to UNSUPPORTED on wasm).
+const WasiW = struct {
+    pub const EXITED: u32 = 0;
+    pub const NOHANG: u32 = 0;
+    pub fn IFEXITED(_: u32) bool { return false; }
+    pub fn EXITSTATUS(_: u32) u8 { return 0; }
+    pub fn IFSIGNALED(_: u32) bool { return false; }
+    pub fn TERMSIG(_: u32) u8 { return 0; }
+    pub fn IFSTOPPED(_: u32) bool { return false; }
+    pub fn STOPSIG(_: u32) u8 { return 0; }
+};
+const WT = if (is_wasm) WasiW else std.posix.W;
+const WasiSIG = struct { pub const KILL: u8 = 9; };
+const SIGT = if (is_wasm) WasiSIG else std.posix.SIG;
+// wasi-libc has no AF/SOL (void via std.c); Linux-value dummies for compile.
+const WasiAF = struct { pub const UNIX: u16 = 1; pub const INET: u16 = 2; pub const INET6: u16 = 10; };
+const AFT = if (is_wasm) WasiAF else std.posix.AF;
+const WasiSOL = struct { pub const SOCKET: u32 = 1; };
+const SOLT = if (is_wasm) WasiSOL else std.posix.SOL;
+const WasiSO = struct {
+    pub const REUSEADDR: u32 = 2; pub const TYPE: u32 = 3; pub const ERROR: u32 = 4;
+    pub const BROADCAST: u32 = 6; pub const SNDBUF: u32 = 7; pub const RCVBUF: u32 = 8;
+    pub const KEEPALIVE: u32 = 9; pub const LINGER: u32 = 13; pub const REUSEPORT: u32 = 15;
+    pub const PEERCRED: u32 = 17; pub const RCVTIMEO: u32 = 20; pub const SNDTIMEO: u32 = 21;
+    pub const ACCEPTCONN: u32 = 30;
+};
+const SOT = if (is_wasm) WasiSO else std.posix.SO;
+const WasiIPPROTO = struct { pub const IP: u32 = 0; pub const TCP: u32 = 6; pub const UDP: u32 = 17; pub const IPV6: u32 = 41; };
+const IPPROTOT = if (is_wasm) WasiIPPROTO else std.posix.IPPROTO;
+const WasiSOCK = struct { pub const STREAM: u32 = 1; pub const DGRAM: u32 = 2; pub const NONBLOCK: u32 = 2048; pub const CLOEXEC: u32 = 524288; };
+const SOCKT = if (is_wasm) WasiSOCK else std.posix.SOCK;
+const WasiMsghdr = extern struct { name: ?*anyopaque = null, namelen: u32 = 0, iov: ?*anyopaque = null, iovlen: usize = 0, control: ?*anyopaque = null, controllen: usize = 0, flags: u32 = 0 };
+const MsghdrT = if (is_wasm) WasiMsghdr else std.posix.msghdr;
+const MsghdrConstT = if (is_wasm) WasiMsghdr else std.posix.msghdr_const;
 // Pull the new sa_std protocol runtimes (http2/tls_server/dtls/quic) export
 // functions into the library object. Zig only emits `pub export fn`s of a
 // transitively-imported module when the root source actually retains the
@@ -72,13 +126,17 @@ const Ipv6MreqC = extern struct {
 extern "c" var environ: [*:null]?[*:0]u8;
 
 comptime {
-    std.debug.assert(@sizeOf(RegexC) == 64);
-    std.debug.assert(@alignOf(RegexC) == 8);
-    std.debug.assert(@offsetOf(RegexC, "re_nsub") == 48);
-    std.debug.assert(@offsetOf(RegexC, "flags") == 56);
-    std.debug.assert(@sizeOf(RegexMatchC) == 8);
-    std.debug.assert(@offsetOf(RegexMatchC, "rm_so") == 0);
-    std.debug.assert(@offsetOf(RegexMatchC, "rm_eo") == 4);
+    // wasm32-wasi: c_ulong/usize are 32-bit (vs 64-bit on x86_64-linux),
+    // so RegexC layout differs. Only assert native glibc layout on non-wasm.
+    if (!builtin.cpu.arch.isWasm()) {
+        std.debug.assert(@sizeOf(RegexC) == 64);
+        std.debug.assert(@alignOf(RegexC) == 8);
+        std.debug.assert(@offsetOf(RegexC, "re_nsub") == 48);
+        std.debug.assert(@offsetOf(RegexC, "flags") == 56);
+        std.debug.assert(@sizeOf(RegexMatchC) == 8);
+        std.debug.assert(@offsetOf(RegexMatchC, "rm_so") == 0);
+        std.debug.assert(@offsetOf(RegexMatchC, "rm_eo") == 4);
+    }
 }
 
 pub const SA_STD_ABI_VERSION: u32 = 1;
@@ -95,8 +153,8 @@ pub const SA_STD_ERR_UNSUPPORTED: i32 = 8;
 
 // --- Cross-platform compat: Linux-first, macOS via conditionals ---
 // waitid/pidfd flags are Linux-only; 0 elsewhere (pidfd path is Linux-only).
-const w_exited: u32 = if (builtin.os.tag == .linux) std.posix.W.EXITED else 0;
-const w_nohang: u32 = if (builtin.os.tag == .linux) std.posix.W.NOHANG else 0;
+const w_exited: u32 = if (builtin.os.tag == .linux) WT.EXITED else 0;
+const w_nohang: u32 = if (builtin.os.tag == .linux) WT.NOHANG else 0;
 // MSG_PEEK: std.posix.MSG is Linux-only in zig 0.14; Darwin value is 0x2.
 const msg_peek: u32 = if (builtin.os.tag == .linux) std.posix.MSG.PEEK else 0x2;
 // TCP_NODELAY == 1 on Linux, macOS and FreeBSD. Spell it out: std.posix.TCP
@@ -116,9 +174,9 @@ extern fn uname(buf: *fbsd_utsname) c_int;
 extern fn if_nametoindex(ifname: [*:0]const u8) c_uint;
 // Non-Linux targets call libc recvmsg directly. Note: the extern name must be
 // exactly "recvmsg" — macOS dylibs reject undefined symbols, unlike ELF .so.
-extern "c" fn recvmsg(sockfd: std.posix.fd_t, msg: *std.posix.msghdr, flags: c_int) isize;
+extern "c" fn recvmsg(sockfd: std.posix.fd_t, msg: *MsghdrT, flags: c_int) isize;
 extern "c" fn __error() *c_int;
-fn portableRecvmsg(fd: std.posix.fd_t, msg: *std.posix.msghdr, flags: u32) !usize {
+fn portableRecvmsg(fd: std.posix.fd_t, msg: *MsghdrT, flags: u32) !usize {
     if (builtin.os.tag == .linux) {
         const rc = std.os.linux.recvmsg(fd, @as(*std.os.linux.msghdr, @ptrCast(msg)), flags);
         return switch (std.os.linux.errno(rc)) {
@@ -364,15 +422,15 @@ const UnixAddrHandle = struct {
     }
 };
 
-const unix_sockaddr_path_offset = @offsetOf(std.posix.sockaddr.un, "path");
+const unix_sockaddr_path_offset: usize = if (is_wasm) 2 else @offsetOf(SockAddrUnT, "path");
 
-fn unixAddrFromSockaddr(allocator: std.mem.Allocator, addr: std.posix.sockaddr.un, len_raw: std.posix.socklen_t) !UnixAddrHandle {
+fn unixAddrFromSockaddr(allocator: std.mem.Allocator, addr: SockAddrUnT, len_raw: SockLenT) !UnixAddrHandle {
     var len = @as(usize, @intCast(len_raw));
     if (len == 0) len = unix_sockaddr_path_offset;
     if (len <= unix_sockaddr_path_offset) {
         return .{ .allocator = allocator, .kind = SA_NET_UNIX_ADDR_UNNAMED, .bytes = &.{} };
     }
-    if (addr.family != std.posix.AF.UNIX) return error.InvalidArgument;
+    if (addr.family != AFT.UNIX) return error.InvalidArgument;
 
     const available = @min(len - unix_sockaddr_path_offset, addr.path.len);
     if (available == 0) {
@@ -391,7 +449,7 @@ fn unixAddrFromSockaddr(allocator: std.mem.Allocator, addr: std.posix.sockaddr.u
     return .{ .allocator = allocator, .kind = SA_NET_UNIX_ADDR_PATHNAME, .bytes = path };
 }
 
-fn registerUnixAddrOutLocked(addr: std.posix.sockaddr.un, len: std.posix.socklen_t, out_handle: *u64) i32 {
+fn registerUnixAddrOutLocked(addr: SockAddrUnT, len: SockLenT, out_handle: *u64) i32 {
     var unix_addr = unixAddrFromSockaddr(std.heap.page_allocator, addr, len) catch |err| return finishErr(err);
     const handle = registerResourceLocked(.{ .unix_addr = unix_addr }) catch |err| {
         unix_addr.deinit();
@@ -401,27 +459,29 @@ fn registerUnixAddrOutLocked(addr: std.posix.sockaddr.un, len: std.posix.socklen
     return finish(SA_STD_OK);
 }
 
-fn unixSockAddrFromHandle(handle: u64) !struct { addr: std.posix.sockaddr.un, len: std.posix.socklen_t } {
+fn unixSockAddrFromHandle(handle: u64) !UnixSockAddr {
+    // wasm32-wasi has no unix sockets; stub to keep archive compilable.
+    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
     return switch (resource.*) {
         .unix_addr => |unix_addr| blk: {
-            var addr: std.posix.sockaddr.un = .{ .family = std.posix.AF.UNIX, .path = undefined };
+            var addr: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
             @memset(&addr.path, 0);
             switch (unix_addr.kind) {
-                SA_NET_UNIX_ADDR_UNNAMED => break :blk .{ .addr = addr, .len = @as(std.posix.socklen_t, @intCast(unix_sockaddr_path_offset)) },
+                SA_NET_UNIX_ADDR_UNNAMED => break :blk .{ .addr = addr, .len = @as(SockLenT, @intCast(unix_sockaddr_path_offset)) },
                 SA_NET_UNIX_ADDR_PATHNAME => {
                     if (unix_addr.bytes.len == 0 or unix_addr.bytes.len >= addr.path.len) return error.InvalidArgument;
                     if (std.mem.indexOfScalar(u8, unix_addr.bytes, 0) != null) return error.InvalidArgument;
                     @memcpy(addr.path[0..unix_addr.bytes.len], unix_addr.bytes);
-                    break :blk .{ .addr = addr, .len = @as(std.posix.socklen_t, @intCast(unix_sockaddr_path_offset + unix_addr.bytes.len + 1)) };
+                    break :blk .{ .addr = addr, .len = @as(SockLenT, @intCast(unix_sockaddr_path_offset + unix_addr.bytes.len + 1)) };
                 },
                 SA_NET_UNIX_ADDR_ABSTRACT => {
                     if (unix_addr.bytes.len + 1 > addr.path.len) return error.InvalidArgument;
                     addr.path[0] = 0;
                     if (unix_addr.bytes.len != 0) @memcpy(addr.path[1 .. 1 + unix_addr.bytes.len], unix_addr.bytes);
-                    break :blk .{ .addr = addr, .len = @as(std.posix.socklen_t, @intCast(unix_sockaddr_path_offset + 1 + unix_addr.bytes.len)) };
+                    break :blk .{ .addr = addr, .len = @as(SockLenT, @intCast(unix_sockaddr_path_offset + 1 + unix_addr.bytes.len)) };
                 },
                 else => return error.InvalidArgument,
             }
@@ -453,13 +513,13 @@ fn registerNetAddrOutLocked(address: NetAddress, out_handle: *u64) i32 {
 
 fn addressHostText(allocator: std.mem.Allocator, address: NetAddress) ![]u8 {
     return switch (address.storage.family) {
-        std.posix.AF.INET => blk: {
-            const sin: *const std.posix.sockaddr.in = @ptrCast(&address.storage);
+        AFT.INET => blk: {
+            const sin: *const SockAddrInT = @ptrCast(@alignCast(&address.storage));
             const ip: [4]u8 = @bitCast(sin.addr);
             break :blk try std.fmt.allocPrint(allocator, "{}.{}.{}.{}", .{ ip[0], ip[1], ip[2], ip[3] });
         },
-        std.posix.AF.INET6 => blk: {
-            const sin6: *const std.posix.sockaddr.in6 = @ptrCast(&address.storage);
+        AFT.INET6 => blk: {
+            const sin6: *const SockAddrIn6T = @ptrCast(@alignCast(&address.storage));
             var segbuf: [8]u16 = undefined;
             var i: usize = 0;
             while (i < 8) : (i += 1) {
@@ -475,17 +535,17 @@ fn addressHostText(allocator: std.mem.Allocator, address: NetAddress) ![]u8 {
             }
             break :blk try allocator.dupe(u8, text);
         },
-        std.posix.AF.UNIX => try allocator.dupe(u8, address.unixPath()),
+        AFT.UNIX => try allocator.dupe(u8, address.unixPath()),
         else => try allocator.dupe(u8, ""),
     };
 }
 
 fn addressSocketText(allocator: std.mem.Allocator, address: NetAddress) ![]u8 {
     return switch (address.storage.family) {
-        std.posix.AF.INET, std.posix.AF.INET6 => blk: {
+        AFT.INET, AFT.INET6 => blk: {
             const host = try addressHostText(allocator, address);
             defer allocator.free(host);
-            if (address.storage.family == std.posix.AF.INET6) {
+            if (address.storage.family == AFT.INET6) {
                 break :blk try std.fmt.allocPrint(allocator, "[{s}]:{d}", .{ host, address.getPort() });
             }
             break :blk try std.fmt.allocPrint(allocator, "{s}:{d}", .{ host, address.getPort() });
@@ -1218,10 +1278,14 @@ var compatibility_dlsym_cookie: [1]u8 = .{0};
 var compatibility_dl_error: [:0]const u8 = "unsupported";
 
 const DynamicLibHandle = struct {
-    lib: std.DynLib,
+    // wasm32-wasi has no dlopen; std.DynLib itself is @compileError on wasm,
+    // so the field must be conditional to keep the type compilable.
+    lib: if (builtin.cpu.arch.isWasm()) void else std.DynLib,
 
     fn deinit(self: *DynamicLibHandle) void {
-        self.lib.close();
+        if (!builtin.cpu.arch.isWasm()) {
+            self.lib.close();
+        }
     }
 };
 
@@ -1265,7 +1329,8 @@ fn pthreadToRaw(thread: std.c.pthread_t) u64 {
 fn rawToPthread(raw: u64) std.c.pthread_t {
     return switch (@typeInfo(std.c.pthread_t)) {
         .int => @as(std.c.pthread_t, @intCast(raw)),
-        .pointer => @as(std.c.pthread_t, @ptrFromInt(raw)),
+        // wasm32-wasi: usize is 32-bit, raw handle is u64 ABI (zero-extended).
+        .pointer => @as(std.c.pthread_t, @ptrFromInt(@as(usize, @intCast(raw)))),
         else => @compileError("unsupported pthread_t representation"),
     };
 }
@@ -1592,11 +1657,13 @@ fn nsFromTimeval(tv: Timeval) !u64 {
 }
 
 fn setSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled: bool) !void {
+    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var value: i32 = if (enabled) 1 else 0;
     try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&value));
 }
 
 fn setSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32, value: i32) !void {
+    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var mutable = value;
     try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&mutable));
 }
@@ -1626,15 +1693,17 @@ fn lingerSeconds(timeout_ns: u64) !i32 {
 }
 
 fn setSocketOptLinger(fd: std.posix.fd_t, enabled: bool, timeout_ns: u64) !void {
+    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     const seconds = if (enabled) try lingerSeconds(timeout_ns) else 0;
     var value = LingerOption{ .onoff = if (enabled) 1 else 0, .linger = seconds };
-    try std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.LINGER, std.mem.asBytes(&value));
+    try std.posix.setsockopt(fd, SOLT.SOCKET, SOT.LINGER, std.mem.asBytes(&value));
 }
 
 fn getSocketOptLinger(fd: std.posix.fd_t) !LingerOption {
+    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var value = LingerOption{ .onoff = 0, .linger = 0 };
-    var len: std.posix.socklen_t = @sizeOf(LingerOption);
-    const rc = std.os.linux.getsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.LINGER, @as([*]u8, @ptrCast(&value)), &len);
+    var len: SockLenT = @sizeOf(LingerOption);
+    const rc = std.os.linux.getsockopt(fd, SOLT.SOCKET, SOT.LINGER, @as([*]u8, @ptrCast(&value)), &len);
     switch (std.os.linux.errno(rc)) {
         .SUCCESS => {
             if (len != @sizeOf(LingerOption)) return error.UnexpectedSize;
@@ -1645,8 +1714,9 @@ fn getSocketOptLinger(fd: std.posix.fd_t) !LingerOption {
 }
 
 fn getSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32) !bool {
+    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var value: i32 = 0;
-    var len: std.posix.socklen_t = @sizeOf(i32);
+    var len: SockLenT = @sizeOf(i32);
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
     switch (std.os.linux.errno(rc)) {
         .SUCCESS => {
@@ -1665,8 +1735,8 @@ const LinuxUCred = extern struct {
 
 fn getUnixPeerCred(fd: std.posix.fd_t) !LinuxUCred {
     var value: LinuxUCred = .{ .pid = 0, .uid = 0, .gid = 0 };
-    var len: std.posix.socklen_t = @sizeOf(LinuxUCred);
-    const rc = std.os.linux.getsockopt(fd, std.posix.SOL.SOCKET, std.os.linux.SO.PEERCRED, @as([*]u8, @ptrCast(&value)), &len);
+    var len: SockLenT = @sizeOf(LinuxUCred);
+    const rc = std.os.linux.getsockopt(fd, SOLT.SOCKET, std.os.linux.SO.PEERCRED, @as([*]u8, @ptrCast(&value)), &len);
     switch (std.os.linux.errno(rc)) {
         .SUCCESS => {
             if (len != @sizeOf(LinuxUCred)) return error.UnexpectedSize;
@@ -1677,8 +1747,9 @@ fn getUnixPeerCred(fd: std.posix.fd_t) !LinuxUCred {
 }
 
 fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
+    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var value: i32 = 0;
-    var len: std.posix.socklen_t = @sizeOf(i32);
+    var len: SockLenT = @sizeOf(i32);
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
     switch (std.os.linux.errno(rc)) {
         .SUCCESS => {
@@ -1691,7 +1762,7 @@ fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
 
 fn getSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32) !u64 {
     var tv: Timeval = .{ .sec = 0, .usec = 0 };
-    var len: std.posix.socklen_t = @sizeOf(Timeval);
+    var len: SockLenT = @sizeOf(Timeval);
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&tv)), &len);
     switch (std.os.linux.errno(rc)) {
         .SUCCESS => {
@@ -1704,7 +1775,7 @@ fn getSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32) !u64 {
 
 fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
     var value: u8 = 0;
-    var len: std.posix.socklen_t = @sizeOf(u8);
+    var len: SockLenT = @sizeOf(u8);
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
     switch (std.os.linux.errno(rc)) {
         .SUCCESS => {
@@ -1717,7 +1788,7 @@ fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
 
 fn getSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32) !u32 {
     var value: u32 = 0;
-    var len: std.posix.socklen_t = @sizeOf(u32);
+    var len: SockLenT = @sizeOf(u32);
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
     switch (std.os.linux.errno(rc)) {
         .SUCCESS => {
@@ -1729,7 +1800,7 @@ fn getSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32) !u32 {
 }
 
 fn getSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, out: []u8) !void {
-    var len: std.posix.socklen_t = @intCast(out.len);
+    var len: SockLenT = @intCast(out.len);
     const rc = std.os.linux.getsockopt(fd, level, optname, out.ptr, &len);
     switch (std.os.linux.errno(rc)) {
         .SUCCESS => {
@@ -1740,43 +1811,43 @@ fn getSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, out: []u8) !v
 }
 
 fn socketAddressFamily(fd: std.posix.fd_t) !u16 {
-    var storage: std.posix.sockaddr.storage = .{ .family = 0 };
-    var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage);
+    var storage: SockAddrStorageT = .{ .family = 0 };
+    var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
     try lxGetsockname(fd, @ptrCast(&storage), &addr_len);
     return storage.family;
 }
 
 fn socketIsUnix(fd: std.posix.fd_t) !bool {
-    return (try socketAddressFamily(fd)) == std.posix.AF.UNIX;
+    return (try socketAddressFamily(fd)) == AFT.UNIX;
 }
 
 fn socketIsInet(fd: std.posix.fd_t) !bool {
     const family = try socketAddressFamily(fd);
-    return family == std.posix.AF.INET or family == std.posix.AF.INET6;
+    return family == AFT.INET or family == AFT.INET6;
 }
 
 fn socketIsStream(fd: std.posix.fd_t) !bool {
-    const socket_type = try getSocketOptInt(fd, std.posix.SOL.SOCKET, std.os.linux.SO.TYPE);
-    return socket_type == @as(i32, @intCast(std.posix.SOCK.STREAM));
+    const socket_type = try getSocketOptInt(fd, SOLT.SOCKET, std.os.linux.SO.TYPE);
+    return socket_type == @as(i32, @intCast(SOCKT.STREAM));
 }
 
 fn socketIsDatagram(fd: std.posix.fd_t) !bool {
-    const socket_type = try getSocketOptInt(fd, std.posix.SOL.SOCKET, std.os.linux.SO.TYPE);
-    return socket_type == @as(i32, @intCast(std.posix.SOCK.DGRAM));
+    const socket_type = try getSocketOptInt(fd, SOLT.SOCKET, std.os.linux.SO.TYPE);
+    return socket_type == @as(i32, @intCast(SOCKT.DGRAM));
 }
 
 fn socketAcceptConn(fd: std.posix.fd_t) !bool {
-    return try getSocketOptBool(fd, std.posix.SOL.SOCKET, std.os.linux.SO.ACCEPTCONN);
+    return try getSocketOptBool(fd, SOLT.SOCKET, std.os.linux.SO.ACCEPTCONN);
 }
 
-fn getUnixSockAddr(fd: std.posix.fd_t, peer: bool) !struct { addr: std.posix.sockaddr.un, len: std.posix.socklen_t } {
-    var addr: std.posix.sockaddr.un = .{ .family = std.posix.AF.UNIX, .path = undefined };
+fn getUnixSockAddr(fd: std.posix.fd_t, peer: bool) !struct { addr: SockAddrUnT, len: SockLenT } {
+    var addr: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
     @memset(&addr.path, 0);
-    var len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.un);
+    var len: SockLenT = @sizeOf(SockAddrUnT);
     if (peer) {
-        try lxGetpeername(fd, @as(*std.posix.sockaddr, @ptrCast(&addr)), &len);
+        try lxGetpeername(fd, @as(*SockAddrT, @ptrCast(&addr)), &len);
     } else {
-        try lxGetsockname(fd, @as(*std.posix.sockaddr, @ptrCast(&addr)), &len);
+        try lxGetsockname(fd, @as(*SockAddrT, @ptrCast(&addr)), &len);
     }
     return .{ .addr = addr, .len = len };
 }
@@ -1792,7 +1863,7 @@ fn parseIp4Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !NetAddress
         return NetAddress.initIp4(parts, port16);
     }
     const address = try NetAddress.resolveIp(host, port16);
-    if (address.storage.family != std.posix.AF.INET) return error.InvalidArgument;
+    if (address.storage.family != AFT.INET) return error.InvalidArgument;
     return address;
 }
 
@@ -1917,7 +1988,7 @@ fn parseIp6Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !NetAddress
         return NetAddress.initIp6(parsed.addr, port16, 0, parsed.scope_id);
     }
     const address = try NetAddress.resolveIp(host, port16);
-    if (address.storage.family != std.posix.AF.INET6) return error.InvalidArgument;
+    if (address.storage.family != AFT.INET6) return error.InvalidArgument;
     return address;
 }
 
@@ -2119,7 +2190,8 @@ fn applyRawMode(term: *std.posix.termios) void {
 }
 
 fn killAndWaitChild(pid: std.posix.pid_t) void {
-    std.posix.kill(pid, std.posix.SIG.KILL) catch |err| {
+    if (comptime is_wasm) return;
+    std.posix.kill(pid, SIGT.KILL) catch |err| {
         // Child teardown is best-effort; waitpid below still reaps if the child already exited.
         _ = @errorName(err);
     };
@@ -2153,8 +2225,8 @@ fn readHandleLocked(handle: u64, buffer: []u8) !usize {
             return switch (resource.*) {
                 .file => |file| try file.read(buffer),
                 .tcp_stream => |stream| try lxRead(stream, buffer),
-                .owned_fd => |fd| try std.posix.read(fd.fd, buffer),
-                .terminal_session => |session| try std.posix.read(session.fd, buffer),
+                .owned_fd => |fd| if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported else try std.posix.read(fd.fd, buffer),
+                .terminal_session => |session| if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported else try std.posix.read(session.fd, buffer),
                 .buffer => |*buf| blk: {
                     const copy_len = @min(buffer.len, buf.bytes.len);
                     @memcpy(buffer[0..copy_len], buf.bytes[0..copy_len]);
@@ -2303,9 +2375,9 @@ const SpawnResult = struct {
 };
 
 fn statusFromWaitStatus(status: u32) u32 {
-    if (std.posix.W.IFEXITED(status)) return @as(u32, @intCast(std.posix.W.EXITSTATUS(status)));
-    if (std.posix.W.IFSIGNALED(status)) return 128 + @as(u32, @intFromEnum(std.posix.W.TERMSIG(status)));
-    if (std.posix.W.IFSTOPPED(status)) return 130;
+    if (WT.IFEXITED(status)) return @as(u32, @intCast(WT.EXITSTATUS(status)));
+    if (WT.IFSIGNALED(status)) return 128 + @as(u32, @intFromEnum(WT.TERMSIG(status)));
+    if (WT.IFSTOPPED(status)) return 130;
     return 127;
 }
 
@@ -2319,20 +2391,20 @@ fn waitStatusCode(raw: i32) u32 {
 
 fn waitStatusSignal(raw: i32) i32 {
     const status = rawWaitStatus(raw);
-    if (!std.posix.W.IFSIGNALED(status)) return -1;
-    return @as(i32, @bitCast(@intFromEnum(std.posix.W.TERMSIG(status))));
+    if (!WT.IFSIGNALED(status)) return -1;
+    return @as(i32, @bitCast(@intFromEnum(WT.TERMSIG(status))));
 }
 
 fn waitStatusCoreDumped(raw: i32) u8 {
     const status = rawWaitStatus(raw);
-    if (!std.posix.W.IFSIGNALED(status)) return 0;
+    if (!WT.IFSIGNALED(status)) return 0;
     return if ((status & 0x80) != 0) 1 else 0;
 }
 
 fn waitStatusStoppedSignal(raw: i32) i32 {
     const status = rawWaitStatus(raw);
-    if (!std.posix.W.IFSTOPPED(status)) return -1;
-    return @as(i32, @bitCast(@intFromEnum(std.posix.W.STOPSIG(status))));
+    if (!WT.IFSTOPPED(status)) return -1;
+    return @as(i32, @bitCast(@intFromEnum(WT.STOPSIG(status))));
 }
 
 fn waitStatusContinued(raw: i32) u8 {
@@ -2340,6 +2412,7 @@ fn waitStatusContinued(raw: i32) u8 {
 }
 
 fn waitProcessIgnoringMissing(pid: std.posix.pid_t) ?u32 {
+    if (comptime builtin.cpu.arch.isWasm()) return null;
     var status: i32 = 0;
     while (true) {
         const result = std.os.linux.wait4(pid, &status, 0, null);
@@ -2431,6 +2504,8 @@ fn errnoToSetupError(errno: std.posix.E) anyerror {
 }
 
 fn applyProcessCommandExtSetup(cwd: ?[]const u8, config: ProcessSpawnConfig, chroot_path_z: ?[*:0]const u8) !void {
+    // wasm32-wasi has no process spawn; stub (linux errno types mismatch wasi).
+    if (comptime is_wasm) return error.Unsupported;
     if (config.groups) |groups| {
         const groups_ptr: [*]const std.os.linux.gid_t = @ptrCast(groups.ptr);
         const rc = std.os.linux.setgroups(groups.len, groups_ptr);
@@ -2476,6 +2551,8 @@ fn finalizeProcessExit(proc: *ProcessHandle, status: u32) !void {
 }
 
 fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8, config: ProcessSpawnConfig) !SpawnResult {
+    // wasm32-wasi has no fork/exec/pipe2-CLOEXEC; stub.
+    if (comptime is_wasm) return error.Unsupported;
     if (argv.len == 0) return error.InvalidArgument;
     if (config.arg0) |arg0| {
         if (std.mem.indexOfScalar(u8, arg0, 0) != null) return error.InvalidArgument;
@@ -2681,12 +2758,16 @@ fn filePwriteAll(f: sio.File, buffer: []const u8, offset: u64) !void {
 }
 
 fn fileSeekBy(f: sio.File, offset: i64) !void {
-    const rc = std.os.linux.lseek(f.inner.handle, 0, std.posix.SEEK.CUR);
-    if (std.os.linux.errno(rc) != .SUCCESS) return error.Io;
-    const cur: i64 = @bitCast(@as(u64, @intCast(rc)));
-    const new_pos = cur + offset;
-    if (new_pos < 0) return error.InvalidArgument;
-    try f.seekTo(@as(u64, @intCast(new_pos)));
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return error.Unsupported;
+    } else {
+        const rc = std.os.linux.lseek(f.inner.handle, 0, std.posix.SEEK.CUR);
+        if (std.os.linux.errno(rc) != .SUCCESS) return error.Io;
+        const cur: i64 = @bitCast(@as(u64, @intCast(rc)));
+        const new_pos = cur + offset;
+        if (new_pos < 0) return error.InvalidArgument;
+        try f.seekTo(@as(u64, @intCast(new_pos)));
+    }
 }
 
 fn fileSeekFromEnd(f: sio.File, offset: i64) !void {
@@ -2697,9 +2778,13 @@ fn fileSeekFromEnd(f: sio.File, offset: i64) !void {
 }
 
 fn fileGetPos(f: sio.File) !u64 {
-    const rc = std.os.linux.lseek(f.inner.handle, 0, std.posix.SEEK.CUR);
-    if (std.os.linux.errno(rc) != .SUCCESS) return error.Io;
-    return @as(u64, @intCast(rc));
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return error.Unsupported;
+    } else {
+        const rc = std.os.linux.lseek(f.inner.handle, 0, std.posix.SEEK.CUR);
+        if (std.os.linux.errno(rc) != .SUCCESS) return error.Io;
+        return @as(u64, @intCast(rc));
+    }
 }
 
 fn fileSetEndPos(f: sio.File, new_size: u64) !void {
@@ -2712,6 +2797,7 @@ fn fileSetEndPos(f: sio.File, new_size: u64) !void {
 // Verified against /opt/zig/.../lib/std/os/linux.zig + Io/net.zig via probes.
 // ---------------------------------------------------------------------------
 fn lxErr(e: std.os.linux.E) anyerror {
+    if (comptime is_wasm) return;
     return switch (e) {
         .SUCCESS => unreachable,
         .INTR => error.Interrupted,
@@ -2756,170 +2842,208 @@ fn lxErr(e: std.os.linux.E) anyerror {
 }
 
 fn lxCheck(rc: usize) !usize {
+    if (comptime is_wasm) return error.Unsupported;
     const e = std.os.linux.errno(rc);
     if (e != .SUCCESS) return lxErr(e);
     return rc;
 }
 
 fn lxClose(fd: std.posix.fd_t) void {
+    if (comptime is_wasm) return;
     _ = std.os.linux.close(fd);
 }
 
 fn lxWrite(fd: std.posix.fd_t, bytes: []const u8) !usize {
+    if (comptime is_wasm) return error.Unsupported;
     if (bytes.len == 0) return 0;
     return try lxCheck(std.os.linux.write(fd, bytes.ptr, bytes.len));
 }
 
 fn lxRead(fd: std.posix.fd_t, buf: []u8) !usize {
+    if (comptime is_wasm) return error.Unsupported;
     if (buf.len == 0) return 0;
     return try lxCheck(std.os.linux.read(fd, buf.ptr, buf.len));
 }
 
 fn lxReadv(fd: std.posix.fd_t, iov: []std.posix.iovec) !usize {
+    if (comptime is_wasm) return error.Unsupported;
     return try lxCheck(std.os.linux.readv(fd, iov.ptr, iov.len));
 }
 
 fn lxWritev(fd: std.posix.fd_t, iov: []const std.posix.iovec_const) !usize {
+    if (comptime is_wasm) return error.Unsupported;
     return try lxCheck(std.os.linux.writev(fd, iov.ptr, iov.len));
 }
 
 fn lxSocket(domain: u32, sock_type: u32, protocol: u32) !std.posix.fd_t {
+    if (comptime is_wasm) return error.Unsupported;
     const rc = try lxCheck(std.os.linux.socket(domain, sock_type, protocol));
     return @as(std.posix.fd_t, @bitCast(@as(u32, @truncate(rc))));
 }
 
-fn lxBind(fd: std.posix.fd_t, addr: *const std.posix.sockaddr, len: std.posix.socklen_t) !void {
+fn lxBind(fd: std.posix.fd_t, addr: *const SockAddrT, len: SockLenT) !void {
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.bind(fd, addr, len));
 }
 
 fn lxListen(fd: std.posix.fd_t, backlog: u32) !void {
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.listen(fd, backlog));
 }
 
-fn lxAccept(fd: std.posix.fd_t, addr: ?*std.posix.sockaddr, len: ?*std.posix.socklen_t, flags: u32) !std.posix.fd_t {
+fn lxAccept(fd: std.posix.fd_t, addr: ?*SockAddrT, len: ?*SockLenT, flags: u32) !std.posix.fd_t {
+    if (comptime is_wasm) return error.Unsupported;
     const rc = try lxCheck(std.os.linux.accept4(fd, addr, len, flags));
     return @as(std.posix.fd_t, @bitCast(@as(u32, @truncate(rc))));
 }
 
-fn lxConnect(fd: std.posix.fd_t, addr: *const std.posix.sockaddr, len: std.posix.socklen_t) !void {
+fn lxConnect(fd: std.posix.fd_t, addr: *const SockAddrT, len: SockLenT) !void {
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.connect(fd, @ptrCast(addr), len));
 }
 
 fn lxShutdown(fd: std.posix.fd_t, how: i32) !void {
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.shutdown(fd, how));
 }
 
 fn lxSend(fd: std.posix.fd_t, bytes: []const u8, flags: u32) !usize {
+    if (comptime is_wasm) return error.Unsupported;
     if (bytes.len == 0) return 0;
     return try lxCheck(std.os.linux.sendto(fd, bytes.ptr, bytes.len, flags, null, 0));
 }
 
 fn lxRecv(fd: std.posix.fd_t, buf: []u8, flags: u32) !usize {
+    if (comptime is_wasm) return error.Unsupported;
     if (buf.len == 0) return 0;
     return try lxCheck(std.os.linux.recvfrom(fd, buf.ptr, buf.len, flags, null, null));
 }
 
-fn lxSendto(fd: std.posix.fd_t, bytes: []const u8, flags: u32, addr: ?*const std.posix.sockaddr, len: std.posix.socklen_t) !usize {
+fn lxSendto(fd: std.posix.fd_t, bytes: []const u8, flags: u32, addr: ?*const SockAddrT, len: SockLenT) !usize {
+    if (comptime is_wasm) return error.Unsupported;
     if (bytes.len == 0) return 0;
     return try lxCheck(std.os.linux.sendto(fd, bytes.ptr, bytes.len, flags, addr, len));
 }
 
-fn lxRecvfrom(fd: std.posix.fd_t, buf: []u8, flags: u32, addr: ?*std.posix.sockaddr, len: ?*std.posix.socklen_t) !usize {
+fn lxRecvfrom(fd: std.posix.fd_t, buf: []u8, flags: u32, addr: ?*SockAddrT, len: ?*SockLenT) !usize {
+    if (comptime is_wasm) return error.Unsupported;
     if (buf.len == 0) return 0;
     return try lxCheck(std.os.linux.recvfrom(fd, buf.ptr, buf.len, flags, addr, len));
 }
 
-fn lxSendmsg(fd: std.posix.fd_t, msg: *const std.posix.msghdr_const, flags: u32) !usize {
+fn lxSendmsg(fd: std.posix.fd_t, msg: *const MsghdrConstT, flags: u32) !usize {
+    if (comptime is_wasm) return error.Unsupported;
     return try lxCheck(std.os.linux.sendmsg(fd, msg, flags));
 }
 
 fn lxDup(old: std.posix.fd_t) !std.posix.fd_t {
+    if (comptime is_wasm) return error.Unsupported;
     const rc = try lxCheck(std.os.linux.dup(old));
     return @as(std.posix.fd_t, @bitCast(@as(u32, @truncate(rc))));
 }
 
 fn lxDup2(old: std.posix.fd_t, new: std.posix.fd_t) !void {
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.dup2(old, new));
 }
 
 fn lxFork() !std.posix.pid_t {
+    if (comptime is_wasm) return error.Unsupported;
     const rc = try lxCheck(std.os.linux.fork());
     return @as(std.posix.pid_t, @bitCast(@as(u32, @truncate(rc))));
 }
 
 fn lxPipe2(flags: std.posix.O) ![2]std.posix.fd_t {
+    if (comptime is_wasm) return error.Unsupported;
     var fds: [2]std.posix.fd_t = undefined;
     _ = try lxCheck(std.os.linux.pipe2(&fds, flags));
     return fds;
 }
 
 fn lxChdir(path: []const u8) !void {
+    if (comptime is_wasm) return error.Unsupported;
     const z = try std.posix.toPosixPath(path);
     _ = try lxCheck(std.os.linux.chdir(&z));
 }
 
 fn lxSetgid(gid: std.posix.gid_t) !void {
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.setgid(gid));
 }
 
 fn lxSetuid(uid: std.posix.uid_t) !void {
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.setuid(uid));
 }
 
 fn lxSetpgid(pid: std.posix.pid_t, pgid: std.posix.pid_t) !void {
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.setpgid(pid, pgid));
 }
 
 fn lxFcntl(fd: std.posix.fd_t, cmd: i32, arg: usize) !usize {
+    if (comptime is_wasm) return error.Unsupported;
     return try lxCheck(std.os.linux.fcntl(fd, cmd, arg));
 }
 
 fn lxIsatty(fd: std.posix.fd_t) bool {
+    if (comptime is_wasm) return false;
     _ = std.posix.tcgetattr(fd) catch return false;
     return true;
 }
 
 fn lxUnlink(path: []const u8) !void {
+    if (comptime is_wasm) return error.Unsupported;
     const z = try std.posix.toPosixPath(path);
     _ = try lxCheck(std.os.linux.unlink(&z));
 }
 
 fn lxMkdirat(dirfd: std.posix.fd_t, path: []const u8, mode: std.posix.mode_t) !void {
+    if (comptime is_wasm) return error.Unsupported;
     const z = try std.posix.toPosixPath(path);
     _ = try lxCheck(std.os.linux.mkdirat(dirfd, &z, mode));
 }
 
 fn lxFchmodat(dirfd: std.posix.fd_t, path: []const u8, mode: std.posix.mode_t) !void {
+    if (comptime is_wasm) return error.Unsupported;
     const z = try std.posix.toPosixPath(path);
     _ = try lxCheck(std.os.linux.fchmodat(dirfd, &z, mode));
 }
 
 fn lxLink(old: []const u8, new: []const u8) !void {
+    if (comptime is_wasm) return error.Unsupported;
     const old_z = try std.posix.toPosixPath(old);
     const new_z = try std.posix.toPosixPath(new);
     _ = try lxCheck(std.os.linux.link(&old_z, &new_z));
 }
 
 fn lxFutimens(fd: std.posix.fd_t, times: *const [2]std.posix.timespec) !void {
+    if (comptime is_wasm) return error.Unsupported;
+    // wasm32-wasi: linux.timespec vs wasi timespec mismatch; stub for stage1.
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.futimens(fd, times));
 }
 
 fn lxKill(pid: std.posix.pid_t, sig: u8) !void {
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.kill(pid, @enumFromInt(sig)));
 }
 
-fn lxGetsockname(fd: std.posix.fd_t, addr: *std.posix.sockaddr, len: *std.posix.socklen_t) !void {
+fn lxGetsockname(fd: std.posix.fd_t, addr: *SockAddrT, len: *SockLenT) !void {
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.getsockname(fd, addr, len));
 }
 
-fn lxGetpeername(fd: std.posix.fd_t, addr: *std.posix.sockaddr, len: *std.posix.socklen_t) !void {
+fn lxGetpeername(fd: std.posix.fd_t, addr: *SockAddrT, len: *SockLenT) !void {
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.getpeername(fd, addr, len));
 }
 
 fn lxGetsockoptError(fd: std.posix.fd_t) !void {
+    if (comptime is_wasm) return error.Unsupported;
     var value: i32 = 0;
-    var len: std.posix.socklen_t = @sizeOf(i32);
-    _ = try lxCheck(std.os.linux.getsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.ERROR, @ptrCast(&value), &len));
+    var len: SockLenT = @sizeOf(i32);
+    _ = try lxCheck(std.os.linux.getsockopt(fd, SOLT.SOCKET, SOT.ERROR, @ptrCast(&value), &len));
     if (value != 0) {
         const e: std.os.linux.E = @enumFromInt(value);
         return lxErr(e);
@@ -2927,15 +3051,18 @@ fn lxGetsockoptError(fd: std.posix.fd_t) !void {
 }
 
 fn lxEpollCreate1(flags: u32) !std.posix.fd_t {
+    if (comptime is_wasm) return error.Unsupported;
     const rc = try lxCheck(std.os.linux.epoll_create1(flags));
     return @as(std.posix.fd_t, @bitCast(@as(u32, @truncate(rc))));
 }
 
 fn lxEpollCtl(epfd: std.posix.fd_t, op: u32, fd: std.posix.fd_t, event: ?*std.os.linux.epoll_event) !void {
+    if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.epoll_ctl(epfd, op, fd, event));
 }
 
 fn lxEpollWait(epfd: std.posix.fd_t, events: []std.os.linux.epoll_event, timeout_ms: i32) usize {
+    if (comptime is_wasm) return;
     const rc = std.os.linux.epoll_wait(epfd, events.ptr, @as(u32, @intCast(events.len)), timeout_ms);
     if (std.os.linux.errno(rc) != .SUCCESS) return 0;
     return rc;
@@ -2947,6 +3074,7 @@ const LxWaitResult = struct {
 };
 
 fn lxWaitpid(pid: std.posix.pid_t, flags: u32) LxWaitResult {
+    if (comptime is_wasm) return;
     var status: i32 = 0;
     while (true) {
         const rc = std.os.linux.waitpid(pid, &status, flags);
@@ -2959,6 +3087,7 @@ fn lxWaitpid(pid: std.posix.pid_t, flags: u32) LxWaitResult {
 
 /// Old std.posix.execvpeZ: exec with PATH search. Reimplemented on execve.
 fn lxExecvpeZ(file: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) anyerror {
+    if (comptime is_wasm) return;
     if (std.mem.indexOfScalar(u8, std.mem.span(file), '/') != null) {
         const rc = std.os.linux.execve(file, argv, envp);
         return lxErr(std.os.linux.errno(rc));
@@ -2991,29 +3120,29 @@ fn lxExecvpeZ(file: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:
 // Raw sockaddr storage + constructors; DNS via std.Io.net.
 // ---------------------------------------------------------------------------
 const NetAddress = struct {
-    storage: std.posix.sockaddr.storage = .{ .family = 0 },
-    len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage),
+    storage: SockAddrStorageT = .{ .family = 0 },
+    len: SockLenT = @sizeOf(SockAddrStorageT),
 
-    pub fn sockAddr(self: *const NetAddress) *const std.posix.sockaddr {
+    pub fn sockAddr(self: *const NetAddress) *const SockAddrT {
         return @ptrCast(&self.storage);
     }
 
-    pub fn sockAddrMut(self: *NetAddress) *std.posix.sockaddr {
+    pub fn sockAddrMut(self: *NetAddress) *SockAddrT {
         return @ptrCast(&self.storage);
     }
 
-    pub fn getOsSockLen(self: NetAddress) std.posix.socklen_t {
+    pub fn getOsSockLen(self: NetAddress) SockLenT {
         return self.len;
     }
 
     pub fn getPort(self: NetAddress) u16 {
         return switch (self.storage.family) {
-            std.posix.AF.INET => blk: {
-                const sin: *const std.posix.sockaddr.in = @ptrCast(&self.storage);
+            AFT.INET => blk: {
+                const sin: *const SockAddrInT = @ptrCast(@alignCast(&self.storage));
                 break :blk std.mem.bigToNative(u16, sin.port);
             },
-            std.posix.AF.INET6 => blk: {
-                const sin6: *const std.posix.sockaddr.in6 = @ptrCast(&self.storage);
+            AFT.INET6 => blk: {
+                const sin6: *const SockAddrIn6T = @ptrCast(@alignCast(&self.storage));
                 break :blk std.mem.bigToNative(u16, sin6.port);
             },
             else => 0,
@@ -3021,36 +3150,36 @@ const NetAddress = struct {
     }
 
     pub fn initIp4(parts: [4]u8, port: u16) NetAddress {
-        const sin = std.posix.sockaddr.in{
+        const sin = SockAddrInT{
             .port = std.mem.nativeToBig(u16, port),
             .addr = @bitCast(parts),
         };
-        var a = NetAddress{ .len = @sizeOf(std.posix.sockaddr.in) };
-        @memcpy(std.mem.asBytes(&a.storage)[0..@sizeOf(std.posix.sockaddr.in)], std.mem.asBytes(&sin));
+        var a = NetAddress{ .len = @sizeOf(SockAddrInT) };
+        @memcpy(std.mem.asBytes(&a.storage)[0..@sizeOf(SockAddrInT)], std.mem.asBytes(&sin));
         return a;
     }
 
     pub fn initIp6(bytes: [16]u8, port: u16, flowinfo: u32, scope_id: u32) NetAddress {
-        const sin6 = std.posix.sockaddr.in6{
+        const sin6 = SockAddrIn6T{
             .port = std.mem.nativeToBig(u16, port),
             .flowinfo = flowinfo,
             .addr = bytes,
             .scope_id = scope_id,
         };
-        var a = NetAddress{ .len = @sizeOf(std.posix.sockaddr.in6) };
-        @memcpy(std.mem.asBytes(&a.storage)[0..@sizeOf(std.posix.sockaddr.in6)], std.mem.asBytes(&sin6));
+        var a = NetAddress{ .len = @sizeOf(SockAddrIn6T) };
+        @memcpy(std.mem.asBytes(&a.storage)[0..@sizeOf(SockAddrIn6T)], std.mem.asBytes(&sin6));
         return a;
     }
 
     pub fn initUnix(path: []const u8) !NetAddress {
-        const off = @offsetOf(std.posix.sockaddr.un, "path");
-        if (off + path.len + 1 > @sizeOf(std.posix.sockaddr.un)) return error.NameTooLong;
-        var sun: std.posix.sockaddr.un = .{ .family = std.posix.AF.UNIX, .path = undefined };
+        const off = @offsetOf(SockAddrUnT, "path");
+        if (off + path.len + 1 > @sizeOf(SockAddrUnT)) return error.NameTooLong;
+        var sun: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
         @memcpy(sun.path[0..path.len], path);
         sun.path[path.len] = 0;
-        var a = NetAddress{ .len = @as(std.posix.socklen_t, @intCast(off + path.len + 1)) };
+        var a = NetAddress{ .len = @as(SockLenT, @intCast(off + path.len + 1)) };
         @memset(std.mem.asBytes(&a.storage), 0);
-        @memcpy(std.mem.asBytes(&a.storage)[0..@sizeOf(std.posix.sockaddr.un)], std.mem.asBytes(&sun));
+        @memcpy(std.mem.asBytes(&a.storage)[0..@sizeOf(SockAddrUnT)], std.mem.asBytes(&sun));
         return a;
     }
 
@@ -3072,29 +3201,29 @@ const NetAddress = struct {
     }
 
     pub fn unixPath(self: *const NetAddress) []const u8 {
-        const sun: *const std.posix.sockaddr.un = @ptrCast(&self.storage);
+        const sun: *const SockAddrUnT = @ptrCast(&self.storage);
         return std.mem.sliceTo(&sun.path, 0);
     }
 
-    pub fn fromUnixSockaddr(sun: std.posix.sockaddr.un, len: std.posix.socklen_t) NetAddress {
+    pub fn fromUnixSockaddr(sun: SockAddrUnT, len: SockLenT) NetAddress {
         var a = NetAddress{ .len = len };
         @memset(std.mem.asBytes(&a.storage), 0);
-        @memcpy(std.mem.asBytes(&a.storage)[0..@sizeOf(std.posix.sockaddr.un)], std.mem.asBytes(&sun));
+        @memcpy(std.mem.asBytes(&a.storage)[0..@sizeOf(SockAddrUnT)], std.mem.asBytes(&sun));
         return a;
     }
 
     pub fn in6ScopeId(self: *const NetAddress) u32 {
-        const sin6: *const std.posix.sockaddr.in6 = @ptrCast(&self.storage);
+        const sin6: *const SockAddrIn6T = @ptrCast(@alignCast(&self.storage));
         return sin6.scope_id;
     }
 
     pub fn in4AddrU32(self: *const NetAddress) u32 {
-        const sin: *const std.posix.sockaddr.in = @ptrCast(&self.storage);
+        const sin: *const SockAddrInT = @ptrCast(@alignCast(&self.storage));
         return sin.addr;
     }
 
     pub fn in6AddrBytes(self: *const NetAddress) [16]u8 {
-        const sin6: *const std.posix.sockaddr.in6 = @ptrCast(&self.storage);
+        const sin6: *const SockAddrIn6T = @ptrCast(@alignCast(&self.storage));
         return sin6.addr;
     }
 };
@@ -3148,6 +3277,7 @@ fn netGetAddressList(allocator: std.mem.Allocator, host: []const u8, port: u16) 
 // old std.fs.File.Stat.fromPosix removed).
 // ---------------------------------------------------------------------------
 fn lxStatxNoFollow(path: []const u8) !std.os.linux.Statx {
+    if (comptime is_wasm) return error.Unsupported;
     const z = try std.posix.toPosixPath(path);
     var stx: std.os.linux.Statx = undefined;
     _ = try lxCheck(std.os.linux.statx(std.posix.AT.FDCWD, &z, 0x100, std.os.linux.STATX.BASIC_STATS, &stx));
@@ -5491,6 +5621,8 @@ pub export fn sa_std_net_error_code_from_native_error(native_error: i32) i32 {
 
 pub export fn sa_std_net_hostname(out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
     _ = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    // wasm32-wasi: no HOST_NAME_MAX / gethostname; stub as unsupported.
+    if (comptime builtin.cpu.arch.isWasm()) return finish(SA_STD_ERR_UNSUPPORTED);
     var buffer: [std.posix.HOST_NAME_MAX]u8 = undefined;
     const name = std.posix.gethostname(&buffer) catch |err| return finishErr(err);
     return writeFormattedInto(out, out_cap, out_len, name);
@@ -7788,6 +7920,8 @@ pub fn dlclose(handle: ?[*]u8) callconv(.c) i32 {
 pub export fn sa_dl_open(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
+    // wasm32-wasi has no dlopen; comptime guard keeps std.DynLib refs out of wasm build.
+    if (comptime builtin.cpu.arch.isWasm()) return finish(SA_STD_ERR_UNSUPPORTED);
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
 
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
@@ -7823,6 +7957,7 @@ pub export fn sa_dl_open(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u6
 pub export fn sa_dl_sym(handle: u64, symbol_ptr: ?[*]const u8, symbol_len: u64, out_ptr: ?*?*anyopaque) i32 {
     const result_ptr = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result_ptr.* = null;
+    if (comptime builtin.cpu.arch.isWasm()) return finish(SA_STD_ERR_UNSUPPORTED);
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
 
     const symbol = pathBytes(symbol_ptr, symbol_len) catch |err| return finishErr(err);
@@ -7952,6 +8087,7 @@ pub export fn sa_std_fs_len(path_ptr: ?[*]const u8, path_len: u64, out_len: ?*u6
 }
 
 pub export fn sa_std_process_run(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -7962,6 +8098,7 @@ pub export fn sa_std_process_run(argv_ptr: ?[*]const SaProcessArgv, argv_len: u6
 }
 
 pub export fn sa_std_process_run_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -7973,6 +8110,7 @@ pub export fn sa_std_process_run_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len
 }
 
 pub export fn sa_std_process_spawn(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -7983,6 +8121,7 @@ pub export fn sa_std_process_spawn(argv_ptr: ?[*]const SaProcessArgv, argv_len: 
 }
 
 pub export fn sa_std_process_spawn_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -7994,6 +8133,7 @@ pub export fn sa_std_process_spawn_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_l
 }
 
 pub export fn sa_std_process_spawn_stream(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -8010,6 +8150,7 @@ pub export fn sa_std_process_spawn_stream(argv_ptr: ?[*]const SaProcessArgv, arg
 }
 
 pub export fn sa_std_process_spawn_stream_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -8041,6 +8182,7 @@ fn processCommandExtConfig(arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32,
 }
 
 pub export fn sa_std_process_run_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -8053,6 +8195,7 @@ pub export fn sa_std_process_run_command_ext(argv_ptr: ?[*]const SaProcessArgv, 
 }
 
 pub export fn sa_std_process_spawn_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -8065,6 +8208,7 @@ pub export fn sa_std_process_spawn_command_ext(argv_ptr: ?[*]const SaProcessArgv
 }
 
 pub export fn sa_std_process_spawn_stream_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -8083,6 +8227,7 @@ pub export fn sa_std_process_spawn_stream_command_ext(argv_ptr: ?[*]const SaProc
 }
 
 pub export fn sa_std_process_run_command_ext_pidfd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -8095,6 +8240,7 @@ pub export fn sa_std_process_run_command_ext_pidfd(argv_ptr: ?[*]const SaProcess
 }
 
 pub export fn sa_std_process_spawn_command_ext_pidfd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -8107,6 +8253,7 @@ pub export fn sa_std_process_spawn_command_ext_pidfd(argv_ptr: ?[*]const SaProce
 }
 
 pub export fn sa_std_process_spawn_stream_command_ext_pidfd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -8125,6 +8272,7 @@ pub export fn sa_std_process_spawn_stream_command_ext_pidfd(argv_ptr: ?[*]const 
 }
 
 pub export fn sa_std_process_run_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -8137,6 +8285,7 @@ pub export fn sa_std_process_run_command_ext_uid_gid(argv_ptr: ?[*]const SaProce
 }
 
 pub export fn sa_std_process_spawn_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -8149,6 +8298,7 @@ pub export fn sa_std_process_spawn_command_ext_uid_gid(argv_ptr: ?[*]const SaPro
 }
 
 pub export fn sa_std_process_spawn_stream_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -8167,6 +8317,7 @@ pub export fn sa_std_process_spawn_stream_command_ext_uid_gid(argv_ptr: ?[*]cons
 }
 
 pub export fn sa_std_process_run_command_ext_groups(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -8179,6 +8330,7 @@ pub export fn sa_std_process_run_command_ext_groups(argv_ptr: ?[*]const SaProces
 }
 
 pub export fn sa_std_process_spawn_command_ext_groups(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -8191,6 +8343,7 @@ pub export fn sa_std_process_spawn_command_ext_groups(argv_ptr: ?[*]const SaProc
 }
 
 pub export fn sa_std_process_spawn_stream_command_ext_groups(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -8209,6 +8362,7 @@ pub export fn sa_std_process_spawn_stream_command_ext_groups(argv_ptr: ?[*]const
 }
 
 pub export fn sa_std_process_run_command_ext_chroot(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -8221,6 +8375,7 @@ pub export fn sa_std_process_run_command_ext_chroot(argv_ptr: ?[*]const SaProces
 }
 
 pub export fn sa_std_process_spawn_command_ext_chroot(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
@@ -8233,6 +8388,7 @@ pub export fn sa_std_process_spawn_command_ext_chroot(argv_ptr: ?[*]const SaProc
 }
 
 pub export fn sa_std_process_spawn_stream_command_ext_chroot(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -8251,6 +8407,7 @@ pub export fn sa_std_process_spawn_stream_command_ext_chroot(argv_ptr: ?[*]const
 }
 
 pub export fn sa_std_process_exec_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
     defer std.heap.page_allocator.free(argv);
     if (argv.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -8280,26 +8437,32 @@ pub export fn sa_std_process_exec_command_ext(argv_ptr: ?[*]const SaProcessArgv,
 }
 
 pub export fn sa_std_process_id() u32 {
+    if (comptime is_wasm) return 0;
     return @intCast(getpid());
 }
 
 pub export fn sa_std_process_parent_id() u32 {
+    if (comptime is_wasm) return 0;
     return @intCast(getppid());
 }
 
 pub export fn sa_std_process_user_id() u32 {
+    if (comptime is_wasm) return 0;
     return @intCast(std.os.linux.getuid());
 }
 
 pub export fn sa_std_process_group_id() u32 {
+    if (comptime is_wasm) return 0;
     return @intCast(std.os.linux.getgid());
 }
 
 pub export fn sa_std_process_abort() noreturn {
+    if (comptime is_wasm) std.process.abort();
     std.process.abort();
 }
 
 pub export fn sa_std_process_child_id(handle: u64, out_pid: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const pid_ptr = out_pid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     pid_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -8315,6 +8478,7 @@ pub export fn sa_std_process_child_id(handle: u64, out_pid: ?*u32) i32 {
 }
 
 pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     code_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -8339,6 +8503,7 @@ pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
 }
 
 pub export fn sa_std_process_wait_raw(handle: u64, out_raw: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     raw_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -8363,6 +8528,7 @@ pub export fn sa_std_process_wait_raw(handle: u64, out_raw: ?*i32) i32 {
 }
 
 pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     ready_ptr.* = 0;
@@ -8378,7 +8544,7 @@ pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?
                     if (raw_status == null) return finish(SA_STD_OK);
                     finalizeProcessExit(proc, raw_status.?) catch |err| return finishErr(err);
                 } else {
-                    const waited = lxWaitpid(proc.pid, std.posix.W.NOHANG);
+                    const waited = lxWaitpid(proc.pid, WT.NOHANG);
                     if (waited.pid == 0) return finish(SA_STD_OK);
                     finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
                 }
@@ -8392,6 +8558,7 @@ pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?
 }
 
 pub export fn sa_std_process_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     ready_ptr.* = 0;
@@ -8407,7 +8574,7 @@ pub export fn sa_std_process_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw
                     if (raw_status == null) return finish(SA_STD_OK);
                     finalizeProcessExit(proc, raw_status.?) catch |err| return finishErr(err);
                 } else {
-                    const waited = lxWaitpid(proc.pid, std.posix.W.NOHANG);
+                    const waited = lxWaitpid(proc.pid, WT.NOHANG);
                     if (waited.pid == 0) return finish(SA_STD_OK);
                     finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
                 }
@@ -8421,6 +8588,7 @@ pub export fn sa_std_process_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw
 }
 
 pub export fn sa_std_process_kill(handle: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -8428,14 +8596,14 @@ pub export fn sa_std_process_kill(handle: u64) i32 {
         .process => |*proc| {
             if (!proc.exited) {
                 if (proc.pidfd) |fd| {
-                    sendSignalToPidfd(fd, @intFromEnum(std.posix.SIG.KILL), 0) catch |err| switch (err) {
+                    sendSignalToPidfd(fd, @intFromEnum(SIGT.KILL), 0) catch |err| switch (err) {
                         error.ProcessNotFound => {},
                         else => return finishErr(err),
                     };
                     const raw_status = waitPidfdStatus(fd, w_exited) catch |err| return finishErr(err);
                     finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
                 } else {
-                    std.posix.kill(proc.pid, std.posix.SIG.KILL) catch |err| switch (err) {
+                    std.posix.kill(proc.pid, SIGT.KILL) catch |err| switch (err) {
                         error.ProcessNotFound => {},
                         else => return finishErr(err),
                     };
@@ -8450,6 +8618,7 @@ pub export fn sa_std_process_kill(handle: u64) i32 {
 }
 
 pub export fn sa_std_process_send_signal(handle: u64, signum: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     if (signum < 0 or signum > std.math.maxInt(u8)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
@@ -8479,6 +8648,7 @@ pub export fn sa_std_process_send_signal(handle: u64, signum: i32) i32 {
 }
 
 pub export fn sa_std_process_send_process_group_signal(handle: u64, signum: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     if (signum < 0 or signum > 64) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
@@ -8500,10 +8670,12 @@ pub export fn sa_std_process_send_process_group_signal(handle: u64, signum: i32)
 }
 
 pub export fn sa_std_process_kill_process_group(handle: u64) i32 {
-    return sa_std_process_send_process_group_signal(handle, @intFromEnum(std.posix.SIG.KILL));
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    return sa_std_process_send_process_group_signal(handle, @intFromEnum(SIGT.KILL));
 }
 
 pub export fn sa_std_process_pidfd(handle: u64, out_pidfd: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const pidfd_ptr = out_pidfd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     pidfd_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -8525,6 +8697,7 @@ pub export fn sa_std_process_pidfd(handle: u64, out_pidfd: ?*u64) i32 {
 }
 
 pub export fn sa_std_process_into_pidfd(handle: u64, out_pidfd: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const pidfd_ptr = out_pidfd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     pidfd_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -8546,12 +8719,13 @@ pub export fn sa_std_process_into_pidfd(handle: u64, out_pidfd: ?*u64) i32 {
 }
 
 pub export fn sa_std_pidfd_kill(handle: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     return switch (resource.*) {
         .owned_fd => |fd| {
-            sendSignalToPidfd(fd.fd, @intFromEnum(std.posix.SIG.KILL), 0) catch |err| switch (err) {
+            sendSignalToPidfd(fd.fd, @intFromEnum(SIGT.KILL), 0) catch |err| switch (err) {
                 error.InvalidArgument => return finish(SA_STD_ERR_INVALID_ARGUMENT),
                 error.PermissionDenied => return finish(SA_STD_ERR_ACCESS),
                 error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
@@ -8564,6 +8738,7 @@ pub export fn sa_std_pidfd_kill(handle: u64) i32 {
 }
 
 pub export fn sa_std_pidfd_send_signal(handle: u64, signum: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     if (signum < 0 or signum > std.math.maxInt(u8)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
@@ -8583,6 +8758,7 @@ pub export fn sa_std_pidfd_send_signal(handle: u64, signum: i32) i32 {
 }
 
 pub export fn sa_std_pidfd_wait_raw(handle: u64, out_raw: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     raw_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -8602,6 +8778,7 @@ pub export fn sa_std_pidfd_wait_raw(handle: u64, out_raw: ?*i32) i32 {
 }
 
 pub export fn sa_std_pidfd_wait(handle: u64, out_code: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     code_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -8621,6 +8798,7 @@ pub export fn sa_std_pidfd_wait(handle: u64, out_code: ?*u32) i32 {
 }
 
 pub export fn sa_std_pidfd_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     ready_ptr.* = 0;
@@ -8644,6 +8822,7 @@ pub export fn sa_std_pidfd_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw: 
 }
 
 pub export fn sa_std_pidfd_try_wait(handle: u64, out_ready: ?*i32, out_code: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     ready_ptr.* = 0;
@@ -8667,22 +8846,27 @@ pub export fn sa_std_pidfd_try_wait(handle: u64, out_ready: ?*i32, out_code: ?*u
 }
 
 pub export fn sa_std_process_exit_status_code(raw: i32) u32 {
+    if (comptime is_wasm) { return 127; }
     return waitStatusCode(raw);
 }
 
 pub export fn sa_std_process_exit_status_signal(raw: i32) i32 {
+    if (comptime is_wasm) { return -1; }
     return waitStatusSignal(raw);
 }
 
 pub export fn sa_std_process_exit_status_core_dumped(raw: i32) u8 {
+    if (comptime is_wasm) { return 0; }
     return waitStatusCoreDumped(raw);
 }
 
 pub export fn sa_std_process_exit_status_stopped_signal(raw: i32) i32 {
+    if (comptime is_wasm) { return -1; }
     return waitStatusStoppedSignal(raw);
 }
 
 pub export fn sa_std_process_exit_status_continued(raw: i32) u8 {
+    if (comptime is_wasm) { return 0; }
     return waitStatusContinued(raw);
 }
 
@@ -8718,14 +8902,17 @@ fn readProcessOutput(handle: u64, stream: ProcessOutputStream, out: ?[*]u8, out_
 }
 
 pub export fn sa_std_process_read_stdout(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return readProcessOutput(handle, .stdout, out, out_cap, out_read);
 }
 
 pub export fn sa_std_process_read_stderr(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return readProcessOutput(handle, .stderr, out, out_cap, out_read);
 }
 
 pub export fn sa_std_process_exec_capture(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_code: ?*u32, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -8764,6 +8951,7 @@ pub export fn sa_std_process_exec_capture(argv_ptr: ?[*]const SaProcessArgv, arg
 }
 
 pub export fn sa_std_process_exec_capture_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_code: ?*u32, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -8802,6 +8990,7 @@ pub export fn sa_std_process_exec_capture_cwd(argv_ptr: ?[*]const SaProcessArgv,
 }
 
 pub export fn sa_std_process_close(handle: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_close(handle);
 }
 
@@ -9600,6 +9789,7 @@ fn metadataModeMatches(handle: u64, mode_bits: u64) u8 {
 }
 
 fn mkdirPathWithMode(path: []const u8, mode: std.posix.mode_t) !void {
+    if (comptime is_wasm) return error.Unsupported;
     if (path.len == 0) return error.BadPathName;
 
     var index: usize = if (path[0] == '/') 1 else 0;
@@ -10248,6 +10438,7 @@ pub export fn sa_std_fs_read_link(path_ptr: ?[*]const u8, path_len: u64, out_han
 }
 
 pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32) Fallible(u64) {
+    if (comptime is_wasm) return fail(u64, SA_STD_ERR_UNSUPPORTED);
     var handle: u64 = 0;
     const status = sa_std_net_tcp_connect(host_ptr, host_len, port, &handle);
     if (status != SA_STD_OK) return fail(u64, status);
@@ -10330,10 +10521,12 @@ pub export fn sa_std_net_to_socket_addr_first(host_ptr: ?[*]const u8, host_len: 
 }
 
 pub export fn sa_std_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_read(stream, out, cap, out_read);
 }
 
 pub export fn sa_std_net_tcp_stream_read_vectored(stream: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_read: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     read_ptr.* = 0;
     if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -10363,6 +10556,7 @@ pub export fn sa_std_net_tcp_stream_read_vectored(stream: u64, iovs: [*]const sa
 }
 
 pub export fn sa_std_net_tcp_stream_write_vectored(stream: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_written: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     written_ptr.* = 0;
     if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -10391,12 +10585,14 @@ pub export fn sa_std_net_tcp_stream_write_vectored(stream: u64, iovs: [*]const s
     return finish(SA_STD_OK);
 }
 pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) Fallible(u64) {
+    if (comptime is_wasm) return fail(u64, SA_STD_ERR_UNSUPPORTED);
     var read: u64 = 0;
     const status = sa_std_net_tcp_stream_read(stream, out, cap, &read);
     if (status != SA_STD_OK) return fail(u64, status);
     return ok(u64, read);
 }
 pub export fn sa_std_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     read_ptr.* = 0;
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
@@ -10422,31 +10618,38 @@ pub export fn sa_std_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64, out
     return finish(SA_STD_OK);
 }
 pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var read: u64 = 0;
     const status = sa_std_net_tcp_stream_peek(stream, out, cap, &read);
     if (status != SA_STD_OK) return status;
     return finish(@as(i32, @intCast(read)));
 }
 pub export fn sa_std_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_write(stream, out, len, out_written);
 }
 pub export fn sa_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var written: u64 = 0;
     const status = sa_std_net_tcp_stream_write(stream, out, len, &written);
     if (status != SA_STD_OK) return status;
     return finish(@as(i32, @intCast(written)));
 }
 pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u64) Fallible(i32) {
+    if (comptime is_wasm) return fail(i32, SA_STD_ERR_UNSUPPORTED);
     const status = sa_io_write_all(stream, out, len);
     if (status != SA_STD_OK) return fail(i32, status);
     return ok(i32, 0);
 }
 pub export fn sa_net_tcp_stream_read_exact(stream: u64, out: ?[*]u8, len: u64) Fallible(i32) {
+    if (comptime is_wasm) return fail(i32, SA_STD_ERR_UNSUPPORTED);
     var remaining: u64 = len;
     var cursor: u64 = 0;
     while (remaining != 0) {
         var chunk: u64 = 0;
-        const status = sa_std_net_tcp_stream_read(stream, if (out) |p| p + cursor else null, remaining, &chunk);
+        // wasm32-wasi: pointer arithmetic needs usize offset; checked cast.
+        const cursor_usize = std.math.cast(usize, cursor) orelse return fail(i32, SA_STD_ERR_INVALID_ARGUMENT);
+        const status = sa_std_net_tcp_stream_read(stream, if (out) |p| p + cursor_usize else null, remaining, &chunk);
         if (status != SA_STD_OK) return fail(i32, status);
         if (chunk == 0) return fail(i32, SA_STD_ERR_IO);
         cursor += chunk;
@@ -10455,10 +10658,12 @@ pub export fn sa_net_tcp_stream_read_exact(stream: u64, out: ?[*]u8, len: u64) F
     return ok(i32, 0);
 }
 pub export fn sa_net_tcp_stream_flush(stream: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     _ = stream;
     return finish(SA_STD_OK);
 }
 pub export fn sa_std_net_tcp_stream_peer_addr(stream: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -10467,7 +10672,7 @@ pub export fn sa_std_net_tcp_stream_peer_addr(stream: u64, out_handle: ?*u64) i3
     return switch (resource.*) {
         .tcp_stream => |s| {
             var addr = NetAddress{};
-            var len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage);
+            var len: SockLenT = @sizeOf(SockAddrStorageT);
             lxGetpeername(s, addr.sockAddrMut(), &len) catch |err| return finishErr(err);
             addr.len = len;
             var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
@@ -10483,6 +10688,7 @@ pub export fn sa_std_net_tcp_stream_peer_addr(stream: u64, out_handle: ?*u64) i3
 }
 
 pub export fn sa_std_net_tcp_stream_local_addr(stream: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -10491,7 +10697,7 @@ pub export fn sa_std_net_tcp_stream_local_addr(stream: u64, out_handle: ?*u64) i
     return switch (resource.*) {
         .tcp_stream => |s| {
             var addr = NetAddress{};
-            var len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage);
+            var len: SockLenT = @sizeOf(SockAddrStorageT);
             lxGetsockname(s, addr.sockAddrMut(), &len) catch |err| return finishErr(err);
             addr.len = len;
             return registerNetAddrOutLocked(addr, handle_ptr);
@@ -10500,12 +10706,14 @@ pub export fn sa_std_net_tcp_stream_local_addr(stream: u64, out_handle: ?*u64) i
     };
 }
 pub export fn sa_net_tcp_stream_peer_addr(stream: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var handle: u64 = 0;
     const status = sa_std_net_tcp_stream_peer_addr(stream, &handle);
     if (status != SA_STD_OK) return status;
     return finish(@as(i32, @intCast(handle)));
 }
 pub export fn sa_net_tcp_stream_shutdown(stream: u64, how: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
     const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -10524,54 +10732,65 @@ pub export fn sa_net_tcp_stream_shutdown(stream: u64, how: u32) i32 {
     };
 }
 pub export fn sa_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_tcp_stream_set_read_timeout(stream, timeout_ns);
 }
 
 pub export fn sa_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_tcp_stream_set_write_timeout(stream, timeout_ns);
 }
 
 pub export fn sa_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_tcp_stream_set_nonblocking(stream, enabled);
 }
 
 pub export fn sa_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_tcp_stream_set_nodelay(stream, enabled);
 }
 
 pub export fn sa_net_tcp_stream_set_ttl(stream: u64, ttl: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_tcp_stream_set_ttl(stream, ttl);
 }
 pub export fn sa_net_tcp_stream_close(stream: u64) Fallible(i32) {
+    if (comptime is_wasm) return fail(i32, SA_STD_ERR_UNSUPPORTED);
     const status = sa_std_close(stream);
     if (status != SA_STD_OK) return fail(i32, status);
     return ok(i32, 0);
 }
 pub export fn sa_net_tcp_listener_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) Fallible(u64) {
+    if (comptime is_wasm) return fail(u64, SA_STD_ERR_UNSUPPORTED);
     var handle: u64 = 0;
     const status = sa_std_net_tcp_listen(host_ptr, host_len, port, &handle, null);
     if (status != SA_STD_OK) return fail(u64, status);
     return ok(u64, handle);
 }
 pub export fn sa_net_tcp_listener_accept(listener: u64) Fallible(u64) {
+    if (comptime is_wasm) return fail(u64, SA_STD_ERR_UNSUPPORTED);
     var handle: u64 = 0;
     const status = sa_std_net_tcp_accept(listener, &handle);
     if (status != SA_STD_OK) return fail(u64, status);
     return ok(u64, handle);
 }
 pub export fn sa_net_tcp_listener_local_addr(listener: u64) Fallible(u64) {
+    if (comptime is_wasm) return fail(u64, SA_STD_ERR_UNSUPPORTED);
     var handle: u64 = 0;
     const status = sa_std_net_tcp_listener_local_addr(listener, &handle);
     if (status != SA_STD_OK) return fail(u64, status);
     return ok(u64, handle);
 }
 pub export fn sa_net_tcp_listener_close(listener: u64) Fallible(i32) {
+    if (comptime is_wasm) return fail(i32, SA_STD_ERR_UNSUPPORTED);
     const status = sa_std_close(listener);
     if (status != SA_STD_OK) return fail(i32, status);
     return ok(i32, 0);
 }
 
 pub export fn sa_std_net_tcp_stream_try_clone(stream: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -10590,6 +10809,7 @@ pub export fn sa_std_net_tcp_stream_try_clone(stream: u64, out_handle: ?*u64) i3
     return finish(SA_STD_OK);
 }
 pub export fn sa_std_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     const flags = lxFcntl(handle.fd, std.posix.F.GETFL, 0) catch |err| return finishErr(err);
@@ -10602,13 +10822,15 @@ pub export fn sa_std_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i
 }
 
 pub export fn sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, tcp_nodelay, enabled != 0) catch |err| return finishErr(err);
+    setSocketOptBool(handle.fd, IPPROTOT.TCP, tcp_nodelay, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_set_linger(stream: u64, enabled: i32, timeout_ns: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     setSocketOptLinger(handle.fd, enabled != 0, timeout_ns) catch |err| return finishErr(err);
@@ -10616,6 +10838,7 @@ pub export fn sa_std_net_tcp_stream_set_linger(stream: u64, enabled: i32, timeou
 }
 
 pub export fn sa_std_net_tcp_stream_linger(stream: u64, out_enabled: ?*i32, out_timeout_ns: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const enabled = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const timeout_ns = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     enabled.* = 0;
@@ -10631,39 +10854,43 @@ pub export fn sa_std_net_tcp_stream_linger(stream: u64, out_enabled: ?*i32, out_
 }
 
 pub export fn sa_std_net_tcp_stream_set_quickack(stream: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    setSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.QUICKACK, enabled != 0) catch |err| return finishErr(err);
+    setSocketOptBool(handle.fd, IPPROTOT.TCP, std.os.linux.TCP.QUICKACK, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_quickack(stream: u64, out_enabled: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    out.* = if (getSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.QUICKACK) catch |err| return finishErr(err)) 1 else 0;
+    out.* = if (getSocketOptBool(handle.fd, IPPROTOT.TCP, std.os.linux.TCP.QUICKACK) catch |err| return finishErr(err)) 1 else 0;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_set_deferaccept(stream: u64, seconds: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (seconds > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    setSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.DEFER_ACCEPT, @as(i32, @intCast(seconds))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, IPPROTOT.TCP, std.os.linux.TCP.DEFER_ACCEPT, @as(i32, @intCast(seconds))) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_deferaccept(stream: u64, out_seconds: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_seconds orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    const seconds = getSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.DEFER_ACCEPT) catch |err| return finishErr(err);
+    const seconds = getSocketOptInt(handle.fd, IPPROTOT.TCP, std.os.linux.TCP.DEFER_ACCEPT) catch |err| return finishErr(err);
     if (seconds < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = @as(u32, @intCast(seconds));
     return finish(SA_STD_OK);
@@ -10672,20 +10899,22 @@ pub export fn sa_std_net_tcp_stream_deferaccept(stream: u64, out_seconds: ?*u32)
 // SO_KEEPALIVE on a connected TCP stream. Codex's socket2 users enable this to
 // keep idle upstream connections alive; exposed here so SA callers match parity.
 pub export fn sa_std_net_tcp_stream_set_keepalive(stream: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.KEEPALIVE, enabled != 0) catch |err| return finishErr(err);
+    setSocketOptBool(handle.fd, SOLT.SOCKET, SOT.KEEPALIVE, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_keepalive(stream: u64, out_enabled: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    out.* = if (getSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.KEEPALIVE) catch |err| return finishErr(err)) 1 else 0;
+    out.* = if (getSocketOptBool(handle.fd, SOLT.SOCKET, SOT.KEEPALIVE) catch |err| return finishErr(err)) 1 else 0;
     return finish(SA_STD_OK);
 }
 
@@ -10693,92 +10922,102 @@ pub export fn sa_std_net_tcp_stream_keepalive(stream: u64, out_enabled: ?*i32) i
 // between probes, probe count before dropping). All three are in whole units
 // (seconds for idle/interval, count for cnt) matching the kernel option ABI.
 pub export fn sa_std_net_tcp_stream_set_keepalive_params(stream: u64, idle_secs: u32, interval_secs: u32, count: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (idle_secs > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     if (interval_secs > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     if (count > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    setSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.KEEPIDLE, @as(i32, @intCast(idle_secs))) catch |err| return finishErr(err);
-    setSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.KEEPINTVL, @as(i32, @intCast(interval_secs))) catch |err| return finishErr(err);
-    setSocketOptInt(handle.fd, std.posix.IPPROTO.TCP, std.os.linux.TCP.KEEPCNT, @as(i32, @intCast(count))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, IPPROTOT.TCP, std.os.linux.TCP.KEEPIDLE, @as(i32, @intCast(idle_secs))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, IPPROTOT.TCP, std.os.linux.TCP.KEEPINTVL, @as(i32, @intCast(interval_secs))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, IPPROTOT.TCP, std.os.linux.TCP.KEEPCNT, @as(i32, @intCast(count))) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 // SO_REUSEADDR on a TCP listener handle (or UDS listener, which shares the
 // tcp_listener resource kind). Allows rebinding a TIME_WAIT address.
 pub export fn sa_std_net_tcp_listener_set_reuseaddr(listener: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
     if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, enabled != 0) catch |err| return finishErr(err);
+    setSocketOptBool(handle.fd, SOLT.SOCKET, SOT.REUSEADDR, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 // SO_REUSEPORT on a TCP listener handle for load-balanced multi-acceptor setups.
 pub export fn sa_std_net_tcp_listener_set_reuseport(listener: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
     if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.REUSEPORT, enabled != 0) catch |err| return finishErr(err);
+    setSocketOptBool(handle.fd, SOLT.SOCKET, SOT.REUSEPORT, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, timeout_ns) catch |err| return finishErr(err);
+    setSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.RCVTIMEO, timeout_ns) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, timeout_ns) catch |err| return finishErr(err);
+    setSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.SNDTIMEO, timeout_ns) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_set_ttl(stream: u64, ttl: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (ttl > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL, @as(i32, @intCast(ttl))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, IPPROTOT.IP, std.os.linux.IP.TTL, @as(i32, @intCast(ttl))) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_read_timeout(stream: u64, out_timeout_ns: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO) catch |err| return finishErr(err);
+    out.* = getSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.RCVTIMEO) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_write_timeout(stream: u64, out_timeout_ns: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO) catch |err| return finishErr(err);
+    out.* = getSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.SNDTIMEO) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_nodelay(stream: u64, out_enabled: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if (getSocketOptBool(handle.fd, std.posix.IPPROTO.TCP, tcp_nodelay) catch |err| return finishErr(err)) 1 else 0;
+    out.* = if (getSocketOptBool(handle.fd, IPPROTOT.TCP, tcp_nodelay) catch |err| return finishErr(err)) 1 else 0;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_ttl(stream: u64, out_ttl: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const ttl = getSocketOptInt(handle.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL) catch |err| return finishErr(err);
+    const ttl = getSocketOptInt(handle.fd, IPPROTOT.IP, std.os.linux.IP.TTL) catch |err| return finishErr(err);
     if (ttl < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = @as(u32, @intCast(ttl));
     return finish(SA_STD_OK);
@@ -10786,53 +11025,59 @@ pub export fn sa_std_net_tcp_stream_ttl(stream: u64, out_ttl: ?*u32) i32 {
 
 
 pub export fn sa_std_net_tcp_stream_set_recv_buffer_size(stream: u64, size: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (size > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, SOLT.SOCKET, SOT.RCVBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_recv_buffer_size(stream: u64, out_size: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const value = getSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVBUF) catch |err| return finishErr(err);
+    const value = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.RCVBUF) catch |err| return finishErr(err);
     if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = @as(u32, @intCast(value));
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_set_send_buffer_size(stream: u64, size: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (size > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, SOLT.SOCKET, SOT.SNDBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_send_buffer_size(stream: u64, out_size: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const value = getSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF) catch |err| return finishErr(err);
+    const value = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.SNDBUF) catch |err| return finishErr(err);
     if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = @as(u32, @intCast(value));
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_take_error(stream: u64, out_error: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.ERROR) catch |err| return finishErr(err);
+    out.* = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.ERROR) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_listener_try_clone(listener: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -10856,25 +11101,28 @@ pub export fn sa_std_net_tcp_listener_try_clone(listener: u64, out_handle: ?*u64
     return finish(SA_STD_OK);
 }
 pub export fn sa_std_net_tcp_listener_set_only_v6(listener: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
     if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
     const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
-    if (family != std.posix.AF.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptBool(handle.fd, std.posix.IPPROTO.IPV6, std.os.linux.IPV6.V6ONLY, enabled != 0) catch |err| return finishErr(err);
+    if (family != AFT.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    setSocketOptBool(handle.fd, IPPROTOT.IPV6, std.os.linux.IPV6.V6ONLY, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_listener_only_v6(listener: u64, out_enabled: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
     if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
     const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
-    if (family != std.posix.AF.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = if (getSocketOptBool(handle.fd, std.posix.IPPROTO.IPV6, std.os.linux.IPV6.V6ONLY) catch |err| return finishErr(err)) 1 else 0;
+    if (family != AFT.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = if (getSocketOptBool(handle.fd, IPPROTOT.IPV6, std.os.linux.IPV6.V6ONLY) catch |err| return finishErr(err)) 1 else 0;
     return finish(SA_STD_OK);
 }
 pub export fn sa_std_net_tcp_listener_set_nonblocking(listener: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
     if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
     const flags = lxFcntl(handle.fd, std.posix.F.GETFL, 0) catch |err| return finishErr(err);
@@ -10887,34 +11135,38 @@ pub export fn sa_std_net_tcp_listener_set_nonblocking(listener: u64, enabled: i3
 }
 
 pub export fn sa_std_net_tcp_listener_set_ttl(listener: u64, ttl: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
     if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (ttl > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL, @as(i32, @intCast(ttl))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, IPPROTOT.IP, std.os.linux.IP.TTL, @as(i32, @intCast(ttl))) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_listener_ttl(listener: u64, out_ttl: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
     if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const ttl = getSocketOptInt(handle.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL) catch |err| return finishErr(err);
+    const ttl = getSocketOptInt(handle.fd, IPPROTOT.IP, std.os.linux.IP.TTL) catch |err| return finishErr(err);
     if (ttl < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = @as(u32, @intCast(ttl));
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_listener_take_error(listener: u64, out_error: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
     if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.ERROR) catch |err| return finishErr(err);
+    out.* = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.ERROR) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_try_clone(socket: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -10933,12 +11185,13 @@ pub export fn sa_std_net_udp_try_clone(socket: u64, out_handle: ?*u64) i32 {
     return finish(SA_STD_OK);
 }
 pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
     const port16 = portFromU32(port) catch |err| return finishErr(err);
     const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
-    const fd = lxSocket(address.storage.family, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.UDP) catch |err| return finishErr(err);
+    const fd = lxSocket(address.storage.family, SOCKT.DGRAM | SOCKT.CLOEXEC, IPPROTOT.UDP) catch |err| return finishErr(err);
     errdefer lxClose(fd);
     var bind_addr = address;
     lxBind(fd, bind_addr.sockAddr(), bind_addr.getOsSockLen()) catch |err| return finishErr(err);
@@ -10953,6 +11206,7 @@ pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u
 }
 
 pub export fn sa_std_net_udp_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -10965,6 +11219,7 @@ pub export fn sa_std_net_udp_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
 }
 
 pub export fn sa_std_net_udp_local_addr(socket: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -10973,7 +11228,7 @@ pub export fn sa_std_net_udp_local_addr(socket: u64, out_handle: ?*u64) i32 {
     return switch (resource.*) {
         .udp_socket => |fd| {
             var addr = NetAddress{};
-            var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage);
+            var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
             lxGetsockname(fd, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
             addr.len = addr_len;
             var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
@@ -10988,6 +11243,7 @@ pub export fn sa_std_net_udp_local_addr(socket: u64, out_handle: ?*u64) i32 {
     };
 }
 pub export fn sa_std_net_udp_peer_addr(socket: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -10996,7 +11252,7 @@ pub export fn sa_std_net_udp_peer_addr(socket: u64, out_handle: ?*u64) i32 {
     return switch (resource.*) {
         .udp_socket => |fd| {
             var addr = NetAddress{};
-            var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage);
+            var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
             lxGetpeername(fd, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
             addr.len = addr_len;
             return registerNetAddrOutLocked(addr, handle_ptr);
@@ -11005,6 +11261,7 @@ pub export fn sa_std_net_udp_peer_addr(socket: u64, out_handle: ?*u64) i32 {
     };
 }
 pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
     const port16 = portFromU32(port) catch |err| return finishErr(err);
     const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
@@ -11021,50 +11278,62 @@ pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_l
     return finish(SA_STD_OK);
 }
 pub export fn sa_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_udp_set_read_timeout(socket, timeout_ns);
 }
 
 pub export fn sa_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_udp_set_write_timeout(socket, timeout_ns);
 }
 
 pub export fn sa_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_udp_set_nonblocking(socket, enabled);
 }
 
 pub export fn sa_net_udp_set_broadcast(socket: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_udp_set_broadcast(socket, enabled);
 }
 
 pub export fn sa_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_udp_set_ttl(socket, ttl);
 }
 
 pub export fn sa_net_udp_set_multicast_loop_v4(socket: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_udp_set_multicast_loop_v4(socket, enabled);
 }
 
 pub export fn sa_net_udp_set_multicast_ttl_v4(socket: u64, ttl: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_udp_set_multicast_ttl_v4(socket, ttl);
 }
 
 pub export fn sa_net_udp_join_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_udp_join_multicast_v4(socket, multi_host_ptr, multi_host_len, interface_host_ptr, interface_host_len);
 }
 
 pub export fn sa_net_udp_leave_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_udp_leave_multicast_v4(socket, multi_host_ptr, multi_host_len, interface_host_ptr, interface_host_len);
 }
 
 pub export fn sa_net_udp_join_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_udp_join_multicast_v6(socket, multi_host_ptr, multi_host_len, interface_index);
 }
 
 pub export fn sa_net_udp_leave_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_udp_leave_multicast_v6(socket, multi_host_ptr, multi_host_len, interface_index);
 }
 
 pub export fn sa_std_net_udp_connect_addr(socket: u64, addr_handle: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer registry_mutex.unlock();
     const socket_resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -11082,25 +11351,28 @@ pub export fn sa_std_net_udp_connect_addr(socket: u64, addr_handle: u64) i32 {
 }
 
 pub export fn sa_std_net_udp_set_only_v6(socket: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
-    if (family != std.posix.AF.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptBool(handle.fd, std.posix.IPPROTO.IPV6, std.os.linux.IPV6.V6ONLY, enabled != 0) catch |err| return finishErr(err);
+    if (family != AFT.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    setSocketOptBool(handle.fd, IPPROTOT.IPV6, std.os.linux.IPV6.V6ONLY, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_only_v6(socket: u64, out_enabled: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
-    if (family != std.posix.AF.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = if (getSocketOptBool(handle.fd, std.posix.IPPROTO.IPV6, std.os.linux.IPV6.V6ONLY) catch |err| return finishErr(err)) 1 else 0;
+    if (family != AFT.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = if (getSocketOptBool(handle.fd, IPPROTOT.IPV6, std.os.linux.IPV6.V6ONLY) catch |err| return finishErr(err)) 1 else 0;
     return finish(SA_STD_OK);
 }
 pub export fn sa_std_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     const flags = lxFcntl(handle.fd, std.posix.F.GETFL, 0) catch |err| return finishErr(err);
@@ -11113,258 +11385,288 @@ pub export fn sa_std_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
 }
 
 pub export fn sa_std_net_udp_set_broadcast(socket: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST, enabled != 0) catch |err| return finishErr(err);
+    setSocketOptBool(handle.fd, SOLT.SOCKET, SOT.BROADCAST, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (ttl > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL, @as(i32, @intCast(ttl))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, IPPROTOT.IP, std.os.linux.IP.TTL, @as(i32, @intCast(ttl))) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, timeout_ns) catch |err| return finishErr(err);
+    setSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.RCVTIMEO, timeout_ns) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, timeout_ns) catch |err| return finishErr(err);
+    setSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.SNDTIMEO, timeout_ns) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 
 pub export fn sa_std_net_udp_set_recv_buffer_size(socket: u64, size: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (size > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, SOLT.SOCKET, SOT.RCVBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_recv_buffer_size(socket: u64, out_size: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const value = getSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVBUF) catch |err| return finishErr(err);
+    const value = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.RCVBUF) catch |err| return finishErr(err);
     if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = @as(u32, @intCast(value));
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_set_send_buffer_size(socket: u64, size: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (size > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, SOLT.SOCKET, SOT.SNDBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_send_buffer_size(socket: u64, out_size: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const value = getSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF) catch |err| return finishErr(err);
+    const value = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.SNDBUF) catch |err| return finishErr(err);
     if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = @as(u32, @intCast(value));
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_read_timeout(socket: u64, out_timeout_ns: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO) catch |err| return finishErr(err);
+    out.* = getSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.RCVTIMEO) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_write_timeout(socket: u64, out_timeout_ns: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptTimeval(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO) catch |err| return finishErr(err);
+    out.* = getSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.SNDTIMEO) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_broadcast(socket: u64, out_enabled: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if (getSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST) catch |err| return finishErr(err)) 1 else 0;
+    out.* = if (getSocketOptBool(handle.fd, SOLT.SOCKET, SOT.BROADCAST) catch |err| return finishErr(err)) 1 else 0;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_set_multicast_loop_v4(socket: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptByte(handle.fd, std.posix.IPPROTO.IP, IP_MULTICAST_LOOP_OPT, if (enabled != 0) 1 else 0) catch |err| return finishErr(err);
+    setSocketOptByte(handle.fd, IPPROTOT.IP, IP_MULTICAST_LOOP_OPT, if (enabled != 0) 1 else 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_set_multicast_ttl_v4(socket: u64, ttl: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (ttl > std.math.maxInt(u8)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptByte(handle.fd, std.posix.IPPROTO.IP, IP_MULTICAST_TTL_OPT, @as(u8, @intCast(ttl))) catch |err| return finishErr(err);
+    setSocketOptByte(handle.fd, IPPROTOT.IP, IP_MULTICAST_TTL_OPT, @as(u8, @intCast(ttl))) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_multicast_loop_v4(socket: u64, out_enabled: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if ((getSocketOptByte(handle.fd, std.posix.IPPROTO.IP, IP_MULTICAST_LOOP_OPT) catch |err| return finishErr(err)) != 0) 1 else 0;
+    out.* = if ((getSocketOptByte(handle.fd, IPPROTOT.IP, IP_MULTICAST_LOOP_OPT) catch |err| return finishErr(err)) != 0) 1 else 0;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_multicast_ttl_v4(socket: u64, out_ttl: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = @as(u32, getSocketOptByte(handle.fd, std.posix.IPPROTO.IP, IP_MULTICAST_TTL_OPT) catch |err| return finishErr(err));
+    out.* = @as(u32, getSocketOptByte(handle.fd, IPPROTOT.IP, IP_MULTICAST_TTL_OPT) catch |err| return finishErr(err));
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_set_multicast_loop_v6(socket: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptInt(handle.fd, std.posix.IPPROTO.IPV6, IPV6_MULTICAST_LOOP_OPT, if (enabled != 0) 1 else 0) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, IPPROTOT.IPV6, IPV6_MULTICAST_LOOP_OPT, if (enabled != 0) 1 else 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_set_multicast_hops_v6(socket: u64, hops: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     if (hops > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptInt(handle.fd, std.posix.IPPROTO.IPV6, IPV6_MULTICAST_HOPS_OPT, @intCast(hops)) catch |err| return finishErr(err);
+    setSocketOptInt(handle.fd, IPPROTOT.IPV6, IPV6_MULTICAST_HOPS_OPT, @intCast(hops)) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_multicast_loop_v6(socket: u64, out_enabled: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if ((getSocketOptInt(handle.fd, std.posix.IPPROTO.IPV6, IPV6_MULTICAST_LOOP_OPT) catch |err| return finishErr(err)) != 0) 1 else 0;
+    out.* = if ((getSocketOptInt(handle.fd, IPPROTOT.IPV6, IPV6_MULTICAST_LOOP_OPT) catch |err| return finishErr(err)) != 0) 1 else 0;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_multicast_hops_v6(socket: u64, out_hops: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_hops orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const hops = getSocketOptInt(handle.fd, std.posix.IPPROTO.IPV6, IPV6_MULTICAST_HOPS_OPT) catch |err| return finishErr(err);
+    const hops = getSocketOptInt(handle.fd, IPPROTOT.IPV6, IPV6_MULTICAST_HOPS_OPT) catch |err| return finishErr(err);
     if (hops < 0 or hops > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = @intCast(hops);
     return finish(SA_STD_OK);
 }
 pub export fn sa_std_net_udp_set_multicast_if_v4(socket: u64, interface_addr_ptr: ?[*]const u8) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const interface_addr = constBytes(interface_addr_ptr, 4) catch |err| return finishErr(err);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptBytes(handle.fd, std.posix.IPPROTO.IP, IP_MULTICAST_IF_OPT, interface_addr) catch |err| return finishErr(err);
+    setSocketOptBytes(handle.fd, IPPROTOT.IP, IP_MULTICAST_IF_OPT, interface_addr) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_multicast_if_v4(socket: u64, out_interface_addr: ?[*]u8) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_interface_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    getSocketOptBytes(handle.fd, std.posix.IPPROTO.IP, IP_MULTICAST_IF_OPT, out[0..4]) catch |err| return finishErr(err);
+    getSocketOptBytes(handle.fd, IPPROTOT.IP, IP_MULTICAST_IF_OPT, out[0..4]) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_set_multicast_if_v6(socket: u64, interface_index: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptU32(handle.fd, std.posix.IPPROTO.IPV6, IPV6_MULTICAST_IF_OPT, interface_index) catch |err| return finishErr(err);
+    setSocketOptU32(handle.fd, IPPROTOT.IPV6, IPV6_MULTICAST_IF_OPT, interface_index) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_multicast_if_v6(socket: u64, out_interface_index: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_interface_index orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptU32(handle.fd, std.posix.IPPROTO.IPV6, IPV6_MULTICAST_IF_OPT) catch |err| return finishErr(err);
+    out.* = getSocketOptU32(handle.fd, IPPROTOT.IPV6, IPV6_MULTICAST_IF_OPT) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_join_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     const multicast_addr = parseIp4Address(multi_host_ptr, multi_host_len, 0) catch |err| return finishErr(err);
     const interface_addr = parseIp4Address(interface_host_ptr, interface_host_len, 0) catch |err| return finishErr(err);
     var membership = makeIpv4Membership(multicast_addr, interface_addr);
-    setSocketOptBytes(handle.fd, std.posix.IPPROTO.IP, IP_ADD_MEMBERSHIP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
+    setSocketOptBytes(handle.fd, IPPROTOT.IP, IP_ADD_MEMBERSHIP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_leave_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     const multicast_addr = parseIp4Address(multi_host_ptr, multi_host_len, 0) catch |err| return finishErr(err);
     const interface_addr = parseIp4Address(interface_host_ptr, interface_host_len, 0) catch |err| return finishErr(err);
     var membership = makeIpv4Membership(multicast_addr, interface_addr);
-    setSocketOptBytes(handle.fd, std.posix.IPPROTO.IP, IP_DROP_MEMBERSHIP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
+    setSocketOptBytes(handle.fd, IPPROTOT.IP, IP_DROP_MEMBERSHIP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_join_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     const multicast_addr = parseIp6Address(multi_host_ptr, multi_host_len, 0) catch |err| return finishErr(err);
     var membership = makeIpv6Membership(multicast_addr, interface_index);
-    setSocketOptBytes(handle.fd, std.posix.IPPROTO.IPV6, IPV6_JOIN_GROUP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
+    setSocketOptBytes(handle.fd, IPPROTOT.IPV6, IPV6_JOIN_GROUP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_leave_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     const multicast_addr = parseIp6Address(multi_host_ptr, multi_host_len, 0) catch |err| return finishErr(err);
     var membership = makeIpv6Membership(multicast_addr, interface_index);
-    setSocketOptBytes(handle.fd, std.posix.IPPROTO.IPV6, IPV6_LEAVE_GROUP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
+    setSocketOptBytes(handle.fd, IPPROTOT.IPV6, IPV6_LEAVE_GROUP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_ttl(socket: u64, out_ttl: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const ttl = getSocketOptInt(handle.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL) catch |err| return finishErr(err);
+    const ttl = getSocketOptInt(handle.fd, IPPROTOT.IP, std.os.linux.IP.TTL) catch |err| return finishErr(err);
     if (ttl < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = @as(u32, @intCast(ttl));
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_take_error(socket: u64, out_error: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptInt(handle.fd, std.posix.SOL.SOCKET, std.posix.SO.ERROR) catch |err| return finishErr(err);
+    out.* = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.ERROR) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     written_ptr.* = 0;
     const bytes = constBytes(buf, len) catch |err| return finishErr(err);
@@ -11382,6 +11684,7 @@ pub export fn sa_std_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64, out_
     return finish(SA_STD_OK);
 }
 pub export fn sa_std_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     read_ptr.* = 0;
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
@@ -11400,6 +11703,7 @@ pub export fn sa_std_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64, out_read: 
 }
 
 pub export fn sa_std_net_udp_peek(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     read_ptr.* = 0;
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
@@ -11418,6 +11722,7 @@ pub export fn sa_std_net_udp_peek(socket: u64, out: ?[*]u8, cap: u64, out_read: 
 }
 
 pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32, out_written: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     written_ptr.* = 0;
     const bytes = constBytes(buf, len) catch |err| return finishErr(err);
@@ -11432,6 +11737,7 @@ pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, h
     return finish(SA_STD_OK);
 }
 pub export fn sa_std_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     read_ptr.* = 0;
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
@@ -11439,7 +11745,7 @@ pub export fn sa_std_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_r
     defer registry_mutex.unlock();
     const fd = handleToFd(socket) catch |err| return finishErr(err);
     var addr = NetAddress{};
-    var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage);
+    var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
     const read = lxRecvfrom(fd, buffer, 0, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
     addr.len = addr_len;
     read_ptr.* = @as(u64, @intCast(read));
@@ -11455,6 +11761,7 @@ pub export fn sa_std_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_r
 }
 
 pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     read_ptr.* = 0;
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
@@ -11462,7 +11769,7 @@ pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_r
     defer registry_mutex.unlock();
     const fd = handleToFd(socket) catch |err| return finishErr(err);
     var addr = NetAddress{};
-    var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage);
+    var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
     const read = lxRecvfrom(fd, buffer, msg_peek, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
     addr.len = addr_len;
     read_ptr.* = @as(u64, @intCast(read));
@@ -11478,6 +11785,7 @@ pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_r
 }
 
 pub export fn sa_std_net_udp_send_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_written: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     written_ptr.* = 0;
     if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -11507,8 +11815,10 @@ pub export fn sa_std_net_udp_send_vectored(socket: u64, iovs: [*]const sa_net_io
 }
 
 pub export fn sa_std_net_udp_send_to_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32, out_written: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     written_ptr.* = 0;
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const slices = iovs[0..count];
@@ -11534,8 +11844,8 @@ pub export fn sa_std_net_udp_send_to_vectored(socket: u64, iovs: [*]const sa_net
         filled += 1;
     }
 
-    var msg: std.posix.msghdr_const = std.mem.zeroes(std.posix.msghdr_const);
-    msg.name = @ptrCast(address.sockAddr());
+    var msg: MsghdrConstT = std.mem.zeroes(MsghdrConstT);
+    msg.name = @ptrCast(@constCast(address.sockAddr()));
     msg.namelen = address.getOsSockLen();
     msg.iov = ziovec[0..filled].ptr;
     msg.iovlen = @as(usize, @intCast(filled));
@@ -11546,6 +11856,7 @@ pub export fn sa_std_net_udp_send_to_vectored(socket: u64, iovs: [*]const sa_net
 }
 
 pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     read_ptr.* = 0;
     if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -11571,9 +11882,9 @@ pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_n
     }
 
     var addr = NetAddress{};
-    var msg: std.posix.msghdr = std.mem.zeroes(std.posix.msghdr);
+    var msg: MsghdrT = std.mem.zeroes(MsghdrT);
     msg.name = @ptrCast(addr.sockAddrMut());
-    msg.namelen = @as(std.posix.socklen_t, @intCast(@sizeOf(std.posix.sockaddr.storage)));
+    msg.namelen = @as(SockLenT, @intCast(@sizeOf(SockAddrStorageT)));
     msg.iov = ziovec[0..filled].ptr;
     msg.iovlen = @as(usize, @intCast(filled));
 
@@ -11591,57 +11902,67 @@ pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_n
 }
 
 pub export fn sa_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var handle: u64 = 0;
     const status = sa_std_net_udp_bind(host_ptr, host_len, port, &handle);
     if (status != SA_STD_OK) return status;
     return @as(i32, @intCast(handle));
 }
 pub export fn sa_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_udp_connect(socket, host_ptr, host_len, port);
 }
 pub export fn sa_net_udp_local_addr(socket: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var handle: u64 = 0;
     const status = sa_std_net_udp_local_addr(socket, &handle);
     if (status != SA_STD_OK) return status;
     return @as(i32, @intCast(handle));
 }
 pub export fn sa_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var written: u64 = 0;
     const status = sa_std_net_udp_send(socket, buf, len, &written);
     if (status != SA_STD_OK) return status;
     return @as(i32, @intCast(written));
 }
 pub export fn sa_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var read: u64 = 0;
     const status = sa_std_net_udp_recv(socket, out, cap, &read);
     if (status != SA_STD_OK) return status;
     return @as(i32, @intCast(read));
 }
 pub export fn sa_net_udp_peek(socket: u64, out: ?[*]u8, cap: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var read: u64 = 0;
     const status = sa_std_net_udp_peek(socket, out, cap, &read);
     if (status != SA_STD_OK) return status;
     return @as(i32, @intCast(read));
 }
 pub export fn sa_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var written: u64 = 0;
     const status = sa_std_net_udp_send_to(socket, buf, len, host_ptr, host_len, port, &written);
     if (status != SA_STD_OK) return status;
     return @as(i32, @intCast(written));
 }
 pub export fn sa_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_addr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var read: u64 = 0;
     const status = sa_std_net_udp_recv_from(socket, out, cap, &read, out_addr);
     if (status != SA_STD_OK) return status;
     return @as(i32, @intCast(read));
 }
 pub export fn sa_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_addr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var read: u64 = 0;
     const status = sa_std_net_udp_peek_from(socket, out, cap, &read, out_addr);
     if (status != SA_STD_OK) return status;
     return @as(i32, @intCast(read));
 }
 pub export fn sa_net_udp_close(socket: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_close(socket);
 }
 pub export fn sa_net_addr_host(addr: u64) ?[*]u8 {
@@ -11714,7 +12035,7 @@ pub export fn sa_net_addr_scope_id(addr: u64) u64 {
     };
     return switch (resource.*) {
         .net_addr => |net_addr| switch (net_addr.addr.storage.family) {
-            std.posix.AF.INET6 => @as(u64, @intCast(net_addr.addr.in6ScopeId())),
+            AFT.INET6 => @as(u64, @intCast(net_addr.addr.in6ScopeId())),
             else => 0,
         },
         else => {
@@ -12826,6 +13147,7 @@ pub export fn sa_print_bytes(msg: ?[*]const u8, len: u64) void {
 }
 
 pub export fn sa_std_net_tcp_listen(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64, out_bound_port: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     if (out_bound_port) |port_ptr| port_ptr.* = 0;
@@ -12833,16 +13155,16 @@ pub export fn sa_std_net_tcp_listen(host_ptr: ?[*]const u8, host_len: u64, port:
     const port16 = portFromU32(port) catch |err| return finishErr(err);
 
     const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
-    const listen_fd = lxSocket(address.storage.family, std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.TCP) catch |err| return finishErr(err);
+    const listen_fd = lxSocket(address.storage.family, SOCKT.STREAM | SOCKT.CLOEXEC, IPPROTOT.TCP) catch |err| return finishErr(err);
     errdefer lxClose(listen_fd);
-    setSocketOptBool(listen_fd, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, true) catch |err| return finishErr(err);
+    setSocketOptBool(listen_fd, SOLT.SOCKET, SOT.REUSEADDR, true) catch |err| return finishErr(err);
     lxBind(listen_fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
     lxListen(listen_fd, 128) catch |err| return finishErr(err);
     const handle = registerResource(.{ .tcp_listener = .{ .fd = listen_fd, .addr = address } }) catch |err| return finishErr(err);
     handle_ptr.* = handle;
     if (out_bound_port) |port_ptr| {
         var addr = NetAddress{};
-        var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage);
+        var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
         lxGetsockname(listen_fd, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
         addr.len = addr_len;
         port_ptr.* = addr.getPort();
@@ -12851,6 +13173,7 @@ pub export fn sa_std_net_tcp_listen(host_ptr: ?[*]const u8, host_len: u64, port:
 }
 
 pub export fn sa_std_net_tcp_accept(listener_handle: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -12864,7 +13187,7 @@ pub export fn sa_std_net_tcp_accept(listener_handle: u64, out_handle: ?*u64) i32
     };
     registry_mutex.unlock();
 
-    const accepted_fd = lxAccept(listener.fd, null, null, std.posix.SOCK.CLOEXEC) catch |err| return finishErr(err);
+    const accepted_fd = lxAccept(listener.fd, null, null, SOCKT.CLOEXEC) catch |err| return finishErr(err);
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
     const handle = registerResourceLocked(.{ .tcp_stream = accepted_fd }) catch |err| {
         registry_mutex.unlock();
@@ -12877,6 +13200,7 @@ pub export fn sa_std_net_tcp_accept(listener_handle: u64, out_handle: ?*u64) i32
 }
 
 pub export fn sa_std_net_tcp_accept_addr(listener_handle: u64, out_stream: ?*u64, out_addr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const stream_ptr = out_stream orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     stream_ptr.* = 0;
@@ -12895,9 +13219,9 @@ pub export fn sa_std_net_tcp_accept_addr(listener_handle: u64, out_stream: ?*u64
     };
     registry_mutex.unlock();
 
-    var peer_storage: std.posix.sockaddr.storage = .{ .family = 0 };
-    var peer_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage);
-    const accepted_fd = lxAccept(listener.fd, @ptrCast(&peer_storage), &peer_len, std.posix.SOCK.CLOEXEC) catch |err| return finishErr(err);
+    var peer_storage: SockAddrStorageT = .{ .family = 0 };
+    var peer_len: SockLenT = @sizeOf(SockAddrStorageT);
+    const accepted_fd = lxAccept(listener.fd, @ptrCast(&peer_storage), &peer_len, SOCKT.CLOEXEC) catch |err| return finishErr(err);
     var peer_addr = NetAddrHandle.init(std.heap.page_allocator, .{ .storage = peer_storage, .len = peer_len }) catch |err| {
         lxClose(accepted_fd);
         return finishErr(err);
@@ -12925,6 +13249,7 @@ pub export fn sa_std_net_tcp_accept_addr(listener_handle: u64, out_stream: ?*u64
 }
 
 pub export fn sa_std_net_tcp_listener_local_addr(listener_handle: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -12933,7 +13258,7 @@ pub export fn sa_std_net_tcp_listener_local_addr(listener_handle: u64, out_handl
     return switch (resource.*) {
         .tcp_listener => |server| {
             var addr = NetAddress{};
-            var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage);
+            var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
             lxGetsockname(server.fd, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
             addr.len = addr_len;
             var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
@@ -12949,6 +13274,7 @@ pub export fn sa_std_net_tcp_listener_local_addr(listener_handle: u64, out_handl
 }
 
 pub export fn sa_std_net_tcp_listener_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -12957,7 +13283,7 @@ pub export fn sa_std_net_tcp_listener_from_raw_fd(fd: i32, out_handle: ?*u64) i3
     if (!(socketIsStream(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketAcceptConn(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
     var addr = NetAddress{};
-    var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.storage);
+    var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
     lxGetsockname(posix_fd, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
     addr.len = addr_len;
     const server = TcpListener{ .fd = posix_fd, .addr = addr };
@@ -12967,6 +13293,7 @@ pub export fn sa_std_net_tcp_listener_from_raw_fd(fd: i32, out_handle: ?*u64) i3
 }
 
 pub export fn sa_std_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
@@ -12984,7 +13311,7 @@ fn tcpConnectToHostFd(host: []const u8, port: u16) !std.posix.fd_t {
     defer list.deinit();
     var last: anyerror = error.HostLacksNetworkAddresses;
     for (list.addrs) |addr| {
-        const fd = lxSocket(addr.storage.family, std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.TCP) catch |err| {
+        const fd = lxSocket(addr.storage.family, SOCKT.STREAM | SOCKT.CLOEXEC, IPPROTOT.TCP) catch |err| {
             last = err;
             continue;
         };
@@ -13000,7 +13327,7 @@ fn tcpConnectToHostFd(host: []const u8, port: u16) !std.posix.fd_t {
 
 fn connectUnixSocketFd(path: []const u8) !std.posix.fd_t {
     const addr = try NetAddress.initUnix(path);
-    const fd = try lxSocket(std.posix.AF.UNIX, std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC, 0);
+    const fd = try lxSocket(AFT.UNIX, SOCKT.STREAM | SOCKT.CLOEXEC, 0);
     errdefer lxClose(fd);
     try lxConnect(fd, addr.sockAddr(), addr.getOsSockLen());
     return fd;
@@ -13014,13 +13341,15 @@ fn tcpConnectTimeoutMs(timeout_ns: u64) !i32 {
 }
 
 pub export fn sa_std_net_tcp_connect_timeout(host_ptr: ?[*]const u8, host_len: u64, port: u32, timeout_ns: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const timeout_ms = tcpConnectTimeoutMs(timeout_ns) catch |err| return finishErr(err);
     const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
     const port16 = portFromU32(port) catch |err| return finishErr(err);
     const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
-    const fd = lxSocket(address.storage.family, std.posix.SOCK.STREAM | std.posix.SOCK.NONBLOCK | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.TCP) catch |err| return finishErr(err);
+    const fd = lxSocket(address.storage.family, SOCKT.STREAM | SOCKT.NONBLOCK | SOCKT.CLOEXEC, IPPROTOT.TCP) catch |err| return finishErr(err);
     errdefer lxClose(fd);
     lxConnect(fd, address.sockAddr(), address.getOsSockLen()) catch |err| switch (err) {
         error.WouldBlock, error.ConnectionPending => {
@@ -13039,6 +13368,7 @@ pub export fn sa_std_net_tcp_connect_timeout(host_ptr: ?[*]const u8, host_len: u
 }
 
 pub export fn sa_std_net_tcp_connect_timeout_addr(addr_handle: u64, timeout_ns: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const timeout_ms = tcpConnectTimeoutMs(timeout_ns) catch |err| return finishErr(err);
@@ -13063,7 +13393,8 @@ pub export fn sa_std_net_tcp_connect_timeout_addr(addr_handle: u64, timeout_ns: 
     return finish(SA_STD_OK);
 }
 fn tcpConnectAddressTimeout(address: NetAddress, timeout_ms: i32) !std.posix.fd_t {
-    const fd = try lxSocket(address.storage.family, std.posix.SOCK.STREAM | std.posix.SOCK.NONBLOCK | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.TCP);
+    if (comptime is_wasm) return error.Unsupported;
+    const fd = try lxSocket(address.storage.family, SOCKT.STREAM | SOCKT.NONBLOCK | SOCKT.CLOEXEC, IPPROTOT.TCP);
     errdefer lxClose(fd);
     lxConnect(fd, address.sockAddr(), address.getOsSockLen()) catch |err| switch (err) {
         error.WouldBlock, error.ConnectionPending => {
@@ -13081,6 +13412,7 @@ fn tcpConnectAddressTimeout(address: NetAddress, timeout_ms: i32) !std.posix.fd_
 }
 
 pub export fn sa_std_net_tcp_connect_timeout_all(host_ptr: ?[*]const u8, host_len: u64, port: u32, timeout_ns: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const timeout_ms = tcpConnectTimeoutMs(timeout_ns) catch |err| return finishErr(err);
@@ -13105,6 +13437,7 @@ pub export fn sa_std_net_tcp_connect_timeout_all(host_ptr: ?[*]const u8, host_le
 }
 
 pub export fn sa_std_net_tcp_stream_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -13121,6 +13454,7 @@ pub export fn sa_std_net_tcp_stream_from_raw_fd(fd: i32, out_handle: ?*u64) i32 
 // tcp_stream / tcp_listener resource kinds so read/write/peek/shutdown/close
 // and accept all flow through the same sa_std_net_tcp_* paths.
 pub export fn sa_std_net_unix_listen(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
@@ -13134,7 +13468,7 @@ pub export fn sa_std_net_unix_listen(path_ptr: ?[*]const u8, path_len: u64, out_
         else => {},
     };
 
-    const fd = lxSocket(std.posix.AF.UNIX, std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC, 0) catch |err| return finishErr(err);
+    const fd = lxSocket(AFT.UNIX, SOCKT.STREAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
     errdefer lxClose(fd);
     lxBind(fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
     lxListen(fd, 128) catch |err| return finishErr(err);
@@ -13146,10 +13480,11 @@ pub export fn sa_std_net_unix_listen(path_ptr: ?[*]const u8, path_len: u64, out_
 }
 
 pub export fn sa_std_net_unix_addr_from_abstract_name(name_ptr: ?[*]const u8, name_len: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const name = constBytes(name_ptr, name_len) catch |err| return finishErr(err);
-    const tmp: std.posix.sockaddr.un = .{ .family = std.posix.AF.UNIX, .path = undefined };
+    const tmp: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
     if (name.len + 1 > tmp.path.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const bytes = std.heap.page_allocator.dupe(u8, name) catch |err| return finishErr(err);
     const handle = registerResource(.{ .unix_addr = .{ .allocator = std.heap.page_allocator, .kind = SA_NET_UNIX_ADDR_ABSTRACT, .bytes = bytes } }) catch |err| {
@@ -13161,6 +13496,7 @@ pub export fn sa_std_net_unix_addr_from_abstract_name(name_ptr: ?[*]const u8, na
 }
 
 pub export fn sa_std_net_unix_addr_from_pathname(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
@@ -13175,13 +13511,14 @@ pub export fn sa_std_net_unix_addr_from_pathname(path_ptr: ?[*]const u8, path_le
 }
 
 pub export fn sa_std_net_unix_listen_addr(addr_handle: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
 
-    const fd = lxSocket(std.posix.AF.UNIX, std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC, 0) catch |err| return finishErr(err);
+    const fd = lxSocket(AFT.UNIX, SOCKT.STREAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
     errdefer lxClose(fd);
-    lxBind(fd, @as(*const std.posix.sockaddr, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
+    lxBind(fd, @as(*const SockAddrT, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
     lxListen(fd, 128) catch |err| return finishErr(err);
 
     const server = TcpListener{ .fd = fd, .addr = NetAddress.fromUnixSockaddr(sockaddr.addr, sockaddr.len) };
@@ -13191,10 +13528,12 @@ pub export fn sa_std_net_unix_listen_addr(addr_handle: u64, out_handle: ?*u64) i
 }
 
 pub export fn sa_std_net_unix_accept(listener: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_net_tcp_accept(listener, out_handle);
 }
 
 pub export fn sa_std_net_unix_accept_addr(listener: u64, out_stream: ?*u64, out_addr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const stream_ptr = out_stream orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     stream_ptr.* = 0;
@@ -13221,10 +13560,10 @@ pub export fn sa_std_net_unix_accept_addr(listener: u64, out_stream: ?*u64, out_
     }
     registry_mutex.unlock();
 
-    var accepted_addr: std.posix.sockaddr.un = .{ .family = std.posix.AF.UNIX, .path = undefined };
+    var accepted_addr: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
     @memset(&accepted_addr.path, 0);
-    var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.un);
-    const accepted_fd = lxAccept(fd, @as(*std.posix.sockaddr, @ptrCast(&accepted_addr)), &addr_len, std.posix.SOCK.CLOEXEC) catch |err| return finishErr(err);
+    var addr_len: SockLenT = @sizeOf(SockAddrUnT);
+    const accepted_fd = lxAccept(fd, @as(*SockAddrT, @ptrCast(&accepted_addr)), &addr_len, SOCKT.CLOEXEC) catch |err| return finishErr(err);
 
     var unix_addr = unixAddrFromSockaddr(std.heap.page_allocator, accepted_addr, addr_len) catch |err| {
         lxClose(accepted_fd);
@@ -13252,6 +13591,7 @@ pub export fn sa_std_net_unix_accept_addr(listener: u64, out_stream: ?*u64, out_
 }
 
 pub export fn sa_std_net_unix_pair(out_left: ?*u64, out_right: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const left_ptr = out_left orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const right_ptr = out_right orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     left_ptr.* = 0;
@@ -13259,8 +13599,8 @@ pub export fn sa_std_net_unix_pair(out_left: ?*u64, out_right: ?*u64) i32 {
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
 
     var fds: [2]i32 = undefined;
-    const socket_type = @as(i32, @intCast(std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC));
-    const rc = std.os.linux.socketpair(std.posix.AF.UNIX, socket_type, 0, &fds);
+    const socket_type = @as(i32, @intCast(SOCKT.STREAM | SOCKT.CLOEXEC));
+    const rc = std.os.linux.socketpair(AFT.UNIX, socket_type, 0, &fds);
     switch (std.os.linux.errno(rc)) {
         .SUCCESS => {},
         .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
@@ -13294,6 +13634,7 @@ pub export fn sa_std_net_unix_pair(out_left: ?*u64, out_right: ?*u64) i32 {
 }
 
 pub export fn sa_std_net_unix_listener_local_addr(listener: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -13310,6 +13651,7 @@ pub export fn sa_std_net_unix_listener_local_addr(listener: u64, out_handle: ?*u
 }
 
 pub export fn sa_std_net_unix_listener_try_clone(listener: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -13335,6 +13677,7 @@ pub export fn sa_std_net_unix_listener_try_clone(listener: u64, out_handle: ?*u6
 }
 
 pub export fn sa_std_net_unix_listener_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -13350,6 +13693,7 @@ pub export fn sa_std_net_unix_listener_from_raw_fd(fd: i32, out_handle: ?*u64) i
 }
 
 pub export fn sa_std_net_unix_stream_local_addr(stream: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -13366,6 +13710,7 @@ pub export fn sa_std_net_unix_stream_local_addr(stream: u64, out_handle: ?*u64) 
 }
 
 pub export fn sa_std_net_unix_stream_try_clone(stream: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -13386,6 +13731,7 @@ pub export fn sa_std_net_unix_stream_try_clone(stream: u64, out_handle: ?*u64) i
 }
 
 pub export fn sa_std_net_unix_stream_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -13399,6 +13745,7 @@ pub export fn sa_std_net_unix_stream_from_raw_fd(fd: i32, out_handle: ?*u64) i32
 }
 
 pub export fn sa_std_net_unix_stream_peer_addr(stream: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -13415,33 +13762,37 @@ pub export fn sa_std_net_unix_stream_peer_addr(stream: u64, out_handle: ?*u64) i
 }
 
 pub export fn sa_std_net_unix_stream_set_passcred(stream: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.PASSCRED, enabled != 0) catch |err| return finishErr(err);
+    setSocketOptBool(handle.fd, SOLT.SOCKET, std.os.linux.SO.PASSCRED, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_unix_stream_passcred(stream: u64, out_enabled: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if (getSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.PASSCRED) catch |err| return finishErr(err)) 1 else 0;
+    out.* = if (getSocketOptBool(handle.fd, SOLT.SOCKET, std.os.linux.SO.PASSCRED) catch |err| return finishErr(err)) 1 else 0;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_unix_stream_set_mark(stream: u64, mark: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
     if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptU32(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.MARK, mark) catch |err| return finishErr(err);
+    setSocketOptU32(handle.fd, SOLT.SOCKET, std.os.linux.SO.MARK, mark) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_unix_stream_peer_cred(stream: u64, out_pid: ?*i32, out_uid: ?*u32, out_gid: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const pid_ptr = out_pid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const uid_ptr = out_uid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const gid_ptr = out_gid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -13459,10 +13810,11 @@ pub export fn sa_std_net_unix_stream_peer_cred(stream: u64, out_pid: ?*i32, out_
 }
 
 pub export fn sa_std_net_unix_datagram_unbound(out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    const fd = lxSocket(std.posix.AF.UNIX, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, 0) catch |err| return finishErr(err);
+    const fd = lxSocket(AFT.UNIX, SOCKT.DGRAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
     errdefer lxClose(fd);
     const handle = registerResource(.{ .udp_socket = fd }) catch |err| return finishErr(err);
     handle_ptr.* = handle;
@@ -13470,6 +13822,7 @@ pub export fn sa_std_net_unix_datagram_unbound(out_handle: ?*u64) i32 {
 }
 
 pub export fn sa_std_net_unix_datagram_bind(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
@@ -13480,7 +13833,7 @@ pub export fn sa_std_net_unix_datagram_bind(path_ptr: ?[*]const u8, path_len: u6
         else => {},
     };
 
-    const fd = lxSocket(std.posix.AF.UNIX, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, 0) catch |err| return finishErr(err);
+    const fd = lxSocket(AFT.UNIX, SOCKT.DGRAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
     errdefer lxClose(fd);
     lxBind(fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
     const handle = registerResource(.{ .udp_socket = fd }) catch |err| return finishErr(err);
@@ -13489,18 +13842,20 @@ pub export fn sa_std_net_unix_datagram_bind(path_ptr: ?[*]const u8, path_len: u6
 }
 
 pub export fn sa_std_net_unix_datagram_bind_addr(addr_handle: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
-    const fd = lxSocket(std.posix.AF.UNIX, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, 0) catch |err| return finishErr(err);
+    const fd = lxSocket(AFT.UNIX, SOCKT.DGRAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
     errdefer lxClose(fd);
-    lxBind(fd, @as(*const std.posix.sockaddr, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
+    lxBind(fd, @as(*const SockAddrT, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
     const handle = registerResource(.{ .udp_socket = fd }) catch |err| return finishErr(err);
     handle_ptr.* = handle;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_unix_datagram_pair(out_left: ?*u64, out_right: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const left_ptr = out_left orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const right_ptr = out_right orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     left_ptr.* = 0;
@@ -13508,8 +13863,8 @@ pub export fn sa_std_net_unix_datagram_pair(out_left: ?*u64, out_right: ?*u64) i
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
 
     var fds: [2]i32 = undefined;
-    const socket_type = @as(i32, @intCast(std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC));
-    const rc = std.os.linux.socketpair(std.posix.AF.UNIX, socket_type, 0, &fds);
+    const socket_type = @as(i32, @intCast(SOCKT.DGRAM | SOCKT.CLOEXEC));
+    const rc = std.os.linux.socketpair(AFT.UNIX, socket_type, 0, &fds);
     switch (std.os.linux.errno(rc)) {
         .SUCCESS => {},
         .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
@@ -13543,6 +13898,7 @@ pub export fn sa_std_net_unix_datagram_pair(out_left: ?*u64, out_right: ?*u64) i
 }
 
 pub export fn sa_std_net_unix_datagram_connect(socket: u64, path_ptr: ?[*]const u8, path_len: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
     var address = NetAddress.initUnix(path) catch |err| return finishErr(err);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
@@ -13553,15 +13909,17 @@ pub export fn sa_std_net_unix_datagram_connect(socket: u64, path_ptr: ?[*]const 
 }
 
 pub export fn sa_std_net_unix_datagram_connect_addr(socket: u64, addr_handle: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    lxConnect(handle.fd, @as(*const std.posix.sockaddr, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
+    lxConnect(handle.fd, @as(*const SockAddrT, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_unix_datagram_try_clone(socket: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -13583,6 +13941,7 @@ pub export fn sa_std_net_unix_datagram_try_clone(socket: u64, out_handle: ?*u64)
 }
 
 pub export fn sa_std_net_unix_datagram_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -13595,6 +13954,7 @@ pub export fn sa_std_net_unix_datagram_from_raw_fd(fd: i32, out_handle: ?*u64) i
 }
 
 pub export fn sa_std_net_unix_datagram_local_addr(socket: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -13611,6 +13971,7 @@ pub export fn sa_std_net_unix_datagram_local_addr(socket: u64, out_handle: ?*u64
 }
 
 pub export fn sa_std_net_unix_datagram_peer_addr(socket: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }
@@ -13627,33 +13988,37 @@ pub export fn sa_std_net_unix_datagram_peer_addr(socket: u64, out_handle: ?*u64)
 }
 
 pub export fn sa_std_net_unix_datagram_set_passcred(socket: u64, enabled: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.PASSCRED, enabled != 0) catch |err| return finishErr(err);
+    setSocketOptBool(handle.fd, SOLT.SOCKET, std.os.linux.SO.PASSCRED, enabled != 0) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_unix_datagram_passcred(socket: u64, out_enabled: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if (getSocketOptBool(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.PASSCRED) catch |err| return finishErr(err)) 1 else 0;
+    out.* = if (getSocketOptBool(handle.fd, SOLT.SOCKET, std.os.linux.SO.PASSCRED) catch |err| return finishErr(err)) 1 else 0;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_unix_datagram_set_mark(socket: u64, mark: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptU32(handle.fd, std.posix.SOL.SOCKET, std.os.linux.SO.MARK, mark) catch |err| return finishErr(err);
+    setSocketOptU32(handle.fd, SOLT.SOCKET, std.os.linux.SO.MARK, mark) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_unix_datagram_shutdown(socket: u64, how: u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
@@ -13668,6 +14033,7 @@ pub export fn sa_std_net_unix_datagram_shutdown(socket: u64, how: u32) i32 {
 }
 
 pub export fn sa_std_net_unix_datagram_send_to(socket: u64, buf: ?[*]const u8, len: u64, path_ptr: ?[*]const u8, path_len: u64, out_written: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     written_ptr.* = 0;
     const bytes = constBytes(buf, len) catch |err| return finishErr(err);
@@ -13682,6 +14048,7 @@ pub export fn sa_std_net_unix_datagram_send_to(socket: u64, buf: ?[*]const u8, l
 }
 
 pub export fn sa_std_net_unix_datagram_send_to_addr(socket: u64, buf: ?[*]const u8, len: u64, addr_handle: u64, out_written: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     written_ptr.* = 0;
     const bytes = constBytes(buf, len) catch |err| return finishErr(err);
@@ -13689,7 +14056,7 @@ pub export fn sa_std_net_unix_datagram_send_to_addr(socket: u64, buf: ?[*]const 
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const written = lxSendto(handle.fd, bytes, 0, @as(*const std.posix.sockaddr, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
+    const written = lxSendto(handle.fd, bytes, 0, @as(*const SockAddrT, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
     written_ptr.* = @as(u64, @intCast(written));
     return finish(SA_STD_OK);
 }
@@ -13703,10 +14070,10 @@ fn unixDatagramRecvFrom(socket: u64, out: ?[*]u8, cap: u64, flags: u32, out_read
     const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    var addr: std.posix.sockaddr.un = .{ .family = std.posix.AF.UNIX, .path = undefined };
+    var addr: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
     @memset(&addr.path, 0);
-    var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.un);
-    const read = lxRecvfrom(handle.fd, buffer, flags, @as(*std.posix.sockaddr, @ptrCast(&addr)), &addr_len) catch |err| return finishErr(err);
+    var addr_len: SockLenT = @sizeOf(SockAddrUnT);
+    const read = lxRecvfrom(handle.fd, buffer, flags, @as(*SockAddrT, @ptrCast(&addr)), &addr_len) catch |err| return finishErr(err);
     read_ptr.* = @as(u64, @intCast(read));
 
     var unix_addr = unixAddrFromSockaddr(std.heap.page_allocator, addr, addr_len) catch |err| return finishErr(err);
@@ -13721,14 +14088,17 @@ fn unixDatagramRecvFrom(socket: u64, out: ?[*]u8, cap: u64, flags: u32, out_read
 }
 
 pub export fn sa_std_net_unix_datagram_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return unixDatagramRecvFrom(socket, out, cap, 0, out_read, out_addr);
 }
 
 pub export fn sa_std_net_unix_datagram_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return unixDatagramRecvFrom(socket, out, cap, msg_peek, out_read, out_addr);
 }
 
 pub export fn sa_std_net_unix_connect(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
@@ -13741,13 +14111,14 @@ pub export fn sa_std_net_unix_connect(path_ptr: ?[*]const u8, path_len: u64, out
 }
 
 pub export fn sa_std_net_unix_connect_addr(addr_handle: u64, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
 
-    const fd = lxSocket(std.posix.AF.UNIX, std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC, 0) catch |err| return finishErr(err);
+    const fd = lxSocket(AFT.UNIX, SOCKT.STREAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
     errdefer lxClose(fd);
-    lxConnect(fd, @as(*const std.posix.sockaddr, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
+    lxConnect(fd, @as(*const SockAddrT, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
 
     const handle = registerResource(.{ .tcp_stream = fd }) catch |err| return finishErr(err);
     handle_ptr.* = handle;
@@ -13920,20 +14291,20 @@ test "ja3/ja4 reject too-small output buffers" {
 }
 
 test "socket helper round trip on raw udp socket" {
-    const fd = try lxSocket(std.posix.AF.INET, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.UDP);
+    const fd = try lxSocket(AFT.INET, SOCKT.DGRAM | SOCKT.CLOEXEC, IPPROTOT.UDP);
     defer lxClose(fd);
 
-    try setSocketOptBool(fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST, true);
-    try std.testing.expect(try getSocketOptBool(fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST));
-    try setSocketOptBool(fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST, false);
-    try std.testing.expect(!(try getSocketOptBool(fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST)));
+    try setSocketOptBool(fd, SOLT.SOCKET, SOT.BROADCAST, true);
+    try std.testing.expect(try getSocketOptBool(fd, SOLT.SOCKET, SOT.BROADCAST));
+    try setSocketOptBool(fd, SOLT.SOCKET, SOT.BROADCAST, false);
+    try std.testing.expect(!(try getSocketOptBool(fd, SOLT.SOCKET, SOT.BROADCAST)));
 
-    try setSocketOptInt(fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL, 64);
-    try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL));
+    try setSocketOptInt(fd, IPPROTOT.IP, std.os.linux.IP.TTL, 64);
+    try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(fd, IPPROTOT.IP, std.os.linux.IP.TTL));
 
     const timeout_ns: u64 = 1_234_567_890;
-    try setSocketOptTimeval(fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, timeout_ns);
-    try expectTimeoutRoundedUpWithin(timeout_ns, try getSocketOptTimeval(fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO));
+    try setSocketOptTimeval(fd, SOLT.SOCKET, SOT.RCVTIMEO, timeout_ns);
+    try expectTimeoutRoundedUpWithin(timeout_ns, try getSocketOptTimeval(fd, SOLT.SOCKET, SOT.RCVTIMEO));
 
     const tv = try timevalFromNs(timeout_ns);
     try std.testing.expectEqual(@as(u64, 1_234_567_000), try nsFromTimeval(tv));
@@ -13954,13 +14325,13 @@ test "exported tcp and udp socket setters update live handles" {
     try std.testing.expect((udp_flags & (@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"))) != 0);
 
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_broadcast(udp_handle, 1));
-    try std.testing.expect(try getSocketOptBool(udp.fd, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST));
+    try std.testing.expect(try getSocketOptBool(udp.fd, SOLT.SOCKET, SOT.BROADCAST));
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_ttl(udp_handle, 64));
-    try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(udp.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL));
+    try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(udp.fd, IPPROTOT.IP, std.os.linux.IP.TTL));
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_read_timeout(udp_handle, 250_000_000));
-    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(udp.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO));
+    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(udp.fd, SOLT.SOCKET, SOT.RCVTIMEO));
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_write_timeout(udp_handle, 250_000_000));
-    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(udp.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO));
+    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(udp.fd, SOLT.SOCKET, SOT.SNDTIMEO));
 
     var listener_handle: u64 = 0;
     var bound_port: u32 = 0;
@@ -13986,17 +14357,17 @@ test "exported tcp and udp socket setters update live handles" {
     try std.testing.expectEqual(SA_STD_ERR_IO, sa_net_tcp_stream_peek(server_handle, &peek_buf, peek_buf.len));
 
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_nodelay(server_handle, 1));
-    try std.testing.expect(try getSocketOptBool(server.fd, std.posix.IPPROTO.TCP, tcp_nodelay));
+    try std.testing.expect(try getSocketOptBool(server.fd, IPPROTOT.TCP, tcp_nodelay));
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_keepalive(server_handle, 1));
     var keepalive_enabled: i32 = 0;
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_keepalive(server_handle, &keepalive_enabled));
     try std.testing.expectEqual(@as(i32, 1), keepalive_enabled);
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_ttl(server_handle, 64));
-    try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(server.fd, std.posix.IPPROTO.IP, std.os.linux.IP.TTL));
+    try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(server.fd, IPPROTOT.IP, std.os.linux.IP.TTL));
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_read_timeout(server_handle, 250_000_000));
-    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(server.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO));
+    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(server.fd, SOLT.SOCKET, SOT.RCVTIMEO));
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_write_timeout(server_handle, 250_000_000));
-    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(server.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO));
+    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(server.fd, SOLT.SOCKET, SOT.SNDTIMEO));
 }
 
 test "tcp accept_addr returns peer stream and socket address" {

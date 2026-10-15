@@ -16,6 +16,7 @@
 // session — the fidelity rule from the objective.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const sio = @import("sio");
 
 const SA_STD_OK: i32 = 0;
@@ -24,6 +25,7 @@ const SA_STD_ERR_UNSUPPORTED: i32 = -1;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
 
 fn dynLibAvailable(candidates: []const []const u8) bool {
+    if (comptime builtin.cpu.arch.isWasm()) return false;
     for (candidates) |c| {
         if (std.DynLib.open(c)) |opened| {
             var lib = opened;

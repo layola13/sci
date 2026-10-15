@@ -7,6 +7,7 @@
 // state machine lives here.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const sio = @import("sio");
 
 // --- outcome helpers (mirrors the sa_plugin_node private surface) ---
@@ -20,6 +21,11 @@ fn fail() u32 {
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
+
+// wasm32-wasi: usize is 32-bit, C ABI passes u64 lengths. Checked conversion.
+fn u64ToUsize(v: u64) ?usize {
+    return std.math.cast(usize, v);
+}
 
 var buffer_registry_mutex = std.Io.Mutex.init;
 var buffer_slots = std.ArrayListUnmanaged(?BufferEntry).empty;
@@ -151,7 +157,7 @@ const Nghttp2SessionWantFn = *const fn (?*Nghttp2Session) callconv(.c) c_int;
 const Nghttp2VersionFn = *const fn (c_int) callconv(.c) ?*const Nghttp2Version;
 
 const Nghttp2Api = struct {
-    lib: std.DynLib,
+    lib: if (builtin.cpu.arch.isWasm()) void else std.DynLib,
     callbacks_new: Nghttp2CallbacksNewFn,
     callbacks_del: Nghttp2CallbacksDelFn,
     callbacks_set_on_header_callback: Nghttp2SetOnHeaderFn,
@@ -172,6 +178,7 @@ var nghttp2_api: ?Nghttp2Api = null;
 var nghttp2_api_mutex = std.Io.Mutex.init;
 
 fn loadNghttp2Api() ?*Nghttp2Api {
+    if (comptime builtin.cpu.arch.isWasm()) return null;
     nghttp2_api_mutex.lockUncancelable(sio.io());
     defer nghttp2_api_mutex.unlock(sio.io());
     if (nghttp2_api) |*api| return api;
@@ -574,14 +581,18 @@ fn writeHandle(out_handle: ?*u64, handle: u64) i32 {
 pub export fn sa_std_http2_client_request(url_ptr: ?[*]const u8, url_len: u64, method_ptr: ?[*]const u8, method_len: u64, body_ptr: ?[*]const u8, body_len: u64, out_handle: ?*u64) i32 {
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
+    if (comptime builtin.cpu.arch.isWasm()) return SA_STD_ERR_INVALID_ARGUMENT;
     const api = loadNghttp2Api() orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const allocator = std.heap.page_allocator;
-    const url = if (url_ptr) |p| p[0..url_len] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const url_n = u64ToUsize(url_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const method_n = u64ToUsize(method_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const body_n = u64ToUsize(body_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const url = if (url_ptr) |p| p[0..url_n] else return SA_STD_ERR_INVALID_ARGUMENT;
     const parsed = http2ParseUrl(url) catch {
         return handleFromConst("{\"error\":\"url\"}");
     };
-    const method = if (method_ptr) |ptr| ptr[0..method_len] else "GET";
-    const body = if (body_ptr) |ptr| ptr[0..body_len] else "";
+    const method = if (method_ptr) |ptr| ptr[0..method_n] else "GET";
+    const body = if (body_ptr) |ptr| ptr[0..body_n] else "";
 
     var stream = http2Dial(parsed.host, parsed.port) catch {
         return handleFromConst("{\"error\":\"connect\"}");
@@ -700,7 +711,8 @@ pub export fn sa_std_http2_sensitive_headers(out_handle: ?*u64) i32 {
 pub export fn sa_std_http2_get_packed_settings(settings_json_ptr: ?[*]const u8, settings_json_len: u64, out_handle: ?*u64) i32 {
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
-    const settings_json = if (settings_json_ptr) |ptr| ptr[0..settings_json_len] else "";
+    const settings_n = u64ToUsize(settings_json_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const settings_json = if (settings_json_ptr) |ptr| ptr[0..settings_n] else "";
     var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, settings_json, .{}) catch return SA_STD_ERR_INVALID_ARGUMENT;
     defer parsed.deinit();
     if (parsed.value != .object) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -724,7 +736,8 @@ pub export fn sa_std_http2_get_packed_settings(settings_json_ptr: ?[*]const u8, 
 pub export fn sa_std_http2_get_unpacked_settings_json(buf_ptr: ?[*]const u8, buf_len: u64, out_handle: ?*u64) i32 {
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
-    const buf = if (buf_ptr) |ptr| ptr[0..buf_len] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const buf_n = u64ToUsize(buf_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const buf = if (buf_ptr) |ptr| ptr[0..buf_n] else return SA_STD_ERR_INVALID_ARGUMENT;
     if (buf.len % 6 != 0) return SA_STD_ERR_INVALID_ARGUMENT;
     var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer out.deinit();
@@ -782,7 +795,8 @@ pub export fn sa_std_http2_perform_server_handshake(
         const j = out_json_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
         j.* = 0;
     }
-    const input = (input_ptr orelse return SA_STD_ERR_INVALID_ARGUMENT)[0..input_len];
+    const input_n = u64ToUsize(input_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const input = (input_ptr orelse return SA_STD_ERR_INVALID_ARGUMENT)[0..input_n];
     if (input.len < HTTP2_CLIENT_PREFACE.len + 9) return SA_STD_ERR_INVALID_ARGUMENT;
     if (!std.mem.eql(u8, input[0..HTTP2_CLIENT_PREFACE.len], HTTP2_CLIENT_PREFACE)) return SA_STD_ERR_INVALID_ARGUMENT;
 

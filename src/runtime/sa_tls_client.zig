@@ -32,6 +32,7 @@
 // truncation safety anyway.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const sio = @import("sio");
 
 const SA_STD_OK: i32 = 0;
@@ -40,6 +41,11 @@ const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
 const SA_STD_ERR_UNSUPPORTED: i32 = -1;
 const SA_STD_ERR_IO: i32 = -5;
 const SA_STD_ERR_TLS_VERIFY: i32 = -100;
+
+// wasm32-wasi: usize is 32-bit, C ABI passes u64 lengths. Checked conversion.
+fn u64ToUsize(v: u64) ?usize {
+    return std.math.cast(usize, v);
+}
 
 const TlsClientHandle = struct {
     stream: std.Io.net.Stream,
@@ -152,7 +158,8 @@ pub export fn sa_std_tls_client_supported(out_supported: ?*u32) i32 {
 pub export fn sa_std_tls_client_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
-    const host_slice = if (host_ptr) |p| p[0..host_len] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const host_n = u64ToUsize(host_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const host_slice = if (host_ptr) |p| p[0..host_n] else return SA_STD_ERR_INVALID_ARGUMENT;
     if (host_slice.len == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     if (port == 0 or port > 65535) return SA_STD_ERR_INVALID_ARGUMENT;
 
@@ -232,7 +239,8 @@ pub export fn sa_std_tls_client_connect(host_ptr: ?[*]const u8, host_len: u64, p
 }
 
 pub export fn sa_std_tls_client_add_ca_file(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    const path = if (path_ptr) |p| p[0..path_len] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const path_n = u64ToUsize(path_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const path = if (path_ptr) |p| p[0..path_n] else return SA_STD_ERR_INVALID_ARGUMENT;
     if (path.len == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     // addCertsFromFilePathAbsolute asserts an absolute path; reject early with
     // a contract error instead of tripping the assert.
@@ -253,7 +261,8 @@ pub export fn sa_std_tls_client_add_ca_file(path_ptr: ?[*]const u8, path_len: u6
 fn handleFromU64(handle: u64) *TlsClientHandle {
     // Heap pointers from page_allocator are 16-byte aligned; alignCast keeps
     // this sound on targets (aarch64) where @ptrFromInt is stricter.
-    const p: *TlsClientHandle = @ptrFromInt(handle);
+    // wasm32-wasi: usize is 32-bit, handle is u64 ABI (zero-extended pointer).
+    const p: *TlsClientHandle = @ptrFromInt(@as(usize, @intCast(handle)));
     return @alignCast(p);
 }
 

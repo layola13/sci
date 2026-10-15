@@ -26,6 +26,7 @@
 // same as the other protocol sinks).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const primitives = @import("sa_net_primitives.zig");
 const tls_client = @import("sa_tls_client.zig");
 const sio = @import("sio");
@@ -36,6 +37,11 @@ const SA_STD_ERR_IO: i32 = -5;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
 const SA_STD_ERR_TLS_VERIFY: i32 = -100;
+
+// wasm32-wasi: usize is 32-bit, C ABI passes u64 lengths. Checked conversion.
+fn u64ToUsize(v: u64) ?usize {
+    return std.math.cast(usize, v);
+}
 
 pub const WS_OPCODE_TEXT: u32 = 1;
 pub const WS_OPCODE_BINARY: u32 = 2;
@@ -65,7 +71,8 @@ const WsError = error{
 fn handleFromU64(handle: u64) *WsClientHandle {
     // Heap pointers from page_allocator are 16-byte aligned; alignCast keeps
     // this sound on targets (aarch64) where @ptrFromInt is stricter.
-    const p: *WsClientHandle = @ptrFromInt(handle);
+    // wasm32-wasi: usize is 32-bit, handle is u64 ABI (zero-extended pointer).
+    const p: *WsClientHandle = @ptrFromInt(@as(usize, @intCast(handle)));
     return @alignCast(p);
 }
 
@@ -74,6 +81,7 @@ fn handleFromU64(handle: u64) *WsClientHandle {
 // NOTE(Zig 0.17): `std.Io.net.Stream` takes explicit `Io` and vectored
 // buffers; these helpers preserve the old single-buffer call shapes.
 fn tcpRead(stream: std.Io.net.Stream, buf: []u8) WsError!usize {
+    if (comptime builtin.cpu.arch.isWasm()) return WsError.EndOfStream;
     std.debug.assert(buf.len != 0);
     // NOTE(Zig 0.17): `Stream.read` is unusable with the Threaded backend, so
     // read the blocking socket fd directly (same single-short-read shape as
@@ -311,7 +319,8 @@ pub export fn sa_std_ws_client_supported(out_supported: ?*u32) i32 {
 pub export fn sa_std_ws_client_connect(url_ptr: ?[*]const u8, url_len: u64, out_handle: ?*u64) i32 {
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
-    const url = if (url_ptr) |p| p[0..url_len] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const url_n = u64ToUsize(url_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const url = if (url_ptr) |p| p[0..url_n] else return SA_STD_ERR_INVALID_ARGUMENT;
     if (url.len == 0) return SA_STD_ERR_INVALID_ARGUMENT;
 
     const parts = primitives.parseUrlParts(url) catch return SA_STD_ERR_INVALID_ARGUMENT;
