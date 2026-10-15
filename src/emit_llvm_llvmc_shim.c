@@ -1585,6 +1585,8 @@ static void emit_sa_print_bytes(EmitCtx *e) {
         fn = LLVMAddFunction(e->module, "sa_print_bytes", LLVMFunctionType(LLVMVoidTypeInContext(e->ctx), params, 2, 0));
     }
     if (LLVMCountBasicBlocks(fn) != 0) return;
+    // weak: wasm32-wasi archive (same ABI) wins when linked; shim is the no-archive fallback.
+    LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
     LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMPositionBuilderAtEnd(e->builder, bb);
     LLVMValueRef len = coerce_to_size(e, LLVMGetParam(fn, 1), "len_size");
@@ -1677,6 +1679,8 @@ static LLVMValueRef wasm_fixed_intrinsic(EmitCtx *e, const char *name, LLVMTypeR
 static void emit_sa_hexdec_simd_wasm(EmitCtx *e) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_hexdec_simd");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    // wasm may also link the wasm32-wasi sa_std archive (same ABI): weak so the archive wins; shim is the no-archive fallback.
+    LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
     LLVMTypeRef i64 = e->i64_ty;
     LLVMTypeRef v16 = LLVMVectorType(e->i8_ty, 16);
     LLVMTypeRef v8 = LLVMVectorType(e->i8_ty, 8);
@@ -1836,6 +1840,8 @@ static void emit_sa_hexdec_simd_wasm(EmitCtx *e) {
 static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_b64dec_simd");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    // wasm may also link the wasm32-wasi sa_std archive (same ABI): weak so the archive wins; shim is the no-archive fallback.
+    LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
     LLVMTypeRef i64 = e->i64_ty;
     LLVMTypeRef v16 = LLVMVectorType(e->i8_ty, 16);
     LLVMTypeRef v12 = LLVMVectorType(e->i8_ty, 12);
@@ -2235,6 +2241,8 @@ static void emit_sa_b64dec_simd_wasm(EmitCtx *e) {
 static void emit_sa_mfind_u8_wasm(EmitCtx *e) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_mfind_u8");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    // wasm may also link the wasm32-wasi sa_std archive (same ABI): weak so the archive wins; shim is the no-archive fallback.
+    LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
     LLVMTypeRef i64 = e->i64_ty;
     LLVMTypeRef size = size_type(e);
     LLVMValueRef hay = LLVMGetParam(fn, 0);
@@ -2533,6 +2541,8 @@ static LLVMValueRef fmt_wasm_ensure_uint(EmitCtx *e, const FmtWasmState *s, LLVM
 static void fmt_wasm_define_u64(EmitCtx *e, LLVMValueRef uint_fn) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_u64");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    // wasm may also link the wasm32-wasi sa_std archive (same ABI): weak so the archive wins; shim is the no-archive fallback.
+    LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
     LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMPositionBuilderAtEnd(e->builder, bb);
     LLVMValueRef args[3] = {
@@ -2544,6 +2554,8 @@ static void fmt_wasm_define_u64(EmitCtx *e, LLVMValueRef uint_fn) {
 static void fmt_wasm_define_i64(EmitCtx *e, LLVMValueRef uint_fn) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_i64");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    // wasm may also link the wasm32-wasi sa_std archive (same ABI): weak so the archive wins; shim is the no-archive fallback.
+    LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
     LLVMValueRef val = LLVMGetParam(fn, 0);
     LLVMValueRef base = LLVMGetParam(fn, 1);
     LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
@@ -2560,6 +2572,8 @@ static void fmt_wasm_define_i64(EmitCtx *e, LLVMValueRef uint_fn) {
 static void fmt_wasm_define_f64(EmitCtx *e, const FmtWasmState *s, LLVMValueRef alloc_fn) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_f64");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    // wasm may also link the wasm32-wasi sa_std archive (same ABI): weak so the archive wins; shim is the no-archive fallback.
+    LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
     LLVMValueRef val = LLVMGetParam(fn, 0);
     LLVMValueRef prec = LLVMGetParam(fn, 1);
     LLVMTypeRef buf_ty = LLVMArrayType(e->i8_ty, SA_FMT_WASM_F64_SCRATCH);
@@ -2597,6 +2611,8 @@ static void fmt_wasm_define_f64(EmitCtx *e, const FmtWasmState *s, LLVMValueRef 
 static void fmt_wasm_define_bytes(EmitCtx *e, LLVMValueRef alloc_fn, const FmtWasmState *s) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_bytes");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    // wasm may also link the wasm32-wasi sa_std archive (same ABI): weak so the archive wins; shim is the no-archive fallback.
+    LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
     LLVMValueRef src = LLVMGetParam(fn, 0);
     LLVMValueRef len = LLVMGetParam(fn, 1);
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
@@ -2620,6 +2636,8 @@ static void fmt_wasm_define_bytes(EmitCtx *e, LLVMValueRef alloc_fn, const FmtWa
 static void fmt_wasm_define_buffer_data(EmitCtx *e, const FmtWasmState *s, LLVMValueRef slot_fn) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_buffer_data");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    // wasm may also link the wasm32-wasi sa_std archive (same ABI): weak so the archive wins; shim is the no-archive fallback.
+    LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMBasicBlockRef found = LLVMAppendBasicBlockInContext(e->ctx, fn, "found");
     LLVMBasicBlockRef miss = LLVMAppendBasicBlockInContext(e->ctx, fn, "miss");
@@ -2637,6 +2655,8 @@ static void fmt_wasm_define_buffer_data(EmitCtx *e, const FmtWasmState *s, LLVMV
 static void fmt_wasm_define_buffer_len(EmitCtx *e, const FmtWasmState *s, LLVMValueRef slot_fn) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_buffer_len");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    // wasm may also link the wasm32-wasi sa_std archive (same ABI): weak so the archive wins; shim is the no-archive fallback.
+    LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMBasicBlockRef found = LLVMAppendBasicBlockInContext(e->ctx, fn, "found");
     LLVMBasicBlockRef miss = LLVMAppendBasicBlockInContext(e->ctx, fn, "miss");
@@ -2654,6 +2674,8 @@ static void fmt_wasm_define_buffer_len(EmitCtx *e, const FmtWasmState *s, LLVMVa
 static void fmt_wasm_define_buffer_free(EmitCtx *e, const FmtWasmState *s, LLVMValueRef slot_fn) {
     LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_fmt_buffer_free");
     if (fn == NULL || LLVMCountBasicBlocks(fn) != 0) return;
+    // wasm may also link the wasm32-wasi sa_std archive (same ABI): weak so the archive wins; shim is the no-archive fallback.
+    LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMBasicBlockRef found = LLVMAppendBasicBlockInContext(e->ctx, fn, "found");
     LLVMBasicBlockRef miss = LLVMAppendBasicBlockInContext(e->ctx, fn, "miss");
