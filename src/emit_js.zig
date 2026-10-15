@@ -757,8 +757,8 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\function __sa_cvt_sext_u8(v) { return __sa_narrow(v, 8, true); }
         \\function __sa_cvt_sext_u16(v) { return __sa_narrow(v, 16, true); }
         \\function __sa_cvt_sext_u32(v) { return __sa_narrow(v, 32, true); }
-        \\function __sa_cvt_sext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt((+v) | 0); }
-        \\function __sa_cvt_sext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt.asUintN(64, BigInt((+v) | 0)); }
+        \\function __sa_cvt_sext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt.asIntN(64, BigInt(Math.trunc(+v))); }
+        \\function __sa_cvt_sext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt.asUintN(64, BigInt(Math.trunc(+v))); }
         \\function __sa_cvt_sext_ptr(v) { return __sa_cvt_ptr64(v); }
         \\function __sa_cvt_sitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
         \\function __sa_cvt_sitofp_f32(v) { return Math.fround((typeof v === "bigint") ? Number(v) : (+v)); }
@@ -944,15 +944,12 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\  return o + '"';
         \\}
         \\function __sa_json_f64_str(x) {
-        \\  // Zig std.json shortest-scientific float format (probed native:
-        \\  // 7->7e0, 0.5->5e-1, 1e21->1e21, NaN->"nan", Inf->inf, -0->0e0).
+        \\  // Match native (Zig 0.17 std.json decimal shortest): 2.5->"2.5".
         \\  const v = (typeof x === "bigint") ? Number(x) : (+x);
         \\  if (Number.isNaN(v)) return '"nan"';
         \\  if (v === Infinity) return 'inf';
         \\  if (v === -Infinity) return '-inf';
-        \\  const a = (v < 0) ? -v : v;
-        \\  const e = a.toExponential().replace("e+", "e");
-        \\  return ((v < 0) ? "-" : "") + e;
+        \\  return String(v).replace("e+", "e");
         \\}
         \\function __sa_jw_begin(w, open) {
         \\  if (w.result !== null) return 2;
