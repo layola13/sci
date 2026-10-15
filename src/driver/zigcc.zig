@@ -32,6 +32,25 @@ pub const Argv = struct {
     }
 };
 
+var zig_exe_cache: ?[]const u8 = null;
+var zig_exe_mu: std.atomic.Mutex = .unlocked;
+
+/// Absolute path of the `zig` driver, resolved once against the live PATH.
+/// See `sio.resolveHostExe`: Zig 0.17 child spawning ignores the live PATH,
+/// so a bare "zig" only resolves inside /usr/local/bin:/bin:/usr/bin.
+fn zigExe() []const u8 {
+    while (!zig_exe_mu.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer zig_exe_mu.unlock();
+    if (zig_exe_cache) |p| return p;
+    if (sio.resolveHostExe(std.heap.page_allocator, "zig") catch null) |p| {
+        zig_exe_cache = p;
+        return p;
+    }
+    return "zig";
+}
+
 pub fn argvForExe(
     allocator: std.mem.Allocator,
     artifact_path: []const u8,
@@ -44,7 +63,7 @@ pub fn argvForExe(
 ) !Argv {
     var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
     errdefer argv.deinit();
-    try argv.items.append("zig");
+    try argv.items.append(zigExe());
     try argv.items.append("cc");
     // NOTE(Zig 0.17): the driver's default UBSan set is much larger than
     // 0.14's; instrumented objects need a ubsan runtime that native glibc
@@ -99,7 +118,7 @@ pub fn argvForObj(
 ) !Argv {
     var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
     errdefer argv.deinit();
-    try argv.items.append("zig");
+    try argv.items.append(zigExe());
     try argv.items.append("cc");
     // NOTE(Zig 0.17): see argvForExe — disable the driver's default UBSan set.
     try argv.items.append("-fno-sanitize=all");
@@ -136,7 +155,7 @@ pub fn argvForRelocatableObj(
 ) !Argv {
     var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
     errdefer argv.deinit();
-    try argv.items.append("zig");
+    try argv.items.append(zigExe());
     try argv.items.append("cc");
     try argv.items.append("-r");
     for (input_objects) |input| {
@@ -158,7 +177,7 @@ pub fn argvForWasm(
 ) !Argv {
     var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
     errdefer argv.deinit();
-    try argv.items.append("zig");
+    try argv.items.append(zigExe());
     try argv.items.append("cc");
     // NOTE(Zig 0.17): see argvForExe — disable the driver's default UBSan set.
     try argv.items.append("-fno-sanitize=all");

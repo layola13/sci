@@ -4052,9 +4052,12 @@ fn fileExistsInProject(allocator: std.mem.Allocator, root_dir: []const u8, rel: 
 fn buildPluginProject(allocator: std.mem.Allocator, root_dir: []const u8, stdout: anytype, optimize: []const u8) !u8 {
     const optimize_arg = try std.fmt.allocPrint(allocator, "-Doptimize={s}", .{optimize});
     defer allocator.free(optimize_arg);
+    const resolved_zig = try sio.resolveHostExe(allocator, "zig");
+    defer if (resolved_zig) |p| allocator.free(p);
+    const zig_exe = resolved_zig orelse "zig";
     const result = sio.Child.run(.{
         .allocator = allocator,
-        .argv = &.{ "zig", "build", optimize_arg, "--summary", "all" },
+        .argv = &.{ zig_exe, "build", optimize_arg, "--summary", "all" },
         .cwd = root_dir,
     }) catch |err| switch (err) {
         error.FileNotFound => {

@@ -452,6 +452,46 @@ pub fn getEnvVarOwned(allocator: std.mem.Allocator, key: []const u8) ![]u8 {
     return try allocator.dupe(u8, std.mem.span(value));
 }
 
+/// Resolve a toolchain binary (e.g. "zig") against the LIVE process PATH and
+/// return its absolute path (caller owns the result), or null when not found.
+///
+/// NOTE(Zig 0.17): child argv[0] is resolved against the Io instance's
+/// environ — which is EMPTY for the global instance and under
+/// `zig build test` — falling back to a hardcoded
+/// "/usr/local/bin:/bin:/usr/bin" search list. The live PATH (custom zig
+/// installs, setup-zig temp dirs in CI) is ignored, so spawning a bare
+/// "zig" fails with FileNotFound. Callers that shell out to toolchain
+/// binaries must pass the resolved absolute path instead; keep the bare
+/// name as fallback when resolution fails.
+pub fn resolveHostExe(allocator: std.mem.Allocator, exe_name: []const u8) !?[]u8 {
+    const is_windows = builtin.os.tag == .windows;
+    if (std.mem.indexOfScalar(u8, exe_name, '/') != null or (is_windows and std.mem.indexOfScalar(u8, exe_name, '\\') != null)) {
+        const zpath = try allocator.dupeSentinel(u8, exe_name, 0);
+        defer allocator.free(zpath);
+        if (std.c.access(zpath, 0) != 0) return null;
+        return try allocator.dupe(u8, exe_name);
+    }
+    const exe_file: []const u8 = if (is_windows and !std.mem.endsWith(u8, exe_name, ".exe"))
+        try std.fmt.allocPrint(allocator, "{s}.exe", .{exe_name})
+    else
+        exe_name;
+    const owned_file = is_windows and exe_file.ptr != exe_name.ptr;
+    defer if (owned_file) allocator.free(exe_file);
+    const path_val = getEnvVarOwned(allocator, "PATH") catch return null;
+    defer allocator.free(path_val);
+    const path_sep: u8 = if (is_windows) ';' else ':';
+    var it = std.mem.splitScalar(u8, path_val, path_sep);
+    while (it.next()) |dir| {
+        if (dir.len == 0) continue;
+        const candidate = try std.fs.path.join(allocator, &.{ dir, exe_file });
+        defer allocator.free(candidate);
+        const zcand = try allocator.dupeSentinel(u8, candidate, 0);
+        defer allocator.free(zcand);
+        if (std.c.access(zcand, 0) == 0) return try allocator.dupe(u8, candidate);
+    }
+    return null;
+}
+
 /// Old `std.process.getEnvMap` shape (removed in 0.17): snapshot the whole
 /// process environment into an owned map.
 pub fn getEnvMap(allocator: std.mem.Allocator) !EnvMap {

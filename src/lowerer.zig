@@ -498,9 +498,12 @@ test "lowerer output survives zig fmt" {
     defer file.close();
     try file.writeAll(text);
 
+    const resolved_zig = try sio.resolveHostExe(std.testing.allocator, "zig");
+    defer if (resolved_zig) |p| std.testing.allocator.free(p);
+    const zig_exe = resolved_zig orelse "zig";
     const child = try sio.Child.run(.{
         .allocator = std.testing.allocator,
-        .argv = &.{ "zig", "fmt", "--check", "generated.zig" },
+        .argv = &.{ zig_exe, "fmt", "--check", "generated.zig" },
         .cwd_dir = tmp_dir,
     });
     defer std.testing.allocator.free(child.stdout);
