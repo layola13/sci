@@ -37,8 +37,9 @@ jobs:
           path: |
             .zig-cache
             ~/.cache/zig
-          key: ${{ runner.os }}-full-${{ hashFiles('build.zig', 'src/**/*.zig', 'src/**/*.c', 'tests/**/*.zig', 'sa_std/**/*.sa', 'sa_std/**/*.sai') }}
+          key: ${{ runner.os }}-full-${{ hashFiles('build.zig', 'build.zig.zon') }}-${{ github.sha }}
           restore-keys: |
+            ${{ runner.os }}-full-${{ hashFiles('build.zig', 'build.zig.zon') }}-
             ${{ runner.os }}-full-
 
       - name: Build Linux compiler and runtime
@@ -69,8 +70,9 @@ jobs:
         with:
           path: |
             .zig-cache
-          key: ${{ runner.os }}-bootstrap-${{ hashFiles('build.zig', 'src/**/*.zig', 'src/**/*.c', 'tests/**/*.zig', 'sa_std/**/*.sa', 'sa_std/**/*.sai') }}
+          key: ${{ runner.os }}-bootstrap-${{ hashFiles('build.zig', 'build.zig.zon') }}-${{ github.sha }}
           restore-keys: |
+            ${{ runner.os }}-bootstrap-${{ hashFiles('build.zig', 'build.zig.zon') }}-
             ${{ runner.os }}-bootstrap-
 
       - name: Build Windows bootstrap compiler

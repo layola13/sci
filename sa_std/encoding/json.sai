@@ -1,54 +1,56 @@
 // SA-facing contracts for the Zig-backed sa_std.encoding.json module.
-// JSON documents and derived nodes are opaque owned ptr values and must be freed explicitly.
-// JSON stringification returns an owned byte buffer handle.
-@extern sa_json_parse(&json_bytes: ptr, len: u64) -> ^ptr
-@extern sa_json_kind(node: ptr) -> u32
-@extern sa_json_object_get(node: ptr, &key: ptr, key_len: u64, &out_handle: ptr) -> i32
-@extern sa_json_array_get(node: ptr, index: u64, &out_handle: ptr) -> i32
-@extern sa_json_object_key_at(node: ptr, index: u64, &out_ptr: ptr, &out_len: ptr) -> i32
-@extern sa_json_object_get_string(node: ptr, &key: ptr, key_len: u64, &out_ptr: ptr, &out_len: ptr) -> i32
-@extern sa_json_object_get_bool(node: ptr, &key: ptr, key_len: u64, &out_value: ptr) -> i32
-@extern sa_json_object_get_i64(node: ptr, &key: ptr, key_len: u64, &out_value: ptr) -> i32
-@extern sa_json_object_get_f64(node: ptr, &key: ptr, key_len: u64, &out_value: ptr) -> i32
-@extern sa_json_as_f64(node: ptr, &out_value: ptr) -> i32
-@extern sa_json_as_i64(node: ptr, &out_value: ptr) -> i32
-@extern sa_json_as_bool(node: ptr, &out_value: ptr) -> i32
-@extern sa_json_string_ptr(node: ptr) -> &ptr
-@extern sa_json_string_len(node: ptr) -> u64
-@extern sa_json_value_count(node: ptr, &out_count: ptr) -> i32
-@extern sa_json_free(^node: ptr) -> i32!
-@extern sa_json_stringify(node: ptr, &out_handle: ptr) -> i32
-@extern sa_json_buffer_data(buffer: ptr) -> &ptr
-@extern sa_json_buffer_len(buffer: ptr) -> u64
-@extern sa_json_buffer_free(^buffer: ptr) -> i32!
+// JSON documents, buffers, scanners, streams and writers are opaque OWNED
+// U64 HANDLES (not pointers): the archive implements them as u64, so the
+// contract must say u64 (same lesson as text/regex.sai). Text bytes and
+// out-params stay real `ptr`s.
+@extern sa_json_parse(&json_bytes: ptr, len: u64) -> u64
+@extern sa_json_kind(node: u64) -> u32
+@extern sa_json_object_get(node: u64, &key: ptr, key_len: u64, &out_handle: ptr) -> i32
+@extern sa_json_array_get(node: u64, index: u64, &out_handle: ptr) -> i32
+@extern sa_json_object_key_at(node: u64, index: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_json_object_get_string(node: u64, &key: ptr, key_len: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_json_object_get_bool(node: u64, &key: ptr, key_len: u64, &out_value: ptr) -> i32
+@extern sa_json_object_get_i64(node: u64, &key: ptr, key_len: u64, &out_value: ptr) -> i32
+@extern sa_json_object_get_f64(node: u64, &key: ptr, key_len: u64, &out_value: ptr) -> i32
+@extern sa_json_as_f64(node: u64, &out_value: ptr) -> i32
+@extern sa_json_as_i64(node: u64, &out_value: ptr) -> i32
+@extern sa_json_as_bool(node: u64, &out_value: ptr) -> i32
+@extern sa_json_string_ptr(node: u64) -> &ptr
+@extern sa_json_string_len(node: u64) -> u64
+@extern sa_json_value_count(node: u64, &out_count: ptr) -> i32
+@extern sa_json_free(^node: u64) -> i32!
+@extern sa_json_stringify(node: u64, &out_handle: ptr) -> i32
+@extern sa_json_buffer_data(buffer: u64) -> &ptr
+@extern sa_json_buffer_len(buffer: u64) -> u64
+@extern sa_json_buffer_free(^buffer: u64) -> i32!
 @extern sa_json_scanner_new(&out_handle: ptr) -> i32
-@extern sa_json_scanner_feed(scanner: ptr, &input: ptr, len: u64) -> i32
-@extern sa_json_scanner_end_input(scanner: ptr) -> i32
-@extern sa_json_scanner_next(scanner: ptr, &out_token: ptr) -> i32
-@extern sa_json_scanner_free(^scanner: ptr) -> i32
-@extern sa_json_stream_new(&json_bytes: ptr, len: u64) -> ^ptr
-@extern sa_json_stream_next(stream: ptr) -> u32
-@extern sa_json_stream_get_slice_ptr(stream: ptr) -> &ptr
-@extern sa_json_stream_get_slice_len(stream: ptr) -> u64
-@extern sa_json_stream_free(^stream: ptr) -> i32!
+@extern sa_json_scanner_feed(scanner: u64, &input: ptr, len: u64) -> i32
+@extern sa_json_scanner_end_input(scanner: u64) -> i32
+@extern sa_json_scanner_next(scanner: u64, &out_token: ptr) -> i32
+@extern sa_json_scanner_free(^scanner: u64) -> i32
+@extern sa_json_stream_new(&json_bytes: ptr, len: u64) -> u64
+@extern sa_json_stream_next(stream: u64) -> u32
+@extern sa_json_stream_get_slice_ptr(stream: u64) -> &ptr
+@extern sa_json_stream_get_slice_len(stream: u64) -> u64
+@extern sa_json_stream_free(^stream: u64) -> i32!
 @extern sa_json_writer_new(whitespace: u32, emit_null_optional_fields: u8, emit_strings_as_arrays: u8, escape_unicode: u8, emit_nonportable_numbers_as_strings: u8, &out_handle: ptr) -> i32
-@extern sa_json_writer_begin_object(writer: ptr) -> i32
-@extern sa_json_writer_end_object(writer: ptr) -> i32
-@extern sa_json_writer_begin_array(writer: ptr) -> i32
-@extern sa_json_writer_end_array(writer: ptr) -> i32
-@extern sa_json_writer_object_field(writer: ptr, &key: ptr, key_len: u64) -> i32
-@extern sa_json_writer_field_string(writer: ptr, &key: ptr, key_len: u64, &data: ptr, len: u64) -> i32
-@extern sa_json_writer_field_bool(writer: ptr, &key: ptr, key_len: u64, value: u8) -> i32
-@extern sa_json_writer_field_i64(writer: ptr, &key: ptr, key_len: u64, value: i64) -> i32
-@extern sa_json_writer_field_f64(writer: ptr, &key: ptr, key_len: u64, value: f64) -> i32
-@extern sa_json_writer_field_null(writer: ptr, &key: ptr, key_len: u64) -> i32
-@extern sa_json_writer_field_node(writer: ptr, &key: ptr, key_len: u64, node: ptr) -> i32
-@extern sa_json_writer_write_bool(writer: ptr, value: u8) -> i32
-@extern sa_json_writer_write_i64(writer: ptr, value: i64) -> i32
-@extern sa_json_writer_write_f64(writer: ptr, value: f64) -> i32
-@extern sa_json_writer_write_string(writer: ptr, &data: ptr, len: u64) -> i32
-@extern sa_json_writer_write_null(writer: ptr) -> i32
-@extern sa_json_writer_write_node(writer: ptr, node: ptr) -> i32
-@extern sa_json_writer_finish(writer: ptr, &out_handle: ptr) -> i32
-@extern sa_json_writer_finish_buffer(writer: ptr) -> ptr
-@extern sa_json_writer_free(^writer: ptr) -> i32
+@extern sa_json_writer_begin_object(writer: u64) -> i32
+@extern sa_json_writer_end_object(writer: u64) -> i32
+@extern sa_json_writer_begin_array(writer: u64) -> i32
+@extern sa_json_writer_end_array(writer: u64) -> i32
+@extern sa_json_writer_object_field(writer: u64, &key: ptr, key_len: u64) -> i32
+@extern sa_json_writer_field_string(writer: u64, &key: ptr, key_len: u64, &data: ptr, len: u64) -> i32
+@extern sa_json_writer_field_bool(writer: u64, &key: ptr, key_len: u64, value: u8) -> i32
+@extern sa_json_writer_field_i64(writer: u64, &key: ptr, key_len: u64, value: i64) -> i32
+@extern sa_json_writer_field_f64(writer: u64, &key: ptr, key_len: u64, value: f64) -> i32
+@extern sa_json_writer_field_null(writer: u64, &key: ptr, key_len: u64) -> i32
+@extern sa_json_writer_field_node(writer: u64, &key: ptr, key_len: u64, node: u64) -> i32
+@extern sa_json_writer_write_bool(writer: u64, value: u8) -> i32
+@extern sa_json_writer_write_i64(writer: u64, value: i64) -> i32
+@extern sa_json_writer_write_f64(writer: u64, value: f64) -> i32
+@extern sa_json_writer_write_string(writer: u64, &data: ptr, len: u64) -> i32
+@extern sa_json_writer_write_null(writer: u64) -> i32
+@extern sa_json_writer_write_node(writer: u64, node: u64) -> i32
+@extern sa_json_writer_finish(writer: u64, &out_handle: ptr) -> i32
+@extern sa_json_writer_finish_buffer(writer: u64) -> u64
+@extern sa_json_writer_free(^writer: u64) -> i32

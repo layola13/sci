@@ -372,7 +372,12 @@ static LLVMTypeRef fallible_wire_type_of(EmitCtx *e, SaType payload_ty) {
     return fallible_type_of(e, payload_ty);
 }
 
-static int external_fallible_i32_uses_i64_abi(const SaFunction *f) {
+static int external_fallible_i32_uses_i64_abi(EmitCtx *e, const SaFunction *f) {
+    /* The i64 packing relies on SysV returning 8-byte structs in a single
+       register. wasm32 uses multi-value {i32, i32} returns instead, so the
+       packed declaration mismatches the archive callee (local.set i32 vs
+       call i64 at validation). Fall back to the plain struct ABI there. */
+    if (e != NULL && e->wasm_compat) return 0;
     return f != NULL && f->kind == SA_F_EXTERNAL && f->return_fallible && (f->ret_ty == SA_T_I32 || f->ret_ty == SA_T_U32 || f->ret_ty == SA_T_I16 || f->ret_ty == SA_T_U16 || f->ret_ty == SA_T_I8 || f->ret_ty == SA_T_U8);
 }
 
@@ -388,7 +393,7 @@ static int external_fallible_i32_uses_i64_abi(const SaFunction *f) {
 #ifdef _WIN32
 static int external_fallible_uses_sret_win64(const SaFunction *f) {
     if (f == NULL || f->kind != SA_F_EXTERNAL || !f->return_fallible) return 0;
-    if (external_fallible_i32_uses_i64_abi(f)) return 0;
+    if (external_fallible_i32_uses_i64_abi(NULL, f)) return 0;
     switch (f->ret_ty) {
         case SA_T_I64:
         case SA_T_U64:
@@ -404,7 +409,7 @@ static int external_fallible_uses_sret_win64(const SaFunction *f) { (void)f; ret
 #endif
 
 static LLVMTypeRef return_type_for(EmitCtx *e, const SaFunction *f) {
-    if (external_fallible_i32_uses_i64_abi(f)) return e->i64_ty;
+    if (external_fallible_i32_uses_i64_abi(e, f)) return e->i64_ty;
     if (external_fallible_uses_sret_win64(f)) return LLVMVoidTypeInContext(e->ctx);
     if (f->return_fallible) return fallible_type_of(e, f->ret_ty);
     return type_of(e, f->ret_ty);
@@ -1345,7 +1350,7 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 free(param_types);
                 LLVMValueRef callv = LLVMBuildCall2(e->builder, fn_ty, callee, args, (unsigned)total_args, sret ? "" : (in->has_dst ? "call" : ""));
                 LLVMValueRef resultv = callv;
-                if (external_fallible_i32_uses_i64_abi(callee_sig)) resultv = unpack_external_fallible_i32(e, callv);
+                if (external_fallible_i32_uses_i64_abi(e, callee_sig)) resultv = unpack_external_fallible_i32(e, callv);
                 if (sret) {
                     LLVMTypeRef result_struct = fallible_type_of(e, callee_sig->ret_ty);
                     LLVMValueRef agg = LLVMGetUndef(result_struct);

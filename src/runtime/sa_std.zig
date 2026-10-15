@@ -824,14 +824,13 @@ fn regexMatchHandle(regex_handle: *RegexHandle, text: []const u8) !*RegexMatchHa
     errdefer allocator.free(groups);
 
     const rc = regexec(&regex_handle.compiled, @ptrCast(owned_text.ptr), groups.len, groups.ptr, 0);
+    // NOTE: no explicit frees here: the errdefers above own cleanup on every
+    // error return. Explicit frees + errdefer double-free (freelist corruption
+    // on wasm32 dlmalloc: later allocs overlap live objects).
     if (rc == SA_REGEX_REG_NOMATCH) {
-        allocator.free(groups);
-        allocator.free(owned_text);
         return error.FileNotFound;
     }
     if (rc != SA_REGEX_REG_NOERROR) {
-        allocator.free(groups);
-        allocator.free(owned_text);
         return regexErrorToZig(rc);
     }
 
@@ -1256,7 +1255,11 @@ const Resource = union(enum) {
             .regex => |regex| regex.destroy(),
             .regex_match => |match| match.destroy(),
             .owned_fd => |*fd| fd.deinit(),
-            .terminal_session => |*session| try session.deinit(),
+            .terminal_session => |*session| {
+                // No terminal sessions can exist on WASI (raw_enter stubbed);
+                // skip the tcsetattr restore, which wasi-libc does not provide.
+                if (is_wasm) {} else try session.deinit();
+            },
             .process => |*proc| proc.deinit(),
         }
         self.* = undefined;
@@ -9097,6 +9100,8 @@ pub export fn sa_thread_yield_now() i32 {
 }
 
 pub export fn sa_term_raw_enter(handle: u64, out_session: ?*u64) i32 {
+    // WASI has no ttys (no tcgetattr/tcsetattr in wasi-libc).
+    if (is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const session_ptr = out_session orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     session_ptr.* = 0;
     while (!registry_mutex.tryLock()) { std.Thread.yield() catch {}; }

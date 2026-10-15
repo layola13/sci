@@ -1,10 +1,15 @@
 // SA-facing contracts for the Zig-backed sa_std.text.regex module.
-// Regex and regex match handles are opaque owned ptr values.
-@extern sa_regex_compile(&pattern: ptr, pattern_len: u64, cflags: i32) -> ^ptr
-@extern sa_regex_match(regex: ptr, &text: ptr, text_len: u64) -> ^ptr
-@extern sa_regex_group_ptr(match: ptr, group_idx: u32) -> &ptr
-@extern sa_regex_group_len(match: ptr, group_idx: u32) -> u64
-@extern sa_regex_group_start(match: ptr, group_idx: u32) -> u64
-@extern sa_regex_group_count(regex: ptr) -> u64
-@extern sa_regex_free(^regex: ptr) -> i32!
-@extern sa_regex_match_free(^match: ptr) -> i32!
+// Regex and regex match handles are opaque OWNED U64 VALUES (not pointers):
+// the archive implements them as u64, so the contract must say u64. Saying
+// `ptr` here worked on 64-bit by width coincidence but declares i8* on
+// wasm32 while the archive returns/takes i64 -> invalid wasm at link time
+// (local.set i32 vs call i64). Same u64-handle convention as sa_fmt_*.
+// Text bytes stay real `ptr`s, matching ?[*]const u8 on both targets.
+@extern sa_regex_compile(&pattern: ptr, pattern_len: u64, cflags: i32) -> u64
+@extern sa_regex_match(regex: u64, &text: ptr, text_len: u64) -> u64
+@extern sa_regex_group_ptr(match: u64, group_idx: u32) -> &ptr
+@extern sa_regex_group_len(match: u64, group_idx: u32) -> u64
+@extern sa_regex_group_start(match: u64, group_idx: u32) -> u64
+@extern sa_regex_group_count(regex: u64) -> u64
+@extern sa_regex_free(^regex: u64) -> i32!
+@extern sa_regex_match_free(^match: u64) -> i32!
