@@ -698,38 +698,48 @@ fn writeRuntimeHeader(writer: anytype, c_opt: CEmitOptions, size_bits: u16) !voi
         \\#endif
         \\static uint8_t sa_mem[SA_MEM_BYTES];
         \\static uint32_t sa_brk = 65536;
-        \\static void sa_trap(const char *msg) { fputs("[sa-trap] ", stderr); fputs(msg, stderr); fputc('\n', stderr); exit(1); }
-        \\static void sa_panic(sa_u64 code) { char b[24]; int n = 0; sa_u64 v = code; char t[24]; int m = 0; if (v == 0) t[m++] = '0'; while (v > 0) { t[m++] = (char)('0' + (v % 10)); v /= 10; } fputs("[sa-panic] code=", stderr); while (m > 0) b[n++] = t[--m]; fwrite(b, 1, (size_t)n, stderr); fputc('\n', stderr); exit(1); }
+        \\static __attribute__((noreturn)) void sa_trap(const char *msg) { fputs("[sa-trap] ", stderr); fputs(msg, stderr); fputc('\n', stderr); exit(1); }
+        \\static __attribute__((noreturn)) void sa_panic(sa_u64 code) { char b[24]; int n = 0; sa_u64 v = code; char t[24]; int m = 0; if (v == 0) t[m++] = '0'; while (v > 0) { t[m++] = (char)('0' + (v % 10)); v /= 10; } fputs("[sa-panic] code=", stderr); while (m > 0) b[n++] = t[--m]; fwrite(b, 1, (size_t)n, stderr); fputc('\n', stderr); exit(1); }
         \\static sa_u64 sa_ok_none(void) { return 0; }
         \\static sa_u64 sa_ok_val(sa_u64 v) { (void)v; return v; }
         \\static int sa_truthy(sa_u64 v) { return v != 0; }
         \\static sa_u64 sa_align(sa_u64 n, sa_u64 a) { return (n + (a - 1)) & ~(a - 1); }
         \\static sa_u64 sa_alloc(sa_u64 size) {
         \\  size = sa_align(size, 8); if (size == 0) size = 8;
-        \\  uint32_t base = sa_brk; sa_brk += (uint32_t)(size + 8);
-        \\  if ((size_t)sa_brk >= sizeof(sa_mem)) sa_trap("out of memory (bump)");
+        \\  uint32_t base = sa_brk;
+        \\  { sa_u64 nb = (sa_u64)base + size + 8; if (nb > (sa_u64)sizeof(sa_mem)) sa_trap("out of memory (bump)"); sa_brk = (uint32_t)nb; } // NOLINT(bugprone-misplaced-widening-cast): nb range-checked above
         \\  { uint32_t i; for (i = 0; i < (uint32_t)(size + 8); i++) sa_mem[base + i] = 0; }
         \\  sa_mem[base] = (uint8_t)(size & 0xFFu); sa_mem[base + 1] = (uint8_t)((size >> 8) & 0xFFu);
         \\  sa_mem[base + 2] = (uint8_t)((size >> 16) & 0xFFu); sa_mem[base + 3] = (uint8_t)((size >> 24) & 0xFFu);
-        \\  return (sa_u64)(base + 8);
+        \\  return (sa_u64)base + 8;
         \\}
         \\static sa_u64 sa_salloc(sa_u64 size) { return sa_alloc(size); }
         \\static sa_u64 sa_free(sa_u64 ptr) { (void)ptr; return 0; }
         \\static sa_u64 sa_ptr_add(sa_u64 base, sa_u64 off) { return base + off; }
         \\static uint32_t sa_addr(sa_u64 a) { return (uint32_t)(a & 0xFFFFFFFFu); }
-        \\static sa_u64 sa_load_u8(sa_u64 a) { return (sa_u64)sa_mem[sa_addr(a)]; }
-        \\static sa_u64 sa_load_i8(sa_u64 a) { return (sa_u64)(sa_i64)(int8_t)sa_mem[sa_addr(a)]; }
-        \\static sa_u64 sa_load_u16(sa_u64 a) { uint32_t x = sa_addr(a); return (sa_u64)((uint16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8))); }
-        \\static sa_u64 sa_load_i16(sa_u64 a) { uint32_t x = sa_addr(a); int16_t v = (int16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8)); return (sa_u64)(sa_i64)v; }
-        \\static sa_u64 sa_load_u32(sa_u64 a) { uint32_t x = sa_addr(a); return (sa_u64)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); }
-        \\static sa_u64 sa_load_i32(sa_u64 a) { uint32_t x = sa_addr(a); int32_t v = (int32_t)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); return (sa_u64)(sa_i64)v; }
-        \\static sa_u64 sa_load_u64(sa_u64 a) { uint32_t x = sa_addr(a); uint64_t v = 0; unsigned k; for (k = 0; k < 8; k++) v |= ((uint64_t)sa_mem[x + k]) << (k * 8); return v; }
+        \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, size) signature
+        \\static uint32_t sa_checked_addr(sa_u64 a, size_t sz) {
+        \\  uint32_t x = sa_addr(a);
+        \\  if ((size_t)x + sz > (size_t)sizeof(sa_mem)) sa_trap("oob linear-memory access");
+        \\  return x;
+        \\}
+        
+        \\static sa_u64 sa_load_u8(sa_u64 a) { return (sa_u64)sa_mem[sa_checked_addr(a, 1)]; }
+        \\static sa_u64 sa_load_i8(sa_u64 a) { return (sa_u64)(sa_i64)(int8_t)sa_mem[sa_checked_addr(a, 1)]; }
+        \\static sa_u64 sa_load_u16(sa_u64 a) { uint32_t x = sa_checked_addr(a, 2); return (sa_u64)((uint16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8))); }
+        \\static sa_u64 sa_load_i16(sa_u64 a) { uint32_t x = sa_checked_addr(a, 2); int16_t v = (int16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8)); return (sa_u64)(sa_i64)v; }
+        \\static sa_u64 sa_load_u32(sa_u64 a) { uint32_t x = sa_checked_addr(a, 4); return (sa_u64)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); }
+        \\static sa_u64 sa_load_i32(sa_u64 a) { uint32_t x = sa_checked_addr(a, 4); int32_t v = (int32_t)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); return (sa_u64)(sa_i64)v; }
+        \\static sa_u64 sa_load_u64(sa_u64 a) { uint32_t x = sa_checked_addr(a, 8); uint64_t v = 0; unsigned k; for (k = 0; k < 8; k++) v |= ((uint64_t)sa_mem[x + k]) << (k * 8); return v; }
         \\static sa_u64 sa_load_f32(sa_u64 a) { return sa_load_u32(a) & 0xFFFFFFFFULL; }
         \\static sa_u64 sa_load_f64(sa_u64 a) { return sa_load_u64(a); }
-        \\static void sa_store_u8(sa_u64 a, sa_u64 v) { sa_mem[sa_addr(a)] = (uint8_t)(v & 0xFFu); }
-        \\static void sa_store_u16(sa_u64 a, sa_u64 v) { uint32_t x = sa_addr(a); sa_mem[x] = (uint8_t)(v & 0xFFu); sa_mem[x + 1] = (uint8_t)((v >> 8) & 0xFFu); }
-        \\static void sa_store_u32(sa_u64 a, sa_u64 v) { uint32_t x = sa_addr(a); unsigned k; for (k = 0; k < 4; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
-        \\static void sa_store_u64(sa_u64 a, sa_u64 v) { uint32_t x = sa_addr(a); unsigned k; for (k = 0; k < 8; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
+        \\static void sa_store_u8(sa_u64 a, sa_u64 v) { sa_mem[sa_checked_addr(a, 1)] = (uint8_t)(v & 0xFFu); }
+        \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
+        \\static void sa_store_u16(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 2); sa_mem[x] = (uint8_t)(v & 0xFFu); sa_mem[x + 1] = (uint8_t)((v >> 8) & 0xFFu); }
+        \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
+        \\static void sa_store_u32(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 4); unsigned k; for (k = 0; k < 4; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
+        \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
+        \\static void sa_store_u64(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 8); unsigned k; for (k = 0; k < 8; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
         \\static void sa_store_f32(sa_u64 a, sa_u64 v) { sa_store_u32(a, v & 0xFFFFFFFFULL); }
         \\static void sa_store_f64(sa_u64 a, sa_u64 v) { sa_store_u64(a, v); }
         \\static sa_u64 sa_add(sa_u64 a, sa_u64 b) { return a + b; }
@@ -801,6 +811,7 @@ fn writeRuntimeHeader(writer: anytype, c_opt: CEmitOptions, size_bits: u16) !voi
         \\static sa_u64 sa_cvt_bitcast_ptr(sa_u64 v){return v;} static sa_u64 sa_cvt_bitcast_i8(sa_u64 v){return v&0xFFu;}
         \\static sa_u64 sa_cvt_bitcast_u8(sa_u64 v){return v&0xFFu;} static sa_u64 sa_cvt_bitcast_i16(sa_u64 v){return v&0xFFFFu;}
         \\static sa_u64 sa_cvt_bitcast_u16(sa_u64 v){return v&0xFFFFu;} static sa_u64 sa_cvt_bitcast_i1(sa_u64 v){return v&1;}
+        \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, len) signature
         \\static sa_u64 sa_print_bytes(sa_u64 addr, sa_u64 len) { uint32_t a=sa_addr(addr); if ((size_t)a+(size_t)len>sizeof(sa_mem)) sa_trap("print oob"); fwrite(&sa_mem[a],1,(size_t)len,stdout); return 0; }
         \\static sa_u64 sa_f32_to_f64(sa_u64 v) { return sa_f64_bits((double)sa_bits_f32(v)); }
         \\static sa_u64 sa_f64_to_f32(sa_u64 v) { return sa_f32_bits((float)sa_bits_f64(v)); }
@@ -815,6 +826,7 @@ fn writeRuntimeHeader(writer: anytype, c_opt: CEmitOptions, size_bits: u16) !voi
         \\static sa_u64 sa_fcmp_le32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)<=sa_bits_f32(b)?1:0; }
         \\static sa_u64 sa_fcmp_gt32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)>sa_bits_f32(b)?1:0; }
         \\static sa_u64 sa_fcmp_ge32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)>=sa_bits_f32(b)?1:0; }
+        \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (value, width, sign) signature
         \\static sa_u64 sa_srcmask(sa_u64 v, unsigned w, int sgn) {
         \\  if (w >= 64) return v;
         \\  if (w == 32) return sgn ? (sa_u64)(sa_i64)(int32_t)(uint32_t)v : (sa_u64)(uint32_t)v;
@@ -825,6 +837,216 @@ fn writeRuntimeHeader(writer: anytype, c_opt: CEmitOptions, size_bits: u16) !voi
         \\static sa_u64 sa_fnaddr(int i) { return (sa_u64)(uint64_t)(1000000 + i); }
         \\
     );
+}
+
+/// Best-effort slot resolution for liveness: reg/symbol/text operands that
+/// denote a local slot. Returns null for immediates, labels, funcs, consts.
+fn readSlotOf(fsig: sig.FunctionSig, use_global: bool, symbols: anytype, op: inst.Operand) ?u32 {
+    switch (op) {
+        .reg => |r| return regSlot(fsig, use_global, r) catch null,
+        .symbol => |id| return fsig.slotOf(id),
+        .text, .native_text => |t| {
+            var text = std.mem.trim(u8, t, " \t");
+            if (text.len == 0) return null;
+            if (text[0] == '&' or text[0] == '*' or text[0] == '^') text = std.mem.trim(u8, text[1..], " \t");
+            if (std.mem.lastIndexOf(u8, text, " as ")) |idx| text = std.mem.trim(u8, text[0..idx], " \t\r");
+            if (text.len == 0) return null;
+            if (symbols.findId(text)) |id| return fsig.slotOf(id);
+            return null;
+        },
+        else => return null,
+    }
+}
+
+fn defSlotOf(fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) ?u32 {
+    switch (op) {
+        .reg => |r| return regSlot(fsig, use_global, r) catch null,
+        .symbol => |id| return fsig.slotOf(id),
+        else => return null,
+    }
+}
+
+/// Slots defined but never read in the function body. Skipping emission for
+/// these is semantics-preserving ONLY for side-effect-free definitions
+/// (the emitter filters by kind); callers must still emit trapping or
+/// memory-observably-effectful instructions.
+/// Per-instruction def/use classification shared by the forward
+/// (never-read slots) and backward (point-wise dead defs) passes.
+fn collectDefUse(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, base: inst.Instruction, defs: *std.array_list.Managed(u32), uses: *std.array_list.Managed(u32)) !void {
+    switch (base.kind) {
+        .return_ => {
+            if (readSlotOf(fsig, use_global, verified.symbols, base.operands[0])) |sl| try uses.append(sl);
+        },
+        .try_, .early_return => {
+            if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
+            if (readSlotOf(fsig, use_global, verified.symbols, base.operands[1])) |sl| try uses.append(sl);
+        },
+        .op, .alloc, .stack_alloc, .ptr_add, .load, .take, .atomic_load => {
+            if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
+            for (base.operands[1..]) |opnd| {
+                if (readSlotOf(fsig, use_global, verified.symbols, opnd)) |sl| try uses.append(sl);
+            }
+        },
+        .store, .atomic_store, .release => {
+            for (base.operands) |opnd| {
+                if (readSlotOf(fsig, use_global, verified.symbols, opnd)) |sl| try uses.append(sl);
+            }
+        },
+        .call, .call_indirect => {
+            if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                var parsed = pc.*;
+                defer parsed.deinit(allocator);
+                if (parsed.dest) |dest| {
+                    if (verified.symbols.findId(dest)) |id| {
+                        if (fsig.slotOf(id)) |sl| try defs.append(sl);
+                    }
+                }
+                for (parsed.args) |arg| {
+                    if (readSlotOf(fsig, use_global, verified.symbols, inst.Operand{ .text = arg.text })) |sl| try uses.append(sl);
+                }
+                if (parsed.is_indirect) {
+                    if (readSlotOf(fsig, use_global, verified.symbols, inst.Operand{ .text = parsed.callee })) |sl| try uses.append(sl);
+                }
+            } else |_| {}
+        },
+        .cmpxchg => {
+            if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
+            if (defSlotOf(fsig, use_global, base.operands[1])) |sl| try defs.append(sl);
+            for (base.operands[2..]) |opnd| {
+                if (readSlotOf(fsig, use_global, verified.symbols, opnd)) |sl| try uses.append(sl);
+            }
+            if (base.atomic_expected_text) |t| {
+                if (readSlotOf(fsig, use_global, verified.symbols, inst.Operand{ .text = t })) |sl| try uses.append(sl);
+            }
+            if (base.atomic_new_text) |t| {
+                if (readSlotOf(fsig, use_global, verified.symbols, inst.Operand{ .text = t })) |sl| try uses.append(sl);
+            }
+        },
+        .atomic_rmw => {
+            if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
+            for (base.operands[1..]) |opnd| {
+                if (readSlotOf(fsig, use_global, verified.symbols, opnd)) |sl| try uses.append(sl);
+            }
+        },
+        .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => {
+            if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
+            if (readSlotOf(fsig, use_global, verified.symbols, base.operands[1])) |sl| try uses.append(sl);
+        },
+        .panic => {
+            if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                var parsed = pc.*;
+                defer parsed.deinit(allocator);
+                for (parsed.args) |arg| {
+                    if (readSlotOf(fsig, use_global, verified.symbols, inst.Operand{ .text = arg.text })) |sl| try uses.append(sl);
+                }
+            } else |_| {}
+        },
+        .br, .br_null => {
+            if (readSlotOf(fsig, use_global, verified.symbols, base.operands[0])) |sl| try uses.append(sl);
+        },
+        else => {
+            for (base.operands) |opnd| {
+                if (readSlotOf(fsig, use_global, verified.symbols, opnd)) |sl| try uses.append(sl);
+            }
+        },
+    }
+}
+
+fn computeDeadSlots(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, task: FuncTask) !std.AutoHashMap(u32, void) {
+    var defs = std.AutoHashMap(u32, void).init(allocator);
+    defer defs.deinit();
+    var reads = std.AutoHashMap(u32, void).init(allocator);
+    defer reads.deinit();
+    // Seed defs with parameter slots: the prologue maps params into them,
+    // so an unread param is a dead store too (e.g. unused `ptr` above).
+    for (fsig.param_ids) |pid| {
+        if (fsig.slotOf(pid)) |sl| try defs.put(sl, {});
+    }
+    var tmp_defs = std.array_list.Managed(u32).init(allocator);
+    defer tmp_defs.deinit();
+    var tmp_uses = std.array_list.Managed(u32).init(allocator);
+    defer tmp_uses.deinit();
+    var i: usize = task.start_idx + 1;
+    while (i < task.end_idx) : (i += 1) {
+        const base = verified.annotated[i].base;
+        tmp_defs.clearRetainingCapacity();
+        tmp_uses.clearRetainingCapacity();
+        try collectDefUse(allocator, verified, fsig, use_global, base, &tmp_defs, &tmp_uses);
+        for (tmp_defs.items) |sl| try defs.put(sl, {});
+        for (tmp_uses.items) |sl| try reads.put(sl, {});
+    }
+    var dead = std.AutoHashMap(u32, void).init(allocator);
+    var it = defs.iterator();
+    while (it.next()) |e| {
+        if (reads.get(e.key_ptr.*) == null) try dead.put(e.key_ptr.*, {});
+    }
+    return dead;
+}
+
+/// Straight-line kill: indices of side-effect-free definitions overwritten
+/// by a later redefinition with no read in between and no control-flow join
+/// in between (no label/jmp/br/return/trap). Eliding these silences
+/// clang-analyzer-deadcode.DeadStores without changing behavior. A full
+/// backward dataflow would be unsound here without a CFG (a positional
+/// predecessor kill does not dominate across branches), so this stays
+/// deliberately local: anything crossing a join is left to the never-read
+/// (global) filter instead.
+fn computeElideIdx(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, task: FuncTask) !std.AutoHashMap(usize, void) {
+    var elide = std.AutoHashMap(usize, void).init(allocator);
+    errdefer elide.deinit();
+    var tmp_defs = std.array_list.Managed(u32).init(allocator);
+    defer tmp_defs.deinit();
+    var tmp_uses = std.array_list.Managed(u32).init(allocator);
+    defer tmp_uses.deinit();
+    var i: usize = task.start_idx + 1;
+    while (i < task.end_idx) : (i += 1) {
+        const base = verified.annotated[i].base;
+        const pure_def = switch (base.kind) {
+            .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow, .ptr_add, .try_, .early_return => true,
+            .op => blk: {
+                const opcode = base.op_kind orelse break :blk false;
+                break :blk !opCanTrap(opcode);
+            },
+            else => false,
+        };
+        if (!pure_def) continue;
+        tmp_defs.clearRetainingCapacity();
+        tmp_uses.clearRetainingCapacity();
+        try collectDefUse(allocator, verified, fsig, use_global, base, &tmp_defs, &tmp_uses);
+        if (tmp_defs.items.len != 1) continue;
+        const dst = tmp_defs.items[0];
+        var j: usize = i + 1;
+        while (j < task.end_idx) : (j += 1) {
+            const nb = verified.annotated[j].base;
+            switch (nb.kind) {
+                .label, .jmp, .br, .br_null, .return_, .panic, .panic_msg, .native => break,
+                else => {},
+            }
+            tmp_defs.clearRetainingCapacity();
+            tmp_uses.clearRetainingCapacity();
+            try collectDefUse(allocator, verified, fsig, use_global, nb, &tmp_defs, &tmp_uses);
+            var is_read = false;
+            for (tmp_uses.items) |sl| {
+                if (sl == dst) {
+                    is_read = true;
+                    break;
+                }
+            }
+            if (is_read) break;
+            var is_kill = false;
+            for (tmp_defs.items) |sl| {
+                if (sl == dst) {
+                    is_kill = true;
+                    break;
+                }
+            }
+            if (is_kill) {
+                try elide.put(i, {});
+                break;
+            }
+        }
+    }
+    return elide;
 }
 
 fn sigNormName(name: []const u8) []const u8 {
@@ -843,7 +1065,14 @@ fn sigReturnWidth(sigmap: anytype, callee: []const u8) ?u32 {
     return null;
 }
 
-fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, widths: *WidthMap, sigmap: anytype, uniform_arity: usize) !void {
+fn opCanTrap(opcode: inst.OpKind) bool {
+    return switch (opcode) {
+        .sdiv, .udiv, .srem, .urem, .div, .rem => true,
+        else => false,
+    };
+}
+
+fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, widths: *WidthMap, sigmap: anytype, uniform_arity: usize, dead: *const std.AutoHashMap(u32, void)) !void {
     last_c_inst = base.raw_text;
     last_c_func = fsig.name;
     trackWidths(widths, allocator, symbols, fsig, use_global, base);
@@ -915,13 +1144,21 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
         .return_ => try emitReturnStmt(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0], "  "),
         .try_, .early_return => {
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
-            try writer.writeAll("  { sa_u64 __t = (");
+            if (dead.get(slot) != null) {
+                try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                return;
+            }
+            try writer.writeAll("  { sa_u64 sa_t = (");
             try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
-            try writer.print("); r{d} = __t; }}\n", .{slot});
+            try writer.print("); r{d} = sa_t; }}\n", .{slot});
         },
         .op => {
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
             const opcode = base.op_kind orelse return CEmitError.InvalidOperand;
+            if (dead.get(slot) != null and !opCanTrap(opcode)) {
+                try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                return;
+            }
             if (inst.isTypeConversionOpKind(opcode)) {
                 if (base.operands[2] != .ty) return CEmitError.InvalidOperand;
                 var tgt = tagToPrim(base.operands[2].ty);
@@ -949,6 +1186,10 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
         },
         .ptr_add => {
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            if (dead.get(slot) != null) {
+                try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                return;
+            }
             if (offIsZero(base.operands[2])) {
                 try writer.print("  r{d} = ", .{slot});
                 try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
@@ -1002,10 +1243,16 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
                 return;
             };
             defer parsed.deinit(allocator);
+            var dest_dead = false;
             if (parsed.dest) |dest| {
                 const id = symbols.findId(dest) orelse return CEmitError.InvalidOperand;
                 const slot = fsig.slotOf(id) orelse return CEmitError.InvalidOperand;
-                try writer.print("  r{d} = ", .{slot});
+                if (dead.get(slot) != null) {
+                    dest_dead = true;
+                    try writer.writeAll("  (void)(");
+                } else {
+                    try writer.print("  r{d} = ", .{slot});
+                }
             } else {
                 try writer.writeAll("  ");
             }
@@ -1021,7 +1268,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
                 while (argc < uniform_arity) : (argc += 1) {
                     try writer.writeAll(", 0");
                 }
-                try writer.writeAll(");\n");
+                if (dest_dead) try writer.writeAll("));\n") else try writer.writeAll(");\n");
             } else {
                 // known host shims map to runtime helpers
                 if (std.mem.eql(u8, parsed.callee, "sa_print_bytes") or std.mem.eql(u8, parsed.callee, "@sa_print_bytes")) {
@@ -1030,7 +1277,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
                         if (idx != 0) try writer.writeAll(", ");
                         try resolveTextToC(writer, symbols, fsig, const_addrs, arg.text);
                     }
-                    try writer.writeAll(");\n");
+                    if (dest_dead) try writer.writeAll("));\n") else try writer.writeAll(");\n");
                 } else {
                     try cFuncName(writer, parsed.callee);
                     try writer.writeAll("(");
@@ -1044,7 +1291,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
                         if (argc != 0) try writer.writeAll(", ");
                         try writer.writeAll("0");
                     }
-                    try writer.writeAll(");\n");
+                    if (dest_dead) try writer.writeAll("));\n") else try writer.writeAll(");\n");
                 }
             }
         },
@@ -1054,10 +1301,16 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
                 return;
             };
             defer parsed.deinit(allocator);
+            var ind_dead = false;
             if (parsed.dest) |dest| {
                 const id = symbols.findId(dest) orelse return CEmitError.InvalidOperand;
                 const slot = fsig.slotOf(id) orelse return CEmitError.InvalidOperand;
-                try writer.print("  r{d} = ", .{slot});
+                if (dead.get(slot) != null) {
+                    ind_dead = true;
+                    try writer.writeAll("  (void)(");
+                } else {
+                    try writer.print("  r{d} = ", .{slot});
+                }
             } else {
                 try writer.writeAll("  ");
             }
@@ -1072,7 +1325,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             while (ind_argc < uniform_arity) : (ind_argc += 1) {
                 try writer.writeAll(", 0");
             }
-            try writer.writeAll(");\n");
+            if (ind_dead) try writer.writeAll("));\n") else try writer.writeAll(");\n");
         },
         .cmpxchg => {
             const dst_old = try dstSlot(fsig, use_global, base.operands[0]);
@@ -1082,16 +1335,25 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             const ty = memPrimType(base);
             const load_fn = memLoadFn(ty);
             const store_fn = memStoreFn(ty);
-            try writer.writeAll("  { sa_u64 __addr = sa_ptr_add(");
+            try writer.writeAll("  { sa_u64 sa_ad = sa_ptr_add(");
             try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
             try writer.writeAll(", ");
             try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[3]);
-            try writer.print("); sa_u64 __old = {s}(__addr); sa_u64 __exp = (", .{load_fn});
+            try writer.print("); sa_u64 sa_old = {s}(sa_ad); sa_u64 sa_ex = (", .{load_fn});
             try resolveTextToC(writer, symbols, fsig, const_addrs, expected);
-            try writer.writeAll("); sa_u64 __ok = (__old == __exp) ? 1 : 0; if (__ok) ");
-            try writer.print("{s}(__addr, (", .{store_fn});
+            try writer.writeAll("); sa_u64 sa_ok = (sa_old == sa_ex) ? 1 : 0; if (sa_ok) ");
+            try writer.print("{s}(sa_ad, (", .{store_fn});
             try resolveTextToC(writer, symbols, fsig, const_addrs, new_text);
-            try writer.print(")); r{d} = __old; r{d} = __ok; }}\n", .{ dst_old, dst_ok });
+            if (dead.get(dst_old) != null) {
+                try writer.writeAll(")); (void)sa_old; ");
+            } else {
+                try writer.print(")); r{d} = sa_old; ", .{dst_old});
+            }
+            if (dead.get(dst_ok) != null) {
+                try writer.writeAll("(void)sa_ok; }}\n");
+            } else {
+                try writer.print("r{d} = sa_ok; }}\n", .{dst_ok});
+            }
         },
         .atomic_rmw => {
             const op = base.atomic_rmw_op orelse return CEmitError.InvalidOperand;
@@ -1099,32 +1361,40 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             const ty = memPrimType(base);
             const load_fn = memLoadFn(ty);
             const store_fn = memStoreFn(ty);
-            try writer.writeAll("  { sa_u64 __addr = sa_ptr_add(");
+            try writer.writeAll("  { sa_u64 sa_ad = sa_ptr_add(");
             try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
             try writer.writeAll(", ");
             try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
-            try writer.print("); sa_u64 __old = {s}(__addr); sa_u64 __val = (", .{load_fn});
+            try writer.print("); sa_u64 sa_old = {s}(sa_ad); sa_u64 sa_vl = (", .{load_fn});
             try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[3]);
-            try writer.writeAll("); sa_u64 __new = ");
+            try writer.writeAll("); sa_u64 sa_nw = ");
             switch (op) {
-                .add => try writer.writeAll("sa_add(__old, __val)"),
-                .sub => try writer.writeAll("sa_sub(__old, __val)"),
-                .@"and" => try writer.writeAll("sa_band(__old, __val)"),
-                .@"or" => try writer.writeAll("sa_bor(__old, __val)"),
-                .xor => try writer.writeAll("sa_bxor(__old, __val)"),
-                .xchg => try writer.writeAll("__val"),
-                .min => try writer.writeAll("(sa_sle(__old, __val) ? __old : __val)"),
-                .max => try writer.writeAll("(sa_sge(__old, __val) ? __old : __val)"),
-                .umin => try writer.writeAll("(sa_ule(__old, __val) ? __old : __val)"),
-                .umax => try writer.writeAll("(sa_uge(__old, __val) ? __old : __val)"),
+                .add => try writer.writeAll("sa_add(sa_old, sa_vl)"),
+                .sub => try writer.writeAll("sa_sub(sa_old, sa_vl)"),
+                .@"and" => try writer.writeAll("sa_band(sa_old, sa_vl)"),
+                .@"or" => try writer.writeAll("sa_bor(sa_old, sa_vl)"),
+                .xor => try writer.writeAll("sa_bxor(sa_old, sa_vl)"),
+                .xchg => try writer.writeAll("sa_vl"),
+                .min => try writer.writeAll("(sa_sle(sa_old, sa_vl) ? sa_old : sa_vl)"),
+                .max => try writer.writeAll("(sa_sge(sa_old, sa_vl) ? sa_old : sa_vl)"),
+                .umin => try writer.writeAll("(sa_ule(sa_old, sa_vl) ? sa_old : sa_vl)"),
+                .umax => try writer.writeAll("(sa_uge(sa_old, sa_vl) ? sa_old : sa_vl)"),
             }
-            try writer.print("; {s}(__addr, __new); r{d} = __old; }}\n", .{ store_fn, dst });
+            if (dead.get(dst) != null) {
+                try writer.print("; {s}(sa_ad, sa_nw); (void)sa_old; }}\n", .{store_fn});
+            } else {
+                try writer.print("; {s}(sa_ad, sa_nw); r{d} = sa_old; }}\n", .{ store_fn, dst });
+            }
         },
         .fence => {
             try writer.writeAll("  /* fence: no-op on C backend */\n");
         },
         .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => {
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            if (dead.get(slot) != null) {
+                try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                return;
+            }
             try writer.print("  r{d} = (", .{slot});
             switch (base.operands[1]) {
                 .reg, .symbol, .func, .label, .imm_i64, .imm_int, .imm_u64, .imm_float, .text, .native_text => {
@@ -1184,6 +1454,12 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
     last_c_func = fsig.name;
     var widths = WidthMap.init(allocator);
     defer widths.deinit();
+    // Definitely-unread slots: pure redefinitions elided, effectful calls
+    // kept in (void) form (silences clang-analyzer-deadcode.DeadStores).
+    var dead = computeDeadSlots(allocator, verified, fsig, use_global, task) catch std.AutoHashMap(u32, void).init(allocator);
+    defer dead.deinit();
+    var elide = computeElideIdx(allocator, verified, fsig, use_global, task) catch std.AutoHashMap(usize, void).init(allocator);
+    defer elide.deinit();
     // Seed parameter slots with their declared types: caller and callee
     // share the u64-bits invariant, so this is exact (unlike JS, which
     // must infer argument domains at runtime).
@@ -1233,11 +1509,19 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         }
         try writer.writeAll(";\n");
     }
-    // map params to slots
+    // map params to slots (skip slots never read in the body)
     for (fsig.param_ids, 0..) |pid, pi| {
         if (fsig.slotOf(pid)) |slot| {
+            if (dead.get(slot) != null) {
+                try writer.print("  /* dead param elided: r{d} = a{d}; */\n", .{ slot, pi });
+                continue;
+            }
             try writer.print("  r{d} = a{d};\n", .{ slot, pi });
         }
+    }
+    // Silence misc-unused-parameters for padded uniform-arity params.
+    for (0..uniform_arity) |pi| {
+        try writer.print("  (void)a{d};\n", .{pi});
     }
     if (c_opt.debug_comments) {
         try writer.print("  /* fn {s} regs={d} */\n", .{ fsig.name, nregs });
@@ -1245,6 +1529,10 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
     var i: usize = task.start_idx + 1;
     while (i < task.end_idx) : (i += 1) {
         const base = verified.annotated[i].base;
+        if (elide.get(i) != null) {
+            try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+            continue;
+        }
         switch (base.kind) {
             .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
                 try writer.writeAll("  sa_trap(\"nested decl\");\n");
@@ -1274,6 +1562,10 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 const f: u32 = switch (base.operands[3]) {
                     .label => |v| v, .symbol => |v| v, else => return CEmitError.InvalidOperand,
                 };
+                if (t == f) {
+                    try writer.print("  goto SA_L_{d};\n", .{t});
+                    continue;
+                }
                 try writer.writeAll("  if (sa_truthy(");
                 try resolveValueToC(writer, verified.symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
                 try writer.print(")) goto SA_L_{d}; else goto SA_L_{d};\n", .{ t, f });
@@ -1285,15 +1577,19 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 const f: u32 = switch (base.operands[3]) {
                     .label => |v| v, .symbol => |v| v, else => return CEmitError.InvalidOperand,
                 };
-                try writer.writeAll("  if (((");
+                if (t == f) {
+                    try writer.print("  goto SA_L_{d};\n", .{t});
+                    continue;
+                }
+                try writer.writeAll("  if ((");
                 try resolveValueToC(writer, verified.symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
-                try writer.print(") == 0)) goto SA_L_{d}; else goto SA_L_{d};\n", .{ t, f });
+                try writer.print(") == 0) goto SA_L_{d}; else goto SA_L_{d};\n", .{ t, f });
             },
             else => {
                 if (c_opt.debug_comments) {
                     try writer.print("  /* {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
                 }
-                try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity);
+                try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, &dead);
             },
         }
     }
@@ -1383,7 +1679,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     }
     // forward declaration for the indirect dispatcher (defined after
     // all functions so the ftable can reference them)
-    try writer.writeAll("static sa_u64 sa_call_indirect(sa_u64 f");
+    try writer.writeAll("// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform calling convention\nstatic sa_u64 sa_call_indirect(sa_u64 f");
     for (0..uniform_arity) |k| {
         try writer.print(", sa_u64 a{d}", .{k});
     }
@@ -1485,7 +1781,11 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
                 try writer.print("sa_u64 a{d}", .{pi});
             }
         }
-        try writer.print(") {{ sa_trap(\"extern {s}\"); return 0; }}\n", .{fsig.name});
+        try writer.writeAll(") {");
+        for (0..uniform_arity) |pi| {
+            try writer.print(" (void)a{d};", .{pi});
+        }
+        try writer.print(" sa_trap(\"extern {s}\"); return 0; }}\n", .{fsig.name});
         try emitted.put(fsig.name, {});
     }
     // Trap stubs for vtable-referenced functions with no definition.
@@ -1510,7 +1810,11 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
                 try writer.print("sa_u64 a{d}", .{pi});
             }
         }
-        try writer.print(") {{ sa_trap(\"missing {s}\"); return 0; }}\n", .{fname});
+        try writer.writeAll(") {");
+        for (0..uniform_arity) |pi| {
+            try writer.print(" (void)a{d};", .{pi});
+        }
+        try writer.print(" sa_trap(\"missing {s}\"); return 0; }}\n", .{fname});
         try emitted.put(fname, {});
     }
     // Indirect dispatch: uniform signature makes a plain function-pointer
@@ -1524,13 +1828,19 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
             try writer.writeAll("sa_u64");
         }
     }
-    try writer.writeAll(");\nstatic sa_fn_t sa_ftable[] = {");
-    for (fn_names.items, 0..) |fname, fi| {
-        if (fi != 0) try writer.writeAll(", ");
-        try cFuncName(writer, fname);
+    // A zero-length array is a GNU extension and makes the bounds check
+    // tautological; pin a single NULL entry instead.
+    if (fn_names.items.len == 0) {
+        try writer.writeAll(");\nstatic sa_fn_t sa_ftable[1] = {0};\n");
+    } else {
+        try writer.writeAll(");\nstatic sa_fn_t sa_ftable[] = {");
+        for (fn_names.items, 0..) |fname, fi| {
+            if (fi != 0) try writer.writeAll(", ");
+            try cFuncName(writer, fname);
+        }
+        try writer.writeAll("};\n");
     }
-    try writer.writeAll("};\n");
-    try writer.writeAll("static sa_u64 sa_call_indirect(sa_u64 f");
+    try writer.writeAll("// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform calling convention\nstatic sa_u64 sa_call_indirect(sa_u64 f");
     for (0..uniform_arity) |k| {
         try writer.print(", sa_u64 a{d}", .{k});
     }

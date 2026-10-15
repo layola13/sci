@@ -12,38 +12,47 @@ typedef int32_t sa_i32;
 #endif
 static uint8_t sa_mem[SA_MEM_BYTES];
 static uint32_t sa_brk = 65536;
-static void sa_trap(const char *msg) { fputs("[sa-trap] ", stderr); fputs(msg, stderr); fputc('\n', stderr); exit(1); }
-static void sa_panic(sa_u64 code) { char b[24]; int n = 0; sa_u64 v = code; char t[24]; int m = 0; if (v == 0) t[m++] = '0'; while (v > 0) { t[m++] = (char)('0' + (v % 10)); v /= 10; } fputs("[sa-panic] code=", stderr); while (m > 0) b[n++] = t[--m]; fwrite(b, 1, (size_t)n, stderr); fputc('\n', stderr); exit(1); }
+static __attribute__((noreturn)) void sa_trap(const char *msg) { fputs("[sa-trap] ", stderr); fputs(msg, stderr); fputc('\n', stderr); exit(1); }
+static __attribute__((noreturn)) void sa_panic(sa_u64 code) { char b[24]; int n = 0; sa_u64 v = code; char t[24]; int m = 0; if (v == 0) t[m++] = '0'; while (v > 0) { t[m++] = (char)('0' + (v % 10)); v /= 10; } fputs("[sa-panic] code=", stderr); while (m > 0) b[n++] = t[--m]; fwrite(b, 1, (size_t)n, stderr); fputc('\n', stderr); exit(1); }
 static sa_u64 sa_ok_none(void) { return 0; }
 static sa_u64 sa_ok_val(sa_u64 v) { (void)v; return v; }
 static int sa_truthy(sa_u64 v) { return v != 0; }
 static sa_u64 sa_align(sa_u64 n, sa_u64 a) { return (n + (a - 1)) & ~(a - 1); }
 static sa_u64 sa_alloc(sa_u64 size) {
   size = sa_align(size, 8); if (size == 0) size = 8;
-  uint32_t base = sa_brk; sa_brk += (uint32_t)(size + 8);
-  if ((size_t)sa_brk >= sizeof(sa_mem)) sa_trap("out of memory (bump)");
+  uint32_t base = sa_brk;
+  { sa_u64 nb = (sa_u64)base + size + 8; if (nb > (sa_u64)sizeof(sa_mem)) sa_trap("out of memory (bump)"); sa_brk = (uint32_t)nb; } // NOLINT(bugprone-misplaced-widening-cast): nb range-checked above
   { uint32_t i; for (i = 0; i < (uint32_t)(size + 8); i++) sa_mem[base + i] = 0; }
   sa_mem[base] = (uint8_t)(size & 0xFFu); sa_mem[base + 1] = (uint8_t)((size >> 8) & 0xFFu);
   sa_mem[base + 2] = (uint8_t)((size >> 16) & 0xFFu); sa_mem[base + 3] = (uint8_t)((size >> 24) & 0xFFu);
-  return (sa_u64)(base + 8);
+  return (sa_u64)base + 8;
 }
 static sa_u64 sa_salloc(sa_u64 size) { return sa_alloc(size); }
 static sa_u64 sa_free(sa_u64 ptr) { (void)ptr; return 0; }
 static sa_u64 sa_ptr_add(sa_u64 base, sa_u64 off) { return base + off; }
 static uint32_t sa_addr(sa_u64 a) { return (uint32_t)(a & 0xFFFFFFFFu); }
-static sa_u64 sa_load_u8(sa_u64 a) { return (sa_u64)sa_mem[sa_addr(a)]; }
-static sa_u64 sa_load_i8(sa_u64 a) { return (sa_u64)(sa_i64)(int8_t)sa_mem[sa_addr(a)]; }
-static sa_u64 sa_load_u16(sa_u64 a) { uint32_t x = sa_addr(a); return (sa_u64)((uint16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8))); }
-static sa_u64 sa_load_i16(sa_u64 a) { uint32_t x = sa_addr(a); int16_t v = (int16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8)); return (sa_u64)(sa_i64)v; }
-static sa_u64 sa_load_u32(sa_u64 a) { uint32_t x = sa_addr(a); return (sa_u64)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); }
-static sa_u64 sa_load_i32(sa_u64 a) { uint32_t x = sa_addr(a); int32_t v = (int32_t)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); return (sa_u64)(sa_i64)v; }
-static sa_u64 sa_load_u64(sa_u64 a) { uint32_t x = sa_addr(a); uint64_t v = 0; unsigned k; for (k = 0; k < 8; k++) v |= ((uint64_t)sa_mem[x + k]) << (k * 8); return v; }
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, size) signature
+static uint32_t sa_checked_addr(sa_u64 a, size_t sz) {
+  uint32_t x = sa_addr(a);
+  if ((size_t)x + sz > (size_t)sizeof(sa_mem)) sa_trap("oob linear-memory access");
+  return x;
+}
+static sa_u64 sa_load_u8(sa_u64 a) { return (sa_u64)sa_mem[sa_checked_addr(a, 1)]; }
+static sa_u64 sa_load_i8(sa_u64 a) { return (sa_u64)(sa_i64)(int8_t)sa_mem[sa_checked_addr(a, 1)]; }
+static sa_u64 sa_load_u16(sa_u64 a) { uint32_t x = sa_checked_addr(a, 2); return (sa_u64)((uint16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8))); }
+static sa_u64 sa_load_i16(sa_u64 a) { uint32_t x = sa_checked_addr(a, 2); int16_t v = (int16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8)); return (sa_u64)(sa_i64)v; }
+static sa_u64 sa_load_u32(sa_u64 a) { uint32_t x = sa_checked_addr(a, 4); return (sa_u64)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); }
+static sa_u64 sa_load_i32(sa_u64 a) { uint32_t x = sa_checked_addr(a, 4); int32_t v = (int32_t)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); return (sa_u64)(sa_i64)v; }
+static sa_u64 sa_load_u64(sa_u64 a) { uint32_t x = sa_checked_addr(a, 8); uint64_t v = 0; unsigned k; for (k = 0; k < 8; k++) v |= ((uint64_t)sa_mem[x + k]) << (k * 8); return v; }
 static sa_u64 sa_load_f32(sa_u64 a) { return sa_load_u32(a) & 0xFFFFFFFFULL; }
 static sa_u64 sa_load_f64(sa_u64 a) { return sa_load_u64(a); }
-static void sa_store_u8(sa_u64 a, sa_u64 v) { sa_mem[sa_addr(a)] = (uint8_t)(v & 0xFFu); }
-static void sa_store_u16(sa_u64 a, sa_u64 v) { uint32_t x = sa_addr(a); sa_mem[x] = (uint8_t)(v & 0xFFu); sa_mem[x + 1] = (uint8_t)((v >> 8) & 0xFFu); }
-static void sa_store_u32(sa_u64 a, sa_u64 v) { uint32_t x = sa_addr(a); unsigned k; for (k = 0; k < 4; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
-static void sa_store_u64(sa_u64 a, sa_u64 v) { uint32_t x = sa_addr(a); unsigned k; for (k = 0; k < 8; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
+static void sa_store_u8(sa_u64 a, sa_u64 v) { sa_mem[sa_checked_addr(a, 1)] = (uint8_t)(v & 0xFFu); }
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
+static void sa_store_u16(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 2); sa_mem[x] = (uint8_t)(v & 0xFFu); sa_mem[x + 1] = (uint8_t)((v >> 8) & 0xFFu); }
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
+static void sa_store_u32(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 4); unsigned k; for (k = 0; k < 4; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
+static void sa_store_u64(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 8); unsigned k; for (k = 0; k < 8; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
 static void sa_store_f32(sa_u64 a, sa_u64 v) { sa_store_u32(a, v & 0xFFFFFFFFULL); }
 static void sa_store_f64(sa_u64 a, sa_u64 v) { sa_store_u64(a, v); }
 static sa_u64 sa_add(sa_u64 a, sa_u64 b) { return a + b; }
@@ -115,6 +124,7 @@ static sa_u64 sa_cvt_bitcast_f32(sa_u64 v){return v&0xFFFFFFFFu;} static sa_u64 
 static sa_u64 sa_cvt_bitcast_ptr(sa_u64 v){return v;} static sa_u64 sa_cvt_bitcast_i8(sa_u64 v){return v&0xFFu;}
 static sa_u64 sa_cvt_bitcast_u8(sa_u64 v){return v&0xFFu;} static sa_u64 sa_cvt_bitcast_i16(sa_u64 v){return v&0xFFFFu;}
 static sa_u64 sa_cvt_bitcast_u16(sa_u64 v){return v&0xFFFFu;} static sa_u64 sa_cvt_bitcast_i1(sa_u64 v){return v&1;}
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, len) signature
 static sa_u64 sa_print_bytes(sa_u64 addr, sa_u64 len) { uint32_t a=sa_addr(addr); if ((size_t)a+(size_t)len>sizeof(sa_mem)) sa_trap("print oob"); fwrite(&sa_mem[a],1,(size_t)len,stdout); return 0; }
 static sa_u64 sa_f32_to_f64(sa_u64 v) { return sa_f64_bits((double)sa_bits_f32(v)); }
 static sa_u64 sa_f64_to_f32(sa_u64 v) { return sa_f32_bits((float)sa_bits_f64(v)); }
@@ -129,6 +139,7 @@ static sa_u64 sa_fcmp_lt32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)<sa_bits_f
 static sa_u64 sa_fcmp_le32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)<=sa_bits_f32(b)?1:0; }
 static sa_u64 sa_fcmp_gt32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)>sa_bits_f32(b)?1:0; }
 static sa_u64 sa_fcmp_ge32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)>=sa_bits_f32(b)?1:0; }
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (value, width, sign) signature
 static sa_u64 sa_srcmask(sa_u64 v, unsigned w, int sgn) {
   if (w >= 64) return v;
   if (w == 32) return sgn ? (sa_u64)(sa_i64)(int32_t)(uint32_t)v : (sa_u64)(uint32_t)v;
@@ -140,6 +151,7 @@ static sa_u64 sa_fnaddr(int i) { return (sa_u64)(uint64_t)(1000000 + i); }
 /* source: demos/c/01_hello_world/main.sa */
 #define SA_CONST_HELLO_MSG 4096UL
 static sa_u64 sa_fn_main(sa_u64, sa_u64);
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform calling convention
 static sa_u64 sa_call_indirect(sa_u64 f, sa_u64 a0, sa_u64 a1);
 static void sa_init_consts(void) {
   static int done = 0; if (done) return; done = 1;
@@ -147,13 +159,16 @@ static void sa_init_consts(void) {
 }
 static sa_u64 sa_fn_main(sa_u64 a0, sa_u64 a1) {
   sa_u64 r0 = SA_CONST_HELLO_MSG;
+  (void)a0;
+  (void)a1;
 SA_L_5:
   sa_print_bytes(SA_CONST_HELLO_MSG, (sa_u64)13ULL);
   return ((sa_u64)0ULL);
   return 0;
 }
 typedef sa_u64 (*sa_fn_t)(sa_u64, sa_u64);
-static sa_fn_t sa_ftable[] = {};
+static sa_fn_t sa_ftable[1] = {0};
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform calling convention
 static sa_u64 sa_call_indirect(sa_u64 f, sa_u64 a0, sa_u64 a1) {
   uint64_t idx = (uint64_t)(f - 1000000);
   if (idx >= 0ULL) { sa_trap("bad indirect callee"); return 0; }
