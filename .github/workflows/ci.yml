@@ -29,7 +29,11 @@ jobs:
           version: 0.17.0
 
       - name: Install Linux native dependencies
-        run: sudo apt-get update && sudo apt-get install -y llvm-14-dev clang-14 cmake
+        run: |
+          sudo apt-get update && sudo apt-get install -y llvm-14-dev clang-14 cmake
+          # bc2sa fixtures target the LLVM-14 bitcode era; pin `clang` to
+          # clang-14 so newer system clangs don't produce unreadable bitcode.
+          sudo ln -sf /usr/bin/clang-14 /usr/local/bin/clang
 
       - name: Cache Zig build artifacts
         uses: actions/cache@v4
