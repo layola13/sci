@@ -17,6 +17,7 @@ pub threadlocal var last_c_func: []const u8 = "";
 pub const CEmitOptions = struct {
     mem_pages: u32 = 256, // 256 * 64KiB = 16MiB initial
     debug_comments: bool = true,
+    gas: bool = true, // emit SA_GAS_CHECK metering (fn entry + every label)
 };
 
 const FuncTask = struct {
@@ -196,6 +197,16 @@ fn offIsZero(op: inst.Operand) bool {
         .imm_u64 => |v| v == 0,
         else => false,
     };
+}
+
+/// Defined-task lookup by normalized function name (for reachability).
+/// Returns the task's fsig_index, or null for externs/unknown names.
+fn taskIndexByName(tasks: []FuncTask, verified: anytype, norm: []const u8) ?usize {
+    for (tasks) |task| {
+        if (task.kind == .extern_decl) continue;
+        if (std.mem.eql(u8, sigNormName(verified.function_sigs[task.fsig_index].name), norm)) return task.fsig_index;
+    }
+    return null;
 }
 
 fn fnIndexOf(fn_idx: anytype, name: []const u8) ?usize {
@@ -681,7 +692,520 @@ fn emitReturnStmt(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_
     }
 }
 
-fn writeRuntimeHeader(writer: anytype, c_opt: CEmitOptions, size_bits: u16) !void {
+/// Runtime helper catalog. The always-needed core (includes, memory,
+/// sa_trap, gas) is emitted unconditionally by writePreamble; everything
+/// below is emitted ONLY when the generated body references it (plus
+/// transitive deps). `name` doubles as the usage needle (`name ++ "("`),
+/// so it must be the exact C function name. `deps` lists other catalog
+/// entries required by `code` (`sa_trap` is implicit: always emitted).
+/// Emission preserves table order, which keeps callees before callers.
+const HelperDef = struct {
+    name: []const u8,
+    code: []const u8,
+    deps: []const []const u8,
+};
+
+const kRuntimeHelpers: []const HelperDef = &.{
+    .{ .name = "sa_panic", .code =
+    \\static __attribute__((noreturn)) void sa_panic(sa_u64 code) { char b[24]; int n = 0; sa_u64 v = code; char t[24]; int m = 0; if (v == 0) t[m++] = '0'; while (v > 0) { t[m++] = (char)('0' + (v % 10)); v /= 10; } fputs("[sa-panic] code=", stderr); while (m > 0) b[n++] = t[--m]; fwrite(b, 1, (size_t)n, stderr); fputc('\n', stderr); exit(1); }
+    , .deps = &.{} },
+    .{ .name = "sa_ok_none", .code =
+    \\static sa_u64 sa_ok_none(void) { return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_ok_val", .code =
+    \\static sa_u64 sa_ok_val(sa_u64 v) { (void)v; return v; }
+    , .deps = &.{} },
+    .{ .name = "sa_truthy", .code =
+    \\static int sa_truthy(sa_u64 v) { return v != 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_align", .code =
+    \\static sa_u64 sa_align(sa_u64 n, sa_u64 a) { return (n + (a - 1)) & ~(a - 1); }
+    , .deps = &.{} },
+    .{ .name = "sa_alloc", .code =
+    \\static sa_u64 sa_alloc(sa_u64 size) {
+    \\  size = sa_align(size, 8); if (size == 0) size = 8;
+    \\  uint32_t base = sa_brk;
+    \\  { sa_u64 nb = (sa_u64)base + size + 8; if (nb > (sa_u64)sizeof(sa_mem)) sa_trap("out of memory (bump)"); sa_brk = (uint32_t)nb; } // NOLINT(bugprone-misplaced-widening-cast): nb range-checked above
+    \\  { uint32_t i; for (i = 0; i < (uint32_t)(size + 8); i++) sa_mem[base + i] = 0; }
+    \\  sa_mem[base] = (uint8_t)(size & 0xFFu); sa_mem[base + 1] = (uint8_t)((size >> 8) & 0xFFu);
+    \\  sa_mem[base + 2] = (uint8_t)((size >> 16) & 0xFFu); sa_mem[base + 3] = (uint8_t)((size >> 24) & 0xFFu);
+    \\  return (sa_u64)base + 8;
+    \\}
+    , .deps = &.{"sa_align"} },
+    .{ .name = "sa_salloc", .code =
+    \\static sa_u64 sa_salloc(sa_u64 size) { return sa_alloc(size); }
+    , .deps = &.{"sa_alloc"} },
+    .{ .name = "sa_free", .code =
+    \\static sa_u64 sa_free(sa_u64 ptr) { (void)ptr; return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_ptr_add", .code =
+    \\static sa_u64 sa_ptr_add(sa_u64 base, sa_u64 off) { return base + off; }
+    , .deps = &.{} },
+    .{ .name = "sa_addr", .code =
+    \\static uint32_t sa_addr(sa_u64 a) { return (uint32_t)(a & 0xFFFFFFFFu); }
+    , .deps = &.{} },
+    .{ .name = "sa_checked_addr", .code =
+    \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, size) signature
+    \\static uint32_t sa_checked_addr(sa_u64 a, size_t sz) {
+    \\  uint32_t x = sa_addr(a);
+    \\  if ((size_t)x + sz > (size_t)sizeof(sa_mem)) sa_trap("oob linear-memory access");
+    \\  return x;
+    \\}
+    , .deps = &.{"sa_addr"} },
+    .{ .name = "sa_load_u8", .code =
+    \\static sa_u64 sa_load_u8(sa_u64 a) { return (sa_u64)sa_mem[sa_checked_addr(a, 1)]; }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_i8", .code =
+    \\static sa_u64 sa_load_i8(sa_u64 a) { return (sa_u64)(sa_i64)(int8_t)sa_mem[sa_checked_addr(a, 1)]; }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_u16", .code =
+    \\static sa_u64 sa_load_u16(sa_u64 a) { uint32_t x = sa_checked_addr(a, 2); return (sa_u64)((uint16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8))); }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_i16", .code =
+    \\static sa_u64 sa_load_i16(sa_u64 a) { uint32_t x = sa_checked_addr(a, 2); int16_t v = (int16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8)); return (sa_u64)(sa_i64)v; }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_u32", .code =
+    \\static sa_u64 sa_load_u32(sa_u64 a) { uint32_t x = sa_checked_addr(a, 4); return (sa_u64)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_i32", .code =
+    \\static sa_u64 sa_load_i32(sa_u64 a) { uint32_t x = sa_checked_addr(a, 4); int32_t v = (int32_t)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); return (sa_u64)(sa_i64)v; }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_u64", .code =
+    \\static sa_u64 sa_load_u64(sa_u64 a) { uint32_t x = sa_checked_addr(a, 8); uint64_t v = 0; unsigned k; for (k = 0; k < 8; k++) v |= ((uint64_t)sa_mem[x + k]) << (k * 8); return v; }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_f32", .code =
+    \\static sa_u64 sa_load_f32(sa_u64 a) { return sa_load_u32(a) & 0xFFFFFFFFULL; }
+    , .deps = &.{"sa_load_u32"} },
+    .{ .name = "sa_load_f64", .code =
+    \\static sa_u64 sa_load_f64(sa_u64 a) { return sa_load_u64(a); }
+    , .deps = &.{"sa_load_u64"} },
+    .{ .name = "sa_store_u8", .code =
+    \\static void sa_store_u8(sa_u64 a, sa_u64 v) { sa_mem[sa_checked_addr(a, 1)] = (uint8_t)(v & 0xFFu); }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_store_u16", .code =
+    \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
+    \\static void sa_store_u16(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 2); sa_mem[x] = (uint8_t)(v & 0xFFu); sa_mem[x + 1] = (uint8_t)((v >> 8) & 0xFFu); }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_store_u32", .code =
+    \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
+    \\static void sa_store_u32(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 4); unsigned k; for (k = 0; k < 4; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_store_u64", .code =
+    \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
+    \\static void sa_store_u64(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 8); unsigned k; for (k = 0; k < 8; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_store_f32", .code =
+    \\static void sa_store_f32(sa_u64 a, sa_u64 v) { sa_store_u32(a, v & 0xFFFFFFFFULL); }
+    , .deps = &.{"sa_store_u32"} },
+    .{ .name = "sa_store_f64", .code =
+    \\static void sa_store_f64(sa_u64 a, sa_u64 v) { sa_store_u64(a, v); }
+    , .deps = &.{"sa_store_u64"} },
+    .{ .name = "sa_add", .code =
+    \\static sa_u64 sa_add(sa_u64 a, sa_u64 b) { return a + b; }
+    , .deps = &.{} },
+    .{ .name = "sa_sub", .code =
+    \\static sa_u64 sa_sub(sa_u64 a, sa_u64 b) { return a - b; }
+    , .deps = &.{} },
+    .{ .name = "sa_mul", .code =
+    \\static sa_u64 sa_mul(sa_u64 a, sa_u64 b) { return a * b; }
+    , .deps = &.{} },
+    .{ .name = "sa_sdiv", .code =
+    \\static sa_u64 sa_sdiv(sa_u64 a, sa_u64 b) { if ((sa_i64)b==0) sa_trap("div by zero"); return (sa_u64)((sa_i64)a / (sa_i64)b); }
+    , .deps = &.{} },
+    .{ .name = "sa_udiv", .code =
+    \\static sa_u64 sa_udiv(sa_u64 a, sa_u64 b) { if (b==0) sa_trap("div by zero"); return a / b; }
+    , .deps = &.{} },
+    .{ .name = "sa_srem", .code =
+    \\static sa_u64 sa_srem(sa_u64 a, sa_u64 b) { if ((sa_i64)b==0) sa_trap("rem by zero"); return (sa_u64)((sa_i64)a % (sa_i64)b); }
+    , .deps = &.{} },
+    .{ .name = "sa_urem", .code =
+    \\static sa_u64 sa_urem(sa_u64 a, sa_u64 b) { if (b==0) sa_trap("rem by zero"); return a % b; }
+    , .deps = &.{} },
+    .{ .name = "sa_band", .code =
+    \\static sa_u64 sa_band(sa_u64 a, sa_u64 b) { return a & b; }
+    , .deps = &.{} },
+    .{ .name = "sa_bor", .code =
+    \\static sa_u64 sa_bor(sa_u64 a, sa_u64 b) { return a | b; }
+    , .deps = &.{} },
+    .{ .name = "sa_bxor", .code =
+    \\static sa_u64 sa_bxor(sa_u64 a, sa_u64 b) { return a ^ b; }
+    , .deps = &.{} },
+    .{ .name = "sa_bnot", .code =
+    \\static sa_u64 sa_bnot(sa_u64 a) { return ~a; }
+    , .deps = &.{} },
+    .{ .name = "sa_neg", .code =
+    \\static sa_u64 sa_neg(sa_u64 a) { return (sa_u64)(-(sa_i64)a); }
+    , .deps = &.{} },
+    .{ .name = "sa_shl", .code =
+    \\static sa_u64 sa_shl(sa_u64 a, sa_u64 b) { return a << (b & 63); }
+    , .deps = &.{} },
+    .{ .name = "sa_lshr", .code =
+    \\static sa_u64 sa_lshr(sa_u64 a, sa_u64 b) { return a >> (b & 63); }
+    , .deps = &.{} },
+    .{ .name = "sa_ashr", .code =
+    \\static sa_u64 sa_ashr(sa_u64 a, sa_u64 b) { return (sa_u64)((sa_i64)a >> (b & 63)); }
+    , .deps = &.{} },
+    .{ .name = "sa_eq", .code =
+    \\static sa_u64 sa_eq(sa_u64 a, sa_u64 b) { return a == b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_ne", .code =
+    \\static sa_u64 sa_ne(sa_u64 a, sa_u64 b) { return a != b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_slt", .code =
+    \\static sa_u64 sa_slt(sa_u64 a, sa_u64 b) { return (sa_i64)a < (sa_i64)b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_sle", .code =
+    \\static sa_u64 sa_sle(sa_u64 a, sa_u64 b) { return (sa_i64)a <= (sa_i64)b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_sgt", .code =
+    \\static sa_u64 sa_sgt(sa_u64 a, sa_u64 b) { return (sa_i64)a > (sa_i64)b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_sge", .code =
+    \\static sa_u64 sa_sge(sa_u64 a, sa_u64 b) { return (sa_i64)a >= (sa_i64)b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_ult", .code =
+    \\static sa_u64 sa_ult(sa_u64 a, sa_u64 b) { return a < b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_ule", .code =
+    \\static sa_u64 sa_ule(sa_u64 a, sa_u64 b) { return a <= b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_ugt", .code =
+    \\static sa_u64 sa_ugt(sa_u64 a, sa_u64 b) { return a > b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_uge", .code =
+    \\static sa_u64 sa_uge(sa_u64 a, sa_u64 b) { return a >= b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_bits_f64", .code =
+    \\static double sa_bits_f64(sa_u64 v) { union { sa_u64 u; double d; } t; t.u = v; return t.d; }
+    , .deps = &.{} },
+    .{ .name = "sa_f64_bits", .code =
+    \\static sa_u64 sa_f64_bits(double d) { union { sa_u64 u; double d; } t; t.d = d; return t.u; }
+    , .deps = &.{} },
+    .{ .name = "sa_bits_f32", .code =
+    \\static float sa_bits_f32(sa_u64 v) { union { uint32_t u; float f; } t; t.u = (uint32_t)v; return t.f; }
+    , .deps = &.{} },
+    .{ .name = "sa_f32_bits", .code =
+    \\static sa_u64 sa_f32_bits(float f) { union { uint32_t u; float f; } t; t.f = f; return (sa_u64)t.u; }
+    , .deps = &.{} },
+    .{ .name = "sa_fadd", .code =
+    \\static sa_u64 sa_fadd(sa_u64 a, sa_u64 b) { return sa_f64_bits(sa_bits_f64(a)+sa_bits_f64(b)); }
+    , .deps = &.{ "sa_bits_f64", "sa_f64_bits" } },
+    .{ .name = "sa_fsub", .code =
+    \\static sa_u64 sa_fsub(sa_u64 a, sa_u64 b) { return sa_f64_bits(sa_bits_f64(a)-sa_bits_f64(b)); }
+    , .deps = &.{ "sa_bits_f64", "sa_f64_bits" } },
+    .{ .name = "sa_fmul", .code =
+    \\static sa_u64 sa_fmul(sa_u64 a, sa_u64 b) { return sa_f64_bits(sa_bits_f64(a)*sa_bits_f64(b)); }
+    , .deps = &.{ "sa_bits_f64", "sa_f64_bits" } },
+    .{ .name = "sa_fdiv", .code =
+    \\static sa_u64 sa_fdiv(sa_u64 a, sa_u64 b) { return sa_f64_bits(sa_bits_f64(a)/sa_bits_f64(b)); }
+    , .deps = &.{ "sa_bits_f64", "sa_f64_bits" } },
+    .{ .name = "sa_fneg", .code =
+    \\static sa_u64 sa_fneg(sa_u64 a) { return sa_f64_bits(-sa_bits_f64(a)); }
+    , .deps = &.{ "sa_bits_f64", "sa_f64_bits" } },
+    .{ .name = "sa_fcmp_eq", .code =
+    \\static sa_u64 sa_fcmp_eq(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)==sa_bits_f64(b)?1:0; }
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_fcmp_ne", .code =
+    \\static sa_u64 sa_fcmp_ne(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)!=sa_bits_f64(b)?1:0; }
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_fcmp_lt", .code =
+    \\static sa_u64 sa_fcmp_lt(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)<sa_bits_f64(b)?1:0; }
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_fcmp_le", .code =
+    \\static sa_u64 sa_fcmp_le(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)<=sa_bits_f64(b)?1:0; }
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_fcmp_gt", .code =
+    \\static sa_u64 sa_fcmp_gt(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)>sa_bits_f64(b)?1:0; }
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_fcmp_ge", .code =
+    \\static sa_u64 sa_fcmp_ge(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)>=sa_bits_f64(b)?1:0; }
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_trunc_i1", .code =
+    \\static sa_u64 sa_cvt_trunc_i1(sa_u64 v){return v&1;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_i8", .code =
+    \\static sa_u64 sa_cvt_trunc_i8(sa_u64 v){return (sa_u64)(sa_i64)(int8_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_i16", .code =
+    \\static sa_u64 sa_cvt_trunc_i16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_i32", .code =
+    \\static sa_u64 sa_cvt_trunc_i32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_i64", .code =
+    \\static sa_u64 sa_cvt_trunc_i64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_u8", .code =
+    \\static sa_u64 sa_cvt_trunc_u8(sa_u64 v){return v&0xFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_u16", .code =
+    \\static sa_u64 sa_cvt_trunc_u16(sa_u64 v){return v&0xFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_u32", .code =
+    \\static sa_u64 sa_cvt_trunc_u32(sa_u64 v){return v&0xFFFFFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_u64", .code =
+    \\static sa_u64 sa_cvt_trunc_u64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_ptr", .code =
+    \\static sa_u64 sa_cvt_trunc_ptr(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_i1", .code =
+    \\static sa_u64 sa_cvt_zext_i1(sa_u64 v){return v&1;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_i8", .code =
+    \\static sa_u64 sa_cvt_zext_i8(sa_u64 v){return v&0xFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_i16", .code =
+    \\static sa_u64 sa_cvt_zext_i16(sa_u64 v){return v&0xFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_i32", .code =
+    \\static sa_u64 sa_cvt_zext_i32(sa_u64 v){return v&0xFFFFFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_i64", .code =
+    \\static sa_u64 sa_cvt_zext_i64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_u8", .code =
+    \\static sa_u64 sa_cvt_zext_u8(sa_u64 v){return v&0xFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_u16", .code =
+    \\static sa_u64 sa_cvt_zext_u16(sa_u64 v){return v&0xFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_u32", .code =
+    \\static sa_u64 sa_cvt_zext_u32(sa_u64 v){return v&0xFFFFFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_u64", .code =
+    \\static sa_u64 sa_cvt_zext_u64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_ptr", .code =
+    \\static sa_u64 sa_cvt_zext_ptr(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_i1", .code =
+    \\static sa_u64 sa_cvt_sext_i1(sa_u64 v){return (sa_u64)(sa_i64)(v&1? -1:0);}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_i8", .code =
+    \\static sa_u64 sa_cvt_sext_i8(sa_u64 v){return (sa_u64)(sa_i64)(int8_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_i16", .code =
+    \\static sa_u64 sa_cvt_sext_i16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_i32", .code =
+    \\static sa_u64 sa_cvt_sext_i32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_i64", .code =
+    \\static sa_u64 sa_cvt_sext_i64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_u8", .code =
+    \\static sa_u64 sa_cvt_sext_u8(sa_u64 v){return (sa_u64)(sa_i64)(int8_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_u16", .code =
+    \\static sa_u64 sa_cvt_sext_u16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_u32", .code =
+    \\static sa_u64 sa_cvt_sext_u32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_u64", .code =
+    \\static sa_u64 sa_cvt_sext_u64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_ptr", .code =
+    \\static sa_u64 sa_cvt_sext_ptr(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sitofp_f32", .code =
+    \\static sa_u64 sa_cvt_sitofp_f32(sa_u64 v){return sa_f32_bits((float)(sa_i64)v);}
+    , .deps = &.{"sa_f32_bits"} },
+    .{ .name = "sa_cvt_sitofp_f64", .code =
+    \\static sa_u64 sa_cvt_sitofp_f64(sa_u64 v){return sa_f64_bits((double)(sa_i64)v);}
+    , .deps = &.{"sa_f64_bits"} },
+    .{ .name = "sa_cvt_uitofp_f32", .code =
+    \\static sa_u64 sa_cvt_uitofp_f32(sa_u64 v){return sa_f32_bits((float)v);}
+    , .deps = &.{"sa_f32_bits"} },
+    .{ .name = "sa_cvt_uitofp_f64", .code =
+    \\static sa_u64 sa_cvt_uitofp_f64(sa_u64 v){return sa_f64_bits((double)v);}
+    , .deps = &.{"sa_f64_bits"} },
+    .{ .name = "sa_cvt_fptosi_i1", .code =
+    \\static sa_u64 sa_cvt_fptosi_i1(sa_u64 v){return ((sa_i64)sa_bits_f64(v))&1;}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_i8", .code =
+    \\static sa_u64 sa_cvt_fptosi_i8(sa_u64 v){return (sa_u64)(sa_i64)(int8_t)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_i16", .code =
+    \\static sa_u64 sa_cvt_fptosi_i16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_i32", .code =
+    \\static sa_u64 sa_cvt_fptosi_i32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_i64", .code =
+    \\static sa_u64 sa_cvt_fptosi_i64(sa_u64 v){return (sa_u64)(sa_i64)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_u8", .code =
+    \\static sa_u64 sa_cvt_fptosi_u8(sa_u64 v){return (sa_u64)(uint8_t)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_u16", .code =
+    \\static sa_u64 sa_cvt_fptosi_u16(sa_u64 v){return (sa_u64)(uint16_t)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_u32", .code =
+    \\static sa_u64 sa_cvt_fptosi_u32(sa_u64 v){return (sa_u64)(uint32_t)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_u64", .code =
+    \\static sa_u64 sa_cvt_fptosi_u64(sa_u64 v){return (sa_u64)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_ptr", .code =
+    \\static sa_u64 sa_cvt_fptosi_ptr(sa_u64 v){return (sa_u64)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptrunc_f32", .code =
+    \\static sa_u64 sa_cvt_fptrunc_f32(sa_u64 v){return sa_f32_bits((float)sa_bits_f64(v));}
+    , .deps = &.{ "sa_bits_f64", "sa_f32_bits" } },
+    .{ .name = "sa_cvt_fpext_f64", .code =
+    \\static sa_u64 sa_cvt_fpext_f64(sa_u64 v){float f=sa_bits_f32(v); return sa_f64_bits((double)f);}
+    , .deps = &.{ "sa_bits_f32", "sa_f64_bits" } },
+    .{ .name = "sa_cvt_bitcast_i1", .code =
+    \\static sa_u64 sa_cvt_bitcast_i1(sa_u64 v){return v&1;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_i8", .code =
+    \\static sa_u64 sa_cvt_bitcast_i8(sa_u64 v){return v&0xFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_u8", .code =
+    \\static sa_u64 sa_cvt_bitcast_u8(sa_u64 v){return v&0xFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_i16", .code =
+    \\static sa_u64 sa_cvt_bitcast_i16(sa_u64 v){return v&0xFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_u16", .code =
+    \\static sa_u64 sa_cvt_bitcast_u16(sa_u64 v){return v&0xFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_i32", .code =
+    \\static sa_u64 sa_cvt_bitcast_i32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)(uint32_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_u32", .code =
+    \\static sa_u64 sa_cvt_bitcast_u32(sa_u64 v){return v&0xFFFFFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_i64", .code =
+    \\static sa_u64 sa_cvt_bitcast_i64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_u64", .code =
+    \\static sa_u64 sa_cvt_bitcast_u64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_f32", .code =
+    \\static sa_u64 sa_cvt_bitcast_f32(sa_u64 v){return v&0xFFFFFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_f64", .code =
+    \\static sa_u64 sa_cvt_bitcast_f64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_ptr", .code =
+    \\static sa_u64 sa_cvt_bitcast_ptr(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_print_bytes", .code =
+    \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, len) signature
+    \\static sa_u64 sa_print_bytes(sa_u64 addr, sa_u64 len) { uint32_t a=sa_addr(addr); if ((size_t)a+(size_t)len>sizeof(sa_mem)) sa_trap("print oob"); fwrite(&sa_mem[a],1,(size_t)len,stdout); return 0; }
+    , .deps = &.{"sa_addr"} },
+    .{ .name = "sa_f32_to_f64", .code =
+    \\static sa_u64 sa_f32_to_f64(sa_u64 v) { return sa_f64_bits((double)sa_bits_f32(v)); }
+    , .deps = &.{ "sa_bits_f32", "sa_f64_bits" } },
+    .{ .name = "sa_f64_to_f32", .code =
+    \\static sa_u64 sa_f64_to_f32(sa_u64 v) { return sa_f32_bits((float)sa_bits_f64(v)); }
+    , .deps = &.{ "sa_bits_f64", "sa_f32_bits" } },
+    .{ .name = "sa_fadd32", .code =
+    \\static sa_u64 sa_fadd32(sa_u64 a, sa_u64 b) { return sa_f32_bits(sa_bits_f32(a)+sa_bits_f32(b)); }
+    , .deps = &.{ "sa_bits_f32", "sa_f32_bits" } },
+    .{ .name = "sa_fsub32", .code =
+    \\static sa_u64 sa_fsub32(sa_u64 a, sa_u64 b) { return sa_f32_bits(sa_bits_f32(a)-sa_bits_f32(b)); }
+    , .deps = &.{ "sa_bits_f32", "sa_f32_bits" } },
+    .{ .name = "sa_fmul32", .code =
+    \\static sa_u64 sa_fmul32(sa_u64 a, sa_u64 b) { return sa_f32_bits(sa_bits_f32(a)*sa_bits_f32(b)); }
+    , .deps = &.{ "sa_bits_f32", "sa_f32_bits" } },
+    .{ .name = "sa_fdiv32", .code =
+    \\static sa_u64 sa_fdiv32(sa_u64 a, sa_u64 b) { return sa_f32_bits(sa_bits_f32(a)/sa_bits_f32(b)); }
+    , .deps = &.{ "sa_bits_f32", "sa_f32_bits" } },
+    .{ .name = "sa_fneg32", .code =
+    \\static sa_u64 sa_fneg32(sa_u64 a) { return sa_f32_bits(-sa_bits_f32(a)); }
+    , .deps = &.{ "sa_bits_f32", "sa_f32_bits" } },
+    .{ .name = "sa_fcmp_eq32", .code =
+    \\static sa_u64 sa_fcmp_eq32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)==sa_bits_f32(b)?1:0; }
+    , .deps = &.{"sa_bits_f32"} },
+    .{ .name = "sa_fcmp_ne32", .code =
+    \\static sa_u64 sa_fcmp_ne32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)!=sa_bits_f32(b)?1:0; }
+    , .deps = &.{"sa_bits_f32"} },
+    .{ .name = "sa_fcmp_lt32", .code =
+    \\static sa_u64 sa_fcmp_lt32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)<sa_bits_f32(b)?1:0; }
+    , .deps = &.{"sa_bits_f32"} },
+    .{ .name = "sa_fcmp_le32", .code =
+    \\static sa_u64 sa_fcmp_le32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)<=sa_bits_f32(b)?1:0; }
+    , .deps = &.{"sa_bits_f32"} },
+    .{ .name = "sa_fcmp_gt32", .code =
+    \\static sa_u64 sa_fcmp_gt32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)>sa_bits_f32(b)?1:0; }
+    , .deps = &.{"sa_bits_f32"} },
+    .{ .name = "sa_fcmp_ge32", .code =
+    \\static sa_u64 sa_fcmp_ge32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)>=sa_bits_f32(b)?1:0; }
+    , .deps = &.{"sa_bits_f32"} },
+    .{ .name = "sa_srcmask", .code =
+    \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (value, width, sign) signature
+    \\static sa_u64 sa_srcmask(sa_u64 v, unsigned w, int sgn) {
+    \\  if (w >= 64) return v;
+    \\  if (w == 32) return sgn ? (sa_u64)(sa_i64)(int32_t)(uint32_t)v : (sa_u64)(uint32_t)v;
+    \\  if (w == 1) return v & 1u;
+    \\  { sa_u64 m = (w == 64) ? ~(sa_u64)0 : ((((sa_u64)1) << w) - 1); sa_u64 r = v & m;
+    \\    if (sgn && (r >> (w - 1)) & 1u) { r |= ~m; } return r; }
+    \\}
+    , .deps = &.{} },
+    .{ .name = "sa_fnaddr", .code =
+    \\static sa_u64 sa_fnaddr(int i) { return (sa_u64)(uint64_t)(1000000 + i); }
+    , .deps = &.{} },
+};
+
+/// True iff the already-emitted body text calls `func_name` directly
+/// (rendered as `sa_fn_<name>(`). Externs are only reachable via direct
+/// calls, so this scan is exact; unrenderable names stay conservative.
+fn bodyCallsFunction(body_text: []const u8, func_name: []const u8) bool {
+    var nbuf: [1024]u8 = undefined;
+    var fw = std.Io.Writer.fixed(&nbuf);
+    cFuncName(&fw, func_name) catch return true;
+    const needle = fw.buffered();
+    if (needle.len + 1 > nbuf.len) return true;
+    nbuf[needle.len] = '(';
+    return std.mem.indexOf(u8, body_text, nbuf[0 .. needle.len + 1]) != null;
+}
+
+/// Seed `used` from textual references in the already-emitted body text
+/// (`init` + function bodies): a helper is needed iff `name ++ "("`
+/// occurs. Comments can only add false positives (safe direction: an
+/// extra helper emitted, never a missing one).
+fn collectUsedHelpers(allocator: std.mem.Allocator, body_text: []const u8) !std.StringHashMap(void) {
+    var used = std.StringHashMap(void).init(allocator);
+    errdefer used.deinit();
+    var needle: [64]u8 = undefined;
+    for (kRuntimeHelpers) |h| {
+        if (h.name.len + 1 > needle.len) continue;
+        @memcpy(needle[0..h.name.len], h.name);
+        needle[h.name.len] = '(';
+        if (std.mem.indexOf(u8, body_text, needle[0 .. h.name.len + 1]) != null) {
+            try used.put(h.name, {});
+        }
+    }
+    // Fixpoint over deps (table order preserved at emission).
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (kRuntimeHelpers) |h| {
+            if (used.get(h.name) == null) continue;
+            for (h.deps) |dep| {
+                if (used.get(dep) == null) {
+                    try used.put(dep, {});
+                    changed = true;
+                }
+            }
+        }
+    }
+    return used;
+}
+
+fn writePreamble(
+    writer: anytype,
+    c_opt: CEmitOptions,
+    size_bits: u16,
+    used: *const std.StringHashMap(void),
+    need_mem: bool,
+    need_brk: bool,
+) !void {
     const mem_bytes: usize = @as(usize, c_opt.mem_pages) * 65536;
     try writer.print("/* Generated by `sa build-c` (c backend, MVP). DO NOT EDIT. */\n", .{});
     try writer.print("/* size_bits={d} mem_bytes={d} */\n", .{ size_bits, mem_bytes });
@@ -696,166 +1220,72 @@ fn writeRuntimeHeader(writer: anytype, c_opt: CEmitOptions, size_bits: u16) !voi
         \\#ifndef SA_MEM_BYTES
         \\#define SA_MEM_BYTES 16777216UL
         \\#endif
-        \\static uint8_t sa_mem[SA_MEM_BYTES];
-        \\static uint32_t sa_brk = 65536;
-        \\static __attribute__((noreturn)) void sa_trap(const char *msg) { fputs("[sa-trap] ", stderr); fputs(msg, stderr); fputc('\n', stderr); exit(1); }
-        \\static __attribute__((noreturn)) void sa_panic(sa_u64 code) { char b[24]; int n = 0; sa_u64 v = code; char t[24]; int m = 0; if (v == 0) t[m++] = '0'; while (v > 0) { t[m++] = (char)('0' + (v % 10)); v /= 10; } fputs("[sa-panic] code=", stderr); while (m > 0) b[n++] = t[--m]; fwrite(b, 1, (size_t)n, stderr); fputc('\n', stderr); exit(1); }
-        \\static sa_u64 sa_ok_none(void) { return 0; }
-        \\static sa_u64 sa_ok_val(sa_u64 v) { (void)v; return v; }
-        \\static int sa_truthy(sa_u64 v) { return v != 0; }
-        \\static sa_u64 sa_align(sa_u64 n, sa_u64 a) { return (n + (a - 1)) & ~(a - 1); }
-        \\static sa_u64 sa_alloc(sa_u64 size) {
-        \\  size = sa_align(size, 8); if (size == 0) size = 8;
-        \\  uint32_t base = sa_brk;
-        \\  { sa_u64 nb = (sa_u64)base + size + 8; if (nb > (sa_u64)sizeof(sa_mem)) sa_trap("out of memory (bump)"); sa_brk = (uint32_t)nb; } // NOLINT(bugprone-misplaced-widening-cast): nb range-checked above
-        \\  { uint32_t i; for (i = 0; i < (uint32_t)(size + 8); i++) sa_mem[base + i] = 0; }
-        \\  sa_mem[base] = (uint8_t)(size & 0xFFu); sa_mem[base + 1] = (uint8_t)((size >> 8) & 0xFFu);
-        \\  sa_mem[base + 2] = (uint8_t)((size >> 16) & 0xFFu); sa_mem[base + 3] = (uint8_t)((size >> 24) & 0xFFu);
-        \\  return (sa_u64)base + 8;
-        \\}
-        \\static sa_u64 sa_salloc(sa_u64 size) { return sa_alloc(size); }
-        \\static sa_u64 sa_free(sa_u64 ptr) { (void)ptr; return 0; }
-        \\static sa_u64 sa_ptr_add(sa_u64 base, sa_u64 off) { return base + off; }
-        \\static uint32_t sa_addr(sa_u64 a) { return (uint32_t)(a & 0xFFFFFFFFu); }
-        \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, size) signature
-        \\static uint32_t sa_checked_addr(sa_u64 a, size_t sz) {
-        \\  uint32_t x = sa_addr(a);
-        \\  if ((size_t)x + sz > (size_t)sizeof(sa_mem)) sa_trap("oob linear-memory access");
-        \\  return x;
-        \\}
-        
-        \\static sa_u64 sa_load_u8(sa_u64 a) { return (sa_u64)sa_mem[sa_checked_addr(a, 1)]; }
-        \\static sa_u64 sa_load_i8(sa_u64 a) { return (sa_u64)(sa_i64)(int8_t)sa_mem[sa_checked_addr(a, 1)]; }
-        \\static sa_u64 sa_load_u16(sa_u64 a) { uint32_t x = sa_checked_addr(a, 2); return (sa_u64)((uint16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8))); }
-        \\static sa_u64 sa_load_i16(sa_u64 a) { uint32_t x = sa_checked_addr(a, 2); int16_t v = (int16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8)); return (sa_u64)(sa_i64)v; }
-        \\static sa_u64 sa_load_u32(sa_u64 a) { uint32_t x = sa_checked_addr(a, 4); return (sa_u64)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); }
-        \\static sa_u64 sa_load_i32(sa_u64 a) { uint32_t x = sa_checked_addr(a, 4); int32_t v = (int32_t)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); return (sa_u64)(sa_i64)v; }
-        \\static sa_u64 sa_load_u64(sa_u64 a) { uint32_t x = sa_checked_addr(a, 8); uint64_t v = 0; unsigned k; for (k = 0; k < 8; k++) v |= ((uint64_t)sa_mem[x + k]) << (k * 8); return v; }
-        \\static sa_u64 sa_load_f32(sa_u64 a) { return sa_load_u32(a) & 0xFFFFFFFFULL; }
-        \\static sa_u64 sa_load_f64(sa_u64 a) { return sa_load_u64(a); }
-        \\static void sa_store_u8(sa_u64 a, sa_u64 v) { sa_mem[sa_checked_addr(a, 1)] = (uint8_t)(v & 0xFFu); }
-        \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
-        \\static void sa_store_u16(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 2); sa_mem[x] = (uint8_t)(v & 0xFFu); sa_mem[x + 1] = (uint8_t)((v >> 8) & 0xFFu); }
-        \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
-        \\static void sa_store_u32(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 4); unsigned k; for (k = 0; k < 4; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
-        \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
-        \\static void sa_store_u64(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 8); unsigned k; for (k = 0; k < 8; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
-        \\static void sa_store_f32(sa_u64 a, sa_u64 v) { sa_store_u32(a, v & 0xFFFFFFFFULL); }
-        \\static void sa_store_f64(sa_u64 a, sa_u64 v) { sa_store_u64(a, v); }
-        \\static sa_u64 sa_add(sa_u64 a, sa_u64 b) { return a + b; }
-        \\static sa_u64 sa_sub(sa_u64 a, sa_u64 b) { return a - b; }
-        \\static sa_u64 sa_mul(sa_u64 a, sa_u64 b) { return a * b; }
-        \\static sa_u64 sa_sdiv(sa_u64 a, sa_u64 b) { if ((sa_i64)b==0) sa_trap("div by zero"); return (sa_u64)((sa_i64)a / (sa_i64)b); }
-        \\static sa_u64 sa_udiv(sa_u64 a, sa_u64 b) { if (b==0) sa_trap("div by zero"); return a / b; }
-        \\static sa_u64 sa_srem(sa_u64 a, sa_u64 b) { if ((sa_i64)b==0) sa_trap("rem by zero"); return (sa_u64)((sa_i64)a % (sa_i64)b); }
-        \\static sa_u64 sa_urem(sa_u64 a, sa_u64 b) { if (b==0) sa_trap("rem by zero"); return a % b; }
-        \\static sa_u64 sa_band(sa_u64 a, sa_u64 b) { return a & b; }
-        \\static sa_u64 sa_bor(sa_u64 a, sa_u64 b) { return a | b; }
-        \\static sa_u64 sa_bxor(sa_u64 a, sa_u64 b) { return a ^ b; }
-        \\static sa_u64 sa_bnot(sa_u64 a) { return ~a; }
-        \\static sa_u64 sa_neg(sa_u64 a) { return (sa_u64)(-(sa_i64)a); }
-        \\static sa_u64 sa_shl(sa_u64 a, sa_u64 b) { return a << (b & 63); }
-        \\static sa_u64 sa_lshr(sa_u64 a, sa_u64 b) { return a >> (b & 63); }
-        \\static sa_u64 sa_ashr(sa_u64 a, sa_u64 b) { return (sa_u64)((sa_i64)a >> (b & 63)); }
-        \\static sa_u64 sa_eq(sa_u64 a, sa_u64 b) { return a == b ? 1 : 0; }
-        \\static sa_u64 sa_ne(sa_u64 a, sa_u64 b) { return a != b ? 1 : 0; }
-        \\static sa_u64 sa_slt(sa_u64 a, sa_u64 b) { return (sa_i64)a < (sa_i64)b ? 1 : 0; }
-        \\static sa_u64 sa_sle(sa_u64 a, sa_u64 b) { return (sa_i64)a <= (sa_i64)b ? 1 : 0; }
-        \\static sa_u64 sa_sgt(sa_u64 a, sa_u64 b) { return (sa_i64)a > (sa_i64)b ? 1 : 0; }
-        \\static sa_u64 sa_sge(sa_u64 a, sa_u64 b) { return (sa_i64)a >= (sa_i64)b ? 1 : 0; }
-        \\static sa_u64 sa_ult(sa_u64 a, sa_u64 b) { return a < b ? 1 : 0; }
-        \\static sa_u64 sa_ule(sa_u64 a, sa_u64 b) { return a <= b ? 1 : 0; }
-        \\static sa_u64 sa_ugt(sa_u64 a, sa_u64 b) { return a > b ? 1 : 0; }
-        \\static sa_u64 sa_uge(sa_u64 a, sa_u64 b) { return a >= b ? 1 : 0; }
-        \\static double sa_bits_f64(sa_u64 v) { union { sa_u64 u; double d; } t; t.u = v; return t.d; }
-        \\static sa_u64 sa_f64_bits(double d) { union { sa_u64 u; double d; } t; t.d = d; return t.u; }
-        \\static float sa_bits_f32(sa_u64 v) { union { uint32_t u; float f; } t; t.u = (uint32_t)v; return t.f; }
-        \\static sa_u64 sa_f32_bits(float f) { union { uint32_t u; float f; } t; t.f = f; return (sa_u64)t.u; }
-        \\static sa_u64 sa_fadd(sa_u64 a, sa_u64 b) { return sa_f64_bits(sa_bits_f64(a)+sa_bits_f64(b)); }
-        \\static sa_u64 sa_fsub(sa_u64 a, sa_u64 b) { return sa_f64_bits(sa_bits_f64(a)-sa_bits_f64(b)); }
-        \\static sa_u64 sa_fmul(sa_u64 a, sa_u64 b) { return sa_f64_bits(sa_bits_f64(a)*sa_bits_f64(b)); }
-        \\static sa_u64 sa_fdiv(sa_u64 a, sa_u64 b) { return sa_f64_bits(sa_bits_f64(a)/sa_bits_f64(b)); }
-        \\static sa_u64 sa_fneg(sa_u64 a) { return sa_f64_bits(-sa_bits_f64(a)); }
-        \\static sa_u64 sa_fcmp_eq(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)==sa_bits_f64(b)?1:0; }
-        \\static sa_u64 sa_fcmp_ne(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)!=sa_bits_f64(b)?1:0; }
-        \\static sa_u64 sa_fcmp_lt(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)<sa_bits_f64(b)?1:0; }
-        \\static sa_u64 sa_fcmp_le(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)<=sa_bits_f64(b)?1:0; }
-        \\static sa_u64 sa_fcmp_gt(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)>sa_bits_f64(b)?1:0; }
-        \\static sa_u64 sa_fcmp_ge(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)>=sa_bits_f64(b)?1:0; }
-        \\static sa_u64 sa_cvt_trunc_i1(sa_u64 v){return v&1;} static sa_u64 sa_cvt_trunc_i8(sa_u64 v){return (sa_u64)(sa_i64)(int8_t)v;}
-        \\static sa_u64 sa_cvt_trunc_i16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)v;} static sa_u64 sa_cvt_trunc_i32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)v;}
-        \\static sa_u64 sa_cvt_trunc_i64(sa_u64 v){return v;} static sa_u64 sa_cvt_trunc_u8(sa_u64 v){return v&0xFFu;}
-        \\static sa_u64 sa_cvt_trunc_u16(sa_u64 v){return v&0xFFFFu;} static sa_u64 sa_cvt_trunc_u32(sa_u64 v){return v&0xFFFFFFFFu;}
-        \\static sa_u64 sa_cvt_trunc_u64(sa_u64 v){return v;} static sa_u64 sa_cvt_trunc_ptr(sa_u64 v){return v;}
-        \\static sa_u64 sa_cvt_zext_i1(sa_u64 v){return v&1;} static sa_u64 sa_cvt_zext_i8(sa_u64 v){return v&0xFFu;}
-        \\static sa_u64 sa_cvt_zext_i16(sa_u64 v){return v&0xFFFFu;} static sa_u64 sa_cvt_zext_i32(sa_u64 v){return v&0xFFFFFFFFu;}
-        \\static sa_u64 sa_cvt_zext_i64(sa_u64 v){return v;} static sa_u64 sa_cvt_zext_u8(sa_u64 v){return v&0xFFu;}
-        \\static sa_u64 sa_cvt_zext_u16(sa_u64 v){return v&0xFFFFu;} static sa_u64 sa_cvt_zext_u32(sa_u64 v){return v&0xFFFFFFFFu;}
-        \\static sa_u64 sa_cvt_zext_u64(sa_u64 v){return v;} static sa_u64 sa_cvt_zext_ptr(sa_u64 v){return v;}
-        \\static sa_u64 sa_cvt_sext_i8(sa_u64 v){return (sa_u64)(sa_i64)(int8_t)v;} static sa_u64 sa_cvt_sext_i16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)v;}
-        \\static sa_u64 sa_cvt_sext_i32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)v;} static sa_u64 sa_cvt_sext_i64(sa_u64 v){return v;}
-        \\static sa_u64 sa_cvt_sext_i1(sa_u64 v){return (sa_u64)(sa_i64)(v&1? -1:0);} static sa_u64 sa_cvt_sext_u8(sa_u64 v){return (sa_u64)(sa_i64)(int8_t)v;}
-        \\static sa_u64 sa_cvt_sext_u16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)v;} static sa_u64 sa_cvt_sext_u32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)v;}
-        \\static sa_u64 sa_cvt_sext_u64(sa_u64 v){return v;} static sa_u64 sa_cvt_sext_ptr(sa_u64 v){return v;}
-        \\static sa_u64 sa_cvt_sitofp_f32(sa_u64 v){return sa_f32_bits((float)(sa_i64)v);} static sa_u64 sa_cvt_sitofp_f64(sa_u64 v){return sa_f64_bits((double)(sa_i64)v);}
-        \\static sa_u64 sa_cvt_uitofp_f32(sa_u64 v){return sa_f32_bits((float)v);} static sa_u64 sa_cvt_uitofp_f64(sa_u64 v){return sa_f64_bits((double)v);}
-        \\static sa_u64 sa_cvt_fptosi_i32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)sa_bits_f64(v);} static sa_u64 sa_cvt_fptosi_i64(sa_u64 v){return (sa_u64)(sa_i64)sa_bits_f64(v);}
-        \\static sa_u64 sa_cvt_fptosi_u32(sa_u64 v){return (sa_u64)(uint32_t)sa_bits_f64(v);} static sa_u64 sa_cvt_fptosi_u64(sa_u64 v){return (sa_u64)sa_bits_f64(v);}
-        \\static sa_u64 sa_cvt_fptosi_i1(sa_u64 v){return ((sa_i64)sa_bits_f64(v))&1;} static sa_u64 sa_cvt_fptosi_i8(sa_u64 v){return (sa_u64)(sa_i64)(int8_t)sa_bits_f64(v);}
-        \\static sa_u64 sa_cvt_fptosi_i16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)sa_bits_f64(v);} static sa_u64 sa_cvt_fptosi_u8(sa_u64 v){return (sa_u64)(uint8_t)sa_bits_f64(v);}
-        \\static sa_u64 sa_cvt_fptosi_u16(sa_u64 v){return (sa_u64)(uint16_t)sa_bits_f64(v);} static sa_u64 sa_cvt_fptosi_ptr(sa_u64 v){return (sa_u64)sa_bits_f64(v);}
-        \\static sa_u64 sa_cvt_fptrunc_f32(sa_u64 v){return sa_f32_bits((float)sa_bits_f64(v));} static sa_u64 sa_cvt_fpext_f64(sa_u64 v){float f=sa_bits_f32(v); return sa_f64_bits((double)f);}
-        \\static sa_u64 sa_cvt_bitcast_i32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)(uint32_t)v;} static sa_u64 sa_cvt_bitcast_u32(sa_u64 v){return v&0xFFFFFFFFu;}
-        \\static sa_u64 sa_cvt_bitcast_i64(sa_u64 v){return v;} static sa_u64 sa_cvt_bitcast_u64(sa_u64 v){return v;}
-        \\static sa_u64 sa_cvt_bitcast_f32(sa_u64 v){return v&0xFFFFFFFFu;} static sa_u64 sa_cvt_bitcast_f64(sa_u64 v){return v;}
-        \\static sa_u64 sa_cvt_bitcast_ptr(sa_u64 v){return v;} static sa_u64 sa_cvt_bitcast_i8(sa_u64 v){return v&0xFFu;}
-        \\static sa_u64 sa_cvt_bitcast_u8(sa_u64 v){return v&0xFFu;} static sa_u64 sa_cvt_bitcast_i16(sa_u64 v){return v&0xFFFFu;}
-        \\static sa_u64 sa_cvt_bitcast_u16(sa_u64 v){return v&0xFFFFu;} static sa_u64 sa_cvt_bitcast_i1(sa_u64 v){return v&1;}
-        \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, len) signature
-        \\static sa_u64 sa_print_bytes(sa_u64 addr, sa_u64 len) { uint32_t a=sa_addr(addr); if ((size_t)a+(size_t)len>sizeof(sa_mem)) sa_trap("print oob"); fwrite(&sa_mem[a],1,(size_t)len,stdout); return 0; }
-        \\static sa_u64 sa_f32_to_f64(sa_u64 v) { return sa_f64_bits((double)sa_bits_f32(v)); }
-        \\static sa_u64 sa_f64_to_f32(sa_u64 v) { return sa_f32_bits((float)sa_bits_f64(v)); }
-        \\static sa_u64 sa_fadd32(sa_u64 a, sa_u64 b) { return sa_f32_bits(sa_bits_f32(a)+sa_bits_f32(b)); }
-        \\static sa_u64 sa_fsub32(sa_u64 a, sa_u64 b) { return sa_f32_bits(sa_bits_f32(a)-sa_bits_f32(b)); }
-        \\static sa_u64 sa_fmul32(sa_u64 a, sa_u64 b) { return sa_f32_bits(sa_bits_f32(a)*sa_bits_f32(b)); }
-        \\static sa_u64 sa_fdiv32(sa_u64 a, sa_u64 b) { return sa_f32_bits(sa_bits_f32(a)/sa_bits_f32(b)); }
-        \\static sa_u64 sa_fneg32(sa_u64 a) { return sa_f32_bits(-sa_bits_f32(a)); }
-        \\static sa_u64 sa_fcmp_eq32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)==sa_bits_f32(b)?1:0; }
-        \\static sa_u64 sa_fcmp_ne32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)!=sa_bits_f32(b)?1:0; }
-        \\static sa_u64 sa_fcmp_lt32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)<sa_bits_f32(b)?1:0; }
-        \\static sa_u64 sa_fcmp_le32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)<=sa_bits_f32(b)?1:0; }
-        \\static sa_u64 sa_fcmp_gt32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)>sa_bits_f32(b)?1:0; }
-        \\static sa_u64 sa_fcmp_ge32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)>=sa_bits_f32(b)?1:0; }
-        \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (value, width, sign) signature
-        \\static sa_u64 sa_srcmask(sa_u64 v, unsigned w, int sgn) {
-        \\  if (w >= 64) return v;
-        \\  if (w == 32) return sgn ? (sa_u64)(sa_i64)(int32_t)(uint32_t)v : (sa_u64)(uint32_t)v;
-        \\  if (w == 1) return v & 1u;
-        \\  { sa_u64 m = (w == 64) ? ~(sa_u64)0 : ((((sa_u64)1) << w) - 1); sa_u64 r = v & m;
-        \\    if (sgn && (r >> (w - 1)) & 1u) r |= ~m; return r; }
-        \\}
-        \\static sa_u64 sa_fnaddr(int i) { return (sa_u64)(uint64_t)(1000000 + i); }
         \\
     );
+    if (need_mem) {
+        try writer.writeAll("static uint8_t sa_mem[SA_MEM_BYTES];\n");
+    }
+    if (need_brk) {
+        try writer.writeAll("static uint32_t sa_brk = 65536;\n");
+    }
+    try writer.writeAll(
+        \\static __attribute__((noreturn, unused)) void sa_trap(const char *msg) { fputs("[sa-trap] ", stderr); fputs(msg, stderr); fputc('\n', stderr); exit(1); }
+        \\
+    );
+    if (c_opt.gas) {
+        try writer.writeAll(
+            \\#ifndef SA_GAS_LIMIT
+            \\#define SA_GAS_LIMIT 10000ULL
+            \\#endif
+            \\static sa_u64 sa_gas = SA_GAS_LIMIT;
+            \\#define SA_GAS_CHECK(n) do { if (sa_gas < (sa_u64)(n)) sa_trap("out of gas"); sa_gas -= (sa_u64)(n); } while (0)
+            \\
+        );
+    }
+    for (kRuntimeHelpers) |h| {
+        if (used.get(h.name) != null) {
+            try writer.writeAll(h.code);
+            try writer.writeAll("\n");
+        }
+    }
 }
 
 /// Best-effort slot resolution for liveness: reg/symbol/text operands that
 /// denote a local slot. Returns null for immediates, labels, funcs, consts.
-fn readSlotOf(fsig: sig.FunctionSig, use_global: bool, symbols: anytype, op: inst.Operand) ?u32 {
+///
+/// Name-based operands (.symbol/.text) that resolve to a const decl are NOT
+/// register reads: the emitter prefers the const immediate
+/// (`resolveTextToC` checks `const_addrs` before registers), so counting
+/// them as reads would keep dead `rN` declarations alive.
+fn readSlotOf(fsig: sig.FunctionSig, use_global: bool, verified: anytype, op: inst.Operand) ?u32 {
+    const symbols = verified.symbols;
     switch (op) {
         .reg => |r| return regSlot(fsig, use_global, r) catch null,
-        .symbol => |id| return fsig.slotOf(id),
+        .symbol => |id| {
+            if (symbols.lookupName(id)) |name| {
+                if (isConstName(verified, name)) return null;
+            }
+            return fsig.slotOf(id);
+        },
         .text, .native_text => |t| {
             var text = std.mem.trim(u8, t, " \t");
             if (text.len == 0) return null;
             if (text[0] == '&' or text[0] == '*' or text[0] == '^') text = std.mem.trim(u8, text[1..], " \t");
             if (std.mem.lastIndexOf(u8, text, " as ")) |idx| text = std.mem.trim(u8, text[0..idx], " \t\r");
             if (text.len == 0) return null;
+            if (isConstName(verified, text)) return null;
             if (symbols.findId(text)) |id| return fsig.slotOf(id);
             return null;
         },
         else => return null,
     }
+}
+
+fn isConstName(verified: anytype, name: []const u8) bool {
+    for (verified.const_decls) |decl| {
+        if (std.mem.eql(u8, decl.name, name)) return true;
+    }
+    return false;
 }
 
 fn defSlotOf(fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) ?u32 {
@@ -875,21 +1305,21 @@ fn defSlotOf(fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) ?u32 {
 fn collectDefUse(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, base: inst.Instruction, defs: *std.array_list.Managed(u32), uses: *std.array_list.Managed(u32)) !void {
     switch (base.kind) {
         .return_ => {
-            if (readSlotOf(fsig, use_global, verified.symbols, base.operands[0])) |sl| try uses.append(sl);
+            if (readSlotOf(fsig, use_global, verified, base.operands[0])) |sl| try uses.append(sl);
         },
         .try_, .early_return => {
             if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
-            if (readSlotOf(fsig, use_global, verified.symbols, base.operands[1])) |sl| try uses.append(sl);
+            if (readSlotOf(fsig, use_global, verified, base.operands[1])) |sl| try uses.append(sl);
         },
         .op, .alloc, .stack_alloc, .ptr_add, .load, .take, .atomic_load => {
             if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
             for (base.operands[1..]) |opnd| {
-                if (readSlotOf(fsig, use_global, verified.symbols, opnd)) |sl| try uses.append(sl);
+                if (readSlotOf(fsig, use_global, verified, opnd)) |sl| try uses.append(sl);
             }
         },
         .store, .atomic_store, .release => {
             for (base.operands) |opnd| {
-                if (readSlotOf(fsig, use_global, verified.symbols, opnd)) |sl| try uses.append(sl);
+                if (readSlotOf(fsig, use_global, verified, opnd)) |sl| try uses.append(sl);
             }
         },
         .call, .call_indirect => {
@@ -902,10 +1332,10 @@ fn collectDefUse(allocator: std.mem.Allocator, verified: anytype, fsig: sig.Func
                     }
                 }
                 for (parsed.args) |arg| {
-                    if (readSlotOf(fsig, use_global, verified.symbols, inst.Operand{ .text = arg.text })) |sl| try uses.append(sl);
+                    if (readSlotOf(fsig, use_global, verified, inst.Operand{ .text = arg.text })) |sl| try uses.append(sl);
                 }
                 if (parsed.is_indirect) {
-                    if (readSlotOf(fsig, use_global, verified.symbols, inst.Operand{ .text = parsed.callee })) |sl| try uses.append(sl);
+                    if (readSlotOf(fsig, use_global, verified, inst.Operand{ .text = parsed.callee })) |sl| try uses.append(sl);
                 }
             } else |_| {}
         },
@@ -913,46 +1343,46 @@ fn collectDefUse(allocator: std.mem.Allocator, verified: anytype, fsig: sig.Func
             if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
             if (defSlotOf(fsig, use_global, base.operands[1])) |sl| try defs.append(sl);
             for (base.operands[2..]) |opnd| {
-                if (readSlotOf(fsig, use_global, verified.symbols, opnd)) |sl| try uses.append(sl);
+                if (readSlotOf(fsig, use_global, verified, opnd)) |sl| try uses.append(sl);
             }
             if (base.atomic_expected_text) |t| {
-                if (readSlotOf(fsig, use_global, verified.symbols, inst.Operand{ .text = t })) |sl| try uses.append(sl);
+                if (readSlotOf(fsig, use_global, verified, inst.Operand{ .text = t })) |sl| try uses.append(sl);
             }
             if (base.atomic_new_text) |t| {
-                if (readSlotOf(fsig, use_global, verified.symbols, inst.Operand{ .text = t })) |sl| try uses.append(sl);
+                if (readSlotOf(fsig, use_global, verified, inst.Operand{ .text = t })) |sl| try uses.append(sl);
             }
         },
         .atomic_rmw => {
             if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
             for (base.operands[1..]) |opnd| {
-                if (readSlotOf(fsig, use_global, verified.symbols, opnd)) |sl| try uses.append(sl);
+                if (readSlotOf(fsig, use_global, verified, opnd)) |sl| try uses.append(sl);
             }
         },
         .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => {
             if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
-            if (readSlotOf(fsig, use_global, verified.symbols, base.operands[1])) |sl| try uses.append(sl);
+            if (readSlotOf(fsig, use_global, verified, base.operands[1])) |sl| try uses.append(sl);
         },
         .panic => {
             if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
                 var parsed = pc.*;
                 defer parsed.deinit(allocator);
                 for (parsed.args) |arg| {
-                    if (readSlotOf(fsig, use_global, verified.symbols, inst.Operand{ .text = arg.text })) |sl| try uses.append(sl);
+                    if (readSlotOf(fsig, use_global, verified, inst.Operand{ .text = arg.text })) |sl| try uses.append(sl);
                 }
             } else |_| {}
         },
         .br, .br_null => {
-            if (readSlotOf(fsig, use_global, verified.symbols, base.operands[0])) |sl| try uses.append(sl);
+            if (readSlotOf(fsig, use_global, verified, base.operands[0])) |sl| try uses.append(sl);
         },
         else => {
             for (base.operands) |opnd| {
-                if (readSlotOf(fsig, use_global, verified.symbols, opnd)) |sl| try uses.append(sl);
+                if (readSlotOf(fsig, use_global, verified, opnd)) |sl| try uses.append(sl);
             }
         },
     }
 }
 
-fn computeDeadSlots(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, task: FuncTask) !std.AutoHashMap(u32, void) {
+fn computeDeadSlots(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, task: FuncTask, out_reads: ?*std.AutoHashMap(u32, void)) !std.AutoHashMap(u32, void) {
     var defs = std.AutoHashMap(u32, void).init(allocator);
     defer defs.deinit();
     var reads = std.AutoHashMap(u32, void).init(allocator);
@@ -979,6 +1409,12 @@ fn computeDeadSlots(allocator: std.mem.Allocator, verified: anytype, fsig: sig.F
     var it = defs.iterator();
     while (it.next()) |e| {
         if (reads.get(e.key_ptr.*) == null) try dead.put(e.key_ptr.*, {});
+    }
+    if (out_reads) |out| {
+        var rit = reads.iterator();
+        while (rit.next()) |e| {
+            try out.put(e.key_ptr.*, {});
+        }
     }
     return dead;
 }
@@ -1456,10 +1892,46 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
     defer widths.deinit();
     // Definitely-unread slots: pure redefinitions elided, effectful calls
     // kept in (void) form (silences clang-analyzer-deadcode.DeadStores).
-    var dead = computeDeadSlots(allocator, verified, fsig, use_global, task) catch std.AutoHashMap(u32, void).init(allocator);
+    var live_reads = std.AutoHashMap(u32, void).init(allocator);
+    defer live_reads.deinit();
+    var reads_complete = true;
+    var dead = computeDeadSlots(allocator, verified, fsig, use_global, task, &live_reads) catch blk: {
+        reads_complete = false;
+        break :blk std.AutoHashMap(u32, void).init(allocator);
+    };
     defer dead.deinit();
     var elide = computeElideIdx(allocator, verified, fsig, use_global, task) catch std.AutoHashMap(usize, void).init(allocator);
     defer elide.deinit();
+    // Labels targeted by a jump/branch. An untargeted label is pure
+    // fallthrough: emitting it trips -Wunused-label, so only the gas
+    // metering (which still executes on fallthrough) is kept.
+    var label_refs = std.AutoHashMap(u32, void).init(allocator);
+    defer label_refs.deinit();
+    {
+        var li: usize = task.start_idx + 1;
+        while (li < task.end_idx) : (li += 1) {
+            const lb = verified.annotated[li].base;
+            switch (lb.kind) {
+                .jmp => {
+                    const id: u32 = switch (lb.operands[1]) {
+                        .label => |v| v, .symbol => |v| v, else => continue,
+                    };
+                    label_refs.put(id, {}) catch {};
+                },
+                .br, .br_null => {
+                    const t: u32 = switch (lb.operands[1]) {
+                        .label => |v| v, .symbol => |v| v, else => continue,
+                    };
+                    const f: u32 = switch (lb.operands[3]) {
+                        .label => |v| v, .symbol => |v| v, else => continue,
+                    };
+                    label_refs.put(t, {}) catch {};
+                    label_refs.put(f, {}) catch {};
+                },
+                else => {},
+            }
+        }
+    }
     // Seed parameter slots with their declared types: caller and callee
     // share the u64-bits invariant, so this is exact (unlike JS, which
     // must infer argument domains at runtime).
@@ -1492,9 +1964,24 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         // Declare registers. Slots aliasing static consts are
         // initialized to the const address (mirrors the JS backend);
         // all other slots start at 0. Params bind into their slots after.
+        // Slots never read in the body are not declared at all: a
+        // set-but-unused `rN` trips -Wunused-but-set-variable (and reads
+        // as dead code to auditors); nothing references them.
+        var first_decl = true;
         var s: usize = 0;
         while (s < nregs) : (s += 1) {
-            if (s == 0) try writer.writeAll("  sa_u64 ") else try writer.writeAll(", ");
+            const slot32: u32 = @intCast(s);
+            if (dead.get(slot32) != null) continue;
+            // A slot never defined by any instruction that is also never
+            // read holds only its declaration initializer (e.g. a const
+            // alias): skip it too. When liveness failed, declare all.
+            if (reads_complete and live_reads.get(slot32) == null) continue;
+            if (first_decl) {
+                try writer.writeAll("  sa_u64 ");
+                first_decl = false;
+            } else {
+                try writer.writeAll(", ");
+            }
             try writer.print("r{d} = ", .{s});
             const gid = fsig.reg_ids[s];
             if (verified.symbols.lookupName(gid)) |gname| {
@@ -1507,7 +1994,9 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 try writer.writeAll("0");
             }
         }
-        try writer.writeAll(";\n");
+        if (!first_decl) {
+            try writer.writeAll(";\n");
+        }
     }
     // map params to slots (skip slots never read in the body)
     for (fsig.param_ids, 0..) |pid, pi| {
@@ -1522,6 +2011,12 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
     // Silence misc-unused-parameters for padded uniform-arity params.
     for (0..uniform_arity) |pi| {
         try writer.print("  (void)a{d};\n", .{pi});
+    }
+    // Gas metering: every function entry costs 1 unit. The SA selling
+    // point is Gas+Capability; without this a guest infinite loop hangs
+    // the host (e.g. a Shopify checkout rule).
+    if (c_opt.gas) {
+        try writer.writeAll("  SA_GAS_CHECK(1);\n");
     }
     if (c_opt.debug_comments) {
         try writer.print("  /* fn {s} regs={d} */\n", .{ fsig.name, nregs });
@@ -1544,7 +2039,22 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 // Join point: merges are untracked, drop widths (sound
                 // fallback; mirrors the JS backend clearing at labels).
                 widths.clearRetainingCapacity();
+                if (label_refs.get(id) == null) {
+                    // Fallthrough-only block: no label (else -Wunused-label),
+                    // but the block entry still pays gas on fallthrough.
+                    if (c_opt.debug_comments) {
+                        try writer.print("  /* fallthrough {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                    }
+                    if (c_opt.gas) {
+                        try writer.writeAll("  SA_GAS_CHECK(1);\n");
+                    }
+                    continue;
+                }
                 try writer.print("SA_L_{d}:\n", .{id});
+                // Loop/back-edge headers pay gas per visit: bounded execution.
+                if (c_opt.gas) {
+                    try writer.writeAll("  SA_GAS_CHECK(1);\n");
+                }
                 if (c_opt.debug_comments) {
                     try writer.print("  /* {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
                 }
@@ -1631,13 +2141,100 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     for (tasks) |task| {
         uniform_arity = @max(uniform_arity, verified.function_sigs[task.fsig_index].params.len);
     }
-    try writeRuntimeHeader(writer, c_opt, size_bits);
-    try writer.print("/* source: {s} */\n", .{source_path});
-    // const addresses
+    // Indirect dispatch is needed iff the IR contains a dynamic call
+    // site. Vtable consts alone don't need the ftable: without a call
+    // site it would be dead data plus an unused dispatcher.
+    var need_indirect = false;
+    {
+        var ti: usize = 0;
+        while (ti < tasks.len and !need_indirect) : (ti += 1) {
+            var i: usize = tasks[ti].start_idx + 1;
+            while (i < tasks[ti].end_idx) : (i += 1) {
+                const base = verified.annotated[i].base;
+                if (base.kind != .call and base.kind != .call_indirect) continue;
+                if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                    var parsed = pc.*;
+                    defer parsed.deinit(allocator);
+                    if (parsed.is_indirect) need_indirect = true;
+                } else |_| {}
+            }
+        }
+    }
+    // Reachable defined functions: BFS from entry points over static direct
+    // calls, keyed by fsig_index. Unreachable definitions are skipped
+    // entirely (emitting them trips -Wunused-function and they are dead
+    // code to auditors). The only roots are `main` and, with indirect
+    // dispatch, the vtable entries referenced by the ftable initializer.
+    // NOTE: exports/tests are deliberately NOT roots: this backend emits a
+    // linked program (`int main`), not a library, so an uncalled export is
+    // dead code here. (A unit with no main at all keeps everything.)
+    // A dynamically called function must hold a vtable slot (`.func`
+    // operands resolve via fn_idx), so static reachability + fn_names is
+    // exact: nothing reachable is ever skipped.
+    var reachable = std.AutoHashMap(usize, void).init(allocator);
+    defer reachable.deinit();
+    {
+        var has_entry = false;
+        for (tasks) |task| {
+            if (task.kind == .extern_decl) continue;
+            const norm = sigNormName(verified.function_sigs[task.fsig_index].name);
+            if (std.mem.eql(u8, norm, "main")) {
+                try reachable.put(task.fsig_index, {});
+                has_entry = true;
+            }
+        }
+        if (need_indirect) {
+            for (fn_names.items) |fname| {
+                if (taskIndexByName(tasks, verified, sigNormName(fname))) |ci| {
+                    try reachable.put(ci, {});
+                }
+                has_entry = true;
+            }
+        }
+        if (!has_entry) {
+            // Pure library unit (no entry point): keep everything.
+            for (tasks) |task| {
+                if (task.kind == .extern_decl) continue;
+                try reachable.put(task.fsig_index, {});
+            }
+        } else {
+            var queue = std.array_list.Managed(usize).init(allocator);
+            defer queue.deinit();
+            var rit = reachable.iterator();
+            while (rit.next()) |e| try queue.append(e.key_ptr.*);
+            var qi: usize = 0;
+            while (qi < queue.items.len) : (qi += 1) {
+                const cur = queue.items[qi];
+                for (tasks) |task| {
+                    if (task.kind == .extern_decl) continue;
+                    if (task.fsig_index != cur) continue;
+                    var i: usize = task.start_idx + 1;
+                    while (i < task.end_idx) : (i += 1) {
+                        const base = verified.annotated[i].base;
+                        if (base.kind != .call and base.kind != .call_indirect) continue;
+                        if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                            var parsed = pc.*;
+                            defer parsed.deinit(allocator);
+                            if (parsed.is_indirect) continue;
+                            if (taskIndexByName(tasks, verified, sigNormName(parsed.callee))) |ci| {
+                                if (!reachable.contains(ci)) {
+                                    try reachable.put(ci, {});
+                                    try queue.append(ci);
+                                }
+                            }
+                        } else |_| {}
+                    }
+                }
+            }
+        }
+    }
+    // Const address layout (pure; #defines are emitted in phase 2 after
+    // the helper scan so the preamble comes first in the file).
     var const_addrs = std.StringHashMap(usize).init(allocator);
     defer const_addrs.deinit();
     var const_cursor: usize = 4096;
     const bump_start: usize = 65536;
+    var has_const_bytes = false;
     for (verified.const_decls) |decl| {
         const len = constBytesLen(decl.value) catch 0;
         const aligned = std.mem.alignForward(usize, const_cursor, 8);
@@ -1647,128 +2244,189 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
             const a2 = std.mem.alignForward(usize, const_cursor, 8);
             if (a2 + slots > bump_start) return CEmitError.Failed;
             try const_addrs.put(decl.name, a2);
-            try writer.writeAll("#define ");
-            try writeConstSym(writer, decl.name);
-            try writer.print(" {d}UL /* {s} */\n", .{ a2, @tagName(decl.value) });
             const_cursor = a2 + slots;
             continue;
         }
         if (aligned + len > bump_start) return CEmitError.Failed;
         try const_addrs.put(decl.name, aligned);
-        try writer.writeAll("#define ");
-        try writeConstSym(writer, decl.name);
-        try writer.print(" {d}UL\n", .{aligned});
+        has_const_bytes = true;
         const_cursor = aligned + len;
     }
-    // forward decls (uniform arity)
-    for (tasks) |task| {
-        if (task.kind == .extern_decl) continue;
-        const fsig = verified.function_sigs[task.fsig_index];
-        try writer.writeAll("static sa_u64 ");
-        try cFuncName(writer, fsig.name);
-        try writer.writeAll("(");
-        if (uniform_arity == 0) {
-            try writer.writeAll("void");
-        } else {
-            for (0..uniform_arity) |pi| {
-                if (pi != 0) try writer.writeAll(", ");
-                try writer.writeAll("sa_u64");
-            }
-        }
-        try writer.writeAll(");\n");
-    }
-    // forward declaration for the indirect dispatcher (defined after
-    // all functions so the ftable can reference them)
-    try writer.writeAll("// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform calling convention\nstatic sa_u64 sa_call_indirect(sa_u64 f");
-    for (0..uniform_arity) |k| {
-        try writer.print(", sa_u64 a{d}", .{k});
-    }
-    try writer.writeAll(");\n");
-    // forward declarations for extern trap stubs (defined at the end):
-    // without these, calls to externs hit implicit-declaration errors.
-    for (tasks) |task| {
-        if (task.kind != .extern_decl) continue;
-        const fsig = verified.function_sigs[task.fsig_index];
-        if (std.mem.eql(u8, sigNormName(fsig.name), "sa_print_bytes")) continue;
-        try writer.writeAll("static sa_u64 ");
-        try cFuncName(writer, fsig.name);
-        try writer.writeAll("(");
-        if (uniform_arity == 0) {
-            try writer.writeAll("void");
-        } else {
-            for (0..uniform_arity) |pi| {
-                if (pi != 0) try writer.writeAll(", ");
-                try writer.writeAll("sa_u64");
-            }
-        }
-        try writer.writeAll(");\n");
-    }
-    for (fn_names.items) |fname| {
-        var defined = false;
-        for (tasks) |task| {
-            if (task.kind == .extern_decl) continue;
-            if (std.mem.eql(u8, verified.function_sigs[task.fsig_index].name, fname)) {
-                defined = true;
-                break;
-            }
-        }
-        if (defined) continue;
-        try writer.writeAll("static sa_u64 ");
-        try cFuncName(writer, fname);
-        try writer.writeAll("(");
-        if (uniform_arity == 0) {
-            try writer.writeAll("void");
-        } else {
-            for (0..uniform_arity) |pi| {
-                if (pi != 0) try writer.writeAll(", ");
-                try writer.writeAll("sa_u64");
-            }
-        }
-        try writer.writeAll(");\n");
-    }
+    var rest: std.Io.Writer.Allocating = .init(allocator);
+    defer rest.deinit();
+    const rw = &rest.writer;
+    // Phase 1: const-init + function bodies go to a side buffer first so
+    // phase 2 can scan the exact helper set referenced and emit only
+    // those (no dead runtime helpers for Coverity/Semgrep to flag).
     // const init
-    try writer.writeAll("static void sa_init_consts(void) {\n  static int done = 0; if (done) return; done = 1;\n");
+    try rw.writeAll("static void sa_init_consts(void) {\n  static int done = 0; if (done) return; done = 1;\n");
     for (verified.const_decls) |decl| {
-        const len = constBytesLen(decl.value) catch 0;
-        if (decl.value == .vtable or len == 0) {
+        const init_len = constBytesLen(decl.value) catch 0;
+        if (decl.value == .vtable or init_len == 0) {
             if (decl.value == .vtable) {
                 var sidx: usize = 0;
                 for (decl.value.vtable.slots) |vslot| {
                     const fidx = fnIndexOf(fn_idx, vslot.func_name) orelse return CEmitError.UnknownFunction;
                     const addr = const_addrs.get(decl.name) orelse return CEmitError.InvalidOperand;
                     const le: u64 = 1000000 + @as(u64, @intCast(fidx));
-                    try writer.print("  sa_store_u64({d}ULL, {d}ULL);\n", .{ addr + sidx * 8, le });
+                    try rw.print("  sa_store_u64({d}ULL, {d}ULL);\n", .{ addr + sidx * 8, le });
                     sidx += 1;
                 }
             }
             continue;
         }
-        const bytes = try allocator.alloc(u8, len);
+        const bytes = try allocator.alloc(u8, init_len);
         defer allocator.free(bytes);
         try fillConstBytes(bytes, decl.value);
         const addr = const_addrs.get(decl.name) orelse return CEmitError.InvalidOperand;
-        try writer.print("  {{ static const uint8_t b[] = {{", .{});
+        try rw.print("  {{ static const uint8_t b[] = {{", .{});
         for (bytes, 0..) |b, idx| {
-            if (idx != 0) try writer.writeAll(",");
-            try writer.print("{d}", .{b});
+            if (idx != 0) try rw.writeAll(",");
+            try rw.print("{d}", .{b});
         }
-        try writer.print("}}; {{ size_t i; for (i = 0; i < {d}; i++) sa_mem[{d} + i] = b[i]; }} }}\n", .{ len, addr });
+        try rw.print("}}; {{ size_t i; for (i = 0; i < {d}; i++) sa_mem[{d} + i] = b[i]; }} }}\n", .{ init_len, addr });
     }
-    try writer.writeAll("}\n");
+    try rw.writeAll("}\n");
     var emitted = std.StringHashMap(void).init(allocator);
     defer emitted.deinit();
     for (tasks) |task| {
         if (task.kind == .extern_decl) continue;
-        const fsig = verified.function_sigs[task.fsig_index];
-        if (emitted.contains(fsig.name)) continue;
-        try emitOneFunction(writer, allocator, verified, task, &const_addrs, &fn_idx, c_opt, &sigmap, uniform_arity);
-        try emitted.put(fsig.name, {});
+        const efsig = verified.function_sigs[task.fsig_index];
+        if (emitted.contains(efsig.name)) continue;
+        // Unreachable definitions are dead code: skip (else
+        // -Wunused-function). Reachability is exact (see above).
+        if (reachable.get(task.fsig_index) == null) continue;
+        try emitOneFunction(rw, allocator, verified, task, &const_addrs, &fn_idx, c_opt, &sigmap, uniform_arity);
+        try emitted.put(efsig.name, {});
     }
+    // Phase 2: helper-use scan, then the file preamble (which must precede
+    // any `sa_u64`-typed declaration in output order).
+    const rest_text = try rest.toOwnedSlice();
+    defer allocator.free(rest_text);
+    var used = try collectUsedHelpers(allocator, rest_text);
+    defer used.deinit();
+    // Linear memory is needed for const bytes or any mem-touching helper.
+    // (sa_brk only travels with the allocator; sa_mem stays out entirely
+    // for pure-compute programs.)
+    var need_mem = has_const_bytes;
+    if (!need_mem) {
+        var uit = used.iterator();
+        while (uit.next()) |e| {
+            const n = e.key_ptr.*;
+            if (std.mem.startsWith(u8, n, "sa_load_") or std.mem.startsWith(u8, n, "sa_store_") or std.mem.eql(u8, n, "sa_alloc") or std.mem.eql(u8, n, "sa_print_bytes")) {
+                need_mem = true;
+                break;
+            }
+        }
+    }
+    const need_brk = used.get("sa_alloc") != null;
+    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk);
+    try writer.print("/* source: {s} */\n", .{source_path});
+    // const address defines
+    for (verified.const_decls) |decl| {
+        const addr = const_addrs.get(decl.name) orelse return CEmitError.InvalidOperand;
+        try writer.writeAll("#define ");
+        try writeConstSym(writer, decl.name);
+        if (decl.value == .vtable) {
+            try writer.print(" {d}UL /* vtable */\n", .{addr});
+        } else {
+            const def_len = constBytesLen(decl.value) catch 0;
+            if (def_len == 0) {
+                try writer.print(" {d}UL /* {s} */\n", .{ addr, @tagName(decl.value) });
+            } else {
+                try writer.print(" {d}UL\n", .{addr});
+            }
+        }
+    }
+    // forward decls (uniform arity); only for emitted functions, so no
+    // decl is left without a definition (-Wunused-function).
+    for (tasks) |task| {
+        if (task.kind == .extern_decl) continue;
+        if (reachable.get(task.fsig_index) == null) continue;
+        const fsig = verified.function_sigs[task.fsig_index];
+        try writer.writeAll("static sa_u64 ");
+        try cFuncName(writer, fsig.name);
+        try writer.writeAll("(");
+        if (uniform_arity == 0) {
+            try writer.writeAll("void");
+        } else {
+            for (0..uniform_arity) |pi| {
+                if (pi != 0) try writer.writeAll(", ");
+                try writer.writeAll("sa_u64");
+            }
+        }
+        try writer.writeAll(");\n");
+    }
+    // Forward declaration for the indirect dispatcher (defined after all
+    // functions so the ftable can reference them). Only when a dynamic
+    // call site exists; otherwise it would be dead code.
+    if (need_indirect) {
+        try writer.writeAll("// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform calling convention\nstatic sa_u64 sa_call_indirect(sa_u64 f");
+        for (0..uniform_arity) |k| {
+            try writer.print(", sa_u64 a{d}", .{k});
+        }
+        try writer.writeAll(");\n");
+    }
+    // forward declarations for extern trap stubs (defined at the end):
+    // without these, calls to externs hit implicit-declaration errors.
+    // Only for called externs (a static decl without a definition or use
+    // trips -Wunused-function).
+    for (tasks) |task| {
+        if (task.kind != .extern_decl) continue;
+        const fsig = verified.function_sigs[task.fsig_index];
+        if (std.mem.eql(u8, sigNormName(fsig.name), "sa_print_bytes")) continue;
+        if (!bodyCallsFunction(rest_text, fsig.name)) continue;
+        try writer.writeAll("static sa_u64 ");
+        try cFuncName(writer, fsig.name);
+        try writer.writeAll("(");
+        if (uniform_arity == 0) {
+            try writer.writeAll("void");
+        } else {
+            for (0..uniform_arity) |pi| {
+                if (pi != 0) try writer.writeAll(", ");
+                try writer.writeAll("sa_u64");
+            }
+        }
+        try writer.writeAll(");\n");
+    }
+    // Fwd decls for vtable-referenced functions with no definition: only
+    // needed alongside the ftable (dead otherwise).
+    if (need_indirect) {
+        for (fn_names.items) |fname| {
+            var defined = false;
+            for (tasks) |task| {
+                if (task.kind == .extern_decl) continue;
+                if (std.mem.eql(u8, verified.function_sigs[task.fsig_index].name, fname)) {
+                    defined = true;
+                    break;
+                }
+            }
+            if (defined) continue;
+            try writer.writeAll("static sa_u64 ");
+            try cFuncName(writer, fname);
+            try writer.writeAll("(");
+            if (uniform_arity == 0) {
+                try writer.writeAll("void");
+            } else {
+                for (0..uniform_arity) |pi| {
+                    if (pi != 0) try writer.writeAll(", ");
+                    try writer.writeAll("sa_u64");
+                }
+            }
+            try writer.writeAll(");\n");
+        }
+    }
+    try writer.writeAll(rest_text);
     for (tasks) |task| {
         if (task.kind != .extern_decl) continue;
         const fsig = verified.function_sigs[task.fsig_index];
         if (emitted.contains(fsig.name)) continue;
         if (std.mem.eql(u8, sigNormName(fsig.name), "sa_print_bytes")) continue; // runtime provides it
+        // Only emit a stub when the body actually calls it: an unreferenced
+        // static definition trips -Wunused-function (and reads as dead
+        // code to auditors). Externs are only reachable via direct calls,
+        // which render as `sa_fn_<name>(`, so a text scan is exact.
+        if (!bodyCallsFunction(rest_text, fsig.name)) continue;
         // trap stub (uniform arity)
         try writer.writeAll("static sa_u64 ");
         try cFuncName(writer, fsig.name);
@@ -1789,70 +2447,87 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         try emitted.put(fsig.name, {});
     }
     // Trap stubs for vtable-referenced functions with no definition.
-    for (fn_names.items) |fname| {
-        if (emitted.contains(fname)) continue;
-        var found = false;
-        for (tasks) |task| {
-            if (std.mem.eql(u8, verified.function_sigs[task.fsig_index].name, fname)) {
-                found = true;
-                break;
+    // Only with the ftable: every entry is referenced by its initializer,
+    // so no stub is ever dead.
+    if (need_indirect) {
+        for (fn_names.items) |fname| {
+            if (emitted.contains(fname)) continue;
+            var found = false;
+            for (tasks) |task| {
+                if (std.mem.eql(u8, verified.function_sigs[task.fsig_index].name, fname)) {
+                    found = true;
+                    break;
+                }
             }
+            if (found) continue;
+            try writer.writeAll("static sa_u64 ");
+            try cFuncName(writer, fname);
+            try writer.writeAll("(");
+            if (uniform_arity == 0) {
+                try writer.writeAll("void");
+            } else {
+                for (0..uniform_arity) |pi| {
+                    if (pi != 0) try writer.writeAll(", ");
+                    try writer.print("sa_u64 a{d}", .{pi});
+                }
+            }
+            try writer.writeAll(") {");
+            for (0..uniform_arity) |pi| {
+                try writer.print(" (void)a{d};", .{pi});
+            }
+            try writer.print(" sa_trap(\"missing {s}\"); return 0; }}\n", .{fname});
+            try emitted.put(fname, {});
         }
-        if (found) continue;
-        try writer.writeAll("static sa_u64 ");
-        try cFuncName(writer, fname);
-        try writer.writeAll("(");
+    }
+    // Indirect dispatch: uniform signature makes a plain function-pointer
+    // table exact (indices match fn_idx / vtable const encoding). Skipped
+    // entirely without a dynamic call site (dead otherwise).
+    if (need_indirect) {
+        try writer.writeAll("typedef sa_u64 (*sa_fn_t)(");
         if (uniform_arity == 0) {
             try writer.writeAll("void");
         } else {
             for (0..uniform_arity) |pi| {
                 if (pi != 0) try writer.writeAll(", ");
-                try writer.print("sa_u64 a{d}", .{pi});
+                try writer.writeAll("sa_u64");
             }
         }
-        try writer.writeAll(") {");
-        for (0..uniform_arity) |pi| {
-            try writer.print(" (void)a{d};", .{pi});
+        // A zero-length array is a GNU extension and makes the bounds check
+        // tautological; pin a single NULL entry instead.
+        if (fn_names.items.len == 0) {
+            try writer.writeAll(");\nstatic sa_fn_t sa_ftable[1] = {0};\n");
+        } else {
+            try writer.writeAll(");\nstatic sa_fn_t sa_ftable[] = {");
+            for (fn_names.items, 0..) |fname, fi| {
+                if (fi != 0) try writer.writeAll(", ");
+                try cFuncName(writer, fname);
+            }
+            try writer.writeAll("};\n");
         }
-        try writer.print(" sa_trap(\"missing {s}\"); return 0; }}\n", .{fname});
-        try emitted.put(fname, {});
-    }
-    // Indirect dispatch: uniform signature makes a plain function-pointer
-    // table exact (indices match fn_idx / vtable const encoding).
-    try writer.writeAll("typedef sa_u64 (*sa_fn_t)(");
-    if (uniform_arity == 0) {
-        try writer.writeAll("void");
-    } else {
-        for (0..uniform_arity) |pi| {
-            if (pi != 0) try writer.writeAll(", ");
-            try writer.writeAll("sa_u64");
+        try writer.writeAll("// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform calling convention\nstatic sa_u64 sa_call_indirect(sa_u64 f");
+        for (0..uniform_arity) |k| {
+            try writer.print(", sa_u64 a{d}", .{k});
         }
-    }
-    // A zero-length array is a GNU extension and makes the bounds check
-    // tautological; pin a single NULL entry instead.
-    if (fn_names.items.len == 0) {
-        try writer.writeAll(");\nstatic sa_fn_t sa_ftable[1] = {0};\n");
-    } else {
-        try writer.writeAll(");\nstatic sa_fn_t sa_ftable[] = {");
-        for (fn_names.items, 0..) |fname, fi| {
-            if (fi != 0) try writer.writeAll(", ");
-            try cFuncName(writer, fname);
+        // Lower-bound check first: `f - 1000000` wraps for f < 1000000, so
+        // the old `uint64_t idx = f - 1000000; if (idx >= 0)` was always
+        // true and trapped every indirect call.
+        try writer.writeAll(") {\n  if (f < 1000000ULL) { sa_trap(\"bad indirect callee\"); }\n");
+        try writer.writeAll("  { sa_u64 idx = f - 1000000ULL;\n");
+        try writer.writeAll("    if (idx >= (sa_u64)(sizeof(sa_ftable) / sizeof(sa_ftable[0]))) { sa_trap(\"bad indirect callee\"); }\n");
+        try writer.writeAll("    if (sa_ftable[idx] == 0) { sa_trap(\"null indirect callee\"); }\n");
+        try writer.writeAll("    return sa_ftable[idx](");
+        for (0..uniform_arity) |k| {
+            if (k != 0) try writer.writeAll(", ");
+            try writer.print("a{d}", .{k});
         }
-        try writer.writeAll("};\n");
+        try writer.writeAll("); }\n}\n");
     }
-    try writer.writeAll("// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform calling convention\nstatic sa_u64 sa_call_indirect(sa_u64 f");
-    for (0..uniform_arity) |k| {
-        try writer.print(", sa_u64 a{d}", .{k});
-    }
-    try writer.writeAll(") {\n  uint64_t idx = (uint64_t)(f - 1000000);\n");
-    try writer.print("  if (idx >= {d}ULL) {{ sa_trap(\"bad indirect callee\"); return 0; }}\n", .{fn_names.items.len});
-    try writer.writeAll("  return sa_ftable[idx](");
-    for (0..uniform_arity) |k| {
-        if (k != 0) try writer.writeAll(", ");
-        try writer.print("a{d}", .{k});
-    }
-    try writer.writeAll(");\n}\n");
     try writer.writeAll("int main(void) { sa_init_consts();\n");
+    if (c_opt.gas) {
+        // Keeps `sa_gas` referenced even for (degenerate) programs whose
+        // functions were all elided; normally the SA_GAS_CHECKs do that.
+        try writer.writeAll("  (void)sa_gas;\n");
+    }
     // call sa main if present
     var found_main = false;
     for (tasks) |task| {
