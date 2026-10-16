@@ -1386,6 +1386,15 @@ const kRuntimeHelpers: []const HelperDef = &.{
     .{ .name = "sa_fnaddr", .code =
     \\static sa_u64 sa_fnaddr(int i) { return (sa_u64)(uint64_t)(1000000 + i); }
     , .deps = &.{} },
+    .{ .name = "sa_http_find", .code =
+    \\static sa_http_obj_t *sa_http_find(sa_http_obj_t *t, sa_u64 h) { unsigned i; for (i = 0; i < SA_HTTP_MAX_OBJS; i++) if (t[i].h == h) return &t[i]; return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_http_slot", .code =
+    \\static sa_http_obj_t *sa_http_slot(sa_http_obj_t *t) { unsigned i; for (i = 0; i < SA_HTTP_MAX_OBJS; i++) if (t[i].h == 0) return &t[i]; return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_http_drop", .code =
+    \\static void sa_http_drop(sa_http_obj_t *t, sa_u64 h) { sa_http_obj_t *o = sa_http_find(t, h); if (o != 0) o->h = 0; }
+    , .deps = &.{"sa_http_find"} },
 };
 
 /// True iff the already-emitted body text calls `func_name` directly
@@ -1434,6 +1443,13 @@ fn collectUsedHelpers(allocator: std.mem.Allocator, body_text: []const u8) !std.
     return used;
 }
 
+/// True for staged bindings that dispatch guest code host-side (via
+/// sa_call_indirect): programs calling them force need_indirect so the
+/// dispatcher+ftable are emitted even without a call_indirect inst.
+fn bindingNeedsDispatcher(norm_name: []const u8) bool {
+    return std.mem.eql(u8, norm_name, "pthread_spawn");
+}
+
 /// Staged host bindings for well-known externs (fd/mmap/signal/npm).
 /// These mirror the interpreter/JS staged semantics the demos assert on
 /// (fake fds, echo signal, byte-level npm checks) — NOT real syscalls,
@@ -1456,6 +1472,40 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         npm_parallelism,
         npm_isabs,
         npm_iseq,
+        pthread_spawn,
+        pthread_join,
+        pthread_drop,
+        dlopen,
+        dlsym,
+        dlclose,
+        sqlite3_prepare,
+        sqlite3_step,
+        sqlite3_finalize,
+        http_client_new,
+        http_client_req_new,
+        http_client_req_add_header,
+        http_client_req_set_body,
+        http_client_req_send,
+        http_client_resp_status,
+        http_client_resp_body_reader,
+        http_client_resp_read_chunk,
+        http_client_resp_free,
+        http_client_body_reader_free,
+        http_client_req_free,
+        http_client_free,
+        http_server_new,
+        http_server_start,
+        http_server_accept,
+        http_server_req_get_path,
+        http_server_req_get_header,
+        http_server_req_get_body,
+        http_server_resp_stream_new,
+        http_server_resp_stream_write,
+        http_server_resp_stream_flush,
+        http_server_resp_stream_end,
+        http_server_resp_stream_free,
+        http_server_req_free,
+        http_server_free,
     } };
     const all_void: u64 = ~@as(u64, 0);
     const b: ?Binding = if (std.mem.eql(u8, name, "fd_open"))
@@ -1478,6 +1528,74 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b11, .tag = .npm_isabs }
     else if (std.mem.eql(u8, name, "npm_iseq") or std.mem.eql(u8, name, "npm_ns_iseq"))
         .{ .voids = all_void ^ 0b1111, .tag = .npm_iseq }
+    else if (std.mem.eql(u8, name, "pthread_spawn"))
+        .{ .voids = all_void ^ 0b11, .tag = .pthread_spawn }
+    else if (std.mem.eql(u8, name, "pthread_join"))
+        .{ .voids = all_void, .tag = .pthread_join }
+    else if (std.mem.eql(u8, name, "pthread_drop"))
+        .{ .voids = all_void, .tag = .pthread_drop }
+    else if (std.mem.eql(u8, name, "dlopen"))
+        .{ .voids = all_void, .tag = .dlopen }
+    else if (std.mem.eql(u8, name, "dlsym"))
+        .{ .voids = all_void, .tag = .dlsym }
+    else if (std.mem.eql(u8, name, "dlclose"))
+        .{ .voids = all_void, .tag = .dlclose }
+    else if (std.mem.eql(u8, name, "sqlite3_prepare"))
+        .{ .voids = all_void, .tag = .sqlite3_prepare }
+    else if (std.mem.eql(u8, name, "sqlite3_step"))
+        .{ .voids = all_void, .tag = .sqlite3_step }
+    else if (std.mem.eql(u8, name, "sqlite3_finalize"))
+        .{ .voids = all_void, .tag = .sqlite3_finalize }
+    else if (std.mem.eql(u8, name, "sa_http_client_new"))
+        .{ .voids = all_void ^ 0b11, .tag = .http_client_new }
+    else if (std.mem.eql(u8, name, "sa_http_client_req_new"))
+        .{ .voids = all_void ^ 0b11101, .tag = .http_client_req_new }
+    else if (std.mem.eql(u8, name, "sa_http_client_req_add_header"))
+        .{ .voids = all_void ^ 0b11111, .tag = .http_client_req_add_header }
+    else if (std.mem.eql(u8, name, "sa_http_client_req_set_body"))
+        .{ .voids = all_void ^ 0b111, .tag = .http_client_req_set_body }
+    else if (std.mem.eql(u8, name, "sa_http_client_req_send"))
+        .{ .voids = all_void ^ 0b11, .tag = .http_client_req_send }
+    else if (std.mem.eql(u8, name, "sa_http_client_resp_status"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_client_resp_status }
+    else if (std.mem.eql(u8, name, "sa_http_client_resp_body_reader"))
+        .{ .voids = all_void ^ 0b11, .tag = .http_client_resp_body_reader }
+    else if (std.mem.eql(u8, name, "sa_http_client_resp_read_chunk"))
+        .{ .voids = all_void ^ 0b1111, .tag = .http_client_resp_read_chunk }
+    else if (std.mem.eql(u8, name, "sa_http_client_resp_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_client_resp_free }
+    else if (std.mem.eql(u8, name, "sa_http_client_body_reader_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_client_body_reader_free }
+    else if (std.mem.eql(u8, name, "sa_http_client_req_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_client_req_free }
+    else if (std.mem.eql(u8, name, "sa_http_client_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_client_free }
+    else if (std.mem.eql(u8, name, "sa_http_server_new"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_server_new }
+    else if (std.mem.eql(u8, name, "sa_http_server_start"))
+        .{ .voids = all_void ^ 0b111, .tag = .http_server_start }
+    else if (std.mem.eql(u8, name, "sa_http_server_accept"))
+        .{ .voids = all_void ^ 0b11, .tag = .http_server_accept }
+    else if (std.mem.eql(u8, name, "sa_http_server_req_get_path"))
+        .{ .voids = all_void ^ 0b111, .tag = .http_server_req_get_path }
+    else if (std.mem.eql(u8, name, "sa_http_server_req_get_header"))
+        .{ .voids = all_void ^ 0b11111, .tag = .http_server_req_get_header }
+    else if (std.mem.eql(u8, name, "sa_http_server_req_get_body"))
+        .{ .voids = all_void ^ 0b111, .tag = .http_server_req_get_body }
+    else if (std.mem.eql(u8, name, "sa_http_server_resp_stream_new"))
+        .{ .voids = all_void ^ 0b101, .tag = .http_server_resp_stream_new }
+    else if (std.mem.eql(u8, name, "sa_http_server_resp_stream_write"))
+        .{ .voids = all_void ^ 0b111, .tag = .http_server_resp_stream_write }
+    else if (std.mem.eql(u8, name, "sa_http_server_resp_stream_flush"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_server_resp_stream_flush }
+    else if (std.mem.eql(u8, name, "sa_http_server_resp_stream_end"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_server_resp_stream_end }
+    else if (std.mem.eql(u8, name, "sa_http_server_resp_stream_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_server_resp_stream_free }
+    else if (std.mem.eql(u8, name, "sa_http_server_req_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_server_req_free }
+    else if (std.mem.eql(u8, name, "sa_http_server_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_server_free }
     else
         null;
     const binding = b orelse return false;
@@ -1550,6 +1668,191 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             try writer.writeAll(" if (sa_mem[x + i] != sa_mem[y + i]) return 0; }");
             try writer.writeAll(" return 1; } }\n");
         },
+        .pthread_spawn => {
+            // Run the entry synchronously via the dispatcher, then hand
+            // out a joinable handle (single-threaded staged semantics,
+            // mirrors JS). Trailing zeros pad to dispatcher arity.
+            try writer.writeAll(" { sa_call_indirect(a0, a1");
+            var zi: usize = 1;
+            while (zi < uniform_arity) : (zi += 1) {
+                try writer.writeAll(", 0");
+            }
+            try writer.writeAll(");");
+            try writer.writeAll(" { static sa_u64 next_thr = 1; return next_thr++; } } }\n");
+        },
+        .pthread_join => {
+            // Entry already ran inside spawn; nothing to wait for.
+            try writer.writeAll(" return 0; }\n");
+        },
+        .pthread_drop => {
+            try writer.writeAll(" return 0; }\n");
+        },
+        .dlopen => {
+            // Real zeroed region stands in for the OS handle (mirrors
+            // JS __sa_alloc(8)); nonzero is what the oracle checks.
+            try writer.writeAll(" return sa_alloc(8); }\n");
+        },
+        .dlsym => {
+            try writer.writeAll(" return sa_alloc(8); }\n");
+        },
+        .dlclose => {
+            try writer.writeAll(" return 0; }\n");
+        },
+        .sqlite3_prepare => {
+            try writer.writeAll(" return 0; }\n");
+        },
+        .sqlite3_step => {
+            // SQLITE_ROW so the row-present branch is taken (mirrors JS).
+            try writer.writeAll(" return 100; }\n");
+        },
+        .sqlite3_finalize => {
+            try writer.writeAll(" return 0; }\n");
+        },
+        .http_client_new => {
+            try writer.writeAll(" { sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (s == 0) return 1;");
+            try writer.writeAll(" s->h = h; s->aux0 = a0;");
+            try writer.writeAll(" sa_store_u64(a1, h); return 0; } }\n");
+        },
+        .http_client_req_new => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" { uint32_t u = sa_checked_addr(a2, (size_t)a3); (void)u; }");
+            try writer.writeAll(" sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (s == 0) return 1;");
+            try writer.writeAll(" s->h = h; s->aux0 = 0; s->aux1 = 0;");
+            try writer.writeAll(" sa_store_u64(a4, h); return 0; } }\n");
+        },
+        .http_client_req_add_header => {
+            try writer.writeAll(" { sa_http_obj_t *r = sa_http_find(sa_http_objs, a0);");
+            try writer.writeAll(" if (r == 0) return 1;");
+            try writer.writeAll(" { uint32_t k = sa_checked_addr(a1, (size_t)a2); (void)k; }");
+            try writer.writeAll(" { uint32_t v = sa_checked_addr(a3, (size_t)a4); (void)v; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .http_client_req_set_body => {
+            try writer.writeAll(" { sa_http_obj_t *r = sa_http_find(sa_http_objs, a0);");
+            try writer.writeAll(" if (r == 0) return 1;");
+            try writer.writeAll(" { uint32_t b = sa_checked_addr(a1, (size_t)a2); (void)b; }");
+            try writer.writeAll(" r->aux0 = a1; r->aux1 = a2; return 0; } }\n");
+        },
+        .http_client_req_send => {
+            // Echo the recorded body with status 200 (mirrors JS).
+            try writer.writeAll(" { sa_http_obj_t *r = sa_http_find(sa_http_objs, a0);");
+            try writer.writeAll(" if (r == 0) return 1;");
+            try writer.writeAll(" sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (s == 0) return 1;");
+            try writer.writeAll(" s->h = h; s->aux0 = r->aux0; s->aux1 = r->aux1;");
+            try writer.writeAll(" sa_store_u64(a1, h); return 0; } }\n");
+        },
+        .http_client_resp_status => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 0;");
+            try writer.writeAll(" return 200; } }\n");
+        },
+        .http_client_resp_body_reader => {
+            try writer.writeAll(" { sa_http_obj_t *r = sa_http_find(sa_http_objs, a0);");
+            try writer.writeAll(" if (r == 0) return 1;");
+            try writer.writeAll(" sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *d = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (d == 0) return 1;");
+            try writer.writeAll(" d->h = h; d->aux0 = r->aux0; d->aux1 = r->aux1; d->aux2 = 0;");
+            try writer.writeAll(" sa_store_u64(a1, h); return 0; } }\n");
+        },
+        .http_client_resp_read_chunk => {
+            try writer.writeAll(" { sa_http_obj_t *r = sa_http_find(sa_http_objs, a0);");
+            try writer.writeAll(" if (r == 0) return 1;");
+            try writer.writeAll(" sa_u64 rem = r->aux1 - r->aux2;");
+            try writer.writeAll(" sa_u64 n = a2 < rem ? a2 : rem;");
+            try writer.writeAll(" { uint32_t b = sa_checked_addr(a1, (size_t)n);");
+            try writer.writeAll(" uint32_t s = sa_checked_addr(r->aux0, (size_t)r->aux1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)n; i++)");
+            try writer.writeAll(" sa_mem[b + i] = sa_mem[s + r->aux2 + i]; }");
+            try writer.writeAll(" r->aux2 += n; sa_store_u64(a3, n); return 0; } }\n");
+        },
+        .http_client_resp_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+        .http_client_body_reader_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+        .http_client_req_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+        .http_client_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+        .http_server_new => {
+            try writer.writeAll(" { sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (s == 0) return 1;");
+            try writer.writeAll(" s->h = h; sa_store_u64(a0, h); return 0; } }\n");
+        },
+        .http_server_start => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" { uint32_t hh = sa_checked_addr(a1, (size_t)a2); (void)hh; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .http_server_accept => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (s == 0) return 1;");
+            try writer.writeAll(" s->h = h; sa_store_u64(a1, h); return 0; } }\n");
+        },
+        .http_server_req_get_path => {
+            // Canned "/stream" served from fresh guest memory (mirrors JS).
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" static const uint8_t lit[] = {47, 115, 116, 114, 101, 97, 109};");
+            try writer.writeAll(" sa_u64 p = sa_alloc(7);");
+            try writer.writeAll(" { size_t i; for (i = 0; i < 7; i++)");
+            try writer.writeAll(" sa_mem[sa_checked_addr(p, 7) + i] = lit[i]; }");
+            try writer.writeAll(" sa_store_u64(a1, p); sa_store_u64(a2, 7); return 0; } }\n");
+        },
+        .http_server_req_get_header => {
+            // Canned "text/plain" served from fresh guest memory.
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" { uint32_t k = sa_checked_addr(a1, (size_t)a2); (void)k; }");
+            try writer.writeAll(" static const uint8_t lit[] = {116, 101, 120, 116, 47, 112, 108, 97, 105, 110};");
+            try writer.writeAll(" sa_u64 p = sa_alloc(10);");
+            try writer.writeAll(" { size_t i; for (i = 0; i < 10; i++)");
+            try writer.writeAll(" sa_mem[sa_checked_addr(p, 10) + i] = lit[i]; }");
+            try writer.writeAll(" sa_store_u64(a3, p); sa_store_u64(a4, 10); return 0; } }\n");
+        },
+        .http_server_req_get_body => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" sa_store_u64(a1, 0); sa_store_u64(a2, 0); return 0; } }\n");
+        },
+        .http_server_resp_stream_new => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (s == 0) return 1;");
+            try writer.writeAll(" s->h = h; sa_store_u64(a2, h); return 0; } }\n");
+        },
+        .http_server_resp_stream_write => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" { uint32_t b = sa_checked_addr(a1, (size_t)a2); (void)b; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .http_server_resp_stream_flush => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .http_server_resp_stream_end => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .http_server_resp_stream_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+        .http_server_req_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+        .http_server_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
     }
     return true;
 }
@@ -1561,6 +1864,7 @@ fn writePreamble(
     used: *const std.StringHashMap(void),
     need_mem: bool,
     need_brk: bool,
+    need_http: bool,
 ) !void {
     const mem_bytes: usize = @as(usize, c_opt.mem_pages) * 65536;
     try writer.print("/* Generated by `sa build-c` (c backend, MVP). DO NOT EDIT. */\n", .{});
@@ -1595,6 +1899,21 @@ fn writePreamble(
             \\#endif
             \\static sa_u64 sa_gas = SA_GAS_LIMIT;
             \\#define SA_GAS_CHECK(n) do { if (sa_gas < (sa_u64)(n)) sa_trap("out of gas"); sa_gas -= (sa_u64)(n); } while (0)
+            \\
+        );
+    }
+    // Staged http state: one bounded fixed table shared by all families
+    // (handles are unique alloc offsets, so no cross-talk; no malloc).
+    // Emitted only when an sa_http_* binding is rendered; every such
+    // binding references the table via find/slot/drop, so it is never
+    // unused. The helpers live in the runtime catalog (reference-gated).
+    if (need_http) {
+        try writer.writeAll(
+            \\#ifndef SA_HTTP_MAX_OBJS
+            \\#define SA_HTTP_MAX_OBJS 16
+            \\#endif
+            \\typedef struct { sa_u64 h, aux0, aux1, aux2; } sa_http_obj_t;
+            \\static sa_http_obj_t sa_http_objs[SA_HTTP_MAX_OBJS];
             \\
         );
     }
@@ -2539,6 +2858,26 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
             }
         }
     }
+    // Host-side dispatch: some staged bindings (pthread_spawn) invoke
+    // guest code via sa_call_indirect, so a program that calls them needs
+    // the dispatcher+ftable even without a call_indirect instruction.
+    // (Corner: a call inside otherwise-dead code still forces it; no demo
+    // hits that, and the sweep guards -Wall cleanliness.)
+    if (!need_indirect) {
+        var ti: usize = 0;
+        while (ti < tasks.len and !need_indirect) : (ti += 1) {
+            var i: usize = tasks[ti].start_idx + 1;
+            while (i < tasks[ti].end_idx) : (i += 1) {
+                const base = verified.annotated[i].base;
+                if (base.kind != .call) continue;
+                if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                    var parsed = pc.*;
+                    defer parsed.deinit(allocator);
+                    if (!parsed.is_indirect and bindingNeedsDispatcher(sigNormName(parsed.callee))) need_indirect = true;
+                } else |_| {}
+            }
+        }
+    }
     // Reachable defined functions: BFS from entry points over static direct
     // calls, keyed by fsig_index. Unreachable definitions are skipped
     // entirely (emitting them trips -Wunused-function and they are dead
@@ -2710,6 +3049,9 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     // preamble): render each called, known binding once and merge what
     // it references, so e.g. mmap pulls sa_alloc. Unknown externs keep
     // the trap stub, which needs only sa_trap (always present).
+    // Rendering an sa_http_* binding also raises need_http for the
+    // staged state tables.
+    var need_http = false;
     for (tasks) |task| {
         if (task.kind != .extern_decl) continue;
         const efsig = verified.function_sigs[task.fsig_index];
@@ -2718,6 +3060,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         var tmp: std.Io.Writer.Allocating = .init(allocator);
         defer tmp.deinit();
         if (!try writeExternBinding(&tmp.writer, efsig.name, uniform_arity, c_opt.gas)) continue;
+        if (std.mem.startsWith(u8, sigNormName(efsig.name), "sa_http_")) need_http = true;
         const t = try tmp.toOwnedSlice();
         defer allocator.free(t);
         var bu = try collectUsedHelpers(allocator, t);
@@ -2740,7 +3083,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         }
     }
     const need_brk = used.get("sa_alloc") != null;
-    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk);
+    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk, need_http);
     try writer.print("/* source: {s} */\n", .{source_path});
     // const address defines
     for (verified.const_decls) |decl| {
