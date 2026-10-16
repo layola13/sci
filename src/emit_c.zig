@@ -1424,6 +1424,9 @@ const kRuntimeHelpers: []const HelperDef = &.{
     .{ .name = "sa_owned_drop", .code =
     \\static void sa_owned_drop(sa_u64 h) { sa_owned_buf_t *o = sa_owned_find(h); if (o != 0) o->h = 0; }
     , .deps = &.{"sa_owned_find"} },
+    .{ .name = "sa_regex_find", .code =
+    \\static sa_regex_t *sa_regex_find(sa_u64 h) { unsigned i; for (i = 0; i < SA_REGEX_MAX_OBJS; i++) if (sa_regexes[i].h == h) return &sa_regexes[i]; return 0; }
+    , .deps = &.{} },
 };
 
 /// True iff the already-emitted body text calls `func_name` directly
@@ -1539,6 +1542,14 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         string_from_code_point,
         string_code_point_at,
         parse_float,
+        regex_compile,
+        regex_match,
+        regex_group_ptr,
+        regex_group_len,
+        regex_group_start,
+        regex_group_count,
+        regex_free,
+        regex_match_free,
         http_client_new,
         http_client_req_new,
         http_client_req_add_header,
@@ -1662,6 +1673,22 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b111, .tag = .string_code_point_at }
     else if (std.mem.eql(u8, name, "sa_parse_float"))
         .{ .voids = all_void ^ 0b11, .tag = .parse_float }
+    else if (std.mem.eql(u8, name, "sa_regex_compile"))
+        .{ .voids = all_void ^ 0b111, .tag = .regex_compile }
+    else if (std.mem.eql(u8, name, "sa_regex_match"))
+        .{ .voids = all_void ^ 0b111, .tag = .regex_match }
+    else if (std.mem.eql(u8, name, "sa_regex_group_ptr"))
+        .{ .voids = all_void ^ 0b11, .tag = .regex_group_ptr }
+    else if (std.mem.eql(u8, name, "sa_regex_group_len"))
+        .{ .voids = all_void ^ 0b11, .tag = .regex_group_len }
+    else if (std.mem.eql(u8, name, "sa_regex_group_start"))
+        .{ .voids = all_void ^ 0b11, .tag = .regex_group_start }
+    else if (std.mem.eql(u8, name, "sa_regex_group_count"))
+        .{ .voids = all_void ^ 0b1, .tag = .regex_group_count }
+    else if (std.mem.eql(u8, name, "sa_regex_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .regex_free }
+    else if (std.mem.eql(u8, name, "sa_regex_match_free"))
+        .{ .voids = all_void, .tag = .regex_match_free }
     else if (std.mem.eql(u8, name, "sa_http_client_new"))
         .{ .voids = all_void ^ 0b11, .tag = .http_client_new }
     else if (std.mem.eql(u8, name, "sa_http_client_req_new"))
@@ -2113,7 +2140,7 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             try writer.writeAll(" { sa_u64 p = sa_alloc(n);");
             try writer.writeAll(" uint32_t d = sa_checked_addr(p, n);");
             try writer.writeAll(" sa_u64 i; for (i = 0; i < n; i++) sa_mem[d + i] = t[i];");
-            try writer.writeAll(" return sa_owned_new(p, n, 1); } }\n");
+            try writer.writeAll(" return sa_owned_new(p, n, 1); } } }\n");
         },
         .string_code_point_at => {
             // Byte at idx despite the name (mirrors the interpreter).
@@ -2155,6 +2182,101 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             try writer.writeAll(" if ((t.u & (sa_u64)0x7FF0000000000000ULL) == (sa_u64)0x7FF0000000000000ULL)");
             try writer.writeAll(" t.u = neg ? (sa_u64)0xFFF0000000000000ULL : (sa_u64)0x7FF0000000000000ULL; }");
             try writer.writeAll(" if (neg) t.v = -t.v; return t.u; } } } }\n");
+        },
+        .regex_compile => {
+            // POSIX regcomp over a NUL-terminated guest copy; the
+            // compiled form lives in a C-side table (host pointers).
+            // Bad patterns yield 0, mirroring the interpreter.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 + 1);");
+            try writer.writeAll(" uint32_t d = sa_checked_addr(p, a1 + 1);");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[x + i]; }");
+            try writer.writeAll(" sa_mem[d + a1] = 0;");
+            try writer.writeAll(" { unsigned k; sa_regex_t *o = 0;");
+            try writer.writeAll(" for (k = 0; k < SA_REGEX_MAX_OBJS; k++)");
+            try writer.writeAll(" if (sa_regexes[k].h == 0) { o = &sa_regexes[k]; break; }");
+            try writer.writeAll(" if (o == 0) return 0;");
+            try writer.writeAll(" if (regcomp(&o->rx, (const char *)&sa_mem[d], (int)a2) != 0) return 0;");
+            try writer.writeAll(" sa_u64 h = sa_alloc(8); o->h = h; return h; } } }\n");
+        },
+        .regex_match => {
+            // Match header lives in guest memory: [text_base][magic|n]
+            // then n (start,end) pairs. Embedded NUL or no-match yields
+            // 0, mirroring the interpreter.
+            try writer.writeAll(" { sa_regex_t *r = sa_regex_find(a0);");
+            try writer.writeAll(" if (r == 0) return 0;");
+            try writer.writeAll(" uint32_t x = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)a2; i++)");
+            try writer.writeAll(" if (sa_mem[x + i] == 0) return 0; }");
+            try writer.writeAll(" sa_u64 n = (sa_u64)r->rx.re_nsub + 1;");
+            try writer.writeAll(" if (n > SA_REGEX_MAX_GROUPS) n = SA_REGEX_MAX_GROUPS;");
+            try writer.writeAll(" sa_u64 tp = sa_alloc(a2 + 1);");
+            try writer.writeAll(" { uint32_t td = sa_checked_addr(tp, a2 + 1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a2; i++)");
+            try writer.writeAll(" sa_mem[td + i] = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[td + a2] = 0; }");
+            try writer.writeAll(" regmatch_t pm[SA_REGEX_MAX_GROUPS];");
+            try writer.writeAll(" if (regexec(&r->rx, (const char *)&sa_mem[sa_checked_addr(tp, a2 + 1)], (size_t)n, pm, 0) != 0) return 0;");
+            try writer.writeAll(" { sa_u64 h = sa_alloc(16 + n * 16);");
+            try writer.writeAll(" sa_store_u64(h, tp);");
+            try writer.writeAll(" sa_store_u64(h + 8, (sa_u64)0x53414D5800000000ULL | n);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)n; i++) {");
+            try writer.writeAll(" sa_store_u64(h + 16 + i * 16, (sa_u64)(sa_i64)pm[i].rm_so);");
+            try writer.writeAll(" sa_store_u64(h + 16 + i * 16 + 8, (sa_u64)(sa_i64)pm[i].rm_eo); }");
+            try writer.writeAll(" return h; } } }\n");
+        },
+        .regex_group_ptr => {
+            try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
+            try writer.writeAll(" (void)hh;");
+            try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
+            try writer.writeAll(" if ((hdr1 >> 32) != (sa_u64)0x53414D58u) return 0;");
+            try writer.writeAll(" sa_u64 n = hdr1 & (sa_u64)0xFFFFFFFFu;");
+            try writer.writeAll(" if (a1 >= n) return 0;");
+            try writer.writeAll(" sa_u64 so = (sa_u64)(sa_i64)sa_load_u64(a0 + 16 + a1 * 16);");
+            try writer.writeAll(" sa_u64 eo = (sa_u64)(sa_i64)sa_load_u64(a0 + 16 + a1 * 16 + 8);");
+            try writer.writeAll(" if ((sa_i64)so < 0 || (sa_i64)eo < 0) return 0;");
+            try writer.writeAll(" return sa_load_u64(a0) + so; } }\n");
+        },
+        .regex_group_len => {
+            try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
+            try writer.writeAll(" (void)hh;");
+            try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
+            try writer.writeAll(" if ((hdr1 >> 32) != (sa_u64)0x53414D58u) return 0;");
+            try writer.writeAll(" sa_u64 n = hdr1 & (sa_u64)0xFFFFFFFFu;");
+            try writer.writeAll(" if (a1 >= n) return 0;");
+            try writer.writeAll(" sa_u64 so = (sa_u64)(sa_i64)sa_load_u64(a0 + 16 + a1 * 16);");
+            try writer.writeAll(" sa_u64 eo = (sa_u64)(sa_i64)sa_load_u64(a0 + 16 + a1 * 16 + 8);");
+            try writer.writeAll(" if ((sa_i64)so < 0 || (sa_i64)eo < 0) return 0;");
+            try writer.writeAll(" return eo - so; } }\n");
+        },
+        .regex_group_start => {
+            try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
+            try writer.writeAll(" (void)hh;");
+            try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
+            try writer.writeAll(" if ((hdr1 >> 32) != (sa_u64)0x53414D58u) return 0;");
+            try writer.writeAll(" sa_u64 n = hdr1 & (sa_u64)0xFFFFFFFFu;");
+            try writer.writeAll(" if (a1 >= n) return 0;");
+            try writer.writeAll(" sa_u64 so = (sa_u64)(sa_i64)sa_load_u64(a0 + 16 + a1 * 16);");
+            try writer.writeAll(" sa_u64 eo = (sa_u64)(sa_i64)sa_load_u64(a0 + 16 + a1 * 16 + 8);");
+            try writer.writeAll(" if ((sa_i64)so < 0 || (sa_i64)eo < 0) return 0;");
+            try writer.writeAll(" return so; } }\n");
+        },
+        .regex_group_count => {
+            try writer.writeAll(" { sa_regex_t *r = sa_regex_find(a0);");
+            try writer.writeAll(" if (r == 0) return 0;");
+            try writer.writeAll(" return (sa_u64)r->rx.re_nsub + 1; } }\n");
+        },
+        .regex_free => {
+            try writer.writeAll(" { sa_regex_t *r = sa_regex_find(a0);");
+            try writer.writeAll(" if (r == 0) return 0;");
+            try writer.writeAll(" regfree(&r->rx); r->h = 0; return 0; } }\n");
+        },
+        .regex_match_free => {
+            // Guest-side match regions live in the bump arena (no free);
+            // dropping is a no-op that still validates nothing and
+            // returns OK, matching observable behavior.
+            try writer.writeAll(" return 0; }\n");
         },
         .http_client_new => {
             try writer.writeAll(" { sa_u64 h = sa_alloc(8);");
@@ -2315,6 +2437,7 @@ fn writePreamble(
     need_http: bool,
     need_owned: bool,
     need_modstate: bool,
+    need_regex: bool,
 ) !void {
     const mem_bytes: usize = @as(usize, c_opt.mem_pages) * 65536;
     try writer.print("/* Generated by `sa build-c` (c backend, MVP). DO NOT EDIT. */\n", .{});
@@ -2384,6 +2507,23 @@ fn writePreamble(
         if (used.get("sa_owned_new") != null) {
             try writer.writeAll("static sa_u64 sa_owned_next = 1;\n");
         }
+    }
+    // Compiled POSIX regexes (regex_t holds host pointers: C-side table,
+    // never guest memory). Match state lives in guest memory instead
+    // (header + offset pairs), so only the compiled set needs a table.
+    if (need_regex) {
+        try writer.writeAll(
+            \\#include <regex.h>
+            \\#ifndef SA_REGEX_MAX_OBJS
+            \\#define SA_REGEX_MAX_OBJS 16
+            \\#endif
+            \\#ifndef SA_REGEX_MAX_GROUPS
+            \\#define SA_REGEX_MAX_GROUPS 32
+            \\#endif
+            \\typedef struct { sa_u64 h; regex_t rx; } sa_regex_t;
+            \\static sa_regex_t sa_regexes[SA_REGEX_MAX_OBJS];
+            \\
+        );
     }
     // Module-state cells (satsgo top-level `let`): key/value slots,
     // zero default on miss.
@@ -3569,6 +3709,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     var need_http = false;
     var need_owned = false;
     var need_modstate = false;
+    var need_regex = false;
     for (tasks) |task| {
         if (task.kind != .extern_decl) continue;
         const efsig = verified.function_sigs[task.fsig_index];
@@ -3581,8 +3722,13 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         if (std.mem.startsWith(u8, rendered_norm, "sa_http_")) need_http = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_owned_") != null) need_owned = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_modstate_") != null) need_modstate = true;
+        if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_regex_") != null) need_regex = true;
         const t = try tmp.toOwnedSlice();
         defer allocator.free(t);
+        // Self-check every rendered binding: unbalanced output fails the
+        // build loudly instead of emitting broken C (covers all present
+        // and future bindings with no list to keep in sync).
+        if (!cBodyBalanced(t)) return CEmitError.Failed;
         var bu = try collectUsedHelpers(allocator, t);
         defer bu.deinit();
         var bit = bu.iterator();
@@ -3603,7 +3749,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         }
     }
     const need_brk = used.get("sa_alloc") != null;
-    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk, need_http, need_owned, need_modstate);
+    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk, need_http, need_owned, need_modstate, need_regex);
     try writer.print("/* source: {s} */\n", .{source_path});
     // const address defines
     for (verified.const_decls) |decl| {
@@ -3857,72 +4003,27 @@ test "c ident sanitizes names" {
     try std.testing.expectEqualStrings("hello_world_foo", fbs.buffered());
 }
 
-test "extern bindings render balanced" {
-    // Every known binding must render a complete function definition:
-    // balanced braces ending with "}\n". This guards the brace-counting
-    // bug class (an unclosed body swallows following definitions).
-    // KEEP IN SYNC with writeExternBinding: any new tag needs its names
-    // here (including _ns aliases), or the guard silently misses it.
-    const names = [_][]const u8{
-        "fd_open", "fd_close", "fd_read", "mmap", "munmap", "signal",
-        "npm_totalmem", "npm_parallelism", "npm_isabs", "npm_ns_isabs",
-        "npm_iseq", "npm_ns_iseq", "pthread_spawn", "pthread_join",
-        "pthread_drop", "dlopen", "dlsym", "dlclose", "sqlite3_prepare",
-        "sqlite3_step", "sqlite3_finalize", "sa_fmt_i64_into",
-        "sa_fmt_u64_into", "sa_fmt_f64_into", "sa_fmt_bool_into",
-        "sa_fmt_bytes_into", "sa_fmt_i64", "sa_fmt_u64", "sa_fmt_f64",
-        "sa_fmt_bool", "sa_fmt_bytes", "sa_fmt_buffer_data",
-        "sa_fmt_buffer_len", "sa_fmt_buffer_free", "sa_modstate_get_u64",
-        "sa_modstate_set_u64", "sa_string_concat", "sa_string_index_of",
-        "sa_string_last_index_of", "sa_string_starts_with",
-        "sa_string_ends_with", "sa_string_to_lower_ascii",
-        "sa_string_to_upper_ascii", "sa_string_repeat",
-        "sa_string_pad_start", "sa_string_pad_end",
-        "sa_string_from_char_code", "sa_string_from_code_point",
-        "sa_string_code_point_at", "sa_parse_float",
-        "sa_http_client_new", "sa_http_client_req_new",
-        "sa_http_client_req_add_header", "sa_http_client_req_set_body",
-        "sa_http_client_req_send", "sa_http_client_resp_status",
-        "sa_http_client_resp_body_reader",
-        "sa_http_client_resp_read_chunk", "sa_http_client_resp_free",
-        "sa_http_client_body_reader_free", "sa_http_client_req_free",
-        "sa_http_client_free", "sa_http_server_new",
-        "sa_http_server_start", "sa_http_server_accept",
-        "sa_http_server_req_get_path", "sa_http_server_req_get_header",
-        "sa_http_server_req_get_body",
-        "sa_http_server_resp_stream_new",
-        "sa_http_server_resp_stream_write",
-        "sa_http_server_resp_stream_flush",
-        "sa_http_server_resp_stream_end",
-        "sa_http_server_resp_stream_free", "sa_http_server_req_free",
-        "sa_http_server_free",
-    };
-    const alloc = std.testing.allocator;
-    for (names) |name| {
-        var tmp: std.Io.Writer.Allocating = .init(alloc);
-        defer tmp.deinit();
-        try std.testing.expect(try writeExternBinding(&tmp.writer, name, 7, true));
-        const t = try tmp.toOwnedSlice();
-        defer alloc.free(t);
-        var depth: i32 = 0;
-        var in_str = false;
-        var in_chr = false;
-        var esc = false;
-        for (t) |c| {
-            if (in_str) {
-                if (esc) { esc = false; } else if (c == '\\') { esc = true; } else if (c == '"') { in_str = false; }
-            } else if (in_chr) {
-                if (esc) { esc = false; } else if (c == '\\') { esc = true; } else if (c == '\'') { in_chr = false; }
-            } else if (c == '"') { in_str = true; } else if (c == '\'') { in_chr = true; } else if (c == '{') { depth += 1; } else if (c == '}') { depth -= 1; }
-            try std.testing.expect(depth >= 0);
+/// True iff t is a brace-balanced function body ending with "}\n",
+/// ignoring braces inside strings/chars. Used to self-check every
+/// rendered extern binding (an unclosed body would swallow following
+/// definitions; fail the build loudly instead of emitting broken C).
+/// NOTE: emit_c unit tests are not wired into any test binary, so this
+/// runtime check (not a test block) is the enforced guard.
+fn cBodyBalanced(t: []const u8) bool {
+    if (!std.mem.endsWith(u8, t, "}\n")) return false;
+    var depth: i32 = 0;
+    var in_str = false;
+    var in_chr = false;
+    var esc = false;
+    for (t) |c| {
+        if (in_str) {
+            if (esc) { esc = false; } else if (c == '\\') { esc = true; } else if (c == '"') { in_str = false; }
+        } else if (in_chr) {
+            if (esc) { esc = false; } else if (c == '\\') { esc = true; } else if (c == '\'') { in_chr = false; }
+        } else if (c == '"') { in_str = true; } else if (c == '\'') { in_chr = true; } else if (c == '{') { depth += 1; } else if (c == '}') {
+            depth -= 1;
+            if (depth < 0) return false;
         }
-        try std.testing.expectEqual(@as(i32, 0), depth);
-        try std.testing.expect(std.mem.endsWith(u8, t, "}\n"));
     }
-    // Unknown names fall back to the trap stub.
-    {
-        var tmp: std.Io.Writer.Allocating = .init(alloc);
-        defer tmp.deinit();
-        try std.testing.expect(!try writeExternBinding(&tmp.writer, "sa_nope_missing", 2, true));
-    }
+    return depth == 0;
 }
