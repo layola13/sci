@@ -1455,9 +1455,86 @@ const kRuntimeHelpers: []const HelperDef = &.{
     .{ .name = "sa_json_find", .code =
     \\static sa_json_node_t *sa_json_find(sa_u64 h) { unsigned i; for (i = 0; i < SA_JSON_MAX_NODES; i++) if (sa_json_nodes[i].h == h) return &sa_json_nodes[i]; return 0; }
     , .deps = &.{} },
+    .{ .name = "sa_json_writer_find", .code =
+    \\static sa_json_writer_t *sa_json_writer_find(sa_u64 h) { unsigned i; for (i = 0; i < SA_JSON_MAX_WRITERS; i++) if (sa_json_writers[i].h == h) return &sa_json_writers[i]; return 0; }
+    , .deps = &.{} },
     .{ .name = "sa_json_new", .code =
     \\static sa_json_node_t *sa_json_new(void) { unsigned i; for (i = 0; i < SA_JSON_MAX_NODES; i++) if (sa_json_nodes[i].h == 0) { sa_u64 h = sa_alloc(8); sa_json_nodes[i].h = h; sa_json_nodes[i].kind = 0; sa_json_nodes[i].first = 0; sa_json_nodes[i].next = 0; sa_json_nodes[i].kptr = 0; sa_json_nodes[i].klen = 0; sa_json_nodes[i].vptr = 0; sa_json_nodes[i].vlen = 0; sa_json_nodes[i].ival = 0; sa_json_nodes[i].fbits = 0; sa_json_nodes[i].bval = 0; return &sa_json_nodes[i]; } return 0; }
     , .deps = &.{} },
+    .{ .name = "sa_jw_grow", .code =
+    \\static int sa_jw_grow(sa_json_writer_t *w, size_t extra) {
+    \\  if (w->len + extra < w->len) return 1;
+    \\  if (w->len + extra <= w->cap) return 0;
+    \\  { size_t ncap = w->cap == 0 ? 256 : w->cap * 2;
+    \\    while (ncap < w->len + extra) { if (ncap > ~(size_t)0 / 2) return 1; ncap *= 2; }
+    \\    sa_u64 p = sa_alloc((sa_u64)ncap);
+    \\    uint32_t d = sa_checked_addr(p, (sa_u64)ncap);
+    \\    uint32_t s = sa_checked_addr(w->buf, w->len);
+    \\    size_t i; for (i = 0; i < w->len; i++) sa_mem[d + i] = sa_mem[s + i];
+    \\    w->buf = p; w->cap = ncap; }
+    \\  return 0;
+    \\}
+    , .deps = &.{ "sa_alloc", "sa_checked_addr" } },
+    .{ .name = "sa_jw_putc", .code =
+    \\static int sa_jw_putc(sa_json_writer_t *w, uint8_t c) {
+    \\  if (sa_jw_grow(w, 1)) return 1;
+    \\  { uint32_t d = sa_checked_addr(w->buf, w->len + 1); sa_mem[d + w->len] = c; }
+    \\  w->len++;
+    \\  return 0;
+    \\}
+    , .deps = &.{"sa_jw_grow"} },
+    .{ .name = "sa_jw_write", .code =
+    \\static int sa_jw_write(sa_json_writer_t *w, const uint8_t *s, size_t n) {
+    \\  size_t i; uint32_t d;
+    \\  if (sa_jw_grow(w, n)) return 1;
+    \\  d = sa_checked_addr(w->buf, w->len + n);
+    \\  for (i = 0; i < n; i++) sa_mem[d + w->len + i] = s[i];
+    \\  w->len += n;
+    \\  return 0;
+    \\}
+    , .deps = &.{"sa_jw_grow"} },
+    .{ .name = "sa_jw_comma", .code =
+    \\static int sa_jw_comma(sa_json_writer_t *w) {
+    \\  if (w->depth == 0 || w->first[w->depth - 1]) return 0;
+    \\  return sa_jw_putc(w, ',');
+    \\}
+    , .deps = &.{"sa_jw_putc"} },
+    .{ .name = "sa_jw_value_begin", .code =
+    \\static int sa_jw_value_begin(sa_json_writer_t *w) {
+    \\  if (w->done) return 1;
+    \\  if (w->pending) { w->pending = 0; w->started = 1; return 0; }
+    \\  if (w->depth == 0) {
+    \\    if (w->complete) return 1;
+    \\    w->started = 1; w->complete = 1; return 0;
+    \\  }
+    \\  if (w->kinds[w->depth - 1] != '{' && w->kinds[w->depth - 1] != '[') return 1;
+    \\  if (sa_jw_comma(w)) return 1;
+    \\  w->first[w->depth - 1] = 0; w->started = 1;
+    \\  return 0;
+    \\}
+    , .deps = &.{"sa_jw_comma"} },
+    .{ .name = "sa_jw_string", .code =
+    \\static int sa_jw_string(sa_json_writer_t *w, const uint8_t *s, size_t n) {
+    \\  size_t i;
+    \\  if (sa_jw_putc(w, '"')) return 1;
+    \\  for (i = 0; i < n; i++) {
+    \\    uint8_t c = s[i];
+    \\    if (c == '"' || c == '\\') { if (sa_jw_putc(w, '\\')) return 1; if (sa_jw_putc(w, c)) return 1; }
+    \\    else if (c == '\b') { if (sa_jw_write(w, (const uint8_t *)"\\b", 2)) return 1; }
+    \\    else if (c == '\f') { if (sa_jw_write(w, (const uint8_t *)"\\f", 2)) return 1; }
+    \\    else if (c == '\n') { if (sa_jw_write(w, (const uint8_t *)"\\n", 2)) return 1; }
+    \\    else if (c == '\r') { if (sa_jw_write(w, (const uint8_t *)"\\r", 2)) return 1; }
+    \\    else if (c == '\t') { if (sa_jw_write(w, (const uint8_t *)"\\t", 2)) return 1; }
+    \\    else if (c < 0x20) {
+    \\      char eb[6]; eb[0] = '\\'; eb[1] = 'u'; eb[2] = '0'; eb[3] = '0';
+    \\      eb[4] = (char)"0123456789abcdef"[(c >> 4) & 15]; eb[5] = (char)"0123456789abcdef"[c & 15];
+    \\      if (sa_jw_write(w, (const uint8_t *)eb, 6)) return 1;
+    \\    } else if (sa_jw_putc(w, c)) return 1;
+    \\  }
+    \\  if (sa_jw_putc(w, '"')) return 1;
+    \\  return 0;
+    \\}
+    , .deps = &.{ "sa_jw_putc", "sa_jw_write" } },
     .{ .name = "sa_utf8_next", .code =
     \\static uint32_t sa_utf8_next(const uint8_t *s, size_t n, size_t *i) {
     \\  size_t k = *i; uint8_t b0;
@@ -1918,6 +1995,26 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         node_qs_unescape,
         node_puny_encode,
         node_puny_decode,
+        json_writer_new,
+        json_writer_begin_object,
+        json_writer_end_object,
+        json_writer_begin_array,
+        json_writer_end_array,
+        json_writer_field_bool,
+        json_writer_field_i64,
+        json_writer_field_f64,
+        json_writer_field_string,
+        json_writer_object_field,
+        json_writer_write_bool,
+        json_writer_write_i64,
+        json_writer_write_f64,
+        json_writer_write_string,
+        json_writer_write_null,
+        json_writer_finish,
+        json_writer_free,
+        json_buffer_data,
+        json_buffer_len,
+        json_buffer_free,
         json_parse,
         json_free,
         json_object_get,
@@ -2120,6 +2217,46 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b1111, .tag = .node_puny_encode }
     else if (std.mem.eql(u8, name, "sa_node_plugin_punycode_decode"))
         .{ .voids = all_void ^ 0b1111, .tag = .node_puny_decode }
+    else if (std.mem.eql(u8, name, "sa_json_writer_new"))
+        .{ .voids = all_void ^ 0b100000, .tag = .json_writer_new }
+    else if (std.mem.eql(u8, name, "sa_json_writer_begin_object"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_writer_begin_object }
+    else if (std.mem.eql(u8, name, "sa_json_writer_end_object"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_writer_end_object }
+    else if (std.mem.eql(u8, name, "sa_json_writer_begin_array"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_writer_begin_array }
+    else if (std.mem.eql(u8, name, "sa_json_writer_end_array"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_writer_end_array }
+    else if (std.mem.eql(u8, name, "sa_json_writer_field_bool"))
+        .{ .voids = all_void ^ 0b1111, .tag = .json_writer_field_bool }
+    else if (std.mem.eql(u8, name, "sa_json_writer_field_i64"))
+        .{ .voids = all_void ^ 0b1111, .tag = .json_writer_field_i64 }
+    else if (std.mem.eql(u8, name, "sa_json_writer_field_f64"))
+        .{ .voids = all_void ^ 0b1111, .tag = .json_writer_field_f64 }
+    else if (std.mem.eql(u8, name, "sa_json_writer_field_string"))
+        .{ .voids = all_void ^ 0b11111, .tag = .json_writer_field_string }
+    else if (std.mem.eql(u8, name, "sa_json_writer_object_field"))
+        .{ .voids = all_void ^ 0b111, .tag = .json_writer_object_field }
+    else if (std.mem.eql(u8, name, "sa_json_writer_write_bool"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_writer_write_bool }
+    else if (std.mem.eql(u8, name, "sa_json_writer_write_i64"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_writer_write_i64 }
+    else if (std.mem.eql(u8, name, "sa_json_writer_write_f64"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_writer_write_f64 }
+    else if (std.mem.eql(u8, name, "sa_json_writer_write_string"))
+        .{ .voids = all_void ^ 0b111, .tag = .json_writer_write_string }
+    else if (std.mem.eql(u8, name, "sa_json_writer_write_null"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_writer_write_null }
+    else if (std.mem.eql(u8, name, "sa_json_writer_finish"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_writer_finish }
+    else if (std.mem.eql(u8, name, "sa_json_writer_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_writer_free }
+    else if (std.mem.eql(u8, name, "sa_json_buffer_data"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_buffer_data }
+    else if (std.mem.eql(u8, name, "sa_json_buffer_len"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_buffer_len }
+    else if (std.mem.eql(u8, name, "sa_json_buffer_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_buffer_free }
     else if (std.mem.eql(u8, name, "sa_json_parse"))
         .{ .voids = all_void ^ 0b11, .tag = .json_parse }
     else if (std.mem.eql(u8, name, "sa_json_free"))
@@ -3373,6 +3510,210 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             try writer.writeAll(" sa_store_u64(a1, (sa_u64)vv); return 0; }");
             try writer.writeAll(" return 1; } }\n");
         },
+        .json_writer_new => {
+            // Minified-only writers in the corpus; other whitespace modes
+            // or flags fail loudly rather than emitting wrong JSON.
+            try writer.writeAll(" { sa_store_u64(a5, 0);");
+            try writer.writeAll(" if (a0 != 0 || a1 != 0 || a2 != 0 || a3 != 0 || a4 != 0) return 1;");
+            try writer.writeAll(" unsigned i; sa_json_writer_t *w = 0;");
+            try writer.writeAll(" for (i = 0; i < SA_JSON_MAX_WRITERS; i++)");
+            try writer.writeAll(" if (sa_json_writers[i].h == 0) { w = &sa_json_writers[i]; break; }");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" { sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" w->h = h; w->buf = 0; w->len = 0; w->cap = 0;");
+            try writer.writeAll(" w->depth = 0; w->done = 0; w->started = 0;");
+            try writer.writeAll(" w->complete = 0; w->pending = 0;");
+            try writer.writeAll(" sa_store_u64(a5, h); return 0; } } }\n");
+        },
+        .json_writer_begin_object => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (w->pending) w->pending = 0;");
+            try writer.writeAll(" else {");
+            try writer.writeAll(" if (w->depth == 0) {");
+            try writer.writeAll(" if (w->complete) return 1;");
+            try writer.writeAll(" w->started = 1; w->complete = 1; }");
+            try writer.writeAll(" else {");
+            try writer.writeAll(" if (w->first[w->depth - 1]) w->first[w->depth - 1] = 0;");
+            try writer.writeAll(" else if (sa_jw_putc(w, ',')) return 1;");
+            try writer.writeAll(" w->started = 1; } }");
+            try writer.writeAll(" if (w->depth >= 32) return 1;");
+            try writer.writeAll(" w->kinds[w->depth] = '{'; w->first[w->depth] = 1; w->depth++;");
+            try writer.writeAll(" if (sa_jw_putc(w, '{')) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_end_object => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->depth == 0 || w->pending) return 1;");
+            try writer.writeAll(" if (w->kinds[w->depth - 1] != '{') return 1;");
+            try writer.writeAll(" w->depth--;");
+            try writer.writeAll(" if (sa_jw_putc(w, '}')) return 1;");
+            try writer.writeAll(" if (w->depth == 0) w->complete = 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_begin_array => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (w->pending) w->pending = 0;");
+            try writer.writeAll(" else {");
+            try writer.writeAll(" if (w->depth == 0) {");
+            try writer.writeAll(" if (w->complete) return 1;");
+            try writer.writeAll(" w->started = 1; w->complete = 1; }");
+            try writer.writeAll(" else {");
+            try writer.writeAll(" if (w->first[w->depth - 1]) w->first[w->depth - 1] = 0;");
+            try writer.writeAll(" else if (sa_jw_putc(w, ',')) return 1;");
+            try writer.writeAll(" w->started = 1; } }");
+            try writer.writeAll(" if (w->depth >= 32) return 1;");
+            try writer.writeAll(" w->kinds[w->depth] = '['; w->first[w->depth] = 1; w->depth++;");
+            try writer.writeAll(" if (sa_jw_putc(w, '[')) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_end_array => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->depth == 0 || w->pending) return 1;");
+            try writer.writeAll(" if (w->kinds[w->depth - 1] != '[') return 1;");
+            try writer.writeAll(" w->depth--;");
+            try writer.writeAll(" if (sa_jw_putc(w, ']')) return 1;");
+            try writer.writeAll(" if (w->depth == 0) w->complete = 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_field_bool => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[k], (size_t)a2)) return 1;");
+            try writer.writeAll(" if (sa_jw_putc(w, ':')) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)(a3 ? \"true\" : \"false\"), a3 ? 4 : 5)) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_field_i64 => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[k], (size_t)a2)) return 1;");
+            try writer.writeAll(" if (sa_jw_putc(w, ':')) return 1;");
+            try writer.writeAll(" { char tmp[130];");
+            try writer.writeAll(" int n = sa_fmt_int(tmp, a3, 10, 1, 0);");
+            try writer.writeAll(" if (n < 0) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)tmp, (size_t)n)) return 1; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_field_f64 => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[k], (size_t)a2)) return 1;");
+            try writer.writeAll(" if (sa_jw_putc(w, ':')) return 1;");
+            try writer.writeAll(" { union { sa_u64 u; double d; } t; t.u = a3;");
+            try writer.writeAll(" if (t.d != t.d) return 1;");
+            try writer.writeAll(" if ((t.u & (sa_u64)0x7FF0000000000000ULL) == (sa_u64)0x7FF0000000000000ULL) return 1;");
+            try writer.writeAll(" char tmp[256];");
+            try writer.writeAll(" int n = snprintf(tmp, sizeof(tmp), \"%.17g\", t.d);");
+            try writer.writeAll(" if (n < 0 || n >= 256) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)tmp, (size_t)n)) return 1; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_field_string => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" uint32_t v = sa_checked_addr(a3, (size_t)a4);");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[k], (size_t)a2)) return 1;");
+            try writer.writeAll(" if (sa_jw_putc(w, ':')) return 1;");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[v], (size_t)a4)) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_object_field => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[k], (size_t)a2)) return 1;");
+            try writer.writeAll(" if (sa_jw_putc(w, ':')) return 1;");
+            try writer.writeAll(" w->pending = 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_write_bool => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)(a1 ? \"true\" : \"false\"), a1 ? 4 : 5)) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_write_i64 => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" { char tmp[130];");
+            try writer.writeAll(" int n = sa_fmt_int(tmp, a1, 10, 1, 0);");
+            try writer.writeAll(" if (n < 0) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)tmp, (size_t)n)) return 1; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_write_f64 => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" { union { sa_u64 u; double d; } t; t.u = a1;");
+            try writer.writeAll(" if (t.d != t.d) return 1;");
+            try writer.writeAll(" if ((t.u & (sa_u64)0x7FF0000000000000ULL) == (sa_u64)0x7FF0000000000000ULL) return 1;");
+            try writer.writeAll(" char tmp[256];");
+            try writer.writeAll(" int n = snprintf(tmp, sizeof(tmp), \"%.17g\", t.d);");
+            try writer.writeAll(" if (n < 0 || n >= 256) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)tmp, (size_t)n)) return 1; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_write_string => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" { uint32_t v = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[v], (size_t)a2)) return 1; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_write_null => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)\"null\", 4)) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_finish => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" sa_store_u64(a1, 0);");
+            try writer.writeAll(" if (w == 0 || !w->started || w->pending || w->depth != 0 || w->done) return 1;");
+            try writer.writeAll(" { sa_u64 h = sa_owned_new(w->buf, w->len, 2);");
+            try writer.writeAll(" if (h == 0) return 1;");
+            try writer.writeAll(" w->done = 1;");
+            try writer.writeAll(" sa_store_u64(a1, h); return 0; } } }\n");
+        },
+        .json_writer_free => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 0;");
+            try writer.writeAll(" w->h = 0; return 0; } }\n");
+        },
+        .json_buffer_data => {
+            try writer.writeAll(" { sa_owned_buf_t *o = sa_owned_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 2) return 0;");
+            try writer.writeAll(" return o->ptr; } }\n");
+        },
+        .json_buffer_len => {
+            try writer.writeAll(" { sa_owned_buf_t *o = sa_owned_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 2) return 0;");
+            try writer.writeAll(" return o->len; } }\n");
+        },
+        .json_buffer_free => {
+            try writer.writeAll(" { sa_owned_drop(a0); return 0; } }\n");
+        },
         .time_get_full_year => {
             try writer.writeAll(" { sa_i64 y, mo, d;");
             try writer.writeAll(" sa_civil_ymd((sa_i64)a0, &y, &mo, &d);");
@@ -3802,6 +4143,11 @@ fn writePreamble(
             \\#endif
             \\typedef struct { sa_u64 h; unsigned kind; sa_u64 first, next; sa_u64 kptr, klen, vptr, vlen; sa_i64 ival; sa_u64 fbits; unsigned bval; } sa_json_node_t;
             \\static sa_json_node_t sa_json_nodes[SA_JSON_MAX_NODES];
+            \\#ifndef SA_JSON_MAX_WRITERS
+            \\#define SA_JSON_MAX_WRITERS 16
+            \\#endif
+            \\typedef struct { sa_u64 h, buf, len, cap; unsigned depth, done, started, complete, pending; unsigned char first[32], kinds[32]; } sa_json_writer_t;
+            \\static sa_json_writer_t sa_json_writers[SA_JSON_MAX_WRITERS];
             \\
         );
     }
@@ -5143,6 +5489,15 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     // (sa_brk only travels with the allocator; sa_mem stays out entirely
     // for pure-compute programs.)
     var need_mem = has_const_bytes or need_mem_direct;
+    if (!need_mem) {
+        // Helpers touching sa_mem directly (not just via other helpers).
+        for (kRuntimeHelpers) |h| {
+            if (used.get(h.name) != null and std.mem.indexOf(u8, h.code, "sa_mem") != null) {
+                need_mem = true;
+                break;
+            }
+        }
+    }
     if (!need_mem) {
         var uit = used.iterator();
         while (uit.next()) |e| {
