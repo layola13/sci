@@ -1564,6 +1564,10 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         string_from_code_point,
         string_code_point_at,
         string_replace,
+        str_is_ascii,
+        str_eq_ignore_ascii_case,
+        str_trim_ascii_start_index,
+        str_trim_ascii_end_len,
         parse_float,
         regex_compile,
         regex_match,
@@ -1702,6 +1706,14 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b111, .tag = .string_code_point_at }
     else if (std.mem.eql(u8, name, "sa_string_replace"))
         .{ .voids = all_void ^ 0b1111111, .tag = .string_replace }
+    else if (std.mem.eql(u8, name, "sa_str_is_ascii"))
+        .{ .voids = all_void ^ 0b11, .tag = .str_is_ascii }
+    else if (std.mem.eql(u8, name, "sa_str_eq_ignore_ascii_case"))
+        .{ .voids = all_void ^ 0b1111, .tag = .str_eq_ignore_ascii_case }
+    else if (std.mem.eql(u8, name, "sa_str_trim_ascii_start_index"))
+        .{ .voids = all_void ^ 0b11, .tag = .str_trim_ascii_start_index }
+    else if (std.mem.eql(u8, name, "sa_str_trim_ascii_end_len"))
+        .{ .voids = all_void ^ 0b11, .tag = .str_trim_ascii_end_len }
     else if (std.mem.eql(u8, name, "sa_parse_float"))
         .{ .voids = all_void ^ 0b11, .tag = .parse_float }
     else if (std.mem.eql(u8, name, "sa_regex_compile"))
@@ -2190,6 +2202,37 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
             try writer.writeAll(" if (a2 >= a1) return ~(sa_u64)0;");
             try writer.writeAll(" return (sa_u64)sa_mem[x + a2]; } }\n");
+        },
+        .str_is_ascii => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" if (sa_mem[x + i] > 0x7F) return 0;");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .str_eq_ignore_ascii_case => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if (a1 != a3) return 0;");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)a1; i++) {");
+            try writer.writeAll(" uint8_t l = sa_mem[x + i]; uint8_t r = sa_mem[y + i];");
+            try writer.writeAll(" if (l >= 'A' && l <= 'Z') l += (uint8_t)('a' - 'A');");
+            try writer.writeAll(" if (r >= 'A' && r <= 'Z') r += (uint8_t)('a' - 'A');");
+            try writer.writeAll(" if (l != r) return 0; } }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .str_trim_ascii_start_index => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t i = 0;");
+            try writer.writeAll(" while (i < (size_t)a1) { uint8_t c = sa_mem[x + i];");
+            try writer.writeAll(" if (c != ' ' && c != '\\t' && c != '\\n' && c != '\\r' && c != 0x0B && c != 0x0C) break; i++; }");
+            try writer.writeAll(" return (sa_u64)i; } }\n");
+        },
+        .str_trim_ascii_end_len => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t e = (size_t)a1;");
+            try writer.writeAll(" while (e > 0) { uint8_t c = sa_mem[x + e - 1];");
+            try writer.writeAll(" if (c != ' ' && c != '\\t' && c != '\\n' && c != '\\r' && c != 0x0B && c != 0x0C) break; e--; }");
+            try writer.writeAll(" return (sa_u64)e; } }\n");
         },
         .string_replace => {
             // First or all non-overlapping matches swapped; empty needle
