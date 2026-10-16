@@ -1541,6 +1541,7 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         string_from_char_code,
         string_from_code_point,
         string_code_point_at,
+        string_replace,
         parse_float,
         regex_compile,
         regex_match,
@@ -1671,6 +1672,8 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b1, .tag = .string_from_code_point }
     else if (std.mem.eql(u8, name, "sa_string_code_point_at"))
         .{ .voids = all_void ^ 0b111, .tag = .string_code_point_at }
+    else if (std.mem.eql(u8, name, "sa_string_replace"))
+        .{ .voids = all_void ^ 0b1111111, .tag = .string_replace }
     else if (std.mem.eql(u8, name, "sa_parse_float"))
         .{ .voids = all_void ^ 0b11, .tag = .parse_float }
     else if (std.mem.eql(u8, name, "sa_regex_compile"))
@@ -2147,6 +2150,83 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
             try writer.writeAll(" if (a2 >= a1) return ~(sa_u64)0;");
             try writer.writeAll(" return (sa_u64)sa_mem[x + a2]; } }\n");
+        },
+        .string_replace => {
+            // First or all non-overlapping matches swapped; empty needle
+            // prepends (once) or interleaves (all); misses copy input.
+            // Overflow bails to 0 (mirrors checked arithmetic). Flat
+            // structure: each path returns inside its own block.
+            try writer.writeAll(" uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" uint32_t z = sa_checked_addr(a4, (size_t)a5);");
+            try writer.writeAll(" if (a3 == 0) {");
+            try writer.writeAll(" if (!a6) {");
+            try writer.writeAll(" sa_u64 n0 = a5 + a1; if (n0 < a5) return 0;");
+            try writer.writeAll(" sa_u64 p0 = sa_alloc(n0);");
+            try writer.writeAll(" { uint32_t d0 = sa_checked_addr(p0, n0);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a5; i++)");
+            try writer.writeAll(" sa_mem[d0 + i] = sa_mem[z + i];");
+            try writer.writeAll(" for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d0 + (size_t)a5 + i] = sa_mem[x + i]; }");
+            try writer.writeAll(" return sa_owned_new(p0, n0, 1); }");
+            try writer.writeAll(" if (a5 != 0 && a1 + 1 > ~(sa_u64)0 / a5) return 0;");
+            try writer.writeAll(" { sa_u64 n1 = a1 + a5 * (a1 + 1);");
+            try writer.writeAll(" if (n1 < a1) return 0;");
+            try writer.writeAll(" sa_u64 p1 = sa_alloc(n1);");
+            try writer.writeAll(" uint32_t d1 = sa_checked_addr(p1, n1);");
+            try writer.writeAll(" sa_u64 o = 0; sa_u64 i;");
+            try writer.writeAll(" for (i = 0; i < a1; i++) {");
+            try writer.writeAll(" sa_u64 j; for (j = 0; j < a5; j++)");
+            try writer.writeAll(" sa_mem[d1 + o + j] = sa_mem[z + j];");
+            try writer.writeAll(" o += a5; sa_mem[d1 + o] = sa_mem[x + i]; o += 1; }");
+            try writer.writeAll(" { sa_u64 j; for (j = 0; j < a5; j++)");
+            try writer.writeAll(" sa_mem[d1 + o + j] = sa_mem[z + j]; }");
+            try writer.writeAll(" return sa_owned_new(p1, n1, 1); } }");
+            try writer.writeAll(" { sa_u64 cnt = 0; sa_u64 i = 0; sa_u64 first = 0;");
+            try writer.writeAll(" while (i + a3 <= a1) { sa_u64 j; int eq = 1;");
+            try writer.writeAll(" for (j = 0; j < a3; j++)");
+            try writer.writeAll(" if (sa_mem[x + i + j] != sa_mem[y + j]) { eq = 0; break; }");
+            try writer.writeAll(" if (eq) { if (cnt == 0) first = i; cnt++;");
+            try writer.writeAll(" if (!a6) break; i += a3; continue; } i++; }");
+            try writer.writeAll(" if (cnt == 0) {");
+            try writer.writeAll(" sa_u64 p2 = sa_alloc(a1);");
+            try writer.writeAll(" { uint32_t d2 = sa_checked_addr(p2, a1);");
+            try writer.writeAll(" size_t k; for (k = 0; k < (size_t)a1; k++)");
+            try writer.writeAll(" sa_mem[d2 + k] = sa_mem[x + k]; }");
+            try writer.writeAll(" return sa_owned_new(p2, a1, 1); }");
+            try writer.writeAll(" if (!a6) {");
+            try writer.writeAll(" if (a1 - a3 > ~(sa_u64)0 - a5) return 0;");
+            try writer.writeAll(" sa_u64 n3 = a1 - a3 + a5;");
+            try writer.writeAll(" sa_u64 p3 = sa_alloc(n3);");
+            try writer.writeAll(" uint32_t d3 = sa_checked_addr(p3, n3);");
+            try writer.writeAll(" { size_t k; for (k = 0; k < (size_t)first; k++)");
+            try writer.writeAll(" sa_mem[d3 + k] = sa_mem[x + k]; }");
+            try writer.writeAll(" { size_t k; for (k = 0; k < (size_t)a5; k++)");
+            try writer.writeAll(" sa_mem[d3 + (size_t)first + k] = sa_mem[z + k]; }");
+            try writer.writeAll(" { size_t k; for (k = 0; k + first + a3 < a1 + 1; k++)");
+            try writer.writeAll(" sa_mem[d3 + (size_t)first + (size_t)a5 + k] = sa_mem[x + first + a3 + k]; }");
+            try writer.writeAll(" return sa_owned_new(p3, n3, 1); }");
+            try writer.writeAll(" { sa_u64 total = a1; sa_u64 ii = 0;");
+            try writer.writeAll(" while (ii + a3 <= a1) { sa_u64 jj; int eq2 = 1;");
+            try writer.writeAll(" for (jj = 0; jj < a3; jj++)");
+            try writer.writeAll(" if (sa_mem[x + ii + jj] != sa_mem[y + jj]) { eq2 = 0; break; }");
+            try writer.writeAll(" if (eq2) {");
+            try writer.writeAll(" if (total < a3 || total - a3 > ~(sa_u64)0 - a5) return 0;");
+            try writer.writeAll(" total = total - a3 + a5; ii += a3; } else ii++; }");
+            try writer.writeAll(" sa_u64 p4 = sa_alloc(total);");
+            try writer.writeAll(" uint32_t d4 = sa_checked_addr(p4, total);");
+            try writer.writeAll(" sa_u64 o4 = 0; ii = 0;");
+            try writer.writeAll(" while (ii + a3 <= a1) { sa_u64 jj; int eq3 = 1;");
+            try writer.writeAll(" for (jj = 0; jj < a3; jj++)");
+            try writer.writeAll(" if (sa_mem[x + ii + jj] != sa_mem[y + jj]) { eq3 = 0; break; }");
+            try writer.writeAll(" if (eq3) { sa_u64 jj;");
+            try writer.writeAll(" for (jj = 0; jj < a5; jj++)");
+            try writer.writeAll(" sa_mem[d4 + o4 + jj] = sa_mem[z + jj];");
+            try writer.writeAll(" o4 += a5; ii += a3; } else {");
+            try writer.writeAll(" sa_mem[d4 + o4] = sa_mem[x + ii]; o4 += 1; ii++; } }");
+            try writer.writeAll(" while (o4 < total) {");
+            try writer.writeAll(" sa_mem[d4 + o4] = sa_mem[x + ii]; o4 += 1; ii++; }");
+            try writer.writeAll(" return sa_owned_new(p4, total, 1); } } }\n");
         },
         .parse_float => {
             // Manual scan (whitespace/sign/digits/dot/exponent) then
