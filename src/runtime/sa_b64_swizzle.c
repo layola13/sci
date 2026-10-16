@@ -28,6 +28,12 @@
 #include <immintrin.h>
 #if defined(__GNUC__) || defined(__clang__)
 #include <cpuid.h>
+/* _xgetbv needs the xsave feature; explicit -mcpu=baseline release
+   builds (cross targets) lack it TU-wide, so enable it for the
+   dispatch probe only. Other architectures never see this TU region. */
+#define SA_XSAVE_ATTR __attribute__((target("xsave")))
+#else
+#define SA_XSAVE_ATTR
 #endif
 
 static const uint8_t kDeltaAsso[32] = {
@@ -106,6 +112,7 @@ static inline int b64_sextet_val(uint8_t c) {
   return -1;
 }
 
+SA_XSAVE_ATTR
 int sa_cpu_has_avx2(void) {
   static int cached = -1;
   int v = __atomic_load_n(&cached, __ATOMIC_RELAXED);
