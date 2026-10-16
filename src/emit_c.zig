@@ -2154,7 +2154,7 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             try writer.writeAll(" if (errno == ERANGE) {");
             try writer.writeAll(" if ((t.u & (sa_u64)0x7FF0000000000000ULL) == (sa_u64)0x7FF0000000000000ULL)");
             try writer.writeAll(" t.u = neg ? (sa_u64)0xFFF0000000000000ULL : (sa_u64)0x7FF0000000000000ULL; }");
-            try writer.writeAll(" if (neg) t.v = -t.v; return t.u; } } }\n");
+            try writer.writeAll(" if (neg) t.v = -t.v; return t.u; } } } }\n");
         },
         .http_client_new => {
             try writer.writeAll(" { sa_u64 h = sa_alloc(8);");
@@ -3861,6 +3861,8 @@ test "extern bindings render balanced" {
     // Every known binding must render a complete function definition:
     // balanced braces ending with "}\n". This guards the brace-counting
     // bug class (an unclosed body swallows following definitions).
+    // KEEP IN SYNC with writeExternBinding: any new tag needs its names
+    // here (including _ns aliases), or the guard silently misses it.
     const names = [_][]const u8{
         "fd_open", "fd_close", "fd_read", "mmap", "munmap", "signal",
         "npm_totalmem", "npm_parallelism", "npm_isabs", "npm_ns_isabs",
@@ -3878,7 +3880,22 @@ test "extern bindings render balanced" {
         "sa_string_pad_start", "sa_string_pad_end",
         "sa_string_from_char_code", "sa_string_from_code_point",
         "sa_string_code_point_at", "sa_parse_float",
-        "sa_http_client_new", "sa_http_server_new",
+        "sa_http_client_new", "sa_http_client_req_new",
+        "sa_http_client_req_add_header", "sa_http_client_req_set_body",
+        "sa_http_client_req_send", "sa_http_client_resp_status",
+        "sa_http_client_resp_body_reader",
+        "sa_http_client_resp_read_chunk", "sa_http_client_resp_free",
+        "sa_http_client_body_reader_free", "sa_http_client_req_free",
+        "sa_http_client_free", "sa_http_server_new",
+        "sa_http_server_start", "sa_http_server_accept",
+        "sa_http_server_req_get_path", "sa_http_server_req_get_header",
+        "sa_http_server_req_get_body",
+        "sa_http_server_resp_stream_new",
+        "sa_http_server_resp_stream_write",
+        "sa_http_server_resp_stream_flush",
+        "sa_http_server_resp_stream_end",
+        "sa_http_server_resp_stream_free", "sa_http_server_req_free",
+        "sa_http_server_free",
     };
     const alloc = std.testing.allocator;
     for (names) |name| {
