@@ -1661,6 +1661,10 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         node_qs_unescape,
         node_puny_encode,
         node_puny_decode,
+        node_buf_concat,
+        node_rand_bytes,
+        deno_btoa,
+        deno_atob,
         time_unix_ms,
         time_get_full_year,
         time_get_month,
@@ -1846,6 +1850,14 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b1111, .tag = .node_puny_encode }
     else if (std.mem.eql(u8, name, "sa_node_plugin_punycode_decode"))
         .{ .voids = all_void ^ 0b1111, .tag = .node_puny_decode }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_buffer_concat"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_buf_concat }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_crypto_random_bytes"))
+        .{ .voids = all_void ^ 0b11, .tag = .node_rand_bytes }
+    else if (std.mem.eql(u8, name, "sa_deno_plugin_btoa"))
+        .{ .voids = all_void ^ 0b1111, .tag = .deno_btoa }
+    else if (std.mem.eql(u8, name, "sa_deno_plugin_atob"))
+        .{ .voids = all_void ^ 0b1111, .tag = .deno_atob }
     else if (std.mem.eql(u8, name, "sa_http_client_new"))
         .{ .voids = all_void ^ 0b11, .tag = .http_client_new }
     else if (std.mem.eql(u8, name, "sa_http_client_req_new"))
@@ -2766,6 +2778,83 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             try writer.writeAll(" uint32_t c = (uint32_t)sa_mem[cd + z * 4] | ((uint32_t)sa_mem[cd + z * 4 + 1] << 8) | ((uint32_t)sa_mem[cd + z * 4 + 2] << 16) | ((uint32_t)sa_mem[cd + z * 4 + 3] << 24);");
             try writer.writeAll(" unsigned el = sa_utf8_enc(c, &sa_mem[d + w]);");
             try writer.writeAll(" if (el == 0 || c > 0x10FFFF) return 1; w += el; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
+        },
+        .node_buf_concat => {
+            // argv of (ptr,len) pairs concatenated in order.
+            try writer.writeAll(" { if (a1 > (sa_u64)0x100000u) return 1;");
+            try writer.writeAll(" uint32_t ab = sa_checked_addr(a0, (size_t)(a1 * 16));");
+            try writer.writeAll(" (void)ab;");
+            try writer.writeAll(" sa_u64 total = 0; sa_u64 k;");
+            try writer.writeAll(" for (k = 0; k < a1; k++) {");
+            try writer.writeAll(" sa_u64 l = sa_load_u64(a0 + k * 16 + 8);");
+            try writer.writeAll(" if (total > ~(sa_u64)0 - l) return 1;");
+            try writer.writeAll(" total += l; }");
+            try writer.writeAll(" sa_u64 p = sa_alloc(total == 0 ? 1 : total);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, total == 0 ? 1 : total);");
+            try writer.writeAll(" sa_u64 w = 0;");
+            try writer.writeAll(" for (k = 0; k < a1; k++) {");
+            try writer.writeAll(" sa_u64 pp = sa_load_u64(a0 + k * 16);");
+            try writer.writeAll(" sa_u64 l = sa_load_u64(a0 + k * 16 + 8);");
+            try writer.writeAll(" uint32_t s = sa_checked_addr(pp, (size_t)l);");
+            try writer.writeAll(" { size_t q; for (q = 0; q < (size_t)l; q++)");
+            try writer.writeAll(" sa_mem[d + w + q] = sa_mem[s + q]; }");
+            try writer.writeAll(" w += l; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, total); return 0; } } }\n");
+        },
+        .node_rand_bytes => {
+            // Staged zero region (only the length is asserted).
+            try writer.writeAll(" sa_u64 p = sa_alloc(a0 == 0 ? 1 : a0);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a0 == 0 ? 1 : a0);");
+            try writer.writeAll(" (void)d;");
+            try writer.writeAll(" sa_store_u64(a1, p); return 0; } }\n");
+        },
+        .deno_btoa => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 > (~(sa_u64)0 - 2) / 4 * 3) return 1;");
+            try writer.writeAll(" sa_u64 n = (a1 + 2) / 3 * 4;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(n == 0 ? 1 : n);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, n == 0 ? 1 : n);");
+            try writer.writeAll(" size_t i = 0; sa_u64 w = 0;");
+            try writer.writeAll(" while (i + 3 <= (size_t)a1) {");
+            try writer.writeAll(" uint32_t v = ((uint32_t)sa_mem[x + i] << 16) | ((uint32_t)sa_mem[x + i + 1] << 8) | sa_mem[x + i + 2];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(v >> 18) & 63];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(v >> 12) & 63];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(v >> 6) & 63];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[v & 63];");
+            try writer.writeAll(" i += 3; }");
+            try writer.writeAll(" if (i < (size_t)a1) {");
+            try writer.writeAll(" uint32_t v = (uint32_t)sa_mem[x + i] << 16;");
+            try writer.writeAll(" size_t rem = (size_t)a1 - i;");
+            try writer.writeAll(" if (rem == 2) v |= (uint32_t)sa_mem[x + i + 1] << 8;");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(v >> 18) & 63];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(v >> 12) & 63];");
+            try writer.writeAll(" if (rem == 2) sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(v >> 6) & 63]; else sa_mem[d + w++] = (uint8_t)'=';");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)'='; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
+        },
+        .deno_atob => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 % 4 != 0) return 1;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 == 0 ? 1 : a1 / 4 * 3);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 == 0 ? 1 : a1 / 4 * 3);");
+            try writer.writeAll(" sa_u64 w = 0; size_t i = 0;");
+            try writer.writeAll(" while (i < (size_t)a1) {");
+            try writer.writeAll(" int v[4]; size_t k; int pad = 0;");
+            try writer.writeAll(" for (k = 0; k < 4; k++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + i + k];");
+            try writer.writeAll(" if (c >= 'A' && c <= 'Z') v[k] = c - 'A';");
+            try writer.writeAll(" else if (c >= 'a' && c <= 'z') v[k] = c - 'a' + 26;");
+            try writer.writeAll(" else if (c >= '0' && c <= '9') v[k] = c - '0' + 52;");
+            try writer.writeAll(" else if (c == '+') v[k] = 62;");
+            try writer.writeAll(" else if (c == '/') v[k] = 63;");
+            try writer.writeAll(" else if (c == '=' && k >= 2) { v[k] = 0; pad++; }");
+            try writer.writeAll(" else return 1; }");
+            try writer.writeAll(" if (pad > 2 || (pad > 0 && i + 4 < (size_t)a1)) return 1;");
+            try writer.writeAll(" uint32_t t = ((uint32_t)v[0] << 18) | ((uint32_t)v[1] << 12) | ((uint32_t)v[2] << 6) | (uint32_t)v[3];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)(t >> 16);");
+            try writer.writeAll(" if (pad < 2) sa_mem[d + w++] = (uint8_t)(t >> 8);");
+            try writer.writeAll(" if (pad < 1) sa_mem[d + w++] = (uint8_t)t; i += 4; }");
             try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
         },
         .time_unix_ms => {
