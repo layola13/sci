@@ -1488,6 +1488,42 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  *d = doy - sa_div_floor(153 * mp + 2, 5) + 1;
     \\}
     , .deps = &.{"sa_div_floor"} },
+    .{ .name = "sa_utf8_next", .code =
+    \\static uint32_t sa_utf8_next(const uint8_t *s, size_t n, size_t *i) {
+    \\  size_t k = *i; uint8_t b0;
+    \\  if (k >= n) return ~(uint32_t)0;
+    \\  b0 = s[k];
+    \\  if (b0 < 0x80) { *i = k + 1; return b0; }
+    \\  if (b0 >= 0xC2 && b0 <= 0xDF && k + 1 < n && (s[k + 1] & 0xC0) == 0x80) {
+    \\    *i = k + 2; return ((uint32_t)(b0 & 0x1F) << 6) | (s[k + 1] & 0x3F); }
+    \\  if (b0 >= 0xE0 && b0 <= 0xEF && k + 2 < n && (s[k + 1] & 0xC0) == 0x80 && (s[k + 2] & 0xC0) == 0x80) {
+    \\    uint32_t cp = ((uint32_t)(b0 & 0x0F) << 12) | ((uint32_t)(s[k + 1] & 0x3F) << 6) | (s[k + 2] & 0x3F);
+    \\    if (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF)) return ~(uint32_t)0;
+    \\    *i = k + 3; return cp; }
+    \\  if (b0 >= 0xF0 && b0 <= 0xF4 && k + 3 < n && (s[k + 1] & 0xC0) == 0x80 && (s[k + 2] & 0xC0) == 0x80 && (s[k + 3] & 0xC0) == 0x80) {
+    \\    uint32_t cp = ((uint32_t)(b0 & 0x07) << 18) | ((uint32_t)(s[k + 1] & 0x3F) << 12) | ((uint32_t)(s[k + 2] & 0x3F) << 6) | (s[k + 3] & 0x3F);
+    \\    if (cp < 0x10000 || cp > 0x10FFFF) return ~(uint32_t)0;
+    \\    *i = k + 4; return cp; }
+    \\  return ~(uint32_t)0;
+    \\}
+    , .deps = &.{} },
+    .{ .name = "sa_utf8_enc", .code =
+    \\static unsigned sa_utf8_enc(uint32_t cp, uint8_t *o) {
+    \\  if (cp < 0x80) { o[0] = (uint8_t)cp; return 1; }
+    \\  if (cp < 0x800) { o[0] = (uint8_t)(0xC0 | (cp >> 6)); o[1] = (uint8_t)(0x80 | (cp & 0x3F)); return 2; }
+    \\  if (cp < 0x10000) { o[0] = (uint8_t)(0xE0 | (cp >> 12)); o[1] = (uint8_t)(0x80 | ((cp >> 6) & 0x3F)); o[2] = (uint8_t)(0x80 | (cp & 0x3F)); return 3; }
+    \\  o[0] = (uint8_t)(0xF0 | (cp >> 18)); o[1] = (uint8_t)(0x80 | ((cp >> 12) & 0x3F)); o[2] = (uint8_t)(0x80 | ((cp >> 6) & 0x3F)); o[3] = (uint8_t)(0x80 | (cp & 0x3F)); return 4;
+    \\}
+    , .deps = &.{} },
+    .{ .name = "sa_puny_adapt", .code =
+    \\static sa_u64 sa_puny_adapt(sa_u64 delta, sa_u64 numpoints, int first) {
+    \\  sa_u64 k = 0;
+    \\  delta = first ? delta / 700 : delta >> 1;
+    \\  delta += delta / numpoints;
+    \\  while (delta > ((36 - 1) * 26) / 2) { delta /= 36 - 1; k += 36; }
+    \\  return k + (36 - 1 + 1) * delta / (delta + 38);
+    \\}
+    , .deps = &.{} },
 };
 
 /// True iff the already-emitted body text calls `func_name` directly
@@ -1621,6 +1657,10 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         node_path_extname,
         node_path_is_absolute,
         node_path_join,
+        node_qs_escape,
+        node_qs_unescape,
+        node_puny_encode,
+        node_puny_decode,
         time_unix_ms,
         time_get_full_year,
         time_get_month,
@@ -1798,6 +1838,14 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b111, .tag = .node_path_is_absolute }
     else if (std.mem.eql(u8, name, "sa_node_plugin_path_join"))
         .{ .voids = all_void ^ 0b1111, .tag = .node_path_join }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_querystring_escape"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_qs_escape }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_querystring_unescape"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_qs_unescape }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_punycode_encode"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_puny_encode }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_punycode_decode"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_puny_decode }
     else if (std.mem.eql(u8, name, "sa_http_client_new"))
         .{ .voids = all_void ^ 0b11, .tag = .http_client_new }
     else if (std.mem.eql(u8, name, "sa_http_client_req_new"))
@@ -2566,6 +2614,159 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             try writer.writeAll(" sa_u64 n = sa_path_norm(&sa_mem[d], (size_t)w, &sa_mem[d], (size_t)(total + 2));");
             try writer.writeAll(" if (n == ~(sa_u64)0) return 1;");
             try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, n); return 0; } } }\n");
+        },
+        .node_qs_escape => {
+            // Node querystring.escape: alnum + ~!*()-'_. pass through,
+            // everything else becomes %XX uppercase hex.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 > ~(sa_u64)0 / 3) return 1;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 * 3);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 * 3);");
+            try writer.writeAll(" sa_u64 w = 0; size_t i;");
+            try writer.writeAll(" for (i = 0; i < (size_t)a1; i++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + i];");
+            try writer.writeAll(" int ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');");
+            try writer.writeAll(" if (!ok) { const char *u = \"~!*()-'_.\"; size_t k; ok = 0;");
+            try writer.writeAll(" for (k = 0; k < 8; k++) if (c == (uint8_t)u[k]) { ok = 1; break; } }");
+            try writer.writeAll(" if (ok) sa_mem[d + w++] = c;");
+            try writer.writeAll(" else {");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)'%';");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"0123456789ABCDEF\"[c >> 4];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"0123456789ABCDEF\"[c & 15]; } }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
+        },
+        .node_qs_unescape => {
+            // %XX (either case) decodes; malformed % and '+' pass through
+            // literally (mirrors Node).
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 == 0 ? 1 : a1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 == 0 ? 1 : a1);");
+            try writer.writeAll(" sa_u64 w = 0; size_t i = 0;");
+            try writer.writeAll(" while (i < (size_t)a1) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + i];");
+            try writer.writeAll(" if (c == '%' && i + 2 < (size_t)a1) {");
+            try writer.writeAll(" uint8_t h1 = sa_mem[x + i + 1]; uint8_t h2 = sa_mem[x + i + 2];");
+            try writer.writeAll(" int v1 = h1 >= '0' && h1 <= '9' ? h1 - '0' : (h1 >= 'a' && h1 <= 'f' ? h1 - 'a' + 10 : (h1 >= 'A' && h1 <= 'F' ? h1 - 'A' + 10 : -1));");
+            try writer.writeAll(" int v2 = h2 >= '0' && h2 <= '9' ? h2 - '0' : (h2 >= 'a' && h2 <= 'f' ? h2 - 'a' + 10 : (h2 >= 'A' && h2 <= 'F' ? h2 - 'A' + 10 : -1));");
+            try writer.writeAll(" if (v1 >= 0 && v2 >= 0) { sa_mem[d + w++] = (uint8_t)(v1 * 16 + v2); i += 3; continue; } }");
+            try writer.writeAll(" sa_mem[d + w++] = c; i++; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
+        },
+        .node_puny_encode => {
+            // RFC 3492 encode (UTF-8 in, ASCII out); invalid UTF-8 or
+            // overflow yields 1. Output capped at 12x+16 (DoS bound).
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 > (~(sa_u64)0 - 16) / 12) return 1;");
+            try writer.writeAll(" sa_u64 cap = a1 * 12 + 16;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(cap);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, cap);");
+            try writer.writeAll(" sa_u64 cp = sa_alloc((a1 + 1) * 4);");
+            try writer.writeAll(" uint32_t cd = sa_checked_addr(cp, (a1 + 1) * 4);");
+            try writer.writeAll(" sa_u64 h = 0; size_t i = 0;");
+            try writer.writeAll(" while (i < (size_t)a1) {");
+            try writer.writeAll(" uint32_t c = sa_utf8_next(&sa_mem[x], (size_t)a1, &i);");
+            try writer.writeAll(" if (c == ~(uint32_t)0) return 1;");
+            try writer.writeAll(" sa_mem[cd + h * 4] = (uint8_t)(c & 0xFF);");
+            try writer.writeAll(" sa_mem[cd + h * 4 + 1] = (uint8_t)((c >> 8) & 0xFF);");
+            try writer.writeAll(" sa_mem[cd + h * 4 + 2] = (uint8_t)((c >> 16) & 0xFF);");
+            try writer.writeAll(" sa_mem[cd + h * 4 + 3] = (uint8_t)((c >> 24) & 0xFF);");
+            try writer.writeAll(" h++; }");
+            try writer.writeAll(" sa_u64 w = 0; sa_u64 b;");
+            try writer.writeAll(" for (b = 0; b < h; b++) {");
+            try writer.writeAll(" uint32_t c = (uint32_t)sa_mem[cd + b * 4] | ((uint32_t)sa_mem[cd + b * 4 + 1] << 8) | ((uint32_t)sa_mem[cd + b * 4 + 2] << 16) | ((uint32_t)sa_mem[cd + b * 4 + 3] << 24);");
+            try writer.writeAll(" if (c < 0x80) { if (w >= cap) return 1; sa_mem[d + w++] = (uint8_t)c; } }");
+            try writer.writeAll(" sa_u64 nb = w;");
+            try writer.writeAll(" if (nb > 0) { if (w >= cap) return 1; sa_mem[d + w++] = (uint8_t)'-'; }");
+            try writer.writeAll(" sa_u64 n = 0x80; sa_u64 delta = 0; sa_u64 bias = 72;");
+            try writer.writeAll(" int first = 1;");
+            try writer.writeAll(" while (h > nb) {");
+            try writer.writeAll(" sa_u64 m = ~(sa_u64)0; sa_u64 k;");
+            try writer.writeAll(" for (k = 0; k < h; k++) {");
+            try writer.writeAll(" uint32_t c = (uint32_t)sa_mem[cd + k * 4] | ((uint32_t)sa_mem[cd + k * 4 + 1] << 8) | ((uint32_t)sa_mem[cd + k * 4 + 2] << 16) | ((uint32_t)sa_mem[cd + k * 4 + 3] << 24);");
+            try writer.writeAll(" if (c >= n && (sa_u64)c < m) m = c; }");
+            try writer.writeAll(" if (m - n > (~(sa_u64)0 - delta) / (h > 0 ? h : 1)) return 1;");
+            try writer.writeAll(" delta += (m - n) * h;");
+            try writer.writeAll(" n = m;");
+            try writer.writeAll(" for (k = 0; k < h; k++) {");
+            try writer.writeAll(" uint32_t c = (uint32_t)sa_mem[cd + k * 4] | ((uint32_t)sa_mem[cd + k * 4 + 1] << 8) | ((uint32_t)sa_mem[cd + k * 4 + 2] << 16) | ((uint32_t)sa_mem[cd + k * 4 + 3] << 24);");
+            try writer.writeAll(" if ((sa_u64)c < n) { delta++; if (delta == 0) return 1; continue; }");
+            try writer.writeAll(" if ((sa_u64)c == n) {");
+            try writer.writeAll(" sa_u64 q = delta; sa_u64 kk = 36;");
+            try writer.writeAll(" for (;;) {");
+            try writer.writeAll(" sa_u64 t = kk <= bias ? 1 : (kk >= bias + 26 ? 26 : kk - bias);");
+            try writer.writeAll(" if (q < t) break;");
+            try writer.writeAll(" { sa_u64 bt = 36 - t; sa_u64 dg = t + (q - t) % bt;");
+            try writer.writeAll(" if (w >= cap) return 1;");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)(dg < 26 ? 'a' + dg : '0' + dg - 26); }");
+            try writer.writeAll(" q = (q - t) / (36 - t); kk += 36; }");
+            try writer.writeAll(" if (w >= cap) return 1;");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)(q < 26 ? 'a' + q : '0' + q - 26);");
+            try writer.writeAll(" bias = sa_puny_adapt(delta, h + 1, first);");
+            try writer.writeAll(" first = 0;");
+            try writer.writeAll(" delta = 0; nb++; } }");
+            try writer.writeAll(" n++; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
+        },
+        .node_puny_decode => {
+            // RFC 3492 decode (ASCII in, UTF-8 out); malformed input or
+            // overflow yields 1.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t dl = (size_t)a1; size_t q;");
+            try writer.writeAll(" for (q = 0; q < (size_t)a1; q++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + q];");
+            try writer.writeAll(" if (c == '-') dl = q; }");
+            try writer.writeAll(" sa_u64 cp = sa_alloc(((sa_u64)a1 + 1) * 4);");
+            try writer.writeAll(" uint32_t cd = sa_checked_addr(cp, ((sa_u64)a1 + 1) * 4);");
+            try writer.writeAll(" sa_u64 out = 0; size_t i;");
+            try writer.writeAll(" for (i = 0; i < dl; i++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + i];");
+            try writer.writeAll(" if (c >= 0x80) return 1;");
+            try writer.writeAll(" sa_mem[cd + out * 4] = c;");
+            try writer.writeAll(" sa_mem[cd + out * 4 + 1] = 0;");
+            try writer.writeAll(" sa_mem[cd + out * 4 + 2] = 0;");
+            try writer.writeAll(" sa_mem[cd + out * 4 + 3] = 0; out++; }");
+            try writer.writeAll(" size_t pos = dl < (size_t)a1 ? dl + 1 : (size_t)a1;");
+            try writer.writeAll(" sa_u64 n = 0x80; sa_u64 bias = 72;");
+            try writer.writeAll(" sa_u64 idx = 0; int first = 1;");
+            try writer.writeAll(" while (pos < (size_t)a1) {");
+            try writer.writeAll(" sa_u64 oldi = idx; sa_u64 w = 1; sa_u64 kk = 36;");
+            try writer.writeAll(" for (;;) {");
+            try writer.writeAll(" if (pos >= (size_t)a1) return 1;");
+            try writer.writeAll(" uint8_t c = sa_mem[x + pos++];");
+            try writer.writeAll(" sa_u64 dg = c >= '0' && c <= '9' ? (sa_u64)(c - '0' + 26)");
+            try writer.writeAll(" : (c >= 'a' && c <= 'z' ? (sa_u64)(c - 'a')");
+            try writer.writeAll(" : (c >= 'A' && c <= 'Z' ? (sa_u64)(c - 'A') : ~(sa_u64)0));");
+            try writer.writeAll(" if (dg == ~(sa_u64)0) return 1;");
+            try writer.writeAll(" if (dg > (~(sa_u64)0 - idx) / w) return 1;");
+            try writer.writeAll(" idx += dg * w;");
+            try writer.writeAll(" sa_u64 t = kk <= bias ? 1 : (kk >= bias + 26 ? 26 : kk - bias);");
+            try writer.writeAll(" if (dg < t) break;");
+            try writer.writeAll(" if (w > ~(sa_u64)0 / (36 - t)) return 1;");
+            try writer.writeAll(" w *= 36 - t; kk += 36; }");
+            try writer.writeAll(" bias = sa_puny_adapt(idx - oldi, out + 1, first);");
+            try writer.writeAll(" first = 0;");
+            try writer.writeAll(" if (idx - oldi > (~(sa_u64)0 - n) / (out + 1)) return 1;");
+            try writer.writeAll(" n += (idx - oldi) / (out + 1);");
+            try writer.writeAll(" idx %= out + 1;");
+            try writer.writeAll(" if (n > 0x10FFFF) return 1;");
+            try writer.writeAll(" { sa_u64 z; for (z = out; z > idx; z--) {");
+            try writer.writeAll(" sa_mem[cd + z * 4] = sa_mem[cd + (z - 1) * 4];");
+            try writer.writeAll(" sa_mem[cd + z * 4 + 1] = sa_mem[cd + (z - 1) * 4 + 1];");
+            try writer.writeAll(" sa_mem[cd + z * 4 + 2] = sa_mem[cd + (z - 1) * 4 + 2];");
+            try writer.writeAll(" sa_mem[cd + z * 4 + 3] = sa_mem[cd + (z - 1) * 4 + 3]; } }");
+            try writer.writeAll(" sa_mem[cd + idx * 4] = (uint8_t)(n & 0xFF);");
+            try writer.writeAll(" sa_mem[cd + idx * 4 + 1] = (uint8_t)((n >> 8) & 0xFF);");
+            try writer.writeAll(" sa_mem[cd + idx * 4 + 2] = (uint8_t)((n >> 16) & 0xFF);");
+            try writer.writeAll(" sa_mem[cd + idx * 4 + 3] = (uint8_t)((n >> 24) & 0xFF);");
+            try writer.writeAll(" out++; idx++; }");
+            try writer.writeAll(" sa_u64 p = sa_alloc(out * 4);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, out * 4);");
+            try writer.writeAll(" sa_u64 w = 0; sa_u64 z;");
+            try writer.writeAll(" for (z = 0; z < out; z++) {");
+            try writer.writeAll(" uint32_t c = (uint32_t)sa_mem[cd + z * 4] | ((uint32_t)sa_mem[cd + z * 4 + 1] << 8) | ((uint32_t)sa_mem[cd + z * 4 + 2] << 16) | ((uint32_t)sa_mem[cd + z * 4 + 3] << 24);");
+            try writer.writeAll(" unsigned el = sa_utf8_enc(c, &sa_mem[d + w]);");
+            try writer.writeAll(" if (el == 0 || c > 0x10FFFF) return 1; w += el; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
         },
         .time_unix_ms => {
             // Real wall clock (mirrors the interpreter, not staged).
