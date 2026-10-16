@@ -65,12 +65,15 @@ fi
 
 echo "[i] building $TARGET (sysroot=$SYSROOT)..."
 cd "$REPO_ROOT"
+# NOTE(Zig 0.17): -Dsysroot/-Dlibc were removed from build.zig (Zig bundles
+# FreeBSD libc now); plain -Dtarget works. The $SYSROOT download above is
+# kept only as a local smoke-test environment, not passed to the build.
 if [ -n "$SA_VERSION" ]; then
     zig build -Dtarget="$TARGET" -Dllvm=false -Dversion="$SA_VERSION" \
-        -Dsysroot="$SYSROOT" -Dlibc="$LIBC_FILE" -p "$PREFIX"
+        -p "$PREFIX"
 else
     zig build -Dtarget="$TARGET" -Dllvm=false \
-        -Dsysroot="$SYSROOT" -Dlibc="$LIBC_FILE" -p "$PREFIX"
+        -p "$PREFIX"
 fi
 echo "[✓] FreeBSD build installed to $PREFIX"
 ls "$PREFIX/bin"

@@ -102,10 +102,15 @@ build_target() {
     # 2. Build SA Compiler
     working "Compiling sa compiler"
     LLVM_OPTION=""
-    if [ "$OS" = "windows" ]; then
-        # Windows release archives are explicitly bootstrap-level. Native
-        # LLVM codegen is validated by the separate CI job and can be enabled
-        # by users with explicit LLVM paths after installation.
+    # Cross targets cannot link the host's libLLVM (arch mismatch), so only
+    # a native linux build keeps the LLVM backend; every other archive is
+    # explicitly bootstrap-level (matches CI: only linux-full enables LLVM).
+    NATIVE_ARCH="$(uname -m)"
+    case "$NATIVE_ARCH" in
+        x86_64|amd64) NATIVE_ARCH="x86_64" ;;
+        aarch64|arm64) NATIVE_ARCH="aarch64" ;;
+    esac
+    if [ "$OS" != "linux" ] || [ "$ARCH" != "$NATIVE_ARCH" ]; then
         LLVM_OPTION="-Dllvm=false"
     fi
     if ! zig build -Dtarget="$ZIG_TARGET" -Doptimize=ReleaseSafe -Dversion="$VERSION" $LLVM_OPTION -Dllvm-include-dir="$LLVM_INCLUDE_DIR" -Dllvm-lib-dir="$LLVM_LIB_DIR" -Dllvm-lib-name="$LLVM_LIB_NAME" >/dev/null 2>&1; then
