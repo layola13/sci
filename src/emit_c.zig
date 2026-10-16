@@ -1434,6 +1434,126 @@ fn collectUsedHelpers(allocator: std.mem.Allocator, body_text: []const u8) !std.
     return used;
 }
 
+/// Staged host bindings for well-known externs (fd/mmap/signal/npm).
+/// These mirror the interpreter/JS staged semantics the demos assert on
+/// (fake fds, echo signal, byte-level npm checks) — NOT real syscalls,
+/// so output stays deterministic with no host dependencies. Emits the
+/// definition with the uniform-arity signature and returns true; unknown
+/// names return false and the caller falls back to the trap stub.
+fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usize, gas: bool) !bool {
+    const name = sigNormName(raw_name);
+    // `voids` bitmask: bit i set => emit `(void)a{i};`. Bit positions
+    // follow the extern's own arg order (a0 = first arg), so e.g. mmap
+    // voids a0 (fd, staged) while consuming a1 (len).
+    const Binding = struct { voids: u64, tag: enum {
+        fd_open,
+        fd_close,
+        fd_read,
+        mmap,
+        munmap,
+        signal,
+        npm_totalmem,
+        npm_parallelism,
+        npm_isabs,
+        npm_iseq,
+    } };
+    const all_void: u64 = ~@as(u64, 0);
+    const b: ?Binding = if (std.mem.eql(u8, name, "fd_open"))
+        .{ .voids = all_void, .tag = .fd_open }
+    else if (std.mem.eql(u8, name, "fd_close"))
+        .{ .voids = all_void, .tag = .fd_close }
+    else if (std.mem.eql(u8, name, "fd_read"))
+        .{ .voids = all_void, .tag = .fd_read }
+    else if (std.mem.eql(u8, name, "mmap"))
+        .{ .voids = 0b1, .tag = .mmap }
+    else if (std.mem.eql(u8, name, "munmap"))
+        .{ .voids = all_void, .tag = .munmap }
+    else if (std.mem.eql(u8, name, "signal"))
+        .{ .voids = all_void ^ 0b1, .tag = .signal }
+    else if (std.mem.eql(u8, name, "npm_totalmem"))
+        .{ .voids = all_void, .tag = .npm_totalmem }
+    else if (std.mem.eql(u8, name, "npm_parallelism"))
+        .{ .voids = all_void, .tag = .npm_parallelism }
+    else if (std.mem.eql(u8, name, "npm_isabs") or std.mem.eql(u8, name, "npm_ns_isabs"))
+        .{ .voids = all_void ^ 0b11, .tag = .npm_isabs }
+    else if (std.mem.eql(u8, name, "npm_iseq") or std.mem.eql(u8, name, "npm_ns_iseq"))
+        .{ .voids = all_void ^ 0b1111, .tag = .npm_iseq }
+    else
+        null;
+    const binding = b orelse return false;
+    // Uniform-arity signature (matches the fwd decl) + selective padding.
+    try writer.writeAll("static sa_u64 ");
+    try cFuncName(writer, raw_name);
+    try writer.writeAll("(");
+    if (uniform_arity == 0) {
+        try writer.writeAll("void");
+    } else {
+        for (0..uniform_arity) |pi| {
+            if (pi != 0) try writer.writeAll(", ");
+            try writer.print("sa_u64 a{d}", .{pi});
+        }
+    }
+    try writer.writeAll(") {");
+    for (0..uniform_arity) |pi| {
+        if (pi < 64 and (binding.voids >> @intCast(pi)) & 1 == 1) {
+            try writer.print(" (void)a{d};", .{pi});
+        }
+    }
+    if (gas) try writer.writeAll(" SA_GAS_CHECK(1);");
+    switch (binding.tag) {
+        .fd_open => {
+            // Fake fd counter from 3 (mirrors JS next-fd); the path is
+            // staged and unread, like the interpreter.
+            try writer.writeAll(" { static sa_u64 next_fd = 3; return next_fd++; } }\n");
+        },
+        .fd_close => {
+            try writer.writeAll(" return 0; }\n");
+        },
+        .fd_read => {
+            try writer.writeAll(" return 3; }\n");
+        },
+        .mmap => {
+            // Anonymous zero-filled mapping stands in for the host page
+            // (a1 = len; a0 fd is staged). Negative lengths trap inside
+            // sa_alloc via the OOM check.
+            try writer.writeAll(" return sa_alloc(a1); }\n");
+        },
+        .munmap => {
+            try writer.writeAll(" return 0; }\n");
+        },
+        .signal => {
+            // Echo the signal number back (staged oracle semantics).
+            try writer.writeAll(" return a0; }\n");
+        },
+        .npm_totalmem => {
+            // Deterministic 8GiB stand-in (asserted only as > 0).
+            try writer.writeAll(" return 8589934592ULL; }\n");
+        },
+        .npm_parallelism => {
+            // Deterministic stand-in (asserted only as >= 1).
+            try writer.writeAll(" return 4; }\n");
+        },
+        .npm_isabs => {
+            // Byte-level absolute-path check on guest memory (a0 = ptr,
+            // a1 = len); OOB traps via the checked address.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 == 0) return 0;");
+            try writer.writeAll(" return sa_mem[x] == (uint8_t)'/' ? 1 : 0; } }\n");
+        },
+        .npm_iseq => {
+            // Byte-level deep-equal on guest memory (a0/a1, a2/a3);
+            // OOB traps via the checked addresses.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if (a1 != a3) return 0;");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" if (sa_mem[x + i] != sa_mem[y + i]) return 0; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+    }
+    return true;
+}
+
 fn writePreamble(
     writer: anytype,
     c_opt: CEmitOptions,
@@ -2586,6 +2706,25 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     defer allocator.free(rest_text);
     var used = try collectUsedHelpers(allocator, rest_text);
     defer used.deinit();
+    // Seed helper uses from extern binding bodies (emitted after the
+    // preamble): render each called, known binding once and merge what
+    // it references, so e.g. mmap pulls sa_alloc. Unknown externs keep
+    // the trap stub, which needs only sa_trap (always present).
+    for (tasks) |task| {
+        if (task.kind != .extern_decl) continue;
+        const efsig = verified.function_sigs[task.fsig_index];
+        if (std.mem.eql(u8, sigNormName(efsig.name), "sa_print_bytes")) continue;
+        if (!bodyCallsFunction(rest_text, efsig.name)) continue;
+        var tmp: std.Io.Writer.Allocating = .init(allocator);
+        defer tmp.deinit();
+        if (!try writeExternBinding(&tmp.writer, efsig.name, uniform_arity, c_opt.gas)) continue;
+        const t = try tmp.toOwnedSlice();
+        defer allocator.free(t);
+        var bu = try collectUsedHelpers(allocator, t);
+        defer bu.deinit();
+        var bit = bu.iterator();
+        while (bit.next()) |e| try used.put(e.key_ptr.*, {});
+    }
     // Linear memory is needed for const bytes or any mem-touching helper.
     // (sa_brk only travels with the allocator; sa_mem stays out entirely
     // for pure-compute programs.)
@@ -2708,6 +2847,12 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         // code to auditors). Externs are only reachable via direct calls,
         // which render as `sa_fn_<name>(`, so a text scan is exact.
         if (!bodyCallsFunction(rest_text, fsig.name)) continue;
+        // Known externs get staged host bindings; anything else keeps the
+        // trap stub (uniform arity).
+        if (try writeExternBinding(writer, fsig.name, uniform_arity, c_opt.gas)) {
+            try emitted.put(fsig.name, {});
+            continue;
+        }
         // trap stub (uniform arity)
         try writer.writeAll("static sa_u64 ");
         try cFuncName(writer, fsig.name);
