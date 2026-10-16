@@ -742,9 +742,31 @@ fn emitFloatOperand(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, us
 }
 
 fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, lhs: inst.Operand, rhs: inst.Operand, widths: *const WidthMap) !void {
-    // Float ALU: both sides statically f32 -> f32 helpers; one side f32
-    // with the other unproven -> f32 helpers with truncation; otherwise
-    // f64 helpers with f32 sides promoted (mirrors JS f64-domain helpers).
+    // Float/int mixing (e.g. `eq(f64val, 10)` from TS `==`): exactly one
+    // statically-known float side plus a statically-known int side
+    // compares numerically in f64 (JS == parity, ints converted). All
+    // other shapes keep the legacy bitwise compare.
+    switch (opcode) {
+        .eq, .ne => {
+            const lk = cOperandKind(widths, fsig, use_global, lhs);
+            const rk = cOperandKind(widths, fsig, use_global, rhs);
+            const lf = lk == .float;
+            const rf = rk == .float;
+            const li = lk == .signed or lk == .unsigned;
+            const ri = rk == .signed or rk == .unsigned;
+            if ((lf and ri) or (li and rf)) {
+                try writer.print("{s}(", .{if (opcode == .eq) "sa_fcmp_eq" else "sa_fcmp_ne"});
+                try emitFNumOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, widths, lhs, lk, .f64);
+                try writer.writeAll(", ");
+                try emitFNumOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, widths, rhs, rk, .f64);
+                try writer.writeAll(")");
+                return;
+            }
+        },
+        else => {},
+    }
+    // Float ALU: f32 iff both sides proven f32, else f64 (int sides
+    // convert, unknowns go raw, f32 sides promote; mirrors JS).
     switch (opcode) {
         .fadd, .fsub, .fmul, .fdiv => {
             const base: []const u8 = switch (opcode) {
