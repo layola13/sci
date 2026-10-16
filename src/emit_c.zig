@@ -1427,6 +1427,28 @@ const kRuntimeHelpers: []const HelperDef = &.{
     .{ .name = "sa_regex_find", .code =
     \\static sa_regex_t *sa_regex_find(sa_u64 h) { unsigned i; for (i = 0; i < SA_REGEX_MAX_OBJS; i++) if (sa_regexes[i].h == h) return &sa_regexes[i]; return 0; }
     , .deps = &.{} },
+    .{ .name = "sa_div_floor", .code =
+    \\static sa_i64 sa_div_floor(sa_i64 a, sa_i64 b) { sa_i64 q = a / b; sa_i64 r = a % b; if (r != 0 && ((r < 0) != (b < 0))) q -= 1; return q; }
+    , .deps = &.{} },
+    .{ .name = "sa_mod_floor", .code =
+    \\static sa_i64 sa_mod_floor(sa_i64 a, sa_i64 b) { sa_i64 r = a % b; if ((r != 0) && ((r < 0) != (b < 0))) r += b; return r; }
+    , .deps = &.{} },
+    .{ .name = "sa_civil_ymd", .code =
+    \\static void sa_civil_ymd(sa_i64 ms, sa_i64 *y, sa_i64 *mo, sa_i64 *d) {
+    \\  sa_i64 days = sa_div_floor(ms, 86400000);
+    \\  sa_i64 z = days + 719468;
+    \\  sa_i64 era = (z >= 0) ? sa_div_floor(z, 146097) : sa_div_floor(z - 146096, 146097);
+    \\  sa_i64 doe = z - era * 146097;
+    \\  sa_i64 yoe = sa_div_floor(doe - sa_div_floor(doe, 1460) + sa_div_floor(doe, 36524) - sa_div_floor(doe, 146096), 365);
+    \\  sa_i64 yy = yoe + era * 400;
+    \\  sa_i64 doy = doe - (365 * yoe + sa_div_floor(yoe, 4) - sa_div_floor(yoe, 100));
+    \\  sa_i64 mp = sa_div_floor(5 * doy + 2, 153);
+    \\  sa_i64 month = (mp < 10) ? mp + 3 : mp - 9;
+    \\  *y = (month <= 2) ? yy + 1 : yy;
+    \\  *mo = month;
+    \\  *d = doy - sa_div_floor(153 * mp + 2, 5) + 1;
+    \\}
+    , .deps = &.{"sa_div_floor"} },
 };
 
 /// True iff the already-emitted body text calls `func_name` directly
@@ -1551,6 +1573,12 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         regex_group_count,
         regex_free,
         regex_match_free,
+        time_unix_ms,
+        time_get_full_year,
+        time_get_month,
+        time_get_date,
+        time_parse_iso,
+        time_set_field,
         http_client_new,
         http_client_req_new,
         http_client_req_add_header,
@@ -1692,6 +1720,18 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b1, .tag = .regex_free }
     else if (std.mem.eql(u8, name, "sa_regex_match_free"))
         .{ .voids = all_void, .tag = .regex_match_free }
+    else if (std.mem.eql(u8, name, "sa_time_unix_ms"))
+        .{ .voids = all_void, .tag = .time_unix_ms }
+    else if (std.mem.eql(u8, name, "sa_time_get_full_year"))
+        .{ .voids = all_void ^ 0b1, .tag = .time_get_full_year }
+    else if (std.mem.eql(u8, name, "sa_time_get_month"))
+        .{ .voids = all_void ^ 0b1, .tag = .time_get_month }
+    else if (std.mem.eql(u8, name, "sa_time_get_date"))
+        .{ .voids = all_void ^ 0b1, .tag = .time_get_date }
+    else if (std.mem.eql(u8, name, "sa_time_parse_iso"))
+        .{ .voids = all_void ^ 0b111, .tag = .time_parse_iso }
+    else if (std.mem.eql(u8, name, "sa_time_set_field"))
+        .{ .voids = all_void ^ 0b111, .tag = .time_set_field }
     else if (std.mem.eql(u8, name, "sa_http_client_new"))
         .{ .voids = all_void ^ 0b11, .tag = .http_client_new }
     else if (std.mem.eql(u8, name, "sa_http_client_req_new"))
@@ -2358,6 +2398,158 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             // returns OK, matching observable behavior.
             try writer.writeAll(" return 0; }\n");
         },
+        .time_unix_ms => {
+            // Real wall clock (mirrors the interpreter, not staged).
+            try writer.writeAll(" { struct timespec ts;");
+            try writer.writeAll(" if (clock_gettime(CLOCK_REALTIME, &ts) != 0) return 0;");
+            try writer.writeAll(" return (sa_u64)((sa_i64)ts.tv_sec * 1000 + ts.tv_nsec / 1000000); } }\n");
+        },
+        .time_get_full_year => {
+            try writer.writeAll(" { sa_i64 y, mo, d;");
+            try writer.writeAll(" sa_civil_ymd((sa_i64)a0, &y, &mo, &d);");
+            try writer.writeAll(" return (sa_u64)y; } }\n");
+        },
+        .time_get_month => {
+            // 0-based like JS getMonth (mirrors the interpreter).
+            try writer.writeAll(" { sa_i64 y, mo, d;");
+            try writer.writeAll(" sa_civil_ymd((sa_i64)a0, &y, &mo, &d);");
+            try writer.writeAll(" return (sa_u64)(mo - 1); } }\n");
+        },
+        .time_get_date => {
+            try writer.writeAll(" { sa_i64 y, mo, d;");
+            try writer.writeAll(" sa_civil_ymd((sa_i64)a0, &y, &mo, &d);");
+            try writer.writeAll(" return (sa_u64)d; } }\n");
+        },
+        .time_parse_iso => {
+            // Strict ISO YYYY-MM-DD[THH:MM:SS[.sss]][Z|+-HH:MM] to unix
+            // millis; 0 ok (writes *out_ms, pre-zeroed), 1 invalid.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_store_u64(a2, 0);");
+            try writer.writeAll(" size_t p = 0;");
+            try writer.writeAll(" sa_i64 v = 0; size_t k; size_t q;");
+            try writer.writeAll(" if ((size_t)a1 < 10) return 1;");
+            try writer.writeAll(" for (k = 0; k < 4; k++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" sa_i64 year = v; p = 4;");
+            try writer.writeAll(" if (sa_mem[x + p] != '-') return 1; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" sa_i64 month = v; p += 2;");
+            try writer.writeAll(" if (sa_mem[x + p] != '-') return 1; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" sa_i64 day = v; p += 2;");
+            try writer.writeAll(" sa_i64 hour = 0; sa_i64 minute = 0;");
+            try writer.writeAll(" sa_i64 second = 0; sa_i64 milli = 0;");
+            try writer.writeAll(" if (p < (size_t)a1) {");
+            try writer.writeAll(" uint8_t t = sa_mem[x + p];");
+            try writer.writeAll(" if (t != 'T' && t != 't' && t != ' ') return 1; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" if (p + k >= (size_t)a1) return 1;");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" hour = v; p += 2;");
+            try writer.writeAll(" if (p >= (size_t)a1 || sa_mem[x + p] != ':') return 1; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" if (p + k >= (size_t)a1) return 1;");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" minute = v; p += 2;");
+            try writer.writeAll(" if (p >= (size_t)a1 || sa_mem[x + p] != ':') return 1; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" if (p + k >= (size_t)a1) return 1;");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" second = v; p += 2;");
+            try writer.writeAll(" if (p < (size_t)a1 && sa_mem[x + p] == '.') { p++;");
+            try writer.writeAll(" size_t fs = p;");
+            try writer.writeAll(" while (p < (size_t)a1 && sa_mem[x + p] >= '0' && sa_mem[x + p] <= '9') p++;");
+            try writer.writeAll(" size_t fl = p - fs;");
+            try writer.writeAll(" if (fl == 0 || fl > 3) return 1;");
+            try writer.writeAll(" v = 0; for (q = fs; q < p; q++)");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(sa_mem[x + q] - '0');");
+            try writer.writeAll(" milli = fl == 1 ? v * 100 : (fl == 2 ? v * 10 : v); } }");
+            try writer.writeAll(" sa_i64 offm = 0;");
+            try writer.writeAll(" if (p < (size_t)a1) {");
+            try writer.writeAll(" uint8_t z = sa_mem[x + p];");
+            try writer.writeAll(" if (z == 'Z' || z == 'z') { p++; }");
+            try writer.writeAll(" else if (z == '+' || z == '-') {");
+            try writer.writeAll(" int neg = z == '-'; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" if (p + k >= (size_t)a1) return 1;");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" sa_i64 oh = v; p += 2;");
+            try writer.writeAll(" if (p >= (size_t)a1 || sa_mem[x + p] != ':') return 1; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" if (p + k >= (size_t)a1) return 1;");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" sa_i64 om = v; p += 2;");
+            try writer.writeAll(" if (oh > 23 || om > 59) return 1;");
+            try writer.writeAll(" offm = oh * 60 + om; if (neg) offm = -offm;");
+            try writer.writeAll(" } else return 1; }");
+            try writer.writeAll(" if (p != (size_t)a1) return 1;");
+            try writer.writeAll(" if (month < 1 || month > 12) return 1;");
+            try writer.writeAll(" { int leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));");
+            try writer.writeAll(" sa_i64 dim = 31;");
+            try writer.writeAll(" if (month == 2) dim = leap ? 29 : 28;");
+            try writer.writeAll(" else if (month == 4 || month == 6 || month == 9 || month == 11) dim = 30;");
+            try writer.writeAll(" if (day < 1 || day > dim) return 1; }");
+            try writer.writeAll(" if (hour > 23 || minute > 59 || second > 59) return 1;");
+            try writer.writeAll(" { sa_i64 yy = month <= 2 ? year - 1 : year;");
+            try writer.writeAll(" sa_i64 era = yy >= 0 ? sa_div_floor(yy, 400) : sa_div_floor(yy - 399, 400);");
+            try writer.writeAll(" sa_i64 yoe = yy - era * 400;");
+            try writer.writeAll(" sa_i64 mp = sa_mod_floor(month - 3, 12);");
+            try writer.writeAll(" sa_i64 doy = sa_div_floor(153 * mp + 2, 5) + day - 1;");
+            try writer.writeAll(" sa_i64 doe = yoe * 365 + sa_div_floor(yoe, 4) - sa_div_floor(yoe, 100) + doy;");
+            try writer.writeAll(" sa_i64 days = era * 146097 + doe - 719468;");
+            try writer.writeAll(" sa_store_u64(a2, (sa_u64)(((days * 86400 + hour * 3600 + minute * 60 + second) * 1000 + milli) - offm * 60000));");
+            try writer.writeAll(" return 0; } } }\n");
+        },
+        .time_set_field => {
+            try writer.writeAll(" { sa_i64 ms = (sa_i64)a0; sa_u64 f = a1; sa_i64 v = (sa_i64)a2;");
+            try writer.writeAll(" sa_i64 day_ms = sa_mod_floor(ms, 86400000);");
+            try writer.writeAll(" sa_i64 y, mo, d;");
+            try writer.writeAll(" sa_civil_ymd(ms, &y, &mo, &d);");
+            try writer.writeAll(" sa_i64 tod = day_ms / 3600000 * 3600000 + sa_mod_floor(day_ms, 3600000);");
+            try writer.writeAll(" tod = tod / 60000 * 60000 + sa_mod_floor(day_ms, 60000);");
+            try writer.writeAll(" tod = tod / 1000 * 1000 + sa_mod_floor(day_ms, 1000);");
+            try writer.writeAll(" if (f == 0) y = v;");
+            try writer.writeAll(" else if (f == 1) {");
+            try writer.writeAll(" sa_i64 tm = y * 12 + v;");
+            try writer.writeAll(" y = sa_div_floor(tm, 12); mo = sa_mod_floor(tm, 12) + 1; }");
+            try writer.writeAll(" else if (f == 2) d = v;");
+            try writer.writeAll(" else if (f == 3) tod = v * 3600000 + sa_mod_floor(tod, 3600000);");
+            try writer.writeAll(" else if (f == 4) tod = (tod - sa_mod_floor(tod, 3600000)) + v * 60000 + sa_mod_floor(tod, 60000);");
+            try writer.writeAll(" else if (f == 5) tod = (tod - sa_mod_floor(tod, 60000)) + v * 1000 + sa_mod_floor(tod, 1000);");
+            try writer.writeAll(" else if (f == 6) tod = tod - sa_mod_floor(tod, 1000) + v;");
+            try writer.writeAll(" else return ms;");
+            try writer.writeAll(" { sa_i64 tm = y * 12 + (mo - 1);");
+            try writer.writeAll(" sa_i64 y2 = sa_div_floor(tm, 12);");
+            try writer.writeAll(" sa_i64 m2 = sa_mod_floor(tm, 12) + 1;");
+            try writer.writeAll(" sa_i64 yy = m2 <= 2 ? y2 - 1 : y2;");
+            try writer.writeAll(" sa_i64 era = yy >= 0 ? sa_div_floor(yy, 400) : sa_div_floor(yy - 399, 400);");
+            try writer.writeAll(" sa_i64 yoe = yy - era * 400;");
+            try writer.writeAll(" sa_i64 mp = sa_mod_floor(m2 - 3, 12);");
+            try writer.writeAll(" sa_i64 doy = sa_div_floor(153 * mp + 2, 5) + d - 1;");
+            try writer.writeAll(" sa_i64 doe = yoe * 365 + sa_div_floor(yoe, 4) - sa_div_floor(yoe, 100) + doy;");
+            try writer.writeAll(" sa_i64 dys = era * 146097 + doe - 719468;");
+            try writer.writeAll(" sa_i64 tdys = dys + sa_div_floor(tod, 86400000);");
+            try writer.writeAll(" sa_i64 tnorm = tod - sa_div_floor(tod, 86400000) * 86400000;");
+            try writer.writeAll(" return (sa_u64)((tdys * 86400) * 1000 + tnorm); } } }\n");
+        },
         .http_client_new => {
             try writer.writeAll(" { sa_u64 h = sa_alloc(8);");
             try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
@@ -2518,10 +2710,16 @@ fn writePreamble(
     need_owned: bool,
     need_modstate: bool,
     need_regex: bool,
+    need_time_clock: bool,
 ) !void {
     const mem_bytes: usize = @as(usize, c_opt.mem_pages) * 65536;
     try writer.print("/* Generated by `sa build-c` (c backend, MVP). DO NOT EDIT. */\n", .{});
     try writer.print("/* size_bits={d} mem_bytes={d} */\n", .{ size_bits, mem_bytes });
+    // Feature-test macro must precede ALL system headers (glibc locks
+    // strict-ANSI mode on first include otherwise, hiding clock_gettime).
+    if (need_time_clock) {
+        try writer.writeAll("#ifndef _POSIX_C_SOURCE\n#define _POSIX_C_SOURCE 200809L\n#endif\n");
+    }
     try writer.writeAll(
         \\#include <stdint.h>
         \\#include <stdio.h>
@@ -2602,6 +2800,14 @@ fn writePreamble(
             \\#endif
             \\typedef struct { sa_u64 h; regex_t rx; } sa_regex_t;
             \\static sa_regex_t sa_regexes[SA_REGEX_MAX_OBJS];
+            \\
+        );
+    }
+    // Wall-clock needs <time.h> (the _POSIX_C_SOURCE define above
+    // already precedes all headers); pure civil arithmetic needs nothing.
+    if (need_time_clock) {
+        try writer.writeAll(
+            \\#include <time.h>
             \\
         );
     }
@@ -3790,6 +3996,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     var need_owned = false;
     var need_modstate = false;
     var need_regex = false;
+    var need_time_clock = false;
     for (tasks) |task| {
         if (task.kind != .extern_decl) continue;
         const efsig = verified.function_sigs[task.fsig_index];
@@ -3803,6 +4010,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_owned_") != null) need_owned = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_modstate_") != null) need_modstate = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_regex_") != null) need_regex = true;
+        if (std.mem.indexOf(u8, tmp.writer.buffered(), "clock_gettime") != null) need_time_clock = true;
         const t = try tmp.toOwnedSlice();
         defer allocator.free(t);
         // Self-check every rendered binding: unbalanced output fails the
@@ -3829,7 +4037,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         }
     }
     const need_brk = used.get("sa_alloc") != null;
-    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk, need_http, need_owned, need_modstate, need_regex);
+    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk, need_http, need_owned, need_modstate, need_regex, need_time_clock);
     try writer.print("/* source: {s} */\n", .{source_path});
     // const address defines
     for (verified.const_decls) |decl| {
