@@ -10,35 +10,23 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-
-// wasm32-wasi has no dlopen: stub DynLib so loader probes honestly report
-// "unsupported" instead of breaking the build.
-const is_wasi = builtin.os.tag == .wasi;
-const WasiDynLib = struct {
-    fn open(path: []const u8) !WasiDynLib {
-        _ = path;
-        return error.Unsupported;
-    }
-    fn openZ(path: [:0]const u8) !WasiDynLib {
-        _ = path;
-        return error.Unsupported;
-    }
-    fn close(self: WasiDynLib) void {
-        _ = self;
-    }
-    fn lookup(self: WasiDynLib, comptime T: type, name: [:0]const u8) ?T {
-        _ = self;
-        _ = name;
-        return null;
-    }
-};
-const DynLib = if (is_wasi) WasiDynLib else std.DynLib;
+const sio = @import("sio");
 
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
 const SA_STD_ERR_UNSUPPORTED: i32 = -1;
 const SA_STD_ERR_IO: i32 = -5;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
+
+// wasm32-wasi: usize is 32-bit, C ABI passes u64 lengths. Checked conversion
+// returns INVALID_ARGUMENT instead of silent truncation or wasm trap.
+fn u64ToUsize(v: u64) ?usize {
+    return std.math.cast(usize, v);
+}
+
+fn ptrFromU64(T: type, h: u64) *T {
+    return @ptrFromInt(@as(usize, @intCast(h)));
+}
 
 const SslCtx = opaque {};
 const Ssl = opaque {};
@@ -65,7 +53,7 @@ const SSL_FILETYPE_PEM: c_int = 1;
 const BIO_CLOSE: c_int = 0x00;
 
 const DtlsApi = struct {
-    lib: DynLib,
+    lib: if (builtin.cpu.arch.isWasm()) void else std.DynLib,
     method_new: SslMethodNew,
     ctx_new: SslCtxNew,
     ctx_free: SslCtxFree,
@@ -84,11 +72,12 @@ const DtlsApi = struct {
 };
 
 var dtls_api: ?DtlsApi = null;
-var dtls_api_mutex = std.Thread.Mutex{};
+var dtls_api_mutex = std.Io.Mutex.init;
 
 fn loadDtlsApi() ?*DtlsApi {
-    dtls_api_mutex.lock();
-    defer dtls_api_mutex.unlock();
+    if (comptime builtin.cpu.arch.isWasm()) return null;
+    dtls_api_mutex.lockUncancelable(sio.io());
+    defer dtls_api_mutex.unlock(sio.io());
     if (dtls_api) |*api| return api;
 
     const ssl_candidates = [_][]const u8{
@@ -96,9 +85,9 @@ fn loadDtlsApi() ?*DtlsApi {
         "/usr/lib/x86_64-linux-gnu/libssl.so.3",
         "libssl.so.3",
     };
-    var l: ?DynLib = null;
+    var l: ?std.DynLib = null;
     for (ssl_candidates) |c| {
-        if (DynLib.open(c)) |ok| {
+        if (std.DynLib.open(c)) |ok| {
             l = ok;
             break;
         } else |_| {}
@@ -195,12 +184,13 @@ pub export fn sa_std_dtls_supported(out: ?*u32) i32 {
 }
 
 pub export fn sa_std_dtls_server_ctx_create(cert_path_ptr: ?[*]const u8, cert_path_len: u64, key_path_ptr: ?[*]const u8, key_path_len: u64, out_ctx: ?*u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_ctx orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     const api = loadDtlsApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    const cert_path = if (cert_path_ptr) |p| p[0..cert_path_len] else return SA_STD_ERR_INVALID_ARGUMENT;
-    const key_path = if (key_path_ptr) |p| p[0..key_path_len] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const cert_n = u64ToUsize(cert_path_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const key_n = u64ToUsize(key_path_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const cert_path = if (cert_path_ptr) |p| p[0..cert_n] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const key_path = if (key_path_ptr) |p| p[0..key_n] else return SA_STD_ERR_INVALID_ARGUMENT;
     var cert_z: [4096]u8 = undefined;
     var key_z: [4096]u8 = undefined;
     if (cert_path.len >= cert_z.len or key_path.len >= key_z.len) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -224,10 +214,9 @@ pub export fn sa_std_dtls_server_ctx_create(cert_path_ptr: ?[*]const u8, cert_pa
 }
 
 pub export fn sa_std_dtls_server_ctx_free(ctx_handle: u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     if (ctx_handle == 0) return SA_STD_OK;
     const api = loadDtlsApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    api.ctx_free(@ptrFromInt(ctx_handle));
+    api.ctx_free(ptrFromU64(SslCtx, ctx_handle));
     return SA_STD_OK;
 }
 
@@ -235,12 +224,11 @@ pub export fn sa_std_dtls_server_ctx_free(ctx_handle: u64) i32 {
 // SSL_set_fd (OpenSSL's BIO_dgram path can also be used, but set_fd is the
 // simplest real handshake path for a bound UDP socket).
 pub export fn sa_std_dtls_server_accept(ctx_handle: u64, fd: i32, out_ssl: ?*u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_ssl orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (ctx_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     const api = loadDtlsApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    const ctx: *SslCtx = @ptrFromInt(ctx_handle);
+    const ctx: *SslCtx = ptrFromU64(SslCtx, ctx_handle);
     const ssl = api.new(ctx) orelse return SA_STD_ERR_IO;
     if (api.set_fd(ssl, fd) != 1) {
         api.free(ssl);
@@ -257,43 +245,40 @@ pub export fn sa_std_dtls_server_accept(ctx_handle: u64, fd: i32, out_ssl: ?*u64
 }
 
 pub export fn sa_std_dtls_server_read(ssl_handle: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_read orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (ssl_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     const buf = out orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const root: [*]u8 = buf;
     const api = loadDtlsApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    const rc = api.read(@ptrFromInt(ssl_handle), root, @intCast(@min(cap, @as(u64, @intCast(std.math.maxInt(c_int))))));
+    const rc = api.read(ptrFromU64(Ssl, ssl_handle), root, @intCast(@min(cap, @as(u64, @intCast(std.math.maxInt(c_int))))));
     if (rc <= 0) return SA_STD_ERR_IO;
     slot.* = @intCast(rc);
     return SA_STD_OK;
 }
 
 pub export fn sa_std_dtls_server_write(ssl_handle: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_written orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (ssl_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     const src = buf orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const api = loadDtlsApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    const rc = api.write(@ptrFromInt(ssl_handle), src, @intCast(@min(len, @as(u64, @intCast(std.math.maxInt(c_int))))));
+    const rc = api.write(ptrFromU64(Ssl, ssl_handle), src, @intCast(@min(len, @as(u64, @intCast(std.math.maxInt(c_int))))));
     if (rc <= 0) return SA_STD_ERR_IO;
     slot.* = @intCast(rc);
     return SA_STD_OK;
 }
 
 pub export fn sa_std_dtls_server_close(ssl_handle: u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     if (ssl_handle == 0) return SA_STD_OK;
     const api = loadDtlsApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    _ = api.shutdown(@ptrFromInt(ssl_handle));
-    api.free(@ptrFromInt(ssl_handle));
+    _ = api.shutdown(ptrFromU64(Ssl, ssl_handle));
+    api.free(ptrFromU64(Ssl, ssl_handle));
     return SA_STD_OK;
 }
 
-var dtls_string_mutex = std.Thread.Mutex{};
-var dtls_string_registry = std.ArrayListUnmanaged(?[]u8){};
+var dtls_string_mutex = std.Io.Mutex.init;
+var dtls_string_registry = std.ArrayListUnmanaged(?[]u8).empty;
 
 pub export fn sa_std_dtls_status_json(out_handle: ?*u64) i32 {
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
@@ -307,8 +292,8 @@ pub export fn sa_std_dtls_status_json(out_handle: ?*u64) i32 {
 }
 
 fn registerString(bytes: []u8, slot: *u64) i32 {
-    dtls_string_mutex.lock();
-    defer dtls_string_mutex.unlock();
+    dtls_string_mutex.lockUncancelable(sio.io());
+    defer dtls_string_mutex.unlock(sio.io());
     var i: usize = 0;
     while (i < dtls_string_registry.items.len) : (i += 1) {
         if (dtls_string_registry.items[i] == null) {
@@ -324,8 +309,8 @@ fn registerString(bytes: []u8, slot: *u64) i32 {
 
 fn takeString(handle: u64) ?[]u8 {
     if (handle == 0) return null;
-    dtls_string_mutex.lock();
-    defer dtls_string_mutex.unlock();
+    dtls_string_mutex.lockUncancelable(sio.io());
+    defer dtls_string_mutex.unlock(sio.io());
     const idx: usize = @intCast(handle - 1);
     if (idx >= dtls_string_registry.items.len) return null;
     return dtls_string_registry.items[idx];
@@ -340,8 +325,8 @@ pub export fn sa_std_dtls_buffer_len(handle: u64) u64 {
     return @intCast(s.len);
 }
 pub export fn sa_std_dtls_buffer_free(handle: u64) i32 {
-    dtls_string_mutex.lock();
-    defer dtls_string_mutex.unlock();
+    dtls_string_mutex.lockUncancelable(sio.io());
+    defer dtls_string_mutex.unlock(sio.io());
     if (handle == 0) return SA_STD_OK;
     const idx: usize = @intCast(handle - 1);
     if (idx >= dtls_string_registry.items.len) return SA_STD_ERR_INVALID_ARGUMENT;

@@ -1,0 +1,35 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"(3, 4)\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Pair_SIZE = 8
+#def Pair_0 = +0
+#def Pair_1 = +4
+
+@main() -> i32:
+L_ENTRY:
+    pair = alloc Pair_SIZE
+    store pair+Pair_0, 3 as i32
+    store pair+Pair_1, 4 as i32
+    left = load pair+Pair_0 as i32
+    right = load pair+Pair_1 as i32
+    ok_left = eq left, 3
+    ok_right = eq right, 4
+    ok = and ok_left, ok_right
+    !left
+    !right
+    !ok_left
+    !ok_right
+    !pair
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 7)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"950\n"
+
+// 950 - Segment: 950 = 900 + 50 across segment slots, code 0.
+@main() -> i32:
+L_ENTRY:
+    sg = alloc 16
+    store sg+0, 900 as i64
+    store sg+8, 50 as i64
+    a = load sg+0 as i64
+    b = load sg+8 as i64
+    got = add a, b
+    want = 950 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !sg
+    !a
+    !b
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -15,6 +15,7 @@
 //
 // Status codes follow the sci convention: 0 = SA_STD_OK.
 const std = @import("std");
+const sio = @import("sio");
 
 const SA_STD_OK: i32 = 0;
 
@@ -24,8 +25,8 @@ const Entry = struct {
     slot: *u64,
 };
 
-var registry_mutex = std.Thread.Mutex{};
-var entries = std.ArrayList(Entry).init(std.heap.page_allocator);
+var registry_mutex = std.Io.Mutex.init;
+var entries = std.array_list.Managed(Entry).init(std.heap.page_allocator);
 
 /// Availability probe (same `*_supported` convention as the http2/tls/dtls/
 /// quic modules). Thread-local storage is pure Zig with no native backend,
@@ -43,8 +44,8 @@ const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
 /// failed `alloc` in SA).
 pub export fn sa_thread_local_slot(key: u64) ?*u64 {
     const tid: u64 = @as(u64, @intCast(std.Thread.getCurrentId()));
-    registry_mutex.lock();
-    defer registry_mutex.unlock();
+    registry_mutex.lockUncancelable(sio.io());
+    defer registry_mutex.unlock(sio.io());
 
     for (entries.items) |e| {
         if (e.tid == tid and e.key == key) return e.slot;

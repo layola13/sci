@@ -1,0 +1,62 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"854\n"
+
+// 854 - Round-robin: cycle 3 workers twice, 800 + 54 == 854.
+@w0() -> i64:
+L_ENTRY:
+    return 50
+
+@w1() -> i64:
+L_ENTRY:
+    return 20
+
+@w2() -> i64:
+L_ENTRY:
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    a = call @w0()
+    b = call @w1()
+    c = call @w2()
+    d = call @w0()
+    e = call @w1()
+    f = call @w2()
+    ab = add a, b
+    cd = add c, d
+    ef = add e, f
+    s0 = add ab, cd
+    arms = add s0, ef
+    base = 700 as i64
+    got = add base, arms
+    want = 854 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !a
+    !b
+    !c
+    !d
+    !e
+    !f
+    !ab
+    !cd
+    !ef
+    !s0
+    !arms
+    !base
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

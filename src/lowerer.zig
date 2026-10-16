@@ -2,6 +2,7 @@ const std = @import("std");
 const common_instruction = @import("common/instruction.zig");
 const call = @import("referee/call.zig");
 const referee = @import("referee.zig");
+const sio = @import("sio");
 
 pub const LowerError = error{
     InvalidOperand,
@@ -88,23 +89,23 @@ fn operandReg(inst: common_instruction.Instruction, index: usize) !u32 {
     };
 }
 
-fn appendLine(list: *std.ArrayList(u8), text: []const u8) !void {
+fn appendLine(list: *std.array_list.Managed(u8), text: []const u8) !void {
     try list.appendSlice(text);
     try list.append('\n');
 }
 
-fn emitPanicExit(out: *std.ArrayList(u8), code_expr: []const u8) !void {
-    try out.writer().print("    const __panic_code: i32 = @as(i32, @intCast({s}));\n", .{code_expr});
+fn emitPanicExit(out: *std.array_list.Managed(u8), code_expr: []const u8) !void {
+    try out.print("    const __panic_code: i32 = @as(i32, @intCast({s}));\n", .{code_expr});
     try appendLine(out, "    std.debug.print(\"PANIC: code={d}\\n\", .{__panic_code});");
     try appendLine(out, "    const __panic_exit: u8 = @as(u8, @truncate((@as(u32, @bitCast(__panic_code)) & 0x7f) + 128));");
     try appendLine(out, "    std.process.exit(__panic_exit);");
     try appendLine(out, "    unreachable;");
 }
 
-fn emitPanicMsgExit(out: *std.ArrayList(u8), code_expr: []const u8, msg_expr: []const u8, len_expr: []const u8) !void {
-    try out.writer().print("    const __panic_code: i32 = @as(i32, @intCast({s}));\n", .{code_expr});
-    try out.writer().print("    const __panic_msg_ptr: [*]const u8 = @ptrCast({s});\n", .{msg_expr});
-    try out.writer().print("    const __panic_msg = __panic_msg_ptr[0..@as(usize, @intCast({s}))];\n", .{len_expr});
+fn emitPanicMsgExit(out: *std.array_list.Managed(u8), code_expr: []const u8, msg_expr: []const u8, len_expr: []const u8) !void {
+    try out.print("    const __panic_code: i32 = @as(i32, @intCast({s}));\n", .{code_expr});
+    try out.print("    const __panic_msg_ptr: [*]const u8 = @ptrCast({s});\n", .{msg_expr});
+    try out.print("    const __panic_msg = __panic_msg_ptr[0..@as(usize, @intCast({s}))];\n", .{len_expr});
     try appendLine(out, "    std.debug.print(\"PANIC[{d}]: {s}\\n\", .{__panic_code, __panic_msg});");
     try appendLine(out, "    const __panic_exit: u8 = @as(u8, @truncate((@as(u32, @bitCast(__panic_code)) & 0x7f) + 128));");
     try appendLine(out, "    std.process.exit(__panic_exit);");
@@ -121,7 +122,7 @@ fn hasReturnValue(annotated: []const referee.AnnotatedInstruction) bool {
 }
 
 pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedInstruction) ![]const u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
 
     try appendLine(&out, "const std = @import(\"std\");");
@@ -144,41 +145,41 @@ pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedI
                     .imm_i64 => |n| @as(u64, @intCast(if (n > 0) n else 0)),
                     else => return LowerError.InvalidOperand,
                 };
-                try out.writer().print("    // {s}\n", .{inst.raw_text});
-                try out.writer().print("    const {s} = try allocator.alloc(u8, {d});\n", .{ regName(dst), size });
+                try out.print("    // {s}\n", .{inst.raw_text});
+                try out.print("    const {s} = try allocator.alloc(u8, {d});\n", .{ regName(dst), size });
             },
             .borrow => {
                 const dst = try operandReg(inst, 0);
                 const source = try operandReg(inst, 1);
                 const mode = operandText(inst, 2);
-                try out.writer().print("    // {s}\n", .{inst.raw_text});
+                try out.print("    // {s}\n", .{inst.raw_text});
                 if (std.mem.eql(u8, mode, "mut")) {
-                    try out.writer().print("    const {s} = &{s};\n", .{ regName(dst), regName(source) });
+                    try out.print("    const {s} = &{s};\n", .{ regName(dst), regName(source) });
                 } else {
-                    try out.writer().print("    const {s} = {s};\n", .{ regName(dst), regName(source) });
+                    try out.print("    const {s} = {s};\n", .{ regName(dst), regName(source) });
                 }
             },
             .move_ => {
                 const reg = try operandReg(inst, 0);
-                try out.writer().print("    // {s}\n", .{inst.raw_text});
-                try out.writer().print("    const {s}_moved = {s};\n", .{ regName(reg), regName(reg) });
+                try out.print("    // {s}\n", .{inst.raw_text});
+                try out.print("    const {s}_moved = {s};\n", .{ regName(reg), regName(reg) });
             },
             .release => {
                 const reg = try operandReg(inst, 0);
-                try out.writer().print("    // {s}\n", .{inst.raw_text});
-                try out.writer().print("    _ = {s};\n", .{regName(reg)});
+                try out.print("    // {s}\n", .{inst.raw_text});
+                try out.print("    _ = {s};\n", .{regName(reg)});
             },
             .assign => {
                 const dst = try operandReg(inst, 0);
-                try out.writer().print("    // {s}\n", .{inst.raw_text});
-                try out.writer().print("    const {s} = ", .{regName(dst)});
+                try out.print("    // {s}\n", .{inst.raw_text});
+                try out.print("    const {s} = ", .{regName(dst)});
                 switch (inst.operands[1]) {
-                    .reg => |id| try out.writer().print("{s}", .{regName(id)}),
-                    .imm_i64 => |v| try out.writer().print("{d}", .{v}),
-                    .imm_u64 => |v| try out.writer().print("{d}", .{v}),
-                    .imm_int => |v| try out.writer().print("{d}", .{v}),
-                    .imm_float => |v| try out.writer().print("{d}", .{v}),
-                    .text => |t| try out.writer().print("{s}", .{t}),
+                    .reg => |id| try out.print("{s}", .{regName(id)}),
+                    .imm_i64 => |v| try out.print("{d}", .{v}),
+                    .imm_u64 => |v| try out.print("{d}", .{v}),
+                    .imm_int => |v| try out.print("{d}", .{v}),
+                    .imm_float => |v| try out.print("{d}", .{v}),
+                    .text => |t| try out.print("{s}", .{t}),
                     else => return LowerError.InvalidOperand,
                 }
                 try out.appendSlice(";\n");
@@ -191,8 +192,8 @@ pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedI
                     .imm_i64 => |n| @as(u64, @intCast(if (n > 0) n else 0)),
                     else => return LowerError.InvalidOperand,
                 };
-                try out.writer().print("    // {s}\n", .{inst.raw_text});
-                try out.writer().print("    const {s} = @as(*u8, @ptrCast(@alignCast({s}.ptr + {d}))).*;\n", .{ regName(dst), regName(src), offset });
+                try out.print("    // {s}\n", .{inst.raw_text});
+                try out.print("    const {s} = @as(*u8, @ptrCast(@alignCast({s}.ptr + {d}))).*;\n", .{ regName(dst), regName(src), offset });
             },
             .store => {
                 const base = try operandReg(inst, 0);
@@ -202,37 +203,37 @@ pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedI
                     else => return LowerError.InvalidOperand,
                 };
                 const value = operandText(inst, 2);
-                try out.writer().print("    // {s}\n", .{inst.raw_text});
-                try out.writer().print("    @as(*u8, @ptrCast(@alignCast({s}.ptr + {d}))).* = {s};\n", .{ regName(base), offset, value });
+                try out.print("    // {s}\n", .{inst.raw_text});
+                try out.print("    @as(*u8, @ptrCast(@alignCast({s}.ptr + {d}))).* = {s};\n", .{ regName(base), offset, value });
             },
             .op => {
                 const dst = try operandReg(inst, 0);
-                try out.writer().print("    // {s}\n", .{inst.raw_text});
+                try out.print("    // {s}\n", .{inst.raw_text});
                 if (inst.op_kind) |op_kind| {
                     switch (op_kind) {
                         .neg, .not, .fneg => {
                             const src = try operandReg(inst, 1);
-                            try out.writer().print("    const {s} = {s}{s};\n", .{ regName(dst), opName(op_kind), regName(src) });
+                            try out.print("    const {s} = {s}{s};\n", .{ regName(dst), opName(op_kind), regName(src) });
                         },
                         .trunc, .zext, .sext, .fptosi, .sitofp, .uitofp, .fptrunc, .fpext, .bitcast => {
                             const src = try operandReg(inst, 1);
-                            try out.writer().print("    const {s} = {s}({s});\n", .{ regName(dst), opName(op_kind), regName(src) });
+                            try out.print("    const {s} = {s}({s});\n", .{ regName(dst), opName(op_kind), regName(src) });
                         },
                         .extract_lane => {
                             const vec = try operandReg(inst, 1);
                             const lane = try operandReg(inst, 2);
-                            try out.writer().print("    const {s} = {s}({s}, {s});\n", .{ regName(dst), opName(op_kind), regName(vec), regName(lane) });
+                            try out.print("    const {s} = {s}({s}, {s});\n", .{ regName(dst), opName(op_kind), regName(vec), regName(lane) });
                         },
                         .insert_lane, .shuffle_v128 => {
                             const a = try operandReg(inst, 1);
                             const b = try operandReg(inst, 2);
                             const c = try operandReg(inst, 3);
-                            try out.writer().print("    const {s} = {s}({s}, {s}, {s});\n", .{ regName(dst), opName(op_kind), regName(a), regName(b), regName(c) });
+                            try out.print("    const {s} = {s}({s}, {s}, {s});\n", .{ regName(dst), opName(op_kind), regName(a), regName(b), regName(c) });
                         },
                         else => {
                             const lhs = try operandReg(inst, 1);
                             const rhs = try operandReg(inst, 2);
-                            try out.writer().print("    const {s} = {s} {s} {s};\n", .{ regName(dst), regName(lhs), opName(op_kind), regName(rhs) });
+                            try out.print("    const {s} = {s} {s} {s};\n", .{ regName(dst), regName(lhs), opName(op_kind), regName(rhs) });
                         },
                     }
                 } else {
@@ -247,8 +248,8 @@ pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedI
                     .imm_i64 => |n| @as(u64, @intCast(if (n > 0) n else 0)),
                     else => return LowerError.InvalidOperand,
                 };
-                try out.writer().print("    // {s}\n", .{inst.raw_text});
-                try out.writer().print("    const {s} = @as(*usize, @ptrCast(@alignCast({s}.ptr + {d}))).*;\n", .{ regName(dst), regName(base), offset });
+                try out.print("    // {s}\n", .{inst.raw_text});
+                try out.print("    const {s} = @as(*usize, @ptrCast(@alignCast({s}.ptr + {d}))).*;\n", .{ regName(dst), regName(base), offset });
             },
             .jmp => {
                 return LowerError.UnsupportedInstruction;
@@ -269,21 +270,21 @@ pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedI
                 var parsed = call.parseCall(allocator, inst.raw_text) catch return LowerError.InvalidOperand;
                 defer parsed.deinit(allocator);
                 if (parsed.args.len != 1) return LowerError.InvalidOperand;
-                try out.writer().print("    // {s}\n", .{inst.raw_text});
+                try out.print("    // {s}\n", .{inst.raw_text});
                 try emitPanicExit(&out, parsed.args[0].text);
             },
             .panic_msg => {
                 var parsed = call.parseCall(allocator, inst.raw_text) catch return LowerError.InvalidOperand;
                 defer parsed.deinit(allocator);
                 if (parsed.args.len != 3) return LowerError.InvalidOperand;
-                try out.writer().print("    // {s}\n", .{inst.raw_text});
+                try out.print("    // {s}\n", .{inst.raw_text});
                 try emitPanicMsgExit(&out, parsed.args[0].text, parsed.args[1].text, parsed.args[2].text);
             },
             .return_ => {
-                try out.writer().print("    // {s}\n", .{inst.raw_text});
+                try out.print("    // {s}\n", .{inst.raw_text});
                 if (inst.operands[0] == .reg) {
                     const reg = try operandReg(inst, 0);
-                    try out.writer().print("    return {s};\n", .{regName(reg)});
+                    try out.print("    return {s};\n", .{regName(reg)});
                 } else {
                     try appendLine(&out, "    return;");
                 }
@@ -313,7 +314,7 @@ pub fn lower(allocator: std.mem.Allocator, annotated: []const referee.AnnotatedI
                 return LowerError.UnsupportedInstruction;
             },
             .native => {
-                try out.writer().print("    {s}\n", .{operandText(inst, 0)});
+                try out.print("    {s}\n", .{operandText(inst, 0)});
             },
             else => {
                 return LowerError.UnsupportedInstruction;
@@ -491,20 +492,24 @@ test "lowerer output survives zig fmt" {
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    const tmp_dir: sio.Dir = .{ .inner = tmp.dir };
 
-    const file = try tmp.dir.createFile("generated.zig", .{ .truncate = true });
+    const file = try tmp_dir.createFile("generated.zig", .{ .truncate = true });
     defer file.close();
     try file.writeAll(text);
 
-    const child = try std.process.Child.run(.{
+    const resolved_zig = try sio.resolveHostExe(std.testing.allocator, "zig");
+    defer if (resolved_zig) |p| std.testing.allocator.free(p);
+    const zig_exe = resolved_zig orelse "zig";
+    const child = try sio.Child.run(.{
         .allocator = std.testing.allocator,
-        .argv = &.{ "zig", "fmt", "--check", "generated.zig" },
-        .cwd_dir = tmp.dir,
+        .argv = &.{ zig_exe, "fmt", "--check", "generated.zig" },
+        .cwd_dir = tmp_dir,
     });
     defer std.testing.allocator.free(child.stdout);
     defer std.testing.allocator.free(child.stderr);
     switch (child.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
                 std.debug.print("generated:\n{s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ text, child.stdout, child.stderr });
                 return error.TestUnexpectedResult;

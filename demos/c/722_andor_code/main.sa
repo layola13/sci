@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"722\n"
+
+// 722 - And/or combo: (700==700 and 22==22) or (0==1) holds.
+@main() -> i32:
+L_ENTRY:
+    a = 700 as i64
+    b = 700 as i64
+    c = 22 as i64
+    d = 22 as i64
+    e = 0 as i64
+    f = 1 as i64
+    ok0 = eq a, b
+    ok1 = eq c, d
+    ok2 = eq e, f
+    t0 = and ok0, ok1
+    ok = or t0, ok2
+    !a
+    !b
+    !c
+    !d
+    !e
+    !f
+    !ok0
+    !ok1
+    !ok2
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,45 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"410\n"
+
+// 410 - fcmp family agrees on ordering (2.0 vs 3.0:
+// ne=1, le=1, gt=0, ge=0).
+@main() -> i32:
+L_ENTRY:
+    two_i = 2 as i32
+    three_i = 3 as i32
+    fa = sitofp two_i as f64
+    fb = sitofp three_i as f64
+    r_ne = fcmp_ne fa, fb
+    r_le = fcmp_le fa, fb
+    r_gt = fcmp_gt fa, fb
+    r_ge = fcmp_ge fa, fb
+    ok_ne = eq r_ne, 1
+    ok_le = eq r_le, 1
+    ok_gt = eq r_gt, 0
+    ok_ge = eq r_ge, 0
+    t1 = and ok_ne, ok_le
+    t2 = and ok_gt, ok_ge
+    ok = and t1, t2
+    !two_i
+    !three_i
+    !fa
+    !fb
+    !r_ne
+    !r_le
+    !r_gt
+    !r_ge
+    !ok_ne
+    !ok_le
+    !ok_gt
+    !ok_ge
+    !t1
+    !t2
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

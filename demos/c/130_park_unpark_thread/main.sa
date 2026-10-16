@@ -1,0 +1,44 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"1\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Thread_SIZE = 8
+#def Thread_parked = +0
+#def Thread_woken = +4
+
+@main() -> i32:
+L_ENTRY:
+    thread = alloc Thread_SIZE
+    store thread+Thread_parked, 1 as i32
+    store thread+Thread_woken, 0 as i32
+    parked = load thread+Thread_parked as i32
+    br parked -> L_PARK, L_WAKE
+
+L_PARK:
+    store thread+Thread_woken, 1 as i32
+    woke = load thread+Thread_woken as i32
+    ok = eq woke, 1
+    !parked
+    !woke
+    !thread
+    br ok -> L_OK, L_ERR
+
+L_WAKE:
+    store thread+Thread_woken, 1 as i32
+    woke = load thread+Thread_woken as i32
+    ok = eq woke, 1
+    !parked
+    !woke
+    !thread
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

@@ -1,0 +1,31 @@
+@import "sa_std/io/print.sai"
+
+@extern npm_ns_isabs(&p: ptr, p_len: u64) -> u32
+#npm_bind npm_ns_isabs "node:path#path.isAbsolute"
+
+@const ABS = utf8:"/a/b"
+@const REL = utf8:"rel"
+@const OUT = utf8:"500\n"
+
+// 500 - npm namespace import: `import * as ns` plus a member call
+// (node:path path.isAbsolute; '/a/b' -> 1, 'rel' -> 0). Same
+// semantics as the named-import twin 498.
+@main() -> i32:
+L_ENTRY:
+    r1 = call @npm_ns_isabs(&ABS, 4)
+    r2 = call @npm_ns_isabs(&REL, 3)
+    ok1 = eq r1, 1
+    ok2 = eq r2, 0
+    ok = and ok1, ok2
+    !r1
+    !r2
+    !ok1
+    !ok2
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

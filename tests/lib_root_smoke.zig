@@ -1,13 +1,14 @@
 const std = @import("std");
 const saasm = @import("saasm");
+const sio = @import("sio");
 
 fn expectCliHelp(argv: []const []const u8, expected: []const u8) !void {
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
-    const code = try saasm.cli.executeWithWriters(std.testing.allocator, argv, stdout_buffer.writer(), stderr_buffer.writer());
+    const code = try saasm.cli.executeWithWriters(std.testing.allocator, argv, sio.managedWriter(&stdout_buffer), sio.managedWriter(&stderr_buffer));
     if (code != 0 or stderr_buffer.items.len != 0 or std.mem.indexOf(u8, stdout_buffer.items, expected) == null) {
         std.debug.print("help command failed: ", .{});
         for (argv) |arg| std.debug.print("{s} ", .{arg});
@@ -143,19 +144,19 @@ test "cli command help covers built-in commands" {
 }
 
 test "bc2sa rejects extra positional arguments" {
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const argv = [_][]const u8{ "sa", "bc2sa", "input.bc", "extra" };
-    try std.testing.expectError(error.UnexpectedArgument, saasm.cli.executeWithWriters(std.testing.allocator, argv[0..], stdout_buffer.writer(), stderr_buffer.writer()));
+    try std.testing.expectError(error.UnexpectedArgument, saasm.cli.executeWithWriters(std.testing.allocator, argv[0..], sio.managedWriter(&stdout_buffer), sio.managedWriter(&stderr_buffer)));
     try std.testing.expectEqual(@as(usize, 0), stdout_buffer.items.len);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 }
 
 test "release packager defaults to latest git tag" {
-    const release_script = try std.fs.cwd().readFileAlloc(std.testing.allocator, "tools/release.sh", 1024 * 1024);
+    const release_script = try sio.cwd().readFileAlloc(std.testing.allocator, "tools/release.sh", 1024 * 1024);
     defer std.testing.allocator.free(release_script);
 
     try std.testing.expect(std.mem.containsAtLeast(u8, release_script, 1, "latest_source_tag()"));

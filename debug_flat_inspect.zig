@@ -57,7 +57,7 @@ fn inspectFunction(writer: anytype, symbols: []const []const u8, function_sigs: 
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -69,7 +69,7 @@ pub fn main() !void {
 
     const stdout = std.io.getStdOut().writer();
     if (std.mem.endsWith(u8, path, ".sab")) {
-        const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024);
+        const bytes = try sio.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024);
         defer allocator.free(bytes);
         var module = try sab.decodeModule(allocator, bytes);
         defer module.deinit(allocator);
@@ -77,7 +77,7 @@ pub fn main() !void {
         return;
     }
 
-    const source = try std.fs.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024);
+    const source = try sio.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024);
     defer allocator.free(source);
     var flat = try flattener.flattenFile(allocator, path, source);
     defer flat.deinit(allocator);

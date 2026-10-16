@@ -66,20 +66,20 @@ pub const Trap = enum(u8) {
 pub const TrapReport = struct {
     trap: Trap,
     trap_code: ?u32 = null,
-    file_buf: [128]u8 = [_]u8{0} ** 128,
+    file_buf: [128]u8 = std.mem.zeroes([128]u8),
     file: ?[]const u8 = null,
     line: u32,
     source_line: u32,
     column: ?u32 = null,
-    source_text_buf: [256]u8 = [_]u8{0} ** 256,
-    original_text_buf: [256]u8 = [_]u8{0} ** 256,
+    source_text_buf: [256]u8 = std.mem.zeroes([256]u8),
+    original_text_buf: [256]u8 = std.mem.zeroes([256]u8),
     source_text: ?[]const u8 = null,
     original_text: ?[]const u8 = null,
-    bad_token_buf: [64]u8 = [_]u8{0} ** 64,
+    bad_token_buf: [64]u8 = std.mem.zeroes([64]u8),
     bad_token: ?[]const u8 = null,
     context: [5]ContextLine = .{ .{}, .{}, .{}, .{}, .{} },
     context_len: u8 = 0,
-    register_buf: [64]u8 = [_]u8{0} ** 64,
+    register_buf: [64]u8 = std.mem.zeroes([64]u8),
     register: ?[]const u8 = null,
     registers: []const []const u8 = &.{},
     expected_mask: ?u16 = null,
@@ -87,26 +87,26 @@ pub const TrapReport = struct {
     expected_mask_name: ?[]const u8 = null,
     actual_mask_name: ?[]const u8 = null,
     upstream_loc: ?upstream.UpstreamLoc = null,
-    upstream_file_buf: [128]u8 = [_]u8{0} ** 128,
+    upstream_file_buf: [128]u8 = std.mem.zeroes([128]u8),
     upstream_line: u32 = 0,
     upstream_col: u32 = 0,
-    function_buf: [64]u8 = [_]u8{0} ** 64,
+    function_buf: [64]u8 = std.mem.zeroes([64]u8),
     function: ?[]const u8 = null,
     is_ffi_wrapper: ?bool = null,
     repair_action: ?[]const u8 = null,
     repair_hint: ?[]const u8 = null,
     repair_confidence: ?[]const u8 = null,
-    repair_alternatives_buf: [3][64]u8 = .{ .{0} ** 64, .{0} ** 64, .{0} ** 64 },
+    repair_alternatives_buf: [3][64]u8 = std.mem.zeroes([3][64]u8),
     repair_alternatives: [3]?[]const u8 = .{ null, null, null },
     repair_alternatives_len: u8 = 0,
     message: []const u8,
-    hint_buf: [512]u8 = [_]u8{0} ** 512,
+    hint_buf: [512]u8 = std.mem.zeroes([512]u8),
     hint: ?[]const u8 = null,
 };
 
 pub const ContextLine = struct {
     line: u32 = 0,
-    text_buf: [256]u8 = [_]u8{0} ** 256,
+    text_buf: [256]u8 = std.mem.zeroes([256]u8),
     text: ?[]const u8 = null,
 };
 
@@ -460,7 +460,7 @@ test "trap codes are explicit and stable" {
 }
 
 test "trap json serialization is stable" {
-    var list = std.ArrayList(u8).init(std.testing.allocator);
+    var list: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer list.deinit();
 
     const report = TrapReport{
@@ -497,17 +497,17 @@ test "trap json serialization is stable" {
         .hint = "insert explicit release",
     };
 
-    try writeJson(list.writer(), report);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"trap\":\"MemoryLeak\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"file\":\"main.sa\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"column\":18") != null);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"bad_token\":\"node+0\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"context\":[{\"line\":8,\"text\":\"# setup\"},{\"line\":9,\"text\":\"result = load node+0 as i32\"}]") != null);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"suggested_alternatives\":[\"ptr\",\"u64\",\"i64\"]") != null);
+    try writeJson(&list.writer, report);
+    try std.testing.expect(std.mem.indexOf(u8, list.writer.buffered(), "\"trap\":\"MemoryLeak\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.writer.buffered(), "\"file\":\"main.sa\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.writer.buffered(), "\"column\":18") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.writer.buffered(), "\"bad_token\":\"node+0\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.writer.buffered(), "\"context\":[{\"line\":8,\"text\":\"# setup\"},{\"line\":9,\"text\":\"result = load node+0 as i32\"}]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.writer.buffered(), "\"suggested_alternatives\":[\"ptr\",\"u64\",\"i64\"]") != null);
 }
 
 test "trap json serialization emits null for absent optional strings" {
-    var list = std.ArrayList(u8).init(std.testing.allocator);
+    var list: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer list.deinit();
 
     const report = TrapReport{
@@ -515,8 +515,8 @@ test "trap json serialization emits null for absent optional strings" {
         .trap_code = 1,
         .line = 1,
         .source_line = 1,
-        .source_text_buf = [_]u8{0} ** 256,
-        .original_text_buf = [_]u8{0} ** 256,
+        .source_text_buf = std.mem.zeroes([256]u8),
+        .original_text_buf = std.mem.zeroes([256]u8),
         .source_text = null,
         .original_text = null,
         .register = null,
@@ -532,14 +532,14 @@ test "trap json serialization emits null for absent optional strings" {
         .hint = null,
     };
 
-    try writeJson(list.writer(), report);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"trap\":\"ForbiddenSyntax\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"source_text\":null") != null);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"context\":[]") != null);
+    try writeJson(&list.writer, report);
+    try std.testing.expect(std.mem.indexOf(u8, list.writer.buffered(), "\"trap\":\"ForbiddenSyntax\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.writer.buffered(), "\"source_text\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.writer.buffered(), "\"context\":[]") != null);
 }
 
 test "trap json serialization falls back to owned buffers" {
-    var list = std.ArrayList(u8).init(std.testing.allocator);
+    var list: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer list.deinit();
 
     var report = TrapReport{
@@ -547,8 +547,8 @@ test "trap json serialization falls back to owned buffers" {
         .trap_code = 1012,
         .line = 12,
         .source_line = 9,
-        .source_text_buf = [_]u8{0} ** 256,
-        .original_text_buf = [_]u8{0} ** 256,
+        .source_text_buf = std.mem.zeroes([256]u8),
+        .original_text_buf = std.mem.zeroes([256]u8),
         .source_text = null,
         .original_text = null,
         .register = null,
@@ -567,14 +567,14 @@ test "trap json serialization falls back to owned buffers" {
     std.mem.copyForwards(u8, report.source_text_buf[0..text.len], text);
     std.mem.copyForwards(u8, report.original_text_buf[0..text.len], text);
 
-    try writeJson(list.writer(), report);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"trap\":\"MemoryLeak\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"source_text\":\"result = load node+0 as i32\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "\"context\":[]") != null);
+    try writeJson(&list.writer, report);
+    try std.testing.expect(std.mem.indexOf(u8, list.writer.buffered(), "\"trap\":\"MemoryLeak\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.writer.buffered(), "\"source_text\":\"result = load node+0 as i32\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.writer.buffered(), "\"context\":[]") != null);
 }
 
 test "trap json serialization emits repair object when present" {
-    var list = std.ArrayList(u8).init(std.testing.allocator);
+    var list: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer list.deinit();
 
     const report = TrapReport{
@@ -588,8 +588,8 @@ test "trap json serialization emits repair object when present" {
         .repair_confidence = "high",
     };
 
-    try writeJson(list.writer(), report);
-    try std.testing.expect(std.mem.containsAtLeast(u8, list.items, 1, "\"repair\":{\"action\":\"rewrite\",\"hint\":\"lower structured control flow into labels, branches, and explicit register moves\",\"confidence\":\"high\",\"suggested_alternatives\":[]}"));
+    try writeJson(&list.writer, report);
+    try std.testing.expect(std.mem.containsAtLeast(u8, list.writer.buffered(), 1, "\"repair\":{\"action\":\"rewrite\",\"hint\":\"lower structured control flow into labels, branches, and explicit register moves\",\"confidence\":\"high\",\"suggested_alternatives\":[]}"));
 }
 
 test "db trap names and codes are stable" {

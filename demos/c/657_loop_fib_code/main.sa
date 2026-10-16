@@ -1,0 +1,50 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"657\n"
+
+// 657 - Fib walk: fib(8) == 21, plus 636 == 657.
+@main() -> i32:
+L_ENTRY:
+    p0 = 0 as i64
+    p1 = 1 as i64
+    i = 2 as i64
+    one = 1 as i64
+    jmp L_COND
+L_COND:
+    done = eq i, 9
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    nxt = add p0, p1
+    p0 = add p1, 0
+    p1 = add nxt, 0
+    !nxt
+    i = add i, one
+    jmp L_COND
+L_DONE:
+    !done
+    fib8 = 21 as i64
+    ok_fib = eq p1, fib8
+    base = 636 as i64
+    got = add p1, base
+    want = 657 as i64
+    ok_v = eq got, want
+    ok = and ok_fib, ok_v
+    !p0
+    !p1
+    !i
+    !one
+    !fib8
+    !ok_fib
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

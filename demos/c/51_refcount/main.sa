@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"10\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Node_SIZE = 8
+#def Node_count = +0
+
+@clone_count(&node: ptr) -> i32:
+L_ENTRY:
+    count = load node+Node_count as i32
+    next = add count, 1
+    !count
+    !node
+    return next
+
+@main() -> i32:
+L_ENTRY:
+    node = alloc Node_SIZE
+    store node+Node_count, 5 as i32
+    left = call @clone_count(&node)
+    right = call @clone_count(&node)
+    total = add left, right
+    ok = eq total, 12
+    !left
+    !right
+    !total
+    !node
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

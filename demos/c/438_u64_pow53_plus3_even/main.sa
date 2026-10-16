@@ -1,0 +1,22 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"438\n"
+
+// 438 - 2^53+3 rounds to even on conversion (fptosi gives 2^53+4).
+@main() -> i32:
+L_ENTRY:
+    big = 9007199254740995 as u64
+    f = uitofp big as f64
+    y = fptosi f as i64
+    ok = eq y, 9007199254740996
+    !big
+    !f
+    !y
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

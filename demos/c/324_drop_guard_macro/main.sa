@@ -1,0 +1,62 @@
+// 324 - Drop Guard / RAII Scope
+// SA: 用 RAII_GUARD 宏模拟 Rust 的 Drop guard
+// RAII_GUARD 在作用域入口创建 guard，在出口自动释放
+
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"42\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def Guard_SIZE = 4
+#def Guard_id = +0
+
+// RAII_GUARD_LOCK: 获取锁 guard
+[MACRO] RAII_GUARD_LOCK %guard, %id
+    %guard = alloc Guard_SIZE
+    store %guard+Guard_id, %id as i32
+[END_MACRO]
+
+// RAII_GUARD_UNLOCK: 释放锁 guard（scope exit）
+[MACRO] RAII_GUARD_UNLOCK %guard
+    // 在真实实现中这里会释放锁
+    !%guard
+[END_MACRO]
+
+// SCOPE_GUARD: 通用作用域守卫模式
+// 入口分配资源，出口确保释放
+[MACRO] SCOPE_BEGIN %resource, %size
+    %resource = alloc %size
+[END_MACRO]
+
+[MACRO] SCOPE_END %resource
+    !%resource
+[END_MACRO]
+
+@do_work() -> i32:
+L_ENTRY:
+    // let _g = LockGuard { id: 1 };
+    EXPAND RAII_GUARD_LOCK g, 1
+
+    // do work with lock held
+    result = 42
+
+    // _g dropped at scope end
+    EXPAND RAII_GUARD_UNLOCK g
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    result = call @do_work()
+    ok = eq result, 42
+    !result
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

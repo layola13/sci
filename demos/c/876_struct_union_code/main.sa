@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"876\n"
+
+// 876 - Union pick: tag 2 selects (800, 76) sum == 876.
+@main() -> i32:
+L_ENTRY:
+    u = alloc 24
+    store u+0, 2 as i64
+    store u+8, 800 as i64
+    store u+16, 76 as i64
+    tag = load u+0 as i64
+    a = load u+8 as i64
+    b = load u+16 as i64
+    two = 2 as i64
+    ok_tag = eq tag, two
+    got = add a, b
+    want = 876 as i64
+    ok_v = eq got, want
+    ok = and ok_tag, ok_v
+    !u
+    !tag
+    !a
+    !b
+    !two
+    !ok_tag
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

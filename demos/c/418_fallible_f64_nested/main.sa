@@ -1,0 +1,46 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"418\n"
+
+// 418 - nested fallible fns: unpack 1.5, add to itself, re-wrap (3.0).
+@base() -> f64!:
+L_ENTRY:
+    three = 3 as i32
+    two = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two as f64
+    h = fdiv three_f, two_f
+    !three
+    !two
+    !three_f
+    !two_f
+    return h
+
+@wrap() -> f64!:
+L_ENTRY:
+    r = call @base()
+    v = ?r
+    d = fadd v, v
+    !r
+    !v
+    return d
+
+@main() -> i32:
+L_ENTRY:
+    r = call @wrap()
+    v = ?r
+    three = 3 as i32
+    three_f = sitofp three as f64
+    ok = fcmp_eq v, three_f
+    !r
+    !v
+    !three
+    !three_f
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,15 +1,14 @@
 const std = @import("std");
 
-fn latestGitTag(allocator: std.mem.Allocator) ?[]const u8 {
+fn latestGitTag(allocator: std.mem.Allocator, io: std.Io) ?[]const u8 {
     const argv = [_][]const u8{ "git", "tag", "--sort=-v:refname" };
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
+    const result = std.process.run(allocator, io, .{
         .argv = argv[0..],
     }) catch return null;
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| if (code != 0) {
+        .exited => |code| if (code != 0) {
             allocator.free(result.stdout);
             return null;
         },
@@ -35,23 +34,17 @@ fn latestGitTag(allocator: std.mem.Allocator) ?[]const u8 {
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    // System root for cross-compilation to targets without bundled libc
-    // (e.g. FreeBSD: extract base.txz and pass -Dsysroot=<dir>).
-    if (b.option([]const u8, "sysroot", "System root directory for cross-compilation (provides target libc headers/libs).")) |s| {
-        b.sysroot = s;
-    }
-    // Custom libc installation file (-libc) for targets without bundled libc
-    // (e.g. FreeBSD: generate from the sysroot, see tools/build_freebsd.sh).
-    if (b.option([]const u8, "libc", "Custom libc installation file for cross-compilation targets without bundled libc.")) |l| {
-        b.libc_file = l;
-    }
+    // NOTE(Zig 0.17): the global `b.sysroot` / `b.libc_file` overrides were
+    // removed from std.Build, and Zig 0.17 bundles FreeBSD libc, so the old
+    // -Dsysroot/-Dlibc cross-compilation options are obsolete. Plain
+    // `-Dtarget=<triple>` now works (see tools/build_freebsd.sh).
     const is_windows = target.result.os.tag == .windows;
     const is_linux = target.result.os.tag == .linux;
     const release_safe = b.option(bool, "release-safe", "Build all artifacts with ReleaseSafe optimization.") orelse false;
     const release_small = b.option(bool, "release-small", "Build all artifacts with ReleaseSmall optimization.") orelse false;
     const enable_llvm_default = target.result.os.tag != .windows;
     const enable_llvm = b.option(bool, "llvm", "Enable LLVM-C native backend integration.") orelse enable_llvm_default;
-    const version = b.option([]const u8, "version", "SA toolchain semantic version.") orelse latestGitTag(b.allocator) orelse "0.0.1";
+    const version = b.option([]const u8, "version", "SA toolchain semantic version.") orelse latestGitTag(b.allocator, b.graph.io) orelse "0.0.1";
     const llvm_include_dir = b.option([]const u8, "llvm-include-dir", "LLVM C API include directory.") orelse defaultLlvmIncludeDir(target.result.os.tag);
     const llvm_lib_dir = b.option([]const u8, "llvm-lib-dir", "LLVM library directory.") orelse defaultLlvmLibDir(target.result.os.tag);
     const llvm_lib_name = b.option([]const u8, "llvm-lib-name", "LLVM system library name.") orelse defaultLlvmLibName(target.result.os.tag);
@@ -59,14 +52,25 @@ pub fn build(b: *std.Build) void {
     var optimize = b.standardOptimizeOption(.{});
     if (release_safe) optimize = .ReleaseSafe;
     if (release_small) optimize = .ReleaseSmall;
-    const repo_root = b.pathFromRoot(".");
+    const repo_root = pathFromRoot(b, ".");
     const repo_root_lazy = b.path(".");
     const build_options = b.addOptions();
     const test_build_options = b.addOptions();
+    // NOTE(Zig 0.17): modules are rooted at their root_source_file's directory,
+    // so cross-directory `@import("../...")` is rejected ("import of file
+    // outside module path"). The I/O compat layer is therefore exposed as the
+    // named import "sio" (source: src/sa_io.zig); every module below registers
+    // it via `addImport("sio", sio_module)` and sources use
+    // `const sio = @import("sio");`.
+    const sio_module = b.createModule(.{
+        .root_source_file = b.path("src/sa_io.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const sa_std_archive_rel = targetSaStdArchivePath(target.result.os.tag);
     const sa_std_root = targetSaStdRoot(target.result.os.tag);
     validateLlvmConfig(b, target.result.os.tag, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
-    build_options.addOption([]const u8, "sa_std_archive_path", b.pathFromRoot(sa_std_archive_rel));
+    build_options.addOption([]const u8, "sa_std_archive_path", pathFromRoot(b, sa_std_archive_rel));
     build_options.addOption(bool, "llvm_enabled", enable_llvm);
     build_options.addOption([]const u8, "repo_root", repo_root);
     build_options.addOption([]const u8, "version", version);
@@ -78,8 +82,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    lib_module.addImport("sio", sio_module);
     addLlvmcSupportToModule(b, lib_module, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     lib_module.addOptions("build_options", build_options);
+    // NOTE: lib re-exports runtime/sa_std.zig (swizzle/pthread C shims).
+    addHostThreadShimToModule(b, lib_module, target.result.os.tag);
+    addB64SwizzleToModule(b, lib_module);
     if (target.result.os.tag == .linux) {
         lib_module.linkSystemLibrary("dl", .{});
     }
@@ -97,6 +105,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_std_static_module.addImport("sio", sio_module);
     addHostThreadShimToModule(b, sa_std_static_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_std_static_module);
     const sa_std_static = b.addLibrary(.{
@@ -114,6 +123,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_std_shared_module.addImport("sio", sio_module);
     addHostThreadShimToModule(b, sa_std_shared_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_std_shared_module);
     const sa_std_shared = b.addLibrary(.{
@@ -151,6 +161,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    lib_root_smoke_module.addImport("sio", sio_module);
     lib_root_smoke_module.addImport("saasm", lib_module);
     lib_root_smoke_module.addOptions("build_options", build_options);
     const lib_root_smoke = b.addTest(.{
@@ -169,6 +180,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    plugin_host_smoke_module.addImport("sio", sio_module);
     plugin_host_smoke_module.addImport("saasm", lib_module);
     plugin_host_smoke_module.addOptions("build_options", build_options);
     const plugin_host_smoke = b.addTest(.{
@@ -187,6 +199,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    llvmc_test_module.addImport("sio", sio_module);
     addLlvmcSupportToModule(b, llvmc_test_module, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     llvmc_test_module.addOptions("build_options", build_options);
     const llvmc_tests = b.addTest(.{
@@ -204,6 +217,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    windows_llvm_smoke_module.addImport("sio", sio_module);
     windows_llvm_smoke_module.addImport("saasm", lib_module);
     windows_llvm_smoke_module.addOptions("build_options", build_options);
     const windows_llvm_smoke = b.addTest(.{
@@ -225,6 +239,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    pkg_core_tests_module.addImport("sio", sio_module);
     pkg_core_tests_module.addOptions("build_options", build_options);
     const pkg_core_tests = b.addTest(.{
         .root_module = pkg_core_tests_module,
@@ -241,6 +256,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    pkg_sum_perf_tests_module.addImport("sio", sio_module);
     const pkg_sum_perf_tests = b.addTest(.{
         .root_module = pkg_sum_perf_tests_module,
         .filters = &.{"sum flattens one hundred transitive dependencies within budget"},
@@ -256,6 +272,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    pkg_audit_perf_tests_module.addImport("sio", sio_module);
     const pkg_audit_perf_tests = b.addTest(.{
         .root_module = pkg_audit_perf_tests_module,
         .filters = &.{"audit scans synthesized package within fifty milliseconds"},
@@ -271,6 +288,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    cli_module.addImport("sio", sio_module);
     addLlvmcSupportToModule(b, cli_module, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     cli_module.addOptions("build_options", build_options);
     const exe = b.addExecutable(.{
@@ -286,7 +304,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("tests/wasm_matrix_smoke.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
+    wasm_matrix_module.addImport("sio", sio_module);
     wasm_matrix_module.addImport("saasm", lib_module);
     wasm_matrix_module.addOptions("build_options", build_options);
     const wasm_matrix = b.addTest(.{
@@ -295,6 +315,10 @@ pub fn build(b: *std.Build) void {
     const run_wasm_matrix = b.addRunArtifact(wasm_matrix);
     run_wasm_matrix.setCwd(repo_root_lazy);
     addLlvmBinDirToRun(b, run_wasm_matrix, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    // Shard selector for the long wasm demo matrix ("i/n"); empty runs all.
+    // Passed as an explicit env var (not inherited) so each shard gets its
+    // own run-step fingerprint instead of a false cache hit.
+    run_wasm_matrix.setEnvironmentVariable("SA_WASM_MATRIX_SHARD", b.option([]const u8, "wasm-matrix-shard", "Run only wasm matrix demos with sequence number seq % n == i (\"i/n\").") orelse "");
     run_wasm_matrix.step.name = "wasm-matrix";
     test_step.dependOn(&run_wasm_matrix.step);
     const wasm_matrix_step = b.step("wasm-matrix", "Run LLVM-C native/wasm32 demo equivalence matrix");
@@ -305,6 +329,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    js_matrix_module.addImport("sio", sio_module);
     js_matrix_module.addImport("saasm", lib_module);
     js_matrix_module.addOptions("build_options", build_options);
     const js_matrix = b.addTest(.{
@@ -313,17 +338,42 @@ pub fn build(b: *std.Build) void {
     const run_js_matrix = b.addRunArtifact(js_matrix);
     run_js_matrix.setCwd(repo_root_lazy);
     addLlvmBinDirToRun(b, run_js_matrix, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    // Shard selector for the long JS demo matrix ("i/n"); empty runs all.
+    // Explicit env var so each shard gets its own run-step fingerprint.
+    run_js_matrix.setEnvironmentVariable("SA_JS_MATRIX_SHARD", b.option([]const u8, "js-matrix-shard", "Run only JS matrix demos with sequence number seq % n == i (\"i/n\").") orelse "");
     run_js_matrix.step.name = "js-matrix";
     run_js_matrix.step.dependOn(&sync_sa_std_artifact.step);
     test_step.dependOn(&run_js_matrix.step);
     const js_matrix_step = b.step("js-matrix", "Run JS backend demo equivalence matrix under node");
     js_matrix_step.dependOn(&run_js_matrix.step);
 
+    const c_matrix_module = b.createModule(.{
+        .root_source_file = b.path("tests/c_matrix_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    c_matrix_module.addImport("sio", sio_module);
+    c_matrix_module.addImport("saasm", lib_module);
+    c_matrix_module.addOptions("build_options", build_options);
+    const c_matrix = b.addTest(.{
+        .root_module = c_matrix_module,
+    });
+    const run_c_matrix = b.addRunArtifact(c_matrix);
+    run_c_matrix.setCwd(repo_root_lazy);
+    addLlvmBinDirToRun(b, run_c_matrix, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    run_c_matrix.setEnvironmentVariable("SA_C_MATRIX_SHARD", b.option([]const u8, "c-matrix-shard", "Run only C matrix demos with sequence number seq % n == i (\"i/n\").") orelse "");
+    run_c_matrix.step.name = "c-matrix";
+    run_c_matrix.step.dependOn(&sync_sa_std_artifact.step);
+    test_step.dependOn(&run_c_matrix.step);
+    const c_matrix_step = b.step("c-matrix", "Run C backend demo equivalence matrix under cc");
+    c_matrix_step.dependOn(&run_c_matrix.step);
+
     const cli_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/cli_smoke.zig"),
         .target = target,
         .optimize = optimize,
     });
+    cli_smoke_module.addImport("sio", sio_module);
     cli_smoke_module.addImport("saasm", lib_module);
     cli_smoke_module.addOptions("build_options", build_options);
     const cli_smoke = b.addTest(.{
@@ -350,6 +400,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    cli_json_debug_smoke_module.addImport("sio", sio_module);
     cli_json_debug_smoke_module.addImport("saasm", lib_module);
     cli_json_debug_smoke_module.addOptions("build_options", build_options);
     const cli_json_debug_smoke = b.addTest(.{
@@ -368,6 +419,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    cli_skills_smoke_module.addImport("sio", sio_module);
     cli_skills_smoke_module.addImport("saasm", lib_module);
     cli_skills_smoke_module.addOptions("build_options", build_options);
     const cli_skills_smoke = b.addTest(.{
@@ -388,6 +440,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    cli_host_basic_module.addImport("sio", sio_module);
     cli_host_basic_module.addImport("saasm", lib_module);
     cli_host_basic_module.addOptions("build_options", build_options);
     const cli_host_basic = b.addTest(.{
@@ -408,6 +461,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    workspace_smoke_module.addImport("sio", sio_module);
     workspace_smoke_module.addImport("saasm", lib_module);
     workspace_smoke_module.addOptions("build_options", build_options);
     const workspace_smoke = b.addTest(.{
@@ -426,6 +480,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    sab_corrupt_smoke_module.addImport("sio", sio_module);
     sab_corrupt_smoke_module.addImport("saasm", lib_module);
     sab_corrupt_smoke_module.addOptions("build_options", build_options);
     const sab_corrupt_smoke = b.addTest(.{
@@ -444,6 +499,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    pthread_vtable_smoke_module.addImport("sio", sio_module);
     pthread_vtable_smoke_module.addImport("saasm", lib_module);
     pthread_vtable_smoke_module.addOptions("build_options", build_options);
     const pthread_vtable_smoke = b.addTest(.{
@@ -462,6 +518,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    trap_baseline_module.addImport("sio", sio_module);
     trap_baseline_module.addImport("saasm", lib_module);
     trap_baseline_module.addOptions("build_options", build_options);
     const trap_baseline = b.addTest(.{
@@ -479,6 +536,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    std_smoke_core_module.addImport("sio", sio_module);
     std_smoke_core_module.addImport("saasm", lib_module);
     std_smoke_core_module.addOptions("build_options", build_options);
     std_smoke_core_module.addOptions("test_build_options", test_build_options);
@@ -497,6 +555,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    std_smoke_containers_module.addImport("sio", sio_module);
     std_smoke_containers_module.addImport("saasm", lib_module);
     std_smoke_containers_module.addOptions("build_options", build_options);
     std_smoke_containers_module.addOptions("test_build_options", test_build_options);
@@ -518,7 +577,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("tests/unit_framework/runner.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
+    unit_framework_module.addImport("sio", sio_module);
     unit_framework_module.addImport("saasm", lib_module);
     unit_framework_module.addOptions("build_options", build_options);
     const unit_framework = b.addTest(.{
@@ -529,8 +590,18 @@ pub fn build(b: *std.Build) void {
     addLlvmBinDirToRun(b, run_unit_framework, enable_llvm, llvm_lib_dir, target.result.os.tag);
     run_unit_framework.step.dependOn(&install_sa_exe.step);
     run_unit_framework.step.dependOn(&sync_sa_std_artifact.step);
-    run_unit_framework.setEnvironmentVariable("SA_STD_DIR", b.pathFromRoot("sa_std"));
-    run_unit_framework.setEnvironmentVariable("SA_BIN", b.getInstallPath(.bin, "sa"));
+    run_unit_framework.setEnvironmentVariable("SA_STD_DIR", pathFromRoot(b, "sa_std"));
+    // NOTE(Zig 0.17): the install prefix is only known at make time and the
+    // default test runner rejects unknown `--sa-bin=` argv, so pass the
+    // just-built `sa` via SA_BIN (which the runner already honors) instead.
+    // This matches the 0.14 behavior for the default `zig-out` prefix.
+    run_unit_framework.setEnvironmentVariable("SA_BIN", pathFromRoot(b, if (is_windows) "zig-out/bin/sa.exe" else "zig-out/bin/sa"));
+    // Multithreaded unit-test execution: SA_UNIT_FILE_JOBS>1 makes the runner
+    // queue suites and verify them via external `sa` processes with a worker
+    // thread pool instead of slow serial in-process runs. Defaults to the
+    // host CPU count (capped at 8); override with -Dunit-file-jobs=<n>
+    // (1 keeps the serial in-process mode).
+    run_unit_framework.setEnvironmentVariable("SA_UNIT_FILE_JOBS", b.fmt("{d}", .{b.option(u32, "unit-file-jobs", "Parallel external file jobs for the native SA unit framework suites.") orelse defaultUnitFileJobs()}));
     if (enable_llvm) test_step.dependOn(&run_unit_framework.step);
     const unit_framework_step = b.step("unit-framework", "Run native SA unit framework suites");
     if (enable_llvm) unit_framework_step.dependOn(&run_unit_framework.step);
@@ -541,7 +612,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_std_unit_module.addImport("sio", sio_module);
     sa_std_unit_module.addOptions("build_options", build_options);
+    // NOTE: sa_std.zig references the swizzle/pthread C shims; test roots
+    // compiling it directly must link them (like the sa_std lib modules).
+    addHostThreadShimToModule(b, sa_std_unit_module, target.result.os.tag);
+    addB64SwizzleToModule(b, sa_std_unit_module);
     const sa_std_unit = b.addTest(.{
         .root_module = sa_std_unit_module,
     });
@@ -555,7 +631,10 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("tests/sa_std_runtime.zig"),
         .target = target,
         .optimize = optimize,
+        // NOTE: spawns subprocesses via sio.Child (live-env snapshot needs libc).
+        .link_libc = true,
     });
+    sa_std_runtime_module.addImport("sio", sio_module);
     sa_std_runtime_module.addOptions("build_options", build_options);
     const sa_std_runtime = b.addTest(.{
         .root_module = sa_std_runtime_module,
@@ -572,6 +651,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    sa_std_windows_runtime_module.addImport("sio", sio_module);
     sa_std_windows_runtime_module.addOptions("build_options", build_options);
     const sa_std_windows_runtime = b.addTest(.{
         .root_module = sa_std_windows_runtime_module,
@@ -595,6 +675,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        windows_first_slice_module.addImport("sio", sio_module);
         windows_first_slice_module.addIncludePath(b.path("src/runtime"));
         windows_first_slice_module.addCSourceFile(.{
             .file = b.path("tests/sa_std_windows_first_slice.c"),
@@ -625,6 +706,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        windows_native_address_module.addImport("sio", sio_module);
         windows_native_address_module.addIncludePath(b.path("src/runtime"));
         windows_native_address_module.addCSourceFile(.{
             .file = b.path("tests/sa_std_windows_address.c"),
@@ -655,6 +737,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        windows_native_tcp_module.addImport("sio", sio_module);
         windows_native_tcp_module.addIncludePath(b.path("src/runtime"));
         windows_native_tcp_module.addCSourceFile(.{
             .file = b.path("tests/sa_std_windows_tcp.c"),
@@ -685,6 +768,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        windows_native_udp_module.addImport("sio", sio_module);
         windows_native_udp_module.addIncludePath(b.path("src/runtime"));
         windows_native_udp_module.addCSourceFile(.{
             .file = b.path("tests/sa_std_windows_udp.c"),
@@ -715,6 +799,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        windows_native_process_terminal_module.addImport("sio", sio_module);
         windows_native_process_terminal_module.addIncludePath(b.path("src/runtime"));
         windows_native_process_terminal_module.addCSourceFile(.{
             .file = b.path("tests/sa_std_windows_process_terminal.c"),
@@ -746,7 +831,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_net_uring_module.addImport("sio", sio_module);
     sa_net_uring_module.addOptions("build_options", build_options);
+    // NOTE: imports sa_std.zig (swizzle/pthread C shims); link them here too.
+    addHostThreadShimToModule(b, sa_net_uring_module, target.result.os.tag);
+    addB64SwizzleToModule(b, sa_net_uring_module);
     const sa_net_uring_tests = b.addTest(.{
         .root_module = sa_net_uring_module,
     });
@@ -761,6 +850,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_http2_module.addImport("sio", sio_module);
     sa_http2_module.addOptions("build_options", build_options);
     const sa_http2_tests = b.addTest(.{
         .root_module = sa_http2_module,
@@ -776,6 +866,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_tls_server_module.addImport("sio", sio_module);
     sa_tls_server_module.addOptions("build_options", build_options);
     const sa_tls_server_tests = b.addTest(.{
         .root_module = sa_tls_server_module,
@@ -791,6 +882,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_tls_client_module.addImport("sio", sio_module);
     sa_tls_client_module.addOptions("build_options", build_options);
     const sa_tls_client_tests = b.addTest(.{
         .root_module = sa_tls_client_module,
@@ -806,6 +898,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_ws_client_module.addImport("sio", sio_module);
     sa_ws_client_module.addOptions("build_options", build_options);
     const sa_ws_client_tests = b.addTest(.{
         .root_module = sa_ws_client_module,
@@ -821,6 +914,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_thread_local_module.addImport("sio", sio_module);
     sa_thread_local_module.addOptions("build_options", build_options);
     const sa_thread_local_tests = b.addTest(.{
         .root_module = sa_thread_local_module,
@@ -836,6 +930,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_dtls_module.addImport("sio", sio_module);
     sa_dtls_module.addOptions("build_options", build_options);
     const sa_dtls_tests = b.addTest(.{
         .root_module = sa_dtls_module,
@@ -851,6 +946,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    sa_quic_module.addImport("sio", sio_module);
     sa_quic_module.addOptions("build_options", build_options);
     const sa_quic_tests = b.addTest(.{
         .root_module = sa_quic_module,
@@ -865,7 +961,10 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("tests/sa_term_runtime.zig"),
         .target = target,
         .optimize = optimize,
+        // NOTE: spawns subprocesses via sio.Child (live-env snapshot needs libc).
+        .link_libc = true,
     });
+    sa_term_runtime_module.addImport("sio", sio_module);
     sa_term_runtime_module.addOptions("build_options", build_options);
     const sa_term_runtime = b.addTest(.{
         .root_module = sa_term_runtime_module,
@@ -880,7 +979,10 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("tests/native_sys_runtime.zig"),
         .target = target,
         .optimize = optimize,
+        // NOTE: spawns subprocesses via sio.Child (live-env snapshot needs libc).
+        .link_libc = true,
     });
+    native_sys_runtime_module.addImport("sio", sio_module);
     native_sys_runtime_module.addOptions("build_options", build_options);
     const native_sys_runtime = b.addTest(.{
         .root_module = native_sys_runtime_module,
@@ -933,10 +1035,14 @@ pub fn build(b: *std.Build) void {
         std_step.dependOn(&run_native_sys_runtime.step);
     }
 
-    const smoke = b.addTest(.{
+    const smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/smoke/whitepaper_lint.zig"),
         .target = target,
         .optimize = optimize,
+    });
+    smoke_module.addImport("sio", sio_module);
+    const smoke = b.addTest(.{
+        .root_module = smoke_module,
     });
     smoke.root_module.addOptions("build_options", build_options);
     const run_smoke = b.addRunArtifact(smoke);
@@ -971,10 +1077,16 @@ pub fn build(b: *std.Build) void {
         host_basic_step.dependOn(runtime_basic_step);
     }
 
-    const scope_demo = b.addTest(.{
+    const scope_demo_module = b.createModule(.{
         .root_source_file = b.path("tests/libsa_scope_demo.zig"),
         .target = target,
         .optimize = optimize,
+        // NOTE: spawns subprocesses via sio.Child (live-env snapshot needs libc).
+        .link_libc = true,
+    });
+    scope_demo_module.addImport("sio", sio_module);
+    const scope_demo = b.addTest(.{
+        .root_module = scope_demo_module,
     });
     scope_demo.root_module.addOptions("build_options", build_options);
     const run_scope_demo = b.addRunArtifact(scope_demo);
@@ -988,6 +1100,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    ffi_handle_demo_module.addImport("sio", sio_module);
     ffi_handle_demo_module.addImport("saasm", lib_module);
     ffi_handle_demo_module.addOptions("build_options", build_options);
     const ffi_handle_demo = b.addTest(.{
@@ -1006,6 +1119,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    hubproxy_module.addImport("sio", sio_module);
     hubproxy_module.addImport("saasm", lib_module);
     hubproxy_module.addOptions("build_options", build_options);
     const hubproxy_tests = b.addTest(.{
@@ -1063,6 +1177,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    bench_module.addImport("sio", sio_module);
     bench_module.addOptions("build_options", build_options);
     const bench_exe = b.addExecutable(.{
         .name = "saasm-bench-task-6-26",
@@ -1084,6 +1199,31 @@ pub fn build(b: *std.Build) void {
     const bench_compare_rust = b.addSystemCommand(&.{ "bash", "demos/compare/run_rust_bench.sh" });
     bench_compare_rust.setCwd(repo_root_lazy);
     bench_compare.dependOn(&bench_compare_rust.step);
+}
+
+/// Default parallel file jobs for the native SA unit framework suites:
+/// host CPU count capped at 8 (each job spawns an external `sa` process).
+fn defaultUnitFileJobs() u32 {
+    const cpu = std.Thread.getCpuCount() catch 4;
+    return @intCast(@min(cpu, 8));
+}
+
+/// NOTE(Zig 0.17): `Build.pathFromRoot` was removed. Equivalent helper:
+/// resolve `sub_path` against the directory containing build.zig.
+fn pathFromRoot(b: *std.Build, sub_path: []const u8) []u8 {
+    const root_path = b.root.root_dir.path orelse ".";
+    return std.fs.path.resolveAlloc(b.allocator, &.{ root_path, sub_path }) catch @panic("OOM");
+}
+
+/// NOTE(Zig 0.17): `std.fs.Dir` was replaced by `std.Io.Dir`; every
+/// filesystem operation now takes an explicit `Io`.
+fn pathExists(io: std.Io, path: []const u8) bool {
+    if (std.fs.path.isAbsolute(path)) {
+        std.Io.Dir.accessAbsolute(io, path, .{}) catch return false;
+    } else {
+        std.Io.Dir.cwd().access(io, path, .{}) catch return false;
+    }
+    return true;
 }
 
 fn targetSaStdArchivePath(os_tag: std.Target.Os.Tag) []const u8 {
@@ -1131,23 +1271,24 @@ fn validateLlvmConfig(
 ) void {
     if (!enable_llvm) return;
 
+    const io = b.graph.io;
     const core_header = std.fs.path.join(b.allocator, &.{ include_dir, "llvm-c", "Core.h" }) catch |err| {
         failLlvmConfig("failed to construct LLVM include path: {s}", .{@errorName(err)});
     };
     defer b.allocator.free(core_header);
-    std.fs.cwd().access(core_header, .{}) catch |err| {
+    if (!pathExists(io, core_header)) {
         failLlvmConfig(
-            "LLVM-C header not found: {s}\n  pass -Dllvm-include-dir=<path-to-llvm-include> or use -Dllvm=false for the bootstrap compiler ({s})",
-            .{ core_header, @errorName(err) },
+            "LLVM-C header not found: {s}\n  pass -Dllvm-include-dir=<path-to-llvm-include> or use -Dllvm=false for the bootstrap compiler",
+            .{core_header},
         );
-    };
+    }
 
-    std.fs.cwd().access(lib_dir, .{}) catch |err| {
+    if (!pathExists(io, lib_dir)) {
         failLlvmConfig(
-            "LLVM library directory not found: {s}\n  pass -Dllvm-lib-dir=<path-to-llvm-lib> or use -Dllvm=false for the bootstrap compiler ({s})",
-            .{ lib_dir, @errorName(err) },
+            "LLVM library directory not found: {s}\n  pass -Dllvm-lib-dir=<path-to-llvm-lib> or use -Dllvm=false for the bootstrap compiler",
+            .{lib_dir},
         );
-    };
+    }
 
     if (!llvmLibraryExists(b, os_tag, lib_dir, lib_name)) {
         switch (os_tag) {
@@ -1186,18 +1327,21 @@ fn llvmLibraryExists(b: *std.Build, os_tag: std.Target.Os.Tag, lib_dir: []const 
         if (!llvmLibraryCandidateApplies(os_tag, candidate)) continue;
         const path = std.fs.path.join(b.allocator, &.{ lib_dir, candidate }) catch continue;
         defer b.allocator.free(path);
-        std.fs.cwd().access(path, .{}) catch continue;
+        if (!pathExists(b.graph.io, path)) continue;
         return true;
     }
     if (os_tag == .linux or os_tag == .macos) {
-        if (versionedSharedLibraryExists(b.allocator, os_tag, lib_dir, lib_name)) return true;
+        if (versionedSharedLibraryExists(b.allocator, b.graph.io, os_tag, lib_dir, lib_name)) return true;
     }
     return false;
 }
 
-fn versionedSharedLibraryExists(allocator: std.mem.Allocator, os_tag: std.Target.Os.Tag, lib_dir: []const u8, lib_name: []const u8) bool {
-    var dir = std.fs.cwd().openDir(lib_dir, .{ .iterate = true }) catch return false;
-    defer dir.close();
+fn versionedSharedLibraryExists(allocator: std.mem.Allocator, io: std.Io, os_tag: std.Target.Os.Tag, lib_dir: []const u8, lib_name: []const u8) bool {
+    var dir = if (std.fs.path.isAbsolute(lib_dir))
+        std.Io.Dir.openDirAbsolute(io, lib_dir, .{ .iterate = true }) catch return false
+    else
+        std.Io.Dir.cwd().openDir(io, lib_dir, .{ .iterate = true }) catch return false;
+    defer dir.close(io);
     const prefix = switch (os_tag) {
         .linux => std.fmt.allocPrint(allocator, "lib{s}.so.", .{lib_name}) catch return false,
         .macos => std.fmt.allocPrint(allocator, "lib{s}.", .{lib_name}) catch return false,
@@ -1205,7 +1349,7 @@ fn versionedSharedLibraryExists(allocator: std.mem.Allocator, os_tag: std.Target
     };
     defer allocator.free(prefix);
     var it = dir.iterate();
-    while (it.next() catch null) |entry| {
+    while (it.next(io) catch null) |entry| {
         if (entry.kind == .file or entry.kind == .sym_link) {
             if (std.mem.startsWith(u8, entry.name, prefix)) return true;
         }
@@ -1234,14 +1378,14 @@ fn addLlvmcSupportToModule(
         module.addCSourceFile(.{ .file = b.path("src/emit_llvm_llvmc_shim.c"), .flags = &.{} });
         linkLLVMToModule(module, include_dir, lib_dir, lib_name);
     } else {
-        module.addCSourceFile(.{ .file = b.path("src/emit_llvm_llvmc_stub.c"), .flags = &.{} });
+        module.addCSourceFile(.{ .file = b.path("src/emit_llvm_llvmc_stub.c"), .flags = &.{"-fno-sanitize=all"} });
     }
 }
 
 fn addHostThreadShimToModule(b: *std.Build, module: *std.Build.Module, os_tag: std.Target.Os.Tag) void {
     switch (os_tag) {
         .windows => {},
-        else => module.addCSourceFile(.{ .file = b.path("src/runtime/sa_pthread_host.c"), .flags = &.{} }),
+        else => module.addCSourceFile(.{ .file = b.path("src/runtime/sa_pthread_host.c"), .flags = &.{"-fno-sanitize=all"} }),
     }
 }
 
@@ -1250,7 +1394,7 @@ fn addB64SwizzleToModule(b: *std.Build, module: *std.Build.Module) void {
     // compiles to stubs (Zig falls back to the portable Mula path), so
     // this is unconditional and needs no per-file -mavx2 flag (the kernel
     // carries function-level target("avx2") attributes instead).
-    module.addCSourceFile(.{ .file = b.path("src/runtime/sa_b64_swizzle.c"), .flags = &.{} });
+    module.addCSourceFile(.{ .file = b.path("src/runtime/sa_b64_swizzle.c"), .flags = &.{"-fno-sanitize=all"} });
 }
 
 fn linkLLVMToModule(module: *std.Build.Module, include_dir: []const u8, lib_dir: []const u8, lib_name: []const u8) void {
@@ -1261,9 +1405,9 @@ fn linkLLVMToModule(module: *std.Build.Module, include_dir: []const u8, lib_dir:
 
 fn linkLLVMToCompile(compile: *std.Build.Step.Compile, enable_llvm: bool, include_dir: []const u8, lib_dir: []const u8, lib_name: []const u8) void {
     if (!enable_llvm) return;
-    compile.addSystemIncludePath(.{ .cwd_relative = include_dir });
-    compile.addLibraryPath(.{ .cwd_relative = lib_dir });
-    compile.linkSystemLibrary(lib_name);
+    compile.root_module.addSystemIncludePath(.{ .cwd_relative = include_dir });
+    compile.root_module.addLibraryPath(.{ .cwd_relative = lib_dir });
+    compile.root_module.linkSystemLibrary(lib_name, .{});
 }
 
 fn addLlvmBinDirToRun(
@@ -1275,7 +1419,11 @@ fn addLlvmBinDirToRun(
 ) void {
     if (!enable_llvm or os_tag != .windows) return;
     const llvm_root_dir = std.fs.path.dirname(lib_dir) orelse lib_dir;
-    run.addPathDir(b.pathJoin(&.{ llvm_root_dir, "bin" }));
+    // NOTE(Zig 0.17): Step.Run.addPathDir was removed; prepend via PATH instead.
+    const llvm_bin = b.pathJoin(&.{ llvm_root_dir, "bin" });
+    const prev_path = b.graph.environ_map.get("PATH") orelse "";
+    const new_path = if (prev_path.len == 0) llvm_bin else b.fmt("{s};{s}", .{ llvm_bin, prev_path });
+    run.setEnvironmentVariable("PATH", new_path);
 }
 
 /// On Windows, `sa.exe` is linked against the LLVM-C import library but the
@@ -1298,6 +1446,6 @@ fn installLlvmCDll(
 
 fn linkWindowsNetworkingToCompile(compile: *std.Build.Step.Compile, os_tag: std.Target.Os.Tag) void {
     if (os_tag != .windows) return;
-    compile.linkSystemLibrary("ws2_32");
-    compile.linkSystemLibrary("iphlpapi");
+    compile.root_module.linkSystemLibrary("ws2_32", .{});
+    compile.root_module.linkSystemLibrary("iphlpapi", .{});
 }

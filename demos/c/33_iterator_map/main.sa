@@ -1,0 +1,29 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"12\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@main() -> i32:
+L_ENTRY:
+    a = mul 1, 2
+    b = mul 2, 2
+    c = mul 3, 2
+    ab = add a, b
+    total = add ab, c
+    ok = eq total, 12
+    !a
+    !b
+    !c
+    !ab
+    !total
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

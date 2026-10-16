@@ -8,6 +8,7 @@ const atomic = @import("common/atomic.zig");
 const cap = @import("common/capability.zig");
 const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
+const sio = @import("sio");
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = 1;
 const SA_STD_ERR_INVALID_HANDLE: i32 = 2;
@@ -247,7 +248,7 @@ fn withPtrMeta(value: RegValue, meta: ?PtrMeta) RegValue {
     return value;
 }
 
-fn appendConstBytes(out: *std.ArrayList(u8), value: const_decl.ConstValue) !void {
+fn appendConstBytes(out: *std.array_list.Managed(u8), value: const_decl.ConstValue) !void {
     switch (value) {
         .hex => |literal| try out.appendSlice(literal.bytes),
         .utf8 => |literal| try out.appendSlice(literal.bytes),
@@ -258,13 +259,16 @@ fn appendConstBytes(out: *std.ArrayList(u8), value: const_decl.ConstValue) !void
             }
         },
         .vtable => |literal| {
-            try out.appendNTimes(0, literal.slots.len * @sizeOf(u64));
+            // NOTE(Zig 0.17): `Managed.appendNTimes` is gone.
+            const zeros = literal.slots.len * @sizeOf(u64);
+            try out.ensureUnusedCapacity(zeros);
+            for (0..zeros) |_| out.appendAssumeCapacity(0);
         },
     }
 }
 
 fn materializeConstValue(allocator: std.mem.Allocator, value: const_decl.ConstValue) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
     try appendConstBytes(&out, value);
     return try out.toOwnedSlice();
@@ -280,7 +284,7 @@ fn parseHexDigitPair(text: []const u8) !u8 {
 fn decodeQuotedBytes(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
     if (raw.len < 2 or raw[0] != '"' or raw[raw.len - 1] != '"') return RunError.InvalidOperand;
 
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
 
     var i: usize = 1;
@@ -377,12 +381,12 @@ const Block = struct {
 
 const Memory = struct {
     allocator: std.mem.Allocator,
-    blocks: std.ArrayList(Block),
+    blocks: std.array_list.Managed(Block),
 
     fn init(allocator: std.mem.Allocator) Memory {
         return .{
             .allocator = allocator,
-            .blocks = std.ArrayList(Block).init(allocator),
+            .blocks = std.array_list.Managed(Block).init(allocator),
         };
     }
 
@@ -646,13 +650,13 @@ const Interpreter = struct {
     function_index_by_name: std.StringHashMap(usize),
     argv: [][]const u8,
     argv_storage: [][]u8,
-    stdout: std.io.AnyWriter,
-    stderr: std.io.AnyWriter,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
     const_addrs: std.StringHashMap(u64),
     anon_const_addrs: std.StringHashMap(u64),
-    anon_const_keys: std.ArrayList([]u8),
+    anon_const_keys: std.array_list.Managed([]u8),
     memory: Memory,
-    monotonic_origin: ?std.time.Instant = null,
+    monotonic_origin: ?std.Io.Timestamp = null,
     trace_runtime: bool = false,
     exit_code: ?u8 = null,
     call_depth: usize = 0,
@@ -661,8 +665,8 @@ const Interpreter = struct {
         allocator: std.mem.Allocator,
         program: *const referee.VerifyOk,
         argv: []const []const u8,
-        stdout: std.io.AnyWriter,
-        stderr: std.io.AnyWriter,
+        stdout: *std.Io.Writer,
+        stderr: *std.Io.Writer,
     ) !Interpreter {
         var ranges = try allocator.alloc(FunctionRange, program.function_sigs.len);
         var initialized_ranges: usize = 0;
@@ -728,7 +732,7 @@ const Interpreter = struct {
             .stderr = stderr,
             .const_addrs = std.StringHashMap(u64).init(allocator),
             .anon_const_addrs = std.StringHashMap(u64).init(allocator),
-            .anon_const_keys = std.ArrayList([]u8).init(allocator),
+            .anon_const_keys = std.array_list.Managed([]u8).init(allocator),
             .memory = Memory.init(allocator),
             .monotonic_origin = null,
             .trace_runtime = traceRuntime(allocator) catch false,
@@ -791,7 +795,7 @@ const Interpreter = struct {
     }
 
     fn traceRuntime(allocator: std.mem.Allocator) !bool {
-        const value = std.process.getEnvVarOwned(allocator, "SAASM_TRACE_RUNTIME") catch |err| switch (err) {
+        const value = sio.getEnvVarOwned(allocator, "SAASM_TRACE_RUNTIME") catch |err| switch (err) {
             error.EnvironmentVariableNotFound => return false,
             else => return err,
         };
@@ -1557,9 +1561,12 @@ const Interpreter = struct {
     }
 
     fn monotonicNowNs(self: *Interpreter) !u64 {
-        const current = try std.time.Instant.now();
+        // NOTE(Zig 0.17): `std.time.Instant` is gone; `Clock.awake` is the
+        // monotonic clock ("will not go backwards").
+        const current = std.Io.Clock.awake.now(sio.io());
         if (self.monotonic_origin) |origin| {
-            return current.since(origin);
+            const delta = current.durationTo(origin);
+            return @as(u64, @intCast(delta.toNanoseconds()));
         }
         self.monotonic_origin = current;
         return 0;
@@ -1569,11 +1576,11 @@ const Interpreter = struct {
         const out = try self.memory.sliceAt(ptr, @sizeOf(TimeDate));
         @memset(out, 0);
 
-        const unix_ms = std.time.milliTimestamp();
+        const unix_ms = std.Io.Clock.real.now(sio.io()).toMilliseconds();
         const unix_s = @divFloor(unix_ms, std.time.ms_per_s);
         if (unix_s < 0) return error.Unsupported;
 
-        const unix_ns_raw = std.time.nanoTimestamp();
+        const unix_ns_raw = std.Io.Clock.real.now(sio.io()).toNanoseconds();
         const unix_ns = std.math.cast(i64, unix_ns_raw) orelse return error.Overflow;
         const epoch_seconds = std.time.epoch.EpochSeconds{ .secs = @as(u64, @intCast(unix_s)) };
         const epoch_day = epoch_seconds.getEpochDay();
@@ -1663,15 +1670,15 @@ const Interpreter = struct {
         }
         if (std.mem.eql(u8, name, "sa_time_unix_s")) {
             if (args.len != 0) return RunError.InvalidOperand;
-            return .{ .handled = .{ .ty = .i64, .bits = @as(u64, @bitCast(std.time.timestamp())) } };
+            return .{ .handled = .{ .ty = .i64, .bits = @as(u64, @bitCast(sio.timestampSeconds())) } };
         }
         if (std.mem.eql(u8, name, "sa_time_unix_ms")) {
             if (args.len != 0) return RunError.InvalidOperand;
-            return .{ .handled = .{ .ty = .i64, .bits = @as(u64, @bitCast(std.time.milliTimestamp())) } };
+            return .{ .handled = .{ .ty = .i64, .bits = @as(u64, @bitCast(std.Io.Clock.real.now(sio.io()).toMilliseconds())) } };
         }
         if (std.mem.eql(u8, name, "sa_time_unix_ns")) {
             if (args.len != 0) return RunError.InvalidOperand;
-            const ts = std.time.nanoTimestamp();
+            const ts = std.Io.Clock.real.now(sio.io()).toNanoseconds();
             const unix_ns = @as(i64, @intCast(ts));
             return .{ .handled = .{ .ty = .i64, .bits = @as(u64, @bitCast(unix_ns)) } };
         }
@@ -1690,13 +1697,13 @@ const Interpreter = struct {
         }
         if (std.mem.eql(u8, name, "sa_time_sleep_ns")) {
             if (args.len != 1) return RunError.InvalidOperand;
-            std.Thread.sleep(args[0].bits);
+            sio.io().sleep(.fromNanoseconds(@as(i96, @intCast(args[0].bits))), .awake) catch {};
             return .{ .handled = makeFallibleI32(SA_STD_OK) };
         }
         if (std.mem.eql(u8, name, "sa_time_sleep_ms")) {
             if (args.len != 1) return RunError.InvalidOperand;
             const ns = std.math.mul(u64, args[0].bits, std.time.ns_per_ms) catch return .{ .handled = makeFallibleI32(SA_STD_ERR_INVALID_ARGUMENT) };
-            std.Thread.sleep(ns);
+            sio.io().sleep(.fromNanoseconds(@as(i96, @intCast(ns))), .awake) catch {};
             return .{ .handled = makeFallibleI32(SA_STD_OK) };
         }
         if (!std.mem.startsWith(u8, name, "sys_")) return .not_syscall;
@@ -1729,7 +1736,7 @@ const Interpreter = struct {
         if (std.mem.eql(u8, name, "sys_read_file")) {
             if (args.len != 3) return RunError.InvalidOperand;
             const path = try self.memory.sliceAt(args[0].bits, @as(usize, @intCast(args[1].bits)));
-            var file = try std.fs.cwd().openFile(path, .{});
+            var file = try sio.cwd().openFile(path, .{});
             defer file.close();
             const data = try file.readToEndAlloc(self.allocator, 1 << 30);
             errdefer self.allocator.free(data);
@@ -1745,7 +1752,7 @@ const Interpreter = struct {
             if (args.len != 4) return RunError.InvalidOperand;
             const path = try self.memory.sliceAt(args[0].bits, @as(usize, @intCast(args[1].bits)));
             const data = try self.memory.sliceAt(args[2].bits, @as(usize, @intCast(args[3].bits)));
-            var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
+            var file = try sio.cwd().createFile(path, .{ .truncate = true });
             defer file.close();
             try file.writeAll(data);
             return .{ .handled = .{ .ty = .i32, .bits = data.len } };
@@ -1774,7 +1781,7 @@ const Interpreter = struct {
 
         var regs = try FrameRegs.init(self.allocator, &fsig);
         defer regs.deinit(self.allocator);
-        var stack_allocs = std.ArrayList(u64).init(self.allocator);
+        var stack_allocs = std.array_list.Managed(u64).init(self.allocator);
         defer {
             for (stack_allocs.items) |addr| {
                 self.memory.free(addr) catch |err| {
@@ -2286,8 +2293,8 @@ pub fn runFunctionAtIndexWithBinaryArgs(
     program: *const referee.VerifyOk,
     sig_index: usize,
     arg_blob: []const u8,
-    stdout: std.io.AnyWriter,
-    stderr: std.io.AnyWriter,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
 ) !u8 {
     if (program.function_sigs.len == 0) return 0;
     if (sig_index >= program.function_sigs.len) return RunError.InvalidFunction;
@@ -2305,8 +2312,8 @@ pub fn runWithWriters(
     allocator: std.mem.Allocator,
     program: *const referee.VerifyOk,
     argv: []const []const u8,
-    stdout: std.io.AnyWriter,
-    stderr: std.io.AnyWriter,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
 ) !u8 {
     const main_index = blk: {
         for (program.function_sigs, 0..) |fsig, idx| {
@@ -2330,12 +2337,19 @@ pub fn run(
     program: *const referee.VerifyOk,
     argv: []const []const u8,
 ) !u8 {
+    // NOTE(Zig 0.17): writers are caller-buffered now; flush before return.
+    var out_buf: [8192]u8 = undefined;
+    var out_writer = sio.getStdOut().writer(&out_buf);
+    var err_buf: [8192]u8 = undefined;
+    var err_writer = sio.getStdErr().writer(&err_buf);
+    defer out_writer.interface.flush() catch {};
+    defer err_writer.interface.flush() catch {};
     return runWithWriters(
         allocator,
         program,
         argv,
-        std.io.getStdOut().writer().any(),
-        std.io.getStdErr().writer().any(),
+        &out_writer.interface,
+        &err_writer.interface,
     );
 }
 

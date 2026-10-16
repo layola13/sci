@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"700\n"
+
+// 700 - Clear check: fresh slots read 0, then 700 stored and read.
+@main() -> i32:
+L_ENTRY:
+    buf = alloc 16
+    z0 = load buf+0 as i64
+    z1 = load buf+8 as i64
+    zero = 0 as i64
+    ok0 = eq z0, zero
+    ok1 = eq z1, zero
+    want = 700 as i64
+    store buf+0, want as i64
+    got = load buf+0 as i64
+    ok_v = eq got, want
+    t0 = and ok0, ok1
+    ok = and t0, ok_v
+    !buf
+    !z0
+    !z1
+    !zero
+    !ok0
+    !ok1
+    !want
+    !got
+    !ok_v
+    !t0
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

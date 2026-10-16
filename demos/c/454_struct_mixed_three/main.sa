@@ -1,0 +1,56 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"454\n"
+
+// 454 - mixed three-field struct: {n i64 = 3 @0, f 2.5 @8,
+// m i64 = 4 @16} folds to 9.5.
+@main() -> i32:
+L_ENTRY:
+    three_i = 3 as i64
+    four_i = 4 as i64
+    five = 5 as i32
+    two_i = 2 as i32
+    nineteen = 19 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    two_half = fdiv five_f, two_f
+    buf = alloc 24
+    store buf+0, three_i as i64
+    store buf+8, two_half as f64
+    store buf+16, four_i as i64
+    n = load buf+0 as i64
+    f = load buf+8 as f64
+    m = load buf+16 as i64
+    nf = sitofp n as f64
+    mf = sitofp m as f64
+    s1 = fadd nf, f
+    s = fadd s1, mf
+    nineteen_f = sitofp nineteen as f64
+    expect = fdiv nineteen_f, two_f
+    ok = fcmp_eq s, expect
+    !three_i
+    !four_i
+    !five
+    !two_i
+    !nineteen
+    !five_f
+    !two_f
+    !two_half
+    !buf
+    !n
+    !f
+    !m
+    !nf
+    !mf
+    !s1
+    !s
+    !nineteen_f
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

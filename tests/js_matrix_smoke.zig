@@ -1,43 +1,67 @@
 const std = @import("std");
 const saasm = @import("saasm");
 const builtin = @import("builtin");
+const sio = @import("sio");
 
 // JS backend equivalence matrix: `sa build-js` output executed with node
 // must match the expected stdout of each demo (verified against native
 // build-exe during development). Pure Zig backend: no LLVM required.
 
-fn runJsWithNode(allocator: std.mem.Allocator, js_path: []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runJsWithNode(allocator: std.mem.Allocator, js_path: []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "node", js_path },
     });
 }
 
 fn elapsedMs(start_ns: i128) i128 {
-    return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
+    return @divTrunc(sio.nanoTimestamp() - start_ns, std.time.ns_per_ms);
+}
+
+var js_matrix_seq: usize = 0;
+
+/// Shard selector for the long JS demo matrix: SA_JS_MATRIX_SHARD="i/n" runs
+/// only demos whose sequence number satisfies seq % n == i (0-based).
+/// Absent or malformed values run every demo (default behavior unchanged).
+fn jsMatrixShardSelected() bool {
+    const seq = js_matrix_seq;
+    js_matrix_seq += 1;
+    const value = sio.getEnvVarOwned(std.testing.allocator, "SA_JS_MATRIX_SHARD") catch return true;
+    defer std.testing.allocator.free(value);
+    var parts = std.mem.splitScalar(u8, value, '/');
+    const i_text = parts.next() orelse return true;
+    const n_text = parts.next() orelse return true;
+    const i = std.fmt.parseUnsigned(usize, i_text, 10) catch return true;
+    const n = std.fmt.parseUnsigned(usize, n_text, 10) catch return true;
+    if (n == 0 or i >= n) return true;
+    return seq % n == i;
 }
 
 fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    const node_probe = std.process.Child.run(.{
+    if (!jsMatrixShardSelected()) {
+        std.debug.print("[js-matrix] SKIP  demo={s} reason=shard\n", .{path});
+        return;
+    }
+    const node_probe = sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "node", "--version" },
     }) catch return error.SkipZigTest;
     defer std.testing.allocator.free(node_probe.stdout);
     defer std.testing.allocator.free(node_probe.stderr);
     switch (node_probe.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(repo_root);
     const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
     defer std.testing.allocator.free(source_path);
 
-    const demo_start = std.time.nanoTimestamp();
+    const demo_start = sio.nanoTimestamp();
     std.debug.print("[js-matrix] START demo={s}\n", .{path});
     var demo_ended = false;
     errdefer {
@@ -47,7 +71,7 @@ fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const base = std.fs.path.basename(path);
@@ -65,9 +89,11 @@ fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     if (build_js_code != 0) std.debug.print("build-js failed: {s}\n", .{path});
     try std.testing.expectEqual(@as(u8, 0), build_js_code);
 
-    const js_file = try tmp.dir.openFile(js_name, .{});
-    defer js_file.close();
-    const js_bytes = try js_file.readToEndAlloc(std.testing.allocator, 1 << 24);
+    const js_file = try tmp.dir.openFile(std.testing.io, js_name, .{});
+    defer js_file.close(std.testing.io);
+    var js_rbuf: [8192]u8 = undefined;
+    var js_reader = js_file.reader(std.testing.io, &js_rbuf);
+    const js_bytes = try js_reader.interface.allocRemaining(std.testing.allocator, .limited(1 << 24));
     defer std.testing.allocator.free(js_bytes);
     try std.testing.expect(js_bytes.len > 64);
 
@@ -75,7 +101,7 @@ fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     defer std.testing.allocator.free(js_result.stdout);
     defer std.testing.allocator.free(js_result.stderr);
     switch (js_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0 or !std.mem.eql(u8, js_result.stdout, expected_stdout) or js_result.stderr.len != 0) {
                 std.debug.print("js demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, js_result.stdout, js_result.stderr });
             }
@@ -1065,7 +1091,7 @@ test "js backend rosetta demos match expected output under node" {
 }
 
 fn assertJsBuildRejects(path: []const u8) !void {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(repo_root);
@@ -1075,7 +1101,7 @@ fn assertJsBuildRejects(path: []const u8) !void {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_js_argv = [_][]const u8{ "sa", "build-js", source_path, "-o", "rejected.mjs", "--project-root", repo_root };
@@ -1106,18 +1132,18 @@ fn assertJsRuntimeTrap(path: []const u8, expected_stderr_substr: []const u8) !vo
     // diagnostic on stderr. Probes live in demos/support (never rosetta,
     // so the native/wasm matrices that expect exit 0 stay untouched).
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    const node_probe = std.process.Child.run(.{
+    const node_probe = sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "node", "--version" },
     }) catch return error.SkipZigTest;
     defer std.testing.allocator.free(node_probe.stdout);
     defer std.testing.allocator.free(node_probe.stderr);
     switch (node_probe.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(repo_root);
@@ -1127,7 +1153,7 @@ fn assertJsRuntimeTrap(path: []const u8, expected_stderr_substr: []const u8) !vo
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_js_argv = [_][]const u8{ "sa", "build-js", source_path, "-o", "trap.mjs", "--project-root", repo_root };
@@ -1141,7 +1167,7 @@ fn assertJsRuntimeTrap(path: []const u8, expected_stderr_substr: []const u8) !vo
     defer std.testing.allocator.free(js_result.stdout);
     defer std.testing.allocator.free(js_result.stderr);
     switch (js_result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             std.debug.print("[js-trap] demo={s} exit={} stderr={s}\n", .{ path, code, js_result.stderr });
             try std.testing.expect(code != 0);
         },

@@ -1,0 +1,50 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"776\n"
+
+// 776 - Cons cells: (700 . (70 . (6 . nil))) sums == 776.
+@main() -> i32:
+L_ENTRY:
+    c3 = alloc 16
+    store c3+0, 6 as i64
+    store c3+8, 0 as i64
+    c2 = alloc 16
+    store c2+0, 70 as i64
+    store c2+8, c3 as ptr
+    c1 = alloc 16
+    store c1+0, 700 as i64
+    store c1+8, c2 as ptr
+    v1 = load c1+0 as i64
+    p2 = load c1+8 as ptr
+    v2 = load p2+0 as i64
+    p3 = load p2+8 as ptr
+    v3 = load p3+0 as i64
+    s0 = add v1, v2
+    got = add s0, v3
+    want = 776 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !c3
+    !c2
+    !c1
+    !v1
+    !p2
+    !v2
+    !p3
+    !v3
+    !s0
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

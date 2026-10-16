@@ -33,9 +33,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-
-// wasm32-wasi has no TCP sockets: entry points below report UNSUPPORTED.
-const is_wasi = builtin.os.tag == .wasi;
+const sio = @import("sio");
 
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
@@ -44,18 +42,35 @@ const SA_STD_ERR_UNSUPPORTED: i32 = -1;
 const SA_STD_ERR_IO: i32 = -5;
 const SA_STD_ERR_TLS_VERIFY: i32 = -100;
 
+// wasm32-wasi: usize is 32-bit, C ABI passes u64 lengths. Checked conversion.
+fn u64ToUsize(v: u64) ?usize {
+    return std.math.cast(usize, v);
+}
+
 const TlsClientHandle = struct {
-    stream: std.net.Stream,
+    stream: std.Io.net.Stream,
+    stream_reader: std.Io.net.Stream.Reader,
+    stream_writer: std.Io.net.Stream.Writer,
     client: std.crypto.tls.Client,
+    bundle: std.crypto.Certificate.Bundle,
+    bundle_lock: std.Io.RwLock,
+    sock_read_buf: [tls_buf_len]u8,
+    sock_write_buf: [tls_buf_len]u8,
+    tls_read_buf: [tls_buf_len]u8,
+    tls_write_buf: [tls_buf_len]u8,
     host: []u8,
     port: u32,
 };
+
+// NOTE(Zig 0.17): one max-size TLS record per buffer; the stream reader
+// buffer must hold at least `min_buffer_len`.
+const tls_buf_len = std.crypto.tls.max_ciphertext_record_len;
 
 // ---- process-wide CA bundle singleton --------------------------------------
 // Populated once from the OS trust store (rescan), extended on demand by
 // add_ca_file, never freed. Mirrors the SslApi singleton in sa_tls_server.zig.
 
-var bundle_mutex = std.Thread.Mutex{};
+var bundle_mutex = std.Io.Mutex.init;
 var ca_bundle: ?std.crypto.Certificate.Bundle = null;
 
 /// Caller must hold bundle_mutex. Returns a pointer to the live singleton so
@@ -63,9 +78,9 @@ var ca_bundle: ?std.crypto.Certificate.Bundle = null;
 /// held and must finish using it before the lock is released by the owner.
 fn ensureBundleLocked() anyerror!*std.crypto.Certificate.Bundle {
     if (ca_bundle == null) {
-        var b: std.crypto.Certificate.Bundle = .{};
+        var b: std.crypto.Certificate.Bundle = .empty;
         errdefer b.deinit(std.heap.page_allocator);
-        try b.rescan(std.heap.page_allocator);
+        try b.rescan(std.heap.page_allocator, sio.io(), std.Io.Clock.real.now(sio.io()));
         ca_bundle = b;
     }
     return &ca_bundle.?;
@@ -114,6 +129,20 @@ fn mapDialErr(err: anyerror) i32 {
     };
 }
 
+// NOTE(Zig 0.17): `IpAddress.resolve` only parses literals (no DNS), while
+// the old `tcpConnectToHost` tried every resolved address. Literals connect
+// directly; anything else goes through `HostName.connect`, which fans out to
+// all addresses (Happy Eyeballs), so `localhost` works regardless of whether
+// the peer bound ::1 or 127.0.0.1.
+fn dialHost(host: []const u8, port: u16) !std.Io.net.Stream {
+    if (std.Io.net.IpAddress.parse(host, port)) |addr| {
+        var a = addr;
+        return a.connect(sio.io(), .{ .mode = .stream });
+    } else |_| {}
+    const hn = try std.Io.net.HostName.init(host);
+    return hn.connect(sio.io(), port, .{ .mode = .stream });
+}
+
 // ---- exported surface ------------------------------------------------------
 // Handles are u64-packed heap pointers; 0 == invalid, matching the TCP and
 // tls_server sinks.
@@ -127,76 +156,100 @@ pub export fn sa_std_tls_client_supported(out_supported: ?*u32) i32 {
 }
 
 pub export fn sa_std_tls_client_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
-    const host_slice = if (host_ptr) |p| p[0..host_len] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const host_n = u64ToUsize(host_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const host_slice = if (host_ptr) |p| p[0..host_n] else return SA_STD_ERR_INVALID_ARGUMENT;
     if (host_slice.len == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     if (port == 0 or port > 65535) return SA_STD_ERR_INVALID_ARGUMENT;
 
     // 1. TCP dial first, outside the bundle mutex (DNS resolution can block).
     // NOTE: this function returns i32, so errdefer is dead code here -- every
     // failure path below frees/closes explicitly.
-    const stream = std.net.tcpConnectToHost(std.heap.page_allocator, host_slice, @intCast(port)) catch |err| {
+    const stream = dialHost(host_slice, @intCast(port)) catch |err| {
         return mapDialErr(err);
     };
 
     // 2. Owned copy of the hostname: Client.init only borrows it during the
     // call, but we keep it on the handle for status/debug.
     const host_owned = std.heap.page_allocator.dupe(u8, host_slice) catch {
-        stream.close();
+        stream.close(sio.io());
         return SA_STD_ERR_NO_MEMORY;
     };
 
-    // 3. Snapshot the bundle and run the blocking TLS handshake under the
-    // mutex: the copied Bundle shares the singleton's byte storage, and this
-    // keeps add_ca_file from reallocating it mid-handshake.
-    bundle_mutex.lock();
-    defer bundle_mutex.unlock();
-    const bundle_copy = (ensureBundleLocked() catch |err| {
-        std.heap.page_allocator.free(host_owned);
-        stream.close();
-        return mapBundleErr(err);
-    }).*;
-    var client = std.crypto.tls.Client.init(stream, .{
-        .host = .{ .explicit = host_owned },
-        .ca = .{ .bundle = bundle_copy },
-    }) catch |err| {
-        std.heap.page_allocator.free(host_owned);
-        stream.close();
-        return mapTlsErr(err);
-    };
-    client.allow_truncation_attacks = true;
-
     const h = std.heap.page_allocator.create(TlsClientHandle) catch {
-        // Extremely unlikely, but don't leak the live TLS session: try a
-        // clean close_notify before dropping the socket.
-        _ = client.writeEnd(stream, "", true) catch 0;
         std.heap.page_allocator.free(host_owned);
-        stream.close();
+        stream.close(sio.io());
         return SA_STD_ERR_NO_MEMORY;
     };
     h.* = .{
         .stream = stream,
-        .client = client,
+        .stream_reader = undefined,
+        .stream_writer = undefined,
+        .client = undefined,
+        .bundle = undefined,
+        .bundle_lock = .init,
+        .sock_read_buf = undefined,
+        .sock_write_buf = undefined,
+        .tls_read_buf = undefined,
+        .tls_write_buf = undefined,
         .host = host_owned,
         .port = port,
     };
+    h.stream_reader = stream.reader(sio.io(), &h.sock_read_buf);
+    h.stream_writer = stream.writer(sio.io(), &h.sock_write_buf);
+
+    // 3. Snapshot the bundle and run the blocking TLS handshake under the
+    // mutex: the copied Bundle shares the singleton's byte storage, and this
+    // keeps add_ca_file from reallocating it mid-handshake.
+    // NOTE(Zig 0.17): the client borrows `&h.bundle`/`&h.bundle_lock` for the
+    // life of the connection, so the copy lives on the handle, not the stack.
+    var entropy: [std.crypto.tls.Client.Options.entropy_len]u8 = undefined;
+    sio.io().random(&entropy);
+    bundle_mutex.lockUncancelable(sio.io());
+    defer bundle_mutex.unlock(sio.io());
+    h.bundle = (ensureBundleLocked() catch |err| {
+        std.heap.page_allocator.free(host_owned);
+        stream.close(sio.io());
+        std.heap.page_allocator.destroy(h);
+        return mapBundleErr(err);
+    }).*;
+    h.client = std.crypto.tls.Client.init(&h.stream_reader.interface, &h.stream_writer.interface, .{
+        .host = .{ .explicit = host_owned },
+        .ca = .{ .bundle = .{
+            .gpa = std.heap.page_allocator,
+            .io = sio.io(),
+            .lock = &h.bundle_lock,
+            .bundle = &h.bundle,
+        } },
+        .read_buffer = &h.tls_read_buf,
+        .write_buffer = &h.tls_write_buf,
+        .entropy = &entropy,
+        .realtime_now = std.Io.Clock.real.now(sio.io()),
+        .allow_truncation_attacks = true,
+    }) catch |err| {
+        std.heap.page_allocator.free(host_owned);
+        stream.close(sio.io());
+        std.heap.page_allocator.destroy(h);
+        return mapTlsErr(err);
+    };
+
     slot.* = @intFromPtr(h);
     return SA_STD_OK;
 }
 
 pub export fn sa_std_tls_client_add_ca_file(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
-    const path = if (path_ptr) |p| p[0..path_len] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const path_n = u64ToUsize(path_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const path = if (path_ptr) |p| p[0..path_n] else return SA_STD_ERR_INVALID_ARGUMENT;
     if (path.len == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     // addCertsFromFilePathAbsolute asserts an absolute path; reject early with
     // a contract error instead of tripping the assert.
     if (!std.fs.path.isAbsolute(path)) return SA_STD_ERR_INVALID_ARGUMENT;
-    bundle_mutex.lock();
-    defer bundle_mutex.unlock();
+    bundle_mutex.lockUncancelable(sio.io());
+    defer bundle_mutex.unlock(sio.io());
     const b = ensureBundleLocked() catch |err| return mapBundleErr(err);
-    b.addCertsFromFilePathAbsolute(std.heap.page_allocator, path) catch |err| {
+    const now = std.Io.Clock.real.now(sio.io());
+    b.addCertsFromFilePathAbsolute(std.heap.page_allocator, sio.io(), now, path) catch |err| {
         return switch (err) {
             error.OutOfMemory => SA_STD_ERR_NO_MEMORY,
             else => SA_STD_ERR_IO,
@@ -208,23 +261,45 @@ pub export fn sa_std_tls_client_add_ca_file(path_ptr: ?[*]const u8, path_len: u6
 fn handleFromU64(handle: u64) *TlsClientHandle {
     // Heap pointers from page_allocator are 16-byte aligned; alignCast keeps
     // this sound on targets (aarch64) where @ptrFromInt is stricter.
-    // wasm32 is 32-bit: narrow the u64 registry handle explicitly.
-    const p: *TlsClientHandle = @ptrFromInt(@as(usize, @truncate(handle)));
+    // wasm32-wasi: usize is 32-bit, handle is u64 ABI (zero-extended pointer).
+    const p: *TlsClientHandle = @ptrFromInt(@as(usize, @intCast(handle)));
     return @alignCast(p);
 }
 
 pub export fn sa_std_tls_client_read(handle: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_read orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     const buf = out orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const h = handleFromU64(handle);
-    const n = h.client.read(h.stream, buf[0..@min(cap, @as(u64, @intCast(std.math.maxInt(c_int))))]) catch |err| {
-        return mapTlsErr(err);
-    };
-    slot.* = @intCast(n);
-    return SA_STD_OK;
+    const cap_len: usize = @min(cap, @as(u64, @intCast(std.math.maxInt(c_int))));
+    if (cap_len == 0) return SA_STD_OK;
+    // NOTE(Zig 0.17): single-shot read (not fill-or-EOF) to preserve the old
+    // short-read contract framing callers rely on. The TLS record layer
+    // buffers a full decrypted record and reports 0, and `readVec` calls
+    // back into it to fill the rest of the vector (blocking for more records
+    // even when bytes are already buffered), so: drain whatever is buffered
+    // first with an exact-size vector (no vtable call), else pull one record
+    // and loop around to drain it.
+    while (true) {
+        const avail = h.client.reader.bufferedLen();
+        if (avail > 0) {
+            const take = @min(cap_len, avail);
+            var vec = [_][]u8{buf[0..take]};
+            const n = h.client.reader.readVec(&vec) catch |err| {
+                if (h.client.read_err) |rerr| return mapTlsErr(rerr);
+                return mapTlsErr(err);
+            };
+            slot.* = @intCast(n);
+            return SA_STD_OK;
+        }
+        var vec = [_][]u8{buf[0..cap_len]};
+        _ = h.client.reader.readVec(&vec) catch |err| {
+            if (h.client.read_err) |rerr| return mapTlsErr(rerr);
+            if (err == error.EndOfStream) return SA_STD_OK;
+            return mapTlsErr(err);
+        };
+    }
 }
 
 pub export fn sa_std_tls_client_write(handle: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
@@ -233,10 +308,19 @@ pub export fn sa_std_tls_client_write(handle: u64, buf: ?[*]const u8, len: u64, 
     if (handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     const src = buf orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const h = handleFromU64(handle);
-    const n = h.client.write(h.stream, src[0..@min(len, @as(u64, @intCast(std.math.maxInt(c_int))))]) catch |err| {
+    const chunk = src[0..@min(len, @as(u64, @intCast(std.math.maxInt(c_int))))];
+    // NOTE(Zig 0.17): encrypted bytes land in the stream writer's buffer, so
+    // both layers must flush (writer flush, then socket flush).
+    h.client.writer.writeAll(chunk) catch |err| {
         return mapTlsErr(err);
     };
-    slot.* = @intCast(n);
+    h.client.writer.flush() catch |err| {
+        return mapTlsErr(err);
+    };
+    h.stream_writer.interface.flush() catch |err| {
+        return mapTlsErr(err);
+    };
+    slot.* = @intCast(chunk.len);
     return SA_STD_OK;
 }
 
@@ -245,8 +329,10 @@ pub export fn sa_std_tls_client_close(handle: u64) i32 {
     const h = handleFromU64(handle);
     // Best-effort close_notify so the peer sees a clean shutdown; the peer
     // may already be gone, hence catch {}.
-    _ = h.client.writeEnd(h.stream, "", true) catch 0;
-    h.stream.close();
+    h.client.end() catch {};
+    h.client.writer.flush() catch {};
+    h.stream_writer.interface.flush() catch {};
+    h.stream.close(sio.io());
     std.heap.page_allocator.free(h.host);
     std.heap.page_allocator.destroy(h);
     return SA_STD_OK;
@@ -263,12 +349,12 @@ pub export fn sa_std_tls_client_status_json(out_handle: ?*u64) i32 {
 
 // ---- buffer handle registry (same shape as sa_tls_server.zig) --------------
 
-var string_registry_mutex = std.Thread.Mutex{};
-var string_registry = std.ArrayListUnmanaged(?[]u8){};
+var string_registry_mutex = std.Io.Mutex.init;
+var string_registry = std.ArrayListUnmanaged(?[]u8).empty;
 
 fn registerString(bytes: []u8, slot: *u64) i32 {
-    string_registry_mutex.lock();
-    defer string_registry_mutex.unlock();
+    string_registry_mutex.lockUncancelable(sio.io());
+    defer string_registry_mutex.unlock(sio.io());
     var i: usize = 0;
     while (i < string_registry.items.len) : (i += 1) {
         if (string_registry.items[i] == null) {
@@ -287,8 +373,8 @@ fn registerString(bytes: []u8, slot: *u64) i32 {
 
 fn takeString(handle: u64) ?[]u8 {
     if (handle == 0) return null;
-    string_registry_mutex.lock();
-    defer string_registry_mutex.unlock();
+    string_registry_mutex.lockUncancelable(sio.io());
+    defer string_registry_mutex.unlock(sio.io());
     const idx: usize = @intCast(handle - 1);
     if (idx >= string_registry.items.len) return null;
     return string_registry.items[idx];
@@ -305,8 +391,8 @@ pub export fn sa_std_tls_client_buffer_len(handle: u64) u64 {
 }
 
 pub export fn sa_std_tls_client_buffer_free(handle: u64) i32 {
-    string_registry_mutex.lock();
-    defer string_registry_mutex.unlock();
+    string_registry_mutex.lockUncancelable(sio.io());
+    defer string_registry_mutex.unlock(sio.io());
     if (handle == 0) return SA_STD_OK;
     const idx: usize = @intCast(handle - 1);
     if (idx >= string_registry.items.len) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -402,12 +488,12 @@ fn makeSelfSignedCert(allocator: std.mem.Allocator, dirpath: []const u8) !struct
         "-out",    cert_path,
         "-days",   "1",   "-nodes", "-subj", "/CN=localhost",
     };
-    var child = std.process.Child.init(&args, allocator);
+    var child = sio.Child.init(&args, allocator);
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
     const term = child.spawnAndWait() catch return error.OpensslSpawnFailed;
     switch (term) {
-        .Exited => |code| if (code != 0) return error.OpensslCertFailed,
+        .exited => |code| if (code != 0) return error.OpensslCertFailed,
         else => return error.OpensslCertAbnormal,
     }
     return .{ .cert = cert_path, .key = key_path };
@@ -423,7 +509,8 @@ test "loopback: real handshake vs openssl s_server with CA-pinned verification" 
     const allocator = std.heap.page_allocator;
     var td = testing.tmpDir(.{});
     defer td.cleanup();
-    const dirpath = try td.dir.realpathAlloc(allocator, ".");
+    const tdir = sio.Dir{ .inner = td.dir };
+    const dirpath = try tdir.realpathAlloc(allocator, ".");
     defer allocator.free(dirpath);
     const paths = try makeSelfSignedCert(allocator, dirpath);
     defer allocator.free(paths.cert);
@@ -433,10 +520,13 @@ test "loopback: real handshake vs openssl s_server with CA-pinned verification" 
     try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_add_ca_file(paths.cert.ptr, paths.cert.len));
 
     // Grab a free loopback port, then hand it to s_server.
-    const probe = try std.net.Address.parseIp4("127.0.0.1", 0);
-    var listener = try probe.listen(.{ .reuse_address = true });
-    const port = listener.listen_address.getPort();
-    listener.deinit();
+    const probe = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try probe.listen(sio.io(), .{ .reuse_address = true });
+    const port = switch (listener.socket.address) {
+        .ip4 => |a| a.port,
+        .ip6 => |a| a.port,
+    };
+    listener.deinit(sio.io());
 
     const accept_arg = try std.fmt.allocPrint(allocator, "127.0.0.1:{d}", .{port});
     defer allocator.free(accept_arg);
@@ -448,7 +538,7 @@ test "loopback: real handshake vs openssl s_server with CA-pinned verification" 
         "-naccept", "1",
         "-quiet",
     };
-    var server = std.process.Child.init(&server_args, allocator);
+    var server = sio.Child.init(&server_args, allocator);
     server.stdin_behavior = .Pipe;
     server.stdout_behavior = .Pipe;
     server.stderr_behavior = .Ignore;
@@ -469,7 +559,7 @@ test "loopback: real handshake vs openssl s_server with CA-pinned verification" 
         // Only retry dial-level failures; a -100 here would be a real
         // verification bug and must fail the test, not loop.
         try testing.expectEqual(@as(i32, SA_STD_ERR_IO), rc);
-        std.time.sleep(50 * std.time.ns_per_ms);
+        std.Io.sleep(sio.io(), .fromMilliseconds(50), .awake) catch {};
     }
     try testing.expect(connected);
     try testing.expect(handle != 0);
@@ -503,7 +593,7 @@ test "loopback: real handshake vs openssl s_server with CA-pinned verification" 
     defer allocator.free(echoed);
     const term = try server.wait();
     switch (term) {
-        .Exited => |code| try testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try testing.expectEqual(@as(u8, 0), code),
         else => return error.ServerAbnormalExit,
     }
     try testing.expect(std.mem.indexOf(u8, echoed, client_msg) != null);

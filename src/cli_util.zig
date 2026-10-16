@@ -1,5 +1,6 @@
 const std = @import("std");
 const trap = @import("common/trap.zig");
+const sio = @import("sio");
 
 pub const DiagnosticsMode = enum {
     human,
@@ -66,7 +67,7 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
             .message = "LLVM phi nodes are not supported yet",
             .hint = "compile with -O0 or run opt --reg2mem before bc2sa; no new SA instruction is required for this diagnostic",
         },
-        error.UnknownCommand => .{ .code = "SA-CLI-013", .message = "unknown command", .hint = "use init, install, build, run, build-exe, build-wasm, build-js, build-obj, audit, graph, layout, size, test, explain, fix, skills, fetch, bc2sa, help, or version" },
+        error.UnknownCommand => .{ .code = "SA-CLI-013", .message = "unknown command", .hint = "use init, install, build, run, build-exe, build-wasm, build-js, build-c, build-obj, audit, graph, layout, size, test, explain, fix, skills, fetch, bc2sa, help, or version" },
         error.UnexpectedArgument => .{ .code = "SA-CLI-014", .message = "unexpected argument", .hint = "check option order and remove unsupported flags" },
         error.InvalidPath => .{ .code = "SA-CLI-014", .message = "invalid path", .hint = "check the filesystem path and project root" },
         error.MissingRef => .{ .code = "SA-CLI-015", .message = "missing package ref", .hint = "pass a ref value after --ref" },
@@ -129,9 +130,9 @@ pub fn printTrapReport(writer: anytype, report: trap.TrapReport, mode: Diagnosti
 pub fn writeTextFile(allocator: std.mem.Allocator, path: []const u8, bytes: []const u8) !void {
     _ = allocator;
     if (std.fs.path.dirname(path)) |dir| {
-        if (dir.len != 0) try std.fs.cwd().makePath(dir);
+        if (dir.len != 0) try sio.cwd().makePath(dir);
     }
-    var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
+    var file = try sio.cwd().createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(bytes);
 }

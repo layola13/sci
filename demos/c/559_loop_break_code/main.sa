@@ -1,0 +1,41 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"559\n"
+
+// 559 - Loop with early break at i == 3, sum 0+1+2 == 3, code 0.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    i = 0 as i64
+    one = 1 as i64
+    jmp L_COND
+L_COND:
+    stop = eq i, 3
+    br stop -> L_DONE, L_BODY
+L_BODY:
+    !stop
+    acc = add acc, i
+    i = add i, one
+    jmp L_COND
+L_DONE:
+    !stop
+    want = 3 as i64
+    ok_sum = eq acc, want
+    zero = 0 as i64
+    ok_code = eq zero, 0
+    ok = and ok_sum, ok_code
+    !acc
+    !i
+    !one
+    !want
+    !zero
+    !ok_sum
+    !ok_code
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

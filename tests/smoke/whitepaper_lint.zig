@@ -1,4 +1,5 @@
 const std = @import("std");
+const sio = @import("sio");
 
 fn lineCount(text: []const u8) usize {
     if (text.len == 0) return 0;
@@ -10,7 +11,7 @@ fn lineCount(text: []const u8) usize {
 }
 
 test "whitepaper files exist and stay under line limit" {
-    const cwd = std.fs.cwd();
+    const cwd = sio.cwd();
     const md_file = try cwd.openFile("docs/whitepaper.md", .{});
     defer md_file.close();
     const txt_file = try cwd.openFile("docs/whitepaper.txt", .{});

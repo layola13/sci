@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("sio");
 
 const audit = @import("audit.zig");
 const manifest = @import("manifest.zig");
@@ -16,7 +17,7 @@ pub const FetchOptions = struct {
 
 pub const FetchResult = struct {
     root: []u8,
-    source_sha256: [32]u8 = [_]u8{0} ** 32,
+    source_sha256: [32]u8 = std.mem.zeroes([32]u8),
 
     pub fn deinit(self: *FetchResult, allocator: std.mem.Allocator) void {
         allocator.free(self.root);
@@ -56,8 +57,8 @@ fn validateRef(ref: []const u8) FetchError!void {
     if (std.mem.indexOfAny(u8, trimmed, " \t\r\n\x00") != null) return error.InvalidUrl;
 }
 
-fn inheritEnvIfPresent(allocator: std.mem.Allocator, env_map: *std.process.EnvMap, key: []const u8) !void {
-    const value = std.process.getEnvVarOwned(allocator, key) catch |err| switch (err) {
+fn inheritEnvIfPresent(allocator: std.mem.Allocator, env_map: *sio.EnvMap, key: []const u8) !void {
+    const value = sio.getEnvVarOwned(allocator, key) catch |err| switch (err) {
         error.EnvironmentVariableNotFound => return,
         else => return err,
     };
@@ -70,8 +71,8 @@ fn pathJoin(allocator: std.mem.Allocator, parts: []const []const u8) ![]u8 {
 }
 
 fn homeDir(allocator: std.mem.Allocator) ![]u8 {
-    return std.process.getEnvVarOwned(allocator, "HOME") catch {
-        return std.process.getEnvVarOwned(allocator, "USERPROFILE") catch return error.InvalidPath;
+    return sio.getEnvVarOwned(allocator, "HOME") catch {
+        return sio.getEnvVarOwned(allocator, "USERPROFILE") catch return error.InvalidPath;
     };
 }
 
@@ -101,11 +102,11 @@ fn remoteUrlFromIdentity(allocator: std.mem.Allocator, identity: []const u8) ![]
 }
 
 fn deleteExistingDir(path: []const u8) !void {
-    try std.fs.cwd().deleteTree(path);
+    try sio.cwd().deleteTree(path);
 }
 
 fn dirExists(path: []const u8) !bool {
-    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch |err| switch (err) {
+    var dir = sio.cwd().openDir(path, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound, error.NotDir => return false,
         else => return err,
     };
@@ -136,17 +137,17 @@ fn isIgnoredTreeDir(name: []const u8) bool {
         std.mem.eql(u8, name, "zig-cache");
 }
 
-fn rejectPrecompiledArtifacts(root: std.fs.Dir, allocator: std.mem.Allocator) !void {
-    var walker = try root.walk(allocator);
+fn rejectPrecompiledArtifacts(root: sio.Dir, allocator: std.mem.Allocator) !void {
+    var walker = try root.inner.walk(allocator);
     defer walker.deinit();
-    while (try walker.next()) |entry| {
+    while (try walker.next(sio.io())) |entry| {
         if (entry.kind != .file) continue;
         if (pathHasPrecompiledArtifact(entry.basename)) return error.PrecompiledArtifactRejected;
     }
 }
 
 fn inspectFetchedSource(allocator: std.mem.Allocator, target_root: []const u8) ![32]u8 {
-    var target_dir = try std.fs.cwd().openDir(target_root, .{ .iterate = true });
+    var target_dir = try sio.cwd().openDir(target_root, .{ .iterate = true });
     defer target_dir.close();
     try rejectPrecompiledArtifacts(target_dir, allocator);
     return try audit.hashPackageSource(allocator, target_root);
@@ -159,47 +160,48 @@ fn validateExpectedSourceHash(expected: ?[32]u8, actual: [32]u8) !void {
 
 fn chmodFileReadOnly(path: []const u8) !void {
     if (builtin.os.tag == .windows) return;
-    var file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
+    var file = try sio.cwd().openFile(path, .{ .mode = .read_only });
     defer file.close();
     try file.chmod(0o444);
 }
 
 fn chmodDirReadOnly(path: []const u8) !void {
     if (builtin.os.tag == .windows) return;
-    var dir = try std.fs.cwd().openDir(path, .{ .iterate = true, .no_follow = true });
+    var dir = try sio.cwd().openDir(path, .{ .iterate = true, .follow_symlinks = false });
     defer dir.close();
     try dir.chmod(0o555);
 }
 
 fn copyTree(src_root: []const u8, dst_root: []const u8, allocator: std.mem.Allocator, options: CopyTreeOptions) !void {
-    var src_dir = try std.fs.cwd().openDir(src_root, .{ .iterate = true });
+    var src_dir = try sio.cwd().openDir(src_root, .{ .iterate = true });
     defer src_dir.close();
 
-    var walker = try src_dir.walk(allocator);
+    var walker = try src_dir.inner.walk(allocator);
     defer walker.deinit();
 
-    var copied_dirs = std.ArrayList([]u8).init(allocator);
+    var copied_dirs = std.array_list.Managed([]u8).init(allocator);
     defer {
         for (copied_dirs.items) |path| allocator.free(path);
         copied_dirs.deinit();
     }
 
-    while (try walker.next()) |entry| {
+    while (try walker.next(sio.io())) |entry| {
         if (entry.kind == .directory and isIgnoredTreeDir(entry.basename)) continue;
         const dst_path = try std.fs.path.join(allocator, &.{ dst_root, entry.path });
         defer allocator.free(dst_path);
 
         switch (entry.kind) {
             .directory => {
-                try std.fs.cwd().makePath(dst_path);
+                try sio.cwd().makePath(dst_path);
                 if (options.read_only) try copied_dirs.append(try allocator.dupe(u8, dst_path));
             },
             .file => {
                 if (pathHasPrecompiledArtifact(entry.basename)) return error.PrecompiledArtifactRejected;
                 if (std.fs.path.dirname(dst_path)) |parent| {
-                    try std.fs.cwd().makePath(parent);
+                    try sio.cwd().makePath(parent);
                 }
-                try std.fs.Dir.copyFile(entry.dir, entry.basename, std.fs.cwd(), dst_path, .{});
+                const entry_dir: sio.Dir = .{ .inner = entry.dir };
+                try entry_dir.copyFile(entry.basename, sio.cwd(), dst_path, .{});
                 if (options.read_only) try chmodFileReadOnly(dst_path);
             },
             .sym_link => continue,
@@ -218,23 +220,25 @@ fn copyTree(src_root: []const u8, dst_root: []const u8, allocator: std.mem.Alloc
 }
 
 fn setReadOnlyRecursive(root_path: []const u8, allocator: std.mem.Allocator) !void {
-    var root_dir = try std.fs.cwd().openDir(root_path, .{ .iterate = true, .no_follow = true });
+    var root_dir = try sio.cwd().openDir(root_path, .{ .iterate = true, .follow_symlinks = false });
     defer root_dir.close();
 
-    var walker = try root_dir.walk(allocator);
+    var walker = try root_dir.inner.walk(allocator);
     defer walker.deinit();
 
-    while (try walker.next()) |entry| {
+    while (try walker.next(sio.io())) |entry| {
         switch (entry.kind) {
             .file => {
                 if (builtin.os.tag == .windows) continue;
-                var file = try entry.dir.openFile(entry.basename, .{ .mode = .read_only });
+                const entry_dir: sio.Dir = .{ .inner = entry.dir };
+                var file = try entry_dir.openFile(entry.basename, .{ .mode = .read_only });
                 defer file.close();
                 try file.chmod(0o444);
             },
             .directory => {
                 if (builtin.os.tag == .windows) continue;
-                var dir = try entry.dir.openDir(entry.basename, .{ .iterate = true, .no_follow = true });
+                const entry_dir: sio.Dir = .{ .inner = entry.dir };
+                var dir = try entry_dir.openDir(entry.basename, .{ .iterate = true, .follow_symlinks = false });
                 defer dir.close();
                 try dir.chmod(0o555);
             },
@@ -250,7 +254,7 @@ fn runGitClone(allocator: std.mem.Allocator, identity: []const u8, ref: []const 
     const remote_url = try remoteUrlFromIdentity(allocator, identity);
     defer allocator.free(remote_url);
 
-    var argv = std.ArrayList([]const u8).init(allocator);
+    var argv = std.array_list.Managed([]const u8).init(allocator);
     defer argv.deinit();
 
     try argv.appendSlice(&.{ "git", "clone", "--depth", "1" });
@@ -261,7 +265,7 @@ fn runGitClone(allocator: std.mem.Allocator, identity: []const u8, ref: []const 
     try argv.append(remote_url);
     try argv.append(target_root);
 
-    var env_map = std.process.EnvMap.init(allocator);
+    var env_map = sio.EnvMap.init(allocator);
     defer env_map.deinit();
     try inheritEnvIfPresent(allocator, &env_map, "PATH");
     try inheritEnvIfPresent(allocator, &env_map, "HOME");
@@ -274,7 +278,7 @@ fn runGitClone(allocator: std.mem.Allocator, identity: []const u8, ref: []const 
     }
     try env_map.put("GCM_INTERACTIVE", "Never");
 
-    const result = try std.process.Child.run(.{
+    const result = try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv.items,
         .env_map = &env_map,
@@ -283,7 +287,7 @@ fn runGitClone(allocator: std.mem.Allocator, identity: []const u8, ref: []const 
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| if (code == 0) return,
+        .exited => |code| if (code == 0) return,
         else => {},
     }
     return error.SourceNotFound;
@@ -327,13 +331,13 @@ pub fn fetchPackage(allocator: std.mem.Allocator, identity: []const u8, ref: []c
         if (try dirExists(identity)) {
             if (std.mem.eql(u8, identity, target_root)) return error.InvalidPath;
             try deleteExistingDir(target_root);
-            try std.fs.cwd().makePath(target_root);
+            try sio.cwd().makePath(target_root);
             try copyTree(identity, target_root, allocator, .{ .read_only = options.global });
             copied_read_only = options.global;
         } else if (!std.mem.eql(u8, mirrored_identity, identity) and try dirExists(mirrored_identity)) {
             if (std.mem.eql(u8, mirrored_identity, target_root)) return error.InvalidPath;
             try deleteExistingDir(target_root);
-            try std.fs.cwd().makePath(target_root);
+            try sio.cwd().makePath(target_root);
             try copyTree(mirrored_identity, target_root, allocator, .{ .read_only = options.global });
             copied_read_only = options.global;
         } else {
@@ -341,17 +345,17 @@ pub fn fetchPackage(allocator: std.mem.Allocator, identity: []const u8, ref: []c
         }
     } else if (try dirExists(identity)) {
         try deleteExistingDir(target_root);
-        try std.fs.cwd().makePath(target_root);
+        try sio.cwd().makePath(target_root);
         try copyTree(identity, target_root, allocator, .{ .read_only = options.global });
         copied_read_only = options.global;
     } else if (!std.mem.eql(u8, mirrored_identity, identity) and try dirExists(mirrored_identity)) {
         try deleteExistingDir(target_root);
-        try std.fs.cwd().makePath(target_root);
+        try sio.cwd().makePath(target_root);
         try copyTree(mirrored_identity, target_root, allocator, .{ .read_only = options.global });
         copied_read_only = options.global;
     } else {
         try deleteExistingDir(target_root);
-        try std.fs.cwd().makePath(target_root);
+        try sio.cwd().makePath(target_root);
         try runGitClone(allocator, mirrored_identity, ref, target_root);
     }
 
@@ -385,14 +389,14 @@ test "fetch copies a local source tree into sa_vendor" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("github.com/example/pkg/src");
-    var src_file = try tmp.dir.createFile("github.com/example/pkg/src/main.sa", .{ .truncate = true });
-    defer src_file.close();
-    try src_file.writeAll("@main() -> i32:\n    return 0\n");
+    try tmp.dir.createDirPath(std.testing.io, "github.com/example/pkg/src");
+    var src_file = try tmp.dir.createFile(std.testing.io, "github.com/example/pkg/src/main.sa", .{ .truncate = true });
+    defer src_file.close(std.testing.io);
+    try src_file.writeStreamingAll(std.testing.io, "@main() -> i32:\n    return 0\n");
 
-    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    var old_cwd = try sio.cwd().openDir(".", .{});
     defer old_cwd.close();
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer old_cwd.setAsCwd() catch |err| {
         // Test teardown cannot recover from cwd restoration failure.
         _ = @errorName(err);
@@ -401,9 +405,9 @@ test "fetch copies a local source tree into sa_vendor" {
     var result = try fetchPackage(std.testing.allocator, "github.com/example/pkg", "HEAD", .{});
     defer result.deinit(std.testing.allocator);
 
-    var copied = try std.fs.cwd().openDir(result.root, .{ .iterate = true });
+    var copied = try sio.cwd().openDir(result.root, .{ .iterate = true });
     defer copied.close();
-    try copied.access("src/main.sa", .{ .mode = .read_only });
+    try copied.access("src/main.sa", .{ .read = true });
 }
 
 test "copyTree can set read-only permissions while skipping symlinks" {
@@ -411,25 +415,25 @@ test "copyTree can set read-only permissions while skipping symlinks" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("src/nested");
-    try tmp.dir.writeFile(.{ .sub_path = "src/nested/main.sa", .data = "@main() -> i32:\n    return 0\n" });
-    try tmp.dir.writeFile(.{ .sub_path = "outside.sa", .data = "outside" });
-    try tmp.dir.symLink("../outside.sa", "src/link.sa", .{});
+    try tmp.dir.createDirPath(std.testing.io, "src/nested");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "src/nested/main.sa", .data = "@main() -> i32:\n    return 0\n" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "outside.sa", .data = "outside" });
+    try tmp.dir.symLink(std.testing.io, "../outside.sa", "src/link.sa", .{});
 
-    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    var old_cwd = try sio.cwd().openDir(".", .{});
     defer old_cwd.close();
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer old_cwd.setAsCwd() catch |err| {
         _ = @errorName(err);
     };
     defer {
         if (builtin.os.tag != .windows) {
-            var nested = std.fs.cwd().openDir("dst/nested", .{ .iterate = true, .no_follow = true }) catch null;
+            var nested = sio.cwd().openDir("dst/nested", .{ .iterate = true, .follow_symlinks = false }) catch null;
             if (nested) |*dir| {
                 dir.chmod(0o755) catch {};
                 dir.close();
             }
-            var dst = std.fs.cwd().openDir("dst", .{ .iterate = true, .no_follow = true }) catch null;
+            var dst = sio.cwd().openDir("dst", .{ .iterate = true, .follow_symlinks = false }) catch null;
             if (dst) |*dir| {
                 dir.chmod(0o755) catch {};
                 dir.close();
@@ -438,20 +442,20 @@ test "copyTree can set read-only permissions while skipping symlinks" {
     }
 
     if (builtin.os.tag == .windows) return error.SkipZigTest;
-    try std.fs.cwd().makePath("dst");
+    try sio.cwd().makePath("dst");
     try copyTree("src", "dst", std.testing.allocator, .{ .read_only = true });
 
-    try std.fs.cwd().access("dst/nested/main.sa", .{ .mode = .read_only });
-    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access("dst/link.sa", .{}));
+    try sio.cwd().access("dst/nested/main.sa", .{ .read = true });
+    try std.testing.expectError(error.FileNotFound, sio.cwd().access("dst/link.sa", .{}));
 
-    var copied_file = try std.fs.cwd().openFile("dst/nested/main.sa", .{ .mode = .read_only });
+    var copied_file = try sio.cwd().openFile("dst/nested/main.sa", .{ .mode = .read_only });
     defer copied_file.close();
-    const file_mode = (try copied_file.stat()).mode & 0o777;
+    const file_mode = @intFromEnum((try copied_file.stat()).permissions) & 0o777;
     try std.testing.expectEqual(@as(u32, 0o444), @as(u32, @intCast(file_mode)));
 
-    var copied_dir = try std.fs.cwd().openDir("dst/nested", .{ .iterate = true, .no_follow = true });
+    var copied_dir = try sio.cwd().openDir("dst/nested", .{ .iterate = true, .follow_symlinks = false });
     defer copied_dir.close();
-    const dir_mode = (try copied_dir.stat()).mode & 0o777;
+    const dir_mode = @intFromEnum((try copied_dir.stat()).permissions) & 0o777;
     try std.testing.expectEqual(@as(u32, 0o555), @as(u32, @intCast(dir_mode)));
 }
 
@@ -460,25 +464,25 @@ test "setReadOnlyRecursive does not follow symlinked directories" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("root");
-    try tmp.dir.makePath("outside");
-    try tmp.dir.writeFile(.{ .sub_path = "outside/keep.txt", .data = "keep" });
-    try tmp.dir.symLink("../outside", "root/linkdir", .{});
+    try tmp.dir.createDirPath(std.testing.io, "root");
+    try tmp.dir.createDirPath(std.testing.io, "outside");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "outside/keep.txt", .data = "keep" });
+    try tmp.dir.symLink(std.testing.io, "../outside", "root/linkdir", .{});
 
-    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    var old_cwd = try sio.cwd().openDir(".", .{});
     defer old_cwd.close();
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer old_cwd.setAsCwd() catch |err| {
         _ = @errorName(err);
     };
     defer {
         if (builtin.os.tag != .windows) {
-            var root = std.fs.cwd().openDir("root", .{ .iterate = true, .no_follow = true }) catch null;
+            var root = sio.cwd().openDir("root", .{ .iterate = true, .follow_symlinks = false }) catch null;
             if (root) |*dir| {
                 dir.chmod(0o755) catch {};
                 dir.close();
             }
-            var outside = std.fs.cwd().openDir("outside", .{ .iterate = true, .no_follow = true }) catch null;
+            var outside = sio.cwd().openDir("outside", .{ .iterate = true, .follow_symlinks = false }) catch null;
             if (outside) |*dir| {
                 dir.chmod(0o755) catch {};
                 dir.close();
@@ -489,9 +493,9 @@ test "setReadOnlyRecursive does not follow symlinked directories" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
     try setReadOnlyRecursive("root", std.testing.allocator);
 
-    var outside = try std.fs.cwd().openDir("outside", .{ .iterate = true, .no_follow = true });
+    var outside = try sio.cwd().openDir("outside", .{ .iterate = true, .follow_symlinks = false });
     defer outside.close();
-    const outside_mode = (try outside.stat()).mode & 0o777;
+    const outside_mode = @intFromEnum((try outside.stat()).permissions) & 0o777;
     try std.testing.expect((outside_mode & 0o200) != 0);
 }
 
@@ -499,24 +503,29 @@ test "PkgMgr-Fetch-Smoke computes hash and does not execute package files" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("github.com/example/smoke");
-    try tmp.dir.writeFile(.{ .sub_path = "github.com/example/smoke/index.sa", .data = "@main() -> i32:\nreturn 0\n" });
-    var postinstall = try tmp.dir.createFile("github.com/example/smoke/postinstall.sh", .{ .truncate = true });
-    try postinstall.writeAll(
-        \\#!/bin/sh
-        \\echo executed > executed.marker
-        \\
-    );
-    if (builtin.os.tag != .windows) try postinstall.chmod(0o755);
-    postinstall.close();
+    try tmp.dir.createDirPath(std.testing.io, "github.com/example/smoke");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "github.com/example/smoke/index.sa", .data = "@main() -> i32:\nreturn 0\n" });
+    var postinstall = try tmp.dir.createFile(std.testing.io, "github.com/example/smoke/postinstall.sh", .{ .truncate = true });
+    {
+        var wbuf: [8192]u8 = undefined;
+        var wfb = postinstall.writer(std.testing.io, &wbuf);
+        try wfb.interface.writeAll(
+            \\#!/bin/sh
+            \\echo executed > executed.marker
+            \\
+        );
+        try wfb.interface.flush();
+    }
+    if (builtin.os.tag != .windows) try postinstall.setPermissions(std.testing.io, @enumFromInt(0o755));
+    postinstall.close(std.testing.io);
 
-    const source_root = try tmp.dir.realpathAlloc(std.testing.allocator, "github.com/example/smoke");
+    const source_root = try tmp.dir.realPathFileAlloc(std.testing.io, "github.com/example/smoke", std.testing.allocator);
     defer std.testing.allocator.free(source_root);
     const expected_hash = try audit.hashPackageSource(std.testing.allocator, source_root);
 
-    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    var old_cwd = try sio.cwd().openDir(".", .{});
     defer old_cwd.close();
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer old_cwd.setAsCwd() catch |err| {
         // Test teardown cannot recover from cwd restoration failure.
         _ = @errorName(err);
@@ -525,25 +534,30 @@ test "PkgMgr-Fetch-Smoke computes hash and does not execute package files" {
     var result = try fetchPackage(std.testing.allocator, "github.com/example/smoke", "HEAD", .{});
     defer result.deinit(std.testing.allocator);
     try std.testing.expect(std.mem.eql(u8, expected_hash[0..], result.source_sha256[0..]));
-    try std.testing.expectError(error.FileNotFound, tmp.dir.access("executed.marker", .{ .mode = .read_only }));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(std.testing.io, "executed.marker", .{ .read = true }));
 
     const vendored_hash = try audit.hashPackageSource(std.testing.allocator, result.root);
     try std.testing.expect(std.mem.eql(u8, expected_hash[0..], vendored_hash[0..]));
-    try std.fs.cwd().access("sa_vendor/github.com/example/smoke/postinstall.sh", .{ .mode = .read_only });
+    try sio.cwd().access("sa_vendor/github.com/example/smoke/postinstall.sh", .{ .read = true });
 }
 
 test "fetch rejects precompiled artifacts" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("github.com/example/bad");
-    var bad_file = try tmp.dir.createFile("github.com/example/bad/libfoo.so", .{ .truncate = true });
-    defer bad_file.close();
-    try bad_file.writeAll("x");
+    try tmp.dir.createDirPath(std.testing.io, "github.com/example/bad");
+    var bad_file = try tmp.dir.createFile(std.testing.io, "github.com/example/bad/libfoo.so", .{ .truncate = true });
+    defer bad_file.close(std.testing.io);
+    {
+        var wbuf: [8192]u8 = undefined;
+        var wfb = bad_file.writer(std.testing.io, &wbuf);
+        try wfb.interface.writeAll("x");
+        try wfb.interface.flush();
+    }
 
-    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    var old_cwd = try sio.cwd().openDir(".", .{});
     defer old_cwd.close();
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer old_cwd.setAsCwd() catch |err| {
         // Test teardown cannot recover from cwd restoration failure.
         _ = @errorName(err);
@@ -568,10 +582,10 @@ test "dirExists returns false for plain files without swallowing directory error
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.writeFile(.{ .sub_path = "not_a_dir", .data = "x" });
-    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "not_a_dir", .data = "x" });
+    var old_cwd = try sio.cwd().openDir(".", .{});
     defer old_cwd.close();
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer old_cwd.setAsCwd() catch |err| {
         // Test teardown cannot recover from cwd restoration failure.
         _ = @errorName(err);
@@ -584,35 +598,35 @@ test "fetch rejects and removes non-offline packages whose source hash mismatche
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("github.com/example/pkg");
-    try tmp.dir.writeFile(.{ .sub_path = "github.com/example/pkg/index.sa", .data = "@main() -> i32:\nreturn 0\n" });
-    const source_root = try tmp.dir.realpathAlloc(std.testing.allocator, "github.com/example/pkg");
+    try tmp.dir.createDirPath(std.testing.io, "github.com/example/pkg");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "github.com/example/pkg/index.sa", .data = "@main() -> i32:\nreturn 0\n" });
+    const source_root = try tmp.dir.realPathFileAlloc(std.testing.io, "github.com/example/pkg", std.testing.allocator);
     defer std.testing.allocator.free(source_root);
     var wrong_hash = try audit.hashPackageSource(std.testing.allocator, source_root);
     wrong_hash[0] ^= 0xff;
 
-    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    var old_cwd = try sio.cwd().openDir(".", .{});
     defer old_cwd.close();
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer old_cwd.setAsCwd() catch |err| {
         // Test teardown cannot recover from cwd restoration failure.
         _ = @errorName(err);
     };
 
     try std.testing.expectError(error.UpstreamShaMismatch, fetchPackage(std.testing.allocator, "github.com/example/pkg", "HEAD", .{ .expected_source_sha256 = wrong_hash }));
-    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access("sa_vendor/github.com/example/pkg", .{}));
+    try std.testing.expectError(error.FileNotFound, sio.cwd().access("sa_vendor/github.com/example/pkg", .{}));
 }
 
 test "fetch offline reuses existing vendor without deleting it" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
-    try tmp.dir.writeFile(.{ .sub_path = "sa_vendor/github.com/example/pkg/index.sa", .data = "@cached() -> i32:\nreturn 1\n" });
+    try tmp.dir.createDirPath(std.testing.io, "sa_vendor/github.com/example/pkg");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "sa_vendor/github.com/example/pkg/index.sa", .data = "@cached() -> i32:\nreturn 1\n" });
 
-    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    var old_cwd = try sio.cwd().openDir(".", .{});
     defer old_cwd.close();
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer old_cwd.setAsCwd() catch |err| {
         // Test teardown cannot recover from cwd restoration failure.
         _ = @errorName(err);
@@ -625,19 +639,19 @@ test "fetch offline reuses existing vendor without deleting it" {
     try std.testing.expectEqualStrings(expected_root, result.root);
     const expected_hash = try audit.hashPackageSource(std.testing.allocator, result.root);
     try std.testing.expect(std.mem.eql(u8, expected_hash[0..], result.source_sha256[0..]));
-    try std.fs.cwd().access("sa_vendor/github.com/example/pkg/index.sa", .{ .mode = .read_only });
+    try sio.cwd().access("sa_vendor/github.com/example/pkg/index.sa", .{ .read = true });
 }
 
 test "fetch applies mirror rules before network fallback" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("mirror/github/org/pkg");
-    try tmp.dir.writeFile(.{ .sub_path = "mirror/github/org/pkg/index.sa", .data = "@mirrored() -> i32:\nreturn 9\n" });
+    try tmp.dir.createDirPath(std.testing.io, "mirror/github/org/pkg");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "mirror/github/org/pkg/index.sa", .data = "@mirrored() -> i32:\nreturn 9\n" });
 
-    var old_cwd = try std.fs.cwd().openDir(".", .{});
+    var old_cwd = try sio.cwd().openDir(".", .{});
     defer old_cwd.close();
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer old_cwd.setAsCwd() catch |err| {
         // Test teardown cannot recover from cwd restoration failure.
         _ = @errorName(err);
@@ -649,5 +663,5 @@ test "fetch applies mirror rules before network fallback" {
     }};
     var result = try fetchPackage(std.testing.allocator, "github.com/org/pkg", "HEAD", .{ .mirror_rules = rules[0..] });
     defer result.deinit(std.testing.allocator);
-    try std.fs.cwd().access("sa_vendor/github.com/org/pkg/index.sa", .{ .mode = .read_only });
+    try sio.cwd().access("sa_vendor/github.com/org/pkg/index.sa", .{ .read = true });
 }

@@ -1,0 +1,40 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"390\n"
+
+// 390 - the `shr` alias follows operand signedness: arithmetic for
+// signed (-8 >> 2 = -2), logical for unsigned. The old backend always
+// took the logical path. (i32/u32 sources are trunc-forced: bare
+// `N as i32` immediates fold to i64, and the amount's type joins the
+// numKind vote, so both sides are typed honestly here.)
+@main() -> i32:
+L_ENTRY:
+    big8 = 4294967288 as u64
+    m = trunc big8 as i32
+    k = 2 as i64
+    s = shr m, k
+    ok_a = eq s, -2
+    big = 4294967295 as u64
+    u = trunc big as u32
+    kk = trunc k as u32
+    l = shr u, kk
+    ok_b = eq l, 1073741823
+    ok = and ok_a, ok_b
+    !big8
+    !m
+    !k
+    !s
+    !big
+    !u
+    !kk
+    !l
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

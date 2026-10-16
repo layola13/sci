@@ -1,0 +1,66 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"419\n"
+
+// 419 - fallible f64 returns from both sides of a branch
+// (1.5 + 2.5 == 4.0).
+@pick(which: i64) -> f64!:
+L_ENTRY:
+    c = eq which, 0
+    br c -> L_SMALL, L_BIG
+L_SMALL:
+    three = 3 as i32
+    two = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two as f64
+    h = fdiv three_f, two_f
+    !which
+    !c
+    !three
+    !two
+    !three_f
+    !two_f
+    return h
+L_BIG:
+    five = 5 as i32
+    two = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two as f64
+    h = fdiv five_f, two_f
+    !which
+    !c
+    !five
+    !two
+    !five_f
+    !two_f
+    return h
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    r0 = call @pick(z)
+    v0 = ?r0
+    o = 1 as i64
+    r1 = call @pick(o)
+    v1 = ?r1
+    s = fadd v0, v1
+    four_i = 4 as i32
+    four = sitofp four_i as f64
+    ok = fcmp_eq s, four
+    !z
+    !r0
+    !v0
+    !o
+    !r1
+    !v1
+    !s
+    !four_i
+    !four
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,11 @@
+@const CALLBACK_FLOAT_VT = vtable { call = @callback_float_fn }
+
+@callback_float_fn(x: f64, ctx: ptr) -> f64:
+    two_i = 2 as i32
+    two_f = sitofp two_i as f64
+    r = fmul x, two_f
+    !x
+    !ctx
+    !two_i
+    !two_f
+    return r

@@ -119,12 +119,12 @@ fn startsWithWord(s: []const u8, word: []const u8) bool {
 }
 
 fn parseTestModifierPrefix(body: []const u8) ?[]const u8 {
-    var rest = std.mem.trimLeft(u8, body, " \t");
+    var rest = std.mem.trimStart(u8, body, " \t");
     while (rest.len != 0 and rest[0] != '"') {
         const token_end = std.mem.indexOfAny(u8, rest, " \t") orelse rest.len;
         const token = rest[0..token_end];
         if (std.mem.eql(u8, token, "ignored") or std.mem.eql(u8, token, "should_panic")) {
-            rest = std.mem.trimLeft(u8, rest[token_end..], " \t");
+            rest = std.mem.trimStart(u8, rest[token_end..], " \t");
             continue;
         }
         break;
@@ -167,7 +167,7 @@ fn splitAssignment(text: []const u8) ?struct { lhs: []const u8, rhs: []const u8 
 fn parseConstDecl(raw: []const u8, trimmed: []const u8) ?ClassifiedLine {
     if (!startsWithWord(trimmed, "@const")) return null;
 
-    const after = std.mem.trimLeft(u8, trimmed["@const".len..], " \t");
+    const after = std.mem.trimStart(u8, trimmed["@const".len..], " \t");
     const eq = std.mem.indexOfScalar(u8, after, '=') orelse return null;
     const name = std.mem.trim(u8, after[0..eq], " \t");
     const literal = std.mem.trim(u8, after[eq + 1 ..], " \t");
@@ -202,7 +202,7 @@ fn parseCommaPair(text: []const u8) ?struct { left: []const u8, right: []const u
 fn parseCommaTriple(text: []const u8) ?struct { first: []const u8, second: []const u8, third: []const u8 } {
     const first_comma = std.mem.indexOfScalar(u8, text, ',') orelse return null;
     const first = std.mem.trim(u8, text[0..first_comma], " \t");
-    const rest = std.mem.trimLeft(u8, text[first_comma + 1 ..], " \t");
+    const rest = std.mem.trimStart(u8, text[first_comma + 1 ..], " \t");
     const second_comma = std.mem.indexOfScalar(u8, rest, ',') orelse return null;
     const second = std.mem.trim(u8, rest[0..second_comma], " \t");
     const third = std.mem.trim(u8, rest[second_comma + 1 ..], " \t");
@@ -215,7 +215,7 @@ const TypedSuffix = struct { body: []const u8, ty: []const u8 };
 fn splitTrailingType(text: []const u8) ?TypedSuffix {
     const trimmed = std.mem.trim(u8, text, " \t");
     const idx = std.mem.lastIndexOf(u8, trimmed, " as ") orelse return null;
-    const body = std.mem.trimRight(u8, trimmed[0..idx], " \t");
+    const body = std.mem.trimEnd(u8, trimmed[0..idx], " \t");
     const ty = std.mem.trim(u8, trimmed[idx + 4 ..], " \t");
     if (body.len == 0 or ty.len == 0) return null;
     return .{ .body = body, .ty = ty };
@@ -231,7 +231,7 @@ fn splitPrimitiveTypedValue(text: []const u8) ?TypedSuffix {
 }
 
 pub fn collectNativeRegisterNames(allocator: std.mem.Allocator, text: []const u8) ![]const []const u8 {
-    var names = std.ArrayList([]const u8).init(allocator);
+    var names = std.array_list.Managed([]const u8).init(allocator);
     errdefer names.deinit();
 
     var idx: usize = 0;
@@ -285,7 +285,7 @@ fn parseFunctionHeader(
         break :blk trimmed[prefix.len .. trimmed.len - 1];
     } else blk: {
         const body_raw = trimmed[prefix.len..];
-        break :blk std.mem.trimRight(u8, body_raw, ": \t\r");
+        break :blk std.mem.trimEnd(u8, body_raw, ": \t\r");
     };
 
     const effective_body = if (kind == .test_decl) blk: {
@@ -293,7 +293,7 @@ fn parseFunctionHeader(
         break :blk modifiers_rest;
     } else body;
 
-    const after_name = std.mem.trimLeft(u8, effective_body, " \t");
+    const after_name = std.mem.trimStart(u8, effective_body, " \t");
     const open = std.mem.indexOfScalar(u8, after_name, '(') orelse return null;
     const close = std.mem.lastIndexOfScalar(u8, after_name, ')') orelse return null;
     if (close < open) return null;
@@ -329,12 +329,12 @@ fn parseFunctionHeader(
 fn parseLocHint(raw: []const u8, trimmed: []const u8) ?ClassifiedLine {
     if (!std.mem.startsWith(u8, trimmed, "#loc")) return null;
 
-    const after = std.mem.trimLeft(u8, trimmed["#loc".len..], " \t");
+    const after = std.mem.trimStart(u8, trimmed["#loc".len..], " \t");
     if (after.len < 6 or after[0] != '"') return null;
 
     const end_quote = std.mem.indexOfScalarPos(u8, after, 1, '"') orelse return null;
     const file = after[1..end_quote];
-    const rest = std.mem.trimLeft(u8, after[end_quote + 1 ..], " \t");
+    const rest = std.mem.trimStart(u8, after[end_quote + 1 ..], " \t");
     if (rest.len < 2 or rest[0] != ':') return null;
 
     const after_file = rest[1..];
@@ -353,7 +353,7 @@ fn parseLocHint(raw: []const u8, trimmed: []const u8) ?ClassifiedLine {
 fn parseImport(raw: []const u8, trimmed: []const u8) ?ClassifiedLine {
     if (!std.mem.startsWith(u8, trimmed, "@import")) return null;
 
-    const after = std.mem.trimLeft(u8, trimmed["@import".len..], " \t");
+    const after = std.mem.trimStart(u8, trimmed["@import".len..], " \t");
     if (after.len < 2 or after[0] != '"') return null;
     const end_quote = std.mem.indexOfScalarPos(u8, after, 1, '"') orelse return null;
     const path = after[1..end_quote];
@@ -368,7 +368,7 @@ fn parseImport(raw: []const u8, trimmed: []const u8) ?ClassifiedLine {
 fn parseNpmBind(raw: []const u8, trimmed: []const u8) ?ClassifiedLine {
     if (!startsWithWord(trimmed, "#npm_bind")) return null;
 
-    const after = std.mem.trimLeft(u8, trimmed["#npm_bind".len..], " \t");
+    const after = std.mem.trimStart(u8, trimmed["#npm_bind".len..], " \t");
     const first = splitFirstWord(after);
     if (first.word.len == 0 or first.rest.len == 0) return null;
     if (!isIdentStart(first.word[0])) return null;
@@ -411,7 +411,7 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "assume_safe")) {
-        const rest = std.mem.trimLeft(u8, simple_rhs["assume_safe".len..], " \t");
+        const rest = std.mem.trimStart(u8, simple_rhs["assume_safe".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .assume_safe;
@@ -421,7 +421,7 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "assume_borrow")) {
-        const rest = std.mem.trimLeft(u8, simple_rhs["assume_borrow".len..], " \t");
+        const rest = std.mem.trimStart(u8, simple_rhs["assume_borrow".len..], " \t");
         if (rest.len == 0) return false;
         const pair = parseCommaPair(rest);
         line.* = makeLine(.instruction, line.raw, line.trimmed);
@@ -444,7 +444,7 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         if (after.len > 0 and (std.ascii.isAlphanumeric(after[0]) or after[0] == '_')) {
             // Not a call_indirect keyword, fall through to other handlers.
         } else {
-            const rest = std.mem.trimLeft(u8, after, " \t");
+            const rest = std.mem.trimStart(u8, after, " \t");
             if (rest.len == 0) return false;
             line.* = makeLine(.instruction, line.raw, line.trimmed);
             line.inst_form = .call_indirect;
@@ -455,7 +455,7 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "ptr_add")) {
-        const rest = std.mem.trimLeft(u8, simple_rhs["ptr_add".len..], " \t");
+        const rest = std.mem.trimStart(u8, simple_rhs["ptr_add".len..], " \t");
         const pair = parseCommaPair(rest) orelse return false;
         if (pair.left.len == 0 or pair.right.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
@@ -473,7 +473,7 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         if (after.len > 0 and (std.ascii.isAlphanumeric(after[0]) or after[0] == '_')) {
             // Not a call keyword, fall through to other handlers.
         } else {
-            const rest = std.mem.trimLeft(u8, after, " \t");
+            const rest = std.mem.trimStart(u8, after, " \t");
             if (rest.len == 0) return false;
             line.* = makeLine(.instruction, line.raw, line.trimmed);
             line.inst_form = .call;
@@ -484,7 +484,7 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "atomic_load")) {
-        const rest = std.mem.trimLeft(u8, simple_rhs["atomic_load".len..], " \t");
+        const rest = std.mem.trimStart(u8, simple_rhs["atomic_load".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .atomic_load;
@@ -594,7 +594,7 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
 
             const rest_trimmed = std.mem.trim(u8, op.rest, " \t");
             const typed = if (std.mem.lastIndexOf(u8, rest_trimmed, " as ")) |idx| blk: {
-                const body = std.mem.trimRight(u8, rest_trimmed[0..idx], " \t");
+                const body = std.mem.trimEnd(u8, rest_trimmed[0..idx], " \t");
                 const ty = std.mem.trim(u8, rest_trimmed[idx + 4 ..], " \t");
                 if (ty.len == 0) break :blk null;
                 break :blk .{ .body = body, .ty = ty };
@@ -670,7 +670,7 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "store")) {
-        const rest = std.mem.trimLeft(u8, trimmed["store".len..], " \t");
+        const rest = std.mem.trimStart(u8, trimmed["store".len..], " \t");
         const pair = parseCommaPair(rest) orelse return false;
         const addr = parseAddress(pair.left) orelse return false;
         var value = pair.right;
@@ -696,8 +696,8 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "br_null")) {
-        const rest = std.mem.trimLeft(u8, trimmed["br_null".len..], " \t");
-        const pair = parseCommaPair(std.mem.trimLeft(u8, rest, " \t")) orelse return false;
+        const rest = std.mem.trimStart(u8, trimmed["br_null".len..], " \t");
+        const pair = parseCommaPair(std.mem.trimStart(u8, rest, " \t")) orelse return false;
         const arrow = std.mem.indexOf(u8, pair.left, "->") orelse return false;
         const reg = std.mem.trim(u8, pair.left[0..arrow], " \t");
         const label = std.mem.trim(u8, pair.left[arrow + 2 ..], " \t");
@@ -711,10 +711,10 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "br")) {
-        const rest = std.mem.trimLeft(u8, trimmed["br".len..], " \t");
+        const rest = std.mem.trimStart(u8, trimmed["br".len..], " \t");
         const arrow = std.mem.indexOf(u8, rest, "->") orelse return false;
         const cond = std.mem.trim(u8, rest[0..arrow], " \t");
-        const pair = parseCommaPair(std.mem.trimLeft(u8, rest[arrow + 2 ..], " \t")) orelse return false;
+        const pair = parseCommaPair(std.mem.trimStart(u8, rest[arrow + 2 ..], " \t")) orelse return false;
         if (cond.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .br;
@@ -725,7 +725,7 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "jmp")) {
-        const rest = std.mem.trimLeft(u8, trimmed["jmp".len..], " \t");
+        const rest = std.mem.trimStart(u8, trimmed["jmp".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .jmp;
@@ -734,7 +734,7 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "call_indirect")) {
-        const rest = std.mem.trimLeft(u8, trimmed["call_indirect".len..], " \t");
+        const rest = std.mem.trimStart(u8, trimmed["call_indirect".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .call_indirect;
@@ -743,7 +743,7 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "call")) {
-        const rest = std.mem.trimLeft(u8, trimmed["call".len..], " \t");
+        const rest = std.mem.trimStart(u8, trimmed["call".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .call;
@@ -752,7 +752,7 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "panic_msg")) {
-        const rest = std.mem.trimLeft(u8, trimmed["panic_msg".len..], " \t");
+        const rest = std.mem.trimStart(u8, trimmed["panic_msg".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .panic_msg;
@@ -770,7 +770,7 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "panic")) {
-        const rest = std.mem.trimLeft(u8, trimmed["panic".len..], " \t");
+        const rest = std.mem.trimStart(u8, trimmed["panic".len..], " \t");
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .panic;
@@ -786,7 +786,7 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "return")) {
-        const rest = std.mem.trimLeft(u8, trimmed["return".len..], " \t");
+        const rest = std.mem.trimStart(u8, trimmed["return".len..], " \t");
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .return_;
         if (rest.len != 0) addPart(line, 0, rest);
@@ -794,7 +794,7 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     }
 
     if (startsWithWord(trimmed, "ret")) {
-        const rest = std.mem.trimLeft(u8, trimmed["ret".len..], " \t");
+        const rest = std.mem.trimStart(u8, trimmed["ret".len..], " \t");
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .return_;
         if (rest.len != 0) addPart(line, 0, rest);
@@ -817,7 +817,7 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
     }
 
     if (std.mem.startsWith(u8, trimmed, "#version")) {
-        const after = std.mem.trimLeft(u8, trimmed["#version".len..], " \t");
+        const after = std.mem.trimStart(u8, trimmed["#version".len..], " \t");
         if (after.len == 0) return makeLine(.unknown, line, trimmed);
         var i: usize = 0;
         while (i < after.len and std.ascii.isDigit(after[i])) : (i += 1) {}
@@ -828,7 +828,7 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
     }
 
     if (std.mem.startsWith(u8, trimmed, "#def")) {
-        const after = std.mem.trimLeft(u8, trimmed["#def".len..], " \t");
+        const after = std.mem.trimStart(u8, trimmed["#def".len..], " \t");
         const eq = std.mem.indexOfScalar(u8, after, '=') orelse return makeLine(.unknown, line, trimmed);
         const name = std.mem.trim(u8, after[0..eq], " \t");
         const value = std.mem.trim(u8, after[eq + 1 ..], " \t");
@@ -870,7 +870,7 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
     }
 
     if (std.mem.startsWith(u8, trimmed, "[MACRO]")) {
-        const after = std.mem.trimLeft(u8, trimmed["[MACRO]".len..], " \t");
+        const after = std.mem.trimStart(u8, trimmed["[MACRO]".len..], " \t");
         const pair = splitFirstWord(after);
         if (pair.word.len != 0) {
             var out = makeLine(.macro_start, line, trimmed);
@@ -915,7 +915,7 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
     }
 
     if (std.mem.startsWith(u8, trimmed, "EXPAND")) {
-        const after = std.mem.trimLeft(u8, trimmed["EXPAND".len..], " \t");
+        const after = std.mem.trimStart(u8, trimmed["EXPAND".len..], " \t");
         const pair = splitFirstWord(after);
         if (pair.word.len != 0) {
             var out = makeLine(.expand, line, trimmed);

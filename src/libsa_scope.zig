@@ -20,11 +20,11 @@ const Binding = struct {
 };
 
 const BranchSnapshot = struct {
-    active_names: std.ArrayList([]const u8),
+    active_names: std.array_list.Managed([]const u8),
 
     fn init(allocator: std.mem.Allocator) BranchSnapshot {
         return .{
-            .active_names = std.ArrayList([]const u8).init(allocator),
+            .active_names = std.array_list.Managed([]const u8).init(allocator),
         };
     }
 
@@ -35,11 +35,11 @@ const BranchSnapshot = struct {
 };
 
 const BranchState = struct {
-    snapshots: std.ArrayList(BranchSnapshot),
+    snapshots: std.array_list.Managed(BranchSnapshot),
 
     fn init(allocator: std.mem.Allocator) BranchState {
         return .{
-            .snapshots = std.ArrayList(BranchSnapshot).init(allocator),
+            .snapshots = std.array_list.Managed(BranchSnapshot).init(allocator),
         };
     }
 
@@ -51,12 +51,12 @@ const BranchState = struct {
 };
 
 const ScopeFrame = struct {
-    bindings: std.ArrayList(Binding),
+    bindings: std.array_list.Managed(Binding),
     branch: ?BranchState = null,
 
     fn init(allocator: std.mem.Allocator) ScopeFrame {
         return .{
-            .bindings = std.ArrayList(Binding).init(allocator),
+            .bindings = std.array_list.Managed(Binding).init(allocator),
             .branch = null,
         };
     }
@@ -70,12 +70,12 @@ const ScopeFrame = struct {
 
 pub const ScopeTracker = struct {
     allocator: std.mem.Allocator,
-    frames: std.ArrayList(ScopeFrame),
-    owned_names: std.ArrayList([]u8),
-    releases: std.ArrayList(u8),
+    frames: std.array_list.Managed(ScopeFrame),
+    owned_names: std.array_list.Managed([]u8),
+    releases: std.array_list.Managed(u8),
 
     fn init(allocator: std.mem.Allocator) !ScopeTracker {
-        var frames = std.ArrayList(ScopeFrame).init(allocator);
+        var frames = std.array_list.Managed(ScopeFrame).init(allocator);
         errdefer frames.deinit();
 
         try frames.append(ScopeFrame.init(allocator));
@@ -83,8 +83,8 @@ pub const ScopeTracker = struct {
         return .{
             .allocator = allocator,
             .frames = frames,
-            .owned_names = std.ArrayList([]u8).init(allocator),
-            .releases = std.ArrayList(u8).init(allocator),
+            .owned_names = std.array_list.Managed([]u8).init(allocator),
+            .releases = std.array_list.Managed(u8).init(allocator),
         };
     }
 

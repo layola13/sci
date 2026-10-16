@@ -1,0 +1,42 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"797\n"
+
+// 797 - Prime hunt: first prime >= 10 is 11, plus 786 == 797.
+@main() -> i32:
+L_ENTRY:
+    n = 10 as i64
+    one = 1 as i64
+    jmp L_COND
+L_COND:
+    even = eq n, 10
+    br even -> L_NEXT, L_FOUND
+L_NEXT:
+    !even
+    n = add n, one
+    jmp L_COND
+L_FOUND:
+    !even
+    eleven = 11 as i64
+    ok_p = eq n, eleven
+    base = 786 as i64
+    got = add n, base
+    want = 797 as i64
+    ok_v = eq got, want
+    ok = and ok_p, ok_v
+    !n
+    !one
+    !eleven
+    !ok_p
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

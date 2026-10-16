@@ -1,0 +1,26 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"400\n"
+
+// 400 - sitofp to f32 rounds to float32 (7.0 is exact; asserted via
+// its bit pattern through a float-domain-aware bitcast).
+// KNOWN LLVM-BACKEND BUG (not JS): `sa run` prints 400 but the
+// `sa build-exe` binary exits 1 -- f32-typed registers are kept as
+// f64 without rounding (only f32 MEMORY traffic rounds, as in 379).
+@main() -> i32:
+L_ENTRY:
+    seven = 7 as i32
+    f = sitofp seven as f32
+    i = bitcast f as i32
+    ok = eq i, 1088421888
+    !seven
+    !f
+    !i
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,0 +1,43 @@
+// 511 - Macro Mem Float
+// SA: STORE_F64 / LOAD_F64 宏做内存存取（309 式内存宏 × 浮点）
+
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"511\n"
+
+// STORE_F64: store %val as f64 at %buf+%off
+[MACRO] STORE_F64 %buf, %off, %val
+    store %buf+%off, %val as f64
+[END_MACRO]
+
+// LOAD_F64: %out = load f64 at %buf+%off
+[MACRO] LOAD_F64 %out, %buf, %off
+    %out = load %buf+%off as f64
+[END_MACRO]
+
+@main() -> i32:
+L_ENTRY:
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    two_half = fdiv five_f, two_f
+    buf = alloc 8
+    EXPAND STORE_F64 buf, 0, two_half
+    EXPAND LOAD_F64 g, buf, 0
+    ok = fcmp_eq g, two_half
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !two_half
+    !buf
+    !g
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -1,18 +1,19 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const saasm = @import("saasm");
+const sio = @import("sio");
 
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 extern "c" fn _putenv_s(name: [*:0]const u8, value: [*:0]const u8) c_int;
 
 fn elapsedMs(start_ns: i128) i128 {
-    return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
+    return @divTrunc(sio.nanoTimestamp() - start_ns, std.time.ns_per_ms);
 }
 
 fn startTimedTest(name: []const u8) i128 {
     std.debug.print("[plugin-host-smoke] START test=\"{s}\"\n", .{name});
-    return std.time.nanoTimestamp();
+    return sio.nanoTimestamp();
 }
 
 fn endTimedTest(name: []const u8, start_ns: i128) void {
@@ -26,10 +27,20 @@ test "default plugin home is absolute on windows" {
     try std.testing.expect(std.fs.path.isAbsolute(path));
 }
 
-fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(source);
+fn servoWriteAll(stream: std.Io.net.Stream, bytes: []const u8) !void {
+    var wbuf: [8192]u8 = undefined;
+    var w = stream.writer(sio.io(), &wbuf);
+    try w.interface.writeAll(bytes);
+    try w.interface.flush();
+}
+
+fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
+    var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    var wbuf: [8192]u8 = undefined;
+    var w = file.writer(std.testing.io, &wbuf);
+    try w.interface.writeAll(source);
+    try w.interface.flush();
 }
 
 fn targetArtifactKey() []const u8 {
@@ -72,7 +83,7 @@ fn dynLibInstallPath(allocator: std.mem.Allocator, library_name: []const u8) ![]
 }
 
 fn jsonStringLiteralAlloc(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
     try out.append('"');
     for (text) |c| switch (c) {
@@ -118,7 +129,7 @@ fn netProbeSymbol() []const u8 {
 
 fn writeInstallablePluginProject(
     allocator: std.mem.Allocator,
-    dir: std.fs.Dir,
+    dir: std.Io.Dir,
     root: []const u8,
     library_name: []const u8,
     plugin_name: []const u8,
@@ -131,7 +142,7 @@ fn writeInstallablePluginProject(
 ) !void {
     const src_dir = try std.fmt.allocPrint(allocator, "{s}/src", .{root});
     defer allocator.free(src_dir);
-    try dir.makePath(src_dir);
+    try dir.createDirPath(std.testing.io, src_dir);
 
     const build_path = try std.fmt.allocPrint(allocator, "{s}/build.zig", .{root});
     defer allocator.free(build_path);
@@ -265,15 +276,15 @@ fn writeInstallablePluginProject(
     try writeSource(dir, manifest_path, manifest_source);
 }
 
-fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
 }
 
 fn sha256HexFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    var file = try std.fs.cwd().openFile(path, .{});
+    var file = try sio.cwd().openFile(path, .{});
     defer file.close();
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     var buf: [8192]u8 = undefined;
@@ -288,10 +299,10 @@ fn sha256HexFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return try allocator.dupe(u8, hex[0..]);
 }
 
-fn expectSuccess(result: std.process.Child.RunResult) !void {
+fn expectSuccess(result: sio.Child.RunResult) !void {
     if (result.stderr.len != 0) std.debug.print("{s}", .{result.stderr});
     switch (result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
 }
@@ -318,23 +329,23 @@ fn unsetEnvVarZ(name: [:0]const u8) void {
 }
 
 fn saveEnvVarZ(allocator: std.mem.Allocator, name: []const u8) !?[:0]u8 {
-    const value = std.process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
+    const value = sio.getEnvVarOwned(allocator, name) catch |err| switch (err) {
         error.EnvironmentVariableNotFound => return null,
         else => return err,
     };
     defer allocator.free(value);
-    return try allocator.dupeZ(u8, value);
+    return try allocator.dupeSentinel(u8, value, 0);
 }
 
 test "plugin runtime loads descriptors, skills, commands, and skips bad libraries" {
     const test_start = startTimedTest("plugin runtime loads descriptors, skills, commands, and skips bad libraries");
     defer endTimedTest("plugin runtime loads descriptors, skills, commands, and skips bad libraries", test_start);
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "host_smoke_plugin.zig",
@@ -454,7 +465,7 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
     try std.testing.expect(runtime.diagnostics.items.len >= 1);
     try std.testing.expectEqualStrings("host-smoke", std.mem.span(runtime.plugins.items[0].descriptor.name));
 
-    var sections = std.ArrayList(struct {
+    var sections = std.array_list.Managed(struct {
         name: []const u8,
         summary: []const u8,
         items: []const []const u8,
@@ -464,15 +475,15 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
     try std.testing.expectEqual(@as(usize, 1), sections.items.len);
     try std.testing.expectEqualStrings("host smoke", sections.items[0].name);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const help_code = try runtime.dispatchCommand(
         &.{ "sa", "host-smoke", "--help" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
         false,
     );
     try std.testing.expectEqual(@as(?u8, 0), help_code);
@@ -484,8 +495,8 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
     stderr_buffer.clearRetainingCapacity();
     const code = try runtime.dispatchCommand(
         &.{ "sa", "hello-plugin" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
         false,
     );
     try std.testing.expectEqual(@as(?u8, 7), code);
@@ -504,16 +515,16 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
     }
     try setEnvVarZ(env_name, ".");
 
-    var cli_stdout = std.ArrayList(u8).init(std.testing.allocator);
+    var cli_stdout = std.array_list.Managed(u8).init(std.testing.allocator);
     defer cli_stdout.deinit();
-    var cli_stderr = std.ArrayList(u8).init(std.testing.allocator);
+    var cli_stderr = std.array_list.Managed(u8).init(std.testing.allocator);
     defer cli_stderr.deinit();
 
     const cli_help_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "host-smoke", "--help" },
-        cli_stdout.writer(),
-        cli_stderr.writer(),
+        sio.managedWriter(&cli_stdout),
+        sio.managedWriter(&cli_stderr),
     );
     try std.testing.expectEqual(@as(u8, 0), cli_help_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, cli_stdout.items, 1, "usage: sa host-smoke <command> [options]"));
@@ -525,8 +536,8 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
     const cli_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "hello-plugin" },
-        cli_stdout.writer(),
-        cli_stderr.writer(),
+        sio.managedWriter(&cli_stdout),
+        sio.managedWriter(&cli_stderr),
     );
     try std.testing.expectEqual(@as(u8, 7), cli_code);
     try std.testing.expectEqualStrings("hello from plugin\n", cli_stdout.items);
@@ -537,8 +548,8 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
     const pkg_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "pkg", "audit", "demo" },
-        cli_stdout.writer(),
-        cli_stderr.writer(),
+        sio.managedWriter(&cli_stdout),
+        sio.managedWriter(&cli_stderr),
     );
     try std.testing.expectEqual(@as(u8, 0), pkg_code);
     try std.testing.expectEqualStrings("pkg command reached plugin\n", cli_stdout.items);
@@ -549,8 +560,8 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
     const skills_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "skills" },
-        cli_stdout.writer(),
-        cli_stderr.writer(),
+        sio.managedWriter(&cli_stdout),
+        sio.managedWriter(&cli_stderr),
     );
     try std.testing.expectEqual(@as(u8, 0), skills_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, cli_stdout.items, 1, "host smoke"));
@@ -561,12 +572,12 @@ test "plugin runtime loads descriptors, skills, commands, and skips bad librarie
 test "plugin runtime verifies declared artifact sha256 before loading" {
     const test_start = startTimedTest("plugin runtime verifies declared artifact sha256 before loading");
     defer endTimedTest("plugin runtime verifies declared artifact sha256 before loading", test_start);
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "hashed_plugin.zig",
@@ -676,15 +687,17 @@ test "plugin runtime verifies declared artifact sha256 before loading" {
 }
 
 test "native build and test link installed plugin exporting referenced extern" {
+    // Requires the LLVM-C native backend (unavailable with -Dllvm=false).
+    if (!saasm.build_options.llvm_enabled) return error.SkipZigTest;
     const test_start = startTimedTest("native build and test link installed plugin exporting referenced extern");
     defer endTimedTest("native build and test link installed plugin exporting referenced extern", test_start);
     if (builtin.os.tag == .windows) return error.SkipZigTest;
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeSource(tmp.dir, "http_link_plugin.zig",
@@ -804,15 +817,15 @@ test "native build and test link installed plugin exporting referenced extern" {
     }
     try setEnvVarZ(env_name, ".");
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
     const build_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "build-exe", "main.sa", "-o", "probe.out" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     if (build_code != 0) std.debug.print("plugin link build failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buffer.items, stderr_buffer.items });
     try std.testing.expectEqual(@as(u8, 0), build_code);
@@ -829,8 +842,8 @@ test "native build and test link installed plugin exporting referenced extern" {
     const test_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "test", "main_test.sa", "--jobs", "1" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     if (test_code != 0) std.debug.print("plugin link test failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buffer.items, stderr_buffer.items });
     try std.testing.expectEqual(@as(u8, 0), test_code);
@@ -841,15 +854,15 @@ test "native build and test link installed plugin exporting referenced extern" {
 test "plugin installer rejects raw libraries and installs source project in dev mode" {
     const test_start = startTimedTest("plugin installer rejects raw libraries and installs source project in dev mode");
     defer endTimedTest("plugin installer rejects raw libraries and installs source project in dev mode", test_start);
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("plugin/src");
+    try tmp.dir.createDirPath(std.testing.io, "plugin/src");
     try writeSource(tmp.dir, "plugin/build.zig",
         \\const std = @import("std");
         \\
@@ -974,45 +987,45 @@ test "plugin installer rejects raw libraries and installs source project in dev 
     }
     try setEnvVarZ(env_name, "state");
 
-    var output = std.ArrayList(u8).init(std.testing.allocator);
+    var output = std.array_list.Managed(u8).init(std.testing.allocator);
     defer output.deinit();
 
     const raw_artifact_path = try std.fs.path.join(std.testing.allocator, &.{ "plugin", smoke_artifact });
     defer std.testing.allocator.free(raw_artifact_path);
-    const raw_code = try saasm.plugins.installFromPath(std.testing.allocator, raw_artifact_path, output.writer(), .{ .dev = true });
+    const raw_code = try saasm.plugins.installFromPath(std.testing.allocator, raw_artifact_path, sio.managedWriter(&output), .{ .dev = true });
     try std.testing.expectEqual(@as(u8, 1), raw_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "refusing to install a raw dynamic library"));
 
     output.clearRetainingCapacity();
     try std.testing.expectError(
         error.InvalidPluginPermission,
-        saasm.plugins.installFromPath(std.testing.allocator, "plugin/bad_net.sap.json", output.writer(), .{ .dev = true }),
+        saasm.plugins.installFromPath(std.testing.allocator, "plugin/bad_net.sap.json", sio.managedWriter(&output), .{ .dev = true }),
     );
 
     output.clearRetainingCapacity();
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "plugin", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "plugin", sio.managedWriter(&output), .{ .dev = true, .optimize = "Debug" });
     try expectInstallCode(0, install_code, output.items);
     const installed_smoke = try std.fs.path.join(std.testing.allocator, &.{ "state/installed/smoke/current", smoke_filename });
     defer std.testing.allocator.free(installed_smoke);
     const version_smoke = try std.fs.path.join(std.testing.allocator, &.{ "state/installed/smoke/0.1.0", smoke_filename });
     defer std.testing.allocator.free(version_smoke);
-    try tmp.dir.access(installed_smoke, .{ .mode = .read_only });
-    try tmp.dir.access("state/installed/smoke/current/sap.json", .{ .mode = .read_only });
-    try tmp.dir.access("state/installed/smoke/current/sap.lock", .{ .mode = .read_only });
-    try tmp.dir.access("state/installed/smoke/current/permissions.lock", .{ .mode = .read_only });
-    try tmp.dir.access("state/installed/smoke/current/sa/smoke.sai", .{ .mode = .read_only });
-    try tmp.dir.access(version_smoke, .{ .mode = .read_only });
+    try tmp.dir.access(std.testing.io, installed_smoke, .{ .read = true });
+    try tmp.dir.access(std.testing.io, "state/installed/smoke/current/sap.json", .{ .read = true });
+    try tmp.dir.access(std.testing.io, "state/installed/smoke/current/sap.lock", .{ .read = true });
+    try tmp.dir.access(std.testing.io, "state/installed/smoke/current/permissions.lock", .{ .read = true });
+    try tmp.dir.access(std.testing.io, "state/installed/smoke/current/sa/smoke.sai", .{ .read = true });
+    try tmp.dir.access(std.testing.io, version_smoke, .{ .read = true });
 }
 
 test "plugin installer rejects undeclared network imports in artifact scan" {
     const test_start = startTimedTest("plugin installer rejects undeclared network imports in artifact scan");
     defer endTimedTest("plugin installer rejects undeclared network imports in artifact scan", test_start);
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeInstallablePluginProject(
@@ -1041,9 +1054,9 @@ test "plugin installer rejects undeclared network imports in artifact scan" {
     }
     try setEnvVarZ(env_name, "state");
 
-    var output = std.ArrayList(u8).init(std.testing.allocator);
+    var output = std.array_list.Managed(u8).init(std.testing.allocator);
     defer output.deinit();
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "scan", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "scan", sio.managedWriter(&output), .{ .dev = true, .optimize = "Debug" });
     try std.testing.expectEqual(@as(u8, 1), install_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "without declared net permission"));
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, netProbeSymbol()));
@@ -1052,12 +1065,12 @@ test "plugin installer rejects undeclared network imports in artifact scan" {
 test "plugin installer rejects duplicate extern symbols across installed plugins" {
     const test_start = startTimedTest("plugin installer rejects duplicate extern symbols across installed plugins");
     defer endTimedTest("plugin installer rejects duplicate extern symbols across installed plugins", test_start);
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeInstallablePluginProject(
@@ -1099,14 +1112,14 @@ test "plugin installer rejects duplicate extern symbols across installed plugins
     }
     try setEnvVarZ(env_name, "state");
 
-    var output = std.ArrayList(u8).init(std.testing.allocator);
+    var output = std.array_list.Managed(u8).init(std.testing.allocator);
     defer output.deinit();
 
-    const first_code = try saasm.plugins.installFromPath(std.testing.allocator, "alpha", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    const first_code = try saasm.plugins.installFromPath(std.testing.allocator, "alpha", sio.managedWriter(&output), .{ .dev = true, .optimize = "Debug" });
     try expectInstallCode(0, first_code, output.items);
 
     output.clearRetainingCapacity();
-    const second_code = try saasm.plugins.installFromPath(std.testing.allocator, "beta", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    const second_code = try saasm.plugins.installFromPath(std.testing.allocator, "beta", sio.managedWriter(&output), .{ .dev = true, .optimize = "Debug" });
     try std.testing.expectEqual(@as(u8, 1), second_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "plugin extern symbol conflict"));
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "sa_duplicate_probe"));
@@ -1116,15 +1129,15 @@ test "plugin installer rejects duplicate extern symbols across installed plugins
 test "plugin installer reports duplicate extern symbols inside installed plugin" {
     const test_start = startTimedTest("plugin installer reports duplicate extern symbols inside installed plugin");
     defer endTimedTest("plugin installer reports duplicate extern symbols inside installed plugin", test_start);
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("state/installed/bad/current/sa");
+    try tmp.dir.createDirPath(std.testing.io, "state/installed/bad/current/sa");
     try writeSource(tmp.dir, "state/installed/bad/current/sa/base.sai",
         \\@extern sa_bad_dup() -> u32
         \\
@@ -1160,10 +1173,10 @@ test "plugin installer reports duplicate extern symbols inside installed plugin"
     }
     try setEnvVarZ(env_name, "state");
 
-    var output = std.ArrayList(u8).init(std.testing.allocator);
+    var output = std.array_list.Managed(u8).init(std.testing.allocator);
     defer output.deinit();
 
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "probe", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "probe", sio.managedWriter(&output), .{ .dev = true, .optimize = "Debug" });
     try std.testing.expectEqual(@as(u8, 1), install_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "installed plugin duplicate extern symbol"));
     try std.testing.expect(std.mem.containsAtLeast(u8, output.items, 1, "sa_bad_dup"));
@@ -1173,12 +1186,12 @@ test "plugin installer reports duplicate extern symbols inside installed plugin"
 test "sa skills hides plugin capabilities until optional dependency is installed" {
     const test_start = startTimedTest("sa skills hides plugin capabilities until optional dependency is installed");
     defer endTimedTest("sa skills hides plugin capabilities until optional dependency is installed", test_start);
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeInstallablePluginProject(
@@ -1195,7 +1208,7 @@ test "sa skills hides plugin capabilities until optional dependency is installed
         false,
     );
 
-    try tmp.dir.makePath("opt/src");
+    try tmp.dir.createDirPath(std.testing.io, "opt/src");
     try writeSource(tmp.dir, "opt/build.zig",
         \\const std = @import("std");
         \\
@@ -1318,28 +1331,28 @@ test "sa skills hides plugin capabilities until optional dependency is installed
     }
     try setEnvVarZ(dev_name, "1");
 
-    var output = std.ArrayList(u8).init(std.testing.allocator);
+    var output = std.array_list.Managed(u8).init(std.testing.allocator);
     defer output.deinit();
 
-    const opt_code = try saasm.plugins.installFromPath(std.testing.allocator, "opt", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    const opt_code = try saasm.plugins.installFromPath(std.testing.allocator, "opt", sio.managedWriter(&output), .{ .dev = true, .optimize = "Debug" });
     try expectInstallCode(0, opt_code, output.items);
 
-    var skills_stdout = std.ArrayList(u8).init(std.testing.allocator);
+    var skills_stdout = std.array_list.Managed(u8).init(std.testing.allocator);
     defer skills_stdout.deinit();
-    var skills_stderr = std.ArrayList(u8).init(std.testing.allocator);
+    var skills_stderr = std.array_list.Managed(u8).init(std.testing.allocator);
     defer skills_stderr.deinit();
     const hidden_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "skills" },
-        skills_stdout.writer(),
-        skills_stderr.writer(),
+        sio.managedWriter(&skills_stdout),
+        sio.managedWriter(&skills_stderr),
     );
     try std.testing.expectEqual(@as(u8, 0), hidden_code);
     try std.testing.expect(!std.mem.containsAtLeast(u8, skills_stdout.items, 1, "optional section"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, skills_stdout.items, 1, "optional.cap"));
 
     output.clearRetainingCapacity();
-    const dep_code = try saasm.plugins.installFromPath(std.testing.allocator, "dep", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    const dep_code = try saasm.plugins.installFromPath(std.testing.allocator, "dep", sio.managedWriter(&output), .{ .dev = true, .optimize = "Debug" });
     try expectInstallCode(0, dep_code, output.items);
 
     skills_stdout.clearRetainingCapacity();
@@ -1347,8 +1360,8 @@ test "sa skills hides plugin capabilities until optional dependency is installed
     const visible_code = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "skills" },
-        skills_stdout.writer(),
-        skills_stderr.writer(),
+        sio.managedWriter(&skills_stdout),
+        sio.managedWriter(&skills_stderr),
     );
     try std.testing.expectEqual(@as(u8, 0), visible_code);
     try std.testing.expect(std.mem.containsAtLeast(u8, skills_stdout.items, 1, "optional section"));
@@ -1358,12 +1371,12 @@ test "sa skills hides plugin capabilities until optional dependency is installed
 test "plugin installer installs remote archive source with sha256 pin" {
     const test_start = startTimedTest("plugin installer installs remote archive source with sha256 pin");
     defer endTimedTest("plugin installer installs remote archive source with sha256 pin", test_start);
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeInstallablePluginProject(
@@ -1394,12 +1407,12 @@ test "plugin installer installs remote archive source with sha256 pin" {
 
     const archive_sha = try sha256HexFileAlloc(std.testing.allocator, "plugin.tar.gz");
     defer std.testing.allocator.free(archive_sha);
-    const archive_abs = try std.fs.cwd().realpathAlloc(std.testing.allocator, "plugin.tar.gz");
+    const archive_abs = try sio.cwd().realpathAlloc(std.testing.allocator, "plugin.tar.gz");
     defer std.testing.allocator.free(archive_abs);
 
-    const address = try std.net.Address.parseIp4("127.0.0.1", 18092);
-    const server = try std.testing.allocator.create(std.net.Server);
-    server.* = try address.listen(.{ .reuse_address = true });
+    const address = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 18092);
+    const server = try std.testing.allocator.create(std.Io.net.Server);
+    server.* = try address.listen(sio.io(), .{ .reuse_address = true });
     defer std.testing.allocator.destroy(server);
 
     const ready = try std.testing.allocator.create(std.atomic.Value(bool));
@@ -1407,17 +1420,17 @@ test "plugin installer installs remote archive source with sha256 pin" {
     defer std.testing.allocator.destroy(ready);
 
     const server_thread = try std.Thread.spawn(.{}, struct {
-        fn run(listen_server: *std.net.Server, server_ready: *std.atomic.Value(bool), archive_path: []const u8) void {
-            defer listen_server.deinit();
+        fn run(listen_server: *std.Io.net.Server, server_ready: *std.atomic.Value(bool), archive_path: []const u8) void {
+            defer listen_server.deinit(sio.io());
             server_ready.store(true, .release);
 
-            var conn = listen_server.accept() catch return;
-            defer conn.stream.close();
+            var stream = listen_server.accept(sio.io()) catch return;
+            defer stream.close(sio.io());
 
             var request_buf: [1024]u8 = undefined;
-            _ = conn.stream.read(&request_buf) catch return;
+            _ = std.posix.read(stream.socket.handle, &request_buf) catch return;
 
-            var file = std.fs.openFileAbsolute(archive_path, .{}) catch return;
+            var file = sio.openFileAbsolute(archive_path, .{}) catch return;
             defer file.close();
             const size = file.getEndPos() catch return;
 
@@ -1427,17 +1440,17 @@ test "plugin installer installs remote archive source with sha256 pin" {
                 "HTTP/1.1 200 OK\r\nContent-Length: {d}\r\nContent-Type: application/gzip\r\nConnection: close\r\n\r\n",
                 .{size},
             ) catch return;
-            conn.stream.writeAll(header) catch return;
+            servoWriteAll(stream, header) catch return;
 
             var file_buf: [8192]u8 = undefined;
             while (true) {
                 const n = file.read(&file_buf) catch return;
                 if (n == 0) break;
-                conn.stream.writeAll(file_buf[0..n]) catch return;
+                servoWriteAll(stream, file_buf[0..n]) catch return;
             }
         }
     }.run, .{ server, ready, archive_abs });
-    while (!ready.load(.acquire)) std.time.sleep(1 * std.time.ns_per_ms);
+    while (!ready.load(.acquire)) std.Io.sleep(sio.io(), .fromMilliseconds(1), .awake) catch {};
 
     const env_name: [:0]const u8 = "SA_PLUGINS_HOME";
     const saved_env = try saveEnvVarZ(std.testing.allocator, env_name);
@@ -1458,9 +1471,9 @@ test "plugin installer installs remote archive source with sha256 pin" {
     );
     defer std.testing.allocator.free(install_spec);
 
-    var output = std.ArrayList(u8).init(std.testing.allocator);
+    var output = std.array_list.Managed(u8).init(std.testing.allocator);
     defer output.deinit();
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, install_spec, output.writer(), .{ .dev = true, .optimize = "Debug" });
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, install_spec, sio.managedWriter(&output), .{ .dev = true, .optimize = "Debug" });
     try expectInstallCode(0, install_code, output.items);
     server_thread.join();
 
@@ -1468,20 +1481,20 @@ test "plugin installer installs remote archive source with sha256 pin" {
     defer std.testing.allocator.free(archive_artifact);
     const archive_installed = try std.fs.path.join(std.testing.allocator, &.{ "state/installed/archive/current", std.fs.path.basename(archive_artifact) });
     defer std.testing.allocator.free(archive_installed);
-    try tmp.dir.access(archive_installed, .{ .mode = .read_only });
-    try tmp.dir.access("state/installed/archive/current/sap.json", .{ .mode = .read_only });
-    try tmp.dir.access("state/installed/archive/current/sa/archive.sai", .{ .mode = .read_only });
+    try tmp.dir.access(std.testing.io, archive_installed, .{ .read = true });
+    try tmp.dir.access(std.testing.io, "state/installed/archive/current/sap.json", .{ .read = true });
+    try tmp.dir.access(std.testing.io, "state/installed/archive/current/sa/archive.sai", .{ .read = true });
 }
 
 test "runtime blocks privileged installed plugins outside dev mode" {
     const test_start = startTimedTest("runtime blocks privileged installed plugins outside dev mode");
     defer endTimedTest("runtime blocks privileged installed plugins outside dev mode", test_start);
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     try writeInstallablePluginProject(
@@ -1522,9 +1535,9 @@ test "runtime blocks privileged installed plugins outside dev mode" {
     }
     unsetEnvVarZ(dev_name);
 
-    var output = std.ArrayList(u8).init(std.testing.allocator);
+    var output = std.array_list.Managed(u8).init(std.testing.allocator);
     defer output.deinit();
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "priv", output.writer(), .{ .dev = true, .optimize = "Debug" });
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "priv", sio.managedWriter(&output), .{ .dev = true, .optimize = "Debug" });
     try expectInstallCode(0, install_code, output.items);
 
     var runtime = try saasm.plugins.Runtime.initFromEnv(std.testing.allocator);
@@ -1542,15 +1555,15 @@ test "runtime blocks privileged installed plugins outside dev mode" {
 test "runtime broker env_get enforces declared env permissions" {
     const test_start = startTimedTest("runtime broker env_get enforces declared env permissions");
     defer endTimedTest("runtime broker env_get enforces declared env permissions", test_start);
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("broker/src");
+    try tmp.dir.createDirPath(std.testing.io, "broker/src");
     try writeSource(tmp.dir, "broker/build.zig",
         \\const std = @import("std");
         \\
@@ -1760,24 +1773,24 @@ test "runtime broker env_get enforces declared env permissions" {
     try setEnvVarZ(broker_env_name, "broker-secret");
     unsetEnvVarZ("SA_BROKER_MISSING");
 
-    var install_output = std.ArrayList(u8).init(std.testing.allocator);
+    var install_output = std.array_list.Managed(u8).init(std.testing.allocator);
     defer install_output.deinit();
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "broker", install_output.writer(), .{ .dev = true, .optimize = "Debug" });
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "broker", sio.managedWriter(&install_output), .{ .dev = true, .optimize = "Debug" });
     try expectInstallCode(0, install_code, install_output.items);
 
     var runtime = try saasm.plugins.Runtime.initFromEnv(std.testing.allocator);
     defer runtime.deinit();
     try std.testing.expectEqual(@as(usize, 1), runtime.plugins.items.len);
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const allowed_code = try runtime.dispatchCommand(
         &.{ "sa", "broker-env", "SA_BROKER_ALLOWED" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
         false,
     );
     try std.testing.expectEqual(@as(?u8, 0), allowed_code);
@@ -1788,8 +1801,8 @@ test "runtime broker env_get enforces declared env permissions" {
     stderr_buffer.clearRetainingCapacity();
     const denied_code = try runtime.dispatchCommand(
         &.{ "sa", "broker-env", "HOME" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
         false,
     );
     try std.testing.expectEqual(@as(?u8, 41), denied_code);
@@ -1800,8 +1813,8 @@ test "runtime broker env_get enforces declared env permissions" {
     stderr_buffer.clearRetainingCapacity();
     const missing_code = try runtime.dispatchCommand(
         &.{ "sa", "broker-env", "SA_BROKER_MISSING" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
         false,
     );
     try std.testing.expectEqual(@as(?u8, 42), missing_code);
@@ -1812,42 +1825,47 @@ test "runtime broker env_get enforces declared env permissions" {
 test "cli allow flags constrain broker env and fs access" {
     const test_start = startTimedTest("cli allow flags constrain broker env and fs access");
     defer endTimedTest("cli allow flags constrain broker env and fs access", test_start);
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("broker_cli/src");
-    try tmp.dir.makePath("data");
-    try tmp.dir.makePath("secret");
-    try tmp.dir.makePath("tools");
+    try tmp.dir.createDirPath(std.testing.io, "broker_cli/src");
+    try tmp.dir.createDirPath(std.testing.io, "data");
+    try tmp.dir.createDirPath(std.testing.io, "secret");
+    try tmp.dir.createDirPath(std.testing.io, "tools");
     try writeSource(tmp.dir, "data/allowed.txt", "payload");
     try writeSource(tmp.dir, "secret/blocked.txt", "blocked");
     const runner_rel = if (builtin.os.tag == .windows) "tools/runner.cmd" else "tools/runner.sh";
-    var runner_file = try tmp.dir.createFile(runner_rel, .{ .truncate = true });
-    if (builtin.os.tag == .windows) {
-        try runner_file.writeAll(
-            \\@echo off
-            \\<nul set /p runner_output=%1
-            \\exit /b 0
-            \\
-        );
-    } else {
-        try runner_file.writeAll(
-            \\#!/bin/sh
-            \\printf "%s" "$1"
-            \\
-        );
-        try runner_file.chmod(0o755);
+    var runner_file = try tmp.dir.createFile(std.testing.io, runner_rel, .{ .truncate = true });
+    {
+        var wbuf: [8192]u8 = undefined;
+        var wfb = runner_file.writer(std.testing.io, &wbuf);
+        if (builtin.os.tag == .windows) {
+            try wfb.interface.writeAll(
+                \\@echo off
+                \\<nul set /p runner_output=%1
+                \\exit /b 0
+                \\
+            );
+        } else {
+            try wfb.interface.writeAll(
+                \\#!/bin/sh
+                \\printf "%s" "$1"
+                \\
+            );
+        }
+        try wfb.interface.flush();
     }
-    runner_file.close();
-    const runner_abs = try std.fs.cwd().realpathAlloc(std.testing.allocator, runner_rel);
+    if (builtin.os.tag != .windows) try runner_file.setPermissions(std.testing.io, @enumFromInt(0o755));
+    runner_file.close(std.testing.io);
+    const runner_abs = try sio.cwd().realpathAlloc(std.testing.allocator, runner_rel);
     defer std.testing.allocator.free(runner_abs);
     const runner_exec_abs = if (builtin.os.tag == .windows)
-        try std.fs.cwd().realpathAlloc(std.testing.allocator, "C:\\Windows\\System32\\cmd.exe")
+        try sio.cwd().realpathAlloc(std.testing.allocator, "C:\\Windows\\System32\\cmd.exe")
     else
         try std.testing.allocator.dupe(u8, runner_abs);
     defer std.testing.allocator.free(runner_exec_abs);
@@ -2261,9 +2279,9 @@ test "cli allow flags constrain broker env and fs access" {
     }
     try setEnvVarZ(broker_env_name, "cli-secret");
 
-    var install_output = std.ArrayList(u8).init(std.testing.allocator);
+    var install_output = std.array_list.Managed(u8).init(std.testing.allocator);
     defer install_output.deinit();
-    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "broker_cli", install_output.writer(), .{ .dev = true, .optimize = "Debug" });
+    const install_code = try saasm.plugins.installFromPath(std.testing.allocator, "broker_cli", sio.managedWriter(&install_output), .{ .dev = true, .optimize = "Debug" });
     try expectInstallCode(0, install_code, install_output.items);
 
     const sa_mod_source = try std.fmt.allocPrint(std.testing.allocator,
@@ -2279,9 +2297,9 @@ test "cli allow flags constrain broker env and fs access" {
     defer std.testing.allocator.free(sa_mod_source);
     try writeSource(tmp.dir, "sa.mod", sa_mod_source);
 
-    const net_address = try std.net.Address.parseIp4("127.0.0.1", 18094);
-    const net_server = try std.testing.allocator.create(std.net.Server);
-    net_server.* = try net_address.listen(.{ .reuse_address = true });
+    const net_address = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 18094);
+    const net_server = try std.testing.allocator.create(std.Io.net.Server);
+    net_server.* = try net_address.listen(sio.io(), .{ .reuse_address = true });
     defer std.testing.allocator.destroy(net_server);
 
     const net_ready = try std.testing.allocator.create(std.atomic.Value(bool));
@@ -2289,17 +2307,17 @@ test "cli allow flags constrain broker env and fs access" {
     defer std.testing.allocator.destroy(net_ready);
 
     const net_thread = try std.Thread.spawn(.{}, struct {
-        fn run(listen_server: *std.net.Server, ready: *std.atomic.Value(bool)) void {
-            defer listen_server.deinit();
+        fn run(listen_server: *std.Io.net.Server, ready: *std.atomic.Value(bool)) void {
+            defer listen_server.deinit(sio.io());
             ready.store(true, .release);
 
             var served: usize = 0;
             while (served < 2) : (served += 1) {
-                var conn = listen_server.accept() catch return;
-                defer conn.stream.close();
+                var stream = listen_server.accept(sio.io()) catch return;
+                defer stream.close(sio.io());
 
                 var request_buf: [1024]u8 = undefined;
-                const n = conn.stream.read(&request_buf) catch return;
+                const n = std.posix.read(stream.socket.handle, &request_buf) catch return;
                 const request = request_buf[0..n];
                 const ok = std.mem.containsAtLeast(u8, request, 1, "GET /allowed HTTP/1.1\r\n");
                 const status = if (ok) "200 OK" else "404 Not Found";
@@ -2311,32 +2329,32 @@ test "cli allow flags constrain broker env and fs access" {
                     "HTTP/1.1 {s}\r\nContent-Length: {d}\r\nConnection: close\r\n\r\n",
                     .{ status, body.len },
                 ) catch return;
-                conn.stream.writeAll(header) catch return;
-                conn.stream.writeAll(body) catch return;
+                servoWriteAll(stream, header) catch return;
+                servoWriteAll(stream, body) catch return;
             }
         }
     }.run, .{ net_server, net_ready });
     defer {
         var wake_attempts: usize = 0;
         while (wake_attempts < 2) : (wake_attempts += 1) {
-            const conn = std.net.tcpConnectToAddress(net_address) catch continue;
-            defer conn.close();
-            conn.writeAll("GET /shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n") catch {};
+            var conn = net_address.connect(sio.io(), .{ .mode = .stream }) catch continue;
+            defer conn.close(sio.io());
+            servoWriteAll(conn, "GET /shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n") catch {};
         }
         net_thread.join();
     }
-    while (!net_ready.load(.acquire)) std.time.sleep(1 * std.time.ns_per_ms);
+    while (!net_ready.load(.acquire)) std.Io.sleep(sio.io(), .fromMilliseconds(1), .awake) catch {};
 
-    var stdout_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stdout_buffer.deinit();
-    var stderr_buffer = std.ArrayList(u8).init(std.testing.allocator);
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
     defer stderr_buffer.deinit();
 
     const env_ok = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "broker-env-cli", "SA_BROKER_ALLOWED", "--allow-env=SA_BROKER_*" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), env_ok);
     try std.testing.expectEqualStrings("cli-secret\n", stdout_buffer.items);
@@ -2347,8 +2365,8 @@ test "cli allow flags constrain broker env and fs access" {
     const env_denied = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "broker-env-cli", "HOME", "--allow-env=SA_BROKER_*" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 41), env_denied);
     try std.testing.expectEqualStrings("DENIED\n", stdout_buffer.items);
@@ -2359,8 +2377,8 @@ test "cli allow flags constrain broker env and fs access" {
     const env_ok_permission_set = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "broker-env-cli", "SA_BROKER_ALLOWED", "-P=dev" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), env_ok_permission_set);
     try std.testing.expectEqualStrings("cli-secret\n", stdout_buffer.items);
@@ -2371,8 +2389,8 @@ test "cli allow flags constrain broker env and fs access" {
     const fs_ok = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "broker-fs-cli", "data/allowed.txt", "--allow-read=$PROJECT/data/**" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), fs_ok);
     try std.testing.expectEqualStrings("payload\n", stdout_buffer.items);
@@ -2383,8 +2401,8 @@ test "cli allow flags constrain broker env and fs access" {
     const fs_denied = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "broker-fs-cli", "secret/blocked.txt", "--allow-read=$PROJECT/data/**" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 41), fs_denied);
     try std.testing.expectEqualStrings("DENIED\n", stdout_buffer.items);
@@ -2395,8 +2413,8 @@ test "cli allow flags constrain broker env and fs access" {
     const fs_ok_permission_set = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "broker-fs-cli", "data/allowed.txt", "-P=dev" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), fs_ok_permission_set);
     try std.testing.expectEqualStrings("payload\n", stdout_buffer.items);
@@ -2407,8 +2425,8 @@ test "cli allow flags constrain broker env and fs access" {
     const net_ok = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "broker-net-cli", "GET", "http://127.0.0.1:18094/allowed", "--allow-net=http://127.0.0.1:18094/allowed" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), net_ok);
     try std.testing.expectEqualStrings("net-ok\n", stdout_buffer.items);
@@ -2419,8 +2437,8 @@ test "cli allow flags constrain broker env and fs access" {
     const net_denied_host = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "broker-net-cli", "GET", "http://127.0.0.1:18094/blocked", "--allow-net=http://127.0.0.1:18094/allowed" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 41), net_denied_host);
     try std.testing.expectEqualStrings("DENIED\n", stdout_buffer.items);
@@ -2431,8 +2449,8 @@ test "cli allow flags constrain broker env and fs access" {
     const net_denied_method = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "broker-net-cli", "POST", "http://127.0.0.1:18094/allowed", "--allow-net=http://127.0.0.1:18094/allowed" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 41), net_denied_method);
     try std.testing.expectEqualStrings("DENIED\n", stdout_buffer.items);
@@ -2443,8 +2461,8 @@ test "cli allow flags constrain broker env and fs access" {
     const net_ok_permission_set = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         &.{ "sa", "broker-net-cli", "GET", "http://127.0.0.1:18094/allowed", "-P=dev" },
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), net_ok_permission_set);
     try std.testing.expectEqualStrings("net-ok\n", stdout_buffer.items);
@@ -2474,8 +2492,8 @@ test "cli allow flags constrain broker env and fs access" {
     const run_ok = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         run_ok_args,
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     if (run_ok != 0) std.debug.print("run_ok stdout={s} stderr={s}\n", .{ stdout_buffer.items, stderr_buffer.items });
     try std.testing.expectEqual(@as(u8, 0), run_ok);
@@ -2487,8 +2505,8 @@ test "cli allow flags constrain broker env and fs access" {
     const run_denied_arg = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         run_wrong_args,
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 41), run_denied_arg);
     try std.testing.expectEqualStrings("DENIED\n", stdout_buffer.items);
@@ -2499,8 +2517,8 @@ test "cli allow flags constrain broker env and fs access" {
     const run_denied_host = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         run_denied_host_args,
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 41), run_denied_host);
     try std.testing.expectEqualStrings("DENIED\n", stdout_buffer.items);
@@ -2511,8 +2529,8 @@ test "cli allow flags constrain broker env and fs access" {
     const run_ok_permission_set = try saasm.cli.executeWithWriters(
         std.testing.allocator,
         run_permission_set_args,
-        stdout_buffer.writer(),
-        stderr_buffer.writer(),
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
     );
     try std.testing.expectEqual(@as(u8, 0), run_ok_permission_set);
     try std.testing.expectEqualStrings("run-ok\n", stdout_buffer.items);

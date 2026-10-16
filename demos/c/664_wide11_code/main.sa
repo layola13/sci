@@ -1,0 +1,63 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"664\n"
+
+// 664 - Wide chain of 11 calls returns 664 with code 0.
+@w11(x: i64) -> i64:
+L_ENTRY:
+    !x
+    return 664
+
+@w9(x: i64) -> i64:
+L_ENTRY:
+    v = call @w11(x)
+    !x
+    return v
+
+@w7(x: i64) -> i64:
+L_ENTRY:
+    v = call @w9(x)
+    !x
+    return v
+
+@w5(x: i64) -> i64:
+L_ENTRY:
+    v = call @w7(x)
+    !x
+    return v
+
+@w3(x: i64) -> i64:
+L_ENTRY:
+    v = call @w5(x)
+    !x
+    return v
+
+@w1(x: i64) -> i64:
+L_ENTRY:
+    v = call @w3(x)
+    !x
+    return v
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    v = call @w1(z)
+    want = 664 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !z
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

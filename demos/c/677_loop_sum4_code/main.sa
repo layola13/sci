@@ -1,0 +1,45 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"677\n"
+
+// 677 - Sum 0..16 step 4: 0+4+8+12+16 == 40, plus 637 == 677.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    i = 0 as i64
+    four = 4 as i64
+    jmp L_COND
+L_COND:
+    done = eq i, 20
+    br done -> L_DONE, L_BODY
+L_BODY:
+    !done
+    acc = add acc, i
+    i = add i, four
+    jmp L_COND
+L_DONE:
+    !done
+    want_sum = 40 as i64
+    ok_sum = eq acc, want_sum
+    base = 637 as i64
+    got = add acc, base
+    want = 677 as i64
+    ok_v = eq got, want
+    ok = and ok_sum, ok_v
+    !acc
+    !i
+    !four
+    !want_sum
+    !ok_sum
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

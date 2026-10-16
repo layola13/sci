@@ -1,23 +1,24 @@
 const Std = @import("std");
 const Saasm = @import("saasm");
 const test_build_options = @import("test_build_options");
+const sio = @import("sio");
 
 pub const std = Std;
 pub const saasm = Saasm;
 
 pub fn repoRoot(allocator: std.mem.Allocator) ![]u8 {
-    return std.fs.cwd().realpathAlloc(allocator, ".");
+    return sio.cwd().realpathAlloc(allocator, ".");
 }
 
 pub fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const full_path = if (std.fs.path.isAbsolute(path)) path else try std.fs.path.join(allocator, &.{ test_build_options.repo_root, path });
     defer if (!std.fs.path.isAbsolute(path)) allocator.free(full_path);
-    const file = try std.fs.cwd().openFile(full_path, .{});
+    const file = try sio.cwd().openFile(full_path, .{});
     defer file.close();
     const bytes = try file.readToEndAlloc(allocator, 1 << 20);
     if (std.mem.indexOfScalar(u8, bytes, '\r') == null) return bytes;
 
-    var normalized = try std.ArrayList(u8).initCapacity(allocator, bytes.len);
+    var normalized = try std.array_list.Managed(u8).initCapacity(allocator, bytes.len);
     errdefer normalized.deinit();
     var index: usize = 0;
     while (index < bytes.len) : (index += 1) {
@@ -28,29 +29,32 @@ pub fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return try normalized.toOwnedSlice();
 }
 
-pub fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(source);
+pub fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
+    var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    var wbuf: [8192]u8 = undefined;
+    var w = file.writer(std.testing.io, &wbuf);
+    try w.interface.writeAll(source);
+    try w.interface.flush();
 }
 
-pub fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+pub fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
 }
 
-pub fn runCommandWithEnvMap(allocator: std.mem.Allocator, argv: []const []const u8, env_map: *const std.process.EnvMap) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+pub fn runCommandWithEnvMap(allocator: std.mem.Allocator, argv: []const []const u8, env_map: *const sio.EnvMap) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
         .env_map = env_map,
     });
 }
 
-pub fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+pub fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });

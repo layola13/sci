@@ -9,35 +9,22 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-
-// wasm32-wasi has no dlopen: stub DynLib so loader probes honestly report
-// "unsupported" (null lookups, failed opens) instead of breaking the build.
-const is_wasi = builtin.os.tag == .wasi;
-const WasiDynLib = struct {
-    fn open(path: []const u8) !WasiDynLib {
-        _ = path;
-        return error.Unsupported;
-    }
-    fn openZ(path: [:0]const u8) !WasiDynLib {
-        _ = path;
-        return error.Unsupported;
-    }
-    fn close(self: WasiDynLib) void {
-        _ = self;
-    }
-    fn lookup(self: WasiDynLib, comptime T: type, name: [:0]const u8) ?T {
-        _ = self;
-        _ = name;
-        return null;
-    }
-};
-const DynLib = if (is_wasi) WasiDynLib else std.DynLib;
+const sio = @import("sio");
 
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
 const SA_STD_ERR_UNSUPPORTED: i32 = -1;
 const SA_STD_ERR_IO: i32 = -5;
+
+// wasm32-wasi: usize is 32-bit, C ABI passes u64 lengths. Checked conversion.
+fn u64ToUsize(v: u64) ?usize {
+    return std.math.cast(usize, v);
+}
+
+fn ptrFromU64(T: type, h: u64) *T {
+    return @ptrFromInt(@as(usize, @intCast(h)));
+}
 
 const SslCtx = opaque {};
 const Ssl = opaque {};
@@ -61,7 +48,7 @@ const ErrPeekError = *const fn () callconv(.c) u64;
 const SSL_FILETYPE_PEM: c_int = 1;
 
 const SslApi = struct {
-    lib: DynLib,
+    lib: if (builtin.cpu.arch.isWasm()) void else std.DynLib,
     ctx_new: SslCtxNew,
     ctx_free: SslCtxFree,
     use_cert_file: SslCtxUseCertFile,
@@ -77,13 +64,12 @@ const SslApi = struct {
 };
 
 var ssl_api: ?SslApi = null;
-var ssl_api_mutex = std.Thread.Mutex{};
+var ssl_api_mutex = std.Io.Mutex.init;
 
 fn loadSslApi() ?*SslApi {
-    // WASI has no dlopen: loader can never resolve; report unavailable.
-    if (is_wasi) return null;
-    ssl_api_mutex.lock();
-    defer ssl_api_mutex.unlock();
+    if (comptime builtin.cpu.arch.isWasm()) return null;
+    ssl_api_mutex.lockUncancelable(sio.io());
+    defer ssl_api_mutex.unlock(sio.io());
     if (ssl_api) |*api| return api;
 
     const ssl_candidates = [_][]const u8{
@@ -92,9 +78,9 @@ fn loadSslApi() ?*SslApi {
         "/lib/x86_64-linux-gnu/libssl.so.3",
         "/usr/lib/x86_64-linux-gnu/libssl.so.3",
     };
-    var lib: ?DynLib = null;
+    var lib: ?std.DynLib = null;
     for (ssl_candidates) |c| {
-        if (DynLib.open(c)) |l| {
+        if (std.DynLib.open(c)) |l| {
             lib = l;
             break;
         } else |_| {}
@@ -180,12 +166,13 @@ pub export fn sa_std_tls_server_supported(out_supported: ?*u32) i32 {
 }
 
 pub export fn sa_std_tls_server_ctx_create(cert_path_ptr: ?[*]const u8, cert_path_len: u64, key_path_ptr: ?[*]const u8, key_path_len: u64, out_ctx: ?*u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_ctx orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    const cert_path = if (cert_path_ptr) |p| p[0..cert_path_len] else return SA_STD_ERR_INVALID_ARGUMENT;
-    const key_path = if (key_path_ptr) |p| p[0..key_path_len] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const cert_n = u64ToUsize(cert_path_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const key_n = u64ToUsize(key_path_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const cert_path = if (cert_path_ptr) |p| p[0..cert_n] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const key_path = if (key_path_ptr) |p| p[0..key_n] else return SA_STD_ERR_INVALID_ARGUMENT;
     var cert_z: [4096]u8 = undefined;
     var key_z: [4096]u8 = undefined;
     if (cert_path.len >= cert_z.len) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -210,20 +197,18 @@ pub export fn sa_std_tls_server_ctx_create(cert_path_ptr: ?[*]const u8, cert_pat
 }
 
 pub export fn sa_std_tls_server_ctx_free(ctx_handle: u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     if (ctx_handle == 0) return SA_STD_OK;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    api.ctx_free(@ptrFromInt(ctx_handle));
+    api.ctx_free(ptrFromU64(SslCtx, ctx_handle));
     return SA_STD_OK;
 }
 
 pub export fn sa_std_tls_server_accept(ctx_handle: u64, fd: i32, out_ssl: ?*u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_ssl orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (ctx_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    const ctx: *SslCtx = @ptrFromInt(ctx_handle);
+    const ctx: *SslCtx = ptrFromU64(SslCtx, ctx_handle);
     const ssl = api.new(ctx) orelse return SA_STD_ERR_IO;
     if (api.set_fd(ssl, fd) != 1) {
         api.free(ssl);
@@ -240,38 +225,35 @@ pub export fn sa_std_tls_server_accept(ctx_handle: u64, fd: i32, out_ssl: ?*u64)
 }
 
 pub export fn sa_std_tls_server_read(ssl_handle: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_read orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (ssl_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
     const buf = out orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const root: [*]u8 = buf;
-    const rc = api.read(@ptrFromInt(ssl_handle), root, @intCast(@min(cap, @as(u64, @intCast(std.math.maxInt(c_int))))));
+    const rc = api.read(ptrFromU64(Ssl, ssl_handle), root, @intCast(@min(cap, @as(u64, @intCast(std.math.maxInt(c_int))))));
     if (rc <= 0) return SA_STD_ERR_IO;
     slot.* = @intCast(rc);
     return SA_STD_OK;
 }
 
 pub export fn sa_std_tls_server_write(ssl_handle: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_written orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (ssl_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     const src = buf orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    const rc = api.write(@ptrFromInt(ssl_handle), src, @intCast(@min(len, @as(u64, @intCast(std.math.maxInt(c_int))))));
+    const rc = api.write(ptrFromU64(Ssl, ssl_handle), src, @intCast(@min(len, @as(u64, @intCast(std.math.maxInt(c_int))))));
     if (rc <= 0) return SA_STD_ERR_IO;
     slot.* = @intCast(rc);
     return SA_STD_OK;
 }
 
 pub export fn sa_std_tls_server_close(ssl_handle: u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     if (ssl_handle == 0) return SA_STD_OK;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
-    _ = api.shutdown(@ptrFromInt(ssl_handle));
-    api.free(@ptrFromInt(ssl_handle));
+    _ = api.shutdown(ptrFromU64(Ssl, ssl_handle));
+    api.free(ptrFromU64(Ssl, ssl_handle));
     return SA_STD_OK;
 }
 
@@ -292,12 +274,12 @@ pub export fn sa_std_tls_server_status_json(out_handle: ?*u64) i32 {
     return registerString(owned, slot);
 }
 
-var string_registry_mutex = std.Thread.Mutex{};
-var string_registry = std.ArrayListUnmanaged(?[]u8){};
+var string_registry_mutex = std.Io.Mutex.init;
+var string_registry = std.ArrayListUnmanaged(?[]u8).empty;
 
 fn registerString(bytes: []u8, slot: *u64) i32 {
-    string_registry_mutex.lock();
-    defer string_registry_mutex.unlock();
+    string_registry_mutex.lockUncancelable(sio.io());
+    defer string_registry_mutex.unlock(sio.io());
     var i: usize = 0;
     while (i < string_registry.items.len) : (i += 1) {
         if (string_registry.items[i] == null) {
@@ -313,8 +295,8 @@ fn registerString(bytes: []u8, slot: *u64) i32 {
 
 fn takeString(handle: u64) ?[]u8 {
     if (handle == 0) return null;
-    string_registry_mutex.lock();
-    defer string_registry_mutex.unlock();
+    string_registry_mutex.lockUncancelable(sio.io());
+    defer string_registry_mutex.unlock(sio.io());
     const idx: usize = @intCast(handle - 1);
     if (idx >= string_registry.items.len) return null;
     return string_registry.items[idx];
@@ -331,8 +313,8 @@ pub export fn sa_std_tls_server_buffer_len(handle: u64) u64 {
 }
 
 pub export fn sa_std_tls_server_buffer_free(handle: u64) i32 {
-    string_registry_mutex.lock();
-    defer string_registry_mutex.unlock();
+    string_registry_mutex.lockUncancelable(sio.io());
+    defer string_registry_mutex.unlock(sio.io());
     if (handle == 0) return SA_STD_OK;
     const idx: usize = @intCast(handle - 1);
     if (idx >= string_registry.items.len) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -382,17 +364,18 @@ test "real OpenSSL tls-server accepts a loopback Zig std TLS client" {
     const allocator = std.heap.page_allocator;
     var td = std.testing.tmpDir(.{});
     defer td.cleanup();
-    const dirpath = try td.dir.realpathAlloc(allocator, ".");
+    const tdir = sio.Dir{ .inner = td.dir };
+    const dirpath = try tdir.realpathAlloc(allocator, ".");
     defer allocator.free(dirpath);
 
-    var cert_path_buf = std.ArrayList(u8).init(allocator);
-    defer cert_path_buf.deinit();
-    try cert_path_buf.appendSlice(dirpath);
-    try cert_path_buf.appendSlice("/cert.pem");
-    var key_path_buf = std.ArrayList(u8).init(allocator);
-    defer key_path_buf.deinit();
-    try key_path_buf.appendSlice(dirpath);
-    try key_path_buf.appendSlice("/key.pem");
+    var cert_path_buf: std.ArrayList(u8) = .empty;
+    defer cert_path_buf.deinit(allocator);
+    try cert_path_buf.appendSlice(allocator, dirpath);
+    try cert_path_buf.appendSlice(allocator, "/cert.pem");
+    var key_path_buf: std.ArrayList(u8) = .empty;
+    defer key_path_buf.deinit(allocator);
+    try key_path_buf.appendSlice(allocator, dirpath);
+    try key_path_buf.appendSlice(allocator, "/key.pem");
 
     // openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 1
     //             -nodes -subj "/CN=localhost"
@@ -402,12 +385,12 @@ test "real OpenSSL tls-server accepts a loopback Zig std TLS client" {
         "-out", cert_path_buf.items,
         "-days", "1", "-nodes", "-subj", "/CN=localhost",
     };
-    var child = std.process.Child.init(&args, allocator);
+    var child = sio.Child.init(&args, allocator);
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
     const term = child.spawnAndWait() catch return error.OpensslSpawnFailed;
     switch (term) {
-        .Exited => |code| if (code != 0) return error.OpensslCertFailed,
+        .exited => |code| if (code != 0) return error.OpensslCertFailed,
         else => return error.OpensslCertAbnormal,
     }
 
@@ -423,20 +406,23 @@ test "real OpenSSL tls-server accepts a loopback Zig std TLS client" {
     try testing.expect(ctx_handle != 0);
 
     // TCP server+client.
-    const localhost = try std.net.Address.parseIp4("127.0.0.1", 0);
-    var listener = try localhost.listen(.{ .reuse_address = true });
-    defer listener.deinit();
-    const bound_port = listener.listen_address.getPort();
+    const localhost = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try localhost.listen(sio.io(), .{ .reuse_address = true });
+    defer listener.deinit(sio.io());
+    const bound_port = switch (listener.socket.address) {
+        .ip4 => |a| a.port,
+        .ip6 => |a| a.port,
+    };
 
     // TLS server thread: accept raw TCP, hand to OpenSSL, echo one read chunk.
-    const SlockArg = struct { ctx: u64, lst: *std.net.Server };
+    const SlockArg = struct { ctx: u64, lst: *std.Io.net.Server };
     var sarg: SlockArg = .{ .ctx = ctx_handle, .lst = &listener };
     const serverRunner = struct {
         fn run(a: *SlockArg) void {
-            const conn = a.lst.accept() catch return;
+            var stream = a.lst.accept(sio.io()) catch return;
+            defer stream.close(sio.io());
             var ssl_handle: u64 = 0;
-            if (sa_std_tls_server_accept(a.ctx, conn.stream.handle, &ssl_handle) != 0) {
-                conn.stream.close();
+            if (sa_std_tls_server_accept(a.ctx, stream.socket.handle, &ssl_handle) != 0) {
                 return;
             }
             var buf: [256]u8 = undefined;
@@ -445,32 +431,63 @@ test "real OpenSSL tls-server accepts a loopback Zig std TLS client" {
                 _ = sa_std_tls_server_write(ssl_handle, &buf, n_read, &n_read);
             }
             _ = sa_std_tls_server_close(ssl_handle);
-            conn.stream.close();
         }
     };
     var server_thread = try std.Thread.spawn(.{}, serverRunner.run, .{&sarg});
 
-    const server_addr = try std.net.Address.parseIp4("127.0.0.1", bound_port);
-    var tcp = try std.net.tcpConnectToAddress(server_addr);
-    defer tcp.close();
-    var client = std.crypto.tls.Client.init(tcp, .{
+    // Loopback TLS peer using the new Reader/Writer TLS client API.
+    const server_addr = try std.Io.net.IpAddress.parseIp4("127.0.0.1", bound_port);
+    var tcp = try server_addr.connect(sio.io(), .{ .mode = .stream });
+    defer tcp.close(sio.io());
+    var sock_rb: [std.crypto.tls.max_ciphertext_record_len]u8 = undefined;
+    var sock_wb: [std.crypto.tls.max_ciphertext_record_len]u8 = undefined;
+    var tls_rb: [std.crypto.tls.max_ciphertext_record_len]u8 = undefined;
+    var tls_wb: [std.crypto.tls.max_ciphertext_record_len]u8 = undefined;
+    var tcp_reader = tcp.reader(sio.io(), &sock_rb);
+    var tcp_writer = tcp.writer(sio.io(), &sock_wb);
+    var entropy: [std.crypto.tls.Client.Options.entropy_len]u8 = undefined;
+    sio.io().random(&entropy);
+    var client = std.crypto.tls.Client.init(&tcp_reader.interface, &tcp_writer.interface, .{
         .host = .no_verification,
         .ca = .no_verification,
-        .ssl_key_log_file = null,
+        .read_buffer = &tls_rb,
+        .write_buffer = &tls_wb,
+        .entropy = &entropy,
+        .realtime_now = std.Io.Clock.real.now(sio.io()),
+        .allow_truncation_attacks = true,
     }) catch return error.TlsClientHandshakeFailed;
-    client.allow_truncation_attacks = true;
 
     const payload = "hello-tls-server";
-    try client.writeAll(&tcp, payload);
+    client.writer.writeAll(payload) catch return error.TlsClientWriteFailed;
+    client.writer.flush() catch return error.TlsClientWriteFailed;
+    tcp_writer.interface.flush() catch return error.TlsClientWriteFailed;
     var echo: [256]u8 = undefined;
-    const got = try client.read(&tcp, &echo);
+    const got = try tlsPeerRead(&client, &echo);
     try testing.expect(got == payload.len);
     try testing.expectEqualStrings(payload, echo[0..got]);
     while (true) {
-        const more = client.read(&tcp, &echo) catch break;
+        const more = tlsPeerRead(&client, &echo) catch break;
         if (more == 0) break;
     }
     server_thread.join();
+}
+
+// NOTE(Zig 0.17): drain-then-pull single-shot read over the new TLS client
+// Reader (see the same note in sa_tls_client.zig).
+fn tlsPeerRead(client: *std.crypto.tls.Client, buf: []u8) !usize {
+    while (true) {
+        const avail = client.reader.bufferedLen();
+        if (avail > 0) {
+            const take = @min(buf.len, avail);
+            var vec = [_][]u8{buf[0..take]};
+            return try client.reader.readVec(&vec);
+        }
+        var vec = [_][]u8{buf};
+        _ = client.reader.readVec(&vec) catch |err| {
+            if (client.read_err) |rerr| return rerr;
+            return err;
+        };
+    }
 }
 
 // ============================================================================

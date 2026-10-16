@@ -72,7 +72,7 @@ const Cursor = struct {
     }
 };
 
-pub fn encodeUleb128(writer: anytype, value: u64) !void {
+pub fn encodeUleb128(writer: *std.Io.Writer, value: u64) !void {
     var remaining = value;
     while (true) {
         var byte: u8 = @intCast(remaining & 0x7f);
@@ -95,7 +95,7 @@ pub fn decodeUleb128(cursor: *Cursor) Error!u64 {
     }
 }
 
-pub fn encodeSleb128(writer: anytype, value: i64) !void {
+pub fn encodeSleb128(writer: *std.Io.Writer, value: i64) !void {
     var remaining = value;
     var more = true;
     while (more) {
@@ -125,13 +125,13 @@ pub fn decodeSleb128(cursor: *Cursor) Error!i64 {
     return result;
 }
 
-fn writeSection(writer: anytype, id: SectionId, payload: []const u8) !void {
+fn writeSection(writer: *std.Io.Writer, id: SectionId, payload: []const u8) !void {
     try encodeUleb128(writer, @intFromEnum(id));
     try encodeUleb128(writer, payload.len);
     try writer.writeAll(payload);
 }
 
-fn writeStringPool(writer: anytype, symbols: []const []const u8) !void {
+fn writeStringPool(writer: *std.Io.Writer, symbols: []const []const u8) !void {
     try encodeUleb128(writer, symbols.len);
     for (symbols) |name| {
         try encodeUleb128(writer, name.len);
@@ -170,7 +170,7 @@ fn readStringPoolBorrowed(allocator: std.mem.Allocator, payload: []const u8) ![]
     return symbols;
 }
 
-fn writeOptionalEnum(writer: anytype, value: anytype) !void {
+fn writeOptionalEnum(writer: *std.Io.Writer, value: anytype) !void {
     if (value) |v| {
         try writer.writeByte(1);
         try writer.writeByte(@intFromEnum(v));
@@ -183,10 +183,10 @@ fn readOptionalEnum(comptime T: type, cursor: *Cursor) !?T {
     const present = try cursor.readByte();
     if (present == 0) return null;
     if (present != 1) return error.InvalidTag;
-    return std.meta.intToEnum(T, try cursor.readByte()) catch error.InvalidTag;
+    return std.enums.fromInt(T, try cursor.readByte()) orelse error.InvalidTag;
 }
 
-fn writeOperand(writer: anytype, operand: inst.Operand, pool: *std.StringHashMap(u32)) !void {
+fn writeOperand(writer: *std.Io.Writer, operand: inst.Operand, pool: *std.StringHashMap(u32)) !void {
     switch (operand) {
         .none => try writer.writeByte(0),
         .reg => |v| {
@@ -248,7 +248,7 @@ fn writeOperand(writer: anytype, operand: inst.Operand, pool: *std.StringHashMap
     }
 }
 
-fn readPooledText(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), id: u64) ![]const u8 {
+fn readPooledText(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.array_list.Managed([]const u8), id: u64) ![]const u8 {
     if (id > std.math.maxInt(usize)) return error.Leb128Overflow;
     const idx: usize = @intCast(id);
     if (idx >= symbols.len) return error.InvalidTag;
@@ -262,7 +262,7 @@ fn poolId(pool: *std.StringHashMap(u32), text: []const u8) !u32 {
     return pool.get(text) orelse error.InvalidTag;
 }
 
-fn writeOptionalPoolText(writer: anytype, pool: *std.StringHashMap(u32), text: ?[]const u8) !void {
+fn writeOptionalPoolText(writer: *std.Io.Writer, pool: *std.StringHashMap(u32), text: ?[]const u8) !void {
     if (text) |value| {
         try writer.writeByte(1);
         try encodeUleb128(writer, try poolId(pool, value));
@@ -271,7 +271,7 @@ fn writeOptionalPoolText(writer: anytype, pool: *std.StringHashMap(u32), text: ?
     }
 }
 
-fn writeOptionalHash(writer: anytype, hash: ?[32]u8) !void {
+fn writeOptionalHash(writer: *std.Io.Writer, hash: ?[32]u8) !void {
     if (hash) |value| {
         try writer.writeByte(1);
         try writer.writeAll(value[0..]);
@@ -280,7 +280,7 @@ fn writeOptionalHash(writer: anytype, hash: ?[32]u8) !void {
     }
 }
 
-fn writeOptionalUpstreamLoc(writer: anytype, pool: *std.StringHashMap(u32), loc: ?upstream.UpstreamLoc) !void {
+fn writeOptionalUpstreamLoc(writer: *std.Io.Writer, pool: *std.StringHashMap(u32), loc: ?upstream.UpstreamLoc) !void {
     if (loc) |value| {
         try writer.writeByte(1);
         try encodeUleb128(writer, try poolId(pool, value.file));
@@ -291,7 +291,7 @@ fn writeOptionalUpstreamLoc(writer: anytype, pool: *std.StringHashMap(u32), loc:
     }
 }
 
-fn readOptionalPooledText(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), cursor: *Cursor) !?[]const u8 {
+fn readOptionalPooledText(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.array_list.Managed([]const u8), cursor: *Cursor) !?[]const u8 {
     const present = try cursor.readByte();
     if (present == 0) return null;
     if (present != 1) return error.InvalidTag;
@@ -321,7 +321,7 @@ fn readOptionalHash(cursor: *Cursor) !?[32]u8 {
     return out;
 }
 
-fn readOptionalPooledUpstreamLoc(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), cursor: *Cursor) !?upstream.UpstreamLoc {
+fn readOptionalPooledUpstreamLoc(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.array_list.Managed([]const u8), cursor: *Cursor) !?upstream.UpstreamLoc {
     const present = try cursor.readByte();
     if (present == 0) return null;
     if (present != 1) return error.InvalidTag;
@@ -354,7 +354,7 @@ fn skipOptionalUpstreamLoc(cursor: *Cursor) !void {
     _ = try decodeUleb128(cursor);
 }
 
-fn readOperand(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), cursor: *Cursor) !inst.Operand {
+fn readOperand(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.array_list.Managed([]const u8), cursor: *Cursor) !inst.Operand {
     return switch (try cursor.readByte()) {
         0 => .{ .none = {} },
         1 => .{ .reg = @intCast(try decodeUleb128(cursor)) },
@@ -369,8 +369,8 @@ fn readOperand(allocator: std.mem.Allocator, symbols: []const []const u8, owned_
             const bits = std.mem.readInt(u64, raw[0..8], .little);
             break :blk .{ .imm_float = @bitCast(bits) };
         },
-        9 => .{ .op_code = std.meta.intToEnum(inst.OpCode, try cursor.readByte()) catch return error.InvalidTag },
-        10 => .{ .cap_prefix = std.meta.intToEnum(inst.CapPrefix, try cursor.readByte()) catch return error.InvalidTag },
+        9 => .{ .op_code = (std.enums.fromInt(inst.OpCode, try cursor.readByte()) orelse return error.InvalidTag) },
+        10 => .{ .cap_prefix = (std.enums.fromInt(inst.CapPrefix, try cursor.readByte()) orelse return error.InvalidTag) },
         11 => .{ .offset = @intCast(try decodeUleb128(cursor)) },
         12 => .{ .ty = @intCast(try decodeUleb128(cursor)) },
         13 => .{ .text = try readPooledText(allocator, symbols, owned_text, try decodeUleb128(cursor)) },
@@ -389,7 +389,7 @@ fn operandRegName(symbols: []const []const u8, operand: inst.Operand) ![]const u
 fn synthesizeRawText(
     allocator: std.mem.Allocator,
     symbols: []const []const u8,
-    owned_text: *std.ArrayList([]const u8),
+    owned_text: *std.array_list.Managed([]const u8),
     item: *inst.Instruction,
 ) !void {
     const raw = switch (item.kind) {
@@ -440,7 +440,7 @@ fn synthesizeRawText(
     item.raw_text = raw;
 }
 
-fn writeInstructions(writer: anytype, instructions: []const inst.Instruction, pool: *std.StringHashMap(u32)) !void {
+fn writeInstructions(writer: *std.Io.Writer, instructions: []const inst.Instruction, pool: *std.StringHashMap(u32)) !void {
     try encodeUleb128(writer, instructions.len);
     for (instructions) |item| {
         try writer.writeByte(@intFromEnum(item.kind));
@@ -448,7 +448,7 @@ fn writeInstructions(writer: anytype, instructions: []const inst.Instruction, po
         try encodeUleb128(writer, item.expanded_line);
         try writeOptionalEnum(writer, item.op_kind);
         for (item.operands) |operand| try writeOperand(writer, operand, pool);
-        try writer.writeByte(if (item.atomic_value_ty) |_| 1 else 0);
+        try writer.writeByte(if (item.atomic_value_ty != null) 1 else 0);
         if (item.atomic_value_ty) |ty| try encodeUleb128(writer, ty);
         try writeOptionalEnum(writer, item.atomic_ordering);
         try writeOptionalEnum(writer, item.atomic_second_ordering);
@@ -463,14 +463,14 @@ fn writeInstructions(writer: anytype, instructions: []const inst.Instruction, po
     }
 }
 
-fn addPoolText(pool_items: *std.ArrayList([]const u8), pool: *std.StringHashMap(u32), text: []const u8) !void {
+fn addPoolText(pool_items: *std.array_list.Managed([]const u8), pool: *std.StringHashMap(u32), text: []const u8) !void {
     if (pool.contains(text)) return;
     const id: u32 = @intCast(pool_items.items.len);
     try pool_items.append(text);
     try pool.put(text, id);
 }
 
-fn collectConstValueSymbols(pool_items: *std.ArrayList([]const u8), pool: *std.StringHashMap(u32), value: const_decl.ConstValue) !void {
+fn collectConstValueSymbols(pool_items: *std.array_list.Managed([]const u8), pool: *std.StringHashMap(u32), value: const_decl.ConstValue) !void {
     switch (value) {
         .hex, .utf8, .repeat => {},
         .struct_ => |literal| {
@@ -488,7 +488,7 @@ fn collectConstValueSymbols(pool_items: *std.ArrayList([]const u8), pool: *std.S
     }
 }
 
-fn writeBytesLiteral(writer: anytype, literal: const_decl.BytesLiteral) !void {
+fn writeBytesLiteral(writer: *std.Io.Writer, literal: const_decl.BytesLiteral) !void {
     try encodeUleb128(writer, literal.bytes.len);
     try writer.writeAll(literal.bytes);
     if (literal.repeat_count) |count| {
@@ -518,7 +518,7 @@ fn readBytesLiteral(allocator: std.mem.Allocator, cursor: *Cursor, kind: const_d
     };
 }
 
-fn writeConstValue(writer: anytype, value: const_decl.ConstValue, pool: *std.StringHashMap(u32)) !void {
+fn writeConstValue(writer: *std.Io.Writer, value: const_decl.ConstValue, pool: *std.StringHashMap(u32)) !void {
     const tag = std.meta.activeTag(value);
     try writer.writeByte(@intFromEnum(tag));
     switch (value) {
@@ -542,7 +542,7 @@ fn writeConstValue(writer: anytype, value: const_decl.ConstValue, pool: *std.Str
 }
 
 fn readConstValue(allocator: std.mem.Allocator, symbols: []const []const u8, cursor: *Cursor) !const_decl.ConstValue {
-    const tag = std.meta.intToEnum(const_decl.ConstLiteralKind, try cursor.readByte()) catch return error.InvalidTag;
+    const tag = (std.enums.fromInt(const_decl.ConstLiteralKind, try cursor.readByte()) orelse return error.InvalidTag);
     return switch (tag) {
         .hex => .{ .hex = try readBytesLiteral(allocator, cursor, .hex) },
         .utf8 => .{ .utf8 = try readBytesLiteral(allocator, cursor, .utf8) },
@@ -583,7 +583,7 @@ fn readConstValue(allocator: std.mem.Allocator, symbols: []const []const u8, cur
     };
 }
 
-fn writeConstDecls(writer: anytype, const_decls: []const const_decl.ConstDecl, pool: *std.StringHashMap(u32)) !void {
+fn writeConstDecls(writer: *std.Io.Writer, const_decls: []const const_decl.ConstDecl, pool: *std.StringHashMap(u32)) !void {
     try encodeUleb128(writer, const_decls.len);
     for (const_decls) |decl| {
         try encodeUleb128(writer, decl.source_line);
@@ -630,13 +630,13 @@ fn readConstDecls(allocator: std.mem.Allocator, symbols: []const []const u8, pay
     return out;
 }
 
-fn writeFunctionSigs(writer: anytype, function_sigs: []const sig.FunctionSig, pool: *std.StringHashMap(u32)) !void {
+fn writeFunctionSigs(writer: *std.Io.Writer, function_sigs: []const sig.FunctionSig, pool: *std.StringHashMap(u32)) !void {
     try encodeUleb128(writer, function_sigs.len);
     for (function_sigs) |item| {
         try encodeUleb128(writer, item.id);
         try encodeUleb128(writer, try poolId(pool, item.name));
         try writer.writeByte(@intFromEnum(item.kind));
-        try writer.writeByte(if (item.return_cap) |_| 1 else 0);
+        try writer.writeByte(if (item.return_cap != null) 1 else 0);
         if (item.return_cap) |cap| try writer.writeByte(@intFromEnum(cap));
         try writer.writeByte(@intFromEnum(item.return_ty));
         try writer.writeByte(if (item.return_fallible) 1 else 0);
@@ -681,12 +681,12 @@ fn readFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u8, p
         const id: u32 = @intCast(try decodeUleb128(&cursor));
         const name = try readSymbolName(allocator, symbols, try decodeUleb128(&cursor));
         errdefer allocator.free(name);
-        const kind = std.meta.intToEnum(sig.FunctionKind, try cursor.readByte()) catch return error.InvalidTag;
+        const kind = (std.enums.fromInt(sig.FunctionKind, try cursor.readByte()) orelse return error.InvalidTag);
         const return_cap_present = try cursor.readByte();
         const return_cap: ?inst.CapPrefix = if (return_cap_present == 1)
-            std.meta.intToEnum(inst.CapPrefix, try cursor.readByte()) catch return error.InvalidTag
+            (std.enums.fromInt(inst.CapPrefix, try cursor.readByte()) orelse return error.InvalidTag)
         else if (return_cap_present == 0) null else return error.InvalidTag;
-        const return_ty = std.meta.intToEnum(sig.PrimType, try cursor.readByte()) catch return error.InvalidTag;
+        const return_ty = (std.enums.fromInt(sig.PrimType, try cursor.readByte()) orelse return error.InvalidTag);
         const return_fallible = (try cursor.readByte()) == 1;
         const entry_inst_idx: u32 = @intCast(try decodeUleb128(&cursor));
         const is_ffi_wrapper = (try cursor.readByte()) == 1;
@@ -713,8 +713,8 @@ fn readFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u8, p
         for (params) |*param| {
             param.* = .{
                 .name = try readSymbolName(allocator, symbols, try decodeUleb128(&cursor)),
-                .ty = std.meta.intToEnum(sig.PrimType, try cursor.readByte()) catch return error.InvalidTag,
-                .cap = std.meta.intToEnum(inst.CapPrefix, try cursor.readByte()) catch return error.InvalidTag,
+                .ty = (std.enums.fromInt(sig.PrimType, try cursor.readByte()) orelse return error.InvalidTag),
+                .cap = (std.enums.fromInt(inst.CapPrefix, try cursor.readByte()) orelse return error.InvalidTag),
             };
             param_initialized += 1;
         }
@@ -762,7 +762,7 @@ fn readTestFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u
     const count = try decodeUleb128(&cursor);
     if (count > std.math.maxInt(usize)) return error.Leb128Overflow;
 
-    var out = std.ArrayList(sig.FunctionSig).init(allocator);
+    var out = std.array_list.Managed(sig.FunctionSig).init(allocator);
     errdefer {
         for (out.items) |*item| item.deinit(allocator);
         out.deinit();
@@ -772,12 +772,12 @@ fn readTestFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u
     while (i < count) : (i += 1) {
         const id: u32 = @intCast(try decodeUleb128(&cursor));
         const name_id = try decodeUleb128(&cursor);
-        const kind = std.meta.intToEnum(sig.FunctionKind, try cursor.readByte()) catch return error.InvalidTag;
+        const kind = (std.enums.fromInt(sig.FunctionKind, try cursor.readByte()) orelse return error.InvalidTag);
         const return_cap_present = try cursor.readByte();
         const return_cap: ?inst.CapPrefix = if (return_cap_present == 1)
-            std.meta.intToEnum(inst.CapPrefix, try cursor.readByte()) catch return error.InvalidTag
+            (std.enums.fromInt(inst.CapPrefix, try cursor.readByte()) orelse return error.InvalidTag)
         else if (return_cap_present == 0) null else return error.InvalidTag;
-        const return_ty = std.meta.intToEnum(sig.PrimType, try cursor.readByte()) catch return error.InvalidTag;
+        const return_ty = (std.enums.fromInt(sig.PrimType, try cursor.readByte()) orelse return error.InvalidTag);
         const return_fallible = (try cursor.readByte()) == 1;
         const entry_inst_idx: u32 = @intCast(try decodeUleb128(&cursor));
         const is_ffi_wrapper = (try cursor.readByte()) == 1;
@@ -863,7 +863,7 @@ fn freeDecodedInstructionMetadata(allocator: std.mem.Allocator, instructions: []
     for (instructions) |*item| freeDecodedInstructionMetadataOne(allocator, item);
 }
 
-fn readInstructions(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.ArrayList([]const u8), payload: []const u8, has_raw_text: bool, has_full_metadata: bool, synthesize_debug_text: bool) ![]inst.Instruction {
+fn readInstructions(allocator: std.mem.Allocator, symbols: []const []const u8, owned_text: *std.array_list.Managed([]const u8), payload: []const u8, has_raw_text: bool, has_full_metadata: bool, synthesize_debug_text: bool) ![]inst.Instruction {
     var cursor = Cursor{ .bytes = payload };
     const count = try decodeUleb128(&cursor);
     if (count > std.math.maxInt(usize)) return error.Leb128Overflow;
@@ -874,7 +874,7 @@ fn readInstructions(allocator: std.mem.Allocator, symbols: []const []const u8, o
         allocator.free(instructions);
     }
     for (instructions) |*item| {
-        const kind = std.meta.intToEnum(inst.InstKind, try cursor.readByte()) catch return error.InvalidTag;
+        const kind = (std.enums.fromInt(inst.InstKind, try cursor.readByte()) orelse return error.InvalidTag);
         // SA-text 为语义标准：保留编码中的 expanded_line（宏展开行号），
         // 不得以解码序号覆盖，否则诊断行号/const 交错与文本路径分歧。
         item.* = inst.makeInstruction(kind, @intCast(try decodeUleb128(&cursor)), @intCast(try decodeUleb128(&cursor)), null, "");
@@ -919,7 +919,7 @@ fn readInstructions(allocator: std.mem.Allocator, symbols: []const []const u8, o
 }
 
 pub fn encodeProgramWithConsts(allocator: std.mem.Allocator, symbols: []const []const u8, const_decls: []const const_decl.ConstDecl, function_sigs: []const sig.FunctionSig, instructions: []const inst.Instruction) ![]u8 {
-    var pool_items = std.ArrayList([]const u8).init(allocator);
+    var pool_items = std.array_list.Managed([]const u8).init(allocator);
     defer pool_items.deinit();
     var pool = std.StringHashMap(u32).init(allocator);
     defer pool.deinit();
@@ -954,32 +954,32 @@ pub fn encodeProgramWithConsts(allocator: std.mem.Allocator, symbols: []const []
         try collectConstValueSymbols(&pool_items, &pool, decl.value);
     }
 
-    var sym_payload = std.ArrayList(u8).init(allocator);
+    var sym_payload: std.Io.Writer.Allocating = .init(allocator);
     defer sym_payload.deinit();
-    try writeStringPool(sym_payload.writer(), pool_items.items);
+    try writeStringPool(&sym_payload.writer, pool_items.items);
 
-    var inst_payload = std.ArrayList(u8).init(allocator);
+    var inst_payload: std.Io.Writer.Allocating = .init(allocator);
     defer inst_payload.deinit();
-    try writeInstructions(inst_payload.writer(), instructions, &pool);
+    try writeInstructions(&inst_payload.writer, instructions, &pool);
 
-    var sig_payload = std.ArrayList(u8).init(allocator);
+    var sig_payload: std.Io.Writer.Allocating = .init(allocator);
     defer sig_payload.deinit();
-    try writeFunctionSigs(sig_payload.writer(), function_sigs, &pool);
+    try writeFunctionSigs(&sig_payload.writer, function_sigs, &pool);
 
-    var const_payload = std.ArrayList(u8).init(allocator);
+    var const_payload: std.Io.Writer.Allocating = .init(allocator);
     defer const_payload.deinit();
-    try writeConstDecls(const_payload.writer(), const_decls, &pool);
+    try writeConstDecls(&const_payload.writer, const_decls, &pool);
 
-    var out = std.ArrayList(u8).init(allocator);
+    var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
-    try out.writer().writeAll(magic);
-    try out.writer().writeByte(version_major);
-    try out.writer().writeByte(version_minor);
-    try encodeUleb128(out.writer(), 4);
-    try writeSection(out.writer(), .symbol_pool, sym_payload.items);
-    try writeSection(out.writer(), .function_sigs, sig_payload.items);
-    try writeSection(out.writer(), .const_decls, const_payload.items);
-    try writeSection(out.writer(), .instructions, inst_payload.items);
+    try out.writer.writeAll(magic);
+    try out.writer.writeByte(version_major);
+    try out.writer.writeByte(version_minor);
+    try encodeUleb128(&out.writer, 4);
+    try writeSection(&out.writer, .symbol_pool, sym_payload.writer.buffered());
+    try writeSection(&out.writer, .function_sigs, sig_payload.writer.buffered());
+    try writeSection(&out.writer, .const_decls, const_payload.writer.buffered());
+    try writeSection(&out.writer, .instructions, inst_payload.writer.buffered());
     return try out.toOwnedSlice();
 }
 
@@ -1006,7 +1006,7 @@ pub fn decodeModule(allocator: std.mem.Allocator, bytes: []const u8) !Module {
     var function_sigs: []sig.FunctionSig = &.{};
     var const_decls: []const_decl.ConstDecl = &.{};
     var instructions: ?[]inst.Instruction = null;
-    var owned_text = std.ArrayList([]const u8).init(allocator);
+    var owned_text = std.array_list.Managed([]const u8).init(allocator);
     errdefer {
         for (owned_text.items) |text| allocator.free(text);
         owned_text.deinit();
@@ -1089,7 +1089,7 @@ pub fn decodeTestFunctionSigsOnly(allocator: std.mem.Allocator, bytes: []const u
     return try allocator.alloc(sig.FunctionSig, 0);
 }
 
-pub fn disasmModule(allocator: std.mem.Allocator, bytes: []const u8, writer: anytype) !void {
+pub fn disasmModule(allocator: std.mem.Allocator, bytes: []const u8, writer: *std.Io.Writer) !void {
     var module = try decodeModule(allocator, bytes);
     defer module.deinit(allocator);
 
@@ -1121,7 +1121,7 @@ pub fn disasmModule(allocator: std.mem.Allocator, bytes: []const u8, writer: any
     }
 }
 
-fn writeDisasmInstruction(writer: anytype, item: inst.Instruction, symbols: []const []const u8) !void {
+fn writeDisasmInstruction(writer: *std.Io.Writer, item: inst.Instruction, symbols: []const []const u8) !void {
     if (item.kind == .call or item.kind == .call_indirect) {
         if (try writeDisasmCallInstruction(writer, item, symbols)) return;
     }
@@ -1158,7 +1158,7 @@ fn splitCallBody(body: []const u8) ?struct { target: []const u8, args: []const u
     return .{ .target = target, .args = std.mem.trim(u8, trimmed[open + 1 .. close], " \t") };
 }
 
-fn writeDisasmCallInstruction(writer: anytype, item: inst.Instruction, symbols: []const []const u8) !bool {
+fn writeDisasmCallInstruction(writer: *std.Io.Writer, item: inst.Instruction, symbols: []const []const u8) !bool {
     const has_dst = item.operands[0] == .reg;
     const body_operand = if (has_dst) item.operands[1] else item.operands[0];
     const body = switch (body_operand) {
@@ -1179,7 +1179,7 @@ fn writeDisasmCallInstruction(writer: anytype, item: inst.Instruction, symbols: 
     return true;
 }
 
-fn writeDisasmOperand(writer: anytype, operand: inst.Operand, symbols: []const []const u8) !void {
+fn writeDisasmOperand(writer: *std.Io.Writer, operand: inst.Operand, symbols: []const []const u8) !void {
     switch (operand) {
         .none => {},
         .reg => |v| try writer.print("r{d}", .{v}),
@@ -1208,10 +1208,10 @@ fn writeDisasmOperand(writer: anytype, operand: inst.Operand, symbols: []const [
 test "sleb128 roundtrip" {
     const values = [_]i64{ -129, -1, 0, 1, 127, 128, 4096 };
     for (values) |value| {
-        var buf = std.ArrayList(u8).init(std.testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer buf.deinit();
-        try encodeSleb128(buf.writer(), value);
-        var cursor = Cursor{ .bytes = buf.items };
+        try encodeSleb128(&buf.writer, value);
+        var cursor = Cursor{ .bytes = buf.writer.buffered() };
         try std.testing.expectEqual(value, try decodeSleb128(&cursor));
     }
 }
@@ -1337,7 +1337,7 @@ fn expectOperandEqual(expected: inst.Operand, got: inst.Operand) !void {
 
 test "sab v4 preserves structured instruction metadata required by SA backends" {
     const symbols = [_][]const u8{ "ok", "slot", "base", "offset", "old", "new", "pkg", "pkg/main.sa", "native_name" };
-    var hash = [_]u8{0} ** 32;
+    var hash: [32]u8 = std.mem.zeroes([32]u8);
     hash[0] = 0xaa;
 
     var item = inst.makeInstruction(.cmpxchg, 9, 0, .{ .file = "pkg/main.sa", .line = 9, .col = 5 }, "ok, old = cmpxchg base+offset, old => new seq_cst seq_cst as i64");
@@ -1376,11 +1376,10 @@ test "sab v4 preserves structured instruction metadata required by SA backends" 
 }
 
 test "sab roundtrip covers every SA instruction and op kind" {
-    var instructions = std.ArrayList(inst.Instruction).init(std.testing.allocator);
+    var instructions = std.array_list.Managed(inst.Instruction).init(std.testing.allocator);
     defer instructions.deinit();
 
-    inline for (std.meta.fields(inst.InstKind)) |field| {
-        const kind: inst.InstKind = @enumFromInt(field.value);
+    inline for (std.meta.tags(inst.InstKind).*) |kind| {
         var item = inst.makeInstruction(kind, 10, @intCast(instructions.items.len), null, @tagName(kind));
         item.operands[0] = .{ .reg = 0 };
         item.operands[1] = .{ .symbol = 1 };
@@ -1389,8 +1388,7 @@ test "sab roundtrip covers every SA instruction and op kind" {
         try instructions.append(item);
     }
 
-    inline for (std.meta.fields(inst.OpKind)) |field| {
-        const op_kind: inst.OpKind = @enumFromInt(field.value);
+    inline for (std.meta.tags(inst.OpKind).*) |op_kind| {
         var item = inst.makeInstruction(.op, 20, @intCast(instructions.items.len), null, @tagName(op_kind));
         item.op_kind = op_kind;
         item.operands[0] = .{ .reg = 0 };
@@ -1413,7 +1411,7 @@ test "sab roundtrip covers every SA instruction and op kind" {
 }
 
 test "sab roundtrip covers every SA operand kind" {
-    var instructions = std.ArrayList(inst.Instruction).init(std.testing.allocator);
+    var instructions = std.array_list.Managed(inst.Instruction).init(std.testing.allocator);
     defer instructions.deinit();
 
     const samples = [_]inst.Operand{
@@ -1440,15 +1438,13 @@ test "sab roundtrip covers every SA operand kind" {
         try instructions.append(item);
     }
 
-    inline for (std.meta.fields(inst.OpCode)) |field| {
-        const value: inst.OpCode = @enumFromInt(field.value);
+    inline for (std.meta.tags(inst.OpCode).*) |value| {
         var item = inst.makeInstruction(.op, 40, @intCast(instructions.items.len), null, @tagName(value));
         item.operands[0] = .{ .op_code = value };
         try instructions.append(item);
     }
 
-    inline for (std.meta.fields(inst.CapPrefix)) |field| {
-        const value: inst.CapPrefix = @enumFromInt(field.value);
+    inline for (std.meta.tags(inst.CapPrefix).*) |value| {
         var item = inst.makeInstruction(.borrow, 50, @intCast(instructions.items.len), null, @tagName(value));
         item.operands[0] = .{ .cap_prefix = value };
         try instructions.append(item);
@@ -1557,15 +1553,15 @@ test "disasmModule produces readable text from binary SAB" {
     const encoded = try encodeProgram(std.testing.allocator, &.{ "main", "value" }, &.{fsig_val}, &.{ decl, assign, ret });
     defer std.testing.allocator.free(encoded);
 
-    var output = std.ArrayList(u8).init(std.testing.allocator);
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try disasmModule(std.testing.allocator, encoded, output.writer());
+    try disasmModule(std.testing.allocator, encoded, &output.writer);
 
-    try std.testing.expect(std.mem.indexOf(u8, output.items, "func_decl") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.items, "assign") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.items, "return_") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.items, "42") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.items, "@main") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.writer.buffered(), "func_decl") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.writer.buffered(), "assign") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.writer.buffered(), "return_") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.writer.buffered(), "42") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.writer.buffered(), "@main") != null);
 }
 
 test "disasmModule separates call target from call args" {
@@ -1591,12 +1587,12 @@ test "disasmModule separates call target from call args" {
     const encoded = try encodeProgram(std.testing.allocator, &.{ "main", "out" }, &.{fsig_val}, &.{ decl, call_item });
     defer std.testing.allocator.free(encoded);
 
-    var output = std.ArrayList(u8).init(std.testing.allocator);
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try disasmModule(std.testing.allocator, encoded, output.writer());
+    try disasmModule(std.testing.allocator, encoded, &output.writer);
 
-    try std.testing.expect(std.mem.indexOf(u8, output.items, "call r1,\"@sink\",\"&arg, value\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.items, "@sink(") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.writer.buffered(), "call r1,\"@sink\",\"&arg, value\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.writer.buffered(), "@sink(") == null);
 }
 
 test "decoded sab verifies through predecoded metadata without text parser" {

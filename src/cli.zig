@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("sio");
 
 const flattener = @import("flattener.zig");
 const line_classifier = @import("flattener/line_classifier.zig");
@@ -9,6 +10,7 @@ const driver = @import("driver/zigcc.zig");
 const emit_options = @import("emit_options.zig");
 const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 const emit_js = @import("emit_js.zig");
+const emit_c = @import("emit_c.zig");
 const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
 const sab = @import("sab.zig");
@@ -243,12 +245,17 @@ fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const 
 fn currentRssBytes() ?u64 {
     if (builtin.os.tag != .linux) return null;
 
-    var file = std.fs.openFileAbsolute("/proc/self/statm", .{}) catch return null;
+    var file = sio.openFileAbsolute("/proc/self/statm", .{}) catch return null;
     defer file.close();
 
     var buf: [128]u8 = undefined;
-    const n = file.readAll(&buf) catch return null;
-    var it = std.mem.tokenizeAny(u8, buf[0..n], " \t\r\n");
+    var len: usize = 0;
+    while (len < buf.len) {
+        const n = file.read(buf[len..]) catch return null;
+        if (n == 0) break;
+        len += n;
+    }
+    var it = std.mem.tokenizeAny(u8, buf[0..len], " \t\r\n");
     _ = it.next() orelse return null;
     const rss_pages_text = it.next() orelse return null;
     const rss_pages = std.fmt.parseInt(u64, rss_pages_text, 10) catch return null;
@@ -256,9 +263,10 @@ fn currentRssBytes() ?u64 {
     return rss_pages * page_size;
 }
 
-fn elapsedNs(start: std.time.Instant) u64 {
-    const end = std.time.Instant.now() catch return 0;
-    return end.since(start);
+fn elapsedNs(start: std.Io.Timestamp) u64 {
+    const end = std.Io.Clock.awake.now(sio.io());
+    const ns: i96 = start.durationTo(end).toNanoseconds();
+    return if (ns < 0) 0 else @intCast(ns);
 }
 
 fn finishProfileMetrics(metrics: *CompileMetrics, emit_ns: ?u64, link_ns: ?u64, total_ns: ?u64) void {
@@ -330,7 +338,7 @@ fn attachBackendIrMetrics(metrics: *CompileMetrics, verified: *const referee.Ver
 }
 
 fn computeFunctionSizes(allocator: std.mem.Allocator, verified: *const referee.VerifyOk) ![]FunctionSizeEntry {
-    var entries = std.ArrayList(FunctionSizeEntry).init(allocator);
+    var entries = std.array_list.Managed(FunctionSizeEntry).init(allocator);
     errdefer entries.deinit();
 
     for (verified.function_sigs, 0..) |sig_item, idx| {
@@ -362,8 +370,8 @@ fn computeFunctionSizes(allocator: std.mem.Allocator, verified: *const referee.V
 const GraphBuildContext = struct {
     allocator: std.mem.Allocator,
     node_map: *std.StringHashMap(usize),
-    nodes: *std.ArrayList(GraphNode),
-    edges: *std.ArrayList(GraphEdge),
+    nodes: *std.array_list.Managed(GraphNode),
+    edges: *std.array_list.Managed(GraphEdge),
     dependencies: []const pkg_resolver.Dependency,
     plugin_import_roots: []const []const u8,
     project_root: []const u8,
@@ -518,7 +526,7 @@ fn writeGraphJson(writer: anytype, metrics: CompileMetrics, nodes: []const Graph
         try writeJsonString(writer, graphEdgeKindName(edge.kind));
         try writer.writeByte('}');
     }
-    try writer.writeAll("]}}\n");
+    try writer.writeAll("]}\n");
 }
 
 fn writeGraphText(writer: anytype, metrics: CompileMetrics, nodes: []const GraphNode, edges: []const GraphEdge) !void {
@@ -581,9 +589,9 @@ const CompileOptions = struct {
     profile: bool = false,
     mem_report: bool = false,
     mem_report_live: bool = false,
-    stdin_reader: ?std.io.AnyReader = null,
+    stdin_reader: ?*std.Io.Reader = null,
     stdin_is_tty: ?bool = null,
-    diagnostic_writer: ?std.io.AnyWriter = null,
+    diagnostic_writer: ?*std.Io.Writer = null,
     sab_selected_test_names: []const []const u8 = &.{},
     sab_skip_verify: bool = false,
     target_triple: ?[]const u8 = null,
@@ -713,6 +721,7 @@ const Command = enum {
     build_exe,
     build_wasm,
     build_js,
+    build_c,
     build_obj,
     bc2sa,
     audit,
@@ -738,7 +747,7 @@ pub fn hasJsonFlag(argv: []const []const u8) bool {
 }
 
 fn stripJsonFlag(allocator: std.mem.Allocator, argv: []const []const u8) ![]const []const u8 {
-    var items = std.ArrayList([]const u8).init(allocator);
+    var items = std.array_list.Managed([]const u8).init(allocator);
     errdefer items.deinit();
 
     for (argv) |arg| {
@@ -784,8 +793,8 @@ const PackageAudit = struct {
     ref: []const u8,
     source_sha256: [32]u8,
     declared_grants: []const manifest.Capability,
-    hits: std.ArrayList(AuditHit),
-    requested_caps: std.ArrayList(manifest.Capability),
+    hits: std.array_list.Managed(AuditHit),
+    requested_caps: std.array_list.Managed(manifest.Capability),
     risk_score: u8 = 100,
     approved_hash: ?[32]u8 = null,
     source_sha_matches: bool = true,
@@ -804,7 +813,7 @@ const PackageAudit = struct {
 };
 
 const AuditReport = struct {
-    packages: std.ArrayList(PackageAudit),
+    packages: std.array_list.Managed(PackageAudit),
     fn deinit(self: *AuditReport, allocator: std.mem.Allocator) void {
         for (self.packages.items) |*item| item.deinit(allocator);
         self.packages.deinit();
@@ -918,14 +927,43 @@ fn executableSuffixForTriple(triple: ?[]const u8) []const u8 {
 }
 
 fn boolEnv(name: []const u8) bool {
-    const value = std.process.getEnvVarOwned(std.heap.page_allocator, name) catch return false;
+    const value = sio.getEnvVarOwned(std.heap.page_allocator, name) catch return false;
     defer std.heap.page_allocator.free(value);
     return value.len != 0 and !std.mem.eql(u8, value, "0") and !std.mem.eql(u8, value, "false") and !std.mem.eql(u8, value, "False");
 }
 
 fn stdinIsTty() bool {
-    return std.posix.isatty(std.io.getStdIn().handle);
+    _ = std.posix.tcgetattr(std.posix.STDIN_FILENO) catch return false;
+    return true;
 }
+
+const StdinLineReader = struct {
+    inner: *std.Io.Reader,
+
+    pub fn readUntilDelimiterOrEof(self: StdinLineReader, buf: []u8, delimiter: u8) !?[]u8 {
+        var i: usize = 0;
+        var eof = false;
+        while (true) {
+            const b = self.inner.takeByte() catch |err| switch (err) {
+                error.EndOfStream => {
+                    eof = true;
+                    break;
+                },
+                else => return err,
+            };
+            if (b == delimiter) break;
+            if (i >= buf.len) return error.StreamTooLong;
+            buf[i] = b;
+            i += 1;
+        }
+        if (i == 0 and eof) return null;
+        return buf[0..i];
+    }
+
+    pub fn takeDelimiterExclusive(self: StdinLineReader, delimiter: u8) ![]u8 {
+        return try self.inner.takeDelimiterExclusive(delimiter);
+    }
+};
 
 fn isCiMode(options: ProjectBuildOptions) bool {
     return options.ci or boolEnv("CI") or boolEnv("GITHUB_ACTIONS") or !stdinIsTty();
@@ -936,7 +974,7 @@ fn isProjectRootPath(path: []const u8) bool {
 }
 
 fn projectRootDir(allocator: std.mem.Allocator) ![]u8 {
-    return std.fs.cwd().realpathAlloc(allocator, ".") catch return error.InvalidPath;
+    return sio.cwd().realpathAlloc(allocator, ".") catch return error.InvalidPath;
 }
 
 fn pathJoinAlloc(allocator: std.mem.Allocator, parts: []const []const u8) ![]u8 {
@@ -944,18 +982,18 @@ fn pathJoinAlloc(allocator: std.mem.Allocator, parts: []const []const u8) ![]u8 
 }
 
 fn projectPathExists(path: []const u8) bool {
-    std.fs.cwd().access(path, .{}) catch return false;
+    sio.cwd().access(path, .{}) catch return false;
     return true;
 }
 
 fn readTextFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    var file = try std.fs.cwd().openFile(path, .{});
+    var file = try sio.cwd().openFile(path, .{});
     defer file.close();
     return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
 }
 
 fn readManifestTextFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    var file = try std.fs.cwd().openFile(path, .{});
+    var file = try sio.cwd().openFile(path, .{});
     defer file.close();
     return try file.readToEndAlloc(allocator, manifest.max_manifest_bytes);
 }
@@ -985,7 +1023,7 @@ fn readManifestFile(allocator: std.mem.Allocator, path: []const u8) !manifest.Ma
 }
 
 fn readLockFile(allocator: std.mem.Allocator, path: []const u8) !?manifest.LockFile {
-    const source = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+    const source = sio.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => return err,
     };
@@ -996,7 +1034,7 @@ fn readLockFile(allocator: std.mem.Allocator, path: []const u8) !?manifest.LockF
 }
 
 fn readSumFile(allocator: std.mem.Allocator, path: []const u8) !?manifest.SumFile {
-    const source = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+    const source = sio.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => return err,
     };
@@ -1053,18 +1091,18 @@ fn hashBytes(bytes: []const u8) [32]u8 {
 
 fn hashFileHex(allocator: std.mem.Allocator, path: []const u8) ![64]u8 {
     _ = allocator;
-    var file = try std.fs.cwd().openFile(path, .{});
+    var file = try sio.cwd().openFile(path, .{});
     defer file.close();
     return try hashOpenFileHex(&file);
 }
 
-fn hashDirFileHex(dir: std.fs.Dir, name: []const u8) ![64]u8 {
+fn hashDirFileHex(dir: sio.Dir, name: []const u8) ![64]u8 {
     var file = try dir.openFile(name, .{});
     defer file.close();
     return try hashOpenFileHex(&file);
 }
 
-fn hashOpenFileHex(file: *std.fs.File) ![64]u8 {
+fn hashOpenFileHex(file: *sio.File) ![64]u8 {
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     var buf: [8192]u8 = undefined;
     while (true) {
@@ -1097,7 +1135,7 @@ fn targetTripleName(target: builtin.Target) ![]u8 {
 }
 
 fn emitSumFromManifest(allocator: std.mem.Allocator, manifest_file: *const manifest.Manifest) !manifest.SumFile {
-    var entries = std.ArrayList(manifest.SumEntry).init(allocator);
+    var entries = std.array_list.Managed(manifest.SumEntry).init(allocator);
     errdefer {
         for (entries.items) |*entry| entry.deinit(allocator);
         entries.deinit();
@@ -1156,6 +1194,7 @@ fn commandName(cmd: Command) []const u8 {
         .build_exe => "build-exe",
         .build_wasm => "build-wasm",
         .build_js => "build-js",
+        .build_c => "build-c",
         .build_obj => "build-obj",
         .bc2sa => "bc2sa",
         .audit => "audit",
@@ -1175,8 +1214,7 @@ fn commandName(cmd: Command) []const u8 {
 }
 
 fn commandFromName(name: []const u8) ?Command {
-    inline for (std.meta.fields(Command)) |field| {
-        const cmd: Command = @enumFromInt(field.value);
+    inline for (std.meta.tags(Command).*) |cmd| {
         if (std.mem.eql(u8, name, commandName(cmd))) return cmd;
     }
     return null;
@@ -1385,6 +1423,13 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --format esm|cjs              Select the JS module format (default: esm)\n");
             try writeBuildOptionsHelp(writer, "the js module", false);
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
+        .build_c => {
+            try writer.writeAll("usage: sa build-c <file> [options]\n\n");
+            try writer.writeAll("Build a portable C file from a .sa source file or .sab binary (C backend, MVP).\n\n");
+            try writer.writeAll("Options:\n");
+            try writeBuildOptionsHelp(writer, "the c file", false);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .run => {
@@ -1602,7 +1647,7 @@ fn printTrapReport(writer: anytype, report: trap.TrapReport, mode: DiagnosticsMo
         .human => {
             const function_text = textOrBuf(report.function, report.function_buf[0..]);
             const register_text = textOrBuf(report.register, report.register_buf[0..]);
-            var source_text_buf: [256]u8 = [_]u8{0} ** 256;
+            var source_text_buf: [256]u8 = std.mem.zeroes([256]u8);
             copyTextBuf(&source_text_buf, reportText(&report));
             const source_text = bufText(source_text_buf[0..]);
             try writer.print("error[{s}]: {s}\n", .{ trap.trapName(report.trap), report.message });
@@ -1669,6 +1714,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  build-obj    <file>            Build an object file (.o)\n");
     try writer.writeAll("  build-wasm   <file>            Build a WebAssembly module (.wasm)\n");
     try writer.writeAll("  build-js     <file>            Build a JavaScript module (.js, JS backend)\n");
+    try writer.writeAll("  build-c      <file>            Build a portable C file (.c, C backend)\n");
     try writer.writeAll("  test         <file>            Run @test blocks in a .sa/.sab file\n");
     try writer.writeAll("  check        <file>            Flatten and verify without codegen\n");
     try writer.writeAll("  fetch        <url>             Fetch and cache a remote package (compat)\n");
@@ -1711,23 +1757,26 @@ fn printVersion(writer: anytype) !void {
 }
 
 const TmpWorkDir = struct {
-    dir: std.fs.Dir,
-    parent_dir: std.fs.Dir,
-    sub_path: [std.fs.base64_encoder.calcSize(12)]u8,
+    dir: sio.Dir,
+    parent_dir: sio.Dir,
+    sub_path: [std.base64.standard.Encoder.calcSize(12)]u8,
 
     fn init() !TmpWorkDir {
         var random_bytes: [12]u8 = undefined;
-        std.crypto.random.bytes(&random_bytes);
+        sio.io().random(&random_bytes);
 
-        var sub_path: [std.fs.base64_encoder.calcSize(12)]u8 = undefined;
-        _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
+        var sub_path: [std.base64.standard.Encoder.calcSize(12)]u8 = undefined;
+        _ = std.base64.standard.Encoder.encode(&sub_path, &random_bytes);
 
-        const cwd = std.fs.cwd();
-        var cache_dir = try cwd.makeOpenPath(".zig-cache", .{});
+        const cwd = sio.cwd();
+        try cwd.makePath(".zig-cache");
+        var cache_dir = try cwd.openDir(".zig-cache", .{});
         defer cache_dir.close();
-        var parent_dir = try cache_dir.makeOpenPath("tmp", .{});
+        try cache_dir.makePath("tmp");
+        var parent_dir = try cache_dir.openDir("tmp", .{});
         errdefer parent_dir.close();
-        const dir = try parent_dir.makeOpenPath(&sub_path, .{});
+        try parent_dir.makePath(&sub_path);
+        const dir = try parent_dir.openDir(&sub_path, .{});
         return .{ .dir = dir, .parent_dir = parent_dir, .sub_path = sub_path };
     }
 
@@ -1742,7 +1791,7 @@ const TmpWorkDir = struct {
     }
 };
 
-fn writeFile(dir: std.fs.Dir, path: []const u8, bytes: []const u8) !void {
+fn writeFile(dir: sio.Dir, path: []const u8, bytes: []const u8) !void {
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(bytes);
@@ -1793,19 +1842,19 @@ fn copyContextLine(report: *trap.TrapReport, idx: usize, line_no: u32, text: []c
     if (idx >= report.context.len) return;
     report.context[idx].line = line_no;
     report.context[idx].text = null;
-    report.context[idx].text_buf = [_]u8{0} ** 256;
-    copyTextBuf(&report.context[idx].text_buf, std.mem.trimRight(u8, text, "\r"));
+    report.context[idx].text_buf = std.mem.zeroes([256]u8);
+    copyTextBuf(&report.context[idx].text_buf, std.mem.trimEnd(u8, text, "\r"));
 }
 
 fn copyBadToken(report: *trap.TrapReport, token: []const u8) void {
     report.bad_token = null;
-    report.bad_token_buf = [_]u8{0} ** 64;
+    report.bad_token_buf = std.mem.zeroes([64]u8);
     copyTextBuf(&report.bad_token_buf, token);
 }
 
 fn setFile(report: *trap.TrapReport, source_path: []const u8) void {
     report.file = null;
-    report.file_buf = [_]u8{0} ** 128;
+    report.file_buf = std.mem.zeroes([128]u8);
     copyTextBuf(&report.file_buf, source_path);
 }
 
@@ -1821,7 +1870,7 @@ fn setRepairAlternatives(report: *trap.TrapReport, alternatives: []const []const
     report.repair_alternatives_len = @intCast(limit);
     for (0..limit) |idx| {
         report.repair_alternatives[idx] = null;
-        report.repair_alternatives_buf[idx] = [_]u8{0} ** 64;
+        report.repair_alternatives_buf[idx] = std.mem.zeroes([64]u8);
         copyTextBuf(&report.repair_alternatives_buf[idx], alternatives[idx]);
         const end = std.mem.indexOfScalar(u8, report.repair_alternatives_buf[idx][0..], 0) orelse alternatives[idx].len;
         report.repair_alternatives[idx] = report.repair_alternatives_buf[idx][0..end];
@@ -1859,8 +1908,8 @@ fn fillContextWindow(report: *trap.TrapReport, source: []const u8, center_line: 
 fn setLineText(report: *trap.TrapReport, text: []const u8) void {
     report.source_text = null;
     report.original_text = null;
-    report.source_text_buf = [_]u8{0} ** 256;
-    report.original_text_buf = [_]u8{0} ** 256;
+    report.source_text_buf = std.mem.zeroes([256]u8);
+    report.original_text_buf = std.mem.zeroes([256]u8);
     copyTextBuf(&report.source_text_buf, text);
     copyTextBuf(&report.original_text_buf, text);
 }
@@ -1970,7 +2019,7 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.UnknownCommand => .{
             .code = "SA-CLI-013",
             .message = "unknown command",
-            .hint = "use build, build-workspace, run, build-exe, build-wasm, build-js, build-obj, pkg, cache, graph, layout, size, test, explain, fix, skills, bc2sa, help, or version",
+            .hint = "use build, build-workspace, run, build-exe, build-wasm, build-js, build-c, build-obj, pkg, cache, graph, layout, size, test, explain, fix, skills, bc2sa, help, or version",
         },
         error.UnexpectedArgument => .{
             .code = "SA-CLI-014",
@@ -2075,7 +2124,7 @@ fn lineAt(source: []const u8, target_line: u32) ?[]const u8 {
 }
 
 fn sourceExcerpt(line: []const u8) []const u8 {
-    return std.mem.trimRight(u8, line, "\r");
+    return std.mem.trimEnd(u8, line, "\r");
 }
 
 fn copyTextBuf(dest: []u8, text: []const u8) void {
@@ -2323,7 +2372,7 @@ fn writeMemoryStageSampleForOptions(options: CompileOptions, label: []const u8, 
 }
 
 const MemoryStageReporterContext = struct {
-    writer: std.io.AnyWriter,
+    writer: *std.Io.Writer,
     memory: ?*CompileMemoryMetrics = null,
     previous_rss_bytes: ?u64 = null,
     peak_rss_bytes: ?u64 = null,
@@ -2620,7 +2669,7 @@ fn stringSliceLessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
     return std.mem.order(u8, lhs, rhs) == .lt;
 }
 
-fn freeStringArrayListItems(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8)) void {
+fn freeStringArrayListItems(allocator: std.mem.Allocator, list: *std.array_list.Managed([]const u8)) void {
     for (list.items) |item| allocator.free(item);
     list.deinit();
 }
@@ -2643,14 +2692,14 @@ fn isSaStdSurfaceFile(path: []const u8) bool {
 
 fn appendStdDeclarations(
     allocator: std.mem.Allocator,
-    macros: *std.ArrayList([]const u8),
-    externs: *std.ArrayList([]const u8),
+    macros: *std.array_list.Managed([]const u8),
+    externs: *std.array_list.Managed([]const u8),
     rel_path: []const u8,
     source: []const u8,
 ) !void {
     var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |raw_line| {
-        const line = std.mem.trimRight(u8, raw_line, "\r");
+        const line = std.mem.trimEnd(u8, raw_line, "\r");
         if (std.mem.startsWith(u8, line, "[MACRO] ")) {
             try macros.append(try std.fmt.allocPrint(allocator, "{s}: {s}", .{ rel_path, line }));
         } else if (std.mem.startsWith(u8, line, "@extern ") or std.mem.startsWith(u8, line, "@export ")) {
@@ -2660,9 +2709,9 @@ fn appendStdDeclarations(
 }
 
 fn collectSaStdSurface(allocator: std.mem.Allocator, std_root: []const u8) !SaStdSurface {
-    var files = std.ArrayList([]const u8).init(allocator);
-    var macros = std.ArrayList([]const u8).init(allocator);
-    var externs = std.ArrayList([]const u8).init(allocator);
+    var files = std.array_list.Managed([]const u8).init(allocator);
+    var macros = std.array_list.Managed([]const u8).init(allocator);
+    var externs = std.array_list.Managed([]const u8).init(allocator);
     var files_slice: ?[]const []const u8 = null;
     var macros_slice: ?[]const []const u8 = null;
     var externs_slice: ?[]const []const u8 = null;
@@ -2672,7 +2721,7 @@ fn collectSaStdSurface(allocator: std.mem.Allocator, std_root: []const u8) !SaSt
         if (externs_slice) |items| freeOwnedStringSlice(allocator, items) else freeStringArrayListItems(allocator, &externs);
     }
 
-    var root = try std.fs.cwd().openDir(std_root, .{ .iterate = true });
+    var root = try sio.cwd().openDir(std_root, .{ .iterate = true });
     defer root.close();
 
     var walker = try root.walk(allocator);
@@ -2731,23 +2780,23 @@ fn isCommonOfficialPluginName(name: []const u8) bool {
 }
 
 fn dirExistsAbsolute(path: []const u8) bool {
-    var dir = std.fs.openDirAbsolute(path, .{}) catch return false;
+    var dir = sio.openDirAbsolute(path, .{}) catch return false;
     dir.close();
     return true;
 }
 
 fn dirExistsCwd(path: []const u8) bool {
-    var dir = std.fs.cwd().openDir(path, .{}) catch return false;
+    var dir = sio.cwd().openDir(path, .{}) catch return false;
     dir.close();
     return true;
 }
 
 fn officialPluginsRootFromEnv(allocator: std.mem.Allocator) !?[]u8 {
     if (dirExistsCwd("sa_plugins")) {
-        return try std.fs.cwd().realpathAlloc(allocator, "sa_plugins");
+        return try sio.cwd().realpathAlloc(allocator, "sa_plugins");
     }
 
-    const env_root = std.process.getEnvVarOwned(allocator, "SA_PLUGINS_WORKSPACE") catch |err| switch (err) {
+    const env_root = sio.getEnvVarOwned(allocator, "SA_PLUGINS_WORKSPACE") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => null,
         else => return err,
     };
@@ -2756,7 +2805,7 @@ fn officialPluginsRootFromEnv(allocator: std.mem.Allocator) !?[]u8 {
         if (std.fs.path.isAbsolute(root)) {
             if (dirExistsAbsolute(root)) return try allocator.dupe(u8, root);
         } else if (dirExistsCwd(root)) {
-            return try std.fs.cwd().realpathAlloc(allocator, root);
+            return try sio.cwd().realpathAlloc(allocator, root);
         }
     }
 
@@ -2771,10 +2820,10 @@ fn officialPluginsRootFromEnv(allocator: std.mem.Allocator) !?[]u8 {
 
 fn appendJsonStringArrayToCsv(
     allocator: std.mem.Allocator,
-    list: *std.ArrayList([]const u8),
+    list: *std.array_list.Managed([]const u8),
     value: ?std.json.Value,
 ) ![]const u8 {
-    var scratch = std.ArrayList([]const u8).init(allocator);
+    var scratch = std.array_list.Managed([]const u8).init(allocator);
     defer scratch.deinit();
     if (value) |v| switch (v) {
         .array => |arr| {
@@ -2797,10 +2846,10 @@ fn appendJsonStringArrayToCsv(
 
 fn appendJsonObjectKeysToCsv(
     allocator: std.mem.Allocator,
-    list: *std.ArrayList([]const u8),
+    list: *std.array_list.Managed([]const u8),
     value: ?std.json.Value,
 ) ![]const u8 {
-    var scratch = std.ArrayList([]const u8).init(allocator);
+    var scratch = std.array_list.Managed([]const u8).init(allocator);
     defer scratch.deinit();
     if (value) |v| switch (v) {
         .object => |obj| {
@@ -2822,10 +2871,10 @@ fn appendJsonObjectKeysToCsv(
 
 fn appendJsonInterfaceSummary(
     allocator: std.mem.Allocator,
-    list: *std.ArrayList([]const u8),
+    list: *std.array_list.Managed([]const u8),
     value: ?std.json.Value,
 ) ![]const u8 {
-    var scratch = std.ArrayList([]const u8).init(allocator);
+    var scratch = std.array_list.Managed([]const u8).init(allocator);
     defer scratch.deinit();
     if (value) |v| switch (v) {
         .object => |obj| {
@@ -2868,7 +2917,7 @@ fn appendJsonInterfaceSummary(
 
 fn appendPermissionSummary(
     allocator: std.mem.Allocator,
-    list: *std.ArrayList([]const u8),
+    list: *std.array_list.Managed([]const u8),
     value: ?std.json.Value,
 ) ![]const u8 {
     const obj = if (value) |v| switch (v) {
@@ -2918,10 +2967,10 @@ fn pluginInterfaceFileCandidate(path: []const u8) bool {
 
 fn appendPluginDeclarations(
     allocator: std.mem.Allocator,
-    declarations: *std.ArrayList([]const u8),
+    declarations: *std.array_list.Managed([]const u8),
     plugin_name: []const u8,
     plugin_dir_name: []const u8,
-    plugin_dir: std.fs.Dir,
+    plugin_dir: sio.Dir,
 ) !void {
     var it = plugin_dir.iterate();
     while (try it.next()) |entry| {
@@ -2931,7 +2980,7 @@ fn appendPluginDeclarations(
         defer allocator.free(source);
         var lines = std.mem.splitScalar(u8, source, '\n');
         while (lines.next()) |raw_line| {
-            const line = std.mem.trimRight(u8, raw_line, "\r");
+            const line = std.mem.trimEnd(u8, raw_line, "\r");
             if (std.mem.startsWith(u8, line, "[MACRO] ") or
                 std.mem.startsWith(u8, line, "@extern ") or
                 std.mem.startsWith(u8, line, "@export "))
@@ -2944,8 +2993,8 @@ fn appendPluginDeclarations(
 
 fn appendDocSummary(
     allocator: std.mem.Allocator,
-    list: *std.ArrayList([]const u8),
-    plugin_dir: std.fs.Dir,
+    list: *std.array_list.Managed([]const u8),
+    plugin_dir: sio.Dir,
 ) ![]const u8 {
     const doc_names = [_][]const u8{ "README.md", "api.md", "AGENTS.md" };
     for (doc_names) |doc_name| {
@@ -2973,10 +3022,10 @@ fn appendDocSummary(
 
 fn appendOfficialPluginInfo(
     allocator: std.mem.Allocator,
-    plugins_list: *std.ArrayList([]const u8),
-    declarations: *std.ArrayList([]const u8),
-    notes: *std.ArrayList([]const u8),
-    root_dir: std.fs.Dir,
+    plugins_list: *std.array_list.Managed([]const u8),
+    declarations: *std.array_list.Managed([]const u8),
+    notes: *std.array_list.Managed([]const u8),
+    root_dir: sio.Dir,
     root_path: []const u8,
     dir_name: []const u8,
 ) !void {
@@ -3022,9 +3071,9 @@ fn appendOfficialPluginInfo(
 }
 
 fn collectOfficialSaPluginsSurface(allocator: std.mem.Allocator) !SaPluginsSurface {
-    var plugins_list = std.ArrayList([]const u8).init(allocator);
-    var declarations = std.ArrayList([]const u8).init(allocator);
-    var notes = std.ArrayList([]const u8).init(allocator);
+    var plugins_list = std.array_list.Managed([]const u8).init(allocator);
+    var declarations = std.array_list.Managed([]const u8).init(allocator);
+    var notes = std.array_list.Managed([]const u8).init(allocator);
     var plugins_slice: ?[]const []const u8 = null;
     var declarations_slice: ?[]const []const u8 = null;
     var notes_slice: ?[]const []const u8 = null;
@@ -3038,7 +3087,7 @@ fn collectOfficialSaPluginsSurface(allocator: std.mem.Allocator) !SaPluginsSurfa
 
     root_owned = try officialPluginsRootFromEnv(allocator);
     if (root_owned) |root_path| {
-        var root_dir = try std.fs.openDirAbsolute(root_path, .{ .iterate = true });
+        var root_dir = try sio.openDirAbsolute(root_path, .{ .iterate = true });
         defer root_dir.close();
         var it = root_dir.iterate();
         while (try it.next()) |entry| {
@@ -3206,30 +3255,42 @@ fn writeSaAgentSkills(
     const plugins_codex_path = ".codex/skills/sa_plugins/SKILL.md";
     const plugins_claude_path = ".claude/skills/sa_plugins/SKILL.md";
 
-    try std.fs.cwd().makePath(sa_codex_dir);
-    try std.fs.cwd().makePath(sa_claude_dir);
-    try std.fs.cwd().makePath(plugins_codex_dir);
-    try std.fs.cwd().makePath(plugins_claude_dir);
+    try sio.cwd().makePath(sa_codex_dir);
+    try sio.cwd().makePath(sa_claude_dir);
+    try sio.cwd().makePath(plugins_codex_dir);
+    try sio.cwd().makePath(plugins_claude_dir);
 
     {
-        var file = try std.fs.cwd().createFile(sa_codex_path, .{ .truncate = true });
+        var file = try sio.cwd().createFile(sa_codex_path, .{ .truncate = true });
         defer file.close();
-        try writeSaAgentSkillMarkdown(file.writer(), "codex", std_root, sections, surface);
+        var fbuf: [8192]u8 = undefined;
+        var fw = file.writer(&fbuf);
+        try writeSaAgentSkillMarkdown(&fw.interface, "codex", std_root, sections, surface);
+        try fw.interface.flush();
     }
     {
-        var file = try std.fs.cwd().createFile(sa_claude_path, .{ .truncate = true });
+        var file = try sio.cwd().createFile(sa_claude_path, .{ .truncate = true });
         defer file.close();
-        try writeSaAgentSkillMarkdown(file.writer(), "claude", std_root, sections, surface);
+        var fbuf: [8192]u8 = undefined;
+        var fw = file.writer(&fbuf);
+        try writeSaAgentSkillMarkdown(&fw.interface, "claude", std_root, sections, surface);
+        try fw.interface.flush();
     }
     {
-        var file = try std.fs.cwd().createFile(plugins_codex_path, .{ .truncate = true });
+        var file = try sio.cwd().createFile(plugins_codex_path, .{ .truncate = true });
         defer file.close();
-        try writeSaPluginsAgentSkillMarkdown(file.writer(), "codex", plugins_surface);
+        var fbuf: [8192]u8 = undefined;
+        var fw = file.writer(&fbuf);
+        try writeSaPluginsAgentSkillMarkdown(&fw.interface, "codex", plugins_surface);
+        try fw.interface.flush();
     }
     {
-        var file = try std.fs.cwd().createFile(plugins_claude_path, .{ .truncate = true });
+        var file = try sio.cwd().createFile(plugins_claude_path, .{ .truncate = true });
         defer file.close();
-        try writeSaPluginsAgentSkillMarkdown(file.writer(), "claude", plugins_surface);
+        var fbuf: [8192]u8 = undefined;
+        var fw = file.writer(&fbuf);
+        try writeSaPluginsAgentSkillMarkdown(&fw.interface, "claude", plugins_surface);
+        try fw.interface.flush();
     }
 
     return .{
@@ -3271,13 +3332,13 @@ fn skillsCommand(allocator: std.mem.Allocator, writer: anytype, json_mode: bool)
             "optional deno/http/node/db/plugin APIs stay outside compiler std",
         } },
     };
-    var sections_list = std.ArrayList(SkillSection).init(allocator);
+    var sections_list = std.array_list.Managed(SkillSection).init(allocator);
     errdefer sections_list.deinit();
     try sections_list.appendSlice(base_sections[0..]);
     // Diagnostic catalog: expose all verifier/flattener traps (name + stable
     // code) so Agents can discover the full diagnostic surface. Items live for
     // the function scope; sections are rendered before this list is freed.
-    var trap_items = std.ArrayList([]const u8).init(allocator);
+    var trap_items = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (trap_items.items) |it| allocator.free(it);
         trap_items.deinit();
@@ -3316,31 +3377,40 @@ fn skillsCommand(allocator: std.mem.Allocator, writer: anytype, json_mode: bool)
     return 0;
 }
 
-fn daemonWorker(allocator: std.mem.Allocator, conn: std.net.Server.Connection, in_flight: *std.atomic.Value(usize)) void {
+fn daemonWrite(stream: std.Io.net.Stream, bytes: []const u8) void {
+    var wbuf: [8192]u8 = undefined;
+    var w = stream.writer(sio.io(), &wbuf);
+    w.interface.writeAll(bytes) catch {};
+    w.interface.flush() catch {};
+}
+
+fn daemonWorker(allocator: std.mem.Allocator, stream: std.Io.net.Stream, in_flight: *std.atomic.Value(usize)) void {
     defer _ = in_flight.fetchSub(1, .monotonic);
-    handleDaemonConnection(allocator, conn);
+    handleDaemonConnection(allocator, stream);
 }
 
 var daemon_shutdown_flag = std.atomic.Value(bool).init(false);
 var daemon_in_flight_global = std.atomic.Value(usize).init(0);
-var daemon_cwd_lock: std.Thread.RwLock = .{};
+var daemon_cwd_lock: std.Io.RwLock = .init;
 
-fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Connection) void {
-    defer conn.stream.close();
-    var request_buf = std.ArrayList(u8).init(allocator);
+fn handleDaemonConnection(allocator: std.mem.Allocator, stream: std.Io.net.Stream) void {
+    defer stream.close(sio.io());
+    var request_buf = std.array_list.Managed(u8).init(allocator);
     defer request_buf.deinit();
     var read_buf: [4096]u8 = undefined;
     var request_line: []const u8 = &.{};
+    var sock_rbuf: [4096]u8 = undefined;
+    var sock_reader = stream.reader(sio.io(), &sock_rbuf);
     while (true) {
-        const n = conn.stream.read(read_buf[0..]) catch return;
+        const n = sock_reader.interface.readSliceShort(read_buf[0..]) catch return;
         if (n == 0) return;
         if (request_buf.items.len > daemon_client.MAX_REQUEST_BYTES - n) {
-            conn.stream.writeAll("{\"status\":\"error\",\"message\":\"request too large\"}\n") catch {};
+            daemonWrite(stream, "{\"status\":\"error\",\"message\":\"request too large\"}\n");
             return;
         }
         request_buf.appendSlice(read_buf[0..n]) catch return;
         if (std.mem.indexOfScalar(u8, request_buf.items, '\n')) |newline| {
-            request_line = std.mem.trimRight(u8, request_buf.items[0..newline], "\r ");
+            request_line = std.mem.trimEnd(u8, request_buf.items[0..newline], "\r ");
             break;
         }
     }
@@ -3351,9 +3421,9 @@ fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Con
         const st = daemon_cancel.stats();
         const vs = incr_verify.stats();
         const as = affected_tests.stats();
-        var header = std.ArrayList(u8).init(allocator);
-        defer header.deinit();
-        header.writer().print(
+        var aw: std.Io.Writer.Allocating = .init(allocator);
+        defer aw.deinit();
+        aw.writer.print(
             "{{\"status\":\"ok\",\"code\":0,\"metrics\":{{\"in_flight\":{d},\"accepted\":{d},\"canceled\":{d},\"busy_rejects\":{d},\"verdict_hits\":{d},\"verdict_misses\":{d},\"affected_hits\":{d},\"affected_misses\":{d}}}}}\n",
             .{
                 daemon_in_flight_global.load(.monotonic),
@@ -3366,22 +3436,22 @@ fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Con
                 as.misses,
             },
         ) catch return;
-        conn.stream.writeAll(header.items) catch {};
+        daemonWrite(stream, aw.written());
         return;
     }
     if (std.mem.indexOf(u8, request_line, "\"op\":\"shutdown\"") != null or std.mem.indexOf(u8, request_line, "\"op\": \"shutdown\"") != null) {
         daemon_shutdown_flag.store(true, .monotonic);
-        conn.stream.writeAll("{\"status\":\"ok\",\"code\":0,\"message\":\"shutting down\"}\n") catch {};
+        daemonWrite(stream, "{\"status\":\"ok\",\"code\":0,\"message\":\"shutting down\"}\n");
         return;
     }
     if (std.mem.indexOf(u8, request_line, "\"op\":\"cancel\"") != null or std.mem.indexOf(u8, request_line, "\"op\": \"cancel\"") != null) {
         const agent_id = daemon_cancel.parseJsonStrField(request_line, "\"agent_id\"") orelse "";
         const gen = daemon_cancel.cancelAgent(agent_id);
         daemon_cancel.noteCanceled();
-        var header = std.ArrayList(u8).init(allocator);
-        defer header.deinit();
-        header.writer().print("{{\"status\":\"ok\",\"code\":0,\"canceled_generation\":{d}}}\n", .{gen}) catch return;
-        conn.stream.writeAll(header.items) catch {};
+        var aw: std.Io.Writer.Allocating = .init(allocator);
+        defer aw.deinit();
+        aw.writer.print("{{\"status\":\"ok\",\"code\":0,\"canceled_generation\":{d}}}\n", .{gen}) catch return;
+        daemonWrite(stream, aw.written());
         return;
     }
 
@@ -3392,7 +3462,7 @@ fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Con
         _ = daemon_cancel.registerGeneration(agent_id, generation);
         if (!daemon_cancel.generationIsCurrent(agent_id, generation)) {
             daemon_cancel.noteCanceled();
-            conn.stream.writeAll("{\"status\":\"canceled\"}\n") catch {};
+            daemonWrite(stream, "{\"status\":\"canceled\"}\n");
             return;
         }
     }
@@ -3400,62 +3470,62 @@ fn handleDaemonConnection(allocator: std.mem.Allocator, conn: std.net.Server.Con
     // Per-agent quota: reject if this agent already has too many in-flight
     // requests. Prevents one agent from starving others. Empty id = unlimited.
     if (agent_id.len != 0 and !daemon_cancel.acquireSlot(agent_id)) {
-        conn.stream.writeAll("{\"status\":\"busy\",\"message\":\"per-agent quota exceeded\"}\n") catch {};
+        daemonWrite(stream, "{\"status\":\"busy\",\"message\":\"per-agent quota exceeded\"}\n");
         return;
     }
     defer if (agent_id.len != 0) daemon_cancel.releaseSlot(agent_id);
 
     const parsed = parseDaemonArgv(allocator, request_line) catch {
-        conn.stream.writeAll("{\"status\":\"error\",\"message\":\"invalid request\"}\n") catch {};
+        daemonWrite(stream, "{\"status\":\"error\",\"message\":\"invalid request\"}\n");
         return;
     };
     defer freeDaemonArgv(allocator, parsed);
 
     const requested_cwd = daemon_cancel.parseJsonStrField(request_line, "\"cwd\"");
     if (requested_cwd != null) {
-        daemon_cwd_lock.lock();
+        daemon_cwd_lock.lock(sio.io()) catch {};
     } else {
-        daemon_cwd_lock.lockShared();
+        daemon_cwd_lock.lockShared(sio.io()) catch {};
     }
-    defer if (requested_cwd != null) daemon_cwd_lock.unlock() else daemon_cwd_lock.unlockShared();
+    defer if (requested_cwd != null) daemon_cwd_lock.unlock(sio.io()) else daemon_cwd_lock.unlockShared(sio.io());
 
-    var old_cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const old_cwd = if (requested_cwd != null) std.fs.cwd().realpath(".", &old_cwd_buf) catch null else null;
+    var old_cwd_buf: [sio.max_path_bytes]u8 = undefined;
+    const old_cwd = if (requested_cwd != null) sio.cwd().realpath(".", &old_cwd_buf) catch null else null;
     if (requested_cwd) |cwd| {
-        std.posix.chdir(cwd) catch {
-            conn.stream.writeAll("{\"status\":\"error\",\"message\":\"invalid cwd\"}\n") catch {};
+        sio.changeCurDir(cwd) catch {
+            daemonWrite(stream, "{\"status\":\"error\",\"message\":\"invalid cwd\"}\n");
             return;
         };
     }
-    defer if (old_cwd) |c| std.posix.chdir(c) catch {};
+    defer if (old_cwd) |c| sio.changeCurDir(c) catch {};
 
-    const wall_start = std.time.Instant.now() catch null;
-    var resp = std.ArrayList(u8).init(allocator);
+    const wall_start = std.Io.Clock.awake.now(sio.io());
+    var resp: std.Io.Writer.Allocating = .init(allocator);
     defer resp.deinit();
-    const code: u8 = executeWithWritersAndOptions(allocator, parsed, resp.writer(), resp.writer(), .{}) catch |err| blk: {
+    const code: u8 = executeWithWritersAndOptions(allocator, parsed, &resp.writer, &resp.writer, .{}) catch |err| blk: {
         resp.clearRetainingCapacity();
-        resp.writer().print("execution error: {s}", .{@errorName(err)}) catch {};
+        resp.writer.print("execution error: {s}", .{@errorName(err)}) catch {};
         break :blk @as(u8, 1);
     };
-    const wall_ms: u64 = if (wall_start) |s| elapsedNs(s) / 1_000_000 else 0;
+    const wall_ms: u64 = elapsedNs(wall_start) / 1_000_000;
     const vs = incr_verify.stats();
     const as = affected_tests.stats();
 
     // Re-check cancellation after work (cooperative end boundary).
     if (agent_id.len != 0 and !daemon_cancel.generationIsCurrent(agent_id, generation)) {
         daemon_cancel.noteCanceled();
-        conn.stream.writeAll("{\"status\":\"canceled\"}\n") catch {};
+        daemonWrite(stream, "{\"status\":\"canceled\"}\n");
         return;
     }
 
-    var header = std.ArrayList(u8).init(allocator);
-    defer header.deinit();
-    header.writer().print(
+    var haw: std.Io.Writer.Allocating = .init(allocator);
+    defer haw.deinit();
+    haw.writer.print(
         "{{\"status\":\"ok\",\"code\":{d},\"len\":{d},\"metrics\":{{\"wall_ms\":{d},\"verdict_hits\":{d},\"verdict_misses\":{d},\"affected_hits\":{d},\"affected_misses\":{d}}}}}\n",
-        .{ code, resp.items.len, wall_ms, vs.hits, vs.misses, as.hits, as.misses },
+        .{ code, resp.written().len, wall_ms, vs.hits, vs.misses, as.hits, as.misses },
     ) catch return;
-    conn.stream.writeAll(header.items) catch {};
-    conn.stream.writeAll(resp.items) catch {};
+    daemonWrite(stream, haw.written());
+    daemonWrite(stream, resp.written());
 }
 
 fn parseDaemonArgv(allocator: std.mem.Allocator, request: []const u8) ![]const []const u8 {
@@ -3465,7 +3535,7 @@ fn parseDaemonArgv(allocator: std.mem.Allocator, request: []const u8) ![]const [
         const rb = std.mem.lastIndexOfScalar(u8, request, ']') orelse return error.InvalidRequest;
         if (rb <= lb) return error.InvalidRequest;
         const inner = request[lb + 1 .. rb];
-        var list = std.ArrayList([]const u8).init(allocator);
+        var list = std.array_list.Managed([]const u8).init(allocator);
         errdefer {
             for (list.items) |it| allocator.free(it);
             list.deinit();
@@ -3477,7 +3547,7 @@ fn parseDaemonArgv(allocator: std.mem.Allocator, request: []const u8) ![]const [
                 continue;
             }
             i += 1;
-            var item = std.ArrayList(u8).init(allocator);
+            var item = std.array_list.Managed(u8).init(allocator);
             errdefer item.deinit();
             while (i < inner.len and inner[i] != '"') {
                 if (inner[i] == '\\' and i + 1 < inner.len) {
@@ -3509,7 +3579,7 @@ fn parseDaemonArgv(allocator: std.mem.Allocator, request: []const u8) ![]const [
 
     // Document-style: {"op":"build","file":"x.sa","args":["--json"]}
     const op = daemon_cancel.parseJsonStrField(request, "\"op\"") orelse return error.InvalidRequest;
-    var list = std.ArrayList([]const u8).init(allocator);
+    var list = std.array_list.Managed([]const u8).init(allocator);
     errdefer {
         for (list.items) |it| allocator.free(it);
         list.deinit();
@@ -3533,7 +3603,7 @@ fn parseDaemonArgv(allocator: std.mem.Allocator, request: []const u8) ![]const [
                     continue;
                 }
                 i += 1;
-                var item = std.ArrayList(u8).init(allocator);
+                var item = std.array_list.Managed(u8).init(allocator);
                 errdefer item.deinit();
                 while (i < inner.len and inner[i] != '"') {
                     if (inner[i] == '\\' and i + 1 < inner.len) i += 1;
@@ -3555,10 +3625,12 @@ fn freeDaemonArgv(allocator: std.mem.Allocator, argv: []const []const u8) void {
 
 fn restrictDaemonSocket(socket_path: []const u8) bool {
     if (comptime builtin.os.tag != .linux) return true;
-    var path_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
-    const path_z = std.fmt.bufPrintZ(path_buf[0..], "{s}", .{socket_path}) catch return false;
+    var path_buf: [sio.max_path_bytes + 1]u8 = undefined;
+    const path_slice = std.fmt.bufPrint(path_buf[0..sio.max_path_bytes], "{s}", .{socket_path}) catch return false;
+    path_buf[path_slice.len] = 0;
+    const path_z: [*:0]const u8 = @ptrCast(&path_buf);
     const rc = std.os.linux.chmod(path_z, 0o600);
-    return std.posix.errno(rc) == .SUCCESS;
+    return std.os.linux.errno(rc) == .SUCCESS;
 }
 
 fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
@@ -3590,13 +3662,13 @@ fn daemonCommandUnix(allocator: std.mem.Allocator, args: []const []const u8, std
             i += 1;
         }
     }
-    std.fs.cwd().deleteFile(socket_path) catch {};
-    const addr = try std.net.Address.initUnix(socket_path);
-    var server = addr.listen(.{}) catch |err| {
+    sio.cwd().deleteFile(socket_path) catch {};
+    const ua = try std.Io.net.UnixAddress.init(socket_path);
+    var server = ua.listen(sio.io(), .{}) catch |err| {
         try stderr.print("daemon: failed to listen on {s}: {s}\n", .{ socket_path, @errorName(err) });
         return 1;
     };
-    defer server.deinit();
+    defer server.deinit(sio.io());
     if (!restrictDaemonSocket(socket_path)) {
         try stderr.print("daemon: failed to restrict socket permissions for {s}\n", .{socket_path});
         return 1;
@@ -3606,7 +3678,7 @@ fn daemonCommandUnix(allocator: std.mem.Allocator, args: []const []const u8, std
     var in_flight = std.atomic.Value(usize).init(0);
     daemon_shutdown_flag.store(false, .monotonic);
     while (!daemon_shutdown_flag.load(.monotonic)) {
-        const conn = server.accept() catch |err| {
+        const stream = server.accept(sio.io()) catch |err| {
             if (daemon_shutdown_flag.load(.monotonic)) break;
             try stderr.print("daemon: accept failed: {s}\n", .{@errorName(err)});
             continue;
@@ -3615,14 +3687,14 @@ fn daemonCommandUnix(allocator: std.mem.Allocator, args: []const []const u8, std
         // spawning unbounded threads. Bounds memory under many agents.
         daemon_in_flight_global.store(in_flight.load(.monotonic), .monotonic);
         if (in_flight.load(.monotonic) >= max_workers) {
-            handleDaemonConnection(allocator, conn);
+            handleDaemonConnection(allocator, stream);
             continue;
         }
         _ = in_flight.fetchAdd(1, .monotonic);
         daemon_in_flight_global.store(in_flight.load(.monotonic), .monotonic);
-        const thread = std.Thread.spawn(.{}, daemonWorker, .{ allocator, conn, &in_flight }) catch {
+        const thread = std.Thread.spawn(.{}, daemonWorker, .{ allocator, stream, &in_flight }) catch {
             _ = in_flight.fetchSub(1, .monotonic);
-            handleDaemonConnection(allocator, conn);
+            handleDaemonConnection(allocator, stream);
             continue;
         };
         thread.detach();
@@ -3630,9 +3702,9 @@ fn daemonCommandUnix(allocator: std.mem.Allocator, args: []const []const u8, std
     // Wait briefly for in-flight workers to drain.
     var spins: usize = 0;
     while (in_flight.load(.monotonic) > 0 and spins < 1000) : (spins += 1) {
-        std.Thread.sleep(1 * std.time.ns_per_ms);
+        sio.io().sleep(.fromNanoseconds(1 * std.time.ns_per_ms), .awake) catch {};
     }
-    std.fs.cwd().deleteFile(socket_path) catch {};
+    sio.cwd().deleteFile(socket_path) catch {};
     return 0;
 }
 
@@ -3640,11 +3712,11 @@ fn trapFromFlattenError(source_path: []const u8, source: []const u8, err: anyerr
     const forbidden = flattener.findFirstForbiddenLine(source);
     const line_no = if (forbidden) |hit| hit.line_no else last_line orelse 1;
     const line_text = lineAt(source, line_no);
-    const source_text = if (line_text) |line| std.mem.trimRight(u8, line, "\r") else null;
-    const source_text_buf: [256]u8 = [_]u8{0} ** 256;
-    const original_text_buf: [256]u8 = [_]u8{0} ** 256;
-    const file_buf: [128]u8 = [_]u8{0} ** 128;
-    const bad_token_buf: [64]u8 = [_]u8{0} ** 64;
+    const source_text = if (line_text) |line| std.mem.trimEnd(u8, line, "\r") else null;
+    const source_text_buf: [256]u8 = std.mem.zeroes([256]u8);
+    const original_text_buf: [256]u8 = std.mem.zeroes([256]u8);
+    const file_buf: [128]u8 = std.mem.zeroes([128]u8);
+    const bad_token_buf: [64]u8 = std.mem.zeroes([64]u8);
     var report: trap.TrapReport = switch (err) {
         error.ForbiddenSyntax => .{
             .trap = .forbidden_syntax,
@@ -4083,7 +4155,7 @@ fn trapFromPackagePreflightError(err: anyerror) ?trap.TrapReport {
 }
 
 fn pathExists(path: []const u8) !bool {
-    std.fs.cwd().access(path, .{ .mode = .read_only }) catch |err| switch (err) {
+    sio.cwd().access(path, .{ .read = true }) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };
@@ -4091,13 +4163,13 @@ fn pathExists(path: []const u8) !bool {
 }
 
 fn dirExists(path: []const u8) bool {
-    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return false;
+    var dir = sio.cwd().openDir(path, .{ .iterate = true }) catch return false;
     dir.close();
     return true;
 }
 
 fn globalCacheRoot(allocator: std.mem.Allocator, identity: []const u8, ref: []const u8) ![]u8 {
-    const home = std.process.getEnvVarOwned(allocator, "HOME") catch {
+    const home = sio.getEnvVarOwned(allocator, "HOME") catch {
         return error.PackageNotResolved;
     };
     defer allocator.free(home);
@@ -4136,15 +4208,18 @@ fn appendCiSummaryIfConfigured(
     report: pkg_audit.AuditReport,
     status: pkg_ci.VerifyStatus,
 ) !void {
-    const summary_path = std.process.getEnvVarOwned(allocator, "GITHUB_STEP_SUMMARY") catch |err| switch (err) {
+    const summary_path = sio.getEnvVarOwned(allocator, "GITHUB_STEP_SUMMARY") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => return,
         else => return err,
     };
     defer allocator.free(summary_path);
-    var summary_file = try std.fs.cwd().openFile(summary_path, .{ .mode = .write_only });
+    var summary_file = try sio.cwd().openFile(summary_path, .{ .mode = .write_only });
     defer summary_file.close();
-    try summary_file.seekFromEnd(0);
-    try pkg_ci.writeGithubSummary(summary_file.writer(), report, status);
+    try summary_file.seekTo(try summary_file.getEndPos());
+    var sbuf: [8192]u8 = undefined;
+    var sw = summary_file.writer(&sbuf);
+    try pkg_ci.writeGithubSummary(&sw.interface, report, status);
+    try sw.interface.flush();
 }
 
 fn preflightCiPackage(
@@ -4158,8 +4233,9 @@ fn preflightCiPackage(
         .allow_unaudited_risks = options.allow_unaudited_risks,
     });
     if (status == .tainted_unaudited_code) {
-        var null_writer = std.io.null_writer;
-        const writer = options.diagnostic_writer orelse null_writer.any();
+        var null_buf: [64]u8 = undefined;
+        var null_discarding: std.Io.Writer.Discarding = .init(&null_buf);
+        const writer = options.diagnostic_writer orelse &null_discarding.writer;
         try pkg_ci.writeTaintBanner(writer, report);
         try appendCiSummaryIfConfigured(allocator, report, status);
     }
@@ -4173,15 +4249,17 @@ fn preflightInteractivePackage(
 ) !void {
     if (!hashesEqual(report.source_sha256, expected_source_sha256)) return error.UpstreamShaMismatch;
 
-    var empty_input = std.io.fixedBufferStream("");
-    var null_writer = std.io.null_writer;
-    const reader = options.stdin_reader orelse empty_input.reader().any();
-    const writer = options.diagnostic_writer orelse null_writer.any();
+    var empty_input: std.Io.Reader = .fixed("");
+    var null_buf: [64]u8 = undefined;
+    var null_discarding: std.Io.Writer.Discarding = .init(&null_buf);
+    const base_reader = options.stdin_reader orelse &empty_input;
+    const stdin_adapter = StdinLineReader{ .inner = base_reader };
+    const writer = options.diagnostic_writer orelse &null_discarding.writer;
     const stdin_is_tty = options.stdin_is_tty orelse stdinIsTty();
     try pkg_confirm.confirmWithReaderWriter(
         session,
         report,
-        reader,
+        stdin_adapter,
         writer,
         stdin_is_tty,
         options.auto_approve_requested,
@@ -4423,17 +4501,17 @@ fn consumeMemReportOption(arg: []const u8, options: *CompileOptions) bool {
 }
 
 pub const ExecuteOptions = struct {
-    stdin_reader: ?std.io.AnyReader = null,
+    stdin_reader: ?*std.Io.Reader = null,
     stdin_is_tty: ?bool = null,
 };
 
-fn applyExecuteOptions(options: *CompileOptions, exec_options: ExecuteOptions, diagnostic_writer: std.io.AnyWriter) void {
+fn applyExecuteOptions(options: *CompileOptions, exec_options: ExecuteOptions, diagnostic_writer: *std.Io.Writer) void {
     options.stdin_reader = exec_options.stdin_reader;
     options.stdin_is_tty = exec_options.stdin_is_tty;
     options.diagnostic_writer = diagnostic_writer;
 }
 
-fn newCompileOptions(exec_options: ExecuteOptions, diagnostic_writer: std.io.AnyWriter) CompileOptions {
+fn newCompileOptions(exec_options: ExecuteOptions, diagnostic_writer: *std.Io.Writer) CompileOptions {
     var options: CompileOptions = .{};
     applyExecuteOptions(&options, exec_options, diagnostic_writer);
     return options;
@@ -4445,7 +4523,7 @@ fn configureCompileDiagnostics(options: *CompileOptions, json_mode: bool) void {
 
 fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     if (builtin.is_test) test_source_tree_load_count += 1;
-    var file = try std.fs.cwd().openFile(path, .{});
+    var file = try sio.cwd().openFile(path, .{});
     defer file.close();
     return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
 }
@@ -4467,7 +4545,7 @@ fn loadSabFlat(allocator: std.mem.Allocator, source_path: []const u8) !flattener
     module.symbols = &.{};
     module.owns_symbol_text = false;
 
-    var test_sigs = std.ArrayList(flattener.FunctionSig).init(allocator);
+    var test_sigs = std.array_list.Managed(flattener.FunctionSig).init(allocator);
     errdefer test_sigs.deinit();
     for (module.function_sigs) |fsig| {
         if (fsig.kind == .test_func) try test_sigs.append(fsig);
@@ -4534,7 +4612,7 @@ fn selectedTestNamesFromList(allocator: std.mem.Allocator, test_list: test_meta.
 }
 
 fn sabPruneDebugEnabled(allocator: std.mem.Allocator) bool {
-    const value = std.process.getEnvVarOwned(allocator, "SA_DEBUG_SAB_PRUNE") catch return false;
+    const value = sio.getEnvVarOwned(allocator, "SA_DEBUG_SAB_PRUNE") catch return false;
     defer allocator.free(value);
     return value.len != 0 and !std.mem.eql(u8, value, "0");
 }
@@ -4553,7 +4631,7 @@ fn isSabFunctionDecl(kind: flattener.InstKind) bool {
 }
 
 fn buildSabFunctionRanges(allocator: std.mem.Allocator, instructions: []const flattener.Instruction) ![]SabFunctionRange {
-    var ranges = std.ArrayList(SabFunctionRange).init(allocator);
+    var ranges = std.array_list.Managed(SabFunctionRange).init(allocator);
     errdefer ranges.deinit();
 
     var current_start: ?usize = null;
@@ -4790,13 +4868,13 @@ fn pruneSabFlatToSelectedTests(allocator: std.mem.Allocator, flat: *flattener.Fl
     defer reachable.deinit();
     if (reachable.count() == 0) return;
 
-    var kept_sigs = std.ArrayList(flattener.FunctionSig).init(allocator);
+    var kept_sigs = std.array_list.Managed(flattener.FunctionSig).init(allocator);
     errdefer kept_sigs.deinit();
-    var kept_test_sigs = std.ArrayList(flattener.FunctionSig).init(allocator);
+    var kept_test_sigs = std.array_list.Managed(flattener.FunctionSig).init(allocator);
     errdefer kept_test_sigs.deinit();
-    var kept_instructions = std.ArrayList(flattener.Instruction).init(allocator);
+    var kept_instructions = std.array_list.Managed(flattener.Instruction).init(allocator);
     errdefer kept_instructions.deinit();
-    var kept_loc_table = std.ArrayList(?common_upstream.UpstreamLoc).init(allocator);
+    var kept_loc_table = std.array_list.Managed(?common_upstream.UpstreamLoc).init(allocator);
     errdefer kept_loc_table.deinit();
 
     var keep_ranges = try allocator.alloc(bool, ranges.len);
@@ -4947,7 +5025,7 @@ fn trustedSabVerifyOk(allocator: std.mem.Allocator, flat: *flattener.FlattenResu
     // finalization, so rebuild verifier-equivalent reg scopes (and localize
     // body regs to slots) before codegen, which requires populated reg_ids.
     try referee.populateTrustedRegScopes(allocator, flat.instructions, flat.const_decls, flat.function_sigs, &flat.symbols);
-    var annotated = std.ArrayList(referee.AnnotatedInstruction).init(allocator);
+    var annotated = std.array_list.Managed(referee.AnnotatedInstruction).init(allocator);
     errdefer annotated.deinit();
     var fatal_terminated = false;
     for (flat.instructions) |item| {
@@ -4986,7 +5064,7 @@ fn trustedSabVerifyOk(allocator: std.mem.Allocator, flat: *flattener.FlattenResu
 var test_source_tree_load_count: usize = 0;
 
 fn resolveProjectFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8, package_name: ?[]const u8) !pkg_workspace.PackageResolution {
-    const real_source = try std.fs.cwd().realpathAlloc(allocator, source_path);
+    const real_source = try sio.cwd().realpathAlloc(allocator, source_path);
     defer allocator.free(real_source);
     const source_dir = std.fs.path.dirname(real_source) orelse ".";
     return try pkg_workspace.resolveFromRootPath(allocator, source_dir, .{ .request = package_name });
@@ -5004,7 +5082,7 @@ fn stdRootFromEnv(allocator: std.mem.Allocator) ![]u8 {
 
     if (builtin.is_test) return repo_std_root;
 
-    const env_root = std.process.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
+    const env_root = sio.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => return repo_std_root,
         else => return err,
     };
@@ -5019,7 +5097,7 @@ fn stdRootFromEnv(allocator: std.mem.Allocator) ![]u8 {
     for (required_files) |rel| {
         const probe_path = try std.fs.path.join(allocator, &.{ env_root, rel });
         defer allocator.free(probe_path);
-        if (std.fs.cwd().openFile(probe_path, .{})) |file| {
+        if (sio.cwd().openFile(probe_path, .{})) |file| {
             file.close();
         } else |err| switch (err) {
             error.FileNotFound => {
@@ -5035,7 +5113,7 @@ fn stdRootFromEnv(allocator: std.mem.Allocator) ![]u8 {
 }
 
 fn defaultStableImportRoots(allocator: std.mem.Allocator, project_root: []const u8) ![]const []const u8 {
-    var roots = std.ArrayList([]const u8).init(allocator);
+    var roots = std.array_list.Managed([]const u8).init(allocator);
     errdefer {
         for (roots.items) |root| allocator.free(root);
         roots.deinit();
@@ -5055,7 +5133,7 @@ fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !
     const manifest_path = try std.fs.path.join(allocator, &.{ project_root, "sa.mod" });
     defer allocator.free(manifest_path);
 
-    const file = std.fs.cwd().openFile(manifest_path, .{}) catch |err| switch (err) {
+    const file = sio.cwd().openFile(manifest_path, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => return err,
     };
@@ -5072,7 +5150,7 @@ fn projectRootFromCurrentDir(allocator: std.mem.Allocator) ![]u8 {
     return try allocator.dupe(u8, resolved.workspace_root);
 }
 
-fn parseAllowListFragment(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8), value_text: []const u8) !void {
+fn parseAllowListFragment(allocator: std.mem.Allocator, list: *std.array_list.Managed([]const u8), value_text: []const u8) !void {
     var it = std.mem.splitScalar(u8, value_text, ',');
     while (it.next()) |raw_item| {
         const item = std.mem.trim(u8, raw_item, " \t\r\n");
@@ -5081,7 +5159,7 @@ fn parseAllowListFragment(allocator: std.mem.Allocator, list: *std.ArrayList([]c
     }
 }
 
-fn appendPermissionSetStrings(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8), entries: []const []const u8) !void {
+fn appendPermissionSetStrings(allocator: std.mem.Allocator, list: *std.array_list.Managed([]const u8), entries: []const []const u8) !void {
     for (entries) |entry| try list.append(try allocator.dupe(u8, entry));
 }
 
@@ -5099,27 +5177,27 @@ fn findPermissionSet(project_manifest: manifest.Manifest, name: []const u8) ?*co
 }
 
 fn buildPluginRuntimeAuthorization(allocator: std.mem.Allocator, args: []const []const u8) !OwnedPluginRuntimeAuthorization {
-    var env = std.ArrayList([]const u8).init(allocator);
+    var env = std.array_list.Managed([]const u8).init(allocator);
     errdefer {
         for (env.items) |entry| allocator.free(entry);
         env.deinit();
     }
-    var read = std.ArrayList([]const u8).init(allocator);
+    var read = std.array_list.Managed([]const u8).init(allocator);
     errdefer {
         for (read.items) |entry| allocator.free(entry);
         read.deinit();
     }
-    var write = std.ArrayList([]const u8).init(allocator);
+    var write = std.array_list.Managed([]const u8).init(allocator);
     errdefer {
         for (write.items) |entry| allocator.free(entry);
         write.deinit();
     }
-    var net = std.ArrayList([]const u8).init(allocator);
+    var net = std.array_list.Managed([]const u8).init(allocator);
     errdefer {
         for (net.items) |entry| allocator.free(entry);
         net.deinit();
     }
-    var run = std.ArrayList([]const u8).init(allocator);
+    var run = std.array_list.Managed([]const u8).init(allocator);
     errdefer {
         for (run.items) |entry| allocator.free(entry);
         run.deinit();
@@ -5238,7 +5316,7 @@ fn buildPluginRuntimeAuthorization(allocator: std.mem.Allocator, args: []const [
 }
 
 fn manifestDependencies(manifest_file: *const manifest.Manifest, allocator: std.mem.Allocator) ![]pkg_resolver.Dependency {
-    var deps = std.ArrayList(pkg_resolver.Dependency).init(allocator);
+    var deps = std.array_list.Managed(pkg_resolver.Dependency).init(allocator);
     errdefer deps.deinit();
 
     for (manifest_file.requires) |entry| {
@@ -5258,7 +5336,7 @@ fn freeOwnedStringSlice(allocator: std.mem.Allocator, items: []const []const u8)
 }
 
 fn manifestPluginImportRoots(manifest_file: *const manifest.Manifest, allocator: std.mem.Allocator) ![]const []const u8 {
-    var roots = std.ArrayList([]const u8).init(allocator);
+    var roots = std.array_list.Managed([]const u8).init(allocator);
     errdefer {
         for (roots.items) |root| allocator.free(root);
         roots.deinit();
@@ -5283,22 +5361,23 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         try writeMemoryStageSampleForOptions(options, "start", memory.start_rss_bytes, null);
     }
 
-    const total_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const total_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     if (std.mem.endsWith(u8, source_path, ".sab")) {
-        const load_flat_start = if (options.profile) std.time.Instant.now() catch null else null;
+        const load_flat_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
         var flat = try loadSabFlat(allocator, source_path);
         errdefer flat.deinit(allocator);
         const load_flat_ns = if (load_flat_start) |start| elapsedNs(start) else null;
-        const prune_start = if (options.profile) std.time.Instant.now() catch null else null;
+        const prune_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
         try pruneSabFlatToSelectedTests(allocator, &flat, options.sab_selected_test_names);
         const prune_ns = if (prune_start) |start| elapsedNs(start) else null;
-        const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
+        const verify_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
         if (options.sab_skip_verify and options.sab_selected_test_names.len != 0) {
             const trusted = try trustedSabVerifyOk(allocator, &flat);
             const verify_ns = if (verify_start) |start| elapsedNs(start) else null;
             if (options.profile) {
-                var null_writer = std.io.null_writer;
-                const writer = options.diagnostic_writer orelse null_writer.any();
+                var null_buf: [64]u8 = undefined;
+                var null_discarding: std.Io.Writer.Discarding = .init(&null_buf);
+                const writer = options.diagnostic_writer orelse &null_discarding.writer;
                 try writer.print(
                     "profile sab load_flat={d:.3}ms prune={d:.3}ms verify={d:.3}ms trusted=1\n",
                     .{
@@ -5319,8 +5398,9 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         });
         const verify_ns = if (verify_start) |start| elapsedNs(start) else null;
         if (options.profile) {
-            var null_writer = std.io.null_writer;
-            const writer = options.diagnostic_writer orelse null_writer.any();
+            var null_buf: [64]u8 = undefined;
+            var null_discarding: std.Io.Writer.Discarding = .init(&null_buf);
+            const writer = options.diagnostic_writer orelse &null_discarding.writer;
             try writer.print(
                 "profile sab load_flat={d:.3}ms prune={d:.3}ms verify={d:.3}ms\n",
                 .{
@@ -5344,7 +5424,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
             },
         };
     }
-    const load_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const load_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     const source = try loadSource(allocator, source_path);
     defer allocator.free(source);
     const load_ns = if (load_start) |start| elapsedNs(start) else 0;
@@ -5353,7 +5433,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         try writeMemoryStageSampleForOptions(options, "after_load", memory.after_load_rss_bytes, memory.start_rss_bytes);
     }
 
-    const setup_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const setup_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     var resolution = if (options.project_root) |project_root|
         try pkg_workspace.resolveFromRootPath(allocator, project_root, .{ .request = options.package_name })
     else
@@ -5405,7 +5485,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         try writeMemoryStageSampleForOptions(options, "after_setup", memory.after_setup_rss_bytes, memory.after_load_rss_bytes);
     }
 
-    const flatten_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const flatten_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
         return .{ .trap = trapFromFlattenError(source_path, source, err, flattener.takeErrorSourceLine(&error_ctx)) };
     };
@@ -5416,9 +5496,10 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         try writeMemoryStageSampleForOptions(options, "after_flatten", memory.after_flatten_rss_bytes, memory.after_setup_rss_bytes);
     }
 
-    var null_writer = std.io.null_writer;
+    var null_buf: [64]u8 = undefined;
+    var null_discarding: std.Io.Writer.Discarding = .init(&null_buf);
     var verifier_stage_context = MemoryStageReporterContext{
-        .writer = options.diagnostic_writer orelse null_writer.any(),
+        .writer = options.diagnostic_writer orelse &null_discarding.writer,
         .memory = if (memory_metrics) |*memory| memory else null,
         .previous_rss_bytes = if (memory_metrics) |memory| memory.after_flatten_rss_bytes else null,
         .peak_rss_bytes = if (memory_metrics) |memory| memory.peak_rss_bytes else null,
@@ -5429,7 +5510,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     else
         null;
 
-    const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const verify_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     const content_hash = incr_verify.hashInstructions(flat.instructions);
     // Phase B-B hybrid: on verdict hit rebuild a trusted annotated shell from the
     // current FlattenResult (no dangling VerifyOk reuse). Misses run the referee.
@@ -5457,7 +5538,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     return switch (verified) {
         .ok => |ok| blk: {
             incr_verify.recordVerified(content_hash);
-            var names = std.ArrayList([]const u8).init(allocator);
+            var names = std.array_list.Managed([]const u8).init(allocator);
             defer names.deinit();
             for (ok.function_sigs) |fs| names.append(fs.name) catch {};
             incr_verify.recordResultFromInstructions(content_hash, flat.instructions, names.items);
@@ -5477,7 +5558,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
 }
 
 fn collectExternalSymbolNames(allocator: std.mem.Allocator, verified: *const referee.VerifyOk) ![]const []const u8 {
-    var names = std.ArrayList([]const u8).init(allocator);
+    var names = std.array_list.Managed([]const u8).init(allocator);
     errdefer names.deinit();
     for (verified.function_sigs) |fsig| {
         if (fsig.kind == .external) try names.append(fsig.name);
@@ -5487,8 +5568,8 @@ fn collectExternalSymbolNames(allocator: std.mem.Allocator, verified: *const ref
 
 fn appendNativePluginLinkInputs(
     allocator: std.mem.Allocator,
-    link_inputs: *std.ArrayList([]const u8),
-    owned_link_inputs: *std.ArrayList([]const u8),
+    link_inputs: *std.array_list.Managed([]const u8),
+    owned_link_inputs: *std.array_list.Managed([]const u8),
     verified: *const referee.VerifyOk,
 ) !void {
     const extern_names = try collectExternalSymbolNames(allocator, verified);
@@ -5503,7 +5584,7 @@ fn appendNativePluginLinkInputs(
     });
     defer plugin_runtime.deinit();
 
-    var plugin_libs = std.ArrayList([]const u8).init(allocator);
+    var plugin_libs = std.array_list.Managed([]const u8).init(allocator);
     defer plugin_libs.deinit();
     try plugin_runtime.appendLibrariesExportingAny(&plugin_libs, extern_names);
 
@@ -5546,13 +5627,13 @@ pub fn defaultExecutableSuffix() []const u8 {
 
 fn ensureParentDir(path: []const u8) !void {
     if (std.fs.path.dirname(path)) |dir| {
-        if (dir.len != 0) try std.fs.cwd().makePath(dir);
+        if (dir.len != 0) try sio.cwd().makePath(dir);
     }
 }
 
 fn writeAllFile(path: []const u8, bytes: []const u8) !void {
     try ensureParentDir(path);
-    var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
+    var file = try sio.cwd().createFile(path, .{ .truncate = true });
     defer file.close();
     try file.writeAll(bytes);
 }
@@ -5565,12 +5646,12 @@ fn writeTextFile(allocator: std.mem.Allocator, path: []const u8, bytes: []const 
 fn copyFileAlloc(allocator: std.mem.Allocator, src_path: []const u8, dst_path: []const u8) !void {
     _ = allocator;
     try ensureParentDir(dst_path);
-    try std.fs.cwd().copyFile(src_path, std.fs.cwd(), dst_path, .{});
+    try sio.cwd().copyFile(src_path, sio.cwd(), dst_path, .{});
 }
 
 fn makeExecutable(path: []const u8) !void {
     if (builtin.os.tag == .windows) return;
-    var file = try std.fs.cwd().openFile(path, .{ .mode = .read_write });
+    var file = try sio.cwd().openFile(path, .{ .mode = .read_write });
     defer file.close();
     try file.chmod(0o755);
 }
@@ -5633,26 +5714,13 @@ fn cacheBool(hasher: *std.crypto.hash.sha2.Sha256, value: bool) void {
 
 const RuntimeArchiveFingerprint = struct { size: u64, mtime_ns: u64 };
 
-fn selfExeFingerprint(allocator: std.mem.Allocator) ?RuntimeArchiveFingerprint {
-    // Under `zig build test` the self-exe is a fresh test runner every time;
-    // fingerprinting it would defeat the cache there, so keep old behavior.
-    if (builtin.is_test) return null;
-    const exe_path = std.fs.selfExePathAlloc(allocator) catch return null;
-    defer allocator.free(exe_path);
-    const stat = std.fs.cwd().statFile(exe_path) catch return null;
-    return .{
-        .size = stat.size,
-        .mtime_ns = @as(u64, @truncate(@as(u128, @bitCast(stat.mtime)))),
-    };
-}
-
 fn runtimeArchiveFingerprint(allocator: std.mem.Allocator) ?RuntimeArchiveFingerprint {
     const archive_path = saStdArchivePath(allocator) catch return null;
     defer allocator.free(archive_path);
-    const stat = std.fs.cwd().statFile(archive_path) catch return null;
+    const stat = sio.cwd().statFile(archive_path) catch return null;
     return .{
         .size = stat.size,
-        .mtime_ns = @as(u64, @truncate(@as(u128, @bitCast(stat.mtime)))),
+        .mtime_ns = @as(u64, @intCast(stat.mtime.toNanoseconds())),
     };
 }
 
@@ -5670,7 +5738,7 @@ fn projectFileMaybeHash(hasher: *std.crypto.hash.sha2.Sha256, allocator: std.mem
 
 const SourceTreeFileStat = struct {
     path: []u8,
-    mtime: i128,
+    mtime: std.Io.Timestamp,
     size: u64,
 };
 
@@ -5680,7 +5748,7 @@ const SourceTreeHashCacheEntry = struct {
     last_used_tick: u64,
 };
 
-var source_tree_hash_cache_mutex: std.Thread.Mutex = .{};
+var source_tree_hash_cache_mutex: std.atomic.Mutex = .unlocked;
 var source_tree_hash_cache: ?std.StringHashMap(SourceTreeHashCacheEntry) = null;
 var source_tree_hash_cache_tick: u64 = 0;
 var test_source_tree_hash_cache_max_entries: ?usize = null;
@@ -5701,7 +5769,7 @@ fn sourceTreeHashCacheMaxEntries() ?usize {
     if (builtin.is_test) {
         if (test_source_tree_hash_cache_max_entries) |value| return value;
     }
-    const value = std.process.getEnvVarOwned(std.heap.page_allocator, "SA_SOURCE_TREE_HASH_CACHE_MAX_ENTRIES") catch return null;
+    const value = sio.getEnvVarOwned(std.heap.page_allocator, "SA_SOURCE_TREE_HASH_CACHE_MAX_ENTRIES") catch return null;
     defer std.heap.page_allocator.free(value);
     const parsed = std.fmt.parseUnsigned(usize, value, 10) catch return null;
     return if (parsed == 0) null else parsed;
@@ -5721,13 +5789,15 @@ fn buildSourceTreeHashCacheKey(
     offline: bool,
     real_source_path: []const u8,
 ) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
     try appendCacheKeyBytes(&out, cacheCompilerVersion());
     try appendCacheKeyBytes(&out, project_root);
     try appendCacheKeyBytes(&out, std_root);
     try appendCacheKeyBytes(&out, real_source_path);
-    try out.writer().print("{}\x00", .{offline});
+    var offline_buf: [8]u8 = undefined;
+    const offline_text = try std.fmt.bufPrint(&offline_buf, "{}\x00", .{offline});
+    try out.appendSlice(offline_text);
     for (plugin_import_roots) |root| try appendCacheKeyBytes(&out, root);
     try out.append(0);
     for (dependencies) |dep| {
@@ -5737,19 +5807,19 @@ fn buildSourceTreeHashCacheKey(
     return try out.toOwnedSlice();
 }
 
-fn appendCacheKeyBytes(out: *std.ArrayList(u8), bytes: []const u8) !void {
+fn appendCacheKeyBytes(out: *std.array_list.Managed(u8), bytes: []const u8) !void {
     try out.appendSlice(bytes);
     try out.append(0);
 }
 
 fn sourceTreeHashCacheHit(cache_key: []const u8) ?[32]u8 {
-    source_tree_hash_cache_mutex.lock();
+    while (!source_tree_hash_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer source_tree_hash_cache_mutex.unlock();
     const cache = sourceTreeHashCacheMap();
     const entry = cache.getPtr(cache_key) orelse return null;
     for (entry.files) |file| {
-        const stat = std.fs.cwd().statFile(file.path) catch return null;
-        if (stat.mtime != file.mtime or stat.size != file.size) return null;
+        const stat = sio.cwd().statFile(file.path) catch return null;
+        if (stat.mtime.toNanoseconds() != file.mtime.toNanoseconds() or stat.size != file.size) return null;
     }
     entry.last_used_tick = nextSourceTreeHashCacheTickLocked();
     return entry.digest;
@@ -5774,7 +5844,7 @@ fn storeSourceTreeHashCacheEntry(cache_key: []const u8, digest: [32]u8, files: [
         copied += 1;
     }
 
-    source_tree_hash_cache_mutex.lock();
+    while (!source_tree_hash_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer source_tree_hash_cache_mutex.unlock();
     var cache = sourceTreeHashCacheMap();
     if (cache.getPtr(cache_key)) |old| {
@@ -5825,10 +5895,10 @@ fn hashResolvedSourceTreeUncached(
     offline: bool,
     source_path: []const u8,
     visited: *std.StringHashMap(void),
-    files: *std.ArrayList(SourceTreeFileStat),
+    files: *std.array_list.Managed(SourceTreeFileStat),
     resolved_source: ?[]const u8,
 ) !void {
-    const real_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
+    const real_source_path = try sio.cwd().realpathAlloc(allocator, source_path);
     var owned_by_files = false;
     errdefer if (!owned_by_files) allocator.free(real_source_path);
     if (visited.contains(real_source_path)) {
@@ -5841,7 +5911,7 @@ fn hashResolvedSourceTreeUncached(
     try visited.put(visited_key, {});
     visited_key_inserted = true;
 
-    const stat = try std.fs.cwd().statFile(real_source_path);
+    const stat = try sio.cwd().statFile(real_source_path);
     try files.append(.{ .path = real_source_path, .mtime = stat.mtime, .size = stat.size });
     owned_by_files = true;
 
@@ -5878,7 +5948,7 @@ fn hashResolvedSourceTree(
     offline: bool,
     source_path: []const u8,
 ) !void {
-    const real_source_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
+    const real_source_path = try sio.cwd().realpathAlloc(allocator, source_path);
     defer allocator.free(real_source_path);
     const cache_key = try buildSourceTreeHashCacheKey(allocator, dependencies, plugin_import_roots, project_root, std_root, offline, real_source_path);
     defer allocator.free(cache_key);
@@ -5894,7 +5964,7 @@ fn hashResolvedSourceTree(
         while (it.next()) |entry| allocator.free(entry.key_ptr.*);
         visited.deinit();
     }
-    var files = std.ArrayList(SourceTreeFileStat).init(allocator);
+    var files = std.array_list.Managed(SourceTreeFileStat).init(allocator);
     defer {
         for (files.items) |file| allocator.free(file.path);
         files.deinit();
@@ -5943,15 +6013,6 @@ fn computeProjectBuildKey(
     // after the archive was rebuilt without AVX-512, SIGILL). Cheap stat,
     // no content hashing; missing archive keeps old behavior.
     if (runtimeArchiveFingerprint(allocator)) |fp| {
-        cacheU64(&hasher, fp.size);
-        cacheU64(&hasher, fp.mtime_ns);
-    }
-    // Fingerprint the compiler binary itself: emitter/backend changes (e.g.
-    // wasm inline-runtime gating) must invalidate cached bitcode, otherwise
-    // stale .bc is silently reused after `sa` is rebuilt (observed: fixed
-    // wasm ABI still served pre-fix .bc from cache). Missing path keeps old
-    // behavior (notably `builtin.is_test`, where self-exe is the test runner).
-    if (selfExeFingerprint(allocator)) |fp| {
         cacheU64(&hasher, fp.size);
         cacheU64(&hasher, fp.mtime_ns);
     }
@@ -6029,14 +6090,14 @@ fn projectCacheArtifactPath(allocator: std.mem.Allocator, project_root: []const 
 fn projectCacheRemoveKey(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) void {
     const dir = projectCacheDir(allocator, project_root, kind, key) catch return;
     defer allocator.free(dir);
-    std.fs.cwd().deleteTree(dir) catch |err| {
+    sio.cwd().deleteTree(dir) catch |err| {
         // Build cache repair is opportunistic here; callers fall back to recompilation on unusable entries.
         _ = @errorName(err);
     };
 }
 
 fn projectCacheArtifactExistsNonEmpty(path: []const u8) bool {
-    const stat = std.fs.cwd().statFile(path) catch return false;
+    const stat = sio.cwd().statFile(path) catch return false;
     return stat.kind == .file and stat.size != 0;
 }
 
@@ -6067,7 +6128,7 @@ fn jsonIntEquals(value: std.json.Value, expected: u64) bool {
 }
 
 fn projectCacheArtifactMatchesManifest(allocator: std.mem.Allocator, artifact_value: std.json.Value, path: []const u8) !bool {
-    const stat = std.fs.cwd().statFile(path) catch return false;
+    const stat = sio.cwd().statFile(path) catch return false;
     if (stat.kind != .file or stat.size == 0) return false;
     if (!jsonIntEquals(try jsonGetObject(artifact_value, "size"), stat.size)) return false;
     const hash_hex = try hashFileHex(allocator, path);
@@ -6097,7 +6158,7 @@ fn projectCacheManifestValid(
 }
 
 fn writeCacheArtifactManifestEntry(writer: anytype, allocator: std.mem.Allocator, name: []const u8, path: []const u8) !void {
-    const stat = try std.fs.cwd().statFile(path);
+    const stat = try sio.cwd().statFile(path);
     const hash_hex = try hashFileHex(allocator, path);
     try writer.writeByte('"');
     try writer.writeAll(name);
@@ -6119,9 +6180,11 @@ fn projectCacheWriteManifest(
     const manifest_path = try projectCacheManifestPath(allocator, project_root, kind, key);
     defer allocator.free(manifest_path);
     try ensureParentDir(manifest_path);
-    var file = try std.fs.cwd().createFile(manifest_path, .{ .truncate = true });
+    var file = try sio.cwd().createFile(manifest_path, .{ .truncate = true });
     defer file.close();
-    var writer = file.writer();
+    var fbuf: [8192]u8 = undefined;
+    var fw = file.writer(&fbuf);
+    const writer = &fw.interface;
     try writer.writeAll("{\"version\":1,\"kind\":");
     try writeJsonString(writer, kind.dirName());
     try writer.writeAll(",\"key\":");
@@ -6131,6 +6194,7 @@ fn projectCacheWriteManifest(
     try writer.writeByte(',');
     try writeCacheArtifactManifestEntry(writer, allocator, "output", cached_output);
     try writer.writeAll("}\n");
+    try fw.interface.flush();
 }
 
 fn projectCacheHit(
@@ -6204,9 +6268,11 @@ fn projectCacheWriteTestMetadata(
     const metadata_path = try projectCacheTestMetadataPath(allocator, project_root, key);
     defer allocator.free(metadata_path);
     try ensureParentDir(metadata_path);
-    var file = try std.fs.cwd().createFile(metadata_path, .{ .truncate = true });
+    var file = try sio.cwd().createFile(metadata_path, .{ .truncate = true });
     defer file.close();
-    var writer = file.writer();
+    var fbuf: [8192]u8 = undefined;
+    var fw = file.writer(&fbuf);
+    const writer = &fw.interface;
     try writer.writeAll("{\"version\":1,\"tests\":[");
     for (test_list.tests, 0..) |test_case, idx| {
         if (idx != 0) try writer.writeByte(',');
@@ -6229,6 +6295,7 @@ fn projectCacheWriteTestMetadata(
         try writer.writeByte('}');
     }
     try writer.writeAll("]}\n");
+    try fw.interface.flush();
 }
 
 fn projectCacheStoreTest(
@@ -6296,7 +6363,7 @@ fn projectCacheReadTestMetadata(
         else => return error.InvalidCacheManifest,
     };
 
-    var tests = std.ArrayList(test_meta.TestDescAndFn).init(allocator);
+    var tests = std.array_list.Managed(test_meta.TestDescAndFn).init(allocator);
     errdefer {
         for (tests.items) |*test_case| test_case.deinit(allocator);
         tests.deinit();
@@ -6339,25 +6406,25 @@ fn isHexCacheKey(name: []const u8) bool {
     return true;
 }
 
-fn cacheEntryExpired(stat: std.fs.File.Stat, max_age_days: u64) bool {
+fn cacheEntryExpired(stat: sio.Stat, max_age_days: u64) bool {
     if (max_age_days == 0) return false;
-    const now = std.time.nanoTimestamp();
-    if (stat.mtime >= now) return false;
-    const max_age_ns = @as(i128, @intCast(max_age_days)) * 24 * 60 * 60 * std.time.ns_per_s;
-    return now - stat.mtime > max_age_ns;
+    const now = std.Io.Clock.real.now(sio.io());
+    if (stat.mtime.compare(.gte, now)) return false;
+    const max_age_ns: i96 = @as(i96, @intCast(max_age_days)) * 24 * 60 * 60 * std.time.ns_per_s;
+    return stat.mtime.durationTo(now).toNanoseconds() > max_age_ns;
 }
 
-fn cacheFilePresentNonEmpty(dir: std.fs.Dir, name: []const u8) bool {
+fn cacheFilePresentNonEmpty(dir: sio.Dir, name: []const u8) bool {
     const stat = dir.statFile(name) catch return false;
     return stat.kind == .file and stat.size != 0;
 }
 
-fn cacheDirPresent(dir: std.fs.Dir, name: []const u8) bool {
+fn cacheDirPresent(dir: sio.Dir, name: []const u8) bool {
     const stat = dir.statFile(name) catch return false;
     return stat.kind == .directory;
 }
 
-fn cacheEntryComplete(kind: BuildCacheKind, entry_dir: std.fs.Dir) bool {
+fn cacheEntryComplete(kind: BuildCacheKind, entry_dir: sio.Dir) bool {
     return switch (kind) {
         .build_exe, .build_obj, .build_wasm => cacheFilePresentNonEmpty(entry_dir, "artifact.sa.bc") and cacheFilePresentNonEmpty(entry_dir, "output.bin") and cacheFilePresentNonEmpty(entry_dir, "manifest.json"),
         .test_cache => cacheFilePresentNonEmpty(entry_dir, "artifact.sa.bc") and cacheFilePresentNonEmpty(entry_dir, "output.bin") and cacheFilePresentNonEmpty(entry_dir, "manifest.json") and cacheFilePresentNonEmpty(entry_dir, "test-metadata.json"),
@@ -6365,7 +6432,7 @@ fn cacheEntryComplete(kind: BuildCacheKind, entry_dir: std.fs.Dir) bool {
     };
 }
 
-fn cacheEntryArtifactMatchesManifest(entry_dir: std.fs.Dir, artifact_value: std.json.Value, name: []const u8) !bool {
+fn cacheEntryArtifactMatchesManifest(entry_dir: sio.Dir, artifact_value: std.json.Value, name: []const u8) !bool {
     const stat = entry_dir.statFile(name) catch return false;
     if (stat.kind != .file or stat.size == 0) return false;
     if (!jsonIntEquals(try jsonGetObject(artifact_value, "size"), stat.size)) return false;
@@ -6373,7 +6440,7 @@ fn cacheEntryArtifactMatchesManifest(entry_dir: std.fs.Dir, artifact_value: std.
     return jsonStringEquals(try jsonGetObject(artifact_value, "sha256"), hash_hex[0..]);
 }
 
-fn cacheEntryManifestValid(kind: BuildCacheKind, key_name: []const u8, entry_dir: std.fs.Dir) bool {
+fn cacheEntryManifestValid(kind: BuildCacheKind, key_name: []const u8, entry_dir: sio.Dir) bool {
     if (kind == .build_obj_incremental) return true;
     const manifest_bytes = entry_dir.readFileAlloc(std.heap.page_allocator, "manifest.json", 64 * 1024) catch return false;
     defer std.heap.page_allocator.free(manifest_bytes);
@@ -6388,7 +6455,7 @@ fn cacheEntryManifestValid(kind: BuildCacheKind, key_name: []const u8, entry_dir
 }
 
 fn cleanCacheKindDir(
-    root_dir: std.fs.Dir,
+    root_dir: sio.Dir,
     kind: BuildCacheKind,
     options: CacheCleanOptions,
     stats: *CacheCleanStats,
@@ -6418,7 +6485,7 @@ fn cleanCacheKindDir(
             };
             defer entry_dir.close();
 
-            const stat: ?std.fs.File.Stat = kind_dir.statFile(entry.name) catch null;
+            const stat: ?sio.Stat = kind_dir.statFile(entry.name) catch null;
             remove = !cacheEntryComplete(kind, entry_dir) or
                 !cacheEntryManifestValid(kind, entry.name, entry_dir) or
                 (if (stat) |s| cacheEntryExpired(s, options.max_age_days) else true);
@@ -6442,10 +6509,10 @@ fn cleanCacheKindDir(
 fn cleanProjectCache(allocator: std.mem.Allocator, project_root: []const u8, options: CacheCleanOptions) !CacheCleanStats {
     const cache_root = try cacheRootPath(allocator, project_root);
     defer allocator.free(cache_root);
-    var root_dir = std.fs.cwd().openDir(cache_root, .{ .iterate = true }) catch |err| switch (err) {
+    var root_dir = sio.cwd().openDir(cache_root, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return .{},
         error.NotDir => {
-            if (!options.dry_run) try std.fs.cwd().deleteFile(cache_root);
+            if (!options.dry_run) try sio.cwd().deleteFile(cache_root);
             return .{ .scanned = 1, .removed = 1 };
         },
         else => return err,
@@ -6573,12 +6640,12 @@ fn buildIncrementalObject(
     const opt_level = emitOptLevel(debug, optimization);
     const emit_std_root = try stdRootFromEnv(allocator);
     defer allocator.free(emit_std_root);
-    var object_paths = std.ArrayList([]const u8).init(allocator);
+    var object_paths = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (object_paths.items) |path| allocator.free(path);
         object_paths.deinit();
     }
-    var function_keys = std.ArrayList([]const u8).init(allocator);
+    var function_keys = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (function_keys.items) |key| allocator.free(key);
         function_keys.deinit();
@@ -6655,9 +6722,11 @@ fn buildIncrementalObject(
     const manifest_path = try projectFunctionCacheManifestPath(allocator, project_root, cache_key);
     defer allocator.free(manifest_path);
     try ensureParentDir(manifest_path);
-    var manifest_file = try std.fs.cwd().createFile(manifest_path, .{ .truncate = true });
+    var manifest_file = try sio.cwd().createFile(manifest_path, .{ .truncate = true });
     defer manifest_file.close();
-    const writer = manifest_file.writer();
+    var mfbuf: [8192]u8 = undefined;
+    var mfw = manifest_file.writer(&mfbuf);
+    const writer = &mfw.interface;
     try writer.writeAll("{\"version\":1,\"kind\":\"build-obj-incremental\",\"source\":");
     try writeJsonString(writer, source_path);
     try writer.writeAll(",\"cache_key\":");
@@ -6672,11 +6741,12 @@ fn buildIncrementalObject(
         try writer.writeByte('}');
     }
     try writer.writeAll("]}\n");
+    try mfw.interface.flush();
 }
 
 fn ensureNewFile(path: []const u8, bytes: []const u8) !void {
     try ensureParentDir(path);
-    var file = try std.fs.cwd().createFile(path, .{ .exclusive = true });
+    var file = try sio.cwd().createFile(path, .{ .exclusive = true });
     defer file.close();
     try file.writeAll(bytes);
 }
@@ -6685,11 +6755,11 @@ fn executeInit(allocator: std.mem.Allocator, args: []const []const u8, stdout: a
     if (args.len > 1) return error.UnexpectedArgument;
     const project_path = if (args.len == 1) args[0] else ".";
 
-    try std.fs.cwd().makePath(project_path);
+    try sio.cwd().makePath(project_path);
 
     const src_dir = try std.fs.path.join(allocator, &.{ project_path, "src" });
     defer allocator.free(src_dir);
-    try std.fs.cwd().makePath(src_dir);
+    try sio.cwd().makePath(src_dir);
 
     const manifest_path = try std.fs.path.join(allocator, &.{ project_path, "sa.mod" });
     defer allocator.free(manifest_path);
@@ -6798,7 +6868,7 @@ fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.
     const project_root = resolution.workspace_root;
     const project_manifest = resolution.effective_manifest orelse return 0;
 
-    const current_dir = try std.fs.cwd().realpathAlloc(allocator, ".");
+    const current_dir = try sio.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(current_dir);
 
     if (package_name == null and
@@ -6809,13 +6879,13 @@ fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.
         const members = try pkg_workspace.listWorkspaceMembers(allocator, resolution.workspace_root, &resolution.workspace_manifest.?);
         defer pkg_workspace.freeWorkspaceMembers(allocator, members);
 
-        var member_manifests = std.ArrayList(manifest.Manifest).init(allocator);
+        var member_manifests = std.array_list.Managed(manifest.Manifest).init(allocator);
         defer {
             for (member_manifests.items) |*member_manifest| member_manifest.deinit(allocator);
             member_manifests.deinit();
         }
 
-        var member_manifest_ptrs = std.ArrayList(*const manifest.Manifest).init(allocator);
+        var member_manifest_ptrs = std.array_list.Managed(*const manifest.Manifest).init(allocator);
         defer member_manifest_ptrs.deinit();
 
         for (members) |member| {
@@ -6934,14 +7004,14 @@ fn saStdArchivePath(allocator: std.mem.Allocator) ![]u8 {
     if (builtin.is_test) {
         return try allocator.dupe(u8, build_options.sa_std_archive_path);
     }
-    const env_root: ?[]u8 = std.process.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
+    const env_root: ?[]u8 = sio.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => null,
         else => return err,
     };
     if (env_root) |root| {
         errdefer allocator.free(root);
         const archive = try std.fs.path.join(allocator, &.{ root, archive_name });
-        if (std.fs.cwd().openFile(archive, .{})) |file| {
+        if (sio.cwd().openFile(archive, .{})) |file| {
             file.close();
             allocator.free(root);
             return archive;
@@ -6959,7 +7029,7 @@ fn saStdArchivePath(allocator: std.mem.Allocator) ![]u8 {
 fn saStdArchivePathForTarget(allocator: std.mem.Allocator, target_triple: ?[]const u8) ![]u8 {
     const triple = target_triple orelse return saStdArchivePath(allocator);
     const archive_name: []const u8 = if (tripleIsWindows(target_triple)) "sa_std.lib" else "libsa_std.a";
-    const env_root: ?[]u8 = std.process.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
+    const env_root: ?[]u8 = sio.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => null,
         else => return err,
     };
@@ -6967,7 +7037,7 @@ fn saStdArchivePathForTarget(allocator: std.mem.Allocator, target_triple: ?[]con
         defer allocator.free(root);
         const archive = try std.fs.path.join(allocator, &.{ root, triple, archive_name });
         errdefer allocator.free(archive);
-        if (std.fs.cwd().openFile(archive, .{})) |file| {
+        if (sio.cwd().openFile(archive, .{})) |file| {
             file.close();
             return archive;
         } else |_| {}
@@ -7005,7 +7075,11 @@ fn executeRun(
             var owned = ok;
             defer owned.deinit(allocator);
             rejectNpmBindsUnlessJs("sa run", &owned.flat, stderr) catch return 1;
-            const code = interp.runWithWriters(allocator, &owned.verified, argv, stdout.any(), stderr.any()) catch |err| switch (err) {
+            var run_out_forward = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
+            defer run_out_forward.writer().flush() catch {};
+            var run_err_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer run_err_forward.writer().flush() catch {};
+            const code = interp.runWithWriters(allocator, &owned.verified, argv, run_out_forward.writer(), run_err_forward.writer()) catch |err| switch (err) {
                 error.UserExit => 0,
                 error.UnsupportedExtern => return 1,
                 else => {
@@ -7020,7 +7094,7 @@ fn executeRun(
 }
 
 fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
-    const total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     const project_root_owned = compile_options.project_root == null;
     const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
     defer if (project_root_owned) allocator.free(project_root);
@@ -7174,7 +7248,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     }
                 }
 
-                const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+                const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
                 while (started_cgu_emit < cgu_count - 1) : (started_cgu_emit += 1) {
                     cgu_emit_threads[started_cgu_emit] = try std.Thread.spawn(.{}, CguEmitWorker.run, .{&cgu_emit_workers[started_cgu_emit + 1]});
                 }
@@ -7193,9 +7267,9 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 recordMetricMemoryAfterEmit(&owned.metrics);
                 if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
 
-                var link_inputs = std.ArrayList([]const u8).init(allocator);
+                var link_inputs = std.array_list.Managed([]const u8).init(allocator);
                 defer link_inputs.deinit();
-                var owned_link_inputs = std.ArrayList([]const u8).init(allocator);
+                var owned_link_inputs = std.array_list.Managed([]const u8).init(allocator);
                 defer {
                     for (owned_link_inputs.items) |arg| allocator.free(arg);
                     owned_link_inputs.deinit();
@@ -7215,7 +7289,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
                 }
 
-                const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+                const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
                 driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, std_archive_path, link_inputs.items, debug, stderr, compile_options.target_triple) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
@@ -7228,7 +7302,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
             } else {
                 try ensureParentDir(artifact_path);
-                const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+                const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
                 emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
                     try printLlvmcEmitError(stderr, err, diagnostics_mode);
                     return 1;
@@ -7237,10 +7311,10 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 recordMetricMemoryAfterEmit(&owned.metrics);
                 if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
 
-                const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-                var link_inputs = std.ArrayList([]const u8).init(allocator);
+                const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
+                var link_inputs = std.array_list.Managed([]const u8).init(allocator);
                 defer link_inputs.deinit();
-                var owned_link_inputs = std.ArrayList([]const u8).init(allocator);
+                var owned_link_inputs = std.array_list.Managed([]const u8).init(allocator);
                 defer {
                     for (owned_link_inputs.items) |arg| allocator.free(arg);
                     owned_link_inputs.deinit();
@@ -7277,7 +7351,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
 }
 
 fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, incremental: bool, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
-    const total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     const project_root_owned = compile_options.project_root == null;
     const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
     defer if (project_root_owned) allocator.free(project_root);
@@ -7313,7 +7387,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
-            const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+            const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
             const opt_level = emitOptLevel(debug, optimization);
             if (compile_options.target_triple != null and incremental) {
                 try stderr.writeAll("error: --target cannot be combined with --incremental yet\n");
@@ -7348,7 +7422,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
 }
 
 fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, target: WasmTarget, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
-    const total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     const project_root_owned = compile_options.project_root == null;
     const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
     defer if (project_root_owned) allocator.free(project_root);
@@ -7384,19 +7458,8 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
-            // Resolve the target archive BEFORE emit: the backend skips its
-            // in-module fmt runtime when the archive will provide it, keeping
-            // a single buffer-handle ABI (inline slot table vs archive
-            // registry must never mix).
-            const std_archive_path: ?[]const u8 = saStdArchivePathForTarget(allocator, target.triple) catch |err| blk: {
-                if (err == error.ArchiveNotFoundForTarget) {
-                    break :blk null;
-                }
-                return err;
-            };
-            defer if (std_archive_path) |p| allocator.free(p);
-            const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
-            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .wasm_std_archive = std_archive_path != null, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path) catch |err| {
+            const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
+            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path) catch |err| {
                 try printLlvmcEmitError(stderr, err, diagnostics_mode);
                 return 1;
             };
@@ -7404,7 +7467,14 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             recordMetricMemoryAfterEmit(&owned.metrics);
             if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
 
-            const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+            const std_archive_path: ?[]const u8 = saStdArchivePathForTarget(allocator, target.triple) catch |err| blk: {
+                if (err == error.ArchiveNotFoundForTarget) {
+                    break :blk null;
+                }
+                return err;
+            };
+            defer if (std_archive_path) |p| allocator.free(p);
+            const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
             driver.compileWasm(allocator, artifact_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, std_archive_path, stderr) catch |err| switch (err) {
                 error.ChildProcessFailed => {
                     if (std_archive_path == null) {
@@ -7432,7 +7502,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
 }
 
 fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, js_format: emit_js.JsFormat, debug: bool, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
-    const total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
         .trap => |report| {
@@ -7443,12 +7513,46 @@ fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_pat
             var owned = ok;
             defer owned.deinit(allocator);
             try ensureParentDir(out_path);
-            const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+            const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
             const size_bits = sizeBitsForTriple(compile_options.target_triple);
             emit_js.emitJsToFile(allocator, owned.verified, source_path, size_bits, .{ .format = js_format, .debug_comments = debug }, &owned.flat.def_dict.npm_binds, out_path) catch |err| {
                 try stderr.print("error: JS backend emit failed: {s}", .{@errorName(err)});
                 if (emit_js.last_js_func.len != 0) try stderr.print(" in {s}", .{emit_js.last_js_func});
                 if (emit_js.last_js_inst.len != 0) try stderr.print(": {s}", .{std.mem.trim(u8, emit_js.last_js_inst, " \t\r\n")});
+                try stderr.writeAll("\n");
+                return 1;
+            };
+            const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
+            recordMetricMemoryAfterEmit(&owned.metrics);
+            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
+            recordMetricMemoryEnd(&owned.metrics);
+            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
+            finishProfileMetrics(&owned.metrics, emit_ns, null, if (total_start) |start| elapsedNs(start) else null);
+            attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
+            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
+            return 0;
+        },
+    }
+}
+
+fn executeBuildC(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
+    const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
+    const compiled = try compileSource(allocator, source_path, compile_options);
+    switch (compiled) {
+        .trap => |report| {
+            try printTrapReport(stderr, report, diagnostics_mode);
+            return 1;
+        },
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(allocator);
+            try ensureParentDir(out_path);
+            const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
+            const size_bits = sizeBitsForTriple(compile_options.target_triple);
+            emit_c.emitCToFile(allocator, owned.verified, source_path, size_bits, .{ .debug_comments = debug }, out_path) catch |err| {
+                try stderr.print("error: C backend emit failed: {s}", .{@errorName(err)});
+                if (emit_c.last_c_func.len != 0) try stderr.print(" in {s}", .{emit_c.last_c_func});
+                if (emit_c.last_c_inst.len != 0) try stderr.print(": {s}", .{std.mem.trim(u8, emit_c.last_c_inst, " \t\r\n")});
                 try stderr.writeAll("\n");
                 return 1;
             };
@@ -7543,7 +7647,9 @@ fn executeCheck(
     json_mode: bool,
     exec_options: ExecuteOptions,
 ) !u8 {
-    var compile_options = newCompileOptions(exec_options, stderr.any());
+    var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+    defer diag_forward.writer().flush() catch {};
+    var compile_options = newCompileOptions(exec_options, diag_forward.writer());
     var source_arg: ?[]const u8 = null;
     var emit_sab_path: ?[]const u8 = null;
     var i: usize = 0;
@@ -7566,11 +7672,11 @@ fn executeCheck(
     const source_path = source_arg.?;
     configureCompileDiagnostics(&compile_options, json_mode);
 
-    const total_start = std.time.Instant.now() catch null;
+    const total_start = std.Io.Clock.awake.now(sio.io());
     // Flatten via compileSource front half by reusing compileSource then discarding codegen.
     // Fast path: if we already verified this instruction stream, skip verify.
     const compiled = try compileSourceForCheck(allocator, source_path, compile_options);
-    const wall_ns = if (total_start) |start| elapsedNs(start) else 0;
+    const wall_ns = elapsedNs(total_start);
     switch (compiled) {
         .trap => |report| {
             try printTrapReport(if (json_mode) stdout else stderr, report, if (json_mode) .json else .human);
@@ -7591,7 +7697,7 @@ fn executeCheck(
                     return err;
                 };
                 defer allocator.free(sab_bytes);
-                const cwd = std.fs.cwd();
+                const cwd = sio.cwd();
                 const sab_file = try cwd.createFile(sab_path, .{});
                 defer sab_file.close();
                 try sab_file.writeAll(sab_bytes);
@@ -7621,19 +7727,19 @@ fn executeCheck(
 fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, options: CompileOptions) !CompileResult {
     var memory_metrics: ?CompileMemoryMetrics = if (options.mem_report) .{} else null;
     if (memory_metrics) |*memory| memory.recordStart();
-    const total_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const total_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
 
     if (std.mem.endsWith(u8, source_path, ".sab")) {
         // Reuse the normal SAB path (already records verdict on success).
         return try compileSource(allocator, source_path, options);
     }
 
-    const load_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const load_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     const source = try loadSource(allocator, source_path);
     defer allocator.free(source);
     const load_ns = if (load_start) |start| elapsedNs(start) else 0;
 
-    const setup_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const setup_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     var resolution = if (options.project_root) |project_root|
         try pkg_workspace.resolveFromRootPath(allocator, project_root, .{ .request = options.package_name })
     else
@@ -7672,7 +7778,7 @@ fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, 
     };
     const setup_ns = if (setup_start) |start| elapsedNs(start) else 0;
 
-    const flatten_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const flatten_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
         return .{ .trap = trapFromFlattenError(source_path, source, err, flattener.takeErrorSourceLine(&error_ctx)) };
     };
@@ -7680,7 +7786,7 @@ fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, 
     const flatten_ns = if (flatten_start) |start| elapsedNs(start) else 0;
 
     const content_hash = incr_verify.hashInstructions(flat.instructions);
-    const verify_start = if (options.profile) std.time.Instant.now() catch null else null;
+    const verify_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     if (incr_verify.isVerified(content_hash)) {
         // Verdict hit: build a trusted shell without re-running the referee.
         const trusted = try trustedSabVerifyOk(allocator, &flat);
@@ -7699,7 +7805,7 @@ fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, 
     return switch (verified) {
         .ok => |ok| blk: {
             incr_verify.recordVerified(content_hash);
-            var names = std.ArrayList([]const u8).init(allocator);
+            var names = std.array_list.Managed([]const u8).init(allocator);
             defer names.deinit();
             for (ok.function_sigs) |fs| names.append(fs.name) catch {};
             incr_verify.recordResultFromInstructions(content_hash, flat.instructions, names.items);
@@ -7724,7 +7830,9 @@ fn executeGraph(
     json_mode: bool,
     exec_options: ExecuteOptions,
 ) !u8 {
-    var compile_options = newCompileOptions(exec_options, stderr.any());
+    var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+    defer diag_forward.writer().flush() catch {};
+    var compile_options = newCompileOptions(exec_options, diag_forward.writer());
     var source_arg: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -7777,7 +7885,7 @@ fn executeGraph(
                 while (it.next()) |entry| allocator.free(entry.key_ptr.*);
                 node_map.deinit();
             }
-            var nodes = std.ArrayList(GraphNode).init(allocator);
+            var nodes = std.array_list.Managed(GraphNode).init(allocator);
             defer {
                 for (nodes.items) |node| {
                     allocator.free(node.id);
@@ -7785,7 +7893,7 @@ fn executeGraph(
                 }
                 nodes.deinit();
             }
-            var edges = std.ArrayList(GraphEdge).init(allocator);
+            var edges = std.array_list.Managed(GraphEdge).init(allocator);
             defer edges.deinit();
 
             var graph_ctx = GraphBuildContext{
@@ -7822,7 +7930,9 @@ fn executeSize(
     json_mode: bool,
     exec_options: ExecuteOptions,
 ) !u8 {
-    var compile_options = newCompileOptions(exec_options, stderr.any());
+    var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+    defer diag_forward.writer().flush() catch {};
+    var compile_options = newCompileOptions(exec_options, diag_forward.writer());
     var source_arg: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -7896,7 +8006,7 @@ fn executeTest(
     if (!test_options.affected) return executeTestInner(allocator, source_path, compile_options, test_options, stdout, stderr, diagnostics_mode);
 
     // Level-1 whole-source pass cache (fast path for identical inputs).
-    const src = std.fs.cwd().readFileAlloc(allocator, source_path, 1 << 24) catch {
+    const src = sio.cwd().readFileAlloc(allocator, source_path, 1 << 24) catch {
         return executeTestInner(allocator, source_path, compile_options, test_options, stdout, stderr, diagnostics_mode);
     };
     defer allocator.free(src);
@@ -7930,7 +8040,7 @@ fn executeTest(
             var function_bodies = try collectFunctionBodyHashes(allocator, &owned.verified);
             defer freeFunctionBodyHashes(allocator, &function_bodies);
 
-            var changed = std.ArrayList([]const u8).init(allocator);
+            var changed = std.array_list.Managed([]const u8).init(allocator);
             defer changed.deinit();
             const had_baseline = affected_tests.hasFunctionBaseline();
             var it = function_bodies.iterator();
@@ -7941,9 +8051,9 @@ fn executeTest(
             }
 
             // Build call edges from annotated stream.
-            var callers = std.ArrayList([]const u8).init(allocator);
+            var callers = std.array_list.Managed([]const u8).init(allocator);
             defer callers.deinit();
-            var callees = std.ArrayList([]const u8).init(allocator);
+            var callees = std.array_list.Managed([]const u8).init(allocator);
             defer {
                 for (callees.items) |c| allocator.free(c);
                 callees.deinit();
@@ -7958,14 +8068,14 @@ fn executeTest(
             }
 
             // Normalize changed names for reverse-graph lookup.
-            var changed_norm = std.ArrayList([]const u8).init(allocator);
+            var changed_norm = std.array_list.Managed([]const u8).init(allocator);
             defer changed_norm.deinit();
             for (changed.items) |c| try changed_norm.append(normalizeFnName(c));
             var impacted = try affected_tests.impactedFunctions(allocator, changed_norm.items, &rev);
             defer impacted.deinit();
 
             // Identify tests by function_sigs kind == test_func.
-            var selected_names = std.ArrayList([]const u8).init(allocator);
+            var selected_names = std.array_list.Managed([]const u8).init(allocator);
             defer {
                 for (selected_names.items) |n| allocator.free(n);
                 selected_names.deinit();
@@ -8052,7 +8162,7 @@ fn collectFunctionBodyHashes(allocator: std.mem.Allocator, verified: *const refe
                     .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
                     else => true,
                 }) : (end += 1) {}
-                var lines = std.ArrayList([]const u8).init(allocator);
+                var lines = std.array_list.Managed([]const u8).init(allocator);
                 defer lines.deinit();
                 var j = idx;
                 while (j < end) : (j += 1) try lines.append(verified.annotated[j].base.raw_text);
@@ -8089,8 +8199,8 @@ fn normalizeFnName(name: []const u8) []const u8 {
 fn collectCallEdges(
     allocator: std.mem.Allocator,
     verified: *const referee.VerifyOk,
-    callers: *std.ArrayList([]const u8),
-    callees: *std.ArrayList([]const u8),
+    callers: *std.array_list.Managed([]const u8),
+    callees: *std.array_list.Managed([]const u8),
 ) !void {
     var current_fn: ?[]const u8 = null;
     var sig_index: usize = 0;
@@ -8190,6 +8300,10 @@ fn executeTestInner(
                 );
                 return 0;
             }
+            var run_out_fw = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
+            defer run_out_fw.writer().flush() catch {};
+            var run_err_fw = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer run_err_fw.writer().flush() catch {};
             return try test_runner.run(
                 allocator,
                 exe_full_path,
@@ -8198,14 +8312,14 @@ fn executeTestInner(
                 test_options.selection,
                 test_options.trace_panic,
                 compile_options.jobs,
-                stdout.any(),
-                stderr.any(),
+                run_out_fw.writer(),
+                run_err_fw.writer(),
             );
         }
         cached_test_list.deinit(allocator);
     }
 
-    const test_total_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    const test_total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     var effective_compile_options = compile_options;
     var sab_selected_test_list: ?test_meta.TestList = null;
     defer if (sab_selected_test_list) |*list| list.deinit(allocator);
@@ -8219,7 +8333,7 @@ fn executeTestInner(
         effective_compile_options.sab_skip_verify = test_options.compile_only;
     }
 
-    const compile_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+    const compile_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     const compiled = try compileSource(allocator, source_path, effective_compile_options);
     const compile_ns = if (compile_start) |start| elapsedNs(start) else null;
     switch (compiled) {
@@ -8248,9 +8362,9 @@ fn executeTestInner(
                 selected_test_names = try selectedTestNamesFromList(allocator, test_list.*, test_options.selection);
             }
 
-            var link_inputs = std.ArrayList([]const u8).init(allocator);
+            var link_inputs = std.array_list.Managed([]const u8).init(allocator);
             defer link_inputs.deinit();
-            var owned_link_inputs = std.ArrayList([]const u8).init(allocator);
+            var owned_link_inputs = std.array_list.Managed([]const u8).init(allocator);
             defer {
                 for (owned_link_inputs.items) |arg| allocator.free(arg);
                 owned_link_inputs.deinit();
@@ -8259,7 +8373,7 @@ fn executeTestInner(
 
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
-            const emit_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+            const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
             emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path) catch |err| {
                 try printLlvmcEmitError(stderr, err, diagnostics_mode);
                 return 1;
@@ -8288,7 +8402,7 @@ fn executeTestInner(
                 return 0;
             }
 
-            const link_start = if (compile_options.profile) std.time.Instant.now() catch null else null;
+            const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
             driver.compileExe(allocator, artifact_full_path, exe_full_path, test_options.optimization, std_archive_path, link_inputs.items, false, stderr, null) catch |err| switch (err) {
                 error.ChildProcessFailed => return 1,
                 else => return err,
@@ -8324,6 +8438,10 @@ fn executeTestInner(
             if (sab_selected_test_list) |list| {
                 var run_list = list;
                 sab_selected_test_list = null;
+                var run_out_fw = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
+                defer run_out_fw.writer().flush() catch {};
+                var run_err_fw = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+                defer run_err_fw.writer().flush() catch {};
                 return try test_runner.run(
                     allocator,
                     exe_full_path,
@@ -8332,12 +8450,16 @@ fn executeTestInner(
                     test_options.selection,
                     test_options.trace_panic,
                     compile_options.jobs,
-                    stdout.any(),
-                    stderr.any(),
+                    run_out_fw.writer(),
+                    run_err_fw.writer(),
                 );
             } else {
                 var run_list = compiled_test_list.?;
                 compiled_test_list = null;
+                var run_out_fw = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
+                defer run_out_fw.writer().flush() catch {};
+                var run_err_fw = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+                defer run_err_fw.writer().flush() catch {};
                 return try test_runner.run(
                     allocator,
                     exe_full_path,
@@ -8346,8 +8468,8 @@ fn executeTestInner(
                     test_options.selection,
                     test_options.trace_panic,
                     compile_options.jobs,
-                    stdout.any(),
-                    stderr.any(),
+                    run_out_fw.writer(),
+                    run_err_fw.writer(),
                 );
             }
         },
@@ -8437,7 +8559,9 @@ pub fn executeWithWritersAndOptions(
         .install => return try executeInstall(allocator, args[2..], stdout),
         .plugin => return try executePluginCommand(allocator, args[2..], stdout, stderr),
         .build => {
-            var compile_options = newCompileOptions(exec_options, stderr.any());
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
@@ -8480,7 +8604,9 @@ pub fn executeWithWritersAndOptions(
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_workspace => {
-            var compile_options = newCompileOptions(exec_options, stderr.any());
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .none;
@@ -8528,9 +8654,11 @@ pub fn executeWithWritersAndOptions(
         },
         .run => {
             if (args.len < 3) return error.MissingSourcePath;
-            var compile_options = newCompileOptions(exec_options, stderr.any());
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
-            var runtime_args = std.ArrayList([]const u8).init(allocator);
+            var runtime_args = std.array_list.Managed([]const u8).init(allocator);
             defer runtime_args.deinit();
 
             var i: usize = 2;
@@ -8547,7 +8675,9 @@ pub fn executeWithWritersAndOptions(
             return try executeRun(allocator, source, compile_options, runtime_args.items, stdout, stderr, if (json_mode) .json else .human);
         },
         .build_exe => {
-            var compile_options = newCompileOptions(exec_options, stderr.any());
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
@@ -8590,7 +8720,9 @@ pub fn executeWithWritersAndOptions(
             return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_obj => {
-            var compile_options = newCompileOptions(exec_options, stderr.any());
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var debug = false;
@@ -8638,7 +8770,9 @@ pub fn executeWithWritersAndOptions(
             return try executeBuildObj(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, incremental, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_wasm => {
-            var compile_options = newCompileOptions(exec_options, stderr.any());
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var target: WasmTarget = .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
@@ -8688,7 +8822,9 @@ pub fn executeWithWritersAndOptions(
             return try executeBuildWasm(allocator, final_source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_js => {
-            var compile_options = newCompileOptions(exec_options, stderr.any());
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var js_format: emit_js.JsFormat = .esm;
@@ -8732,6 +8868,46 @@ pub fn executeWithWritersAndOptions(
             configureCompileDiagnostics(&compile_options, json_mode);
             return try executeBuildJs(allocator, final_source_path, if (out_path) |p| p else owned_out, js_format, debug, compile_options, stderr, if (json_mode) .json else .human);
         },
+        .build_c => {
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
+            var source_path: ?[]const u8 = null;
+            var out_path: ?[]const u8 = null;
+            var debug = false;
+            var i: usize = 2;
+            while (i < args.len) : (i += 1) {
+                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
+                if (source_path == null) {
+                    source_path = args[i];
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "-o")) {
+                    if (i + 1 >= args.len) return error.MissingOutputPath;
+                    out_path = args[i + 1];
+                    i += 1;
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "-g")) {
+                    debug = true;
+                    continue;
+                }
+                if (std.mem.eql(u8, args[i], "--no-debug")) {
+                    debug = false;
+                    continue;
+                }
+                return error.UnexpectedArgument;
+            }
+            const project_root = try projectRootDir(allocator);
+            defer allocator.free(project_root);
+            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
+            defer if (owned_source_path) |path| allocator.free(path);
+            const final_source_path = source_path orelse owned_source_path.?;
+            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, ".c");
+            defer if (out_path == null) allocator.free(owned_out);
+            configureCompileDiagnostics(&compile_options, json_mode);
+            return try executeBuildC(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, compile_options, stderr, if (json_mode) .json else .human);
+        },
         .bc2sa => {
             if (args.len < 3) return error.MissingSourcePath;
             if (args.len > 3) return error.UnexpectedArgument;
@@ -8746,11 +8922,13 @@ pub fn executeWithWritersAndOptions(
             return 0;
         },
         .test_cmd => {
-            var compile_options = newCompileOptions(exec_options, stderr.any());
+            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+            defer diag_forward.writer().flush() catch {};
+            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
             var source_path: ?[]const u8 = null;
-            var include_filters = std.ArrayList([]const u8).init(allocator);
+            var include_filters = std.array_list.Managed([]const u8).init(allocator);
             defer include_filters.deinit();
-            var skip_filters = std.ArrayList([]const u8).init(allocator);
+            var skip_filters = std.array_list.Managed([]const u8).init(allocator);
             defer skip_filters.deinit();
             var exact = false;
             var run_ignored = test_meta.RunIgnored.normal;
@@ -8841,24 +9019,33 @@ pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8
 }
 
 pub fn execute(allocator: std.mem.Allocator, argv: []const []const u8) !u8 {
-    if (try daemon_client.tryDaemonClient(allocator, argv, std.io.getStdOut().writer())) |code| return code;
-    return executeWithWriters(allocator, argv, std.io.getStdOut().writer(), std.io.getStdErr().writer());
+    var stdout_buf: [8192]u8 = undefined;
+    var stdout_stream = sio.getStdOut().writer(&stdout_buf);
+    var stderr_buf: [8192]u8 = undefined;
+    var stderr_stream = sio.getStdErr().writer(&stderr_buf);
+    const code: u8 = if (try daemon_client.tryDaemonClient(allocator, argv, &stdout_stream.interface)) |c|
+        c
+    else
+        try executeWithWriters(allocator, argv, &stdout_stream.interface, &stderr_stream.interface);
+    stdout_stream.interface.flush() catch {};
+    stderr_stream.interface.flush() catch {};
+    return code;
 }
 
 test "trap reports print a human summary and preserve json payload" {
-    var list = std.ArrayList(u8).init(std.testing.allocator);
-    defer list.deinit();
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
 
     var report = trap.TrapReport{
         .trap = .memory_leak,
         .trap_code = trap.trapCode(.memory_leak),
         .line = 12,
         .source_line = 9,
-        .source_text_buf = [_]u8{0} ** 256,
-        .original_text_buf = [_]u8{0} ** 256,
+        .source_text_buf = std.mem.zeroes([256]u8),
+        .original_text_buf = std.mem.zeroes([256]u8),
         .source_text = null,
         .original_text = null,
-        .register_buf = [_]u8{0} ** 64,
+        .register_buf = std.mem.zeroes([64]u8),
         .register = null,
         .registers = &.{},
         .expected_mask = null,
@@ -8866,10 +9053,10 @@ test "trap reports print a human summary and preserve json payload" {
         .expected_mask_name = null,
         .actual_mask_name = "Active",
         .upstream_loc = null,
-        .upstream_file_buf = [_]u8{0} ** 128,
+        .upstream_file_buf = std.mem.zeroes([128]u8),
         .upstream_line = 42,
         .upstream_col = 7,
-        .function_buf = [_]u8{0} ** 64,
+        .function_buf = std.mem.zeroes([64]u8),
         .function = null,
         .is_ffi_wrapper = false,
         .message = "live registers remain at function exit",
@@ -8883,8 +9070,8 @@ test "trap reports print a human summary and preserve json payload" {
     std.mem.copyForwards(u8, report.upstream_file_buf[0..upstream_file.len], upstream_file);
     const function = "@main() -> i32:";
     std.mem.copyForwards(u8, report.function_buf[0..function.len], function);
-    try printTrapReport(list.writer(), report, .human);
-    const output = list.items;
+    try printTrapReport(&aw.writer, report, .human);
+    const output = aw.written();
 
     try std.testing.expect(std.mem.indexOf(u8, output, "error[MemoryLeak]: live registers remain at function exit") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "  in function @main() -> i32:") != null);
@@ -8900,46 +9087,47 @@ test "trap reports print a human summary and preserve json payload" {
 }
 
 test "cli error printing is detailed and json capable" {
-    var human = std.ArrayList(u8).init(std.testing.allocator);
-    defer human.deinit();
-    try printCliError(human.writer(), error.MissingSourcePath, .human);
-    try std.testing.expect(std.mem.indexOf(u8, human.items, "error[SA-CLI-001]: missing required positional argument") != null);
-    try std.testing.expect(std.mem.indexOf(u8, human.items, "help: pass the source file, project path, or required operand after the command") != null);
+    var haw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer haw.deinit();
+    try printCliError(&haw.writer, error.MissingSourcePath, .human);
+    try std.testing.expect(std.mem.indexOf(u8, haw.written(), "error[SA-CLI-001]: missing required positional argument") != null);
+    try std.testing.expect(std.mem.indexOf(u8, haw.written(), "help: pass the source file, project path, or required operand after the command") != null);
 
-    var json = std.ArrayList(u8).init(std.testing.allocator);
-    defer json.deinit();
-    try printCliError(json.writer(), error.InvalidTarget, .json);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"status\":\"error\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"code\":\"SA-CLI-006\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"name\":\"InvalidTarget\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.items, "\"message\":\"invalid target\"") != null);
+    var jaw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer jaw.deinit();
+    try printCliError(&jaw.writer, error.InvalidTarget, .json);
+    try std.testing.expect(std.mem.indexOf(u8, jaw.written(), "\"status\":\"error\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, jaw.written(), "\"code\":\"SA-CLI-006\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, jaw.written(), "\"name\":\"InvalidTarget\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, jaw.written(), "\"message\":\"invalid target\"") != null);
 }
 
 test "build-workspace command is recognized in help" {
-    var list = std.ArrayList(u8).init(std.testing.allocator);
-    defer list.deinit();
+    var law: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer law.deinit();
 
-    try printUsage(list.writer());
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "build-workspace") != null);
+    try printUsage(&law.writer);
+    try std.testing.expect(std.mem.indexOf(u8, law.written(), "build-workspace") != null);
 
-    list.clearRetainingCapacity();
-    try printCommandHelp(list.writer(), .build_workspace, &.{});
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "usage: sa build-workspace [options]") != null);
+    law.clearRetainingCapacity();
+    try printCommandHelp(&law.writer, .build_workspace, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, law.written(), "usage: sa build-workspace [options]") != null);
 }
 
 test "source tree hash cache reuses mtime size digest without reloading unchanged files" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.setAsCwd();
+    try tdir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("sa_std/core");
+    try tdir.makePath("sa_std/core");
 
     {
-        var file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+        var file = try tdir.createFile("main.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
             \\@import "sa_std/core/cache_probe.sai"
@@ -8949,14 +9137,14 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
         );
     }
     {
-        var file = try tmp.dir.createFile("sa_std/core/cache_probe.sai", .{ .truncate = true });
+        var file = try tdir.createFile("sa_std/core/cache_probe.sai", .{ .truncate = true });
         defer file.close();
         try file.writeAll("#def dep_value = 7\n");
     }
 
-    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const project_root = try sio.cwd().realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
-    const std_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, "sa_std");
+    const std_root = try sio.cwd().realpathAlloc(std.testing.allocator, "sa_std");
     defer std.testing.allocator.free(std_root);
 
     test_source_tree_load_count = 0;
@@ -8979,7 +9167,7 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
     try std.testing.expectEqualSlices(u8, first_digest[0..], second_digest[0..]);
 
     {
-        var file = try tmp.dir.createFile("sa_std/core/cache_probe.sai", .{ .truncate = true });
+        var file = try tdir.createFile("sa_std/core/cache_probe.sai", .{ .truncate = true });
         defer file.close();
         try file.writeAll("#def dep_value = 777\n");
     }
@@ -8993,17 +9181,18 @@ test "source tree hash cache reuses mtime size digest without reloading unchange
 }
 
 test "source tree hash missing import returns PackageNotResolved without ownership errors" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.setAsCwd();
+    try tdir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
-    try tmp.dir.makePath("sa_std/core");
+    try tdir.makePath("sa_std/core");
     {
-        var file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+        var file = try tdir.createFile("main.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
             \\@import "missing.sa"
@@ -9013,9 +9202,9 @@ test "source tree hash missing import returns PackageNotResolved without ownersh
         );
     }
 
-    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const project_root = try sio.cwd().realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
-    const std_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, "sa_std");
+    const std_root = try sio.cwd().realpathAlloc(std.testing.allocator, "sa_std");
     defer std.testing.allocator.free(std_root);
 
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
@@ -9030,16 +9219,17 @@ test "source tree hash cache LRU is opt-in" {
     test_source_tree_hash_cache_max_entries = 1;
     defer test_source_tree_hash_cache_max_entries = previous_limit;
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.setAsCwd();
+    try tdir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
     {
-        var file = try tmp.dir.createFile("a.sa", .{ .truncate = true });
+        var file = try tdir.createFile("a.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
             \\@main() -> i32:
@@ -9048,7 +9238,7 @@ test "source tree hash cache LRU is opt-in" {
         );
     }
     {
-        var file = try tmp.dir.createFile("b.sa", .{ .truncate = true });
+        var file = try tdir.createFile("b.sa", .{ .truncate = true });
         defer file.close();
         try file.writeAll(
             \\@main() -> i32:
@@ -9057,7 +9247,7 @@ test "source tree hash cache LRU is opt-in" {
         );
     }
 
-    const project_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const project_root = try sio.cwd().realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(project_root);
 
     test_source_tree_load_count = 0;
@@ -9117,11 +9307,12 @@ test "duplicate definition trap gets a repair hint" {
 }
 
 test "compileSource accepts true SAB without text flattener" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    try tmp.dir.setAsCwd();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
+    try tdir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
     const reg_ids = [_]u32{1};
@@ -9147,7 +9338,7 @@ test "compileSource accepts true SAB without text flattener" {
 
     const bytes = try sab.encodeProgram(std.testing.allocator, &.{ "main", "value" }, &.{fsig}, &.{ decl, assign, ret });
     defer std.testing.allocator.free(bytes);
-    try tmp.dir.writeFile(.{ .sub_path = "main.sab", .data = bytes });
+    try tdir.writeFile(.{ .sub_path = "main.sab", .data = bytes });
 
     var compiled = try compileSource(std.testing.allocator, "main.sab", .{});
     switch (compiled) {
@@ -9160,11 +9351,12 @@ test "compileSource accepts true SAB without text flattener" {
 }
 
 test "check --emit-sab roundtrips through compileSource without text fallback" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    try tmp.dir.setAsCwd();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
+    try tdir.setAsCwd();
     defer original_cwd.setAsCwd() catch {};
 
     // Write a minimal .sa program, compile it, encode to SAB via the same
@@ -9178,7 +9370,7 @@ test "check --emit-sab roundtrips through compileSource without text fallback" {
         \\    x = add 40, 2
         \\    return x
     ;
-    try tmp.dir.writeFile(.{ .sub_path = "rt.sa", .data = sa_source });
+    try tdir.writeFile(.{ .sub_path = "rt.sa", .data = sa_source });
 
     var compiled_sa = try compileSource(std.testing.allocator, "rt.sa", .{});
     var ok_sa = switch (compiled_sa) {
@@ -9193,7 +9385,7 @@ test "check --emit-sab roundtrips through compileSource without text fallback" {
     try std.testing.expect(sab_bytes.len > 6);
     try std.testing.expectEqualStrings("SAB\x00", sab_bytes[0..4]);
     try std.testing.expectEqual(@as(u8, 4), sab_bytes[4]);
-    try tmp.dir.writeFile(.{ .sub_path = "rt.sab", .data = sab_bytes });
+    try tdir.writeFile(.{ .sub_path = "rt.sab", .data = sab_bytes });
 
     var compiled_sab = try compileSource(std.testing.allocator, "rt.sab", .{});
     switch (compiled_sab) {
@@ -9206,8 +9398,8 @@ test "check --emit-sab roundtrips through compileSource without text fallback" {
     }
 
     // Corrupt SAB must fail with a SAB-specific error, not fall back to text.
-    try tmp.dir.writeFile(.{ .sub_path = "bad.sab", .data = sab_bytes[0..10] });
+    try tdir.writeFile(.{ .sub_path = "bad.sab", .data = sab_bytes[0..10] });
     try std.testing.expectError(error.TruncatedSab, compileSource(std.testing.allocator, "bad.sab", .{}));
-    try tmp.dir.writeFile(.{ .sub_path = "fake.sab", .data = "this is not a sab binary" });
+    try tdir.writeFile(.{ .sub_path = "fake.sab", .data = "this is not a sab binary" });
     try std.testing.expectError(error.InvalidSabMagic, compileSource(std.testing.allocator, "fake.sab", .{}));
 }

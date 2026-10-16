@@ -1,0 +1,59 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"435\n"
+
+// 435 - later store wins: fallible fn overwrites its slot
+// (1.5 then 2.5 loads back 2.5).
+@overwrite() -> f64!:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    five = 5 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    five_f = sitofp five as f64
+    two_half = fdiv five_f, two_f
+    buf = alloc 8
+    store buf+0, one_half as f64
+    store buf+0, two_half as f64
+    g = load buf+0 as f64
+    ok = fcmp_eq g, two_half
+    !three
+    !two_i
+    !five
+    !three_f
+    !two_f
+    !one_half
+    !five_f
+    !two_half
+    !buf
+    !g
+    !ok
+    return g
+
+@main() -> i32:
+L_ENTRY:
+    r = call @overwrite()
+    v = ?r
+    five = 5 as i32
+    two_i = 2 as i32
+    five_f = sitofp five as f64
+    two_f = sitofp two_i as f64
+    expect = fdiv five_f, two_f
+    ok = fcmp_eq v, expect
+    !r
+    !v
+    !five
+    !two_i
+    !five_f
+    !two_f
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

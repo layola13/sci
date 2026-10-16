@@ -84,17 +84,17 @@ pub fn writeList(stdout: anytype, tests: []const test_meta.TestDescAndFn, select
 }
 
 test "formatter writes stable summary text" {
-    var out = std.ArrayList(u8).init(std.testing.allocator);
-    defer out.deinit();
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
 
-    try writeSummary(out.writer(), .{
+    try writeSummary(&aw.writer, .{
         .passed = 2,
         .failed = 0,
         .skipped = 1,
         .ignored = 0,
     });
 
-    try std.testing.expectEqualStrings("----\ntest result: ok. 2 passed; 0 failed; 1 skipped\n", out.items);
+    try std.testing.expectEqualStrings("----\ntest result: ok. 2 passed; 0 failed; 1 skipped\n", aw.writer.buffered());
 }
 
 test "formatter lists selected tests with flags and locations" {
@@ -125,23 +125,23 @@ test "formatter lists selected tests with flags and locations" {
         },
     };
 
-    var out = std.ArrayList(u8).init(std.testing.allocator);
-    defer out.deinit();
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
 
-    try writeList(out.writer(), tests[0..], .{ .ignored = .include });
+    try writeList(&aw.writer, tests[0..], .{ .ignored = .include });
 
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "- simple pass (tests/basic.sa:3:1)"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "- ignored panic [ignored] [should_panic] (tests/basic.sa:9:1)"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, out.items, 1, "test count: 2"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "- simple pass (tests/basic.sa:3:1)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "- ignored panic [ignored] [should_panic] (tests/basic.sa:9:1)"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, aw.writer.buffered(), 1, "test count: 2"));
 }
 
 test "formatter writes failure output through test_result" {
-    var stdout = std.ArrayList(u8).init(std.testing.allocator);
-    defer stdout.deinit();
-    var stderr = std.ArrayList(u8).init(std.testing.allocator);
-    defer stderr.deinit();
+    var out_aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out_aw.deinit();
+    var err_aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer err_aw.deinit();
 
-    try writeOutcome(stdout.writer(), stderr.writer(), .{
+    try writeOutcome(&out_aw.writer, &err_aw.writer, .{
         .desc = .{
             .id = 1,
             .name = "panic path",
@@ -157,7 +157,7 @@ test "formatter writes failure output through test_result" {
         },
     });
 
-    try std.testing.expect(std.mem.containsAtLeast(u8, stdout.items, 1, "[FAIL] panic path"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stderr.items, 1, "failed to launch test panic path: ChildProcessFailed"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, stderr.items, 1, "panic text"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, out_aw.writer.buffered(), 1, "[FAIL] panic path"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, err_aw.writer.buffered(), 1, "failed to launch test panic path: ChildProcessFailed"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, err_aw.writer.buffered(), 1, "panic text"));
 }

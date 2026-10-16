@@ -22,7 +22,6 @@ pub const DceMode = enum {
 pub const EmitOptions = struct {
     debug: bool = false,
     wasm_compat: bool = false,
-    wasm_std_archive: bool = false,
     jobs: ?usize = null,
     test_mode: bool = false,
     opt_level: u8 = 0,

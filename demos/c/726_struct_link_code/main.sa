@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"726\n"
+
+// 726 - Linked pair: first points count 2, 700 + 26 == 726.
+@main() -> i32:
+L_ENTRY:
+    head = alloc 16
+    store head+0, 2 as i64
+    store head+8, 700 as i64
+    n = load head+0 as i64
+    base = load head+8 as i64
+    two = 2 as i64
+    ok_n = eq n, two
+    addend = 26 as i64
+    got = add base, addend
+    want = 726 as i64
+    ok_v = eq got, want
+    ok = and ok_n, ok_v
+    !head
+    !n
+    !base
+    !two
+    !ok_n
+    !addend
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

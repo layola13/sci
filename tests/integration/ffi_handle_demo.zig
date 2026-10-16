@@ -1,9 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const saasm = @import("saasm");
+const sio = @import("sio");
 
 fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
-    const result = try std.process.Child.run(.{
+    const result = try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
@@ -11,7 +12,7 @@ fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) return error.TestUnexpectedResult;
         },
         else => return error.TestUnexpectedResult,
@@ -21,7 +22,7 @@ fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
 }
 
 test "ffi handle demo exposes an exported C ABI symbol" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -33,13 +34,13 @@ test "ffi handle demo exposes an exported C ABI symbol" {
     const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const build_obj_argv = [_][]const u8{ "sa", "build-obj", sa_source, "-o", "handle.o" };
     try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, build_obj_argv[0..]));
 
-    const artifact_file = try std.fs.cwd().openFile("handle.o.sa.bc", .{});
+    const artifact_file = try sio.cwd().openFile("handle.o.sa.bc", .{});
     defer artifact_file.close();
     const artifact_bytes = try artifact_file.readToEndAlloc(std.testing.allocator, 1 << 20);
     defer std.testing.allocator.free(artifact_bytes);
@@ -55,14 +56,14 @@ test "ffi handle demo exposes an exported C ABI symbol" {
         "-o",
         "handle_demo",
     };
-    const cc_result = try std.process.Child.run(.{
+    const cc_result = try sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = cc_argv[0..],
     });
     defer std.testing.allocator.free(cc_result.stdout);
     defer std.testing.allocator.free(cc_result.stderr);
     switch (cc_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
         else => return error.TestUnexpectedResult,
     }
 

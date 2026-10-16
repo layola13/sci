@@ -1,0 +1,48 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"954\n"
+
+// 954 - Conveyor: 900 + 20 + 20 + 14 == 954 via 3 stages.
+@cv20(x: i64) -> i64:
+L_ENTRY:
+    k = 20 as i64
+    r = add x, k
+    !x
+    !k
+    return r
+
+@cv14(x: i64) -> i64:
+L_ENTRY:
+    k = 14 as i64
+    r = add x, k
+    !x
+    !k
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    base = 900 as i64
+    v1 = call @cv20(base)
+    v2 = call @cv20(v1)
+    v = call @cv14(v2)
+    want = 954 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !base
+    !v1
+    !v2
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

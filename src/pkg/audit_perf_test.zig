@@ -7,7 +7,7 @@ test "audit scans synthesized package within fifty milliseconds" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("pkg/src");
+    try tmp.dir.createDirPath(std.testing.io, "pkg/src");
     const file_count: usize = 64;
     for (0..file_count) |idx| {
         const path = try std.fmt.allocPrint(std.testing.allocator, "pkg/src/mod{d:0>2}.sa", .{idx});
@@ -23,10 +23,10 @@ test "audit scans synthesized package within fifty milliseconds" {
             .{ idx, idx },
         );
         defer std.testing.allocator.free(source);
-        try tmp.dir.writeFile(.{ .sub_path = path, .data = source });
+        try tmp.dir.writeFile(std.testing.io, .{ .sub_path = path, .data = source });
     }
 
-    const root = try tmp.dir.realpathAlloc(std.testing.allocator, "pkg");
+    const root = try tmp.dir.realPathFileAlloc(std.testing.io, "pkg", std.testing.allocator);
     defer std.testing.allocator.free(root);
     const grants = [_]manifest.Capability{.io_write};
 

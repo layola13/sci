@@ -8,13 +8,13 @@ fn resolveRootedImport(
     const candidate = try std.fs.path.join(allocator, &.{ root_path, import_rel });
     defer allocator.free(candidate);
 
-    const canonical_entry = std.fs.cwd().realpathAlloc(allocator, candidate) catch return null;
+    const canonical_entry = sio.cwd().realpathAlloc(allocator, candidate) catch return null;
     errdefer allocator.free(canonical_entry);
 
-    const canonical_root = std.fs.cwd().realpathAlloc(allocator, root_path) catch return null;
+    const canonical_root = sio.cwd().realpathAlloc(allocator, root_path) catch return null;
     errdefer allocator.free(canonical_root);
 
-    const source = std.fs.cwd().readFileAlloc(allocator, canonical_entry, max_bytes) catch return null;
+    const source = sio.cwd().readFileAlloc(allocator, canonical_entry, max_bytes) catch return null;
     errdefer allocator.free(source);
 
     const source_hash = try computeResolvedSourceHash(allocator, canonical_entry, canonical_root, source);

@@ -1,1 +1,19 @@
-pub usingnamespace @import("../../common/signature.zig");
+// NOTE(Zig 0.17): `pub usingnamespace` is removed; re-export explicitly.
+const src = @import("../../common/signature.zig");
+pub const FallibleInfo = src.FallibleInfo;
+pub const FunctionKind = src.FunctionKind;
+pub const FunctionSig = src.FunctionSig;
+pub const ParamSpec = src.ParamSpec;
+pub const ParseError = src.ParseError;
+pub const PrimType = src.PrimType;
+pub const displayName = src.displayName;
+pub const parseFunctionHeader = src.parseFunctionHeader;
+pub const parseFunctionSig = src.parseFunctionSig;
+pub const parsePrimType = src.parsePrimType;
+pub const primTypeBits = src.primTypeBits;
+pub const primTypeBytes = src.primTypeBytes;
+pub const primTypeFromTag = src.primTypeFromTag;
+pub const primTypeName = src.primTypeName;
+pub const returnValueType = src.returnValueType;
+pub const testLLVMName = src.testLLVMName;
+pub const writeFunctionHeader = src.writeFunctionHeader;

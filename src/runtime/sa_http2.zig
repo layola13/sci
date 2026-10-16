@@ -8,29 +8,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-
-// wasm32-wasi has no dlopen: stub DynLib so loader probes honestly report
-// "unsupported" instead of breaking the build (std.DynLib is unsupported on WASI).
-const is_wasi = builtin.os.tag == .wasi;
-const WasiDynLib = struct {
-    fn open(path: []const u8) !WasiDynLib {
-        _ = path;
-        return error.Unsupported;
-    }
-    fn openZ(path: [:0]const u8) !WasiDynLib {
-        _ = path;
-        return error.Unsupported;
-    }
-    fn close(self: WasiDynLib) void {
-        _ = self;
-    }
-    fn lookup(self: WasiDynLib, comptime T: type, name: [:0]const u8) ?T {
-        _ = self;
-        _ = name;
-        return null;
-    }
-};
-const DynLib = if (is_wasi) WasiDynLib else std.DynLib;
+const sio = @import("sio");
 
 // --- outcome helpers (mirrors the sa_plugin_node private surface) ---
 
@@ -43,10 +21,14 @@ fn fail() u32 {
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
-const SA_STD_ERR_UNSUPPORTED: i32 = -1;
 
-var buffer_registry_mutex = std.Thread.Mutex{};
-var buffer_slots = std.ArrayListUnmanaged(?BufferEntry){};
+// wasm32-wasi: usize is 32-bit, C ABI passes u64 lengths. Checked conversion.
+fn u64ToUsize(v: u64) ?usize {
+    return std.math.cast(usize, v);
+}
+
+var buffer_registry_mutex = std.Io.Mutex.init;
+var buffer_slots = std.ArrayListUnmanaged(?BufferEntry).empty;
 
 const BufferEntry = struct {
     bytes: []u8,
@@ -57,8 +39,8 @@ const BufferEntry = struct {
 // convention. On failure the bytes are freed and 0 is returned (0 == invalid
 // handle, consistent with sci's other handle registries).
 fn registerBuffer(bytes: []u8) u64 {
-    buffer_registry_mutex.lock();
-    defer buffer_registry_mutex.unlock();
+    buffer_registry_mutex.lockUncancelable(sio.io());
+    defer buffer_registry_mutex.unlock(sio.io());
     var i: usize = 0;
     while (i < buffer_slots.items.len) : (i += 1) {
         if (buffer_slots.items[i] == null) {
@@ -75,8 +57,8 @@ fn registerBuffer(bytes: []u8) u64 {
 
 fn takeBuffer(handle: u64) ?[]u8 {
     if (handle == 0) return null;
-    buffer_registry_mutex.lock();
-    defer buffer_registry_mutex.unlock();
+    buffer_registry_mutex.lockUncancelable(sio.io());
+    defer buffer_registry_mutex.unlock(sio.io());
     const idx: usize = @intCast(handle - 1);
     if (idx >= buffer_slots.items.len) return null;
     const entry = buffer_slots.items[idx] orelse return null;
@@ -88,24 +70,33 @@ fn registerOwnedString(text: []const u8) u64 {
     return registerBuffer(owned);
 }
 
-fn jsonEscapeAppend(out: *std.ArrayList(u8), bytes: []const u8) !void {
+// NOTE(Zig 0.17): `Managed.writer()` is gone; bridge formatted output
+// through an allocating writer using the list's own allocator.
+fn managedPrint(list: *std.array_list.Managed(u8), comptime fmt: []const u8, args: anytype) !void {
+    var aw: std.Io.Writer.Allocating = .init(list.allocator);
+    defer aw.deinit();
+    try aw.writer.print(fmt, args);
+    try list.appendSlice(aw.written());
+}
+
+fn jsonEscapeAppend(out: *std.array_list.Managed(u8), bytes: []const u8) !void {
     for (bytes) |b| switch (b) {
         '"' => try out.appendSlice("\\\""),
         '\\' => try out.appendSlice("\\\\"),
         '\n' => try out.appendSlice("\\n"),
         '\r' => try out.appendSlice("\\r"),
         '\t' => try out.appendSlice("\\t"),
-        else => if (b < 0x20) try out.writer().print("\\u{x:0>4}", .{b}) else try out.append(b),
+        else => if (b < 0x20) try managedPrint(out, "\\u{x:0>4}", .{b}) else try out.append(b),
     };
 }
 
-fn appendJsonString(out: *std.ArrayList(u8), bytes: []const u8) !void {
+fn appendJsonString(out: *std.array_list.Managed(u8), bytes: []const u8) !void {
     try out.append('"');
     try jsonEscapeAppend(out, bytes);
     try out.append('"');
 }
 
-fn appendStringArray(out: *std.ArrayList(u8), items: []const []const u8) !void {
+fn appendStringArray(out: *std.array_list.Managed(u8), items: []const []const u8) !void {
     try out.append('[');
     for (items, 0..) |item, i| {
         if (i != 0) try out.append(',');
@@ -166,7 +157,7 @@ const Nghttp2SessionWantFn = *const fn (?*Nghttp2Session) callconv(.c) c_int;
 const Nghttp2VersionFn = *const fn (c_int) callconv(.c) ?*const Nghttp2Version;
 
 const Nghttp2Api = struct {
-    lib: DynLib,
+    lib: if (builtin.cpu.arch.isWasm()) void else std.DynLib,
     callbacks_new: Nghttp2CallbacksNewFn,
     callbacks_del: Nghttp2CallbacksDelFn,
     callbacks_set_on_header_callback: Nghttp2SetOnHeaderFn,
@@ -184,11 +175,12 @@ const Nghttp2Api = struct {
 };
 
 var nghttp2_api: ?Nghttp2Api = null;
-var nghttp2_api_mutex = std.Thread.Mutex{};
+var nghttp2_api_mutex = std.Io.Mutex.init;
 
 fn loadNghttp2Api() ?*Nghttp2Api {
-    nghttp2_api_mutex.lock();
-    defer nghttp2_api_mutex.unlock();
+    if (comptime builtin.cpu.arch.isWasm()) return null;
+    nghttp2_api_mutex.lockUncancelable(sio.io());
+    defer nghttp2_api_mutex.unlock(sio.io());
     if (nghttp2_api) |*api| return api;
 
     const candidates = [_][]const u8{
@@ -198,7 +190,7 @@ fn loadNghttp2Api() ?*Nghttp2Api {
     };
 
     for (candidates) |candidate| {
-        var lib = DynLib.open(candidate) catch continue;
+        var lib = std.DynLib.open(candidate) catch continue;
         const callbacks_new = lib.lookup(Nghttp2CallbacksNewFn, "nghttp2_session_callbacks_new") orelse {
             lib.close();
             continue;
@@ -281,15 +273,15 @@ fn loadNghttp2Api() ?*Nghttp2Api {
 
 const Http2ResponseState = struct {
     allocator: std.mem.Allocator,
-    headers: std.ArrayList(Header),
-    body: std.ArrayList(u8),
+    headers: std.array_list.Managed(Header),
+    body: std.array_list.Managed(u8),
     status: u16 = 0,
     frames: u64 = 0,
 
     const Header = struct { name: []u8, value: []u8 };
 
     fn init(allocator: std.mem.Allocator) Http2ResponseState {
-        return .{ .allocator = allocator, .headers = std.ArrayList(Header).init(allocator), .body = std.ArrayList(u8).init(allocator) };
+        return .{ .allocator = allocator, .headers = std.array_list.Managed(Header).init(allocator), .body = std.array_list.Managed(u8).init(allocator) };
     }
 
     fn deinit(self: *Http2ResponseState) void {
@@ -345,15 +337,29 @@ fn http2DataRead(_: ?*Nghttp2Session, _: i32, buf: [*]u8, len: usize, data_flags
     return @intCast(n);
 }
 
-fn http2FlushOutbound(api: *Nghttp2Api, session: ?*Nghttp2Session, stream: *std.net.Stream) u32 {
+fn http2FlushOutbound(api: *Nghttp2Api, session: ?*Nghttp2Session, stream: *std.Io.net.Stream) u32 {
     while (api.session_want_write(session) != 0) {
         var data_ptr: ?[*]const u8 = null;
         const n = api.session_mem_send(session, &data_ptr);
         if (n < 0) return fail();
         if (n == 0) break;
-        stream.writeAll(data_ptr.?[0..@intCast(n)]) catch return fail();
+        var wbuf: [8192]u8 = undefined;
+        var w = stream.writer(sio.io(), &wbuf);
+        w.interface.writeAll(data_ptr.?[0..@intCast(n)]) catch return fail();
+        w.interface.flush() catch return fail();
     }
     return 0;
+}
+
+// NOTE(Zig 0.17): literals connect directly, hostnames via Happy-Eyeballs
+// HostName.connect (same policy as the ws/tls clients).
+fn http2Dial(host: []const u8, port: u16) !std.Io.net.Stream {
+    if (std.Io.net.IpAddress.parse(host, port)) |addr| {
+        var a = addr;
+        return a.connect(sio.io(), .{ .mode = .stream });
+    } else |_| {}
+    const hn = try std.Io.net.HostName.init(host);
+    return hn.connect(sio.io(), port, .{ .mode = .stream });
 }
 
 fn http2ParseUrl(url: []const u8) !struct { scheme: []const u8, host: []const u8, port: u16, path: []const u8 } {
@@ -383,7 +389,7 @@ fn http2ParseUrl(url: []const u8) !struct { scheme: []const u8, host: []const u8
     };
     if (host.len == 0) return error.InvalidUrl;
     if (std.mem.indexOfScalar(u8, host, ':') != null) {
-        _ = std.net.Address.parseIp6(host, port) catch return error.InvalidUrl;
+        _ = std.Io.net.IpAddress.parseIp6(host, port) catch return error.InvalidUrl;
     }
     return .{ .scheme = scheme, .host = host, .port = port, .path = path };
 }
@@ -409,7 +415,7 @@ const Http2SettingPair = struct {
     value: u32,
 };
 
-fn http2AppendSetting(out: *std.ArrayList(u8), id: u16, value: u32) !void {
+fn http2AppendSetting(out: *std.array_list.Managed(u8), id: u16, value: u32) !void {
     try out.append(@intCast((id >> 8) & 0xff));
     try out.append(@intCast(id & 0xff));
     try out.append(@intCast((value >> 24) & 0xff));
@@ -438,20 +444,20 @@ fn http2JsonBool(value: std.json.Value) ?bool {
     };
 }
 
-fn http2AppendNumericSetting(out: *std.ArrayList(u8), obj: std.json.ObjectMap, key: []const u8, id: u16, min: u32, max: u32) !void {
+fn http2AppendNumericSetting(out: *std.array_list.Managed(u8), obj: std.json.ObjectMap, key: []const u8, id: u16, min: u32, max: u32) !void {
     const value = obj.get(key) orelse return;
     const n = http2JsonNumber(value) orelse return error.InvalidSetting;
     if (n < min or n > max) return error.InvalidSetting;
     try http2AppendSetting(out, id, n);
 }
 
-fn http2AppendBoolSetting(out: *std.ArrayList(u8), obj: std.json.ObjectMap, key: []const u8, id: u16) !void {
+fn http2AppendBoolSetting(out: *std.array_list.Managed(u8), obj: std.json.ObjectMap, key: []const u8, id: u16) !void {
     const value = obj.get(key) orelse return;
     const enabled = http2JsonBool(value) orelse return error.InvalidSetting;
     try http2AppendSetting(out, id, if (enabled) 1 else 0);
 }
 
-fn http2AppendMaxHeaderSetting(out: *std.ArrayList(u8), obj: std.json.ObjectMap) !void {
+fn http2AppendMaxHeaderSetting(out: *std.array_list.Managed(u8), obj: std.json.ObjectMap) !void {
     const list_value = obj.get("maxHeaderListSize");
     const size_value = obj.get("maxHeaderSize");
     const value = size_value orelse list_value orelse return;
@@ -469,7 +475,7 @@ fn http2KnownSetting(id: u16) bool {
         id == HTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL;
 }
 
-fn http2AppendCustomSettings(out: *std.ArrayList(u8), obj: std.json.ObjectMap) !void {
+fn http2AppendCustomSettings(out: *std.array_list.Managed(u8), obj: std.json.ObjectMap) !void {
     const custom = obj.get("customSettings") orelse return;
     if (custom != .object) return error.InvalidSetting;
     if (custom.object.count() > HTTP2_MAX_CUSTOM_SETTINGS) return error.InvalidSetting;
@@ -492,7 +498,7 @@ fn http2ReadSetting(buf: []const u8, offset: usize) Http2SettingPair {
     return .{ .id = id, .value = value };
 }
 
-fn http2AppendFrame(out: *std.ArrayList(u8), frame_type: u8, flags: u8, stream_id: u32, payload: []const u8) !void {
+fn http2AppendFrame(out: *std.array_list.Managed(u8), frame_type: u8, flags: u8, stream_id: u32, payload: []const u8) !void {
     if (payload.len > HTTP2_MAX_FRAME_SIZE) return error.FrameTooLarge;
     try out.append(@intCast((payload.len >> 16) & 0xff));
     try out.append(@intCast((payload.len >> 8) & 0xff));
@@ -524,14 +530,14 @@ fn http2ReadFrameHeader(buf: []const u8) !Http2FrameHeader {
     return .{ .len = len, .frame_type = buf[3], .flags = buf[4], .stream_id = stream_id };
 }
 
-fn http2AppendJsonU32Field(out: *std.ArrayList(u8), first: *bool, name: []const u8, value: u32) !void {
+fn http2AppendJsonU32Field(out: *std.array_list.Managed(u8), first: *bool, name: []const u8, value: u32) !void {
     if (!first.*) try out.append(',');
     first.* = false;
     try appendJsonString(out, name);
-    try out.writer().print(":{d}", .{value});
+    try managedPrint(out, ":{d}", .{value});
 }
 
-fn http2AppendJsonBoolField(out: *std.ArrayList(u8), first: *bool, name: []const u8, value: bool) !void {
+fn http2AppendJsonBoolField(out: *std.array_list.Managed(u8), first: *bool, name: []const u8, value: bool) !void {
     if (!first.*) try out.append(',');
     first.* = false;
     try appendJsonString(out, name);
@@ -573,23 +579,25 @@ fn writeHandle(out_handle: ?*u64, handle: u64) i32 {
 }
 
 pub export fn sa_std_http2_client_request(url_ptr: ?[*]const u8, url_len: u64, method_ptr: ?[*]const u8, method_len: u64, body_ptr: ?[*]const u8, body_len: u64, out_handle: ?*u64) i32 {
-    // WASI has no sockets/dlopen: no transport available.
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
+    if (comptime builtin.cpu.arch.isWasm()) return SA_STD_ERR_INVALID_ARGUMENT;
     const api = loadNghttp2Api() orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const allocator = std.heap.page_allocator;
-    const url = if (url_ptr) |p| p[0..url_len] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const url_n = u64ToUsize(url_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const method_n = u64ToUsize(method_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const body_n = u64ToUsize(body_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const url = if (url_ptr) |p| p[0..url_n] else return SA_STD_ERR_INVALID_ARGUMENT;
     const parsed = http2ParseUrl(url) catch {
         return handleFromConst("{\"error\":\"url\"}");
     };
-    const method = if (method_ptr) |ptr| ptr[0..method_len] else "GET";
-    const body = if (body_ptr) |ptr| ptr[0..body_len] else "";
+    const method = if (method_ptr) |ptr| ptr[0..method_n] else "GET";
+    const body = if (body_ptr) |ptr| ptr[0..body_n] else "";
 
-    var stream = std.net.tcpConnectToHost(allocator, parsed.host, parsed.port) catch {
+    var stream = http2Dial(parsed.host, parsed.port) catch {
         return handleFromConst("{\"error\":\"connect\"}");
     };
-    defer stream.close();
+    defer stream.close(sio.io());
 
     var state = Http2ResponseState.init(allocator);
     defer state.deinit();
@@ -634,7 +642,7 @@ pub export fn sa_std_http2_client_request(url_ptr: ?[*]const u8, url_len: u64, m
     var saw_response = false;
     var idle_reads: u8 = 0;
     while (api.session_want_read(session) != 0 and idle_reads < 4) {
-        const n = stream.read(&read_buf) catch return SA_STD_ERR_INVALID_ARGUMENT;
+        const n = std.posix.read(stream.socket.handle, &read_buf) catch return SA_STD_ERR_INVALID_ARGUMENT;
         if (n == 0) break;
         idle_reads = 0;
         const consumed = api.session_mem_recv(session, &read_buf, n);
@@ -645,9 +653,9 @@ pub export fn sa_std_http2_client_request(url_ptr: ?[*]const u8, url_len: u64, m
     }
 
     if (!saw_response) return SA_STD_ERR_INVALID_ARGUMENT;
-    var owned_json = std.ArrayList(u8).init(allocator);
+    var owned_json = std.array_list.Managed(u8).init(allocator);
     errdefer owned_json.deinit();
-    owned_json.writer().print("{{\"status\":{d},\"headers\":{{", .{state.status}) catch return SA_STD_ERR_NO_MEMORY;
+    managedPrint(&owned_json, "{{\"status\":{d},\"headers\":{{", .{state.status}) catch return SA_STD_ERR_NO_MEMORY;
     var first = true;
     for (state.headers.items) |hdr| {
         if (std.mem.startsWith(u8, hdr.name, ":")) continue;
@@ -659,7 +667,7 @@ pub export fn sa_std_http2_client_request(url_ptr: ?[*]const u8, url_len: u64, m
     }
     owned_json.appendSlice("},\"body\":") catch return SA_STD_ERR_NO_MEMORY;
     appendJsonString(&owned_json, state.body.items) catch return SA_STD_ERR_NO_MEMORY;
-    owned_json.writer().print(",\"bodyLen\":{d},\"frames\":{d}}}", .{ state.body.items.len, state.frames }) catch return SA_STD_ERR_NO_MEMORY;
+    managedPrint(&owned_json, ",\"bodyLen\":{d},\"frames\":{d}}}", .{ state.body.items.len, state.frames }) catch return SA_STD_ERR_NO_MEMORY;
     const out_json = owned_json.toOwnedSlice() catch return SA_STD_ERR_NO_MEMORY;
     return writeHandle(out_handle, registerBuffer(out_json));
 }
@@ -701,16 +709,16 @@ pub export fn sa_std_http2_sensitive_headers(out_handle: ?*u64) i32 {
 }
 
 pub export fn sa_std_http2_get_packed_settings(settings_json_ptr: ?[*]const u8, settings_json_len: u64, out_handle: ?*u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
-    const settings_json = if (settings_json_ptr) |ptr| ptr[0..settings_json_len] else "";
+    const settings_n = u64ToUsize(settings_json_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const settings_json = if (settings_json_ptr) |ptr| ptr[0..settings_n] else "";
     var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, settings_json, .{}) catch return SA_STD_ERR_INVALID_ARGUMENT;
     defer parsed.deinit();
     if (parsed.value != .object) return SA_STD_ERR_INVALID_ARGUMENT;
     const obj = parsed.value.object;
 
-    var out = std.ArrayList(u8).init(std.heap.page_allocator);
+    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer out.deinit();
     http2AppendCustomSettings(&out, obj) catch return SA_STD_ERR_INVALID_ARGUMENT;
     http2AppendNumericSetting(&out, obj, "headerTableSize", HTTP2_SETTINGS_HEADER_TABLE_SIZE, 0, std.math.maxInt(u32)) catch return SA_STD_ERR_INVALID_ARGUMENT;
@@ -726,16 +734,16 @@ pub export fn sa_std_http2_get_packed_settings(settings_json_ptr: ?[*]const u8, 
 }
 
 pub export fn sa_std_http2_get_unpacked_settings_json(buf_ptr: ?[*]const u8, buf_len: u64, out_handle: ?*u64) i32 {
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
-    const buf = if (buf_ptr) |ptr| ptr[0..buf_len] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const buf_n = u64ToUsize(buf_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const buf = if (buf_ptr) |ptr| ptr[0..buf_n] else return SA_STD_ERR_INVALID_ARGUMENT;
     if (buf.len % 6 != 0) return SA_STD_ERR_INVALID_ARGUMENT;
-    var out = std.ArrayList(u8).init(std.heap.page_allocator);
+    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer out.deinit();
     out.append('{') catch return SA_STD_ERR_NO_MEMORY;
     var first = true;
-    var custom = std.ArrayList(Http2SettingPair).init(std.heap.page_allocator);
+    var custom = std.array_list.Managed(Http2SettingPair).init(std.heap.page_allocator);
     defer custom.deinit();
 
     var offset: usize = 0;
@@ -762,7 +770,7 @@ pub export fn sa_std_http2_get_unpacked_settings_json(buf_ptr: ?[*]const u8, buf
         out.appendSlice("\"customSettings\":{") catch return SA_STD_ERR_NO_MEMORY;
         for (custom.items, 0..) |pair, i| {
             if (i != 0) out.append(',') catch return SA_STD_ERR_NO_MEMORY;
-            out.writer().print("\"{d}\":{d}", .{ pair.id, pair.value }) catch return SA_STD_ERR_NO_MEMORY;
+            managedPrint(&out, "\"{d}\":{d}", .{ pair.id, pair.value }) catch return SA_STD_ERR_NO_MEMORY;
         }
         out.append('}') catch return SA_STD_ERR_NO_MEMORY;
     }
@@ -779,8 +787,6 @@ pub export fn sa_std_http2_perform_server_handshake(
     out_bytes_handle: ?*u64,
     out_json_handle: ?*u64,
 ) i32 {
-    // WASI has no sockets/dlopen: no transport available.
-    if (is_wasi) return SA_STD_ERR_UNSUPPORTED;
     {
         const b = out_bytes_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
         b.* = 0;
@@ -789,7 +795,8 @@ pub export fn sa_std_http2_perform_server_handshake(
         const j = out_json_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
         j.* = 0;
     }
-    const input = (input_ptr orelse return SA_STD_ERR_INVALID_ARGUMENT)[0..input_len];
+    const input_n = u64ToUsize(input_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const input = (input_ptr orelse return SA_STD_ERR_INVALID_ARGUMENT)[0..input_n];
     if (input.len < HTTP2_CLIENT_PREFACE.len + 9) return SA_STD_ERR_INVALID_ARGUMENT;
     if (!std.mem.eql(u8, input[0..HTTP2_CLIENT_PREFACE.len], HTTP2_CLIENT_PREFACE)) return SA_STD_ERR_INVALID_ARGUMENT;
 
@@ -815,16 +822,16 @@ pub export fn sa_std_http2_perform_server_handshake(
     defer std.heap.page_allocator.free(server_settings_owned);
     const server_settings = server_settings_owned;
 
-    var outbound = std.ArrayList(u8).init(std.heap.page_allocator);
+    var outbound = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer outbound.deinit();
     http2AppendFrame(&outbound, HTTP2_FRAME_SETTINGS, 0, 0, server_settings) catch return SA_STD_ERR_INVALID_ARGUMENT;
     http2AppendFrame(&outbound, HTTP2_FRAME_SETTINGS, HTTP2_FLAG_ACK, 0, "") catch return SA_STD_ERR_INVALID_ARGUMENT;
 
-    var meta = std.ArrayList(u8).init(std.heap.page_allocator);
+    var meta = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer meta.deinit();
     meta.appendSlice("{\"preface\":true,\"clientSettings\":") catch return SA_STD_ERR_NO_MEMORY;
     meta.appendSlice(client_settings_json) catch return SA_STD_ERR_NO_MEMORY;
-    meta.writer().print(",\"clientSettingsBytes\":{d},\"serverSettingsBytes\":{d},\"outboundBytes\":{d},\"frames\":[\"SETTINGS\",\"SETTINGS_ACK\"]}}", .{
+    managedPrint(&meta, ",\"clientSettingsBytes\":{d},\"serverSettingsBytes\":{d},\"outboundBytes\":{d},\"frames\":[\"SETTINGS\",\"SETTINGS_ACK\"]}}", .{
         client_settings.len,
         server_settings.len,
         outbound.items.len,
@@ -860,7 +867,7 @@ pub export fn sa_std_http2_supported(out_bool: ?*u32) i32 {
 pub export fn sa_std_http2_status_json(out_handle: ?*u64) i32 {
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
-    var out = std.ArrayList(u8).init(std.heap.page_allocator);
+    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer out.deinit();
     out.appendSlice("{\"module\":\"http2\",\"backend\":\"libnghttp2\",\"supported\":") catch return SA_STD_ERR_NO_MEMORY;
     out.appendSlice(if (loadNghttp2Api() != null) "true" else "false") catch return SA_STD_ERR_NO_MEMORY;
@@ -889,8 +896,8 @@ pub export fn sa_std_http2_buffer_len(handle: u64) u64 {
 }
 
 pub export fn sa_std_http2_buffer_free(handle: u64) i32 {
-    buffer_registry_mutex.lock();
-    defer buffer_registry_mutex.unlock();
+    buffer_registry_mutex.lockUncancelable(sio.io());
+    defer buffer_registry_mutex.unlock(sio.io());
     if (handle == 0) return SA_STD_OK;
     const idx: usize = @intCast(handle - 1);
     if (idx >= buffer_slots.items.len) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -1000,7 +1007,7 @@ test "pack -> unpack is self-inverse for custom settings" {
 test "perform_server_handshake round-trips a client preface + SETTINGS frame" {
     // Build a synthetic client preface: connection preface bytes followed by a
     // single SETTINGS frame carrying one pair (max_frame_size=16384 == 0x05).
-    var input = std.ArrayList(u8).init(std.heap.page_allocator);
+    var input = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer input.deinit();
     try input.appendSlice(HTTP2_CLIENT_PREFACE);
     // frame: length=6, type=SETTINGS(4), flags=0, stream_id=0, payload 6 bytes
@@ -1174,7 +1181,7 @@ test "get_unpacked_settings_json rejects buffers whose length is not a multiple 
 
 test "perform_server_handshake rejects a SETTINGS frame that carries the ACK flag" {
     // preface + a SETTINGS frame with ACK set (flags byte = 0x1) must fail.
-    var input = std.ArrayList(u8).init(std.heap.page_allocator);
+    var input = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer input.deinit();
     try input.appendSlice(HTTP2_CLIENT_PREFACE);
     try input.append(0); // len>>16
@@ -1196,7 +1203,7 @@ test "perform_server_handshake rejects a SETTINGS frame that carries the ACK fla
 }
 
 test "perform_server_handshake rejects a non-SETTINGS first frame type" {
-    var input = std.ArrayList(u8).init(std.heap.page_allocator);
+    var input = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer input.deinit();
     try input.appendSlice(HTTP2_CLIENT_PREFACE);
     // PING frame (type 6) instead of SETTINGS — must fail.
@@ -1216,7 +1223,7 @@ test "perform_server_handshake rejects a non-SETTINGS first frame type" {
 }
 
 test "perform_server_handshake rejects a SETTINGS frame on a non-zero stream id" {
-    var input = std.ArrayList(u8).init(std.heap.page_allocator);
+    var input = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer input.deinit();
     try input.appendSlice(HTTP2_CLIENT_PREFACE);
     try input.append(0);

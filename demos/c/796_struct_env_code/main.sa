@@ -1,0 +1,37 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"796\n"
+
+// 796 - Env triple: mode 1, base 700, addend 96 sum == 796.
+@main() -> i32:
+L_ENTRY:
+    env = alloc 24
+    store env+0, 1 as i64
+    store env+8, 700 as i64
+    store env+16, 96 as i64
+    mode = load env+0 as i64
+    base = load env+8 as i64
+    addend = load env+16 as i64
+    one = 1 as i64
+    ok_mode = eq mode, one
+    got = add base, addend
+    want = 796 as i64
+    ok_v = eq got, want
+    ok = and ok_mode, ok_v
+    !env
+    !mode
+    !base
+    !addend
+    !one
+    !ok_mode
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

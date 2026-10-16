@@ -3,12 +3,15 @@ const std = @import("std");
 const wasm = std.wasm;
 
 const encoder = struct {
-    fn writeUleb128(writer: anytype, value: anytype) !void {
-        try std.leb.writeUleb128(writer, value);
+    // NOTE(Zig 0.17): `std.leb.writeUleb128/writeIleb128` are gone; the
+    // `std.Io.Writer` methods below encode identically (verified by the
+    // round-trip tests in this file).
+    fn writeUleb128(writer: *std.Io.Writer, value: anytype) !void {
+        try writer.writeUleb128(value);
     }
 
-    fn writeIleb128(writer: anytype, value: anytype) !void {
-        try std.leb.writeIleb128(writer, value);
+    fn writeIleb128(writer: *std.Io.Writer, value: anytype) !void {
+        try writer.writeSleb128(value);
     }
 };
 
@@ -92,12 +95,12 @@ pub const DataSegment = union(enum) {
 
 pub const TypeSection = struct {
     allocator: std.mem.Allocator,
-    items: std.ArrayList(FunctionType),
+    items: std.array_list.Managed(FunctionType),
 
     pub fn init(allocator: std.mem.Allocator) TypeSection {
         return .{
             .allocator = allocator,
-            .items = std.ArrayList(FunctionType).init(allocator),
+            .items = std.array_list.Managed(FunctionType).init(allocator),
         };
     }
 
@@ -109,30 +112,30 @@ pub const TypeSection = struct {
         try self.items.append(func_type);
     }
 
-    pub fn write(self: *const TypeSection, writer: anytype) !void {
+    pub fn write(self: *const TypeSection, writer: *std.Io.Writer) !void {
         if (self.items.items.len == 0) return;
 
-        var payload = std.ArrayList(u8).init(self.allocator);
+        var payload: std.Io.Writer.Allocating = .init(self.allocator);
         defer payload.deinit();
 
-        const payload_writer = payload.writer();
+        const payload_writer = &payload.writer;
         try encoder.writeUleb128(payload_writer, try u32FromLen(self.items.items.len));
         for (self.items.items) |func_type| {
             try writeFunctionType(payload_writer, func_type);
         }
 
-        try emitSection(writer, .type, payload.items);
+        try emitSection(writer, .type, payload.writer.buffered());
     }
 };
 
 pub const ImportSection = struct {
     allocator: std.mem.Allocator,
-    items: std.ArrayList(Import),
+    items: std.array_list.Managed(Import),
 
     pub fn init(allocator: std.mem.Allocator) ImportSection {
         return .{
             .allocator = allocator,
-            .items = std.ArrayList(Import).init(allocator),
+            .items = std.array_list.Managed(Import).init(allocator),
         };
     }
 
@@ -144,13 +147,13 @@ pub const ImportSection = struct {
         try self.items.append(entry);
     }
 
-    pub fn write(self: *const ImportSection, writer: anytype) !void {
+    pub fn write(self: *const ImportSection, writer: *std.Io.Writer) !void {
         if (self.items.items.len == 0) return;
 
-        var payload = std.ArrayList(u8).init(self.allocator);
+        var payload: std.Io.Writer.Allocating = .init(self.allocator);
         defer payload.deinit();
 
-        const payload_writer = payload.writer();
+        const payload_writer = &payload.writer;
         try encoder.writeUleb128(payload_writer, try u32FromLen(self.items.items.len));
         for (self.items.items) |entry| {
             try writeName(payload_writer, entry.module);
@@ -171,18 +174,18 @@ pub const ImportSection = struct {
             }
         }
 
-        try emitSection(writer, .import, payload.items);
+        try emitSection(writer, .import, payload.writer.buffered());
     }
 };
 
 pub const FunctionSection = struct {
     allocator: std.mem.Allocator,
-    items: std.ArrayList(u32),
+    items: std.array_list.Managed(u32),
 
     pub fn init(allocator: std.mem.Allocator) FunctionSection {
         return .{
             .allocator = allocator,
-            .items = std.ArrayList(u32).init(allocator),
+            .items = std.array_list.Managed(u32).init(allocator),
         };
     }
 
@@ -194,30 +197,30 @@ pub const FunctionSection = struct {
         try self.items.append(type_index);
     }
 
-    pub fn write(self: *const FunctionSection, writer: anytype) !void {
+    pub fn write(self: *const FunctionSection, writer: *std.Io.Writer) !void {
         if (self.items.items.len == 0) return;
 
-        var payload = std.ArrayList(u8).init(self.allocator);
+        var payload: std.Io.Writer.Allocating = .init(self.allocator);
         defer payload.deinit();
 
-        const payload_writer = payload.writer();
+        const payload_writer = &payload.writer;
         try encoder.writeUleb128(payload_writer, try u32FromLen(self.items.items.len));
         for (self.items.items) |type_index| {
             try encoder.writeUleb128(payload_writer, type_index);
         }
 
-        try emitSection(writer, .function, payload.items);
+        try emitSection(writer, .function, payload.writer.buffered());
     }
 };
 
 pub const MemorySection = struct {
     allocator: std.mem.Allocator,
-    items: std.ArrayList(MemoryType),
+    items: std.array_list.Managed(MemoryType),
 
     pub fn init(allocator: std.mem.Allocator) MemorySection {
         return .{
             .allocator = allocator,
-            .items = std.ArrayList(MemoryType).init(allocator),
+            .items = std.array_list.Managed(MemoryType).init(allocator),
         };
     }
 
@@ -229,30 +232,30 @@ pub const MemorySection = struct {
         try self.items.append(memory);
     }
 
-    pub fn write(self: *const MemorySection, writer: anytype) !void {
+    pub fn write(self: *const MemorySection, writer: *std.Io.Writer) !void {
         if (self.items.items.len == 0) return;
 
-        var payload = std.ArrayList(u8).init(self.allocator);
+        var payload: std.Io.Writer.Allocating = .init(self.allocator);
         defer payload.deinit();
 
-        const payload_writer = payload.writer();
+        const payload_writer = &payload.writer;
         try encoder.writeUleb128(payload_writer, try u32FromLen(self.items.items.len));
         for (self.items.items) |memory| {
             try writeMemoryType(payload_writer, memory);
         }
 
-        try emitSection(writer, .memory, payload.items);
+        try emitSection(writer, .memory, payload.writer.buffered());
     }
 };
 
 pub const GlobalSection = struct {
     allocator: std.mem.Allocator,
-    items: std.ArrayList(Global),
+    items: std.array_list.Managed(Global),
 
     pub fn init(allocator: std.mem.Allocator) GlobalSection {
         return .{
             .allocator = allocator,
-            .items = std.ArrayList(Global).init(allocator),
+            .items = std.array_list.Managed(Global).init(allocator),
         };
     }
 
@@ -264,31 +267,31 @@ pub const GlobalSection = struct {
         try self.items.append(global);
     }
 
-    pub fn write(self: *const GlobalSection, writer: anytype) !void {
+    pub fn write(self: *const GlobalSection, writer: *std.Io.Writer) !void {
         if (self.items.items.len == 0) return;
 
-        var payload = std.ArrayList(u8).init(self.allocator);
+        var payload: std.Io.Writer.Allocating = .init(self.allocator);
         defer payload.deinit();
 
-        const payload_writer = payload.writer();
+        const payload_writer = &payload.writer;
         try encoder.writeUleb128(payload_writer, try u32FromLen(self.items.items.len));
         for (self.items.items) |global| {
             try writeGlobalType(payload_writer, global.ty);
             try writeInitExpression(payload_writer, global.init);
         }
 
-        try emitSection(writer, .global, payload.items);
+        try emitSection(writer, .global, payload.writer.buffered());
     }
 };
 
 pub const ExportSection = struct {
     allocator: std.mem.Allocator,
-    items: std.ArrayList(Export),
+    items: std.array_list.Managed(Export),
 
     pub fn init(allocator: std.mem.Allocator) ExportSection {
         return .{
             .allocator = allocator,
-            .items = std.ArrayList(Export).init(allocator),
+            .items = std.array_list.Managed(Export).init(allocator),
         };
     }
 
@@ -300,13 +303,13 @@ pub const ExportSection = struct {
         try self.items.append(entry);
     }
 
-    pub fn write(self: *const ExportSection, writer: anytype) !void {
+    pub fn write(self: *const ExportSection, writer: *std.Io.Writer) !void {
         if (self.items.items.len == 0) return;
 
-        var payload = std.ArrayList(u8).init(self.allocator);
+        var payload: std.Io.Writer.Allocating = .init(self.allocator);
         defer payload.deinit();
 
-        const payload_writer = payload.writer();
+        const payload_writer = &payload.writer;
         try encoder.writeUleb128(payload_writer, try u32FromLen(self.items.items.len));
         for (self.items.items) |entry| {
             try writeName(payload_writer, entry.name);
@@ -314,18 +317,18 @@ pub const ExportSection = struct {
             try encoder.writeUleb128(payload_writer, entry.index);
         }
 
-        try emitSection(writer, .@"export", payload.items);
+        try emitSection(writer, .@"export", payload.writer.buffered());
     }
 };
 
 pub const CodeSection = struct {
     allocator: std.mem.Allocator,
-    items: std.ArrayList(FunctionBody),
+    items: std.array_list.Managed(FunctionBody),
 
     pub fn init(allocator: std.mem.Allocator) CodeSection {
         return .{
             .allocator = allocator,
-            .items = std.ArrayList(FunctionBody).init(allocator),
+            .items = std.array_list.Managed(FunctionBody).init(allocator),
         };
     }
 
@@ -337,30 +340,30 @@ pub const CodeSection = struct {
         try self.items.append(body);
     }
 
-    pub fn write(self: *const CodeSection, writer: anytype) !void {
+    pub fn write(self: *const CodeSection, writer: *std.Io.Writer) !void {
         if (self.items.items.len == 0) return;
 
-        var payload = std.ArrayList(u8).init(self.allocator);
+        var payload: std.Io.Writer.Allocating = .init(self.allocator);
         defer payload.deinit();
 
-        const payload_writer = payload.writer();
+        const payload_writer = &payload.writer;
         try encoder.writeUleb128(payload_writer, try u32FromLen(self.items.items.len));
         for (self.items.items) |body| {
             try writeFunctionBody(self.allocator, payload_writer, body);
         }
 
-        try emitSection(writer, .code, payload.items);
+        try emitSection(writer, .code, payload.writer.buffered());
     }
 };
 
 pub const DataSection = struct {
     allocator: std.mem.Allocator,
-    items: std.ArrayList(DataSegment),
+    items: std.array_list.Managed(DataSegment),
 
     pub fn init(allocator: std.mem.Allocator) DataSection {
         return .{
             .allocator = allocator,
-            .items = std.ArrayList(DataSegment).init(allocator),
+            .items = std.array_list.Managed(DataSegment).init(allocator),
         };
     }
 
@@ -372,19 +375,19 @@ pub const DataSection = struct {
         try self.items.append(segment);
     }
 
-    pub fn write(self: *const DataSection, writer: anytype) !void {
+    pub fn write(self: *const DataSection, writer: *std.Io.Writer) !void {
         if (self.items.items.len == 0) return;
 
-        var payload = std.ArrayList(u8).init(self.allocator);
+        var payload: std.Io.Writer.Allocating = .init(self.allocator);
         defer payload.deinit();
 
-        const payload_writer = payload.writer();
+        const payload_writer = &payload.writer;
         try encoder.writeUleb128(payload_writer, try u32FromLen(self.items.items.len));
         for (self.items.items) |segment| {
             try writeDataSegment(payload_writer, segment);
         }
 
-        try emitSection(writer, .data, payload.items);
+        try emitSection(writer, .data, payload.writer.buffered());
     }
 };
 
@@ -424,7 +427,7 @@ pub const ModuleAssembly = struct {
         self.types.deinit();
     }
 
-    pub fn write(self: *const ModuleAssembly, writer: anytype) !void {
+    pub fn write(self: *const ModuleAssembly, writer: *std.Io.Writer) !void {
         try self.validate();
 
         try writer.writeAll(wasm.magic[0..]);
@@ -441,9 +444,9 @@ pub const ModuleAssembly = struct {
     }
 
     pub fn toOwnedBytes(self: *const ModuleAssembly, allocator: std.mem.Allocator) ![]u8 {
-        var bytes = std.ArrayList(u8).init(allocator);
+        var bytes: std.Io.Writer.Allocating = .init(allocator);
         errdefer bytes.deinit();
-        try self.write(bytes.writer());
+        try self.write(&bytes.writer);
         return try bytes.toOwnedSlice();
     }
 
@@ -454,18 +457,18 @@ pub const ModuleAssembly = struct {
     }
 };
 
-fn emitSection(writer: anytype, id: SectionId, payload: []const u8) !void {
+fn emitSection(writer: *std.Io.Writer, id: SectionId, payload: []const u8) !void {
     try writer.writeByte(@intFromEnum(id));
     try encoder.writeUleb128(writer, try u32FromLen(payload.len));
     try writer.writeAll(payload);
 }
 
-fn writeName(writer: anytype, bytes: []const u8) !void {
+fn writeName(writer: *std.Io.Writer, bytes: []const u8) !void {
     try encoder.writeUleb128(writer, try u32FromLen(bytes.len));
     try writer.writeAll(bytes);
 }
 
-fn writeFunctionType(writer: anytype, func_type: FunctionType) !void {
+fn writeFunctionType(writer: *std.Io.Writer, func_type: FunctionType) !void {
     try writer.writeByte(wasm.function_type);
     try encoder.writeUleb128(writer, try u32FromLen(func_type.params.len));
     for (func_type.params) |param| {
@@ -477,7 +480,7 @@ fn writeFunctionType(writer: anytype, func_type: FunctionType) !void {
     }
 }
 
-fn writeMemoryType(writer: anytype, memory: MemoryType) !void {
+fn writeMemoryType(writer: *std.Io.Writer, memory: MemoryType) !void {
     if (memory.limits.flags.is_shared and !memory.limits.flags.has_max) {
         return error.InvalidMemoryLimits;
     }
@@ -493,12 +496,12 @@ fn writeMemoryType(writer: anytype, memory: MemoryType) !void {
     }
 }
 
-fn writeGlobalType(writer: anytype, global_ty: GlobalType) !void {
+fn writeGlobalType(writer: *std.Io.Writer, global_ty: GlobalType) !void {
     try writer.writeByte(@intFromEnum(global_ty.valtype));
     try writer.writeByte(if (global_ty.mutable) 0x01 else 0x00);
 }
 
-fn writeInitExpression(writer: anytype, expr: InitExpression) !void {
+fn writeInitExpression(writer: *std.Io.Writer, expr: InitExpression) !void {
     switch (expr) {
         .i32_const => |value| {
             try writer.writeByte(@intFromEnum(wasm.Opcode.i32_const));
@@ -531,11 +534,11 @@ fn writeInitExpression(writer: anytype, expr: InitExpression) !void {
     try writer.writeByte(@intFromEnum(wasm.Opcode.end));
 }
 
-fn writeFunctionBody(allocator: std.mem.Allocator, writer: anytype, body: FunctionBody) !void {
-    var body_payload = std.ArrayList(u8).init(allocator);
+fn writeFunctionBody(allocator: std.mem.Allocator, writer: *std.Io.Writer, body: FunctionBody) !void {
+    var body_payload: std.Io.Writer.Allocating = .init(allocator);
     defer body_payload.deinit();
 
-    const body_writer = body_payload.writer();
+    const body_writer = &body_payload.writer;
     try encoder.writeUleb128(body_writer, try u32FromLen(body.locals.len));
     for (body.locals) |local| {
         try encoder.writeUleb128(body_writer, local.count);
@@ -544,11 +547,11 @@ fn writeFunctionBody(allocator: std.mem.Allocator, writer: anytype, body: Functi
     try body_writer.writeAll(body.instructions);
     try body_writer.writeByte(@intFromEnum(wasm.Opcode.end));
 
-    try encoder.writeUleb128(writer, try u32FromLen(body_payload.items.len));
-    try writer.writeAll(body_payload.items);
+    try encoder.writeUleb128(writer, try u32FromLen(body_payload.writer.buffered().len));
+    try writer.writeAll(body_payload.writer.buffered());
 }
 
-fn writeDataSegment(writer: anytype, segment: DataSegment) !void {
+fn writeDataSegment(writer: *std.Io.Writer, segment: DataSegment) !void {
     switch (segment) {
         .active => |active| {
             if (active.memory_index == 0) {
@@ -571,6 +574,22 @@ fn writeDataSegment(writer: anytype, segment: DataSegment) !void {
 
 fn u32FromLen(len: usize) !u32 {
     return std.math.cast(u32, len) orelse error.ValueTooLarge;
+}
+
+/// Minimal unsigned-LEB128 decoder for the tests above
+/// (NOTE(Zig 0.17): `std.leb.readUleb128` is gone).
+fn readUlebU32(reader: *std.Io.Reader) !u32 {
+    var result: u32 = 0;
+    var shift: u6 = 0;
+    while (true) {
+        const byte = try reader.takeByte();
+        const low: u32 = byte & 0x7f;
+        if (shift == 28 and low > 0x0f) return error.ValueTooLarge;
+        result |= low << @intCast(shift);
+        if (byte & 0x80 == 0) return result;
+        if (shift == 28) return error.ValueTooLarge;
+        shift += 7;
+    }
 }
 
 test "module assembly emits canonical section order" {
@@ -620,19 +639,18 @@ test "module assembly emits canonical section order" {
     try std.testing.expectEqualSlices(u8, wasm.magic[0..], bytes[0..4]);
     try std.testing.expectEqualSlices(u8, wasm.version[0..], bytes[4..8]);
 
-    var fbs = std.io.fixedBufferStream(bytes[8..]);
-    const reader = fbs.reader();
-    var seen = std.ArrayList(SectionId).init(std.testing.allocator);
+    var fr = std.Io.Reader.fixed(bytes[8..]);
+    var seen = std.array_list.Managed(SectionId).init(std.testing.allocator);
     defer seen.deinit();
 
-    while (fbs.pos < fbs.buffer.len) {
-        const id = try reader.readByte();
-        const section = std.meta.intToEnum(SectionId, id) catch return error.InvalidWasm;
-        const section_len = try std.leb.readUleb128(u32, reader);
-        const section_end = fbs.pos + @as(usize, @intCast(section_len));
-        if (section_end > fbs.buffer.len) return error.InvalidWasm;
+    while (fr.seek < fr.end) {
+        const id = try fr.takeByte();
+        const section: SectionId = @enumFromInt(id);
+        const section_len = try readUlebU32(&fr);
+        const section_end = fr.seek + @as(usize, @intCast(section_len));
+        if (section_end > fr.end) return error.InvalidWasm;
         try seen.append(section);
-        fbs.pos = section_end;
+        fr.seek = section_end;
     }
 
     try std.testing.expectEqualSlices(

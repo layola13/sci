@@ -1,5 +1,6 @@
 const std = @import("std");
 const common = @import("std_smoke_common.zig");
+const sio = @import("sio");
 const saasm = common.saasm;
 
 fn flattenFixture(allocator: std.mem.Allocator, path: []const u8, source: []const u8) !saasm.flattener.FlattenResult {
@@ -401,19 +402,19 @@ test "sa_std io and process interfaces match native resource ABI" {
 }
 
 test "sa_std Deno JSON-RPC params string literal preserves escaped strings" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    const runtime_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
-    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    const pthread_host_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
     defer std.testing.allocator.free(pthread_host_source);
-    const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
+    const include_dir = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -474,7 +475,7 @@ test "sa_std Deno JSON-RPC params string literal preserves escaped strings" {
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -492,7 +493,7 @@ test "sa_std Deno JSON-RPC params string literal preserves escaped strings" {
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -500,26 +501,26 @@ test "sa_std Deno JSON-RPC params string literal preserves escaped strings" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std deno jsonrpc params string literal ok\n", run_result.stdout);
 }
 
 test "sa_std Deno chat SSE fallback normalizes Deno proxy edge cases" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    const runtime_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
-    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    const pthread_host_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
     defer std.testing.allocator.free(pthread_host_source);
-    const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
+    const include_dir = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -652,7 +653,7 @@ test "sa_std Deno chat SSE fallback normalizes Deno proxy edge cases" {
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     const exit_code = switch (build_lib_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => 99,
     };
     if (exit_code != 0) {
@@ -674,7 +675,7 @@ test "sa_std Deno chat SSE fallback normalizes Deno proxy edge cases" {
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -682,26 +683,26 @@ test "sa_std Deno chat SSE fallback normalizes Deno proxy edge cases" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std deno chat sse proxy edge cases ok\n", run_result.stdout);
 }
 
 test "sa_std Deno chat JSON fallback normalizes Deno proxy edge cases" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    const runtime_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
-    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    const pthread_host_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
     defer std.testing.allocator.free(pthread_host_source);
-    const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
+    const include_dir = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -781,7 +782,7 @@ test "sa_std Deno chat JSON fallback normalizes Deno proxy edge cases" {
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -799,7 +800,7 @@ test "sa_std Deno chat JSON fallback normalizes Deno proxy edge cases" {
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -807,26 +808,26 @@ test "sa_std Deno chat JSON fallback normalizes Deno proxy edge cases" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std deno chat json proxy edge cases ok\n", run_result.stdout);
 }
 
 test "sa_std Deno native responses JSON preserves ordinary responses and normalizes thinking" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    const runtime_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
-    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    const pthread_host_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
     defer std.testing.allocator.free(pthread_host_source);
-    const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
+    const include_dir = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -884,7 +885,7 @@ test "sa_std Deno native responses JSON preserves ordinary responses and normali
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -902,7 +903,7 @@ test "sa_std Deno native responses JSON preserves ordinary responses and normali
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -910,26 +911,26 @@ test "sa_std Deno native responses JSON preserves ordinary responses and normali
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std deno responses json normalize ok\n", run_result.stdout);
 }
 
 test "sa_std Deno native responses SSE normalizes MCP events generically" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    const runtime_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
-    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    const pthread_host_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
     defer std.testing.allocator.free(pthread_host_source);
-    const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
+    const include_dir = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -992,7 +993,7 @@ test "sa_std Deno native responses SSE normalizes MCP events generically" {
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -1010,7 +1011,7 @@ test "sa_std Deno native responses SSE normalizes MCP events generically" {
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -1018,26 +1019,26 @@ test "sa_std Deno native responses SSE normalizes MCP events generically" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std deno responses sse normalize ok\n", run_result.stdout);
 }
 
 test "sa_std Deno responses request normalizes MCP server aliases generically" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    const runtime_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
-    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    const pthread_host_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
     defer std.testing.allocator.free(pthread_host_source);
-    const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
+    const include_dir = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -1094,7 +1095,7 @@ test "sa_std Deno responses request normalizes MCP server aliases generically" {
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -1112,7 +1113,7 @@ test "sa_std Deno responses request normalizes MCP server aliases generically" {
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -1120,26 +1121,26 @@ test "sa_std Deno responses request normalizes MCP server aliases generically" {
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std deno responses request normalize ok\n", run_result.stdout);
 }
 
 test "sa_std Deno responses chat fallback request builds chat body from Responses input arrays" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const runtime_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
+    const runtime_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_std.zig");
     defer std.testing.allocator.free(runtime_source);
-    const pthread_host_source = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
+    const pthread_host_source = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime/sa_pthread_host.c");
     defer std.testing.allocator.free(pthread_host_source);
-    const include_dir = try std.fs.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
+    const include_dir = try sio.cwd().realpathAlloc(std.testing.allocator, "src/runtime");
     defer std.testing.allocator.free(include_dir);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const c_source =
@@ -1227,7 +1228,7 @@ test "sa_std Deno responses chat fallback request builds chat body from Response
     defer std.testing.allocator.free(build_lib_result.stdout);
     defer std.testing.allocator.free(build_lib_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_lib_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -1245,7 +1246,7 @@ test "sa_std Deno responses chat fallback request builds chat body from Response
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (build_demo_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
 
@@ -1253,7 +1254,7 @@ test "sa_std Deno responses chat fallback request builds chat body from Response
     defer std.testing.allocator.free(run_result.stdout);
     defer std.testing.allocator.free(run_result.stderr);
     try std.testing.expectEqual(@as(u8, 0), switch (run_result.term) {
-        .Exited => |code| code,
+        .exited => |code| code,
         else => return error.TestUnexpectedResult,
     });
     try std.testing.expectEqualStrings("sa_std deno responses chat fallback request ok\n", run_result.stdout);

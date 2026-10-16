@@ -289,8 +289,8 @@ pub fn encodeSabFromFlatUnchecked(
 }
 
 pub fn disasmSabAlloc(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
-    try sab.disasmModule(allocator, bytes, out.writer());
+    try sab.disasmModule(allocator, bytes, &out.writer);
     return try out.toOwnedSlice();
 }

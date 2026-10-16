@@ -1,0 +1,62 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"456\n"
+@const VAL_VT = vtable { get = @val_get }
+
+#def DynVal_SIZE = 16
+#def DynVal_DATA = +0
+#def DynVal_VTABLE = +8
+
+#def VTable_get = +0
+
+#def Val_SIZE = 8
+#def Val_val = +0
+
+@val_get(&self: ptr) -> f64:
+L_ENTRY:
+    v = load self+Val_val as f64
+    !self
+    return v
+
+@render(&item: ptr) -> f64:
+L_ENTRY:
+    data_ptr = load item+DynVal_DATA as ptr
+    vtable_ptr = load item+DynVal_VTABLE as ptr
+    get_fn = load vtable_ptr+VTable_get as ptr
+    result = call_indirect get_fn(&data_ptr)
+    !get_fn
+    !vtable_ptr
+    !data_ptr
+    !item
+    return result
+
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    val = alloc Val_SIZE
+    store val+Val_val, one_half as f64
+    fat = alloc DynVal_SIZE
+    store fat+DynVal_DATA, val as ptr
+    store fat+DynVal_VTABLE, &VAL_VT as ptr
+    result = call @render(&fat)
+    ok = fcmp_eq result, one_half
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    !val
+    !fat
+    !result
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

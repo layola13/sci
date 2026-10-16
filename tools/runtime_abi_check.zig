@@ -20,9 +20,10 @@ const Config = struct {
     platform: []const u8 = "",
 };
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var config = Config{};
-    var args = try std.process.argsWithAllocator(std.heap.page_allocator);
+    // NOTE(Zig 0.17): argv comes from `Init`; no `argsWithAllocator`.
+    var args = init.minimal.args.iterate();
     defer args.deinit();
     _ = args.next();
     while (args.next()) |arg| {
@@ -44,12 +45,17 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const header = try std.fs.cwd().readFileAlloc(allocator, "src/runtime/sa_std.h", 8 * 1024 * 1024);
-    const linux_source = try std.fs.cwd().readFileAlloc(allocator, "src/runtime/sa_std.zig", 32 * 1024 * 1024);
-    const windows_source = try std.fs.cwd().readFileAlloc(allocator, "src/runtime/sa_std_windows.zig", 32 * 1024 * 1024);
-    const unsupported_source = try std.fs.cwd().readFileAlloc(allocator, "docs/runtime_abi_windows_unsupported.txt", 1 * 1024 * 1024);
-    const extra_source = try std.fs.cwd().readFileAlloc(allocator, "docs/runtime_abi_windows_extra.txt", 1 * 1024 * 1024);
-    const plugin_provided_source = try std.fs.cwd().readFileAlloc(allocator, "docs/runtime_abi_plugin_provided.txt", 1 * 1024 * 1024);
+    // NOTE(Zig 0.17): run via bare `zig run`, so no named/module imports;
+    // read inputs with a process-local Threaded Io instead.
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+    defer threaded.deinit();
+    const tio = threaded.io();
+    const header = try std.Io.Dir.cwd().readFileAlloc(tio, "src/runtime/sa_std.h", allocator, .limited(8 * 1024 * 1024));
+    const linux_source = try std.Io.Dir.cwd().readFileAlloc(tio, "src/runtime/sa_std.zig", allocator, .limited(32 * 1024 * 1024));
+    const windows_source = try std.Io.Dir.cwd().readFileAlloc(tio, "src/runtime/sa_std_windows.zig", allocator, .limited(32 * 1024 * 1024));
+    const unsupported_source = try std.Io.Dir.cwd().readFileAlloc(tio, "docs/runtime_abi_windows_unsupported.txt", allocator, .limited(1 * 1024 * 1024));
+    const extra_source = try std.Io.Dir.cwd().readFileAlloc(tio, "docs/runtime_abi_windows_extra.txt", allocator, .limited(1 * 1024 * 1024));
+    const plugin_provided_source = try std.Io.Dir.cwd().readFileAlloc(tio, "docs/runtime_abi_plugin_provided.txt", allocator, .limited(1 * 1024 * 1024));
 
     var header_symbols = SymbolSet.init(allocator);
     var linux_symbols = SymbolSet.init(allocator);
@@ -222,7 +228,7 @@ fn reportManifestStats(
     );
 
     if (stats.duplicate_symbols.count() != 0) {
-        var names = std.ArrayList([]const u8).init(std.heap.page_allocator);
+        var names = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
         defer names.deinit();
         var iterator = stats.duplicate_symbols.keyIterator();
         while (iterator.next()) |name| names.append(name.*) catch return;
@@ -235,7 +241,7 @@ fn reportManifestStats(
         }
     }
 
-    var domains = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var domains = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer domains.deinit();
     var domain_iterator = stats.domain_counts.keyIterator();
     while (domain_iterator.next()) |domain| domains.append(domain.*) catch return;

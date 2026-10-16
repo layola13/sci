@@ -1,0 +1,25 @@
+@import "sa_std/io/print.sai"
+
+@const RESULT_OK = utf8:"2\n"
+@const RESULT_ERR = utf8:"error\n"
+
+@open_session() -> i32:
+L_ENTRY:
+    return 2
+
+@main() -> i32:
+L_ENTRY:
+    sessions = call @open_session()
+    ok = eq sessions, 2
+    !sessions
+    br ok -> L_OK, L_ERR
+
+L_OK:
+    !ok
+    call @sa_print_bytes(&RESULT_OK, 2)
+    return 0
+
+L_ERR:
+    !ok
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1

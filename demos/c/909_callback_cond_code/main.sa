@@ -1,0 +1,59 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"909\n"
+@const CD_VT = vtable { invoke = @cond_fn }
+
+// 909 - Callback cond: (909>800) and (909<1000) yields 909.
+@cond_fn(lo: i64, hi: i64) -> i64:
+L_ENTRY:
+    x = 909 as i64
+    above = slt lo, x
+    below = slt x, hi
+    both = and above, below
+    br both -> L_HIT, L_MISS
+L_HIT:
+    !lo
+    !hi
+    !x
+    !above
+    !below
+    !both
+    return 909
+L_MISS:
+    !lo
+    !hi
+    !x
+    !above
+    !below
+    !both
+    return 0
+
+@main() -> i32:
+L_ENTRY:
+    t = &CD_VT
+    fp = load t + 0 as ptr
+    l = 800 as i64
+    h = 1000 as i64
+    v = call_indirect fp(l, h)
+    want = 909 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !l
+    !h
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

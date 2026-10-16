@@ -1,0 +1,46 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"589\n"
+@const SUM3_VT = vtable { invoke = @sum_three }
+
+// 589 - Callback add3: 500 + 80 + 9 == 589 through indirect call.
+@sum_three(a: i64, b: i64) -> i64:
+L_ENTRY:
+    ab = add a, b
+    nine = 9 as i64
+    r = add ab, nine
+    !a
+    !b
+    !ab
+    !nine
+    return r
+
+@main() -> i32:
+L_ENTRY:
+    t = &SUM3_VT
+    fp = load t + 0 as ptr
+    x = 500 as i64
+    y = 80 as i64
+    v = call_indirect fp(x, y)
+    want = 589 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !x
+    !y
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

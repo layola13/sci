@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("sio");
 
 pub const Optimization = enum {
     none,
@@ -19,7 +20,7 @@ pub const CompileError = error{
 };
 
 pub const Argv = struct {
-    items: std.ArrayList([]const u8),
+    items: std.array_list.Managed([]const u8),
 
     pub fn slice(self: *const Argv) []const []const u8 {
         return self.items.items;
@@ -31,6 +32,25 @@ pub const Argv = struct {
     }
 };
 
+var zig_exe_cache: ?[]const u8 = null;
+var zig_exe_mu: std.atomic.Mutex = .unlocked;
+
+/// Absolute path of the `zig` driver, resolved once against the live PATH.
+/// See `sio.resolveHostExe`: Zig 0.17 child spawning ignores the live PATH,
+/// so a bare "zig" only resolves inside /usr/local/bin:/bin:/usr/bin.
+fn zigExe() []const u8 {
+    while (!zig_exe_mu.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer zig_exe_mu.unlock();
+    if (zig_exe_cache) |p| return p;
+    if (sio.resolveHostExe(std.heap.page_allocator, "zig") catch null) |p| {
+        zig_exe_cache = p;
+        return p;
+    }
+    return "zig";
+}
+
 pub fn argvForExe(
     allocator: std.mem.Allocator,
     artifact_path: []const u8,
@@ -41,10 +61,15 @@ pub fn argvForExe(
     debug: bool,
     target_triple: ?[]const u8,
 ) !Argv {
-    var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
+    var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
     errdefer argv.deinit();
-    try argv.items.append("zig");
+    try argv.items.append(zigExe());
     try argv.items.append("cc");
+    // NOTE(Zig 0.17): the driver's default UBSan set is much larger than
+    // 0.14's; instrumented objects need a ubsan runtime that native glibc
+    // links do not provide (undefined __ubsan_handle_*). Disable sanitizers
+    // to restore 0.14 link behavior (and remove checking overhead).
+    try argv.items.append("-fno-sanitize=all");
     if (target_triple) |triple| {
         try argv.items.append("-target");
         try argv.items.append(triple);
@@ -91,10 +116,12 @@ pub fn argvForObj(
     debug: bool,
     target_triple: ?[]const u8,
 ) !Argv {
-    var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
+    var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
     errdefer argv.deinit();
-    try argv.items.append("zig");
+    try argv.items.append(zigExe());
     try argv.items.append("cc");
+    // NOTE(Zig 0.17): see argvForExe — disable the driver's default UBSan set.
+    try argv.items.append("-fno-sanitize=all");
     if (target_triple) |triple| {
         try argv.items.append("-target");
         try argv.items.append(triple);
@@ -126,9 +153,9 @@ pub fn argvForRelocatableObj(
     out_path: []const u8,
     input_objects: []const []const u8,
 ) !Argv {
-    var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
+    var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
     errdefer argv.deinit();
-    try argv.items.append("zig");
+    try argv.items.append(zigExe());
     try argv.items.append("cc");
     try argv.items.append("-r");
     for (input_objects) |input| {
@@ -148,10 +175,12 @@ pub fn argvForWasm(
     debug: bool,
     sa_std_archive_path: ?[]const u8,
 ) !Argv {
-    var argv = Argv{ .items = std.ArrayList([]const u8).init(allocator) };
+    var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
     errdefer argv.deinit();
-    try argv.items.append("zig");
+    try argv.items.append(zigExe());
     try argv.items.append("cc");
+    // NOTE(Zig 0.17): see argvForExe — disable the driver's default UBSan set.
+    try argv.items.append("-fno-sanitize=all");
     if (debug) {
         try argv.items.append("-g");
     }
@@ -181,15 +210,15 @@ pub fn argvForWasm(
     return argv;
 }
 
-fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
 }
 
-fn runProcessFast(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.Term {
-    var child = std.process.Child.init(argv, allocator);
+fn runProcessFast(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.Term {
+    var child = sio.Child.init(argv, allocator);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
@@ -218,9 +247,9 @@ fn printCompilerLaunchFailure(writer: anytype, argv: []const []const u8, action:
     try printCommandLine(writer, argv);
 }
 
-fn printCompilerFailure(writer: anytype, argv: []const []const u8, action: []const u8, input_path: []const u8, out_path: []const u8, result: std.process.Child.RunResult) !void {
+fn printCompilerFailure(writer: anytype, argv: []const []const u8, action: []const u8, input_path: []const u8, out_path: []const u8, result: sio.Child.RunResult) !void {
     switch (result.term) {
-        .Exited => |code| try writer.print("error[ExternalCompiler]: zig cc exited with code {d} while {s} {s} -> {s}\n", .{ code, action, input_path, out_path }),
+        .exited => |code| try writer.print("error[ExternalCompiler]: zig cc exited with code {d} while {s} {s} -> {s}\n", .{ code, action, input_path, out_path }),
         else => try writer.print("error[ExternalCompiler]: zig cc terminated unexpectedly while {s} {s} -> {s}\n", .{ action, input_path, out_path }),
     }
     try printCommandLine(writer, argv);
@@ -248,7 +277,7 @@ pub fn compileExe(
     };
 
     const failed = switch (term) {
-        .Exited => |code| code != 0,
+        .exited => |code| code != 0,
         else => true,
     };
     if (failed) {
@@ -281,7 +310,7 @@ pub fn compileObj(
     };
 
     const failed = switch (term) {
-        .Exited => |code| code != 0,
+        .exited => |code| code != 0,
         else => true,
     };
     if (failed) {
@@ -311,7 +340,7 @@ pub fn compileRelocatableObj(
     };
 
     const failed = switch (term) {
-        .Exited => |code| code != 0,
+        .exited => |code| code != 0,
         else => true,
     };
     if (failed) {
@@ -345,7 +374,7 @@ pub fn compileWasm(
     };
 
     const failed = switch (term) {
-        .Exited => |code| code != 0,
+        .exited => |code| code != 0,
         else => true,
     };
     if (failed) {
@@ -363,28 +392,28 @@ pub fn compileWasm(
 test "argv helpers choose the requested optimization" {
     var exe_small = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_small, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false, null);
     defer exe_small.deinit();
-    try std.testing.expectEqualStrings("-O1", exe_small.slice()[2]);
-    try std.testing.expectEqualStrings("-Wl,--strip-debug", exe_small.slice()[3]);
-    try std.testing.expectEqualStrings("/repo/artifacts/sa_std/libsa_std.a", exe_small.slice()[5]);
+    try std.testing.expectEqualStrings("-O1", exe_small.slice()[3]);
+    try std.testing.expectEqualStrings("-Wl,--strip-debug", exe_small.slice()[4]);
+    try std.testing.expectEqualStrings("/repo/artifacts/sa_std/libsa_std.a", exe_small.slice()[6]);
     var exe_fast = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false, null);
     defer exe_fast.deinit();
-    try std.testing.expectEqualStrings("-O3", exe_fast.slice()[2]);
-    try std.testing.expectEqualStrings("-Wl,--strip-debug", exe_fast.slice()[3]);
+    try std.testing.expectEqualStrings("-O3", exe_fast.slice()[3]);
+    try std.testing.expectEqualStrings("-Wl,--strip-debug", exe_fast.slice()[4]);
 
     var exe_debug = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, true, null);
     defer exe_debug.deinit();
-    try std.testing.expectEqualStrings("-g", exe_debug.slice()[2]);
-    try std.testing.expectEqualStrings("-O0", exe_debug.slice()[3]);
+    try std.testing.expectEqualStrings("-g", exe_debug.slice()[3]);
+    try std.testing.expectEqualStrings("-O0", exe_debug.slice()[4]);
     for (exe_debug.slice()) |arg| {
         try std.testing.expect(!std.mem.eql(u8, arg, "-Wl,--strip-debug"));
     }
 
     var wasm_small = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_small, false, null);
     defer wasm_small.deinit();
-    try std.testing.expectEqualStrings("-O1", wasm_small.slice()[4]);
+    try std.testing.expectEqualStrings("-O1", wasm_small.slice()[5]);
     var wasm_fast = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi", .no_entry = true }, .release_fast, false, null);
     defer wasm_fast.deinit();
-    try std.testing.expectEqualStrings("-O3", wasm_fast.slice()[5]);
+    try std.testing.expectEqualStrings("-O3", wasm_fast.slice()[6]);
     var wasm_std = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_fast, false, "/repo/libsa_std.a");
     defer wasm_std.deinit();
     try std.testing.expectEqualStrings("/repo/libsa_std.a", wasm_std.slice()[wasm_std.slice().len - 3]);

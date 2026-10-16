@@ -1,0 +1,36 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"408\n"
+
+// 408 - fmul multiplies exactly (1.5 * 4.0 == 6.0).
+@main() -> i32:
+L_ENTRY:
+    three = 3 as i32
+    two_i = 2 as i32
+    four_i = 4 as i32
+    six_i = 6 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    four = sitofp four_i as f64
+    p = fmul one_half, four
+    six = sitofp six_i as f64
+    ok = fcmp_eq p, six
+    !three
+    !two_i
+    !four_i
+    !six_i
+    !three_f
+    !two_f
+    !one_half
+    !four
+    !p
+    !six
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

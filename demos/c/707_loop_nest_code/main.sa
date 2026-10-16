@@ -1,0 +1,62 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"707\n"
+
+// 707 - Nested countdown: outer 3 + inner sums (3+2+1)*3 == 21,
+// plus 686 == 707.
+@main() -> i32:
+L_ENTRY:
+    acc = 0 as i64
+    o = 0 as i64
+    i = 0 as i64
+    one = 1 as i64
+    three = 3 as i64
+    jmp L_OUTER
+L_OUTER:
+    odone = eq o, 3
+    br odone -> L_DONE, L_INNER_INIT
+L_INNER_INIT:
+    !odone
+    i = sub i, i
+    i = add i, one
+    jmp L_INNER
+L_INNER:
+    idone = eq i, 4
+    br idone -> L_NEXT, L_IBODY
+L_IBODY:
+    !idone
+    acc = add acc, i
+    i = add i, one
+    jmp L_INNER
+L_NEXT:
+    !idone
+    o = add o, one
+    jmp L_OUTER
+L_DONE:
+    !odone
+    !i
+    want_sum = 18 as i64
+    ok_sum = eq acc, want_sum
+    base = 689 as i64
+    got = add acc, base
+    want = 707 as i64
+    ok_v = eq got, want
+    ok = and ok_sum, ok_v
+    !acc
+    !o
+    !one
+    !three
+    !want_sum
+    !ok_sum
+    !base
+    !got
+    !want
+    !ok_v
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

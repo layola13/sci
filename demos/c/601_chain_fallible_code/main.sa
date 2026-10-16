@@ -1,0 +1,49 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"601\n"
+
+// 601 - Chain into guard: 600 + 1 == 601 with code 0.
+@base() -> i64:
+L_ENTRY:
+    return 600
+
+@guard(fail: i64) -> i64:
+L_ENTRY:
+    bad = eq fail, 1
+    br bad -> L_FAIL, L_SUCC
+L_SUCC:
+    !fail
+    !bad
+    return 0
+L_FAIL:
+    !fail
+    !bad
+    return 7
+
+@main() -> i32:
+L_ENTRY:
+    z = 0 as i64
+    code = call @guard(z)
+    b = call @base()
+    one = 1 as i64
+    v = add b, one
+    want = 601 as i64
+    ok_v = eq v, want
+    ok_c = eq code, 0
+    ok = and ok_v, ok_c
+    !z
+    !code
+    !b
+    !one
+    !v
+    !want
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

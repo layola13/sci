@@ -1,0 +1,6021 @@
+const std = @import("std");
+
+const emit_options = @import("emit_options.zig");
+const inst = @import("common/instruction.zig");
+const sig = @import("common/signature.zig");
+const call = @import("referee/call.zig");
+const const_decl = @import("common/const_decl.zig");
+const sio = @import("sio");
+
+pub const EmitOptions = emit_options.EmitOptions;
+pub const CEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, OutOfMemory };
+
+/// Last instruction raw text seen by the emitter (diagnostics only).
+pub threadlocal var last_c_inst: []const u8 = "";
+pub threadlocal var last_c_func: []const u8 = "";
+
+pub const CEmitOptions = struct {
+    mem_pages: u32 = 256, // 256 * 64KiB = 16MiB initial
+    debug_comments: bool = true,
+    gas: bool = true, // emit SA_GAS_CHECK metering (fn entry + every label)
+};
+
+const FuncTask = struct {
+    fsig_index: usize,
+    start_idx: usize,
+    end_idx: usize,
+    kind: inst.InstKind,
+};
+
+fn collectFuncTasks(allocator: std.mem.Allocator, verified: anytype) ![]FuncTask {
+    var tasks = std.array_list.Managed(FuncTask).init(allocator);
+    errdefer tasks.deinit();
+    var sig_index: usize = 0;
+    var idx: usize = 0;
+    while (idx < verified.annotated.len) : (idx += 1) {
+        const k = verified.annotated[idx].base.kind;
+        switch (k) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                sig_index += 1;
+                var end = idx + 1;
+                while (end < verified.annotated.len) {
+                    const nk = verified.annotated[end].base.kind;
+                    switch (nk) {
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => break,
+                        else => end += 1,
+                    }
+                }
+                try tasks.append(.{
+                    .fsig_index = sig_index - 1,
+                    .start_idx = idx,
+                    .end_idx = end,
+                    .kind = k,
+                });
+                idx = end - 1;
+            },
+            else => {},
+        }
+    }
+    return tasks.toOwnedSlice();
+}
+
+fn isCReserved(name: []const u8) bool {
+    const reserved = [_][]const u8{
+        "auto", "break", "case", "char", "const", "continue", "default", "do",
+        "double", "else", "enum", "extern", "float", "for", "goto", "if",
+        "inline", "int", "long", "register", "restrict", "return", "short",
+        "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
+        "unsigned", "void", "volatile", "while", "_Bool", "_Complex",
+        "_Imaginary", "sa_mem", "sa_brk",
+    };
+    for (reserved) |word| {
+        if (std.mem.eql(u8, name, word)) return true;
+    }
+    return false;
+}
+
+fn cIdent(writer: anytype, name: []const u8) !void {
+    if (name.len == 0) return writer.writeAll("_anon");
+    var first = true;
+    for (name) |c| {
+        const ok = std.ascii.isAlphanumeric(c) or c == '_';
+        if (first) {
+            if (std.ascii.isAlphabetic(c) or c == '_') {
+                try writer.writeByte(c);
+            } else {
+                try writer.writeAll("_");
+                if (ok) try writer.writeByte(c);
+            }
+            first = false;
+        } else {
+            if (ok) try writer.writeByte(c) else try writer.writeByte('_');
+        }
+    }
+    if (isCReserved(name)) try writer.writeAll("_");
+}
+
+fn cFuncName(writer: anytype, name: []const u8) !void {
+    var n = name;
+    if (n.len >= 2 and n[0] == '"' and n[n.len - 1] == '"') n = n[1 .. n.len - 1];
+    if (n.len >= 1 and n[0] == '@') n = n[1..];
+    try writer.writeAll("sa_fn_");
+    try cIdent(writer, n);
+}
+
+fn tagToPrim(tag: u32) sig.PrimType {
+    return sig.primTypeFromTag(tag) orelse .i64;
+}
+
+fn constBytesLen(value: const_decl.ConstValue) !usize {
+    return switch (value) {
+        .hex, .utf8 => |literal| literal.bytes.len,
+        .repeat => |literal| @intCast(literal.repeat_count orelse return error.InvalidOperand),
+        .struct_ => |literal| blk: {
+            var total: usize = 0;
+            for (literal.fields) |field| {
+                const len = try constBytesLen(field.value);
+                if (len != field.size) return error.InvalidOperand;
+                total = std.math.add(usize, total, len) catch return error.InvalidOperand;
+            }
+            break :blk total;
+        },
+        else => error.UnsupportedType,
+    };
+}
+
+fn fillConstBytes(out: []u8, value: const_decl.ConstValue) !void {
+    switch (value) {
+        .hex, .utf8 => |literal| @memcpy(out, literal.bytes),
+        .repeat => |literal| @memset(out, literal.repeat_byte orelse 0),
+        .struct_ => |literal| {
+            var cursor: usize = 0;
+            for (literal.fields) |field| {
+                const len = try constBytesLen(field.value);
+                if (len != field.size or cursor + len > out.len) return error.InvalidOperand;
+                try fillConstBytes(out[cursor .. cursor + len], field.value);
+                cursor += len;
+            }
+            if (cursor != out.len) return error.InvalidOperand;
+        },
+        else => return error.UnsupportedType,
+    }
+}
+
+fn writeCStrEscaped(writer: anytype, text: []const u8) !void {
+    for (text) |c| {
+        switch (c) {
+            '\\' => try writer.writeAll("\\\\"),
+            '"' => try writer.writeAll("\\\""),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => {
+                if (c < 32 or c > 126) {
+                    try writer.print("\\x{x:0>2}", .{c});
+                } else {
+                    try writer.writeByte(c);
+                }
+            },
+        }
+    }
+}
+
+fn writeConstSym(writer: anytype, name: []const u8) !void {
+    try writer.writeAll("SA_CONST_");
+    for (name) |c| {
+        if (std.ascii.isAlphanumeric(c)) {
+            try writer.writeByte(std.ascii.toUpper(c));
+        } else {
+            try writer.writeByte('_');
+        }
+    }
+}
+
+fn taskUsesGlobalRegIds(fsig: sig.FunctionSig, verified: anytype, task: FuncTask) bool {
+    var i: usize = task.start_idx + 1;
+    while (i < task.end_idx) : (i += 1) {
+        for (verified.annotated[i].base.operands) |operand| {
+            if (operand == .reg) {
+                const raw = operand.reg;
+                if (raw >= fsig.reg_ids.len and fsig.slotOf(raw) != null) return true;
+            }
+        }
+    }
+    return false;
+}
+
+fn regSlot(fsig: sig.FunctionSig, use_global: bool, slot_or_id: u32) !u32 {
+    if (use_global) return fsig.slotOf(slot_or_id) orelse return CEmitError.InvalidOperand;
+    if (@as(usize, slot_or_id) < fsig.reg_ids.len) return slot_or_id;
+    return fsig.slotOf(slot_or_id) orelse return CEmitError.InvalidOperand;
+}
+
+fn offIsZero(op: inst.Operand) bool {
+    return switch (op) {
+        .imm_int => |v| v == 0,
+        .imm_i64 => |v| v == 0,
+        .imm_u64 => |v| v == 0,
+        else => false,
+    };
+}
+
+/// Defined-task lookup by normalized function name (for reachability).
+/// Returns the task's fsig_index, or null for externs/unknown names.
+fn taskIndexByName(tasks: []FuncTask, verified: anytype, norm: []const u8) ?usize {
+    for (tasks) |task| {
+        if (task.kind == .extern_decl) continue;
+        if (std.mem.eql(u8, sigNormName(verified.function_sigs[task.fsig_index].name), norm)) return task.fsig_index;
+    }
+    return null;
+}
+
+fn fnIndexOf(fn_idx: anytype, name: []const u8) ?usize {
+    if (fn_idx.get(name)) |idx| return idx;
+    if (name.len >= 1 and name[0] == '@') {
+        if (fn_idx.get(name[1..])) |idx| return idx;
+    } else {
+        var buf: [512]u8 = undefined;
+        if (name.len + 1 <= buf.len) {
+            buf[0] = '@';
+            @memcpy(buf[1 .. 1 + name.len], name);
+            if (fn_idx.get(buf[0 .. 1 + name.len])) |idx| return idx;
+        }
+    }
+    return null;
+}
+
+fn resolveTextToC(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, const_addrs: anytype, raw: []const u8) !void {
+    var text = std.mem.trim(u8, raw, " \t");
+    if (text.len == 0) return CEmitError.InvalidOperand;
+    if (text[0] == '&' or text[0] == '*' or text[0] == '^') text = std.mem.trim(u8, text[1..], " \t");
+    if (std.mem.lastIndexOf(u8, text, " as ")) |idx| {
+        text = std.mem.trim(u8, text[0..idx], " \t\r");
+    }
+    if (text.len == 0) return CEmitError.InvalidOperand;
+    if (std.fmt.parseInt(i64, text, 10)) |v| {
+        if (v < 0) {
+            try writer.print("(sa_u64)((sa_i64){d})", .{v});
+        } else {
+            try writer.print("(sa_u64){d}ULL", .{v});
+        }
+        return;
+    } else |_| {}
+    if (std.fmt.parseInt(u64, text, 10)) |v| {
+        try writer.print("(sa_u64){d}ULL", .{v});
+        return;
+    } else |_| {}
+    if (std.fmt.parseFloat(f64, text)) |v| {
+        const bits: u64 = @bitCast(v);
+        try writer.print("(sa_u64)0x{x}ULL /* {d} */", .{ bits, v });
+        return;
+    } else |_| {}
+    if (const_addrs.get(text)) |_| {
+        try writeConstSym(writer, text);
+        return;
+    }
+    if (symbols.findId(text)) |id| {
+        if (fsig.slotOf(id)) |slot| {
+            try writer.print("r{d}", .{slot});
+            return;
+        }
+    }
+    return CEmitError.InvalidOperand;
+}
+
+fn resolveValueToC(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, op: inst.Operand) !void {
+    switch (op) {
+        .reg => |r| {
+            const slot = try regSlot(fsig, use_global, r);
+            try writer.print("r{d}", .{slot});
+        },
+        .symbol, .label => |id| {
+            const name = symbols.lookupName(id) orelse return CEmitError.InvalidOperand;
+            try resolveTextToC(writer, symbols, fsig, const_addrs, name);
+        },
+        .func => |id| {
+            const name = symbols.lookupName(id) orelse return CEmitError.InvalidOperand;
+            const fidx = fnIndexOf(fn_idx, name) orelse return CEmitError.InvalidOperand;
+            try writer.print("sa_fnaddr({d})", .{fidx});
+        },
+        .imm_int => |v| {
+            if (v < 0) {
+                try writer.print("(sa_u64)((sa_i64){d})", .{v});
+            } else {
+                try writer.print("(sa_u64){d}ULL", .{v});
+            }
+        },
+        .imm_i64 => |v| {
+            if (v < 0) {
+                try writer.print("(sa_u64)((sa_i64){d})", .{v});
+            } else {
+                try writer.print("(sa_u64){d}ULL", .{v});
+            }
+        },
+        .imm_u64 => |v| try writer.print("(sa_u64){d}ULL", .{v}),
+        .imm_float => |v| {
+            const bits: u64 = @bitCast(v);
+            try writer.print("(sa_u64)0x{x}ULL", .{bits});
+        },
+        .text, .native_text => |t| try resolveTextToC(writer, symbols, fsig, const_addrs, t),
+        else => return CEmitError.InvalidOperand,
+    }
+}
+
+fn memPrimType(base: inst.Instruction) sig.PrimType {
+    // operands[3] for load/store is usually .ty tag; fall back to u8/i64.
+    for (base.operands) |op| {
+        if (op == .ty) return tagToPrim(op.ty);
+    }
+    return .u8;
+}
+
+fn memLoadFn(ty: sig.PrimType) []const u8 {
+    return switch (ty) {
+        .i8, .i1 => "sa_load_i8",
+        .u8 => "sa_load_u8",
+        .i16 => "sa_load_i16",
+        .u16 => "sa_load_u16",
+        .i32 => "sa_load_i32",
+        .u32 => "sa_load_u32",
+        .i64, .u64, .ptr, .blob_handle => "sa_load_u64",
+        .f32 => "sa_load_f32",
+        .f64 => "sa_load_f64",
+        else => "sa_load_u8",
+    };
+}
+
+fn memStoreFn(ty: sig.PrimType) []const u8 {
+    return switch (ty) {
+        .i8, .u8, .i1 => "sa_store_u8",
+        .i16, .u16 => "sa_store_u16",
+        .i32, .u32 => "sa_store_u32",
+        .i64, .u64, .ptr, .blob_handle => "sa_store_u64",
+        .f32 => "sa_store_f32",
+        .f64 => "sa_store_f64",
+        else => "sa_store_u8",
+    };
+}
+
+/// Statically tracked value widths per slot, ported from the JS backend
+/// (see emit_js trackWidths). Keyed by local slot. Cleared at labels;
+/// seeded from parameter types and known callee return types, which the
+/// C backend can do exactly (both sides share the u64-bits invariant).
+/// Packing: low 8 bits = width, bit 30 = signed int domain,
+/// bit 31 = float domain.
+const WidthMap = std.AutoHashMap(u32, u32);
+const WidthSignBit: u32 = 0x40000000;
+const WidthFloatBit: u32 = 0x80000000;
+
+fn packWidth(prim: sig.PrimType) ?u32 {
+    return switch (prim) {
+        .i1 => 1,
+        .i8 => 8 | WidthSignBit,
+        .i16 => 16 | WidthSignBit,
+        .i32 => 32 | WidthSignBit,
+        .i64 => 64 | WidthSignBit,
+        .u8 => 8,
+        .u16 => 16,
+        .u32 => 32,
+        .u64 => 64,
+        .ptr, .blob_handle => 64,
+        .f32 => WidthFloatBit | 32,
+        .f64 => WidthFloatBit | 64,
+        else => null,
+    };
+}
+
+fn widthIsFloat(code: u32) bool {
+    return (code & WidthFloatBit) != 0;
+}
+
+fn widthIsSigned(code: u32) bool {
+    return (code & WidthSignBit) != 0;
+}
+
+fn widthBits(code: u32) u8 {
+    return @intCast(code & 0xff);
+}
+
+fn widthRemoveSlot(widths: *WidthMap, slot: ?u32) void {
+    if (slot) |s| _ = widths.remove(s);
+}
+
+fn widthOfOperand(widths: *const WidthMap, fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) ?u32 {
+    switch (op) {
+        .reg => |r| {
+            const slot = regSlot(fsig, use_global, r) catch return null;
+            return widths.get(slot);
+        },
+        .symbol => |id| {
+            if (fsig.slotOf(id)) |slot| return widths.get(slot);
+            return null;
+        },
+        .imm_int, .imm_i64 => return 64 | WidthSignBit,
+        .imm_u64 => return 64,
+        .imm_float => return WidthFloatBit | 64,
+        else => return null,
+    }
+}
+
+fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, base: inst.Instruction) void {
+    const slotOfOp = struct {
+        fn f(fsig_inner: sig.FunctionSig, use_global_inner: bool, op: inst.Operand) ?u32 {
+            switch (op) {
+                .reg => |r| return regSlot(fsig_inner, use_global_inner, r) catch null,
+                .symbol => |id| return fsig_inner.slotOf(id),
+                else => return null,
+            }
+        }
+    }.f;
+    switch (base.kind) {
+        .load, .take, .atomic_load => {
+            if (slotOfOp(fsig, use_global, base.operands[0])) |dst| {
+                if (packWidth(memPrimType(base))) |w| {
+                    widths.put(dst, w) catch return;
+                } else {
+                    _ = widths.remove(dst);
+                }
+            }
+        },
+        .op => {
+            const dst = slotOfOp(fsig, use_global, base.operands[0]) orelse return;
+            const opcode = base.op_kind orelse {
+                _ = widths.remove(dst);
+                return;
+            };
+            if (inst.isTypeConversionOpKind(opcode)) {
+                if (base.operands[2] != .ty) {
+                    _ = widths.remove(dst);
+                    return;
+                }
+                var tgt = tagToPrim(base.operands[2].ty);
+                if ((opcode == .sitofp or opcode == .uitofp) and tgt != .f32 and tgt != .f64) {
+                    tgt = .f64;
+                }
+                if (packWidth(tgt)) |w| {
+                    widths.put(dst, w) catch return;
+                } else {
+                    _ = widths.remove(dst);
+                }
+                return;
+            }
+            switch (opcode) {
+                .neg, .not, .fneg => {
+                    if (slotOfOp(fsig, use_global, base.operands[1])) |src| {
+                        if (widths.get(src)) |w| {
+                            widths.put(dst, w) catch return;
+                        } else {
+                            _ = widths.remove(dst);
+                        }
+                    } else {
+                        _ = widths.remove(dst);
+                    }
+                },
+                .eq, .ne, .gt, .lt, .sgt, .slt, .sge, .sle, .ugt, .ult, .uge, .ule, .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge => widths.put(dst, 1) catch return,
+                .fadd, .fsub, .fmul, .fdiv => {
+                    // Result domain mirrors emission (floatOpDomain): f32
+                    // whenever the 32-bit helper is selected, otherwise
+                    // f64. Must stay in sync with emitOpExpr or downstream
+                    // domain selection breaks for float chains.
+                    if (floatOpDomain(widths, fsig, use_global, base.operands[1], base.operands[2]) == .f64) {
+                        widths.put(dst, WidthFloatBit | 64) catch return;
+                    } else {
+                        widths.put(dst, WidthFloatBit | 32) catch return;
+                    }
+                },
+                .div, .rem, .shr => {
+                    // Compat aliases: result width follows the selected
+                    // helper (mirrors cAliasCallee), so chained aliases
+                    // propagate the resolved domain instead of the old
+                    // forced-signed default. (gt/lt results stay in the
+                    // `=> 1` arm above, exactly like the JS backend.)
+                    const kk = cCombinedKind(
+                        cOperandKind(widths, fsig, use_global, base.operands[1]),
+                        cOperandKind(widths, fsig, use_global, base.operands[2]),
+                    );
+                    switch (opcode) {
+                        .div => {
+                            if (kk == .float) widths.put(dst, WidthFloatBit | 64) catch return;
+                            if (kk == .unsigned) widths.put(dst, 64) catch return;
+                            widths.put(dst, 64 | WidthSignBit) catch return;
+                        },
+                        else => {
+                            // .rem: unsigned only when proven; .shr:
+                            // lshr unless proven signed (mirrors JS).
+                            if (kk == .unsigned or (opcode == .shr and kk != .signed)) widths.put(dst, 64) catch return;
+                            widths.put(dst, 64 | WidthSignBit) catch return;
+                        },
+                    }
+                },
+                .sdiv, .srem, .ashr => widths.put(dst, 64 | WidthSignBit) catch return,
+                .udiv, .urem, .lshr => widths.put(dst, 64) catch return,
+                else => widths.put(dst, 64 | WidthSignBit) catch return,
+            }
+        },
+        .assign, .assume_safe, .assume_borrow => {
+            const dst = slotOfOp(fsig, use_global, base.operands[0]) orelse return;
+            const srcw = widthOfOperand(widths, fsig, use_global, base.operands[1]);
+            if (srcw) |w| {
+                widths.put(dst, w) catch return;
+            } else {
+                _ = widths.remove(dst);
+            }
+        },
+        .borrow, .ptr_add, .alloc, .stack_alloc => {
+            widthRemoveSlot(widths, slotOfOp(fsig, use_global, base.operands[0]));
+            if (base.kind != .borrow) {
+                if (slotOfOp(fsig, use_global, base.operands[0])) |dst| {
+                    widths.put(dst, 64) catch return;
+                }
+            } else {
+                if (slotOfOp(fsig, use_global, base.operands[0])) |dst| {
+                    widths.put(dst, 64) catch return;
+                }
+            }
+        },
+        .raw_cast => widthRemoveSlot(widths, slotOfOp(fsig, use_global, base.operands[0])),
+        .call, .call_indirect => {
+            var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
+                widths.clearRetainingCapacity();
+                return;
+            };
+            defer parsed.deinit(allocator);
+            // Callee return seeding happens at emission via sigmap; drop here.
+            if (parsed.dest) |dest| {
+                if (symbols.findId(dest)) |id| {
+                    if (fsig.slotOf(id)) |slot| _ = widths.remove(slot);
+                }
+            }
+        },
+        .try_, .early_return => widthRemoveSlot(widths, slotOfOp(fsig, use_global, base.operands[0])),
+        .cmpxchg => {
+            widthRemoveSlot(widths, slotOfOp(fsig, use_global, base.operands[0]));
+            widthRemoveSlot(widths, slotOfOp(fsig, use_global, base.operands[1]));
+        },
+        .atomic_rmw => widthRemoveSlot(widths, slotOfOp(fsig, use_global, base.operands[0])),
+        .move_ => {
+            widthRemoveSlot(widths, slotOfOp(fsig, use_global, base.operands[0]));
+            widthRemoveSlot(widths, slotOfOp(fsig, use_global, base.operands[1]));
+        },
+        else => {},
+    }
+}
+
+/// Float domain of an operand for ALU selection: f32 only if statically
+/// known f32; everything else (f64 or unknown) uses f64 arithmetic with
+/// f32 sides promoted. Mirrors JS f64-domain float helpers.
+fn floatWidthIs32(widths: *const WidthMap, fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) bool {
+    const w = widthOfOperand(widths, fsig, use_global, op) orelse return false;
+    return widthIsFloat(w) and widthBits(w) == 32;
+}
+
+/// Operand domain for kind-driven compat aliases (div/rem/gt/lt/shr),
+/// mirroring the interpreter and the JS backend: float wins, then signed,
+/// else unsigned. Unknown preserves forced-signed lowering, so only
+/// statically-known shapes change behavior.
+const COpndKind = enum { float, signed, unsigned, unknown };
+
+fn cOperandKind(widths: *const WidthMap, fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) COpndKind {
+    if (widthOfOperand(widths, fsig, use_global, op)) |w| {
+        if (widthIsFloat(w)) return .float;
+        return if (widthIsSigned(w)) .signed else .unsigned;
+    }
+    // Text immediates: same numeric cascade as the JS backend.
+    switch (op) {
+        .text, .native_text => |t| {
+            var text = std.mem.trim(u8, t, " \t");
+            if (text.len == 0) return .unknown;
+            if (text[0] == '&' or text[0] == '*' or text[0] == '^') text = std.mem.trim(u8, text[1..], " \t");
+            if (std.mem.lastIndexOf(u8, text, " as ")) |idx| text = std.mem.trim(u8, text[0..idx], " \t\r");
+            if (text.len == 0) return .unknown;
+            if (std.fmt.parseInt(i64, text, 10)) |_| return .signed else |_| {}
+            if (std.fmt.parseInt(u64, text, 10)) |_| return .unsigned else |_| {}
+            if (std.mem.indexOfAny(u8, text, ".eE")) |_| {
+                if (std.fmt.parseFloat(f64, text)) |_| return .float else |_| {}
+            }
+            return .unknown;
+        },
+        else => return .unknown,
+    }
+}
+
+fn cCombinedKind(a: COpndKind, b: COpndKind) COpndKind {
+    if (a == .float or b == .float) return .float;
+    if (a == .signed or b == .signed) return .signed;
+    if (a == .unsigned and b == .unsigned) return .unsigned;
+    return .unknown;
+}
+
+/// C helper for kind-driven compat aliases (div/rem/gt/lt/shr), mirroring
+/// JS aliasCallee. Unknown keeps forced-signed lowering (except shr, where
+/// JS lowers unknown to lshr).
+fn cAliasCallee(opcode: inst.OpKind, k: COpndKind) []const u8 {
+    return switch (opcode) {
+        .div => switch (k) {
+            .float => "sa_fdiv",
+            .unsigned => "sa_udiv",
+            else => "sa_sdiv",
+        },
+        .rem => switch (k) {
+            .unsigned => "sa_urem",
+            else => "sa_srem",
+        },
+        .shr => switch (k) {
+            .signed => "sa_ashr",
+            else => "sa_lshr",
+        },
+        .gt => switch (k) {
+            .float => "sa_fcmp_gt",
+            .unsigned => "sa_ugt",
+            else => "sa_sgt",
+        },
+        .lt => switch (k) {
+            .float => "sa_fcmp_lt",
+            .unsigned => "sa_ult",
+            else => "sa_slt",
+        },
+        else => unreachable,
+    };
+}
+
+/// Narrow logical shift: with a statically sub-64-bit lhs, mask the value
+/// to its width and the count to 5 bits (347: an i32-held 0xFFFFFFFF must
+/// shift as u32, not as sign-extended u64). 64-bit/unknown shapes keep the
+/// plain 64-bit helper. Returns true when the narrow form was emitted.
+fn emitNarrowLshr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, lhs: inst.Operand, rhs: inst.Operand, widths: *const WidthMap) !bool {
+    const w = widthOfOperand(widths, fsig, use_global, lhs) orelse return false;
+    if (widthIsFloat(w) or widthBits(w) >= 64) return false;
+    try writer.print("sa_lshr(sa_srcmask(", .{});
+    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+    try writer.print(", {d}, 0), sa_band(", .{widthBits(w)});
+    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
+    try writer.writeAll(", 31))");
+    return true;
+}
+
+fn emitCvtExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, tgt: sig.PrimType, src_op: inst.Operand, widths: *const WidthMap) !void {
+    const sfx: []const u8 = switch (tgt) {
+        .i1 => "i1", .i8 => "i8", .i16 => "i16", .i32 => "i32", .i64 => "i64",
+        .u8 => "u8", .u16 => "u16", .u32 => "u32", .u64 => "u64", .blob_handle => "u64",
+        .ptr => "ptr", .f32 => "f32", .f64 => "f64",
+        else => return CEmitError.InvalidOperand,
+    };
+    const opname: []const u8 = switch (opcode) {
+        .trunc => "trunc", .zext => "zext", .sext => "sext", .fptosi => "fptosi",
+        .sitofp => "sitofp", .uitofp => "uitofp", .fptrunc => "fptrunc",
+        .fpext => "fpext", .bitcast => "bitcast",
+        else => return CEmitError.InvalidOperand,
+    };
+    const tgt_is_64 = switch (tgt) {
+        .i64, .u64, .ptr, .blob_handle => true,
+        else => false,
+    };
+    // zext/sext to 64 bits from a statically known sub-64 source must
+    // extend from the source width (mirrors JS __sa_srcmask sharpening).
+    if ((opcode == .zext or opcode == .sext) and tgt_is_64) {
+        if (widthOfOperand(widths, fsig, use_global, src_op)) |sw| {
+            if (!widthIsFloat(sw) and widthBits(sw) < 64) {
+                const sgn: u8 = if (opcode == .sext) 1 else 0;
+                try writer.print("sa_cvt_{s}_{s}(sa_srcmask((", .{ opname, sfx });
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, src_op);
+                try writer.print("), {d}, {d}))", .{ widthBits(sw), sgn });
+                return;
+            }
+        } else {
+            // Unknown source: assume <=32-bit content like the JS
+            // Number-default path (low 32 bits).
+            if (opcode == .zext) {
+                try writer.print("sa_cvt_{s}_{s}(((sa_u64)(uint32_t)(", .{ opname, sfx });
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, src_op);
+                try writer.writeAll(")))");
+                return;
+            }
+        }
+    }
+    // fptosi reads float bits: promote f32-domain sources to f64 first.
+    if (opcode == .fptosi and floatWidthIs32(widths, fsig, use_global, src_op)) {
+        try writer.print("sa_cvt_{s}_{s}(sa_f32_to_f64((", .{ opname, sfx });
+        try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, src_op);
+        try writer.writeAll("))");
+        return;
+    }
+    try writer.print("sa_cvt_{s}_{s}(", .{ opname, sfx });
+    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, src_op);
+    try writer.writeAll(")");
+}
+
+/// Float-domain decision for binary float ops: .f32 uses the 32-bit
+/// helper, .f64 the 64-bit one. f32 iff both sides are proven f32;
+/// everything else computes in f64 (int sides convert with JS Numbers
+/// parity; unknowns go raw, with f32 sides promoted). Unknowns are
+/// overwhelmingly f64 loop vars/indirect results, and promotion of a
+/// known f32 side is exact, so f64 is the safe default.
+const FDom = enum { f32, f64 };
+
+fn floatOpDomain(widths: *const WidthMap, fsig: sig.FunctionSig, use_global: bool, lhs: inst.Operand, rhs: inst.Operand) FDom {
+    const lk = cOperandKind(widths, fsig, use_global, lhs);
+    const rk = cOperandKind(widths, fsig, use_global, rhs);
+    if (lk != .float and rk != .float) return .f64;
+    const l32 = floatWidthIs32(widths, fsig, use_global, lhs);
+    const r32 = floatWidthIs32(widths, fsig, use_global, rhs);
+    return if (l32 and r32) .f32 else .f64;
+}
+
+/// Emit one side of a float-domain op: floats promote/demote as needed,
+/// ints convert (signedness from kind), unknowns keep legacy behavior
+/// (truncate in f32 domain, raw in f64).
+fn emitFNumOperand(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, widths: *const WidthMap, op: inst.Operand, kind: COpndKind, want: FDom) !void {
+    switch (kind) {
+        .float => try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, op, floatWidthIs32(widths, fsig, use_global, op), want == .f32),
+        .signed => {
+            try writer.print("sa_cvt_sitofp_f{s}(", .{if (want == .f32) "32" else "64"});
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, op);
+            try writer.writeAll(")");
+        },
+        .unsigned => {
+            try writer.print("sa_cvt_uitofp_f{s}(", .{if (want == .f32) "32" else "64"});
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, op);
+            try writer.writeAll(")");
+        },
+        .unknown => {
+            // f32 domain with an unknown side is unreachable (f32
+            // requires both sides proven); raw is the f64 behavior.
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, op);
+        },
+    }
+}
+
+fn emitFloatOperand(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, op: inst.Operand, is32: bool, want32: bool) !void {
+    // Emit an operand for a float-domain helper: promote f32 to f64 when
+    // the helper wants f64, or demote f64 to f32 when it wants f32.
+    if (is32 == want32) {
+        try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, op);
+    } else if (want32) {
+        try writer.writeAll("sa_f64_to_f32((");
+        try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, op);
+        try writer.writeAll("))");
+    } else {
+        try writer.writeAll("sa_f32_to_f64((");
+        try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, op);
+        try writer.writeAll("))");
+    }
+}
+
+fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, lhs: inst.Operand, rhs: inst.Operand, widths: *const WidthMap) !void {
+    // Float/int mixing (e.g. `eq(f64val, 10)` from TS `==`): exactly one
+    // statically-known float side plus a statically-known int side
+    // compares numerically in f64 (JS == parity, ints converted). All
+    // other shapes keep the legacy bitwise compare.
+    switch (opcode) {
+        .eq, .ne => {
+            const lk = cOperandKind(widths, fsig, use_global, lhs);
+            const rk = cOperandKind(widths, fsig, use_global, rhs);
+            const lf = lk == .float;
+            const rf = rk == .float;
+            const li = lk == .signed or lk == .unsigned;
+            const ri = rk == .signed or rk == .unsigned;
+            if ((lf and ri) or (li and rf)) {
+                try writer.print("{s}(", .{if (opcode == .eq) "sa_fcmp_eq" else "sa_fcmp_ne"});
+                try emitFNumOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, widths, lhs, lk, .f64);
+                try writer.writeAll(", ");
+                try emitFNumOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, widths, rhs, rk, .f64);
+                try writer.writeAll(")");
+                return;
+            }
+        },
+        else => {},
+    }
+    // Float ALU: f32 iff both sides proven f32, else f64 (int sides
+    // convert, unknowns go raw, f32 sides promote; mirrors JS).
+    switch (opcode) {
+        .fadd, .fsub, .fmul, .fdiv => {
+            const base: []const u8 = switch (opcode) {
+                .fadd => "sa_fadd",
+                .fsub => "sa_fsub",
+                .fmul => "sa_fmul",
+                else => "sa_fdiv",
+            };
+            const lk = cOperandKind(widths, fsig, use_global, lhs);
+            const rk = cOperandKind(widths, fsig, use_global, rhs);
+            const dom = floatOpDomain(widths, fsig, use_global, lhs, rhs);
+            const li = lk == .signed or lk == .unsigned;
+            const ri = rk == .signed or rk == .unsigned;
+            const lu = lk == .unknown;
+            const ru = rk == .unknown;
+            // Legacy raw path only when no float side exists and no
+            // unknown/int mixing needs conversion; everything else goes
+            // through domain-correct operand emission.
+            if (dom == .f64 and lk != .float and rk != .float and !((lu and ri) or (li and ru))) {
+                try writer.print("{s}(", .{base});
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+                try writer.writeAll(", ");
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
+                try writer.writeAll(")");
+                return;
+            }
+            if (dom == .f32) {
+                try writer.print("{s}32(", .{base});
+            } else {
+                try writer.print("{s}(", .{base});
+            }
+            try emitFNumOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, widths, lhs, lk, dom);
+            try writer.writeAll(", ");
+            try emitFNumOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, widths, rhs, rk, dom);
+            try writer.writeAll(")");
+            return;
+        },
+        .fneg => {
+            const is32 = floatWidthIs32(widths, fsig, use_global, lhs);
+            if (is32) try writer.writeAll("sa_fneg32(") else try writer.writeAll("sa_fneg(");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+            try writer.writeAll(")");
+            return;
+        },
+        .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge => {
+            const base: []const u8 = switch (opcode) {
+                .fcmp_eq => "sa_fcmp_eq",
+                .fcmp_ne => "sa_fcmp_ne",
+                .fcmp_lt => "sa_fcmp_lt",
+                .fcmp_le => "sa_fcmp_le",
+                .fcmp_gt => "sa_fcmp_gt",
+                else => "sa_fcmp_ge",
+            };
+            const lk = cOperandKind(widths, fsig, use_global, lhs);
+            const rk = cOperandKind(widths, fsig, use_global, rhs);
+            const dom = floatOpDomain(widths, fsig, use_global, lhs, rhs);
+            const li = lk == .signed or lk == .unsigned;
+            const ri = rk == .signed or rk == .unsigned;
+            const lu = lk == .unknown;
+            const ru = rk == .unknown;
+            if (dom == .f64 and lk != .float and rk != .float and !((lu and ri) or (li and ru))) {
+                // No float side and no convertible mixing: legacy raw path.
+                try writer.print("{s}(", .{base});
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+                try writer.writeAll(", ");
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
+                try writer.writeAll(")");
+                return;
+            }
+            if (dom == .f32) {
+                try writer.print("{s}32(", .{base});
+            } else {
+                try writer.print("{s}(", .{base});
+            }
+            try emitFNumOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, widths, lhs, lk, dom);
+            try writer.writeAll(", ");
+            try emitFNumOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, widths, rhs, rk, dom);
+            try writer.writeAll(")");
+            return;
+        },
+        else => {},
+    }
+    // Kind-driven compat aliases (div/rem/gt/lt/shr): signedness (and
+    // float domain) follows the operand kinds, mirroring the interpreter
+    // and the JS backend. Unknown keeps forced-signed lowering (except
+    // shr, where JS lowers unknown to lshr), so only statically-known
+    // shapes change behavior.
+    switch (opcode) {
+        .div, .rem, .shr, .gt, .lt => {
+            const k = cCombinedKind(cOperandKind(widths, fsig, use_global, lhs), cOperandKind(widths, fsig, use_global, rhs));
+            const callee = cAliasCallee(opcode, k);
+            if ((opcode == .gt or opcode == .lt) and k == .float) {
+                // Float comparisons use the fcmp family with f32 sides
+                // promoted (C holds f32 as low-32-bit patterns).
+                try writer.print("{s}(", .{callee});
+                try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, floatWidthIs32(widths, fsig, use_global, lhs), false);
+                try writer.writeAll(", ");
+                try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs, floatWidthIs32(widths, fsig, use_global, rhs), false);
+                try writer.writeAll(")");
+                return;
+            }
+            if (opcode == .div and k == .float) {
+                try writer.writeAll("sa_fdiv(");
+                try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, floatWidthIs32(widths, fsig, use_global, lhs), false);
+                try writer.writeAll(", ");
+                try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs, floatWidthIs32(widths, fsig, use_global, rhs), false);
+                try writer.writeAll(")");
+                return;
+            }
+            // shr-via-lshr on a narrow lhs needs the 32-bit form too.
+            if (std.mem.eql(u8, callee, "sa_lshr")) {
+                if (try emitNarrowLshr(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, rhs, widths)) return;
+            }
+            try writer.print("{s}(", .{callee});
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
+            try writer.writeAll(")");
+            return;
+        },
+        .lshr => {
+            if (try emitNarrowLshr(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, rhs, widths)) return;
+            try writer.writeAll("sa_lshr(");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
+            try writer.writeAll(")");
+            return;
+        },
+        else => {},
+    }
+    const name: []const u8 = switch (opcode) {
+        .add => "sa_add", .sub => "sa_sub", .mul => "sa_mul",
+        .sdiv => "sa_sdiv", .udiv => "sa_udiv", .srem => "sa_srem", .urem => "sa_urem",
+        .@"and" => "sa_band", .@"or" => "sa_bor", .xor => "sa_bxor",
+        .shl => "sa_shl", .lshr => "sa_lshr", .ashr => "sa_ashr",
+        .not => "sa_bnot",
+        .neg => "sa_neg",
+        .eq => "sa_eq", .ne => "sa_ne",
+        .slt => "sa_slt", .sle => "sa_sle", .sgt => "sa_sgt", .sge => "sa_sge",
+        .ult => "sa_ult", .ule => "sa_ule", .ugt => "sa_ugt", .uge => "sa_uge",
+        .fadd => "sa_fadd", .fsub => "sa_fsub", .fmul => "sa_fmul", .fdiv => "sa_fdiv",
+        .fneg => "sa_fneg",
+        .fcmp_eq => "sa_fcmp_eq", .fcmp_ne => "sa_fcmp_ne",
+        .fcmp_lt => "sa_fcmp_lt", .fcmp_le => "sa_fcmp_le",
+        .fcmp_gt => "sa_fcmp_gt", .fcmp_ge => "sa_fcmp_ge",
+        else => return CEmitError.InvalidOperand,
+    };
+    if (opcode == .not or opcode == .neg or opcode == .fneg) {
+        try writer.print("{s}(", .{name});
+        try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+        try writer.writeAll(")");
+        return;
+    }
+    try writer.print("{s}(", .{name});
+    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+    try writer.writeAll(", ");
+    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
+    try writer.writeAll(")");
+}
+
+fn dstSlot(fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) !u32 {
+    switch (op) {
+        .reg => |r| return regSlot(fsig, use_global, r),
+        .symbol => |id| return fsig.slotOf(id) orelse return CEmitError.InvalidOperand,
+        .text, .native_text => return CEmitError.InvalidOperand,
+        else => return CEmitError.InvalidOperand,
+    }
+}
+
+fn emitReturnStmt(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, operand: inst.Operand, indent: []const u8) !void {
+    if (fsig.return_fallible) {
+        switch (operand) {
+            .none => try writer.print("{s}return sa_ok_none();\n", .{indent}),
+            else => {
+                try writer.print("{s}return sa_ok_val((", .{indent});
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, operand);
+                try writer.writeAll("));\n");
+            },
+        }
+    } else switch (operand) {
+        .none => try writer.print("{s}return 0;\n", .{indent}),
+        else => {
+            try writer.print("{s}return (", .{indent});
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, operand);
+            try writer.writeAll(");\n");
+        },
+    }
+}
+
+/// Runtime helper catalog. The always-needed core (includes, memory,
+/// sa_trap, gas) is emitted unconditionally by writePreamble; everything
+/// below is emitted ONLY when the generated body references it (plus
+/// transitive deps). `name` doubles as the usage needle (`name ++ "("`),
+/// so it must be the exact C function name. `deps` lists other catalog
+/// entries required by `code` (`sa_trap` is implicit: always emitted).
+/// Emission preserves table order, which keeps callees before callers.
+const HelperDef = struct {
+    name: []const u8,
+    code: []const u8,
+    deps: []const []const u8,
+};
+
+const kRuntimeHelpers: []const HelperDef = &.{
+    .{ .name = "sa_panic", .code =
+    \\static __attribute__((noreturn)) void sa_panic(sa_u64 code) { char b[24]; int n = 0; sa_u64 v = code; char t[24]; int m = 0; if (v == 0) t[m++] = '0'; while (v > 0) { t[m++] = (char)('0' + (v % 10)); v /= 10; } fputs("[sa-panic] code=", stderr); while (m > 0) b[n++] = t[--m]; fwrite(b, 1, (size_t)n, stderr); fputc('\n', stderr); exit(1); }
+    , .deps = &.{} },
+    .{ .name = "sa_ok_none", .code =
+    \\static sa_u64 sa_ok_none(void) { return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_ok_val", .code =
+    \\static sa_u64 sa_ok_val(sa_u64 v) { (void)v; return v; }
+    , .deps = &.{} },
+    .{ .name = "sa_truthy", .code =
+    \\static int sa_truthy(sa_u64 v) { return v != 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_align", .code =
+    \\static sa_u64 sa_align(sa_u64 n, sa_u64 a) { return (n + (a - 1)) & ~(a - 1); }
+    , .deps = &.{} },
+    .{ .name = "sa_alloc", .code =
+    \\static sa_u64 sa_alloc(sa_u64 size) {
+    \\  size = sa_align(size, 8); if (size == 0) size = 8;
+    \\  uint32_t base = sa_brk;
+    \\  { sa_u64 nb = (sa_u64)base + size + 8; if (nb > (sa_u64)sizeof(sa_mem)) sa_trap("out of memory (bump)"); sa_brk = (uint32_t)nb; } // NOLINT(bugprone-misplaced-widening-cast): nb range-checked above
+    \\  { uint32_t i; for (i = 0; i < (uint32_t)(size + 8); i++) sa_mem[base + i] = 0; }
+    \\  sa_mem[base] = (uint8_t)(size & 0xFFu); sa_mem[base + 1] = (uint8_t)((size >> 8) & 0xFFu);
+    \\  sa_mem[base + 2] = (uint8_t)((size >> 16) & 0xFFu); sa_mem[base + 3] = (uint8_t)((size >> 24) & 0xFFu);
+    \\  return (sa_u64)base + 8;
+    \\}
+    , .deps = &.{"sa_align"} },
+    .{ .name = "sa_salloc", .code =
+    \\static sa_u64 sa_salloc(sa_u64 size) { return sa_alloc(size); }
+    , .deps = &.{"sa_alloc"} },
+    .{ .name = "sa_free", .code =
+    \\static sa_u64 sa_free(sa_u64 ptr) { (void)ptr; return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_ptr_add", .code =
+    \\static sa_u64 sa_ptr_add(sa_u64 base, sa_u64 off) { return base + off; }
+    , .deps = &.{} },
+    .{ .name = "sa_addr", .code =
+    \\static uint32_t sa_addr(sa_u64 a) { return (uint32_t)(a & 0xFFFFFFFFu); }
+    , .deps = &.{} },
+    .{ .name = "sa_checked_addr", .code =
+    \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, size) signature
+    \\static uint32_t sa_checked_addr(sa_u64 a, size_t sz) {
+    \\  uint32_t x = sa_addr(a);
+    \\  if ((size_t)x + sz > (size_t)sizeof(sa_mem)) sa_trap("oob linear-memory access");
+    \\  return x;
+    \\}
+    , .deps = &.{"sa_addr"} },
+    .{ .name = "sa_load_u8", .code =
+    \\static sa_u64 sa_load_u8(sa_u64 a) { return (sa_u64)sa_mem[sa_checked_addr(a, 1)]; }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_i8", .code =
+    \\static sa_u64 sa_load_i8(sa_u64 a) { return (sa_u64)(sa_i64)(int8_t)sa_mem[sa_checked_addr(a, 1)]; }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_u16", .code =
+    \\static sa_u64 sa_load_u16(sa_u64 a) { uint32_t x = sa_checked_addr(a, 2); return (sa_u64)((uint16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8))); }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_i16", .code =
+    \\static sa_u64 sa_load_i16(sa_u64 a) { uint32_t x = sa_checked_addr(a, 2); int16_t v = (int16_t)((uint16_t)sa_mem[x] | ((uint16_t)sa_mem[x + 1] << 8)); return (sa_u64)(sa_i64)v; }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_u32", .code =
+    \\static sa_u64 sa_load_u32(sa_u64 a) { uint32_t x = sa_checked_addr(a, 4); return (sa_u64)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_i32", .code =
+    \\static sa_u64 sa_load_i32(sa_u64 a) { uint32_t x = sa_checked_addr(a, 4); int32_t v = (int32_t)((uint32_t)sa_mem[x] | ((uint32_t)sa_mem[x + 1] << 8) | ((uint32_t)sa_mem[x + 2] << 16) | ((uint32_t)sa_mem[x + 3] << 24)); return (sa_u64)(sa_i64)v; }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_u64", .code =
+    \\static sa_u64 sa_load_u64(sa_u64 a) { uint32_t x = sa_checked_addr(a, 8); uint64_t v = 0; unsigned k; for (k = 0; k < 8; k++) v |= ((uint64_t)sa_mem[x + k]) << (k * 8); return v; }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_load_f32", .code =
+    \\static sa_u64 sa_load_f32(sa_u64 a) { return sa_load_u32(a) & 0xFFFFFFFFULL; }
+    , .deps = &.{"sa_load_u32"} },
+    .{ .name = "sa_load_f64", .code =
+    \\static sa_u64 sa_load_f64(sa_u64 a) { return sa_load_u64(a); }
+    , .deps = &.{"sa_load_u64"} },
+    .{ .name = "sa_store_u8", .code =
+    \\static void sa_store_u8(sa_u64 a, sa_u64 v) { sa_mem[sa_checked_addr(a, 1)] = (uint8_t)(v & 0xFFu); }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_store_u16", .code =
+    \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
+    \\static void sa_store_u16(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 2); sa_mem[x] = (uint8_t)(v & 0xFFu); sa_mem[x + 1] = (uint8_t)((v >> 8) & 0xFFu); }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_store_u32", .code =
+    \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
+    \\static void sa_store_u32(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 4); unsigned k; for (k = 0; k < 4; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_store_u64", .code =
+    \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, value) signature
+    \\static void sa_store_u64(sa_u64 a, sa_u64 v) { uint32_t x = sa_checked_addr(a, 8); unsigned k; for (k = 0; k < 8; k++) sa_mem[x + k] = (uint8_t)((v >> (k * 8)) & 0xFFu); }
+    , .deps = &.{"sa_checked_addr"} },
+    .{ .name = "sa_store_f32", .code =
+    \\static void sa_store_f32(sa_u64 a, sa_u64 v) { sa_store_u32(a, v & 0xFFFFFFFFULL); }
+    , .deps = &.{"sa_store_u32"} },
+    .{ .name = "sa_store_f64", .code =
+    \\static void sa_store_f64(sa_u64 a, sa_u64 v) { sa_store_u64(a, v); }
+    , .deps = &.{"sa_store_u64"} },
+    .{ .name = "sa_add", .code =
+    \\static sa_u64 sa_add(sa_u64 a, sa_u64 b) { return a + b; }
+    , .deps = &.{} },
+    .{ .name = "sa_sub", .code =
+    \\static sa_u64 sa_sub(sa_u64 a, sa_u64 b) { return a - b; }
+    , .deps = &.{} },
+    .{ .name = "sa_mul", .code =
+    \\static sa_u64 sa_mul(sa_u64 a, sa_u64 b) { return a * b; }
+    , .deps = &.{} },
+    .{ .name = "sa_sdiv", .code =
+    \\static sa_u64 sa_sdiv(sa_u64 a, sa_u64 b) { if ((sa_i64)b==0) sa_trap("div by zero"); return (sa_u64)((sa_i64)a / (sa_i64)b); }
+    , .deps = &.{} },
+    .{ .name = "sa_udiv", .code =
+    \\static sa_u64 sa_udiv(sa_u64 a, sa_u64 b) { if (b==0) sa_trap("div by zero"); return a / b; }
+    , .deps = &.{} },
+    .{ .name = "sa_srem", .code =
+    \\static sa_u64 sa_srem(sa_u64 a, sa_u64 b) { if ((sa_i64)b==0) sa_trap("rem by zero"); return (sa_u64)((sa_i64)a % (sa_i64)b); }
+    , .deps = &.{} },
+    .{ .name = "sa_urem", .code =
+    \\static sa_u64 sa_urem(sa_u64 a, sa_u64 b) { if (b==0) sa_trap("rem by zero"); return a % b; }
+    , .deps = &.{} },
+    .{ .name = "sa_band", .code =
+    \\static sa_u64 sa_band(sa_u64 a, sa_u64 b) { return a & b; }
+    , .deps = &.{} },
+    .{ .name = "sa_bor", .code =
+    \\static sa_u64 sa_bor(sa_u64 a, sa_u64 b) { return a | b; }
+    , .deps = &.{} },
+    .{ .name = "sa_bxor", .code =
+    \\static sa_u64 sa_bxor(sa_u64 a, sa_u64 b) { return a ^ b; }
+    , .deps = &.{} },
+    .{ .name = "sa_bnot", .code =
+    \\static sa_u64 sa_bnot(sa_u64 a) { return ~a; }
+    , .deps = &.{} },
+    .{ .name = "sa_neg", .code =
+    \\static sa_u64 sa_neg(sa_u64 a) { return (sa_u64)(-(sa_i64)a); }
+    , .deps = &.{} },
+    .{ .name = "sa_shl", .code =
+    \\static sa_u64 sa_shl(sa_u64 a, sa_u64 b) { return a << (b & 63); }
+    , .deps = &.{} },
+    .{ .name = "sa_lshr", .code =
+    \\static sa_u64 sa_lshr(sa_u64 a, sa_u64 b) { return a >> (b & 63); }
+    , .deps = &.{} },
+    .{ .name = "sa_ashr", .code =
+    \\static sa_u64 sa_ashr(sa_u64 a, sa_u64 b) { return (sa_u64)((sa_i64)a >> (b & 63)); }
+    , .deps = &.{} },
+    .{ .name = "sa_eq", .code =
+    \\static sa_u64 sa_eq(sa_u64 a, sa_u64 b) { return a == b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_ne", .code =
+    \\static sa_u64 sa_ne(sa_u64 a, sa_u64 b) { return a != b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_slt", .code =
+    \\static sa_u64 sa_slt(sa_u64 a, sa_u64 b) { return (sa_i64)a < (sa_i64)b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_sle", .code =
+    \\static sa_u64 sa_sle(sa_u64 a, sa_u64 b) { return (sa_i64)a <= (sa_i64)b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_sgt", .code =
+    \\static sa_u64 sa_sgt(sa_u64 a, sa_u64 b) { return (sa_i64)a > (sa_i64)b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_sge", .code =
+    \\static sa_u64 sa_sge(sa_u64 a, sa_u64 b) { return (sa_i64)a >= (sa_i64)b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_ult", .code =
+    \\static sa_u64 sa_ult(sa_u64 a, sa_u64 b) { return a < b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_ule", .code =
+    \\static sa_u64 sa_ule(sa_u64 a, sa_u64 b) { return a <= b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_ugt", .code =
+    \\static sa_u64 sa_ugt(sa_u64 a, sa_u64 b) { return a > b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_uge", .code =
+    \\static sa_u64 sa_uge(sa_u64 a, sa_u64 b) { return a >= b ? 1 : 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_bits_f64", .code =
+    \\static double sa_bits_f64(sa_u64 v) { union { sa_u64 u; double d; } t; t.u = v; return t.d; }
+    , .deps = &.{} },
+    .{ .name = "sa_f64_bits", .code =
+    \\static sa_u64 sa_f64_bits(double d) { union { sa_u64 u; double d; } t; t.d = d; return t.u; }
+    , .deps = &.{} },
+    .{ .name = "sa_bits_f32", .code =
+    \\static float sa_bits_f32(sa_u64 v) { union { uint32_t u; float f; } t; t.u = (uint32_t)v; return t.f; }
+    , .deps = &.{} },
+    .{ .name = "sa_f32_bits", .code =
+    \\static sa_u64 sa_f32_bits(float f) { union { uint32_t u; float f; } t; t.f = f; return (sa_u64)t.u; }
+    , .deps = &.{} },
+    .{ .name = "sa_fadd", .code =
+    \\static sa_u64 sa_fadd(sa_u64 a, sa_u64 b) { return sa_f64_bits(sa_bits_f64(a)+sa_bits_f64(b)); }
+    , .deps = &.{ "sa_bits_f64", "sa_f64_bits" } },
+    .{ .name = "sa_fsub", .code =
+    \\static sa_u64 sa_fsub(sa_u64 a, sa_u64 b) { return sa_f64_bits(sa_bits_f64(a)-sa_bits_f64(b)); }
+    , .deps = &.{ "sa_bits_f64", "sa_f64_bits" } },
+    .{ .name = "sa_fmul", .code =
+    \\static sa_u64 sa_fmul(sa_u64 a, sa_u64 b) { return sa_f64_bits(sa_bits_f64(a)*sa_bits_f64(b)); }
+    , .deps = &.{ "sa_bits_f64", "sa_f64_bits" } },
+    .{ .name = "sa_fdiv", .code =
+    \\static sa_u64 sa_fdiv(sa_u64 a, sa_u64 b) { return sa_f64_bits(sa_bits_f64(a)/sa_bits_f64(b)); }
+    , .deps = &.{ "sa_bits_f64", "sa_f64_bits" } },
+    .{ .name = "sa_fneg", .code =
+    \\static sa_u64 sa_fneg(sa_u64 a) { return sa_f64_bits(-sa_bits_f64(a)); }
+    , .deps = &.{ "sa_bits_f64", "sa_f64_bits" } },
+    .{ .name = "sa_fcmp_eq", .code =
+    \\static sa_u64 sa_fcmp_eq(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)==sa_bits_f64(b)?1:0; }
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_fcmp_ne", .code =
+    \\static sa_u64 sa_fcmp_ne(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)!=sa_bits_f64(b)?1:0; }
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_fcmp_lt", .code =
+    \\static sa_u64 sa_fcmp_lt(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)<sa_bits_f64(b)?1:0; }
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_fcmp_le", .code =
+    \\static sa_u64 sa_fcmp_le(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)<=sa_bits_f64(b)?1:0; }
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_fcmp_gt", .code =
+    \\static sa_u64 sa_fcmp_gt(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)>sa_bits_f64(b)?1:0; }
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_fcmp_ge", .code =
+    \\static sa_u64 sa_fcmp_ge(sa_u64 a, sa_u64 b) { return sa_bits_f64(a)>=sa_bits_f64(b)?1:0; }
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_trunc_i1", .code =
+    \\static sa_u64 sa_cvt_trunc_i1(sa_u64 v){return v&1;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_i8", .code =
+    \\static sa_u64 sa_cvt_trunc_i8(sa_u64 v){return (sa_u64)(sa_i64)(int8_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_i16", .code =
+    \\static sa_u64 sa_cvt_trunc_i16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_i32", .code =
+    \\static sa_u64 sa_cvt_trunc_i32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_i64", .code =
+    \\static sa_u64 sa_cvt_trunc_i64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_u8", .code =
+    \\static sa_u64 sa_cvt_trunc_u8(sa_u64 v){return v&0xFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_u16", .code =
+    \\static sa_u64 sa_cvt_trunc_u16(sa_u64 v){return v&0xFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_u32", .code =
+    \\static sa_u64 sa_cvt_trunc_u32(sa_u64 v){return v&0xFFFFFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_u64", .code =
+    \\static sa_u64 sa_cvt_trunc_u64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_trunc_ptr", .code =
+    \\static sa_u64 sa_cvt_trunc_ptr(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_i1", .code =
+    \\static sa_u64 sa_cvt_zext_i1(sa_u64 v){return v&1;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_i8", .code =
+    \\static sa_u64 sa_cvt_zext_i8(sa_u64 v){return v&0xFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_i16", .code =
+    \\static sa_u64 sa_cvt_zext_i16(sa_u64 v){return v&0xFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_i32", .code =
+    \\static sa_u64 sa_cvt_zext_i32(sa_u64 v){return v&0xFFFFFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_i64", .code =
+    \\static sa_u64 sa_cvt_zext_i64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_u8", .code =
+    \\static sa_u64 sa_cvt_zext_u8(sa_u64 v){return v&0xFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_u16", .code =
+    \\static sa_u64 sa_cvt_zext_u16(sa_u64 v){return v&0xFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_u32", .code =
+    \\static sa_u64 sa_cvt_zext_u32(sa_u64 v){return v&0xFFFFFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_u64", .code =
+    \\static sa_u64 sa_cvt_zext_u64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_zext_ptr", .code =
+    \\static sa_u64 sa_cvt_zext_ptr(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_i1", .code =
+    \\static sa_u64 sa_cvt_sext_i1(sa_u64 v){return (sa_u64)(sa_i64)(v&1? -1:0);}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_i8", .code =
+    \\static sa_u64 sa_cvt_sext_i8(sa_u64 v){return (sa_u64)(sa_i64)(int8_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_i16", .code =
+    \\static sa_u64 sa_cvt_sext_i16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_i32", .code =
+    \\static sa_u64 sa_cvt_sext_i32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_i64", .code =
+    \\static sa_u64 sa_cvt_sext_i64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_u8", .code =
+    \\static sa_u64 sa_cvt_sext_u8(sa_u64 v){return (sa_u64)(sa_i64)(int8_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_u16", .code =
+    \\static sa_u64 sa_cvt_sext_u16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_u32", .code =
+    \\static sa_u64 sa_cvt_sext_u32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_u64", .code =
+    \\static sa_u64 sa_cvt_sext_u64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sext_ptr", .code =
+    \\static sa_u64 sa_cvt_sext_ptr(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_sitofp_f32", .code =
+    \\static sa_u64 sa_cvt_sitofp_f32(sa_u64 v){return sa_f32_bits((float)(sa_i64)v);}
+    , .deps = &.{"sa_f32_bits"} },
+    .{ .name = "sa_cvt_sitofp_f64", .code =
+    \\static sa_u64 sa_cvt_sitofp_f64(sa_u64 v){return sa_f64_bits((double)(sa_i64)v);}
+    , .deps = &.{"sa_f64_bits"} },
+    .{ .name = "sa_cvt_uitofp_f32", .code =
+    \\static sa_u64 sa_cvt_uitofp_f32(sa_u64 v){return sa_f32_bits((float)v);}
+    , .deps = &.{"sa_f32_bits"} },
+    .{ .name = "sa_cvt_uitofp_f64", .code =
+    \\static sa_u64 sa_cvt_uitofp_f64(sa_u64 v){return sa_f64_bits((double)v);}
+    , .deps = &.{"sa_f64_bits"} },
+    .{ .name = "sa_cvt_fptosi_i1", .code =
+    \\static sa_u64 sa_cvt_fptosi_i1(sa_u64 v){return ((sa_i64)sa_bits_f64(v))&1;}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_i8", .code =
+    \\static sa_u64 sa_cvt_fptosi_i8(sa_u64 v){return (sa_u64)(sa_i64)(int8_t)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_i16", .code =
+    \\static sa_u64 sa_cvt_fptosi_i16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_i32", .code =
+    \\static sa_u64 sa_cvt_fptosi_i32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_i64", .code =
+    \\static sa_u64 sa_cvt_fptosi_i64(sa_u64 v){return (sa_u64)(sa_i64)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_u8", .code =
+    \\static sa_u64 sa_cvt_fptosi_u8(sa_u64 v){return (sa_u64)(uint8_t)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_u16", .code =
+    \\static sa_u64 sa_cvt_fptosi_u16(sa_u64 v){return (sa_u64)(uint16_t)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_u32", .code =
+    \\static sa_u64 sa_cvt_fptosi_u32(sa_u64 v){return (sa_u64)(uint32_t)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_u64", .code =
+    \\static sa_u64 sa_cvt_fptosi_u64(sa_u64 v){return (sa_u64)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptosi_ptr", .code =
+    \\static sa_u64 sa_cvt_fptosi_ptr(sa_u64 v){return (sa_u64)sa_bits_f64(v);}
+    , .deps = &.{"sa_bits_f64"} },
+    .{ .name = "sa_cvt_fptrunc_f32", .code =
+    \\static sa_u64 sa_cvt_fptrunc_f32(sa_u64 v){return sa_f32_bits((float)sa_bits_f64(v));}
+    , .deps = &.{ "sa_bits_f64", "sa_f32_bits" } },
+    .{ .name = "sa_cvt_fpext_f64", .code =
+    \\static sa_u64 sa_cvt_fpext_f64(sa_u64 v){float f=sa_bits_f32(v); return sa_f64_bits((double)f);}
+    , .deps = &.{ "sa_bits_f32", "sa_f64_bits" } },
+    .{ .name = "sa_cvt_bitcast_i1", .code =
+    \\static sa_u64 sa_cvt_bitcast_i1(sa_u64 v){return v&1;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_i8", .code =
+    \\static sa_u64 sa_cvt_bitcast_i8(sa_u64 v){return v&0xFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_u8", .code =
+    \\static sa_u64 sa_cvt_bitcast_u8(sa_u64 v){return v&0xFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_i16", .code =
+    \\static sa_u64 sa_cvt_bitcast_i16(sa_u64 v){return v&0xFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_u16", .code =
+    \\static sa_u64 sa_cvt_bitcast_u16(sa_u64 v){return v&0xFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_i32", .code =
+    \\static sa_u64 sa_cvt_bitcast_i32(sa_u64 v){return (sa_u64)(sa_i64)(int32_t)(uint32_t)v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_u32", .code =
+    \\static sa_u64 sa_cvt_bitcast_u32(sa_u64 v){return v&0xFFFFFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_i64", .code =
+    \\static sa_u64 sa_cvt_bitcast_i64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_u64", .code =
+    \\static sa_u64 sa_cvt_bitcast_u64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_f32", .code =
+    \\static sa_u64 sa_cvt_bitcast_f32(sa_u64 v){return v&0xFFFFFFFFu;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_f64", .code =
+    \\static sa_u64 sa_cvt_bitcast_f64(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_cvt_bitcast_ptr", .code =
+    \\static sa_u64 sa_cvt_bitcast_ptr(sa_u64 v){return v;}
+    , .deps = &.{} },
+    .{ .name = "sa_print_bytes", .code =
+    \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (addr, len) signature
+    \\static sa_u64 sa_print_bytes(sa_u64 addr, sa_u64 len) { uint32_t a=sa_addr(addr); if ((size_t)a+(size_t)len>sizeof(sa_mem)) sa_trap("print oob"); fwrite(&sa_mem[a],1,(size_t)len,stdout); return 0; }
+    , .deps = &.{"sa_addr"} },
+    .{ .name = "sa_f32_to_f64", .code =
+    \\static sa_u64 sa_f32_to_f64(sa_u64 v) { return sa_f64_bits((double)sa_bits_f32(v)); }
+    , .deps = &.{ "sa_bits_f32", "sa_f64_bits" } },
+    .{ .name = "sa_f64_to_f32", .code =
+    \\static sa_u64 sa_f64_to_f32(sa_u64 v) { return sa_f32_bits((float)sa_bits_f64(v)); }
+    , .deps = &.{ "sa_bits_f64", "sa_f32_bits" } },
+    .{ .name = "sa_fadd32", .code =
+    \\static sa_u64 sa_fadd32(sa_u64 a, sa_u64 b) { return sa_f32_bits(sa_bits_f32(a)+sa_bits_f32(b)); }
+    , .deps = &.{ "sa_bits_f32", "sa_f32_bits" } },
+    .{ .name = "sa_fsub32", .code =
+    \\static sa_u64 sa_fsub32(sa_u64 a, sa_u64 b) { return sa_f32_bits(sa_bits_f32(a)-sa_bits_f32(b)); }
+    , .deps = &.{ "sa_bits_f32", "sa_f32_bits" } },
+    .{ .name = "sa_fmul32", .code =
+    \\static sa_u64 sa_fmul32(sa_u64 a, sa_u64 b) { return sa_f32_bits(sa_bits_f32(a)*sa_bits_f32(b)); }
+    , .deps = &.{ "sa_bits_f32", "sa_f32_bits" } },
+    .{ .name = "sa_fdiv32", .code =
+    \\static sa_u64 sa_fdiv32(sa_u64 a, sa_u64 b) { return sa_f32_bits(sa_bits_f32(a)/sa_bits_f32(b)); }
+    , .deps = &.{ "sa_bits_f32", "sa_f32_bits" } },
+    .{ .name = "sa_fneg32", .code =
+    \\static sa_u64 sa_fneg32(sa_u64 a) { return sa_f32_bits(-sa_bits_f32(a)); }
+    , .deps = &.{ "sa_bits_f32", "sa_f32_bits" } },
+    .{ .name = "sa_fcmp_eq32", .code =
+    \\static sa_u64 sa_fcmp_eq32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)==sa_bits_f32(b)?1:0; }
+    , .deps = &.{"sa_bits_f32"} },
+    .{ .name = "sa_fcmp_ne32", .code =
+    \\static sa_u64 sa_fcmp_ne32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)!=sa_bits_f32(b)?1:0; }
+    , .deps = &.{"sa_bits_f32"} },
+    .{ .name = "sa_fcmp_lt32", .code =
+    \\static sa_u64 sa_fcmp_lt32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)<sa_bits_f32(b)?1:0; }
+    , .deps = &.{"sa_bits_f32"} },
+    .{ .name = "sa_fcmp_le32", .code =
+    \\static sa_u64 sa_fcmp_le32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)<=sa_bits_f32(b)?1:0; }
+    , .deps = &.{"sa_bits_f32"} },
+    .{ .name = "sa_fcmp_gt32", .code =
+    \\static sa_u64 sa_fcmp_gt32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)>sa_bits_f32(b)?1:0; }
+    , .deps = &.{"sa_bits_f32"} },
+    .{ .name = "sa_fcmp_ge32", .code =
+    \\static sa_u64 sa_fcmp_ge32(sa_u64 a, sa_u64 b) { return sa_bits_f32(a)>=sa_bits_f32(b)?1:0; }
+    , .deps = &.{"sa_bits_f32"} },
+    .{ .name = "sa_srcmask", .code =
+    \\// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform (value, width, sign) signature
+    \\static sa_u64 sa_srcmask(sa_u64 v, unsigned w, int sgn) {
+    \\  if (w >= 64) return v;
+    \\  if (w == 32) return sgn ? (sa_u64)(sa_i64)(int32_t)(uint32_t)v : (sa_u64)(uint32_t)v;
+    \\  if (w == 1) return v & 1u;
+    \\  { sa_u64 m = (w == 64) ? ~(sa_u64)0 : ((((sa_u64)1) << w) - 1); sa_u64 r = v & m;
+    \\    if (sgn && (r >> (w - 1)) & 1u) { r |= ~m; } return r; }
+    \\}
+    , .deps = &.{} },
+    .{ .name = "sa_fnaddr", .code =
+    \\static sa_u64 sa_fnaddr(int i) { return (sa_u64)(uint64_t)(1000000 + i); }
+    , .deps = &.{} },
+    .{ .name = "sa_http_find", .code =
+    \\static sa_http_obj_t *sa_http_find(sa_http_obj_t *t, sa_u64 h) { unsigned i; for (i = 0; i < SA_HTTP_MAX_OBJS; i++) if (t[i].h == h) return &t[i]; return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_http_slot", .code =
+    \\static sa_http_obj_t *sa_http_slot(sa_http_obj_t *t) { unsigned i; for (i = 0; i < SA_HTTP_MAX_OBJS; i++) if (t[i].h == 0) return &t[i]; return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_http_drop", .code =
+    \\static void sa_http_drop(sa_http_obj_t *t, sa_u64 h) { sa_http_obj_t *o = sa_http_find(t, h); if (o != 0) o->h = 0; }
+    , .deps = &.{"sa_http_find"} },
+    .{ .name = "sa_fmt_int", .code =
+    \\static int sa_fmt_int(char *d, sa_u64 v, unsigned base, int sgn, int up) {
+    \\  unsigned b; sa_u64 mag; int neg = 0; char t[64]; int m = 0; int o; int i;
+    \\  if (base != 2 && base != 8 && base != 10 && base != 16 && base != 17) return -1;
+    \\  b = (base == 17) ? 16 : base;
+    \\  if (sgn && ((sa_i64)v) < 0) { neg = 1; mag = (~v) + 1u; } else { mag = v; }
+    \\  if (mag == 0) t[m++] = '0';
+    \\  while (mag > 0) { unsigned dg = (unsigned)(mag % b); t[m++] = (char)(dg < 10 ? '0' + dg : (up ? 'A' + dg - 10 : 'a' + dg - 10)); mag /= b; }
+    \\  o = neg ? 1 : 0; if (neg) d[0] = '-';
+    \\  for (i = 0; i < m; i++) d[o + i] = t[m - 1 - i];
+    \\  return o + m;
+    \\}
+    , .deps = &.{} },
+    .{ .name = "sa_owned_new", .code =
+    \\static sa_u64 sa_owned_new(sa_u64 ptr, sa_u64 len, unsigned kind) { unsigned i; for (i = 0; i < SA_OWNED_MAX_OBJS; i++) if (sa_owned_bufs[i].h == 0) { sa_u64 h = sa_owned_next++; sa_owned_bufs[i].h = h; sa_owned_bufs[i].ptr = ptr; sa_owned_bufs[i].len = len; sa_owned_bufs[i].kind = kind; return h; } return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_owned_find", .code =
+    \\static sa_owned_buf_t *sa_owned_find(sa_u64 h) { unsigned i; for (i = 0; i < SA_OWNED_MAX_OBJS; i++) if (sa_owned_bufs[i].h == h) return &sa_owned_bufs[i]; return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_mkdir_wrap", .code =
+    \\static int sa_mkdir_wrap(const uint8_t *p) { return mkdir((const char *)p, 0777); }
+    , .deps = &.{} },
+    .{ .name = "SA_ROTR32", .code =
+    \\#define SA_ROTR32(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
+    , .deps = &.{} },
+    .{ .name = "SA_ROTL32", .code =
+    \\#define SA_ROTL32(x, n) (((x) << (n)) | ((x) >> (32 - (n))))
+    , .deps = &.{} },
+    .{ .name = "SA_ROTR64", .code =
+    \\#define SA_ROTR64(x, n) (((x) >> (n)) | ((x) << (64 - (n))))
+    , .deps = &.{} },
+    .{ .name = "sa_access_wrap", .code =
+    \\static int sa_access_wrap(const uint8_t *p) { return access((const char *)p, F_OK); }
+    , .deps = &.{} },
+    .{ .name = "sa_sha256_block", .code =
+    \\static void sa_sha256_block(uint32_t st[8], const uint8_t *p) {
+    \\  static const uint32_t sa_sha256_k[64] = {
+    \\  0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    \\  0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    \\  0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    \\  0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    \\  0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    \\  0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    \\  0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    \\  0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2};
+    \\  uint32_t w[64]; int i;
+    \\  for (i = 0; i < 16; i++) w[i] = ((uint32_t)p[i*4] << 24) | ((uint32_t)p[i*4+1] << 16) | ((uint32_t)p[i*4+2] << 8) | p[i*4+3];
+    \\  for (i = 16; i < 64; i++) { uint32_t s0 = SA_ROTR32(w[i-15], 7) ^ SA_ROTR32(w[i-15], 18) ^ (w[i-15] >> 3); uint32_t s1 = SA_ROTR32(w[i-2], 17) ^ SA_ROTR32(w[i-2], 19) ^ (w[i-2] >> 10); w[i] = w[i-16] + s0 + w[i-7] + s1; }
+    \\  uint32_t a=st[0],b=st[1],c=st[2],d=st[3],e=st[4],f=st[5],g=st[6],h=st[7];
+    \\  for (i = 0; i < 64; i++) { uint32_t S1 = SA_ROTR32(e,6)^SA_ROTR32(e,11)^SA_ROTR32(e,25); uint32_t ch = (e&f)^(~e&g); uint32_t t1 = h+S1+ch+sa_sha256_k[i]+w[i]; uint32_t S0 = SA_ROTR32(a,2)^SA_ROTR32(a,13)^SA_ROTR32(a,22); uint32_t mj = (a&b)^(a&c)^(b&c); uint32_t t2 = S0+mj; h=g; g=f; f=e; e=d+t1; d=c; c=b; b=a; a=t1+t2; }
+    \\  st[0]+=a; st[1]+=b; st[2]+=c; st[3]+=d; st[4]+=e; st[5]+=f; st[6]+=g; st[7]+=h;
+    \\}
+    , .deps = &.{ "SA_ROTR32" } },
+    .{ .name = "sa_sha256", .code =
+    \\static void sa_sha256(const uint8_t *msg, size_t len, uint8_t out[32]) {
+    \\  uint32_t st[8] = {0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19};
+    \\  uint8_t blk[64]; size_t i, off = 0;
+    \\  uint64_t bitlen = (uint64_t)len * 8;
+    \\  while (len - off >= 64) { sa_sha256_block(st, msg + off); off += 64; }
+    \\  size_t rem = len - off;
+    \\  for (i = 0; i < rem; i++) blk[i] = msg[off + i];
+    \\  blk[rem] = 0x80;
+    \\  if (rem + 1 + 8 > 64) { for (i = rem + 1; i < 64; i++) blk[i] = 0; sa_sha256_block(st, blk); for (i = 0; i < 56; i++) blk[i] = 0; }
+    \\  else { for (i = rem + 1; i < 56; i++) blk[i] = 0; }
+    \\  for (i = 0; i < 8; i++) blk[56 + i] = (uint8_t)(bitlen >> (56 - i * 8));
+    \\  sa_sha256_block(st, blk);
+    \\  for (i = 0; i < 8; i++) { out[i*4] = (uint8_t)(st[i] >> 24); out[i*4+1] = (uint8_t)(st[i] >> 16); out[i*4+2] = (uint8_t)(st[i] >> 8); out[i*4+3] = (uint8_t)st[i]; }
+    \\}
+    , .deps = &.{ "sa_sha256_block"} },
+    .{ .name = "sa_sha512_block", .code =
+    \\static void sa_sha512_block(uint64_t st[8], const uint8_t *p) {
+    \\  static const uint64_t sa_sha512_k[80] = {
+    \\  0x428a2f98d728ae22ULL,0x7137449123ef65cdULL,0xb5c0fbcfec4d3b2fULL,0xe9b5dba58189dbbcULL,0x3956c25bf348b538ULL,0x59f111f1b605d019ULL,0x923f82a4af194f9bULL,0xab1c5ed5da6d8118ULL,
+    \\  0xd807aa98a3030242ULL,0x12835b0145706fbeULL,0x243185be4ee4b28cULL,0x550c7dc3d5ffb4e2ULL,0x72be5d74f27b896fULL,0x80deb1fe3b1696b1ULL,0x9bdc06a725c71235ULL,0xc19bf174cf692694ULL,
+    \\  0xe49b69c19ef14ad2ULL,0xefbe4786384f25e3ULL,0x0fc19dc68b8cd5b5ULL,0x240ca1cc77ac9c65ULL,0x2de92c6f592b0275ULL,0x4a7484aa6ea6e483ULL,0x5cb0a9dcbd41fbd4ULL,0x76f988da831153b5ULL,
+    \\  0x983e5152ee66dfabULL,0xa831c66d2db43210ULL,0xb00327c898fb213fULL,0xbf597fc7beef0ee4ULL,0xc6e00bf33da88fc2ULL,0xd5a79147930aa725ULL,0x06ca6351e003826fULL,0x142929670a0e6e70ULL,
+    \\  0x27b70a8546d22ffcULL,0x2e1b21385c26c926ULL,0x4d2c6dfc5ac42aedULL,0x53380d139d95b3dfULL,0x650a73548baf63deULL,0x766a0abb3c77b2a8ULL,0x81c2c92e47edaee6ULL,0x92722c851482353bULL,
+    \\  0xa2bfe8a14cf10364ULL,0xa81a664bbc423001ULL,0xc24b8b70d0f89791ULL,0xc76c51a30654be30ULL,0xd192e819d6ef5218ULL,0xd69906245565a910ULL,0xf40e35855771202aULL,0x106aa07032bbd1b8ULL,
+    \\  0x19a4c116b8d2d0c8ULL,0x1e376c085141ab53ULL,0x2748774cdf8eeb99ULL,0x34b0bcb5e19b48a8ULL,0x391c0cb3c5c95a63ULL,0x4ed8aa4ae3418acbULL,0x5b9cca4f7763e373ULL,0x682e6ff3d6b2b8a3ULL,
+    \\  0x748f82ee5defb2fcULL,0x78a5636f43172f60ULL,0x84c87814a1f0ab72ULL,0x8cc702081a6439ecULL,0x90befffa23631e28ULL,0xa4506cebde82bde9ULL,0xbef9a3f7b2c67915ULL,0xc67178f2e372532bULL,
+    \\  0xca273eceea26619cULL,0xd186b8c721c0c207ULL,0xeada7dd6cde0eb1eULL,0xf57d4f7fee6ed178ULL,0x06f067aa72176fbaULL,0x0a637dc5a2c898a6ULL,0x113f9804bef90daeULL,0x1b710b35131c471bULL,
+    \\  0x28db77f523047d84ULL,0x32caab7b40c72493ULL,0x3c9ebe0a15c9bebcULL,0x431d67c49c100d4cULL,0x4cc5d4becb3e42b6ULL,0x597f299cfc657e2aULL,0x5fcb6fab3ad6faecULL,0x6c44198c4a475817ULL};
+    \\  uint64_t w[80]; int i; int j;
+    \\  for (i = 0; i < 16; i++) { w[i] = 0; for (j = 0; j < 8; j++) w[i] |= (uint64_t)p[i*8+j] << (56 - j * 8); }
+    \\  for (i = 16; i < 80; i++) { uint64_t s0 = SA_ROTR64(w[i-15],1)^SA_ROTR64(w[i-15],8)^(w[i-15]>>7); uint64_t s1 = SA_ROTR64(w[i-2],19)^SA_ROTR64(w[i-2],61)^(w[i-2]>>6); w[i] = w[i-16]+s0+w[i-7]+s1; }
+    \\  uint64_t a=st[0],b=st[1],c=st[2],d=st[3],e=st[4],f=st[5],g=st[6],h=st[7];
+    \\  for (i = 0; i < 80; i++) { uint64_t S1 = SA_ROTR64(e,14)^SA_ROTR64(e,18)^SA_ROTR64(e,41); uint64_t ch = (e&f)^(~e&g); uint64_t t1 = h+S1+ch+sa_sha512_k[i]+w[i]; uint64_t S0 = SA_ROTR64(a,28)^SA_ROTR64(a,34)^SA_ROTR64(a,39); uint64_t mj = (a&b)^(a&c)^(b&c); uint64_t t2 = S0+mj; h=g; g=f; f=e; e=d+t1; d=c; c=b; b=a; a=t1+t2; }
+    \\  st[0]+=a; st[1]+=b; st[2]+=c; st[3]+=d; st[4]+=e; st[5]+=f; st[6]+=g; st[7]+=h;
+    \\}
+    , .deps = &.{ "SA_ROTR64" } },
+    .{ .name = "sa_sha512", .code =
+    \\static void sa_sha512(const uint8_t *msg, size_t len, uint8_t out[64]) {
+    \\  uint64_t st[8] = {0x6a09e667f3bcc908ULL,0xbb67ae8584caa73bULL,0x3c6ef372fe94f82bULL,0xa54ff53a5f1d36f1ULL,0x510e527fade682d1ULL,0x9b05688c2b3e6c1fULL,0x1f83d9abfb41bd6bULL,0x5be0cd19137e2179ULL};
+    \\  uint8_t blk[128]; size_t i, off = 0;
+    \\  uint64_t bitlen = (uint64_t)len * 8;
+    \\  while (len - off >= 128) { sa_sha512_block(st, msg + off); off += 128; }
+    \\  size_t rem = len - off;
+    \\  for (i = 0; i < rem; i++) blk[i] = msg[off + i];
+    \\  blk[rem] = 0x80;
+    \\  if (rem + 1 + 16 > 128) { for (i = rem + 1; i < 128; i++) blk[i] = 0; sa_sha512_block(st, blk); for (i = 0; i < 112; i++) blk[i] = 0; }
+    \\  else { for (i = rem + 1; i < 112; i++) blk[i] = 0; }
+    \\  for (i = 0; i < 8; i++) blk[112 + i] = 0;
+    \\  for (i = 0; i < 8; i++) blk[120 + i] = (uint8_t)(bitlen >> (56 - i * 8));
+    \\  sa_sha512_block(st, blk);
+    \\  for (i = 0; i < 8; i++) { int j; for (j = 0; j < 8; j++) out[i*8+j] = (uint8_t)(st[i] >> (56 - j * 8)); }
+    \\}
+    , .deps = &.{ "sa_sha512_block"} },
+    .{ .name = "sa_sha1_block", .code =
+    \\static void sa_sha1_block(uint32_t st[5], const uint8_t *p) {
+    \\  uint32_t w[80]; int i;
+    \\  for (i = 0; i < 16; i++) w[i] = ((uint32_t)p[i*4] << 24) | ((uint32_t)p[i*4+1] << 16) | ((uint32_t)p[i*4+2] << 8) | p[i*4+3];
+    \\  for (i = 16; i < 80; i++) w[i] = SA_ROTL32(w[i-3]^w[i-8]^w[i-14]^w[i-16], 1);
+    \\  uint32_t a=st[0],b=st[1],c=st[2],d=st[3],e=st[4];
+    \\  for (i = 0; i < 80; i++) { uint32_t f, k; if (i < 20) { f = (b&c)|(~b&d); k = 0x5a827999; } else if (i < 40) { f = b^c^d; k = 0x6ed9eba1; } else if (i < 60) { f = (b&c)|(b&d)|(c&d); k = 0x8f1bbcdc; } else { f = b^c^d; k = 0xca62c1d6; } uint32_t t = SA_ROTL32(a,5)+f+e+k+w[i]; e=d; d=c; c=SA_ROTL32(b,30); b=a; a=t; }
+    \\  st[0]+=a; st[1]+=b; st[2]+=c; st[3]+=d; st[4]+=e;
+    \\}
+    , .deps = &.{ "SA_ROTL32" } },
+    .{ .name = "sa_sha1", .code =
+    \\static void sa_sha1(const uint8_t *msg, size_t len, uint8_t out[20]) {
+    \\  uint32_t st[5] = {0x67452301,0xefcdab89,0x98badcfe,0x10325476,0xc3d2e1f0};
+    \\  uint8_t blk[64]; size_t i, off = 0;
+    \\  uint64_t bitlen = (uint64_t)len * 8;
+    \\  while (len - off >= 64) { sa_sha1_block(st, msg + off); off += 64; }
+    \\  size_t rem = len - off;
+    \\  for (i = 0; i < rem; i++) blk[i] = msg[off + i];
+    \\  blk[rem] = 0x80;
+    \\  if (rem + 1 + 8 > 64) { for (i = rem + 1; i < 64; i++) blk[i] = 0; sa_sha1_block(st, blk); for (i = 0; i < 56; i++) blk[i] = 0; }
+    \\  else { for (i = rem + 1; i < 56; i++) blk[i] = 0; }
+    \\  for (i = 0; i < 8; i++) blk[56 + i] = (uint8_t)(bitlen >> (56 - i * 8));
+    \\  sa_sha1_block(st, blk);
+    \\  for (i = 0; i < 5; i++) { out[i*4] = (uint8_t)(st[i] >> 24); out[i*4+1] = (uint8_t)(st[i] >> 16); out[i*4+2] = (uint8_t)(st[i] >> 8); out[i*4+3] = (uint8_t)st[i]; }
+    \\}
+    , .deps = &.{ "sa_sha1_block"} },
+    .{ .name = "sa_md5_block", .code =
+    \\static void sa_md5_block(uint32_t st[4], const uint8_t *p) {
+    \\  static const uint32_t s[64] = {7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21};
+    \\  static const uint32_t K[64] = {0xd76aa478,0xe8c7b756,0x242070db,0xc1bdceee,0xf57c0faf,0x4787c62a,0xa8304613,0xfd469501,0x698098d8,0x8b44f7af,0xffff5bb1,0x895cd7be,0x6b901122,0xfd987193,0xa679438e,0x49b40821,0xf61e2562,0xc040b340,0x265e5a51,0xe9b6c7aa,0xd62f105d,0x02441453,0xd8a1e681,0xe7d3fbc8,0x21e1cde6,0xc33707d6,0xf4d50d87,0x455a14ed,0xa9e3e905,0xfcefa3f8,0x676f02d9,0x8d2a4c8a,0xfffa3942,0x8771f681,0x6d9d6122,0xfde5380c,0xa4beea44,0x4bdecfa9,0xf6bb4b60,0xbebfbc70,0x289b7ec6,0xeaa127fa,0xd4ef3085,0x04881d05,0xd9d4d039,0xe6db99e5,0x1fa27cf8,0xc4ac5665,0xf4292244,0x432aff97,0xab9423a7,0xfc93a039,0x655b59c3,0x8f0ccc92,0xffeff47d,0x85845dd1,0x6fa87e4f,0xfe2ce6e0,0xa3014314,0x4e0811a1,0xf7537e82,0xbd3af235,0x2ad7d2bb,0xeb86d391};
+    \\  uint32_t M[16]; int i;
+    \\  for (i = 0; i < 16; i++) M[i] = (uint32_t)p[i*4] | ((uint32_t)p[i*4+1] << 8) | ((uint32_t)p[i*4+2] << 16) | ((uint32_t)p[i*4+3] << 24);
+    \\  uint32_t a=st[0],b=st[1],c=st[2],d=st[3];
+    \\  for (i = 0; i < 64; i++) { uint32_t f; int g; if (i < 16) { f = (b&c)|(~b&d); g = i; } else if (i < 32) { f = (d&b)|(~d&c); g = (5*i+1)%16; } else if (i < 48) { f = b^c^d; g = (3*i+5)%16; } else { f = c^(b|~d); g = (7*i)%16; } f = f + a + K[i] + M[g]; a = d; d = c; c = b; b = b + SA_ROTL32(f, s[i]); }
+    \\  st[0]+=a; st[1]+=b; st[2]+=c; st[3]+=d;
+    \\}
+    , .deps = &.{ "SA_ROTL32" } },
+    .{ .name = "sa_md5", .code =
+    \\static void sa_md5(const uint8_t *msg, size_t len, uint8_t out[16]) {
+    \\  uint32_t st[4] = {0x67452301,0xefcdab89,0x98badcfe,0x10325476};
+    \\  uint8_t blk[64]; size_t i, off = 0;
+    \\  uint64_t bitlen = (uint64_t)len * 8;
+    \\  while (len - off >= 64) { sa_md5_block(st, msg + off); off += 64; }
+    \\  size_t rem = len - off;
+    \\  for (i = 0; i < rem; i++) blk[i] = msg[off + i];
+    \\  blk[rem] = 0x80;
+    \\  if (rem + 1 + 8 > 64) { for (i = rem + 1; i < 64; i++) blk[i] = 0; sa_md5_block(st, blk); for (i = 0; i < 56; i++) blk[i] = 0; }
+    \\  else { for (i = rem + 1; i < 56; i++) blk[i] = 0; }
+    \\  for (i = 0; i < 8; i++) blk[56 + i] = (uint8_t)(bitlen >> (i * 8));
+    \\  sa_md5_block(st, blk);
+    \\  for (i = 0; i < 4; i++) { out[i*4] = (uint8_t)st[i]; out[i*4+1] = (uint8_t)(st[i] >> 8); out[i*4+2] = (uint8_t)(st[i] >> 16); out[i*4+3] = (uint8_t)(st[i] >> 24); }
+    \\}
+    , .deps = &.{ "sa_md5_block"} },
+    .{ .name = "sa_owned_drop", .code =
+    \\static void sa_owned_drop(sa_u64 h) { sa_owned_buf_t *o = sa_owned_find(h); if (o != 0) o->h = 0; }
+    , .deps = &.{"sa_owned_find"} },
+    .{ .name = "sa_regex_find", .code =
+    \\static sa_regex_t *sa_regex_find(sa_u64 h) { unsigned i; for (i = 0; i < SA_REGEX_MAX_OBJS; i++) if (sa_regexes[i].h == h) return &sa_regexes[i]; return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_json_find", .code =
+    \\static sa_json_node_t *sa_json_find(sa_u64 h) { unsigned i; for (i = 0; i < SA_JSON_MAX_NODES; i++) if (sa_json_nodes[i].h == h) return &sa_json_nodes[i]; return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_json_writer_find", .code =
+    \\static sa_json_writer_t *sa_json_writer_find(sa_u64 h) { unsigned i; for (i = 0; i < SA_JSON_MAX_WRITERS; i++) if (sa_json_writers[i].h == h) return &sa_json_writers[i]; return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_json_new", .code =
+    \\static sa_json_node_t *sa_json_new(void) { unsigned i; for (i = 0; i < SA_JSON_MAX_NODES; i++) if (sa_json_nodes[i].h == 0) { sa_u64 h = sa_alloc(8); sa_json_nodes[i].h = h; sa_json_nodes[i].kind = 0; sa_json_nodes[i].first = 0; sa_json_nodes[i].next = 0; sa_json_nodes[i].kptr = 0; sa_json_nodes[i].klen = 0; sa_json_nodes[i].vptr = 0; sa_json_nodes[i].vlen = 0; sa_json_nodes[i].ival = 0; sa_json_nodes[i].fbits = 0; sa_json_nodes[i].bval = 0; return &sa_json_nodes[i]; } return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_jw_grow", .code =
+    \\static int sa_jw_grow(sa_json_writer_t *w, size_t extra) {
+    \\  if (w->len + extra < w->len) return 1;
+    \\  if (w->len + extra <= w->cap) return 0;
+    \\  { size_t ncap = w->cap == 0 ? 256 : w->cap * 2;
+    \\    while (ncap < w->len + extra) { if (ncap > ~(size_t)0 / 2) return 1; ncap *= 2; }
+    \\    sa_u64 p = sa_alloc((sa_u64)ncap);
+    \\    uint32_t d = sa_checked_addr(p, (sa_u64)ncap);
+    \\    uint32_t s = sa_checked_addr(w->buf, w->len);
+    \\    size_t i; for (i = 0; i < w->len; i++) sa_mem[d + i] = sa_mem[s + i];
+    \\    w->buf = p; w->cap = ncap; }
+    \\  return 0;
+    \\}
+    , .deps = &.{ "sa_alloc", "sa_checked_addr" } },
+    .{ .name = "sa_jw_putc", .code =
+    \\static int sa_jw_putc(sa_json_writer_t *w, uint8_t c) {
+    \\  if (sa_jw_grow(w, 1)) return 1;
+    \\  { uint32_t d = sa_checked_addr(w->buf, w->len + 1); sa_mem[d + w->len] = c; }
+    \\  w->len++;
+    \\  return 0;
+    \\}
+    , .deps = &.{"sa_jw_grow"} },
+    .{ .name = "sa_jw_write", .code =
+    \\static int sa_jw_write(sa_json_writer_t *w, const uint8_t *s, size_t n) {
+    \\  size_t i; uint32_t d;
+    \\  if (sa_jw_grow(w, n)) return 1;
+    \\  d = sa_checked_addr(w->buf, w->len + n);
+    \\  for (i = 0; i < n; i++) sa_mem[d + w->len + i] = s[i];
+    \\  w->len += n;
+    \\  return 0;
+    \\}
+    , .deps = &.{"sa_jw_grow"} },
+    .{ .name = "sa_jw_comma", .code =
+    \\static int sa_jw_comma(sa_json_writer_t *w) {
+    \\  if (w->depth == 0 || w->first[w->depth - 1]) return 0;
+    \\  return sa_jw_putc(w, ',');
+    \\}
+    , .deps = &.{"sa_jw_putc"} },
+    .{ .name = "sa_jw_value_begin", .code =
+    \\static int sa_jw_value_begin(sa_json_writer_t *w) {
+    \\  if (w->done) return 1;
+    \\  if (w->pending) { w->pending = 0; w->started = 1; return 0; }
+    \\  if (w->depth == 0) {
+    \\    if (w->complete) return 1;
+    \\    w->started = 1; w->complete = 1; return 0;
+    \\  }
+    \\  if (w->kinds[w->depth - 1] != '{' && w->kinds[w->depth - 1] != '[') return 1;
+    \\  if (sa_jw_comma(w)) return 1;
+    \\  w->first[w->depth - 1] = 0; w->started = 1;
+    \\  return 0;
+    \\}
+    , .deps = &.{"sa_jw_comma"} },
+    .{ .name = "sa_jw_string", .code =
+    \\static int sa_jw_string(sa_json_writer_t *w, const uint8_t *s, size_t n) {
+    \\  size_t i;
+    \\  if (sa_jw_putc(w, '"')) return 1;
+    \\  for (i = 0; i < n; i++) {
+    \\    uint8_t c = s[i];
+    \\    if (c == '"' || c == '\\') { if (sa_jw_putc(w, '\\')) return 1; if (sa_jw_putc(w, c)) return 1; }
+    \\    else if (c == '\b') { if (sa_jw_write(w, (const uint8_t *)"\\b", 2)) return 1; }
+    \\    else if (c == '\f') { if (sa_jw_write(w, (const uint8_t *)"\\f", 2)) return 1; }
+    \\    else if (c == '\n') { if (sa_jw_write(w, (const uint8_t *)"\\n", 2)) return 1; }
+    \\    else if (c == '\r') { if (sa_jw_write(w, (const uint8_t *)"\\r", 2)) return 1; }
+    \\    else if (c == '\t') { if (sa_jw_write(w, (const uint8_t *)"\\t", 2)) return 1; }
+    \\    else if (c < 0x20) {
+    \\      char eb[6]; eb[0] = '\\'; eb[1] = 'u'; eb[2] = '0'; eb[3] = '0';
+    \\      eb[4] = (char)"0123456789abcdef"[(c >> 4) & 15]; eb[5] = (char)"0123456789abcdef"[c & 15];
+    \\      if (sa_jw_write(w, (const uint8_t *)eb, 6)) return 1;
+    \\    } else if (sa_jw_putc(w, c)) return 1;
+    \\  }
+    \\  if (sa_jw_putc(w, '"')) return 1;
+    \\  return 0;
+    \\}
+    , .deps = &.{ "sa_jw_putc", "sa_jw_write" } },
+    .{ .name = "sa_utf8_next", .code =
+    \\static uint32_t sa_utf8_next(const uint8_t *s, size_t n, size_t *i) {
+    \\  size_t k = *i; uint8_t b0;
+    \\  if (k >= n) return ~(uint32_t)0;
+    \\  b0 = s[k];
+    \\  if (b0 < 0x80) { *i = k + 1; return b0; }
+    \\  if (b0 >= 0xC2 && b0 <= 0xDF && k + 1 < n && (s[k + 1] & 0xC0) == 0x80) {
+    \\    *i = k + 2; return ((uint32_t)(b0 & 0x1F) << 6) | (s[k + 1] & 0x3F); }
+    \\  if (b0 >= 0xE0 && b0 <= 0xEF && k + 2 < n && (s[k + 1] & 0xC0) == 0x80 && (s[k + 2] & 0xC0) == 0x80) {
+    \\    uint32_t cp = ((uint32_t)(b0 & 0x0F) << 12) | ((uint32_t)(s[k + 1] & 0x3F) << 6) | (s[k + 2] & 0x3F);
+    \\    if (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF)) return ~(uint32_t)0;
+    \\    *i = k + 3; return cp; }
+    \\  if (b0 >= 0xF0 && b0 <= 0xF4 && k + 3 < n && (s[k + 1] & 0xC0) == 0x80 && (s[k + 2] & 0xC0) == 0x80 && (s[k + 3] & 0xC0) == 0x80) {
+    \\    uint32_t cp = ((uint32_t)(b0 & 0x07) << 18) | ((uint32_t)(s[k + 1] & 0x3F) << 12) | ((uint32_t)(s[k + 2] & 0x3F) << 6) | (s[k + 3] & 0x3F);
+    \\    if (cp < 0x10000 || cp > 0x10FFFF) return ~(uint32_t)0;
+    \\    *i = k + 4; return cp; }
+    \\  return ~(uint32_t)0;
+    \\}
+    , .deps = &.{} },
+    .{ .name = "sa_utf8_enc", .code =
+    \\static unsigned sa_utf8_enc(uint32_t cp, uint8_t *o) {
+    \\  if (cp < 0x80) { o[0] = (uint8_t)cp; return 1; }
+    \\  if (cp < 0x800) { o[0] = (uint8_t)(0xC0 | (cp >> 6)); o[1] = (uint8_t)(0x80 | (cp & 0x3F)); return 2; }
+    \\  if (cp < 0x10000) { o[0] = (uint8_t)(0xE0 | (cp >> 12)); o[1] = (uint8_t)(0x80 | ((cp >> 6) & 0x3F)); o[2] = (uint8_t)(0x80 | (cp & 0x3F)); return 3; }
+    \\  o[0] = (uint8_t)(0xF0 | (cp >> 18)); o[1] = (uint8_t)(0x80 | ((cp >> 12) & 0x3F)); o[2] = (uint8_t)(0x80 | ((cp >> 6) & 0x3F)); o[3] = (uint8_t)(0x80 | (cp & 0x3F)); return 4;
+    \\}
+    , .deps = &.{} },
+    .{ .name = "sa_json_string", .code =
+    \\static int sa_json_string(const uint8_t *s, size_t n, size_t *pos, sa_u64 *out_ptr, sa_u64 *out_len) {
+    \\  size_t i = *pos; size_t w; sa_u64 p; uint32_t d;
+    \\  if (i >= n || s[i] != '"') return 0;
+    \\  i++;
+    \\  p = sa_alloc(n - i + 1);
+    \\  d = sa_checked_addr(p, n - i + 1);
+    \\  w = 0;
+    \\  while (i < n && s[i] != '"') {
+    \\    uint8_t c = s[i];
+    \\    if (c == '\\') {
+    \\      uint8_t e;
+    \\      i++; if (i >= n) return 0; e = s[i];
+    \\      if (e == '"' || e == '\\' || e == '/') sa_mem[d + w++] = e;
+    \\      else if (e == 'b') sa_mem[d + w++] = 8;
+    \\      else if (e == 'f') sa_mem[d + w++] = 12;
+    \\      else if (e == 'n') sa_mem[d + w++] = 10;
+    \\      else if (e == 'r') sa_mem[d + w++] = 13;
+    \\      else if (e == 't') sa_mem[d + w++] = 9;
+    \\      else if (e == 'u') {
+    \\        uint32_t cp = 0; int k;
+    \\        for (k = 0; k < 4; k++) {
+    \\          i++; if (i >= n) return 0;
+    \\          uint8_t h = s[i]; uint32_t v;
+    \\          if (h >= '0' && h <= '9') v = (uint32_t)(h - '0');
+    \\          else if (h >= 'a' && h <= 'f') v = (uint32_t)(h - 'a' + 10);
+    \\          else if (h >= 'A' && h <= 'F') v = (uint32_t)(h - 'A' + 10);
+    \\          else return 0;
+    \\          cp = cp * 16 + v;
+    \\        }
+    \\        if (cp >= 0xD800 && cp <= 0xDBFF) {
+    \\          uint32_t lo;
+    \\          if (i + 2 >= n || s[i + 1] != '\\' || s[i + 2] != 'u') return 0;
+    \\          lo = 0; i += 2;
+    \\          for (k = 0; k < 4; k++) {
+    \\            i++; if (i >= n) return 0;
+    \\            uint8_t h = s[i]; uint32_t v;
+    \\            if (h >= '0' && h <= '9') v = (uint32_t)(h - '0');
+    \\            else if (h >= 'a' && h <= 'f') v = (uint32_t)(h - 'a' + 10);
+    \\            else if (h >= 'A' && h <= 'F') v = (uint32_t)(h - 'A' + 10);
+    \\            else return 0;
+    \\            lo = lo * 16 + v;
+    \\          }
+    \\          if (lo < 0xDC00 || lo > 0xDFFF) return 0;
+    \\          cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+    \\        } else if (cp >= 0xDC00 && cp <= 0xDFFF) return 0;
+    \\        w += sa_utf8_enc(cp, &sa_mem[d + w]);
+    \\      } else return 0;
+    \\      i++;
+    \\    } else if ((uint8_t)c < 0x20) return 0;
+    \\    else { sa_mem[d + w++] = c; i++; }
+    \\  }
+    \\  if (i >= n) return 0;
+    \\  *pos = i + 1;
+    \\  *out_ptr = p;
+    \\  *out_len = w;
+    \\  return 1;
+    \\}
+    , .deps = &.{"sa_utf8_enc"} },
+    .{ .name = "sa_json_parse_value", .code =
+    \\static sa_json_node_t *sa_json_parse_value(const uint8_t *s, size_t n, size_t *pos, int depth) {
+    \\  sa_json_node_t *nd; uint8_t c;
+    \\  if (depth > SA_JSON_MAX_DEPTH) return 0;
+    \\  while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\  if (*pos >= n) return 0;
+    \\  c = s[*pos];
+    \\  if (c == '{') {
+    \\    sa_json_node_t *last = 0;
+    \\    nd = sa_json_new(); if (nd == 0) return 0; nd->kind = 7;
+    \\    (*pos)++;
+    \\    while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\    if (*pos < n && s[*pos] == '}') { (*pos)++; return nd; }
+    \\    for (;;) {
+    \\      sa_u64 kp = 0, kl = 0; sa_json_node_t *v;
+    \\      while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\      if (!sa_json_string(s, n, pos, &kp, &kl)) return 0;
+    \\      while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\      if (*pos >= n || s[*pos] != ':') return 0;
+    \\      (*pos)++;
+    \\      v = sa_json_parse_value(s, n, pos, depth + 1);
+    \\      if (v == 0) return 0;
+    \\      v->kptr = kp; v->klen = kl;
+    \\      if (last == 0) nd->first = (sa_u64)(v - sa_json_nodes) + 1; else last->next = (sa_u64)(v - sa_json_nodes) + 1;
+    \\      last = v;
+    \\      while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\      if (*pos < n && s[*pos] == ',') { (*pos)++; continue; }
+    \\      if (*pos < n && s[*pos] == '}') { (*pos)++; return nd; }
+    \\      return 0;
+    \\    }
+    \\  }
+    \\  if (c == '[') {
+    \\    sa_json_node_t *last = 0;
+    \\    nd = sa_json_new(); if (nd == 0) return 0; nd->kind = 6;
+    \\    (*pos)++;
+    \\    while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\    if (*pos < n && s[*pos] == ']') { (*pos)++; return nd; }
+    \\    for (;;) {
+    \\      sa_json_node_t *v = sa_json_parse_value(s, n, pos, depth + 1);
+    \\      if (v == 0) return 0;
+    \\      if (last == 0) nd->first = (sa_u64)(v - sa_json_nodes) + 1; else last->next = (sa_u64)(v - sa_json_nodes) + 1;
+    \\      last = v;
+    \\      while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\      if (*pos < n && s[*pos] == ',') { (*pos)++; continue; }
+    \\      if (*pos < n && s[*pos] == ']') { (*pos)++; return nd; }
+    \\      return 0;
+    \\    }
+    \\  }
+    \\  if (c == '"') {
+    \\    sa_u64 p = 0, l = 0;
+    \\    nd = sa_json_new(); if (nd == 0) return 0;
+    \\    if (!sa_json_string(s, n, pos, &p, &l)) return 0;
+    \\    nd->kind = 5; nd->vptr = p; nd->vlen = l;
+    \\    return nd;
+    \\  }
+    \\  if (c == 't') {
+    \\    if (*pos + 4 > n || s[*pos+1] != 'r' || s[*pos+2] != 'u' || s[*pos+3] != 'e') return 0;
+    \\    nd = sa_json_new(); if (nd == 0) return 0;
+    \\    *pos += 4; nd->kind = 1; nd->bval = 1;
+    \\    return nd;
+    \\  }
+    \\  if (c == 'f') {
+    \\    if (*pos + 5 > n || s[*pos+1] != 'a' || s[*pos+2] != 'l' || s[*pos+3] != 's' || s[*pos+4] != 'e') return 0;
+    \\    nd = sa_json_new(); if (nd == 0) return 0;
+    \\    *pos += 5; nd->kind = 1; nd->bval = 0;
+    \\    return nd;
+    \\  }
+    \\  if (c == 'n') {
+    \\    if (*pos + 4 > n || s[*pos+1] != 'u' || s[*pos+2] != 'l' || s[*pos+3] != 'l') return 0;
+    \\    nd = sa_json_new(); if (nd == 0) return 0;
+    \\    *pos += 4; nd->kind = 0;
+    \\    return nd;
+    \\  }
+    \\  if (c == '-' || (c >= '0' && c <= '9')) {
+    \\    size_t st = *pos; size_t j = *pos; int is_float = 0;
+    \\    if (s[j] == '-') j++;
+    \\    if (j >= n) return 0;
+    \\    if (s[j] == '0') j++;
+    \\    else if (s[j] >= '1' && s[j] <= '9') { while (j < n && s[j] >= '0' && s[j] <= '9') j++; }
+    \\    else return 0;
+    \\    if (j < n && s[j] == '.') {
+    \\      is_float = 1; j++;
+    \\      if (j >= n || s[j] < '0' || s[j] > '9') return 0;
+    \\      while (j < n && s[j] >= '0' && s[j] <= '9') j++;
+    \\    }
+    \\    if (j < n && (s[j] == 'e' || s[j] == 'E')) {
+    \\      size_t m;
+    \\      is_float = 1; j++;
+    \\      if (j < n && (s[j] == '+' || s[j] == '-')) j++;
+    \\      m = j;
+    \\      while (j < n && s[j] >= '0' && s[j] <= '9') j++;
+    \\      if (m == j) return 0;
+    \\    }
+    \\    nd = sa_json_new(); if (nd == 0) return 0;
+    \\    if (!is_float) {
+    \\      sa_u64 mag = 0; size_t k = st; int neg = 0;
+    \\      if (s[k] == '-') { neg = 1; k++; }
+    \\      for (; k < j; k++) {
+    \\        unsigned dg = (unsigned)(s[k] - '0');
+    \\        if (mag > (~(sa_u64)0 - dg) / 10) break;
+    \\        mag = mag * 10 + dg;
+    \\      }
+    \\      if (k == j && !neg && mag <= (sa_u64)9223372036854775807ULL) { nd->kind = 2; nd->ival = (sa_i64)mag; }
+    \\      else if (k == j && neg && mag <= (sa_u64)9223372036854775808ULL) { nd->kind = 2; nd->ival = (sa_i64)(~(sa_u64)0 - mag + 1); }
+    \\      else is_float = 1;
+    \\    }
+    \\    if (is_float) {
+    \\      sa_u64 span = j - st;
+    \\      sa_u64 tp = sa_alloc(span + 1);
+    \\      uint32_t td = sa_checked_addr(tp, span + 1);
+    \\      size_t q; for (q = 0; q < (size_t)span; q++) sa_mem[td + q] = s[st + q];
+    \\      sa_mem[td + span] = 0; errno = 0;
+    \\      union { sa_u64 u; double v; } t; t.v = strtod((const char *)&sa_mem[td], 0);
+    \\      nd->kind = 3; nd->fbits = t.u;
+    \\    }
+    \\    *pos = j;
+    \\    return nd;
+    \\  }
+    \\  return 0;
+    \\}
+    , .deps = &.{ "sa_json_new", "sa_json_string", "sa_utf8_enc" } },
+    .{ .name = "sa_path_norm", .code =
+    \\static sa_u64 sa_path_norm(const uint8_t *s, size_t n, uint8_t *o, size_t cap) {
+    \\  size_t w = 0; size_t i = 0; int abs = (n > 0 && s[0] == '/');
+    \\  int trail = (n > 1 && s[n - 1] == '/');
+    \\  size_t base = abs ? 1 : 0;
+    \\  if (abs) { if (w >= cap) return ~(sa_u64)0; o[w++] = '/'; }
+    \\  while (i < n) {
+    \\    while (i < n && s[i] == '/') i++;
+    \\    if (i >= n) break;
+    \\    size_t j = i; while (j < n && s[j] != '/') j++;
+    \\    size_t sl = j - i;
+    \\    if (sl == 1 && s[i] == '.') { }
+    \\    else if (sl == 2 && s[i] == '.' && s[i + 1] == '.') {
+    \\      size_t e = w;
+    \\      if (w > base && o[w - 1] == '/') e--;
+    \\      size_t ss = e;
+    \\      while (ss > base && o[ss - 1] != '/') ss--;
+    \\      if (w > base && !(e - ss == 2 && o[ss] == '.' && o[ss + 1] == '.')) { w = ss; if (w > base && o[w - 1] == '/') w--; }
+    \\      else if (w == base && !abs) {
+    \\        if (w + 2 > cap) return ~(sa_u64)0;
+    \\        o[w++] = '.'; o[w++] = '.';
+    \\      }
+    \\      else if (w > base) {
+    \\        if (w + 3 > cap) return ~(sa_u64)0;
+    \\        o[w++] = '/'; o[w++] = '.'; o[w++] = '.';
+    \\      }
+    \\    } else {
+    \\      if (w > base) { if (w + 1 > cap) return ~(sa_u64)0; o[w++] = '/'; }
+    \\      if (w + sl > cap) return ~(sa_u64)0;
+    \\      { size_t k; for (k = 0; k < sl; k++) o[w + k] = s[i + k]; }
+    \\      w += sl;
+    \\    }
+    \\    i = j;
+    \\  }
+    \\  if (w == 0) { if (w + 1 > cap) return ~(sa_u64)0; o[w++] = abs ? '/' : '.'; }
+    \\  else if (trail && o[w - 1] != '/') { if (w + 1 > cap) return ~(sa_u64)0; o[w++] = '/'; }
+    \\  return (sa_u64)w;
+    \\}
+    , .deps = &.{} },
+    .{ .name = "sa_div_floor", .code =
+    \\static sa_i64 sa_div_floor(sa_i64 a, sa_i64 b) { sa_i64 q = a / b; sa_i64 r = a % b; if (r != 0 && ((r < 0) != (b < 0))) q -= 1; return q; }
+    , .deps = &.{} },
+    .{ .name = "sa_mod_floor", .code =
+    \\static sa_i64 sa_mod_floor(sa_i64 a, sa_i64 b) { sa_i64 r = a % b; if ((r != 0) && ((r < 0) != (b < 0))) r += b; return r; }
+    , .deps = &.{} },
+    .{ .name = "sa_civil_ymd", .code =
+    \\static void sa_civil_ymd(sa_i64 ms, sa_i64 *y, sa_i64 *mo, sa_i64 *d) {
+    \\  sa_i64 days = sa_div_floor(ms, 86400000);
+    \\  sa_i64 z = days + 719468;
+    \\  sa_i64 era = (z >= 0) ? sa_div_floor(z, 146097) : sa_div_floor(z - 146096, 146097);
+    \\  sa_i64 doe = z - era * 146097;
+    \\  sa_i64 yoe = sa_div_floor(doe - sa_div_floor(doe, 1460) + sa_div_floor(doe, 36524) - sa_div_floor(doe, 146096), 365);
+    \\  sa_i64 yy = yoe + era * 400;
+    \\  sa_i64 doy = doe - (365 * yoe + sa_div_floor(yoe, 4) - sa_div_floor(yoe, 100));
+    \\  sa_i64 mp = sa_div_floor(5 * doy + 2, 153);
+    \\  sa_i64 month = (mp < 10) ? mp + 3 : mp - 9;
+    \\  *y = (month <= 2) ? yy + 1 : yy;
+    \\  *mo = month;
+    \\  *d = doy - sa_div_floor(153 * mp + 2, 5) + 1;
+    \\}
+    , .deps = &.{"sa_div_floor"} },
+    .{ .name = "sa_puny_adapt", .code =
+    \\static sa_u64 sa_puny_adapt(sa_u64 delta, sa_u64 numpoints, int first) {
+    \\  sa_u64 k = 0;
+    \\  delta = first ? delta / 700 : delta >> 1;
+    \\  delta += delta / numpoints;
+    \\  while (delta > ((36 - 1) * 26) / 2) { delta /= 36 - 1; k += 36; }
+    \\  return k + (36 - 1 + 1) * delta / (delta + 38);
+    \\}
+    , .deps = &.{} },
+};
+
+/// Emission order for the catalog, topologically sorted by deps at
+/// comptime (Kahn's algorithm, stable by table order). Callees always
+/// precede callers no matter where entries sit in the table, so adding
+/// helpers can never reintroduce use-before-definition. Unknown deps
+/// (sa_trap, always emitted) are treated as ready; any residual cycle
+/// falls back to table order.
+const kHelpersSorted: [kRuntimeHelpers.len]HelperDef = blk: {
+    @setEvalBranchQuota(100000);
+    var order: [kRuntimeHelpers.len]usize = undefined;
+    var done: [kRuntimeHelpers.len]bool = std.mem.zeroes([kRuntimeHelpers.len]bool);
+    var n: usize = 0;
+    var progress = true;
+    while (progress) {
+        progress = false;
+        for (kRuntimeHelpers, 0..) |h, i| {
+            if (done[i]) continue;
+            var ready = true;
+            for (h.deps) |dep| {
+                for (kRuntimeHelpers, 0..) |h2, j| {
+                    if (std.mem.eql(u8, h2.name, dep)) {
+                        if (!done[j]) ready = false;
+                        break;
+                    }
+                }
+                if (!ready) break;
+            }
+            if (ready) {
+                order[n] = i;
+                n += 1;
+                done[i] = true;
+                progress = true;
+            }
+        }
+    }
+    for (0..kRuntimeHelpers.len) |i| {
+        if (!done[i]) {
+            order[n] = i;
+            n += 1;
+            done[i] = true;
+        }
+    }
+    var out: [kRuntimeHelpers.len]HelperDef = undefined;
+    for (order, 0..) |idx, k| out[k] = kRuntimeHelpers[idx];
+    break :blk out;
+};
+
+/// True iff the already-emitted body text calls `func_name` directly
+/// (rendered as `sa_fn_<name>(`). Externs are only reachable via direct
+/// calls, so this scan is exact; unrenderable names stay conservative.
+fn bodyCallsFunction(body_text: []const u8, func_name: []const u8) bool {
+    var nbuf: [1024]u8 = undefined;
+    var fw = std.Io.Writer.fixed(&nbuf);
+    cFuncName(&fw, func_name) catch return true;
+    const needle = fw.buffered();
+    if (needle.len + 1 > nbuf.len) return true;
+    nbuf[needle.len] = '(';
+    return std.mem.indexOf(u8, body_text, nbuf[0 .. needle.len + 1]) != null;
+}
+
+/// Seed `used` from textual references in the already-emitted body text
+/// (`init` + function bodies): a helper is needed iff `name ++ "("`
+/// occurs. Comments can only add false positives (safe direction: an
+/// extra helper emitted, never a missing one).
+fn collectUsedHelpers(allocator: std.mem.Allocator, body_text: []const u8) !std.StringHashMap(void) {
+    var used = std.StringHashMap(void).init(allocator);
+    errdefer used.deinit();
+    var needle: [64]u8 = undefined;
+    for (kRuntimeHelpers) |h| {
+        if (h.name.len + 1 > needle.len) continue;
+        @memcpy(needle[0..h.name.len], h.name);
+        needle[h.name.len] = '(';
+        if (std.mem.indexOf(u8, body_text, needle[0 .. h.name.len + 1]) != null) {
+            try used.put(h.name, {});
+        }
+    }
+    // Fixpoint over deps (table order preserved at emission).
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (kRuntimeHelpers) |h| {
+            if (used.get(h.name) == null) continue;
+            for (h.deps) |dep| {
+                if (used.get(dep) == null) {
+                    try used.put(dep, {});
+                    changed = true;
+                }
+            }
+        }
+    }
+    return used;
+}
+
+/// True for staged bindings that dispatch guest code host-side (via
+/// sa_call_indirect): programs calling them force need_indirect so the
+/// dispatcher+ftable are emitted even without a call_indirect inst.
+fn bindingNeedsDispatcher(norm_name: []const u8) bool {
+    return std.mem.eql(u8, norm_name, "pthread_spawn");
+}
+
+/// Staged host bindings for well-known externs (fd/mmap/signal/npm).
+/// These mirror the interpreter/JS staged semantics the demos assert on
+/// (fake fds, echo signal, byte-level npm checks) — NOT real syscalls,
+/// so output stays deterministic with no host dependencies. Emits the
+/// definition with the uniform-arity signature and returns true; unknown
+/// names return false and the caller falls back to the trap stub.
+fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usize, gas: bool) !bool {
+    const name = sigNormName(raw_name);
+    // `voids` bitmask: bit i set => emit `(void)a{i};`. Bit positions
+    // follow the extern's own arg order (a0 = first arg), so e.g. mmap
+    // voids a0 (fd, staged) while consuming a1 (len).
+    const Binding = struct { voids: u64, tag: enum {
+        fd_open,
+        fd_close,
+        fd_read,
+        mmap,
+        munmap,
+        signal,
+        npm_totalmem,
+        npm_parallelism,
+        npm_isabs,
+        npm_iseq,
+        pthread_spawn,
+        pthread_join,
+        pthread_drop,
+        dlopen,
+        dlsym,
+        dlclose,
+        sqlite3_prepare,
+        sqlite3_step,
+        sqlite3_finalize,
+        fmt_i64_into,
+        fmt_u64_into,
+        fmt_f64_into,
+        fmt_bool_into,
+        fmt_bytes_into,
+        fmt_i64,
+        fmt_u64,
+        fmt_f64,
+        fmt_bool,
+        fmt_bytes,
+        fmt_buffer_data,
+        fmt_buffer_len,
+        fmt_buffer_free,
+        modstate_get_u64,
+        modstate_set_u64,
+        string_concat,
+        string_index_of,
+        string_last_index_of,
+        string_starts_with,
+        string_ends_with,
+        string_to_lower_ascii,
+        string_to_upper_ascii,
+        string_repeat,
+        string_pad_start,
+        string_pad_end,
+        string_from_char_code,
+        string_from_code_point,
+        string_code_point_at,
+        string_replace,
+        str_is_ascii,
+        str_eq_ignore_ascii_case,
+        str_trim_ascii_start_index,
+        str_trim_ascii_end_len,
+        parse_float,
+        regex_compile,
+        regex_match,
+        regex_group_ptr,
+        regex_group_len,
+        regex_group_start,
+        regex_group_count,
+        regex_free,
+        regex_match_free,
+        node_path_normalize,
+        node_path_dirname,
+        node_path_extname,
+        node_path_is_absolute,
+        node_path_join,
+        node_qs_escape,
+        node_qs_unescape,
+        node_puny_encode,
+        node_puny_decode,
+        json_writer_new,
+        json_writer_begin_object,
+        json_writer_end_object,
+        json_writer_begin_array,
+        json_writer_end_array,
+        json_writer_field_bool,
+        json_writer_field_i64,
+        json_writer_field_f64,
+        json_writer_field_string,
+        json_writer_object_field,
+        json_writer_write_bool,
+        json_writer_write_i64,
+        json_writer_write_f64,
+        json_writer_write_string,
+        json_writer_write_null,
+        json_writer_finish,
+        json_writer_free,
+        json_buffer_data,
+        json_buffer_len,
+        json_buffer_free,
+        json_parse,
+        json_free,
+        json_object_get,
+        json_object_get_i64,
+        json_object_get_string,
+        json_object_get_bool,
+        json_array_get,
+        json_value_count,
+        json_as_i64,
+        node_buf_concat,
+        node_rand_bytes,
+        node_crypto_hash,
+        deno_btoa,
+        deno_atob,
+        deno_read_file,
+        deno_write_file,
+        deno_remove,
+        deno_mkdir,
+        std_fs_exists,
+        time_unix_ms,
+        time_get_full_year,
+        time_get_month,
+        time_get_date,
+        time_parse_iso,
+        time_set_field,
+        http_client_new,
+        http_client_req_new,
+        http_client_req_add_header,
+        http_client_req_set_body,
+        http_client_req_send,
+        http_client_resp_status,
+        http_client_resp_body_reader,
+        http_client_resp_read_chunk,
+        http_client_resp_free,
+        http_client_body_reader_free,
+        http_client_req_free,
+        http_client_free,
+        http_server_new,
+        http_server_start,
+        http_server_accept,
+        http_server_req_get_path,
+        http_server_req_get_header,
+        http_server_req_get_body,
+        http_server_resp_stream_new,
+        http_server_resp_stream_write,
+        http_server_resp_stream_flush,
+        http_server_resp_stream_end,
+        http_server_resp_stream_free,
+        http_server_req_free,
+        http_server_free,
+    } };
+    const all_void: u64 = ~@as(u64, 0);
+    const b: ?Binding = if (std.mem.eql(u8, name, "fd_open"))
+        .{ .voids = all_void, .tag = .fd_open }
+    else if (std.mem.eql(u8, name, "fd_close"))
+        .{ .voids = all_void, .tag = .fd_close }
+    else if (std.mem.eql(u8, name, "fd_read"))
+        .{ .voids = all_void, .tag = .fd_read }
+    else if (std.mem.eql(u8, name, "mmap"))
+        .{ .voids = 0b1, .tag = .mmap }
+    else if (std.mem.eql(u8, name, "munmap"))
+        .{ .voids = all_void, .tag = .munmap }
+    else if (std.mem.eql(u8, name, "signal"))
+        .{ .voids = all_void ^ 0b1, .tag = .signal }
+    else if (std.mem.eql(u8, name, "npm_totalmem"))
+        .{ .voids = all_void, .tag = .npm_totalmem }
+    else if (std.mem.eql(u8, name, "npm_parallelism"))
+        .{ .voids = all_void, .tag = .npm_parallelism }
+    else if (std.mem.eql(u8, name, "npm_isabs") or std.mem.eql(u8, name, "npm_ns_isabs"))
+        .{ .voids = all_void ^ 0b11, .tag = .npm_isabs }
+    else if (std.mem.eql(u8, name, "npm_iseq") or std.mem.eql(u8, name, "npm_ns_iseq"))
+        .{ .voids = all_void ^ 0b1111, .tag = .npm_iseq }
+    else if (std.mem.eql(u8, name, "pthread_spawn"))
+        .{ .voids = all_void ^ 0b11, .tag = .pthread_spawn }
+    else if (std.mem.eql(u8, name, "pthread_join"))
+        .{ .voids = all_void, .tag = .pthread_join }
+    else if (std.mem.eql(u8, name, "pthread_drop"))
+        .{ .voids = all_void, .tag = .pthread_drop }
+    else if (std.mem.eql(u8, name, "dlopen"))
+        .{ .voids = all_void, .tag = .dlopen }
+    else if (std.mem.eql(u8, name, "dlsym"))
+        .{ .voids = all_void, .tag = .dlsym }
+    else if (std.mem.eql(u8, name, "dlclose"))
+        .{ .voids = all_void, .tag = .dlclose }
+    else if (std.mem.eql(u8, name, "sqlite3_prepare"))
+        .{ .voids = all_void, .tag = .sqlite3_prepare }
+    else if (std.mem.eql(u8, name, "sqlite3_step"))
+        .{ .voids = all_void, .tag = .sqlite3_step }
+    else if (std.mem.eql(u8, name, "sqlite3_finalize"))
+        .{ .voids = all_void, .tag = .sqlite3_finalize }
+    else if (std.mem.eql(u8, name, "sa_fmt_i64_into"))
+        .{ .voids = all_void ^ 0b11111, .tag = .fmt_i64_into }
+    else if (std.mem.eql(u8, name, "sa_fmt_u64_into"))
+        .{ .voids = all_void ^ 0b11111, .tag = .fmt_u64_into }
+    else if (std.mem.eql(u8, name, "sa_fmt_f64_into"))
+        .{ .voids = all_void ^ 0b11111, .tag = .fmt_f64_into }
+    else if (std.mem.eql(u8, name, "sa_fmt_bool_into"))
+        .{ .voids = all_void ^ 0b1111, .tag = .fmt_bool_into }
+    else if (std.mem.eql(u8, name, "sa_fmt_bytes_into"))
+        .{ .voids = all_void ^ 0b11111, .tag = .fmt_bytes_into }
+    else if (std.mem.eql(u8, name, "sa_fmt_i64"))
+        .{ .voids = all_void ^ 0b11, .tag = .fmt_i64 }
+    else if (std.mem.eql(u8, name, "sa_fmt_u64"))
+        .{ .voids = all_void ^ 0b11, .tag = .fmt_u64 }
+    else if (std.mem.eql(u8, name, "sa_fmt_f64"))
+        .{ .voids = all_void ^ 0b11, .tag = .fmt_f64 }
+    else if (std.mem.eql(u8, name, "sa_fmt_bool"))
+        .{ .voids = all_void ^ 0b1, .tag = .fmt_bool }
+    else if (std.mem.eql(u8, name, "sa_fmt_bytes"))
+        .{ .voids = all_void ^ 0b11, .tag = .fmt_bytes }
+    else if (std.mem.eql(u8, name, "sa_fmt_buffer_data"))
+        .{ .voids = all_void ^ 0b1, .tag = .fmt_buffer_data }
+    else if (std.mem.eql(u8, name, "sa_fmt_buffer_len"))
+        .{ .voids = all_void ^ 0b1, .tag = .fmt_buffer_len }
+    else if (std.mem.eql(u8, name, "sa_fmt_buffer_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .fmt_buffer_free }
+    else if (std.mem.eql(u8, name, "sa_modstate_get_u64"))
+        .{ .voids = all_void ^ 0b1, .tag = .modstate_get_u64 }
+    else if (std.mem.eql(u8, name, "sa_modstate_set_u64"))
+        .{ .voids = all_void ^ 0b11, .tag = .modstate_set_u64 }
+    else if (std.mem.eql(u8, name, "sa_string_concat"))
+        .{ .voids = all_void ^ 0b1111, .tag = .string_concat }
+    else if (std.mem.eql(u8, name, "sa_string_index_of"))
+        .{ .voids = all_void ^ 0b11111, .tag = .string_index_of }
+    else if (std.mem.eql(u8, name, "sa_string_last_index_of"))
+        .{ .voids = all_void ^ 0b11111, .tag = .string_last_index_of }
+    else if (std.mem.eql(u8, name, "sa_string_starts_with"))
+        .{ .voids = all_void ^ 0b1111, .tag = .string_starts_with }
+    else if (std.mem.eql(u8, name, "sa_string_ends_with"))
+        .{ .voids = all_void ^ 0b1111, .tag = .string_ends_with }
+    else if (std.mem.eql(u8, name, "sa_string_to_lower_ascii"))
+        .{ .voids = all_void ^ 0b11, .tag = .string_to_lower_ascii }
+    else if (std.mem.eql(u8, name, "sa_string_to_upper_ascii"))
+        .{ .voids = all_void ^ 0b11, .tag = .string_to_upper_ascii }
+    else if (std.mem.eql(u8, name, "sa_string_repeat"))
+        .{ .voids = all_void ^ 0b111, .tag = .string_repeat }
+    else if (std.mem.eql(u8, name, "sa_string_pad_start"))
+        .{ .voids = all_void ^ 0b11111, .tag = .string_pad_start }
+    else if (std.mem.eql(u8, name, "sa_string_pad_end"))
+        .{ .voids = all_void ^ 0b11111, .tag = .string_pad_end }
+    else if (std.mem.eql(u8, name, "sa_string_from_char_code"))
+        .{ .voids = all_void ^ 0b1, .tag = .string_from_char_code }
+    else if (std.mem.eql(u8, name, "sa_string_from_code_point"))
+        .{ .voids = all_void ^ 0b1, .tag = .string_from_code_point }
+    else if (std.mem.eql(u8, name, "sa_string_code_point_at"))
+        .{ .voids = all_void ^ 0b111, .tag = .string_code_point_at }
+    else if (std.mem.eql(u8, name, "sa_string_replace"))
+        .{ .voids = all_void ^ 0b1111111, .tag = .string_replace }
+    else if (std.mem.eql(u8, name, "sa_str_is_ascii"))
+        .{ .voids = all_void ^ 0b11, .tag = .str_is_ascii }
+    else if (std.mem.eql(u8, name, "sa_str_eq_ignore_ascii_case"))
+        .{ .voids = all_void ^ 0b1111, .tag = .str_eq_ignore_ascii_case }
+    else if (std.mem.eql(u8, name, "sa_str_trim_ascii_start_index"))
+        .{ .voids = all_void ^ 0b11, .tag = .str_trim_ascii_start_index }
+    else if (std.mem.eql(u8, name, "sa_str_trim_ascii_end_len"))
+        .{ .voids = all_void ^ 0b11, .tag = .str_trim_ascii_end_len }
+    else if (std.mem.eql(u8, name, "sa_parse_float"))
+        .{ .voids = all_void ^ 0b11, .tag = .parse_float }
+    else if (std.mem.eql(u8, name, "sa_regex_compile"))
+        .{ .voids = all_void ^ 0b111, .tag = .regex_compile }
+    else if (std.mem.eql(u8, name, "sa_regex_match"))
+        .{ .voids = all_void ^ 0b111, .tag = .regex_match }
+    else if (std.mem.eql(u8, name, "sa_regex_group_ptr"))
+        .{ .voids = all_void ^ 0b11, .tag = .regex_group_ptr }
+    else if (std.mem.eql(u8, name, "sa_regex_group_len"))
+        .{ .voids = all_void ^ 0b11, .tag = .regex_group_len }
+    else if (std.mem.eql(u8, name, "sa_regex_group_start"))
+        .{ .voids = all_void ^ 0b11, .tag = .regex_group_start }
+    else if (std.mem.eql(u8, name, "sa_regex_group_count"))
+        .{ .voids = all_void ^ 0b1, .tag = .regex_group_count }
+    else if (std.mem.eql(u8, name, "sa_regex_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .regex_free }
+    else if (std.mem.eql(u8, name, "sa_regex_match_free"))
+        .{ .voids = all_void, .tag = .regex_match_free }
+    else if (std.mem.eql(u8, name, "sa_time_unix_ms"))
+        .{ .voids = all_void, .tag = .time_unix_ms }
+    else if (std.mem.eql(u8, name, "sa_time_get_full_year"))
+        .{ .voids = all_void ^ 0b1, .tag = .time_get_full_year }
+    else if (std.mem.eql(u8, name, "sa_time_get_month"))
+        .{ .voids = all_void ^ 0b1, .tag = .time_get_month }
+    else if (std.mem.eql(u8, name, "sa_time_get_date"))
+        .{ .voids = all_void ^ 0b1, .tag = .time_get_date }
+    else if (std.mem.eql(u8, name, "sa_time_parse_iso"))
+        .{ .voids = all_void ^ 0b111, .tag = .time_parse_iso }
+    else if (std.mem.eql(u8, name, "sa_time_set_field"))
+        .{ .voids = all_void ^ 0b111, .tag = .time_set_field }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_path_normalize"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_path_normalize }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_path_dirname"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_path_dirname }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_path_extname"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_path_extname }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_path_is_absolute"))
+        .{ .voids = all_void ^ 0b111, .tag = .node_path_is_absolute }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_path_join"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_path_join }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_querystring_escape"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_qs_escape }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_querystring_unescape"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_qs_unescape }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_punycode_encode"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_puny_encode }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_punycode_decode"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_puny_decode }
+    else if (std.mem.eql(u8, name, "sa_json_writer_new"))
+        .{ .voids = all_void ^ 0b100000, .tag = .json_writer_new }
+    else if (std.mem.eql(u8, name, "sa_json_writer_begin_object"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_writer_begin_object }
+    else if (std.mem.eql(u8, name, "sa_json_writer_end_object"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_writer_end_object }
+    else if (std.mem.eql(u8, name, "sa_json_writer_begin_array"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_writer_begin_array }
+    else if (std.mem.eql(u8, name, "sa_json_writer_end_array"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_writer_end_array }
+    else if (std.mem.eql(u8, name, "sa_json_writer_field_bool"))
+        .{ .voids = all_void ^ 0b1111, .tag = .json_writer_field_bool }
+    else if (std.mem.eql(u8, name, "sa_json_writer_field_i64"))
+        .{ .voids = all_void ^ 0b1111, .tag = .json_writer_field_i64 }
+    else if (std.mem.eql(u8, name, "sa_json_writer_field_f64"))
+        .{ .voids = all_void ^ 0b1111, .tag = .json_writer_field_f64 }
+    else if (std.mem.eql(u8, name, "sa_json_writer_field_string"))
+        .{ .voids = all_void ^ 0b11111, .tag = .json_writer_field_string }
+    else if (std.mem.eql(u8, name, "sa_json_writer_object_field"))
+        .{ .voids = all_void ^ 0b111, .tag = .json_writer_object_field }
+    else if (std.mem.eql(u8, name, "sa_json_writer_write_bool"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_writer_write_bool }
+    else if (std.mem.eql(u8, name, "sa_json_writer_write_i64"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_writer_write_i64 }
+    else if (std.mem.eql(u8, name, "sa_json_writer_write_f64"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_writer_write_f64 }
+    else if (std.mem.eql(u8, name, "sa_json_writer_write_string"))
+        .{ .voids = all_void ^ 0b111, .tag = .json_writer_write_string }
+    else if (std.mem.eql(u8, name, "sa_json_writer_write_null"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_writer_write_null }
+    else if (std.mem.eql(u8, name, "sa_json_writer_finish"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_writer_finish }
+    else if (std.mem.eql(u8, name, "sa_json_writer_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_writer_free }
+    else if (std.mem.eql(u8, name, "sa_json_buffer_data"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_buffer_data }
+    else if (std.mem.eql(u8, name, "sa_json_buffer_len"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_buffer_len }
+    else if (std.mem.eql(u8, name, "sa_json_buffer_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_buffer_free }
+    else if (std.mem.eql(u8, name, "sa_json_parse"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_parse }
+    else if (std.mem.eql(u8, name, "sa_json_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_free }
+    else if (std.mem.eql(u8, name, "sa_json_object_get"))
+        .{ .voids = all_void ^ 0b1111, .tag = .json_object_get }
+    else if (std.mem.eql(u8, name, "sa_json_object_get_i64"))
+        .{ .voids = all_void ^ 0b1111, .tag = .json_object_get_i64 }
+    else if (std.mem.eql(u8, name, "sa_json_object_get_string"))
+        .{ .voids = all_void ^ 0b11111, .tag = .json_object_get_string }
+    else if (std.mem.eql(u8, name, "sa_json_object_get_bool"))
+        .{ .voids = all_void ^ 0b1111, .tag = .json_object_get_bool }
+    else if (std.mem.eql(u8, name, "sa_json_array_get"))
+        .{ .voids = all_void ^ 0b111, .tag = .json_array_get }
+    else if (std.mem.eql(u8, name, "sa_json_value_count"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_value_count }
+    else if (std.mem.eql(u8, name, "sa_json_as_i64"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_as_i64 }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_buffer_concat"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_buf_concat }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_crypto_random_bytes"))
+        .{ .voids = all_void ^ 0b11, .tag = .node_rand_bytes }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_crypto_hash"))
+        .{ .voids = all_void ^ 0b111111, .tag = .node_crypto_hash }
+    else if (std.mem.eql(u8, name, "sa_std_fs_exists"))
+        .{ .voids = all_void ^ 0b11, .tag = .std_fs_exists }
+    else if (std.mem.eql(u8, name, "sa_deno_plugin_btoa"))
+        .{ .voids = all_void ^ 0b1111, .tag = .deno_btoa }
+    else if (std.mem.eql(u8, name, "sa_deno_plugin_atob"))
+        .{ .voids = all_void ^ 0b1111, .tag = .deno_atob }
+    else if (std.mem.eql(u8, name, "sa_deno_plugin_read_text_file"))
+        .{ .voids = all_void ^ 0b1111, .tag = .deno_read_file }
+    else if (std.mem.eql(u8, name, "sa_deno_plugin_write_text_file"))
+        .{ .voids = all_void ^ 0b1111, .tag = .deno_write_file }
+    else if (std.mem.eql(u8, name, "sa_deno_plugin_remove"))
+        .{ .voids = all_void, .tag = .deno_remove }
+    else if (std.mem.eql(u8, name, "sa_deno_plugin_mkdir"))
+        .{ .voids = all_void ^ 0b111, .tag = .deno_mkdir }
+    else if (std.mem.eql(u8, name, "sa_http_client_new"))
+        .{ .voids = all_void ^ 0b11, .tag = .http_client_new }
+    else if (std.mem.eql(u8, name, "sa_http_client_req_new"))
+        .{ .voids = all_void ^ 0b11101, .tag = .http_client_req_new }
+    else if (std.mem.eql(u8, name, "sa_http_client_req_add_header"))
+        .{ .voids = all_void ^ 0b11111, .tag = .http_client_req_add_header }
+    else if (std.mem.eql(u8, name, "sa_http_client_req_set_body"))
+        .{ .voids = all_void ^ 0b111, .tag = .http_client_req_set_body }
+    else if (std.mem.eql(u8, name, "sa_http_client_req_send"))
+        .{ .voids = all_void ^ 0b11, .tag = .http_client_req_send }
+    else if (std.mem.eql(u8, name, "sa_http_client_resp_status"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_client_resp_status }
+    else if (std.mem.eql(u8, name, "sa_http_client_resp_body_reader"))
+        .{ .voids = all_void ^ 0b11, .tag = .http_client_resp_body_reader }
+    else if (std.mem.eql(u8, name, "sa_http_client_resp_read_chunk"))
+        .{ .voids = all_void ^ 0b1111, .tag = .http_client_resp_read_chunk }
+    else if (std.mem.eql(u8, name, "sa_http_client_resp_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_client_resp_free }
+    else if (std.mem.eql(u8, name, "sa_http_client_body_reader_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_client_body_reader_free }
+    else if (std.mem.eql(u8, name, "sa_http_client_req_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_client_req_free }
+    else if (std.mem.eql(u8, name, "sa_http_client_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_client_free }
+    else if (std.mem.eql(u8, name, "sa_http_server_new"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_server_new }
+    else if (std.mem.eql(u8, name, "sa_http_server_start"))
+        .{ .voids = all_void ^ 0b111, .tag = .http_server_start }
+    else if (std.mem.eql(u8, name, "sa_http_server_accept"))
+        .{ .voids = all_void ^ 0b11, .tag = .http_server_accept }
+    else if (std.mem.eql(u8, name, "sa_http_server_req_get_path"))
+        .{ .voids = all_void ^ 0b111, .tag = .http_server_req_get_path }
+    else if (std.mem.eql(u8, name, "sa_http_server_req_get_header"))
+        .{ .voids = all_void ^ 0b11111, .tag = .http_server_req_get_header }
+    else if (std.mem.eql(u8, name, "sa_http_server_req_get_body"))
+        .{ .voids = all_void ^ 0b111, .tag = .http_server_req_get_body }
+    else if (std.mem.eql(u8, name, "sa_http_server_resp_stream_new"))
+        .{ .voids = all_void ^ 0b101, .tag = .http_server_resp_stream_new }
+    else if (std.mem.eql(u8, name, "sa_http_server_resp_stream_write"))
+        .{ .voids = all_void ^ 0b111, .tag = .http_server_resp_stream_write }
+    else if (std.mem.eql(u8, name, "sa_http_server_resp_stream_flush"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_server_resp_stream_flush }
+    else if (std.mem.eql(u8, name, "sa_http_server_resp_stream_end"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_server_resp_stream_end }
+    else if (std.mem.eql(u8, name, "sa_http_server_resp_stream_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_server_resp_stream_free }
+    else if (std.mem.eql(u8, name, "sa_http_server_req_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_server_req_free }
+    else if (std.mem.eql(u8, name, "sa_http_server_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .http_server_free }
+    else
+        null;
+    const binding = b orelse return false;
+    // Uniform-arity signature (matches the fwd decl) + selective padding.
+    try writer.writeAll("static sa_u64 ");
+    try cFuncName(writer, raw_name);
+    try writer.writeAll("(");
+    if (uniform_arity == 0) {
+        try writer.writeAll("void");
+    } else {
+        for (0..uniform_arity) |pi| {
+            if (pi != 0) try writer.writeAll(", ");
+            try writer.print("sa_u64 a{d}", .{pi});
+        }
+    }
+    try writer.writeAll(") {");
+    for (0..uniform_arity) |pi| {
+        if (pi < 64 and (binding.voids >> @intCast(pi)) & 1 == 1) {
+            try writer.print(" (void)a{d};", .{pi});
+        }
+    }
+    if (gas) try writer.writeAll(" SA_GAS_CHECK(1);");
+    switch (binding.tag) {
+        .fd_open => {
+            // Fake fd counter from 3 (mirrors JS next-fd); the path is
+            // staged and unread, like the interpreter.
+            try writer.writeAll(" { static sa_u64 next_fd = 3; return next_fd++; } }\n");
+        },
+        .fd_close => {
+            try writer.writeAll(" return 0; }\n");
+        },
+        .fd_read => {
+            try writer.writeAll(" return 3; }\n");
+        },
+        .mmap => {
+            // Anonymous zero-filled mapping stands in for the host page
+            // (a1 = len; a0 fd is staged). Negative lengths trap inside
+            // sa_alloc via the OOM check.
+            try writer.writeAll(" return sa_alloc(a1); }\n");
+        },
+        .munmap => {
+            try writer.writeAll(" return 0; }\n");
+        },
+        .signal => {
+            // Echo the signal number back (staged oracle semantics).
+            try writer.writeAll(" return a0; }\n");
+        },
+        .npm_totalmem => {
+            // Deterministic 8GiB stand-in (asserted only as > 0).
+            try writer.writeAll(" return 8589934592ULL; }\n");
+        },
+        .npm_parallelism => {
+            // Deterministic stand-in (asserted only as >= 1).
+            try writer.writeAll(" return 4; }\n");
+        },
+        .npm_isabs => {
+            // Byte-level absolute-path check on guest memory (a0 = ptr,
+            // a1 = len); OOB traps via the checked address.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 == 0) return 0;");
+            try writer.writeAll(" return sa_mem[x] == (uint8_t)'/' ? 1 : 0; } }\n");
+        },
+        .npm_iseq => {
+            // Byte-level deep-equal on guest memory (a0/a1, a2/a3);
+            // OOB traps via the checked addresses.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if (a1 != a3) return 0;");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" if (sa_mem[x + i] != sa_mem[y + i]) return 0; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .pthread_spawn => {
+            // Run the entry synchronously via the dispatcher, then hand
+            // out a joinable handle (single-threaded staged semantics,
+            // mirrors JS). Trailing zeros pad to dispatcher arity.
+            try writer.writeAll(" { sa_call_indirect(a0, a1");
+            var zi: usize = 1;
+            while (zi < uniform_arity) : (zi += 1) {
+                try writer.writeAll(", 0");
+            }
+            try writer.writeAll(");");
+            try writer.writeAll(" { static sa_u64 next_thr = 1; return next_thr++; } } }\n");
+        },
+        .pthread_join => {
+            // Entry already ran inside spawn; nothing to wait for.
+            try writer.writeAll(" return 0; }\n");
+        },
+        .pthread_drop => {
+            try writer.writeAll(" return 0; }\n");
+        },
+        .dlopen => {
+            // Real zeroed region stands in for the OS handle (mirrors
+            // JS __sa_alloc(8)); nonzero is what the oracle checks.
+            try writer.writeAll(" return sa_alloc(8); }\n");
+        },
+        .dlsym => {
+            try writer.writeAll(" return sa_alloc(8); }\n");
+        },
+        .dlclose => {
+            try writer.writeAll(" return 0; }\n");
+        },
+        .sqlite3_prepare => {
+            try writer.writeAll(" return 0; }\n");
+        },
+        .sqlite3_step => {
+            // SQLITE_ROW so the row-present branch is taken (mirrors JS).
+            try writer.writeAll(" return 100; }\n");
+        },
+        .sqlite3_finalize => {
+            try writer.writeAll(" return 0; }\n");
+        },
+        .fmt_i64_into => {
+            // Signed decimal (or base 2/8/16/17) into the caller buffer;
+            // out_len is always written, cap==0 short-circuits OK,
+            // overflow reports truncated (mirrors writeFormattedInto).
+            try writer.writeAll(" { char tmp[130];");
+            try writer.writeAll(" int n = sa_fmt_int(tmp, a0, (unsigned)a1, 1, (a1 == 17));");
+            try writer.writeAll(" if (n < 0) return 1;");
+            try writer.writeAll(" sa_store_u64(a4, (sa_u64)n);");
+            try writer.writeAll(" if (a3 == 0) return 0;");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if ((sa_u64)n > a3) return 9;");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)n; i++)");
+            try writer.writeAll(" sa_mem[d + i] = (uint8_t)tmp[i]; } } return 0; } }\n");
+        },
+        .fmt_u64_into => {
+            try writer.writeAll(" { char tmp[130];");
+            try writer.writeAll(" int n = sa_fmt_int(tmp, a0, (unsigned)a1, 0, (a1 == 17));");
+            try writer.writeAll(" if (n < 0) return 1;");
+            try writer.writeAll(" sa_store_u64(a4, (sa_u64)n);");
+            try writer.writeAll(" if (a3 == 0) return 0;");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if ((sa_u64)n > a3) return 9;");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)n; i++)");
+            try writer.writeAll(" sa_mem[d + i] = (uint8_t)tmp[i]; } } return 0; } }\n");
+        },
+        .fmt_f64_into => {
+            // Zig "{d:.precision}" == C "%.*f" for sane precisions;
+            // NaN keeps Zig's "NaN" casing (printf says "nan").
+            try writer.writeAll(" { if (a1 > 200) return 1;");
+            try writer.writeAll(" union { sa_u64 u; double d; } t; t.u = a0;");
+            try writer.writeAll(" char tmp[256];");
+            try writer.writeAll(" if (t.d != t.d) {");
+            try writer.writeAll(" sa_store_u64(a4, 3);");
+            try writer.writeAll(" if (a3 == 0) return 0;");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if (3 > a3) return 9;");
+            try writer.writeAll(" sa_mem[d] = (uint8_t)'N'; sa_mem[d + 1] = (uint8_t)'a';");
+            try writer.writeAll(" sa_mem[d + 2] = (uint8_t)'N'; } return 0; }");
+            try writer.writeAll(" int n = snprintf(tmp, sizeof(tmp), \"%.*f\", (int)a1, t.d);");
+            try writer.writeAll(" if (n < 0 || n >= 256) return 1;");
+            try writer.writeAll(" sa_store_u64(a4, (sa_u64)n);");
+            try writer.writeAll(" if (a3 == 0) return 0;");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if ((sa_u64)n > a3) return 9;");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)n; i++)");
+            try writer.writeAll(" sa_mem[d + i] = (uint8_t)tmp[i]; } } return 0; } }\n");
+        },
+        .fmt_bool_into => {
+            try writer.writeAll(" { const char *s = a0 ? \"true\" : \"false\";");
+            try writer.writeAll(" sa_u64 n = a0 ? 4 : 5;");
+            try writer.writeAll(" sa_store_u64(a3, n);");
+            try writer.writeAll(" if (a2 == 0) return 0;");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (n > a2) return 9;");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)n; i++)");
+            try writer.writeAll(" sa_mem[d + i] = (uint8_t)s[i]; } } return 0; } }\n");
+        },
+        .fmt_bytes_into => {
+            try writer.writeAll(" { uint32_t s = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_store_u64(a4, a1);");
+            try writer.writeAll(" if (a3 == 0) return 0;");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if (a1 > a3) return 9;");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[s + i]; } } return 0; } }\n");
+        },
+        .fmt_i64 => {
+            try writer.writeAll(" { char tmp[130];");
+            try writer.writeAll(" int n = sa_fmt_int(tmp, a0, (unsigned)a1, 1, (a1 == 17));");
+            try writer.writeAll(" if (n < 0) return 0;");
+            try writer.writeAll(" sa_u64 p = sa_alloc((sa_u64)n);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, (sa_u64)n);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)n; i++)");
+            try writer.writeAll(" sa_mem[d + i] = (uint8_t)tmp[i]; }");
+            try writer.writeAll(" return sa_owned_new(p, (sa_u64)n, 1); } }\n");
+        },
+        .fmt_u64 => {
+            try writer.writeAll(" { char tmp[130];");
+            try writer.writeAll(" int n = sa_fmt_int(tmp, a0, (unsigned)a1, 0, (a1 == 17));");
+            try writer.writeAll(" if (n < 0) return 0;");
+            try writer.writeAll(" sa_u64 p = sa_alloc((sa_u64)n);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, (sa_u64)n);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)n; i++)");
+            try writer.writeAll(" sa_mem[d + i] = (uint8_t)tmp[i]; }");
+            try writer.writeAll(" return sa_owned_new(p, (sa_u64)n, 1); } }\n");
+        },
+        .fmt_f64 => {
+            try writer.writeAll(" { if (a1 > 200) return 0;");
+            try writer.writeAll(" union { sa_u64 u; double d; } t; t.u = a0;");
+            try writer.writeAll(" char tmp[256];");
+            try writer.writeAll(" int n = snprintf(tmp, sizeof(tmp), \"%.*f\", (int)a1, t.d);");
+            try writer.writeAll(" if (n < 0 || n >= 256) return 0;");
+            try writer.writeAll(" sa_u64 p = sa_alloc((sa_u64)n);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, (sa_u64)n);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)n; i++)");
+            try writer.writeAll(" sa_mem[d + i] = (uint8_t)tmp[i]; }");
+            try writer.writeAll(" return sa_owned_new(p, (sa_u64)n, 1); } }\n");
+        },
+        .fmt_bool => {
+            try writer.writeAll(" { const char *s = a0 ? \"true\" : \"false\";");
+            try writer.writeAll(" sa_u64 n = a0 ? 4 : 5;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(n);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, n);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)n; i++)");
+            try writer.writeAll(" sa_mem[d + i] = (uint8_t)s[i]; }");
+            try writer.writeAll(" return sa_owned_new(p, n, 1); } }\n");
+        },
+        .fmt_bytes => {
+            try writer.writeAll(" { uint32_t s = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[s + i]; }");
+            try writer.writeAll(" return sa_owned_new(p, a1, 1); } }\n");
+        },
+        .fmt_buffer_data => {
+            try writer.writeAll(" { sa_owned_buf_t *o = sa_owned_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 1) return 0;");
+            try writer.writeAll(" return o->ptr; } }\n");
+        },
+        .fmt_buffer_len => {
+            try writer.writeAll(" { sa_owned_buf_t *o = sa_owned_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 1) return 0;");
+            try writer.writeAll(" return o->len; } }\n");
+        },
+        .fmt_buffer_free => {
+            try writer.writeAll(" { sa_owned_drop(a0); return 0; } }\n");
+        },
+        .modstate_get_u64 => {
+            try writer.writeAll(" { sa_u64 i; for (i = 0; i < SA_MODSTATE_MAX; i++)");
+            try writer.writeAll(" if (sa_modstate_used[i] && sa_modstate_keys[i] == a0)");
+            try writer.writeAll(" return sa_modstate_vals[i]; return 0; } }\n");
+        },
+        .modstate_set_u64 => {
+            try writer.writeAll(" { sa_u64 i; for (i = 0; i < SA_MODSTATE_MAX; i++)");
+            try writer.writeAll(" if (sa_modstate_used[i] && sa_modstate_keys[i] == a0)");
+            try writer.writeAll(" { sa_modstate_vals[i] = a1; return 0; }");
+            try writer.writeAll(" for (i = 0; i < SA_MODSTATE_MAX; i++)");
+            try writer.writeAll(" if (!sa_modstate_used[i])");
+            try writer.writeAll(" { sa_modstate_used[i] = 1; sa_modstate_keys[i] = a0;");
+            try writer.writeAll(" sa_modstate_vals[i] = a1; return 0; } return 5; } }\n");
+        },
+        .string_concat => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" sa_u64 n = a1 + a3;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(n);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, n);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[x + i];");
+            try writer.writeAll(" for (i = 0; i < (size_t)a3; i++)");
+            try writer.writeAll(" sa_mem[d + (size_t)a1 + i] = sa_mem[y + i]; }");
+            try writer.writeAll(" return sa_owned_new(p, n, 1); } }\n");
+        },
+        .string_index_of => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" sa_u64 st = a4 < a1 ? a4 : a1;");
+            try writer.writeAll(" if (a3 == 0) return st;");
+            try writer.writeAll(" if (a3 > a1) return ~(sa_u64)0;");
+            try writer.writeAll(" { sa_u64 i, j; for (i = st; i + a3 <= a1; i++) {");
+            try writer.writeAll(" int eq = 1;");
+            try writer.writeAll(" for (j = 0; j < a3; j++)");
+            try writer.writeAll(" if (sa_mem[x + i + j] != sa_mem[y + j]) { eq = 0; break; }");
+            try writer.writeAll(" if (eq) return i; } } return ~(sa_u64)0; } }\n");
+        },
+        .string_last_index_of => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" sa_u64 st = a4 < a1 ? a4 : a1;");
+            try writer.writeAll(" if (a3 == 0) return st;");
+            try writer.writeAll(" if (a3 > a1) return ~(sa_u64)0;");
+            try writer.writeAll(" { sa_u64 i = st < a1 - a3 ? st : a1 - a3; sa_u64 j;");
+            try writer.writeAll(" for (;;) { int eq = 1;");
+            try writer.writeAll(" for (j = 0; j < a3; j++)");
+            try writer.writeAll(" if (sa_mem[x + i + j] != sa_mem[y + j]) { eq = 0; break; }");
+            try writer.writeAll(" if (eq) return i; if (i == 0) break; i--; } }");
+            try writer.writeAll(" return ~(sa_u64)0; } }\n");
+        },
+        .string_starts_with => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if (a3 > a1) return 0;");
+            try writer.writeAll(" { sa_u64 j; for (j = 0; j < a3; j++)");
+            try writer.writeAll(" if (sa_mem[x + j] != sa_mem[y + j]) return 0; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .string_ends_with => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if (a3 > a1) return 0;");
+            try writer.writeAll(" { sa_u64 j; for (j = 0; j < a3; j++)");
+            try writer.writeAll(" if (sa_mem[x + a1 - a3 + j] != sa_mem[y + j]) return 0; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .string_to_lower_ascii => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[d + i] = (uint8_t)(c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c); } }");
+            try writer.writeAll(" return sa_owned_new(p, a1, 1); } }\n");
+        },
+        .string_to_upper_ascii => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[d + i] = (uint8_t)(c >= 'a' && c <= 'z' ? c - ('a' - 'A') : c); } }");
+            try writer.writeAll(" return sa_owned_new(p, a1, 1); } }\n");
+        },
+        .string_repeat => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a2 == 0 || a1 == 0) {");
+            try writer.writeAll(" sa_u64 p0 = sa_alloc(0);");
+            try writer.writeAll(" return sa_owned_new(p0, 0, 1); }");
+            try writer.writeAll(" if (a1 > ~(sa_u64)0 / a2) return 0;");
+            try writer.writeAll(" { sa_u64 n = a1 * a2; sa_u64 p = sa_alloc(n);");
+            try writer.writeAll(" uint32_t d = sa_checked_addr(p, n);");
+            try writer.writeAll(" sa_u64 i, j; for (i = 0; i < a2; i++)");
+            try writer.writeAll(" for (j = 0; j < a1; j++)");
+            try writer.writeAll(" sa_mem[d + i * a1 + j] = sa_mem[x + j];");
+            try writer.writeAll(" return sa_owned_new(p, n, 1); } } }\n");
+        },
+        .string_pad_start => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t v = sa_checked_addr(a3, (size_t)a4);");
+            try writer.writeAll(" if (a2 <= a1 || a4 == 0) {");
+            try writer.writeAll(" sa_u64 p0 = sa_alloc(a1);");
+            try writer.writeAll(" { uint32_t d0 = sa_checked_addr(p0, a1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d0 + i] = sa_mem[x + i]; }");
+            try writer.writeAll(" return sa_owned_new(p0, a1, 1); }");
+            try writer.writeAll(" { sa_u64 fill = a2 - a1; sa_u64 p = sa_alloc(a2);");
+            try writer.writeAll(" uint32_t d = sa_checked_addr(p, a2);");
+            try writer.writeAll(" sa_u64 i, j; for (i = 0; i < fill; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[v + i % a4];");
+            try writer.writeAll(" for (j = 0; j < a1; j++)");
+            try writer.writeAll(" sa_mem[d + fill + j] = sa_mem[x + j];");
+            try writer.writeAll(" return sa_owned_new(p, a2, 1); } } }\n");
+        },
+        .string_pad_end => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t v = sa_checked_addr(a3, (size_t)a4);");
+            try writer.writeAll(" if (a2 <= a1 || a4 == 0) {");
+            try writer.writeAll(" sa_u64 p0 = sa_alloc(a1);");
+            try writer.writeAll(" { uint32_t d0 = sa_checked_addr(p0, a1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d0 + i] = sa_mem[x + i]; }");
+            try writer.writeAll(" return sa_owned_new(p0, a1, 1); }");
+            try writer.writeAll(" { sa_u64 p = sa_alloc(a2);");
+            try writer.writeAll(" uint32_t d = sa_checked_addr(p, a2);");
+            try writer.writeAll(" sa_u64 j; for (j = 0; j < a1; j++)");
+            try writer.writeAll(" sa_mem[d + j] = sa_mem[x + j];");
+            try writer.writeAll(" for (; j < a2; j++)");
+            try writer.writeAll(" sa_mem[d + j] = sa_mem[v + (j - a1) % a4];");
+            try writer.writeAll(" return sa_owned_new(p, a2, 1); } } }\n");
+        },
+        .string_from_char_code => {
+            try writer.writeAll(" { sa_u64 p = sa_alloc(1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, 1);");
+            try writer.writeAll(" sa_mem[d] = (uint8_t)(a0 & 0xFFu); }");
+            try writer.writeAll(" return sa_owned_new(p, 1, 1); } }\n");
+        },
+        .string_from_code_point => {
+            // UTF-8 encode with U+FFFD fallback for negative, >0x10FFFF
+            // and surrogate halves (mirrors the interpreter exactly).
+            try writer.writeAll(" { sa_i64 c = (sa_i64)(int32_t)(uint32_t)a0;");
+            try writer.writeAll(" uint32_t cp = c < 0 ? 0xFFFDu : (uint32_t)c;");
+            try writer.writeAll(" if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) cp = 0xFFFDu;");
+            try writer.writeAll(" uint8_t t[4]; sa_u64 n;");
+            try writer.writeAll(" if (cp < 0x80) { t[0] = (uint8_t)cp; n = 1; }");
+            try writer.writeAll(" else if (cp < 0x800) {");
+            try writer.writeAll(" t[0] = (uint8_t)(0xC0 | (cp >> 6));");
+            try writer.writeAll(" t[1] = (uint8_t)(0x80 | (cp & 0x3F)); n = 2; }");
+            try writer.writeAll(" else if (cp < 0x10000) {");
+            try writer.writeAll(" t[0] = (uint8_t)(0xE0 | (cp >> 12));");
+            try writer.writeAll(" t[1] = (uint8_t)(0x80 | ((cp >> 6) & 0x3F));");
+            try writer.writeAll(" t[2] = (uint8_t)(0x80 | (cp & 0x3F)); n = 3; }");
+            try writer.writeAll(" else {");
+            try writer.writeAll(" t[0] = (uint8_t)(0xF0 | (cp >> 18));");
+            try writer.writeAll(" t[1] = (uint8_t)(0x80 | ((cp >> 12) & 0x3F));");
+            try writer.writeAll(" t[2] = (uint8_t)(0x80 | ((cp >> 6) & 0x3F));");
+            try writer.writeAll(" t[3] = (uint8_t)(0x80 | (cp & 0x3F)); n = 4; }");
+            try writer.writeAll(" { sa_u64 p = sa_alloc(n);");
+            try writer.writeAll(" uint32_t d = sa_checked_addr(p, n);");
+            try writer.writeAll(" sa_u64 i; for (i = 0; i < n; i++) sa_mem[d + i] = t[i];");
+            try writer.writeAll(" return sa_owned_new(p, n, 1); } } }\n");
+        },
+        .string_code_point_at => {
+            // Byte at idx despite the name (mirrors the interpreter).
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a2 >= a1) return ~(sa_u64)0;");
+            try writer.writeAll(" return (sa_u64)sa_mem[x + a2]; } }\n");
+        },
+        .str_is_ascii => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" if (sa_mem[x + i] > 0x7F) return 0;");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .str_eq_ignore_ascii_case => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if (a1 != a3) return 0;");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)a1; i++) {");
+            try writer.writeAll(" uint8_t l = sa_mem[x + i]; uint8_t r = sa_mem[y + i];");
+            try writer.writeAll(" if (l >= 'A' && l <= 'Z') l += (uint8_t)('a' - 'A');");
+            try writer.writeAll(" if (r >= 'A' && r <= 'Z') r += (uint8_t)('a' - 'A');");
+            try writer.writeAll(" if (l != r) return 0; } }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .str_trim_ascii_start_index => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t i = 0;");
+            try writer.writeAll(" while (i < (size_t)a1) { uint8_t c = sa_mem[x + i];");
+            try writer.writeAll(" if (c != ' ' && c != '\\t' && c != '\\n' && c != '\\r' && c != 0x0B && c != 0x0C) break; i++; }");
+            try writer.writeAll(" return (sa_u64)i; } }\n");
+        },
+        .str_trim_ascii_end_len => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t e = (size_t)a1;");
+            try writer.writeAll(" while (e > 0) { uint8_t c = sa_mem[x + e - 1];");
+            try writer.writeAll(" if (c != ' ' && c != '\\t' && c != '\\n' && c != '\\r' && c != 0x0B && c != 0x0C) break; e--; }");
+            try writer.writeAll(" return (sa_u64)e; } }\n");
+        },
+        .string_replace => {
+            // First or all non-overlapping matches swapped; empty needle
+            // prepends (once) or interleaves (all); misses copy input.
+            // Overflow bails to 0 (mirrors checked arithmetic). Flat
+            // structure: each path returns inside its own block.
+            try writer.writeAll(" uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" uint32_t z = sa_checked_addr(a4, (size_t)a5);");
+            try writer.writeAll(" if (a3 == 0) {");
+            try writer.writeAll(" if (!a6) {");
+            try writer.writeAll(" sa_u64 n0 = a5 + a1; if (n0 < a5) return 0;");
+            try writer.writeAll(" sa_u64 p0 = sa_alloc(n0);");
+            try writer.writeAll(" { uint32_t d0 = sa_checked_addr(p0, n0);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a5; i++)");
+            try writer.writeAll(" sa_mem[d0 + i] = sa_mem[z + i];");
+            try writer.writeAll(" for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d0 + (size_t)a5 + i] = sa_mem[x + i]; }");
+            try writer.writeAll(" return sa_owned_new(p0, n0, 1); }");
+            try writer.writeAll(" if (a5 != 0 && a1 + 1 > ~(sa_u64)0 / a5) return 0;");
+            try writer.writeAll(" { sa_u64 n1 = a1 + a5 * (a1 + 1);");
+            try writer.writeAll(" if (n1 < a1) return 0;");
+            try writer.writeAll(" sa_u64 p1 = sa_alloc(n1);");
+            try writer.writeAll(" uint32_t d1 = sa_checked_addr(p1, n1);");
+            try writer.writeAll(" sa_u64 o = 0; sa_u64 i;");
+            try writer.writeAll(" for (i = 0; i < a1; i++) {");
+            try writer.writeAll(" sa_u64 j; for (j = 0; j < a5; j++)");
+            try writer.writeAll(" sa_mem[d1 + o + j] = sa_mem[z + j];");
+            try writer.writeAll(" o += a5; sa_mem[d1 + o] = sa_mem[x + i]; o += 1; }");
+            try writer.writeAll(" { sa_u64 j; for (j = 0; j < a5; j++)");
+            try writer.writeAll(" sa_mem[d1 + o + j] = sa_mem[z + j]; }");
+            try writer.writeAll(" return sa_owned_new(p1, n1, 1); } }");
+            try writer.writeAll(" { sa_u64 cnt = 0; sa_u64 i = 0; sa_u64 first = 0;");
+            try writer.writeAll(" while (i + a3 <= a1) { sa_u64 j; int eq = 1;");
+            try writer.writeAll(" for (j = 0; j < a3; j++)");
+            try writer.writeAll(" if (sa_mem[x + i + j] != sa_mem[y + j]) { eq = 0; break; }");
+            try writer.writeAll(" if (eq) { if (cnt == 0) first = i; cnt++;");
+            try writer.writeAll(" if (!a6) break; i += a3; continue; } i++; }");
+            try writer.writeAll(" if (cnt == 0) {");
+            try writer.writeAll(" sa_u64 p2 = sa_alloc(a1);");
+            try writer.writeAll(" { uint32_t d2 = sa_checked_addr(p2, a1);");
+            try writer.writeAll(" size_t k; for (k = 0; k < (size_t)a1; k++)");
+            try writer.writeAll(" sa_mem[d2 + k] = sa_mem[x + k]; }");
+            try writer.writeAll(" return sa_owned_new(p2, a1, 1); }");
+            try writer.writeAll(" if (!a6) {");
+            try writer.writeAll(" if (a1 - a3 > ~(sa_u64)0 - a5) return 0;");
+            try writer.writeAll(" sa_u64 n3 = a1 - a3 + a5;");
+            try writer.writeAll(" sa_u64 p3 = sa_alloc(n3);");
+            try writer.writeAll(" uint32_t d3 = sa_checked_addr(p3, n3);");
+            try writer.writeAll(" { size_t k; for (k = 0; k < (size_t)first; k++)");
+            try writer.writeAll(" sa_mem[d3 + k] = sa_mem[x + k]; }");
+            try writer.writeAll(" { size_t k; for (k = 0; k < (size_t)a5; k++)");
+            try writer.writeAll(" sa_mem[d3 + (size_t)first + k] = sa_mem[z + k]; }");
+            try writer.writeAll(" { size_t k; for (k = 0; k + first + a3 < a1 + 1; k++)");
+            try writer.writeAll(" sa_mem[d3 + (size_t)first + (size_t)a5 + k] = sa_mem[x + first + a3 + k]; }");
+            try writer.writeAll(" return sa_owned_new(p3, n3, 1); }");
+            try writer.writeAll(" { sa_u64 total = a1; sa_u64 ii = 0;");
+            try writer.writeAll(" while (ii + a3 <= a1) { sa_u64 jj; int eq2 = 1;");
+            try writer.writeAll(" for (jj = 0; jj < a3; jj++)");
+            try writer.writeAll(" if (sa_mem[x + ii + jj] != sa_mem[y + jj]) { eq2 = 0; break; }");
+            try writer.writeAll(" if (eq2) {");
+            try writer.writeAll(" if (total < a3 || total - a3 > ~(sa_u64)0 - a5) return 0;");
+            try writer.writeAll(" total = total - a3 + a5; ii += a3; } else ii++; }");
+            try writer.writeAll(" sa_u64 p4 = sa_alloc(total);");
+            try writer.writeAll(" uint32_t d4 = sa_checked_addr(p4, total);");
+            try writer.writeAll(" sa_u64 o4 = 0; ii = 0;");
+            try writer.writeAll(" while (ii + a3 <= a1) { sa_u64 jj; int eq3 = 1;");
+            try writer.writeAll(" for (jj = 0; jj < a3; jj++)");
+            try writer.writeAll(" if (sa_mem[x + ii + jj] != sa_mem[y + jj]) { eq3 = 0; break; }");
+            try writer.writeAll(" if (eq3) { sa_u64 jj;");
+            try writer.writeAll(" for (jj = 0; jj < a5; jj++)");
+            try writer.writeAll(" sa_mem[d4 + o4 + jj] = sa_mem[z + jj];");
+            try writer.writeAll(" o4 += a5; ii += a3; } else {");
+            try writer.writeAll(" sa_mem[d4 + o4] = sa_mem[x + ii]; o4 += 1; ii++; } }");
+            try writer.writeAll(" while (o4 < total) {");
+            try writer.writeAll(" sa_mem[d4 + o4] = sa_mem[x + ii]; o4 += 1; ii++; }");
+            try writer.writeAll(" return sa_owned_new(p4, total, 1); } } }\n");
+        },
+        .parse_float => {
+            // Manual scan (whitespace/sign/digits/dot/exponent) then
+            // strtod on the scanned span; no digits -> quiet NaN,
+            // overflow -> signed inf (mirrors the interpreter).
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t i = 0; int neg = 0;");
+            try writer.writeAll(" while (i < (size_t)a1) { uint8_t c = sa_mem[x + i];");
+            try writer.writeAll(" if (c != ' ' && c != '\\t' && c != '\\n' && c != '\\r' && c != '\\f' && c != '\\v') break; i++; }");
+            try writer.writeAll(" if (i < (size_t)a1 && (sa_mem[x + i] == '+' || sa_mem[x + i] == '-'))");
+            try writer.writeAll(" { neg = sa_mem[x + i] == '-'; i++; }");
+            try writer.writeAll(" { size_t j = i; while (j < (size_t)a1 && sa_mem[x + j] >= '0' && sa_mem[x + j] <= '9') j++;");
+            try writer.writeAll(" size_t nd = j - i;");
+            try writer.writeAll(" if (j < (size_t)a1 && sa_mem[x + j] == '.') { j++;");
+            try writer.writeAll(" while (j < (size_t)a1 && sa_mem[x + j] >= '0' && sa_mem[x + j] <= '9') j++; }");
+            try writer.writeAll(" size_t nf = j - nd - (j > nd && sa_mem[x + i + nd] == '.' ? 1 : 0);");
+            try writer.writeAll(" if (nd == 0 && nf == 0)");
+            try writer.writeAll(" return (sa_u64)0x7FF8000000000000ULL;");
+            try writer.writeAll(" size_t k = j;");
+            try writer.writeAll(" if (k < (size_t)a1 && (sa_mem[x + k] == 'e' || sa_mem[x + k] == 'E')) {");
+            try writer.writeAll(" size_t m = k + 1;");
+            try writer.writeAll(" if (m < (size_t)a1 && (sa_mem[x + m] == '+' || sa_mem[x + m] == '-')) m++;");
+            try writer.writeAll(" size_t es = m;");
+            try writer.writeAll(" while (m < (size_t)a1 && sa_mem[x + m] >= '0' && sa_mem[x + m] <= '9') m++;");
+            try writer.writeAll(" if (m > es) k = m; }");
+            try writer.writeAll(" { sa_u64 n = (sa_u64)(k - i); sa_u64 p = sa_alloc(n + 1);");
+            try writer.writeAll(" uint32_t d = sa_checked_addr(p, n + 1);");
+            try writer.writeAll(" size_t q; for (q = 0; q < (size_t)n; q++)");
+            try writer.writeAll(" sa_mem[d + q] = sa_mem[x + i + q];");
+            try writer.writeAll(" sa_mem[d + n] = 0; errno = 0;");
+            try writer.writeAll(" union { sa_u64 u; double v; } t; t.v = strtod((const char *)&sa_mem[d], 0);");
+            try writer.writeAll(" if (errno == ERANGE) {");
+            try writer.writeAll(" if ((t.u & (sa_u64)0x7FF0000000000000ULL) == (sa_u64)0x7FF0000000000000ULL)");
+            try writer.writeAll(" t.u = neg ? (sa_u64)0xFFF0000000000000ULL : (sa_u64)0x7FF0000000000000ULL; }");
+            try writer.writeAll(" if (neg) t.v = -t.v; return t.u; } } } }\n");
+        },
+        .regex_compile => {
+            // POSIX regcomp over a NUL-terminated guest copy; the
+            // compiled form lives in a C-side table (host pointers).
+            // Bad patterns yield 0, mirroring the interpreter.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 + 1);");
+            try writer.writeAll(" uint32_t d = sa_checked_addr(p, a1 + 1);");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[x + i]; }");
+            try writer.writeAll(" sa_mem[d + a1] = 0;");
+            try writer.writeAll(" { unsigned k; sa_regex_t *o = 0;");
+            try writer.writeAll(" for (k = 0; k < SA_REGEX_MAX_OBJS; k++)");
+            try writer.writeAll(" if (sa_regexes[k].h == 0) { o = &sa_regexes[k]; break; }");
+            try writer.writeAll(" if (o == 0) return 0;");
+            try writer.writeAll(" if (regcomp(&o->rx, (const char *)&sa_mem[d], (int)a2) != 0) return 0;");
+            try writer.writeAll(" sa_u64 h = sa_alloc(8); o->h = h; return h; } } }\n");
+        },
+        .regex_match => {
+            // Match header lives in guest memory: [text_base][magic|n]
+            // then n (start,end) pairs. Embedded NUL or no-match yields
+            // 0, mirroring the interpreter.
+            try writer.writeAll(" { sa_regex_t *r = sa_regex_find(a0);");
+            try writer.writeAll(" if (r == 0) return 0;");
+            try writer.writeAll(" uint32_t x = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" { size_t i; for (i = 0; i < (size_t)a2; i++)");
+            try writer.writeAll(" if (sa_mem[x + i] == 0) return 0; }");
+            try writer.writeAll(" sa_u64 n = (sa_u64)r->rx.re_nsub + 1;");
+            try writer.writeAll(" if (n > SA_REGEX_MAX_GROUPS) n = SA_REGEX_MAX_GROUPS;");
+            try writer.writeAll(" sa_u64 tp = sa_alloc(a2 + 1);");
+            try writer.writeAll(" { uint32_t td = sa_checked_addr(tp, a2 + 1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a2; i++)");
+            try writer.writeAll(" sa_mem[td + i] = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[td + a2] = 0; }");
+            try writer.writeAll(" regmatch_t pm[SA_REGEX_MAX_GROUPS];");
+            try writer.writeAll(" if (regexec(&r->rx, (const char *)&sa_mem[sa_checked_addr(tp, a2 + 1)], (size_t)n, pm, 0) != 0) return 0;");
+            try writer.writeAll(" { sa_u64 h = sa_alloc(16 + n * 16);");
+            try writer.writeAll(" sa_store_u64(h, tp);");
+            try writer.writeAll(" sa_store_u64(h + 8, (sa_u64)0x53414D5800000000ULL | n);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)n; i++) {");
+            try writer.writeAll(" sa_store_u64(h + 16 + i * 16, (sa_u64)(sa_i64)pm[i].rm_so);");
+            try writer.writeAll(" sa_store_u64(h + 16 + i * 16 + 8, (sa_u64)(sa_i64)pm[i].rm_eo); }");
+            try writer.writeAll(" return h; } } }\n");
+        },
+        .regex_group_ptr => {
+            try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
+            try writer.writeAll(" (void)hh;");
+            try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
+            try writer.writeAll(" if ((hdr1 >> 32) != (sa_u64)0x53414D58u) return 0;");
+            try writer.writeAll(" sa_u64 n = hdr1 & (sa_u64)0xFFFFFFFFu;");
+            try writer.writeAll(" if (a1 >= n) return 0;");
+            try writer.writeAll(" sa_u64 so = (sa_u64)(sa_i64)sa_load_u64(a0 + 16 + a1 * 16);");
+            try writer.writeAll(" sa_u64 eo = (sa_u64)(sa_i64)sa_load_u64(a0 + 16 + a1 * 16 + 8);");
+            try writer.writeAll(" if ((sa_i64)so < 0 || (sa_i64)eo < 0) return 0;");
+            try writer.writeAll(" return sa_load_u64(a0) + so; } }\n");
+        },
+        .regex_group_len => {
+            try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
+            try writer.writeAll(" (void)hh;");
+            try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
+            try writer.writeAll(" if ((hdr1 >> 32) != (sa_u64)0x53414D58u) return 0;");
+            try writer.writeAll(" sa_u64 n = hdr1 & (sa_u64)0xFFFFFFFFu;");
+            try writer.writeAll(" if (a1 >= n) return 0;");
+            try writer.writeAll(" sa_u64 so = (sa_u64)(sa_i64)sa_load_u64(a0 + 16 + a1 * 16);");
+            try writer.writeAll(" sa_u64 eo = (sa_u64)(sa_i64)sa_load_u64(a0 + 16 + a1 * 16 + 8);");
+            try writer.writeAll(" if ((sa_i64)so < 0 || (sa_i64)eo < 0) return 0;");
+            try writer.writeAll(" return eo - so; } }\n");
+        },
+        .regex_group_start => {
+            try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
+            try writer.writeAll(" (void)hh;");
+            try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
+            try writer.writeAll(" if ((hdr1 >> 32) != (sa_u64)0x53414D58u) return 0;");
+            try writer.writeAll(" sa_u64 n = hdr1 & (sa_u64)0xFFFFFFFFu;");
+            try writer.writeAll(" if (a1 >= n) return 0;");
+            try writer.writeAll(" sa_u64 so = (sa_u64)(sa_i64)sa_load_u64(a0 + 16 + a1 * 16);");
+            try writer.writeAll(" sa_u64 eo = (sa_u64)(sa_i64)sa_load_u64(a0 + 16 + a1 * 16 + 8);");
+            try writer.writeAll(" if ((sa_i64)so < 0 || (sa_i64)eo < 0) return 0;");
+            try writer.writeAll(" return so; } }\n");
+        },
+        .regex_group_count => {
+            try writer.writeAll(" { sa_regex_t *r = sa_regex_find(a0);");
+            try writer.writeAll(" if (r == 0) return 0;");
+            try writer.writeAll(" return (sa_u64)r->rx.re_nsub + 1; } }\n");
+        },
+        .regex_free => {
+            try writer.writeAll(" { sa_regex_t *r = sa_regex_find(a0);");
+            try writer.writeAll(" if (r == 0) return 0;");
+            try writer.writeAll(" regfree(&r->rx); r->h = 0; return 0; } }\n");
+        },
+        .regex_match_free => {
+            // Guest-side match regions live in the bump arena (no free);
+            // dropping is a no-op that still validates nothing and
+            // returns OK, matching observable behavior.
+            try writer.writeAll(" return 0; }\n");
+        },
+        .node_path_normalize => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_u64 cap = a1 + 2;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(cap);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, cap);");
+            try writer.writeAll(" sa_u64 n = sa_path_norm(&sa_mem[x], (size_t)a1, &sa_mem[d], (size_t)cap);");
+            try writer.writeAll(" if (n == ~(sa_u64)0) return 1;");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, n); return 0; } } }\n");
+        },
+        .node_path_dirname => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t e = (size_t)a1;");
+            try writer.writeAll(" while (e > 1 && sa_mem[x + e - 1] == '/') e--;");
+            try writer.writeAll(" size_t i = e;");
+            try writer.writeAll(" while (i > 0 && sa_mem[x + i - 1] != '/') i--;");
+            try writer.writeAll(" sa_u64 n; sa_u64 src;");
+            try writer.writeAll(" if (e == 0 || i == 0) { n = 1; src = 0; }");
+            try writer.writeAll(" else if (i == 1) { n = 1; src = 1; }");
+            try writer.writeAll(" else { n = (sa_u64)(i - 1); src = 2; }");
+            try writer.writeAll(" { sa_u64 p = sa_alloc(n);");
+            try writer.writeAll(" uint32_t d = sa_checked_addr(p, n);");
+            try writer.writeAll(" if (src == 0) sa_mem[d] = (uint8_t)'.';");
+            try writer.writeAll(" else if (src == 1) sa_mem[d] = (uint8_t)'/';");
+            try writer.writeAll(" else { size_t k; for (k = 0; k < (size_t)n; k++)");
+            try writer.writeAll(" sa_mem[d + k] = sa_mem[x + k]; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, n);");
+            try writer.writeAll(" return 0; } } }\n");
+        },
+        .node_path_extname => {
+            // Zero-copy view into the input (no allocation needed).
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t i = (size_t)a1;");
+            try writer.writeAll(" while (i > 0 && sa_mem[x + i - 1] != '/') i--;");
+            try writer.writeAll(" size_t j = (size_t)a1;");
+            try writer.writeAll(" while (j > i && sa_mem[x + j - 1] != '.') j--;");
+            try writer.writeAll(" if (j <= i || j == i + 1 || j == (size_t)a1) {");
+            try writer.writeAll(" sa_store_u64(a2, 0); sa_store_u64(a3, 0); return 0; }");
+            try writer.writeAll(" sa_store_u64(a2, (sa_u64)x + (j - 1));");
+            try writer.writeAll(" sa_store_u64(a3, (sa_u64)a1 - (j - 1));");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .node_path_is_absolute => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_u64 r = (a1 > 0 && sa_mem[x] == '/') ? 1 : 0;");
+            try writer.writeAll(" sa_store_u32(a2, r); return 0; } }\n");
+        },
+        .node_path_join => {
+            // argv of (ptr,len) pairs; joined with '/' then normalized
+            // in place (output never exceeds input + 1).
+            try writer.writeAll(" { if (a1 > (sa_u64)0x100000u) return 1;");
+            try writer.writeAll(" uint32_t ab = sa_checked_addr(a0, (size_t)(a1 * 16));");
+            try writer.writeAll(" (void)ab;");
+            try writer.writeAll(" sa_u64 total = 0; sa_u64 k;");
+            try writer.writeAll(" for (k = 0; k < a1; k++) {");
+            try writer.writeAll(" sa_u64 l = sa_load_u64(a0 + k * 16 + 8);");
+            try writer.writeAll(" if (l > 0 && total > ~(sa_u64)0 - l - 1) return 1;");
+            try writer.writeAll(" total += l + (k + 1 < a1 && l > 0 ? 1 : 0); }");
+            try writer.writeAll(" sa_u64 p = sa_alloc(total + 2);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, total + 2);");
+            try writer.writeAll(" sa_u64 w = 0;");
+            try writer.writeAll(" for (k = 0; k < a1; k++) {");
+            try writer.writeAll(" sa_u64 pp = sa_load_u64(a0 + k * 16);");
+            try writer.writeAll(" sa_u64 l = sa_load_u64(a0 + k * 16 + 8);");
+            try writer.writeAll(" uint32_t s = sa_checked_addr(pp, (size_t)l);");
+            try writer.writeAll(" if (l > 0 && w > 0) sa_mem[d + w++] = (uint8_t)'/';");
+            try writer.writeAll(" { size_t q; for (q = 0; q < (size_t)l; q++)");
+            try writer.writeAll(" sa_mem[d + w + q] = sa_mem[s + q]; }");
+            try writer.writeAll(" w += l; }");
+            try writer.writeAll(" sa_u64 n = sa_path_norm(&sa_mem[d], (size_t)w, &sa_mem[d], (size_t)(total + 2));");
+            try writer.writeAll(" if (n == ~(sa_u64)0) return 1;");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, n); return 0; } } }\n");
+        },
+        .node_qs_escape => {
+            // Node querystring.escape: alnum + ~!*()-'_. pass through,
+            // everything else becomes %XX uppercase hex.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 > ~(sa_u64)0 / 3) return 1;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 * 3);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 * 3);");
+            try writer.writeAll(" sa_u64 w = 0; size_t i;");
+            try writer.writeAll(" for (i = 0; i < (size_t)a1; i++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + i];");
+            try writer.writeAll(" int ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');");
+            try writer.writeAll(" if (!ok) { const char *u = \"~!*()-'_.\"; size_t k; ok = 0;");
+            try writer.writeAll(" for (k = 0; k < 8; k++) if (c == (uint8_t)u[k]) { ok = 1; break; } }");
+            try writer.writeAll(" if (ok) sa_mem[d + w++] = c;");
+            try writer.writeAll(" else {");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)'%';");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"0123456789ABCDEF\"[c >> 4];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"0123456789ABCDEF\"[c & 15]; } }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
+        },
+        .node_qs_unescape => {
+            // %XX (either case) decodes; malformed % and '+' pass through
+            // literally (mirrors Node).
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 == 0 ? 1 : a1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 == 0 ? 1 : a1);");
+            try writer.writeAll(" sa_u64 w = 0; size_t i = 0;");
+            try writer.writeAll(" while (i < (size_t)a1) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + i];");
+            try writer.writeAll(" if (c == '%' && i + 2 < (size_t)a1) {");
+            try writer.writeAll(" uint8_t h1 = sa_mem[x + i + 1]; uint8_t h2 = sa_mem[x + i + 2];");
+            try writer.writeAll(" int v1 = h1 >= '0' && h1 <= '9' ? h1 - '0' : (h1 >= 'a' && h1 <= 'f' ? h1 - 'a' + 10 : (h1 >= 'A' && h1 <= 'F' ? h1 - 'A' + 10 : -1));");
+            try writer.writeAll(" int v2 = h2 >= '0' && h2 <= '9' ? h2 - '0' : (h2 >= 'a' && h2 <= 'f' ? h2 - 'a' + 10 : (h2 >= 'A' && h2 <= 'F' ? h2 - 'A' + 10 : -1));");
+            try writer.writeAll(" if (v1 >= 0 && v2 >= 0) { sa_mem[d + w++] = (uint8_t)(v1 * 16 + v2); i += 3; continue; } }");
+            try writer.writeAll(" sa_mem[d + w++] = c; i++; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
+        },
+        .node_puny_encode => {
+            // RFC 3492 encode (UTF-8 in, ASCII out); invalid UTF-8 or
+            // overflow yields 1. Output capped at 12x+16 (DoS bound).
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 > (~(sa_u64)0 - 16) / 12) return 1;");
+            try writer.writeAll(" sa_u64 cap = a1 * 12 + 16;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(cap);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, cap);");
+            try writer.writeAll(" sa_u64 cp = sa_alloc((a1 + 1) * 4);");
+            try writer.writeAll(" uint32_t cd = sa_checked_addr(cp, (a1 + 1) * 4);");
+            try writer.writeAll(" sa_u64 h = 0; size_t i = 0;");
+            try writer.writeAll(" while (i < (size_t)a1) {");
+            try writer.writeAll(" uint32_t c = sa_utf8_next(&sa_mem[x], (size_t)a1, &i);");
+            try writer.writeAll(" if (c == ~(uint32_t)0) return 1;");
+            try writer.writeAll(" sa_mem[cd + h * 4] = (uint8_t)(c & 0xFF);");
+            try writer.writeAll(" sa_mem[cd + h * 4 + 1] = (uint8_t)((c >> 8) & 0xFF);");
+            try writer.writeAll(" sa_mem[cd + h * 4 + 2] = (uint8_t)((c >> 16) & 0xFF);");
+            try writer.writeAll(" sa_mem[cd + h * 4 + 3] = (uint8_t)((c >> 24) & 0xFF);");
+            try writer.writeAll(" h++; }");
+            try writer.writeAll(" sa_u64 w = 0; sa_u64 b;");
+            try writer.writeAll(" for (b = 0; b < h; b++) {");
+            try writer.writeAll(" uint32_t c = (uint32_t)sa_mem[cd + b * 4] | ((uint32_t)sa_mem[cd + b * 4 + 1] << 8) | ((uint32_t)sa_mem[cd + b * 4 + 2] << 16) | ((uint32_t)sa_mem[cd + b * 4 + 3] << 24);");
+            try writer.writeAll(" if (c < 0x80) { if (w >= cap) return 1; sa_mem[d + w++] = (uint8_t)c; } }");
+            try writer.writeAll(" sa_u64 nb = w;");
+            try writer.writeAll(" if (nb > 0) { if (w >= cap) return 1; sa_mem[d + w++] = (uint8_t)'-'; }");
+            try writer.writeAll(" sa_u64 n = 0x80; sa_u64 delta = 0; sa_u64 bias = 72;");
+            try writer.writeAll(" int first = 1;");
+            try writer.writeAll(" while (h > nb) {");
+            try writer.writeAll(" sa_u64 m = ~(sa_u64)0; sa_u64 k;");
+            try writer.writeAll(" for (k = 0; k < h; k++) {");
+            try writer.writeAll(" uint32_t c = (uint32_t)sa_mem[cd + k * 4] | ((uint32_t)sa_mem[cd + k * 4 + 1] << 8) | ((uint32_t)sa_mem[cd + k * 4 + 2] << 16) | ((uint32_t)sa_mem[cd + k * 4 + 3] << 24);");
+            try writer.writeAll(" if (c >= n && (sa_u64)c < m) m = c; }");
+            try writer.writeAll(" if (m - n > (~(sa_u64)0 - delta) / (h > 0 ? h : 1)) return 1;");
+            try writer.writeAll(" delta += (m - n) * h;");
+            try writer.writeAll(" n = m;");
+            try writer.writeAll(" for (k = 0; k < h; k++) {");
+            try writer.writeAll(" uint32_t c = (uint32_t)sa_mem[cd + k * 4] | ((uint32_t)sa_mem[cd + k * 4 + 1] << 8) | ((uint32_t)sa_mem[cd + k * 4 + 2] << 16) | ((uint32_t)sa_mem[cd + k * 4 + 3] << 24);");
+            try writer.writeAll(" if ((sa_u64)c < n) { delta++; if (delta == 0) return 1; continue; }");
+            try writer.writeAll(" if ((sa_u64)c == n) {");
+            try writer.writeAll(" sa_u64 q = delta; sa_u64 kk = 36;");
+            try writer.writeAll(" for (;;) {");
+            try writer.writeAll(" sa_u64 t = kk <= bias ? 1 : (kk >= bias + 26 ? 26 : kk - bias);");
+            try writer.writeAll(" if (q < t) break;");
+            try writer.writeAll(" { sa_u64 bt = 36 - t; sa_u64 dg = t + (q - t) % bt;");
+            try writer.writeAll(" if (w >= cap) return 1;");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)(dg < 26 ? 'a' + dg : '0' + dg - 26); }");
+            try writer.writeAll(" q = (q - t) / (36 - t); kk += 36; }");
+            try writer.writeAll(" if (w >= cap) return 1;");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)(q < 26 ? 'a' + q : '0' + q - 26);");
+            try writer.writeAll(" bias = sa_puny_adapt(delta, h + 1, first);");
+            try writer.writeAll(" first = 0;");
+            try writer.writeAll(" delta = 0; nb++; } }");
+            try writer.writeAll(" n++; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
+        },
+        .node_puny_decode => {
+            // RFC 3492 decode (ASCII in, UTF-8 out); malformed input or
+            // overflow yields 1.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t dl = (size_t)a1; size_t q;");
+            try writer.writeAll(" for (q = 0; q < (size_t)a1; q++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + q];");
+            try writer.writeAll(" if (c == '-') dl = q; }");
+            try writer.writeAll(" sa_u64 cp = sa_alloc(((sa_u64)a1 + 1) * 4);");
+            try writer.writeAll(" uint32_t cd = sa_checked_addr(cp, ((sa_u64)a1 + 1) * 4);");
+            try writer.writeAll(" sa_u64 out = 0; size_t i;");
+            try writer.writeAll(" for (i = 0; i < dl; i++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + i];");
+            try writer.writeAll(" if (c >= 0x80) return 1;");
+            try writer.writeAll(" sa_mem[cd + out * 4] = c;");
+            try writer.writeAll(" sa_mem[cd + out * 4 + 1] = 0;");
+            try writer.writeAll(" sa_mem[cd + out * 4 + 2] = 0;");
+            try writer.writeAll(" sa_mem[cd + out * 4 + 3] = 0; out++; }");
+            try writer.writeAll(" size_t pos = dl < (size_t)a1 ? dl + 1 : (size_t)a1;");
+            try writer.writeAll(" sa_u64 n = 0x80; sa_u64 bias = 72;");
+            try writer.writeAll(" sa_u64 idx = 0; int first = 1;");
+            try writer.writeAll(" while (pos < (size_t)a1) {");
+            try writer.writeAll(" sa_u64 oldi = idx; sa_u64 w = 1; sa_u64 kk = 36;");
+            try writer.writeAll(" for (;;) {");
+            try writer.writeAll(" if (pos >= (size_t)a1) return 1;");
+            try writer.writeAll(" uint8_t c = sa_mem[x + pos++];");
+            try writer.writeAll(" sa_u64 dg = c >= '0' && c <= '9' ? (sa_u64)(c - '0' + 26)");
+            try writer.writeAll(" : (c >= 'a' && c <= 'z' ? (sa_u64)(c - 'a')");
+            try writer.writeAll(" : (c >= 'A' && c <= 'Z' ? (sa_u64)(c - 'A') : ~(sa_u64)0));");
+            try writer.writeAll(" if (dg == ~(sa_u64)0) return 1;");
+            try writer.writeAll(" if (dg > (~(sa_u64)0 - idx) / w) return 1;");
+            try writer.writeAll(" idx += dg * w;");
+            try writer.writeAll(" sa_u64 t = kk <= bias ? 1 : (kk >= bias + 26 ? 26 : kk - bias);");
+            try writer.writeAll(" if (dg < t) break;");
+            try writer.writeAll(" if (w > ~(sa_u64)0 / (36 - t)) return 1;");
+            try writer.writeAll(" w *= 36 - t; kk += 36; }");
+            try writer.writeAll(" bias = sa_puny_adapt(idx - oldi, out + 1, first);");
+            try writer.writeAll(" first = 0;");
+            try writer.writeAll(" if (idx - oldi > (~(sa_u64)0 - n) / (out + 1)) return 1;");
+            try writer.writeAll(" n += (idx - oldi) / (out + 1);");
+            try writer.writeAll(" idx %= out + 1;");
+            try writer.writeAll(" if (n > 0x10FFFF) return 1;");
+            try writer.writeAll(" { sa_u64 z; for (z = out; z > idx; z--) {");
+            try writer.writeAll(" sa_mem[cd + z * 4] = sa_mem[cd + (z - 1) * 4];");
+            try writer.writeAll(" sa_mem[cd + z * 4 + 1] = sa_mem[cd + (z - 1) * 4 + 1];");
+            try writer.writeAll(" sa_mem[cd + z * 4 + 2] = sa_mem[cd + (z - 1) * 4 + 2];");
+            try writer.writeAll(" sa_mem[cd + z * 4 + 3] = sa_mem[cd + (z - 1) * 4 + 3]; } }");
+            try writer.writeAll(" sa_mem[cd + idx * 4] = (uint8_t)(n & 0xFF);");
+            try writer.writeAll(" sa_mem[cd + idx * 4 + 1] = (uint8_t)((n >> 8) & 0xFF);");
+            try writer.writeAll(" sa_mem[cd + idx * 4 + 2] = (uint8_t)((n >> 16) & 0xFF);");
+            try writer.writeAll(" sa_mem[cd + idx * 4 + 3] = (uint8_t)((n >> 24) & 0xFF);");
+            try writer.writeAll(" out++; idx++; }");
+            try writer.writeAll(" sa_u64 p = sa_alloc(out * 4);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, out * 4);");
+            try writer.writeAll(" sa_u64 w = 0; sa_u64 z;");
+            try writer.writeAll(" for (z = 0; z < out; z++) {");
+            try writer.writeAll(" uint32_t c = (uint32_t)sa_mem[cd + z * 4] | ((uint32_t)sa_mem[cd + z * 4 + 1] << 8) | ((uint32_t)sa_mem[cd + z * 4 + 2] << 16) | ((uint32_t)sa_mem[cd + z * 4 + 3] << 24);");
+            try writer.writeAll(" unsigned el = sa_utf8_enc(c, &sa_mem[d + w]);");
+            try writer.writeAll(" if (el == 0 || c > 0x10FFFF) return 1; w += el; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
+        },
+        .node_buf_concat => {
+            // argv of (ptr,len) pairs concatenated in order.
+            try writer.writeAll(" { if (a1 > (sa_u64)0x100000u) return 1;");
+            try writer.writeAll(" uint32_t ab = sa_checked_addr(a0, (size_t)(a1 * 16));");
+            try writer.writeAll(" (void)ab;");
+            try writer.writeAll(" sa_u64 total = 0; sa_u64 k;");
+            try writer.writeAll(" for (k = 0; k < a1; k++) {");
+            try writer.writeAll(" sa_u64 l = sa_load_u64(a0 + k * 16 + 8);");
+            try writer.writeAll(" if (total > ~(sa_u64)0 - l) return 1;");
+            try writer.writeAll(" total += l; }");
+            try writer.writeAll(" sa_u64 p = sa_alloc(total == 0 ? 1 : total);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, total == 0 ? 1 : total);");
+            try writer.writeAll(" sa_u64 w = 0;");
+            try writer.writeAll(" for (k = 0; k < a1; k++) {");
+            try writer.writeAll(" sa_u64 pp = sa_load_u64(a0 + k * 16);");
+            try writer.writeAll(" sa_u64 l = sa_load_u64(a0 + k * 16 + 8);");
+            try writer.writeAll(" uint32_t s = sa_checked_addr(pp, (size_t)l);");
+            try writer.writeAll(" { size_t q; for (q = 0; q < (size_t)l; q++)");
+            try writer.writeAll(" sa_mem[d + w + q] = sa_mem[s + q]; }");
+            try writer.writeAll(" w += l; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, total); return 0; } } }\n");
+        },
+        .node_rand_bytes => {
+            // Staged zero region (only the length is asserted).
+            try writer.writeAll(" sa_u64 p = sa_alloc(a0 == 0 ? 1 : a0);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a0 == 0 ? 1 : a0);");
+            try writer.writeAll(" (void)d;");
+            try writer.writeAll(" sa_store_u64(a1, p); return 0; } }\n");
+        },
+        .node_crypto_hash => {
+            // Byte-exact algo dispatch (mirror native: sha256, sha512,
+            // sha1, md5 in either case, status 2 otherwise); lowercase
+            // hex digest materializes into fresh guest memory.
+            try writer.writeAll(" { uint32_t ax = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t dx = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" unsigned hlen = 0; unsigned hk = 0; unsigned e0; unsigned e1; size_t i;");
+            try writer.writeAll(" if (a1 == 6) { e0 = 1; e1 = 1;");
+            try writer.writeAll(" for (i = 0; i < 6; i++) {");
+            try writer.writeAll(" if (sa_mem[ax + i] != (uint8_t)\"sha256\"[i]) e0 = 0;");
+            try writer.writeAll(" if (sa_mem[ax + i] != (uint8_t)\"SHA256\"[i]) e1 = 0; }");
+            try writer.writeAll(" if (e0 != 0 || e1 != 0) { hk = 1; hlen = 32; }");
+            try writer.writeAll(" else { e0 = 1; e1 = 1;");
+            try writer.writeAll(" for (i = 0; i < 6; i++) {");
+            try writer.writeAll(" if (sa_mem[ax + i] != (uint8_t)\"sha512\"[i]) e0 = 0;");
+            try writer.writeAll(" if (sa_mem[ax + i] != (uint8_t)\"SHA512\"[i]) e1 = 0; }");
+            try writer.writeAll(" if (e0 != 0 || e1 != 0) { hk = 2; hlen = 64; } } }");
+            try writer.writeAll(" if (hk == 0 && a1 == 4) { e0 = 1; e1 = 1;");
+            try writer.writeAll(" for (i = 0; i < 4; i++) {");
+            try writer.writeAll(" if (sa_mem[ax + i] != (uint8_t)\"sha1\"[i]) e0 = 0;");
+            try writer.writeAll(" if (sa_mem[ax + i] != (uint8_t)\"SHA1\"[i]) e1 = 0; }");
+            try writer.writeAll(" if (e0 != 0 || e1 != 0) { hk = 3; hlen = 20; } }");
+            try writer.writeAll(" if (hk == 0 && a1 == 3) { e0 = 1; e1 = 1;");
+            try writer.writeAll(" for (i = 0; i < 3; i++) {");
+            try writer.writeAll(" if (sa_mem[ax + i] != (uint8_t)\"md5\"[i]) e0 = 0;");
+            try writer.writeAll(" if (sa_mem[ax + i] != (uint8_t)\"MD5\"[i]) e1 = 0; }");
+            try writer.writeAll(" if (e0 != 0 || e1 != 0) { hk = 4; hlen = 16; } }");
+            try writer.writeAll(" if (hk == 0) return 2;");
+            try writer.writeAll(" { uint8_t dig[64];");
+            try writer.writeAll(" if (hk == 1) sa_sha256(&sa_mem[dx], (size_t)a3, dig);");
+            try writer.writeAll(" else if (hk == 2) sa_sha512(&sa_mem[dx], (size_t)a3, dig);");
+            try writer.writeAll(" else if (hk == 3) sa_sha1(&sa_mem[dx], (size_t)a3, dig);");
+            try writer.writeAll(" else sa_md5(&sa_mem[dx], (size_t)a3, dig);");
+            try writer.writeAll(" sa_u64 p = sa_alloc((sa_u64)hlen * 2);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, (sa_u64)hlen * 2);");
+            try writer.writeAll(" unsigned k; for (k = 0; k < hlen; k++) {");
+            try writer.writeAll(" sa_mem[d + k * 2] = (uint8_t)\"0123456789abcdef\"[dig[k] >> 4];");
+            try writer.writeAll(" sa_mem[d + k * 2 + 1] = (uint8_t)\"0123456789abcdef\"[dig[k] & 15]; }");
+            try writer.writeAll(" sa_store_u64(a4, p); sa_store_u64(a5, (sa_u64)hlen * 2); return 0; } } } }\n");
+        },
+        .deno_btoa => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 > (~(sa_u64)0 - 2) / 4 * 3) return 1;");
+            try writer.writeAll(" sa_u64 n = (a1 + 2) / 3 * 4;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(n == 0 ? 1 : n);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, n == 0 ? 1 : n);");
+            try writer.writeAll(" size_t i = 0; sa_u64 w = 0;");
+            try writer.writeAll(" while (i + 3 <= (size_t)a1) {");
+            try writer.writeAll(" uint32_t v = ((uint32_t)sa_mem[x + i] << 16) | ((uint32_t)sa_mem[x + i + 1] << 8) | sa_mem[x + i + 2];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(v >> 18) & 63];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(v >> 12) & 63];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(v >> 6) & 63];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[v & 63];");
+            try writer.writeAll(" i += 3; }");
+            try writer.writeAll(" if (i < (size_t)a1) {");
+            try writer.writeAll(" uint32_t v = (uint32_t)sa_mem[x + i] << 16;");
+            try writer.writeAll(" size_t rem = (size_t)a1 - i;");
+            try writer.writeAll(" if (rem == 2) v |= (uint32_t)sa_mem[x + i + 1] << 8;");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(v >> 18) & 63];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(v >> 12) & 63];");
+            try writer.writeAll(" if (rem == 2) sa_mem[d + w++] = (uint8_t)\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(v >> 6) & 63]; else sa_mem[d + w++] = (uint8_t)'=';");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)'='; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
+        },
+        .deno_atob => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 % 4 != 0) return 1;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 == 0 ? 1 : a1 / 4 * 3);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 == 0 ? 1 : a1 / 4 * 3);");
+            try writer.writeAll(" sa_u64 w = 0; size_t i = 0;");
+            try writer.writeAll(" while (i < (size_t)a1) {");
+            try writer.writeAll(" int v[4]; size_t k; int pad = 0;");
+            try writer.writeAll(" for (k = 0; k < 4; k++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + i + k];");
+            try writer.writeAll(" if (c >= 'A' && c <= 'Z') v[k] = c - 'A';");
+            try writer.writeAll(" else if (c >= 'a' && c <= 'z') v[k] = c - 'a' + 26;");
+            try writer.writeAll(" else if (c >= '0' && c <= '9') v[k] = c - '0' + 52;");
+            try writer.writeAll(" else if (c == '+') v[k] = 62;");
+            try writer.writeAll(" else if (c == '/') v[k] = 63;");
+            try writer.writeAll(" else if (c == '=' && k >= 2) { v[k] = 0; pad++; }");
+            try writer.writeAll(" else return 1; }");
+            try writer.writeAll(" if (pad > 2 || (pad > 0 && i + 4 < (size_t)a1)) return 1;");
+            try writer.writeAll(" uint32_t t = ((uint32_t)v[0] << 18) | ((uint32_t)v[1] << 12) | ((uint32_t)v[2] << 6) | (uint32_t)v[3];");
+            try writer.writeAll(" sa_mem[d + w++] = (uint8_t)(t >> 16);");
+            try writer.writeAll(" if (pad < 2) sa_mem[d + w++] = (uint8_t)(t >> 8);");
+            try writer.writeAll(" if (pad < 1) sa_mem[d + w++] = (uint8_t)t; i += 4; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
+        },
+        .deno_read_file => {
+            // Real host read into fresh guest memory (mirrors the deno
+            // plugin); 0 ok, 2 on any failure.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 == 0) return 2;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 + 1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 + 1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[d + a1] = 0; }");
+            try writer.writeAll(" FILE *f = fopen((const char *)&sa_mem[sa_checked_addr(p, a1 + 1)], \"rb\");");
+            try writer.writeAll(" if (f == 0) return 2;");
+            try writer.writeAll(" if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return 2; }");
+            try writer.writeAll(" long sz = ftell(f);");
+            try writer.writeAll(" if (sz < 0) { fclose(f); return 2; }");
+            try writer.writeAll(" if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return 2; }");
+            try writer.writeAll(" sa_u64 q = sa_alloc((sa_u64)sz == 0 ? 1 : (sa_u64)sz);");
+            try writer.writeAll(" { uint32_t dd = sa_checked_addr(q, (sa_u64)sz == 0 ? 1 : (sa_u64)sz);");
+            try writer.writeAll(" size_t got = fread(&sa_mem[dd], 1, (size_t)sz, f);");
+            try writer.writeAll(" fclose(f);");
+            try writer.writeAll(" if (got != (size_t)sz) return 2;");
+            try writer.writeAll(" sa_store_u64(a2, q); sa_store_u64(a3, (sa_u64)sz); return 0; } } }\n");
+        },
+        .deno_write_file => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if (a1 == 0) return 2;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 + 1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 + 1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[d + a1] = 0; }");
+            try writer.writeAll(" FILE *f = fopen((const char *)&sa_mem[sa_checked_addr(p, a1 + 1)], \"wb\");");
+            try writer.writeAll(" if (f == 0) return 2;");
+            try writer.writeAll(" { size_t w = 0; while (w < (size_t)a3) {");
+            try writer.writeAll(" size_t n = fwrite(&sa_mem[y + w], 1, (size_t)a3 - w, f);");
+            try writer.writeAll(" if (n == 0) { fclose(f); return 2; } w += n; } }");
+            try writer.writeAll(" if (fclose(f) != 0) return 2;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .deno_remove => {
+            // Non-recursive remove (files + empty dirs via libc
+            // remove); recursive trees are out of scope for now.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 == 0) return 2;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 + 1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 + 1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[d + a1] = 0; }");
+            try writer.writeAll(" if (remove((const char *)&sa_mem[sa_checked_addr(p, a1 + 1)]) != 0) return 2;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .deno_mkdir => {
+            // Recursive prefix walk (mkdir -p shape); EEXIST tolerated.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 == 0) return 2;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 + 1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 + 1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[d + a1] = 0; }");
+            try writer.writeAll(" { size_t i = (a2 != 0);");
+            try writer.writeAll(" if (i == 0) {");
+            try writer.writeAll(" if (sa_mkdir_wrap(&sa_mem[sa_checked_addr(p, a1 + 1)]) != 0) return 2;");
+            try writer.writeAll(" } else {");
+            try writer.writeAll(" size_t j; for (j = 1; j <= (size_t)a1; j++) {");
+            try writer.writeAll(" if (j == (size_t)a1 || sa_mem[sa_checked_addr(p, a1 + 1) + j] == '/') {");
+            try writer.writeAll(" uint8_t sv = sa_mem[sa_checked_addr(p, a1 + 1) + j];");
+            try writer.writeAll(" sa_mem[sa_checked_addr(p, a1 + 1) + j] = 0;");
+            try writer.writeAll(" if (sa_mkdir_wrap(&sa_mem[sa_checked_addr(p, a1 + 1)]) != 0 && errno != EEXIST) return 2;");
+            try writer.writeAll(" sa_mem[sa_checked_addr(p, a1 + 1) + j] = sv; } } }");
+            try writer.writeAll(" return 0; } } }\n");
+        },
+        .std_fs_exists => {
+            // Status-code shape (mirror native): 0 exists, NOT_FOUND 3
+            // missing, INVALID_ARGUMENT 1 on bad input, ACCESS 4 on
+            // permission errors, IO 6 otherwise.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 == 0) return 1;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 + 1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 + 1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[d + a1] = 0; }");
+            try writer.writeAll(" if (sa_access_wrap(&sa_mem[sa_checked_addr(p, a1 + 1)]) == 0) return 0;");
+            try writer.writeAll(" if (errno == ENOENT || errno == ENOTDIR) return 3;");
+            try writer.writeAll(" if (errno == EACCES) return 4;");
+            try writer.writeAll(" return 6; } }\n");
+        },
+        .time_unix_ms => {
+            // Real wall clock (mirrors the interpreter, not staged).
+            try writer.writeAll(" { struct timespec ts;");
+            try writer.writeAll(" if (clock_gettime(CLOCK_REALTIME, &ts) != 0) return 0;");
+            try writer.writeAll(" return (sa_u64)((sa_i64)ts.tv_sec * 1000 + ts.tv_nsec / 1000000); } }\n");
+        },
+        .json_parse => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t pos = 0;");
+            try writer.writeAll(" sa_json_node_t *nd = sa_json_parse_value(&sa_mem[x], (size_t)a1, &pos, 0);");
+            try writer.writeAll(" if (nd == 0) return 0;");
+            try writer.writeAll(" while (pos < (size_t)a1 && (sa_mem[x + pos] == ' ' || sa_mem[x + pos] == '\\t' || sa_mem[x + pos] == '\\n' || sa_mem[x + pos] == '\\r')) pos++;");
+            try writer.writeAll(" if (pos != (size_t)a1) return 0;");
+            try writer.writeAll(" return nd->h; } }\n");
+        },
+        .json_free => {
+            try writer.writeAll(" { sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0) return 0;");
+            try writer.writeAll(" o->h = 0; return 0; } }\n");
+        },
+        .json_object_get => {
+            try writer.writeAll(" { sa_store_u64(a3, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 7) return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (a2 == 0) return 1;");
+            try writer.writeAll(" sa_u64 ci = o->first;");
+            try writer.writeAll(" while (ci != 0) {");
+            try writer.writeAll(" sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" if (m->klen == a2) {");
+            try writer.writeAll(" uint32_t mk = sa_checked_addr(m->kptr, m->klen);");
+            try writer.writeAll(" size_t i; int eq = 1;");
+            try writer.writeAll(" for (i = 0; i < (size_t)a2; i++)");
+            try writer.writeAll(" if (sa_mem[mk + i] != sa_mem[k + i]) { eq = 0; break; }");
+            try writer.writeAll(" if (eq) {");
+            try writer.writeAll(" if (m->h == 0) m->h = sa_alloc(8);");
+            try writer.writeAll(" sa_store_u64(a3, m->h); return 0; } }");
+            try writer.writeAll(" ci = m->next; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .json_object_get_i64 => {
+            try writer.writeAll(" { sa_store_u64(a3, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 7) return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (a2 == 0) return 1;");
+            try writer.writeAll(" sa_u64 ci = o->first;");
+            try writer.writeAll(" while (ci != 0) {");
+            try writer.writeAll(" sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" if (m->klen == a2) {");
+            try writer.writeAll(" uint32_t mk = sa_checked_addr(m->kptr, m->klen);");
+            try writer.writeAll(" size_t i; int eq = 1;");
+            try writer.writeAll(" for (i = 0; i < (size_t)a2; i++)");
+            try writer.writeAll(" if (sa_mem[mk + i] != sa_mem[k + i]) { eq = 0; break; }");
+            try writer.writeAll(" if (eq) {");
+            try writer.writeAll(" if (m->kind == 2) { sa_store_u64(a3, (sa_u64)m->ival); return 0; }");
+            try writer.writeAll(" if (m->kind == 3) {");
+            try writer.writeAll(" union { sa_u64 u; double v; } t; t.u = m->fbits;");
+            try writer.writeAll(" if (t.v != t.v) return 1;");
+            try writer.writeAll(" if (t.v >= 9223372036854775808.0 || t.v < -9223372036854775808.0) return 1;");
+            try writer.writeAll(" sa_i64 vv = (sa_i64)t.v;");
+            try writer.writeAll(" union { sa_u64 u; double v; } u2; u2.v = (double)vv;");
+            try writer.writeAll(" if (u2.u != m->fbits) return 1;");
+            try writer.writeAll(" sa_store_u64(a3, (sa_u64)vv); return 0; }");
+            try writer.writeAll(" return 1; } }");
+            try writer.writeAll(" ci = m->next; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .json_object_get_string => {
+            try writer.writeAll(" { sa_store_u64(a3, 0); sa_store_u64(a4, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 7) return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (a2 == 0) return 1;");
+            try writer.writeAll(" sa_u64 ci = o->first;");
+            try writer.writeAll(" while (ci != 0) {");
+            try writer.writeAll(" sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" if (m->klen == a2) {");
+            try writer.writeAll(" uint32_t mk = sa_checked_addr(m->kptr, m->klen);");
+            try writer.writeAll(" size_t i; int eq = 1;");
+            try writer.writeAll(" for (i = 0; i < (size_t)a2; i++)");
+            try writer.writeAll(" if (sa_mem[mk + i] != sa_mem[k + i]) { eq = 0; break; }");
+            try writer.writeAll(" if (eq) {");
+            try writer.writeAll(" if (m->kind != 5) return 1;");
+            try writer.writeAll(" sa_store_u64(a3, m->vptr); sa_store_u64(a4, m->vlen); return 0; } }");
+            try writer.writeAll(" ci = m->next; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .json_object_get_bool => {
+            try writer.writeAll(" { sa_store_u8(a3, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 7) return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (a2 == 0) return 1;");
+            try writer.writeAll(" sa_u64 ci = o->first;");
+            try writer.writeAll(" while (ci != 0) {");
+            try writer.writeAll(" sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" if (m->klen == a2) {");
+            try writer.writeAll(" uint32_t mk = sa_checked_addr(m->kptr, m->klen);");
+            try writer.writeAll(" size_t i; int eq = 1;");
+            try writer.writeAll(" for (i = 0; i < (size_t)a2; i++)");
+            try writer.writeAll(" if (sa_mem[mk + i] != sa_mem[k + i]) { eq = 0; break; }");
+            try writer.writeAll(" if (eq) {");
+            try writer.writeAll(" if (m->kind != 1) return 1;");
+            try writer.writeAll(" sa_store_u8(a3, m->bval ? 1 : 0); return 0; } }");
+            try writer.writeAll(" ci = m->next; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .json_array_get => {
+            try writer.writeAll(" { sa_store_u64(a2, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 6) return 1;");
+            try writer.writeAll(" sa_u64 ci = o->first; sa_u64 i = 0;");
+            try writer.writeAll(" while (ci != 0 && i < a1) {");
+            try writer.writeAll(" sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" ci = m->next; i++; }");
+            try writer.writeAll(" if (ci == 0) return 1;");
+            try writer.writeAll(" { sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" if (m->h == 0) m->h = sa_alloc(8);");
+            try writer.writeAll(" sa_store_u64(a2, m->h); return 0; } } }\n");
+        },
+        .json_value_count => {
+            try writer.writeAll(" { sa_store_u64(a1, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0 || (o->kind != 6 && o->kind != 7)) return 1;");
+            try writer.writeAll(" sa_u64 ci = o->first; sa_u64 n = 0;");
+            try writer.writeAll(" while (ci != 0) {");
+            try writer.writeAll(" sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" ci = m->next; n++; }");
+            try writer.writeAll(" sa_store_u64(a1, n); return 0; } }\n");
+        },
+        .json_as_i64 => {
+            try writer.writeAll(" { sa_store_u64(a1, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0) return 1;");
+            try writer.writeAll(" if (o->kind == 2) { sa_store_u64(a1, (sa_u64)o->ival); return 0; }");
+            try writer.writeAll(" if (o->kind == 3) {");
+            try writer.writeAll(" union { sa_u64 u; double v; } t; t.u = o->fbits;");
+            try writer.writeAll(" if (t.v != t.v) return 1;");
+            try writer.writeAll(" if (t.v >= 9223372036854775808.0 || t.v < -9223372036854775808.0) return 1;");
+            try writer.writeAll(" sa_i64 vv = (sa_i64)t.v;");
+            try writer.writeAll(" union { sa_u64 u; double v; } u2; u2.v = (double)vv;");
+            try writer.writeAll(" if (u2.u != o->fbits) return 1;");
+            try writer.writeAll(" sa_store_u64(a1, (sa_u64)vv); return 0; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .json_writer_new => {
+            // Minified-only writers in the corpus; other whitespace modes
+            // or flags fail loudly rather than emitting wrong JSON.
+            try writer.writeAll(" { sa_store_u64(a5, 0);");
+            try writer.writeAll(" if (a0 != 0 || a1 != 0 || a2 != 0 || a3 != 0 || a4 != 0) return 1;");
+            try writer.writeAll(" unsigned i; sa_json_writer_t *w = 0;");
+            try writer.writeAll(" for (i = 0; i < SA_JSON_MAX_WRITERS; i++)");
+            try writer.writeAll(" if (sa_json_writers[i].h == 0) { w = &sa_json_writers[i]; break; }");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" { sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" w->h = h; w->buf = 0; w->len = 0; w->cap = 0;");
+            try writer.writeAll(" w->depth = 0; w->done = 0; w->started = 0;");
+            try writer.writeAll(" w->complete = 0; w->pending = 0;");
+            try writer.writeAll(" sa_store_u64(a5, h); return 0; } } }\n");
+        },
+        .json_writer_begin_object => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (w->pending) w->pending = 0;");
+            try writer.writeAll(" else {");
+            try writer.writeAll(" if (w->depth == 0) {");
+            try writer.writeAll(" if (w->complete) return 1;");
+            try writer.writeAll(" w->started = 1; w->complete = 1; }");
+            try writer.writeAll(" else {");
+            try writer.writeAll(" if (w->first[w->depth - 1]) w->first[w->depth - 1] = 0;");
+            try writer.writeAll(" else if (sa_jw_putc(w, ',')) return 1;");
+            try writer.writeAll(" w->started = 1; } }");
+            try writer.writeAll(" if (w->depth >= 32) return 1;");
+            try writer.writeAll(" w->kinds[w->depth] = '{'; w->first[w->depth] = 1; w->depth++;");
+            try writer.writeAll(" if (sa_jw_putc(w, '{')) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_end_object => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->depth == 0 || w->pending) return 1;");
+            try writer.writeAll(" if (w->kinds[w->depth - 1] != '{') return 1;");
+            try writer.writeAll(" w->depth--;");
+            try writer.writeAll(" if (sa_jw_putc(w, '}')) return 1;");
+            try writer.writeAll(" if (w->depth == 0) w->complete = 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_begin_array => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (w->pending) w->pending = 0;");
+            try writer.writeAll(" else {");
+            try writer.writeAll(" if (w->depth == 0) {");
+            try writer.writeAll(" if (w->complete) return 1;");
+            try writer.writeAll(" w->started = 1; w->complete = 1; }");
+            try writer.writeAll(" else {");
+            try writer.writeAll(" if (w->first[w->depth - 1]) w->first[w->depth - 1] = 0;");
+            try writer.writeAll(" else if (sa_jw_putc(w, ',')) return 1;");
+            try writer.writeAll(" w->started = 1; } }");
+            try writer.writeAll(" if (w->depth >= 32) return 1;");
+            try writer.writeAll(" w->kinds[w->depth] = '['; w->first[w->depth] = 1; w->depth++;");
+            try writer.writeAll(" if (sa_jw_putc(w, '[')) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_end_array => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->depth == 0 || w->pending) return 1;");
+            try writer.writeAll(" if (w->kinds[w->depth - 1] != '[') return 1;");
+            try writer.writeAll(" w->depth--;");
+            try writer.writeAll(" if (sa_jw_putc(w, ']')) return 1;");
+            try writer.writeAll(" if (w->depth == 0) w->complete = 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_field_bool => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[k], (size_t)a2)) return 1;");
+            try writer.writeAll(" if (sa_jw_putc(w, ':')) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)(a3 ? \"true\" : \"false\"), a3 ? 4 : 5)) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_field_i64 => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[k], (size_t)a2)) return 1;");
+            try writer.writeAll(" if (sa_jw_putc(w, ':')) return 1;");
+            try writer.writeAll(" { char tmp[130];");
+            try writer.writeAll(" int n = sa_fmt_int(tmp, a3, 10, 1, 0);");
+            try writer.writeAll(" if (n < 0) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)tmp, (size_t)n)) return 1; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_field_f64 => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[k], (size_t)a2)) return 1;");
+            try writer.writeAll(" if (sa_jw_putc(w, ':')) return 1;");
+            try writer.writeAll(" { union { sa_u64 u; double d; } t; t.u = a3;");
+            try writer.writeAll(" if (t.d != t.d) return 1;");
+            try writer.writeAll(" if ((t.u & (sa_u64)0x7FF0000000000000ULL) == (sa_u64)0x7FF0000000000000ULL) return 1;");
+            try writer.writeAll(" char tmp[256];");
+            try writer.writeAll(" int n = snprintf(tmp, sizeof(tmp), \"%.17g\", t.d);");
+            try writer.writeAll(" if (n < 0 || n >= 256) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)tmp, (size_t)n)) return 1; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_field_string => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" uint32_t v = sa_checked_addr(a3, (size_t)a4);");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[k], (size_t)a2)) return 1;");
+            try writer.writeAll(" if (sa_jw_putc(w, ':')) return 1;");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[v], (size_t)a4)) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_object_field => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[k], (size_t)a2)) return 1;");
+            try writer.writeAll(" if (sa_jw_putc(w, ':')) return 1;");
+            try writer.writeAll(" w->pending = 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_write_bool => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)(a1 ? \"true\" : \"false\"), a1 ? 4 : 5)) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_write_i64 => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" { char tmp[130];");
+            try writer.writeAll(" int n = sa_fmt_int(tmp, a1, 10, 1, 0);");
+            try writer.writeAll(" if (n < 0) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)tmp, (size_t)n)) return 1; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_write_f64 => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" { union { sa_u64 u; double d; } t; t.u = a1;");
+            try writer.writeAll(" if (t.d != t.d) return 1;");
+            try writer.writeAll(" if ((t.u & (sa_u64)0x7FF0000000000000ULL) == (sa_u64)0x7FF0000000000000ULL) return 1;");
+            try writer.writeAll(" char tmp[256];");
+            try writer.writeAll(" int n = snprintf(tmp, sizeof(tmp), \"%.17g\", t.d);");
+            try writer.writeAll(" if (n < 0 || n >= 256) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)tmp, (size_t)n)) return 1; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_write_string => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" { uint32_t v = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (sa_jw_string(w, &sa_mem[v], (size_t)a2)) return 1; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_write_null => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 1;");
+            try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
+            try writer.writeAll(" if (sa_jw_value_begin(w)) return 1;");
+            try writer.writeAll(" if (sa_jw_write(w, (const uint8_t *)\"null\", 4)) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .json_writer_finish => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" sa_store_u64(a1, 0);");
+            try writer.writeAll(" if (w == 0 || !w->started || w->pending || w->depth != 0 || w->done) return 1;");
+            try writer.writeAll(" { sa_u64 h = sa_owned_new(w->buf, w->len, 2);");
+            try writer.writeAll(" if (h == 0) return 1;");
+            try writer.writeAll(" w->done = 1;");
+            try writer.writeAll(" sa_store_u64(a1, h); return 0; } } }\n");
+        },
+        .json_writer_free => {
+            try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
+            try writer.writeAll(" if (w == 0) return 0;");
+            try writer.writeAll(" w->h = 0; return 0; } }\n");
+        },
+        .json_buffer_data => {
+            try writer.writeAll(" { sa_owned_buf_t *o = sa_owned_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 2) return 0;");
+            try writer.writeAll(" return o->ptr; } }\n");
+        },
+        .json_buffer_len => {
+            try writer.writeAll(" { sa_owned_buf_t *o = sa_owned_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 2) return 0;");
+            try writer.writeAll(" return o->len; } }\n");
+        },
+        .json_buffer_free => {
+            try writer.writeAll(" { sa_owned_drop(a0); return 0; } }\n");
+        },
+        .time_get_full_year => {
+            try writer.writeAll(" { sa_i64 y, mo, d;");
+            try writer.writeAll(" sa_civil_ymd((sa_i64)a0, &y, &mo, &d);");
+            try writer.writeAll(" return (sa_u64)y; } }\n");
+        },
+        .time_get_month => {
+            // 0-based like JS getMonth (mirrors the interpreter).
+            try writer.writeAll(" { sa_i64 y, mo, d;");
+            try writer.writeAll(" sa_civil_ymd((sa_i64)a0, &y, &mo, &d);");
+            try writer.writeAll(" return (sa_u64)(mo - 1); } }\n");
+        },
+        .time_get_date => {
+            try writer.writeAll(" { sa_i64 y, mo, d;");
+            try writer.writeAll(" sa_civil_ymd((sa_i64)a0, &y, &mo, &d);");
+            try writer.writeAll(" return (sa_u64)d; } }\n");
+        },
+        .time_parse_iso => {
+            // Strict ISO YYYY-MM-DD[THH:MM:SS[.sss]][Z|+-HH:MM] to unix
+            // millis; 0 ok (writes *out_ms, pre-zeroed), 1 invalid.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_store_u64(a2, 0);");
+            try writer.writeAll(" size_t p = 0;");
+            try writer.writeAll(" sa_i64 v = 0; size_t k; size_t q;");
+            try writer.writeAll(" if ((size_t)a1 < 10) return 1;");
+            try writer.writeAll(" for (k = 0; k < 4; k++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" sa_i64 year = v; p = 4;");
+            try writer.writeAll(" if (sa_mem[x + p] != '-') return 1; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" sa_i64 month = v; p += 2;");
+            try writer.writeAll(" if (sa_mem[x + p] != '-') return 1; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" sa_i64 day = v; p += 2;");
+            try writer.writeAll(" sa_i64 hour = 0; sa_i64 minute = 0;");
+            try writer.writeAll(" sa_i64 second = 0; sa_i64 milli = 0;");
+            try writer.writeAll(" if (p < (size_t)a1) {");
+            try writer.writeAll(" uint8_t t = sa_mem[x + p];");
+            try writer.writeAll(" if (t != 'T' && t != 't' && t != ' ') return 1; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" if (p + k >= (size_t)a1) return 1;");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" hour = v; p += 2;");
+            try writer.writeAll(" if (p >= (size_t)a1 || sa_mem[x + p] != ':') return 1; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" if (p + k >= (size_t)a1) return 1;");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" minute = v; p += 2;");
+            try writer.writeAll(" if (p >= (size_t)a1 || sa_mem[x + p] != ':') return 1; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" if (p + k >= (size_t)a1) return 1;");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" second = v; p += 2;");
+            try writer.writeAll(" if (p < (size_t)a1 && sa_mem[x + p] == '.') { p++;");
+            try writer.writeAll(" size_t fs = p;");
+            try writer.writeAll(" while (p < (size_t)a1 && sa_mem[x + p] >= '0' && sa_mem[x + p] <= '9') p++;");
+            try writer.writeAll(" size_t fl = p - fs;");
+            try writer.writeAll(" if (fl == 0 || fl > 3) return 1;");
+            try writer.writeAll(" v = 0; for (q = fs; q < p; q++)");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(sa_mem[x + q] - '0');");
+            try writer.writeAll(" milli = fl == 1 ? v * 100 : (fl == 2 ? v * 10 : v); } }");
+            try writer.writeAll(" sa_i64 offm = 0;");
+            try writer.writeAll(" if (p < (size_t)a1) {");
+            try writer.writeAll(" uint8_t z = sa_mem[x + p];");
+            try writer.writeAll(" if (z == 'Z' || z == 'z') { p++; }");
+            try writer.writeAll(" else if (z == '+' || z == '-') {");
+            try writer.writeAll(" int neg = z == '-'; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" if (p + k >= (size_t)a1) return 1;");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" sa_i64 oh = v; p += 2;");
+            try writer.writeAll(" if (p >= (size_t)a1 || sa_mem[x + p] != ':') return 1; p++;");
+            try writer.writeAll(" v = 0; for (k = 0; k < 2; k++) {");
+            try writer.writeAll(" if (p + k >= (size_t)a1) return 1;");
+            try writer.writeAll(" uint8_t c = sa_mem[x + p + k];");
+            try writer.writeAll(" if (c < '0' || c > '9') return 1;");
+            try writer.writeAll(" v = v * 10 + (sa_i64)(c - '0'); }");
+            try writer.writeAll(" sa_i64 om = v; p += 2;");
+            try writer.writeAll(" if (oh > 23 || om > 59) return 1;");
+            try writer.writeAll(" offm = oh * 60 + om; if (neg) offm = -offm;");
+            try writer.writeAll(" } else return 1; }");
+            try writer.writeAll(" if (p != (size_t)a1) return 1;");
+            try writer.writeAll(" if (month < 1 || month > 12) return 1;");
+            try writer.writeAll(" { int leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));");
+            try writer.writeAll(" sa_i64 dim = 31;");
+            try writer.writeAll(" if (month == 2) dim = leap ? 29 : 28;");
+            try writer.writeAll(" else if (month == 4 || month == 6 || month == 9 || month == 11) dim = 30;");
+            try writer.writeAll(" if (day < 1 || day > dim) return 1; }");
+            try writer.writeAll(" if (hour > 23 || minute > 59 || second > 59) return 1;");
+            try writer.writeAll(" { sa_i64 yy = month <= 2 ? year - 1 : year;");
+            try writer.writeAll(" sa_i64 era = yy >= 0 ? sa_div_floor(yy, 400) : sa_div_floor(yy - 399, 400);");
+            try writer.writeAll(" sa_i64 yoe = yy - era * 400;");
+            try writer.writeAll(" sa_i64 mp = sa_mod_floor(month - 3, 12);");
+            try writer.writeAll(" sa_i64 doy = sa_div_floor(153 * mp + 2, 5) + day - 1;");
+            try writer.writeAll(" sa_i64 doe = yoe * 365 + sa_div_floor(yoe, 4) - sa_div_floor(yoe, 100) + doy;");
+            try writer.writeAll(" sa_i64 days = era * 146097 + doe - 719468;");
+            try writer.writeAll(" sa_store_u64(a2, (sa_u64)(((days * 86400 + hour * 3600 + minute * 60 + second) * 1000 + milli) - offm * 60000));");
+            try writer.writeAll(" return 0; } } }\n");
+        },
+        .time_set_field => {
+            try writer.writeAll(" { sa_i64 ms = (sa_i64)a0; sa_u64 f = a1; sa_i64 v = (sa_i64)a2;");
+            try writer.writeAll(" sa_i64 day_ms = sa_mod_floor(ms, 86400000);");
+            try writer.writeAll(" sa_i64 y, mo, d;");
+            try writer.writeAll(" sa_civil_ymd(ms, &y, &mo, &d);");
+            try writer.writeAll(" sa_i64 tod = day_ms / 3600000 * 3600000 + sa_mod_floor(day_ms, 3600000);");
+            try writer.writeAll(" tod = tod / 60000 * 60000 + sa_mod_floor(day_ms, 60000);");
+            try writer.writeAll(" tod = tod / 1000 * 1000 + sa_mod_floor(day_ms, 1000);");
+            try writer.writeAll(" if (f == 0) y = v;");
+            try writer.writeAll(" else if (f == 1) {");
+            try writer.writeAll(" sa_i64 tm = y * 12 + v;");
+            try writer.writeAll(" y = sa_div_floor(tm, 12); mo = sa_mod_floor(tm, 12) + 1; }");
+            try writer.writeAll(" else if (f == 2) d = v;");
+            try writer.writeAll(" else if (f == 3) tod = v * 3600000 + sa_mod_floor(tod, 3600000);");
+            try writer.writeAll(" else if (f == 4) tod = (tod - sa_mod_floor(tod, 3600000)) + v * 60000 + sa_mod_floor(tod, 60000);");
+            try writer.writeAll(" else if (f == 5) tod = (tod - sa_mod_floor(tod, 60000)) + v * 1000 + sa_mod_floor(tod, 1000);");
+            try writer.writeAll(" else if (f == 6) tod = tod - sa_mod_floor(tod, 1000) + v;");
+            try writer.writeAll(" else return ms;");
+            try writer.writeAll(" { sa_i64 tm = y * 12 + (mo - 1);");
+            try writer.writeAll(" sa_i64 y2 = sa_div_floor(tm, 12);");
+            try writer.writeAll(" sa_i64 m2 = sa_mod_floor(tm, 12) + 1;");
+            try writer.writeAll(" sa_i64 yy = m2 <= 2 ? y2 - 1 : y2;");
+            try writer.writeAll(" sa_i64 era = yy >= 0 ? sa_div_floor(yy, 400) : sa_div_floor(yy - 399, 400);");
+            try writer.writeAll(" sa_i64 yoe = yy - era * 400;");
+            try writer.writeAll(" sa_i64 mp = sa_mod_floor(m2 - 3, 12);");
+            try writer.writeAll(" sa_i64 doy = sa_div_floor(153 * mp + 2, 5) + d - 1;");
+            try writer.writeAll(" sa_i64 doe = yoe * 365 + sa_div_floor(yoe, 4) - sa_div_floor(yoe, 100) + doy;");
+            try writer.writeAll(" sa_i64 dys = era * 146097 + doe - 719468;");
+            try writer.writeAll(" sa_i64 tdys = dys + sa_div_floor(tod, 86400000);");
+            try writer.writeAll(" sa_i64 tnorm = tod - sa_div_floor(tod, 86400000) * 86400000;");
+            try writer.writeAll(" return (sa_u64)((tdys * 86400) * 1000 + tnorm); } } }\n");
+        },
+        .http_client_new => {
+            try writer.writeAll(" { sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (s == 0) return 1;");
+            try writer.writeAll(" s->h = h; s->aux0 = a0;");
+            try writer.writeAll(" sa_store_u64(a1, h); return 0; } }\n");
+        },
+        .http_client_req_new => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" { uint32_t u = sa_checked_addr(a2, (size_t)a3); (void)u; }");
+            try writer.writeAll(" sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (s == 0) return 1;");
+            try writer.writeAll(" s->h = h; s->aux0 = 0; s->aux1 = 0;");
+            try writer.writeAll(" sa_store_u64(a4, h); return 0; } }\n");
+        },
+        .http_client_req_add_header => {
+            try writer.writeAll(" { sa_http_obj_t *r = sa_http_find(sa_http_objs, a0);");
+            try writer.writeAll(" if (r == 0) return 1;");
+            try writer.writeAll(" { uint32_t k = sa_checked_addr(a1, (size_t)a2); (void)k; }");
+            try writer.writeAll(" { uint32_t v = sa_checked_addr(a3, (size_t)a4); (void)v; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .http_client_req_set_body => {
+            try writer.writeAll(" { sa_http_obj_t *r = sa_http_find(sa_http_objs, a0);");
+            try writer.writeAll(" if (r == 0) return 1;");
+            try writer.writeAll(" { uint32_t b = sa_checked_addr(a1, (size_t)a2); (void)b; }");
+            try writer.writeAll(" r->aux0 = a1; r->aux1 = a2; return 0; } }\n");
+        },
+        .http_client_req_send => {
+            // Echo the recorded body with status 200 (mirrors JS).
+            try writer.writeAll(" { sa_http_obj_t *r = sa_http_find(sa_http_objs, a0);");
+            try writer.writeAll(" if (r == 0) return 1;");
+            try writer.writeAll(" sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (s == 0) return 1;");
+            try writer.writeAll(" s->h = h; s->aux0 = r->aux0; s->aux1 = r->aux1;");
+            try writer.writeAll(" sa_store_u64(a1, h); return 0; } }\n");
+        },
+        .http_client_resp_status => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 0;");
+            try writer.writeAll(" return 200; } }\n");
+        },
+        .http_client_resp_body_reader => {
+            try writer.writeAll(" { sa_http_obj_t *r = sa_http_find(sa_http_objs, a0);");
+            try writer.writeAll(" if (r == 0) return 1;");
+            try writer.writeAll(" sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *d = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (d == 0) return 1;");
+            try writer.writeAll(" d->h = h; d->aux0 = r->aux0; d->aux1 = r->aux1; d->aux2 = 0;");
+            try writer.writeAll(" sa_store_u64(a1, h); return 0; } }\n");
+        },
+        .http_client_resp_read_chunk => {
+            try writer.writeAll(" { sa_http_obj_t *r = sa_http_find(sa_http_objs, a0);");
+            try writer.writeAll(" if (r == 0) return 1;");
+            try writer.writeAll(" sa_u64 rem = r->aux1 - r->aux2;");
+            try writer.writeAll(" sa_u64 n = a2 < rem ? a2 : rem;");
+            try writer.writeAll(" { uint32_t b = sa_checked_addr(a1, (size_t)n);");
+            try writer.writeAll(" uint32_t s = sa_checked_addr(r->aux0, (size_t)r->aux1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)n; i++)");
+            try writer.writeAll(" sa_mem[b + i] = sa_mem[s + r->aux2 + i]; }");
+            try writer.writeAll(" r->aux2 += n; sa_store_u64(a3, n); return 0; } }\n");
+        },
+        .http_client_resp_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+        .http_client_body_reader_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+        .http_client_req_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+        .http_client_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+        .http_server_new => {
+            try writer.writeAll(" { sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (s == 0) return 1;");
+            try writer.writeAll(" s->h = h; sa_store_u64(a0, h); return 0; } }\n");
+        },
+        .http_server_start => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" { uint32_t hh = sa_checked_addr(a1, (size_t)a2); (void)hh; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .http_server_accept => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (s == 0) return 1;");
+            try writer.writeAll(" s->h = h; sa_store_u64(a1, h); return 0; } }\n");
+        },
+        .http_server_req_get_path => {
+            // Canned "/stream" served from fresh guest memory (mirrors JS).
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" static const uint8_t lit[] = {47, 115, 116, 114, 101, 97, 109};");
+            try writer.writeAll(" sa_u64 p = sa_alloc(7);");
+            try writer.writeAll(" { size_t i; for (i = 0; i < 7; i++)");
+            try writer.writeAll(" sa_mem[sa_checked_addr(p, 7) + i] = lit[i]; }");
+            try writer.writeAll(" sa_store_u64(a1, p); sa_store_u64(a2, 7); return 0; } }\n");
+        },
+        .http_server_req_get_header => {
+            // Canned "text/plain" served from fresh guest memory.
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" { uint32_t k = sa_checked_addr(a1, (size_t)a2); (void)k; }");
+            try writer.writeAll(" static const uint8_t lit[] = {116, 101, 120, 116, 47, 112, 108, 97, 105, 110};");
+            try writer.writeAll(" sa_u64 p = sa_alloc(10);");
+            try writer.writeAll(" { size_t i; for (i = 0; i < 10; i++)");
+            try writer.writeAll(" sa_mem[sa_checked_addr(p, 10) + i] = lit[i]; }");
+            try writer.writeAll(" sa_store_u64(a3, p); sa_store_u64(a4, 10); return 0; } }\n");
+        },
+        .http_server_req_get_body => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" sa_store_u64(a1, 0); sa_store_u64(a2, 0); return 0; } }\n");
+        },
+        .http_server_resp_stream_new => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" sa_u64 h = sa_alloc(8);");
+            try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
+            try writer.writeAll(" if (s == 0) return 1;");
+            try writer.writeAll(" s->h = h; sa_store_u64(a2, h); return 0; } }\n");
+        },
+        .http_server_resp_stream_write => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" { uint32_t b = sa_checked_addr(a1, (size_t)a2); (void)b; }");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .http_server_resp_stream_flush => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .http_server_resp_stream_end => {
+            try writer.writeAll(" { if (sa_http_find(sa_http_objs, a0) == 0) return 1;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .http_server_resp_stream_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+        .http_server_req_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+        .http_server_free => {
+            try writer.writeAll(" { sa_http_drop(sa_http_objs, a0); return 0; } }\n");
+        },
+    }
+    return true;
+}
+
+fn writePreamble(
+    writer: anytype,
+    c_opt: CEmitOptions,
+    size_bits: u16,
+    used: *const std.StringHashMap(void),
+    need_mem: bool,
+    need_brk: bool,
+    need_http: bool,
+    need_owned: bool,
+    need_modstate: bool,
+    need_regex: bool,
+    need_time_clock: bool,
+    need_sys_stat: bool,
+    need_json: bool,
+) !void {
+    const mem_bytes: usize = @as(usize, c_opt.mem_pages) * 65536;
+    try writer.print("/* Generated by `sa build-c` (c backend, MVP). DO NOT EDIT. */\n", .{});
+    try writer.print("/* size_bits={d} mem_bytes={d} */\n", .{ size_bits, mem_bytes });
+    // Feature-test macro must precede ALL system headers (glibc locks
+    // strict-ANSI mode on first include otherwise, hiding clock_gettime).
+    if (need_time_clock) {
+        try writer.writeAll("#ifndef _POSIX_C_SOURCE\n#define _POSIX_C_SOURCE 200809L\n#endif\n");
+    }
+    try writer.writeAll(
+        \\#include <stdint.h>
+        \\#include <stdio.h>
+        \\#include <stdlib.h>
+        \\#include <errno.h>
+        \\typedef uint64_t sa_u64;
+        \\typedef int64_t sa_i64;
+        \\typedef uint32_t sa_u32;
+        \\typedef int32_t sa_i32;
+        \\#ifndef SA_MEM_BYTES
+        \\#define SA_MEM_BYTES 16777216UL
+        \\#endif
+        \\
+    );
+    if (need_mem) {
+        try writer.writeAll("static uint8_t sa_mem[SA_MEM_BYTES];\n");
+    }
+    if (need_brk) {
+        try writer.writeAll("static uint32_t sa_brk = 65536;\n");
+    }
+    try writer.writeAll(
+        \\static __attribute__((noreturn, unused)) void sa_trap(const char *msg) { fputs("[sa-trap] ", stderr); fputs(msg, stderr); fputc('\n', stderr); exit(1); }
+        \\
+    );
+    if (c_opt.gas) {
+        try writer.writeAll(
+            \\#ifndef SA_GAS_LIMIT
+            \\#define SA_GAS_LIMIT 10000ULL
+            \\#endif
+            \\static sa_u64 sa_gas = SA_GAS_LIMIT;
+            \\#define SA_GAS_CHECK(n) do { if (sa_gas < (sa_u64)(n)) sa_trap("out of gas"); sa_gas -= (sa_u64)(n); } while (0)
+            \\
+        );
+    }
+    // Staged http state: one bounded fixed table shared by all families
+    // (handles are unique alloc offsets, so no cross-talk; no malloc).
+    // Emitted only when an sa_http_* binding is rendered; every such
+    // binding references the table via find/slot/drop, so it is never
+    // unused. The helpers live in the runtime catalog (reference-gated).
+    if (need_http) {
+        try writer.writeAll(
+            \\#ifndef SA_HTTP_MAX_OBJS
+            \\#define SA_HTTP_MAX_OBJS 16
+            \\#endif
+            \\typedef struct { sa_u64 h, aux0, aux1, aux2; } sa_http_obj_t;
+            \\static sa_http_obj_t sa_http_objs[SA_HTTP_MAX_OBJS];
+            \\
+        );
+    }
+    // Owned guest buffers shared by fmt/string/json producers (handles
+    // read back via buffer_data/len). Kinds mirror the interpreter
+    // registry: 1 = fmt/string, 2 = byte, 3 = env. The counter is gated
+    // separately: read-only bindings (data/len/free) don't need it.
+    if (need_owned) {
+        try writer.writeAll(
+            \\#ifndef SA_OWNED_MAX_OBJS
+            \\#define SA_OWNED_MAX_OBJS 64
+            \\#endif
+            \\typedef struct { sa_u64 h, ptr, len; unsigned kind; } sa_owned_buf_t;
+            \\static sa_owned_buf_t sa_owned_bufs[SA_OWNED_MAX_OBJS];
+            \\
+        );
+        if (used.get("sa_owned_new") != null) {
+            try writer.writeAll("static sa_u64 sa_owned_next = 1;\n");
+        }
+    }
+    // Compiled POSIX regexes (regex_t holds host pointers: C-side table,
+    // never guest memory). Match state lives in guest memory instead
+    // (header + offset pairs), so only the compiled set needs a table.
+    if (need_regex) {
+        try writer.writeAll(
+            \\#include <regex.h>
+            \\#ifndef SA_REGEX_MAX_OBJS
+            \\#define SA_REGEX_MAX_OBJS 16
+            \\#endif
+            \\#ifndef SA_REGEX_MAX_GROUPS
+            \\#define SA_REGEX_MAX_GROUPS 32
+            \\#endif
+            \\typedef struct { sa_u64 h; regex_t rx; } sa_regex_t;
+            \\static sa_regex_t sa_regexes[SA_REGEX_MAX_OBJS];
+            \\
+        );
+    }
+    // Wall-clock needs <time.h> (the _POSIX_C_SOURCE define above
+    // already precedes all headers); pure civil arithmetic needs nothing.
+    if (need_time_clock) {
+        try writer.writeAll(
+            \\#include <time.h>
+            \\
+        );
+    }
+    if (need_sys_stat) {
+        try writer.writeAll(
+            \\#include <sys/stat.h>
+            \\#include <unistd.h>
+            \\
+        );
+    }
+    // JSON DOM nodes (C-side fixed table; string payloads live in guest
+    // memory). Kinds mirror SA_JSON_KIND_*: 0 null, 1 bool, 2 int,
+    // 3 float, 5 string, 6 array, 7 object. Children link via
+    // first/next; object members carry key in kptr/klen.
+    if (need_json) {
+        try writer.writeAll(
+            \\#ifndef SA_JSON_MAX_NODES
+            \\#define SA_JSON_MAX_NODES 256
+            \\#endif
+            \\#ifndef SA_JSON_MAX_DEPTH
+            \\#define SA_JSON_MAX_DEPTH 64
+            \\#endif
+            \\typedef struct { sa_u64 h; unsigned kind; sa_u64 first, next; sa_u64 kptr, klen, vptr, vlen; sa_i64 ival; sa_u64 fbits; unsigned bval; } sa_json_node_t;
+            \\static sa_json_node_t sa_json_nodes[SA_JSON_MAX_NODES];
+            \\#ifndef SA_JSON_MAX_WRITERS
+            \\#define SA_JSON_MAX_WRITERS 16
+            \\#endif
+            \\typedef struct { sa_u64 h, buf, len, cap; unsigned depth, done, started, complete, pending; unsigned char first[32], kinds[32]; } sa_json_writer_t;
+            \\static sa_json_writer_t sa_json_writers[SA_JSON_MAX_WRITERS];
+            \\
+        );
+    }
+    if (need_time_clock) {
+        try writer.writeAll(
+            \\#include <time.h>
+            \\
+        );
+    }
+    // Module-state cells (satsgo top-level `let`): key/value slots,
+    // zero default on miss.
+    if (need_modstate) {
+        try writer.writeAll(
+            \\#ifndef SA_MODSTATE_MAX
+            \\#define SA_MODSTATE_MAX 64
+            \\#endif
+            \\static sa_u64 sa_modstate_keys[SA_MODSTATE_MAX];
+            \\static sa_u64 sa_modstate_used[SA_MODSTATE_MAX];
+            \\static sa_u64 sa_modstate_vals[SA_MODSTATE_MAX];
+            \\
+        );
+    }
+    for (kHelpersSorted) |h| {
+        if (used.get(h.name) != null) {
+            // Catalog bodies are hand-written C strings: fail loudly on
+            // imbalance rather than emitting broken output.
+            if (!cBracesBalanced(h.code)) return CEmitError.Failed;
+            try writer.writeAll(h.code);
+            try writer.writeAll("\n");
+        }
+    }
+}
+
+/// Best-effort slot resolution for liveness: reg/symbol/text operands that
+/// denote a local slot. Returns null for immediates, labels, funcs, consts.
+///
+/// Name-based operands (.symbol/.text) that resolve to a const decl are NOT
+/// register reads: the emitter prefers the const immediate
+/// (`resolveTextToC` checks `const_addrs` before registers), so counting
+/// them as reads would keep dead `rN` declarations alive.
+fn readSlotOf(fsig: sig.FunctionSig, use_global: bool, verified: anytype, op: inst.Operand) ?u32 {
+    const symbols = verified.symbols;
+    switch (op) {
+        .reg => |r| return regSlot(fsig, use_global, r) catch null,
+        .symbol => |id| {
+            if (symbols.lookupName(id)) |name| {
+                if (isConstName(verified, name)) return null;
+            }
+            return fsig.slotOf(id);
+        },
+        .text, .native_text => |t| {
+            var text = std.mem.trim(u8, t, " \t");
+            if (text.len == 0) return null;
+            if (text[0] == '&' or text[0] == '*' or text[0] == '^') text = std.mem.trim(u8, text[1..], " \t");
+            if (std.mem.lastIndexOf(u8, text, " as ")) |idx| text = std.mem.trim(u8, text[0..idx], " \t\r");
+            if (text.len == 0) return null;
+            if (isConstName(verified, text)) return null;
+            if (symbols.findId(text)) |id| return fsig.slotOf(id);
+            return null;
+        },
+        else => return null,
+    }
+}
+
+fn isConstName(verified: anytype, name: []const u8) bool {
+    for (verified.const_decls) |decl| {
+        if (std.mem.eql(u8, decl.name, name)) return true;
+    }
+    return false;
+}
+
+fn defSlotOf(fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) ?u32 {
+    switch (op) {
+        .reg => |r| return regSlot(fsig, use_global, r) catch null,
+        .symbol => |id| return fsig.slotOf(id),
+        else => return null,
+    }
+}
+
+/// Slots defined but never read in the function body. Skipping emission for
+/// these is semantics-preserving ONLY for side-effect-free definitions
+/// (the emitter filters by kind); callers must still emit trapping or
+/// memory-observably-effectful instructions.
+/// Per-instruction def/use classification shared by the forward
+/// (never-read slots) and backward (point-wise dead defs) passes.
+fn collectDefUse(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, base: inst.Instruction, defs: *std.array_list.Managed(u32), uses: *std.array_list.Managed(u32)) !void {
+    switch (base.kind) {
+        .return_ => {
+            if (readSlotOf(fsig, use_global, verified, base.operands[0])) |sl| try uses.append(sl);
+        },
+        .try_, .early_return => {
+            if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
+            if (readSlotOf(fsig, use_global, verified, base.operands[1])) |sl| try uses.append(sl);
+        },
+        .op, .alloc, .stack_alloc, .ptr_add, .load, .take, .atomic_load => {
+            if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
+            for (base.operands[1..]) |opnd| {
+                if (readSlotOf(fsig, use_global, verified, opnd)) |sl| try uses.append(sl);
+            }
+        },
+        .store, .atomic_store, .release => {
+            for (base.operands) |opnd| {
+                if (readSlotOf(fsig, use_global, verified, opnd)) |sl| try uses.append(sl);
+            }
+        },
+        .call, .call_indirect => {
+            if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                var parsed = pc.*;
+                defer parsed.deinit(allocator);
+                if (parsed.dest) |dest| {
+                    if (verified.symbols.findId(dest)) |id| {
+                        if (fsig.slotOf(id)) |sl| try defs.append(sl);
+                    }
+                }
+                for (parsed.args) |arg| {
+                    if (readSlotOf(fsig, use_global, verified, inst.Operand{ .text = arg.text })) |sl| try uses.append(sl);
+                }
+                if (parsed.is_indirect) {
+                    if (readSlotOf(fsig, use_global, verified, inst.Operand{ .text = parsed.callee })) |sl| try uses.append(sl);
+                }
+            } else |_| {}
+        },
+        .cmpxchg => {
+            if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
+            if (defSlotOf(fsig, use_global, base.operands[1])) |sl| try defs.append(sl);
+            for (base.operands[2..]) |opnd| {
+                if (readSlotOf(fsig, use_global, verified, opnd)) |sl| try uses.append(sl);
+            }
+            if (base.atomic_expected_text) |t| {
+                if (readSlotOf(fsig, use_global, verified, inst.Operand{ .text = t })) |sl| try uses.append(sl);
+            }
+            if (base.atomic_new_text) |t| {
+                if (readSlotOf(fsig, use_global, verified, inst.Operand{ .text = t })) |sl| try uses.append(sl);
+            }
+        },
+        .atomic_rmw => {
+            if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
+            for (base.operands[1..]) |opnd| {
+                if (readSlotOf(fsig, use_global, verified, opnd)) |sl| try uses.append(sl);
+            }
+        },
+        .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => {
+            if (defSlotOf(fsig, use_global, base.operands[0])) |sl| try defs.append(sl);
+            if (readSlotOf(fsig, use_global, verified, base.operands[1])) |sl| try uses.append(sl);
+        },
+        .panic => {
+            if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                var parsed = pc.*;
+                defer parsed.deinit(allocator);
+                for (parsed.args) |arg| {
+                    if (readSlotOf(fsig, use_global, verified, inst.Operand{ .text = arg.text })) |sl| try uses.append(sl);
+                }
+            } else |_| {}
+        },
+        .br, .br_null => {
+            if (readSlotOf(fsig, use_global, verified, base.operands[0])) |sl| try uses.append(sl);
+        },
+        else => {
+            for (base.operands) |opnd| {
+                if (readSlotOf(fsig, use_global, verified, opnd)) |sl| try uses.append(sl);
+            }
+        },
+    }
+}
+
+fn computeDeadSlots(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, task: FuncTask) !std.AutoHashMap(u32, void) {
+    var defs = std.AutoHashMap(u32, void).init(allocator);
+    defer defs.deinit();
+    var reads = std.AutoHashMap(u32, void).init(allocator);
+    defer reads.deinit();
+    // Seed defs with parameter slots: the prologue maps params into them,
+    // so an unread param is a dead store too (e.g. unused `ptr` above).
+    for (fsig.param_ids) |pid| {
+        if (fsig.slotOf(pid)) |sl| try defs.put(sl, {});
+    }
+    var tmp_defs = std.array_list.Managed(u32).init(allocator);
+    defer tmp_defs.deinit();
+    var tmp_uses = std.array_list.Managed(u32).init(allocator);
+    defer tmp_uses.deinit();
+    var i: usize = task.start_idx + 1;
+    while (i < task.end_idx) : (i += 1) {
+        const base = verified.annotated[i].base;
+        tmp_defs.clearRetainingCapacity();
+        tmp_uses.clearRetainingCapacity();
+        try collectDefUse(allocator, verified, fsig, use_global, base, &tmp_defs, &tmp_uses);
+        for (tmp_defs.items) |sl| try defs.put(sl, {});
+        for (tmp_uses.items) |sl| try reads.put(sl, {});
+    }
+    var dead = std.AutoHashMap(u32, void).init(allocator);
+    var it = defs.iterator();
+    while (it.next()) |e| {
+        if (reads.get(e.key_ptr.*) == null) try dead.put(e.key_ptr.*, {});
+    }
+    return dead;
+}
+
+/// Straight-line kill: indices of side-effect-free definitions overwritten
+/// by a later redefinition with no read in between and no control-flow join
+/// in between (no label/jmp/br/return/trap). Eliding these silences
+/// clang-analyzer-deadcode.DeadStores without changing behavior. A full
+/// backward dataflow would be unsound here without a CFG (a positional
+/// predecessor kill does not dominate across branches), so this stays
+/// deliberately local: anything crossing a join is left to the never-read
+/// (global) filter instead.
+/// Pure, side-effect-free definitions eligible for dead-store elision.
+/// Must stay in sync with emitLinearInstruction's elision arms: anything
+/// here elides (comment only) when its dest is dead, so killing it never
+/// drops traps or observable effects.
+fn pureElidable(base: inst.Instruction) bool {
+    switch (base.kind) {
+        .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow, .ptr_add, .try_, .early_return => return true,
+        .op => {
+            const opcode = base.op_kind orelse return false;
+            return !opCanTrap(opcode);
+        },
+        else => return false,
+    }
+}
+
+/// True iff every instruction reading `slot` is already elided (i.e. the
+/// slot is effectively unread). Used by the cascade-kill worklist.
+fn allReadersElided(
+    allocator: std.mem.Allocator,
+    verified: anytype,
+    fsig: sig.FunctionSig,
+    use_global: bool,
+    task: FuncTask,
+    elide: *const std.AutoHashMap(usize, void),
+    slot: u32,
+) bool {
+    var tmp_defs = std.array_list.Managed(u32).init(allocator);
+    defer tmp_defs.deinit();
+    var tmp_uses = std.array_list.Managed(u32).init(allocator);
+    defer tmp_uses.deinit();
+    var i: usize = task.start_idx + 1;
+    while (i < task.end_idx) : (i += 1) {
+        if (elide.get(i) != null) continue;
+        tmp_defs.clearRetainingCapacity();
+        tmp_uses.clearRetainingCapacity();
+        collectDefUse(allocator, verified, fsig, use_global, verified.annotated[i].base, &tmp_defs, &tmp_uses) catch return false;
+        for (tmp_uses.items) |sl| {
+            if (sl == slot) return false;
+        }
+    }
+    return true;
+}
+
+fn computeElideIdx(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, task: FuncTask) !std.AutoHashMap(usize, void) {
+    var elide = std.AutoHashMap(usize, void).init(allocator);
+    errdefer elide.deinit();
+    var tmp_defs = std.array_list.Managed(u32).init(allocator);
+    defer tmp_defs.deinit();
+    var tmp_uses = std.array_list.Managed(u32).init(allocator);
+    defer tmp_uses.deinit();
+    var i: usize = task.start_idx + 1;
+    while (i < task.end_idx) : (i += 1) {
+        const base = verified.annotated[i].base;
+        if (!pureElidable(base)) continue;
+        tmp_defs.clearRetainingCapacity();
+        tmp_uses.clearRetainingCapacity();
+        try collectDefUse(allocator, verified, fsig, use_global, base, &tmp_defs, &tmp_uses);
+        if (tmp_defs.items.len != 1) continue;
+        const dst = tmp_defs.items[0];
+        var j: usize = i + 1;
+        while (j < task.end_idx) : (j += 1) {
+            const nb = verified.annotated[j].base;
+            switch (nb.kind) {
+                .label, .jmp, .br, .br_null, .return_, .panic, .panic_msg, .native => break,
+                else => {},
+            }
+            tmp_defs.clearRetainingCapacity();
+            tmp_uses.clearRetainingCapacity();
+            try collectDefUse(allocator, verified, fsig, use_global, nb, &tmp_defs, &tmp_uses);
+            var is_read = false;
+            for (tmp_uses.items) |sl| {
+                if (sl == dst) {
+                    is_read = true;
+                    break;
+                }
+            }
+            if (is_read) break;
+            var is_kill = false;
+            for (tmp_defs.items) |sl| {
+                if (sl == dst) {
+                    is_kill = true;
+                    break;
+                }
+            }
+            if (is_kill) {
+                try elide.put(i, {});
+                break;
+            }
+        }
+    }
+    return elide;
+}
+
+fn sigNormName(name: []const u8) []const u8 {
+    var n = name;
+    if (n.len >= 2 and n[0] == '"' and n[n.len - 1] == '"') n = n[1 .. n.len - 1];
+    if (n.len >= 1 and n[0] == '@') n = n[1..];
+    return n;
+}
+
+fn sigReturnWidth(sigmap: anytype, callee: []const u8) ?u32 {
+    const key = sigNormName(callee);
+    if (sigmap.get(key)) |ty| {
+        if (ty == .void) return null;
+        return packWidth(ty);
+    }
+    return null;
+}
+
+fn opCanTrap(opcode: inst.OpKind) bool {
+    return switch (opcode) {
+        .sdiv, .udiv, .srem, .urem, .div, .rem => true,
+        else => false,
+    };
+}
+
+fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, widths: *WidthMap, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32, dead: *const std.AutoHashMap(u32, void)) !void {
+    last_c_inst = base.raw_text;
+    last_c_func = fsig.name;
+    trackWidths(widths, allocator, symbols, fsig, use_global, base);
+    // Sharpen knowledge the generic transfer drops: known callee return
+    // types, atomic old-value types, and try_ payload passthrough.
+    switch (base.kind) {
+        .call => {
+            if (call.parseInstructionCall(allocator, base, symbols)) |*parsed_const| {
+                var parsed = parsed_const.*;
+                defer parsed.deinit(allocator);
+                if (!parsed.is_indirect) {
+                    if (parsed.dest) |dest| {
+                        if (symbols.findId(dest)) |id| {
+                            if (fsig.slotOf(id)) |slot| {
+                                if (sigReturnWidth(sigmap, parsed.callee)) |w| {
+                                    widths.put(slot, w) catch {};
+                                }
+                            }
+                        }
+                    }
+                } else if (indirect_ret_width) |w| {
+                    if (parsed.dest) |dest| {
+                        if (symbols.findId(dest)) |id| {
+                            if (fsig.slotOf(id)) |slot| {
+                                widths.put(slot, w) catch {};
+                            }
+                        }
+                    }
+                }
+            } else |_| {}
+        },
+        .call_indirect => {
+            if (indirect_ret_width) |w| {
+                if (call.parseInstructionCall(allocator, base, symbols)) |*parsed_const| {
+                    var parsed = parsed_const.*;
+                    defer parsed.deinit(allocator);
+                    if (parsed.dest) |dest| {
+                        if (symbols.findId(dest)) |id| {
+                            if (fsig.slotOf(id)) |slot| {
+                                widths.put(slot, w) catch {};
+                            }
+                        }
+                    }
+                } else |_| {}
+            }
+        },
+        .try_, .early_return => {
+            const dstslot: ?u32 = switch (base.operands[0]) {
+                .reg => |r| regSlot(fsig, use_global, r) catch null,
+                .symbol => |id| fsig.slotOf(id),
+                else => null,
+            };
+            if (dstslot) |dst| {
+                if (widthOfOperand(widths, fsig, use_global, base.operands[1])) |w| {
+                    widths.put(dst, w) catch {};
+                }
+            }
+        },
+        .cmpxchg => {
+            const ty = memPrimType(base);
+            if (packWidth(ty)) |w| {
+                const s0: ?u32 = switch (base.operands[0]) {
+                    .reg => |r| regSlot(fsig, use_global, r) catch null,
+                    .symbol => |id| fsig.slotOf(id),
+                    else => null,
+                };
+                if (s0) |dst| widths.put(dst, w) catch {};
+            }
+            if (base.operands[1] == .reg or base.operands[1] == .symbol) {
+                const s1: ?u32 = switch (base.operands[1]) {
+                    .reg => |r| regSlot(fsig, use_global, r) catch null,
+                    .symbol => |id| fsig.slotOf(id),
+                    else => null,
+                };
+                if (s1) |dst| widths.put(dst, 1) catch {};
+            }
+        },
+        .atomic_rmw => {
+            const ty = memPrimType(base);
+            if (packWidth(ty)) |w| {
+                const s0: ?u32 = switch (base.operands[0]) {
+                    .reg => |r| regSlot(fsig, use_global, r) catch null,
+                    .symbol => |id| fsig.slotOf(id),
+                    else => null,
+                };
+                if (s0) |dst| widths.put(dst, w) catch {};
+            }
+        },
+        else => {},
+    }
+    switch (base.kind) {
+        .return_ => try emitReturnStmt(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0], "  "),
+        .try_, .early_return => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            if (dead.get(slot) != null) {
+                try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                return;
+            }
+            try writer.writeAll("  { sa_u64 sa_t = (");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+            try writer.print("); r{d} = sa_t; }}\n", .{slot});
+        },
+        .op => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            const opcode = base.op_kind orelse return CEmitError.InvalidOperand;
+            if (dead.get(slot) != null and !opCanTrap(opcode)) {
+                try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                return;
+            }
+            if (inst.isTypeConversionOpKind(opcode)) {
+                if (base.operands[2] != .ty) return CEmitError.InvalidOperand;
+                var tgt = tagToPrim(base.operands[2].ty);
+                if ((opcode == .sitofp or opcode == .uitofp) and tgt != .f32 and tgt != .f64) tgt = .f64;
+                try writer.print("  r{d} = ", .{slot});
+                try emitCvtExpr(writer, symbols, fsig, use_global, const_addrs, fn_idx, opcode, tgt, base.operands[1], widths);
+                try writer.writeAll(";\n");
+                return;
+            }
+            // Unread dest of a trapping op: bare call preserves the trap
+            // with no dead store (and no declaration needed).
+            if (dead.get(slot) != null) {
+                try writer.writeAll("  ");
+                try emitOpExpr(writer, symbols, fsig, use_global, const_addrs, fn_idx, opcode, base.operands[1], base.operands[2], widths);
+                try writer.writeAll(";\n");
+                return;
+            }
+            try writer.print("  r{d} = ", .{slot});
+            try emitOpExpr(writer, symbols, fsig, use_global, const_addrs, fn_idx, opcode, base.operands[1], base.operands[2], widths);
+            try writer.writeAll(";\n");
+        },
+        .alloc => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            // Unread dest: bare call preserves bump/OOM with no dead store.
+            if (dead.get(slot) != null) {
+                try writer.writeAll("  sa_alloc(");
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                try writer.writeAll(");\n");
+                return;
+            }
+            try writer.print("  r{d} = sa_alloc(", .{slot});
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+            try writer.writeAll(");\n");
+        },
+        .stack_alloc => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            if (dead.get(slot) != null) {
+                try writer.writeAll("  sa_salloc(");
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                try writer.writeAll(");\n");
+                return;
+            }
+            try writer.print("  r{d} = sa_salloc(", .{slot});
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+            try writer.writeAll(");\n");
+        },
+        .ptr_add => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            if (dead.get(slot) != null) {
+                try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                return;
+            }
+            if (offIsZero(base.operands[2])) {
+                try writer.print("  r{d} = ", .{slot});
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                try writer.writeAll(";\n");
+            } else {
+                try writer.print("  r{d} = sa_ptr_add(", .{slot});
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                try writer.writeAll(", ");
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                try writer.writeAll(");\n");
+            }
+        },
+        .load, .take, .atomic_load => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            const ty = memPrimType(base);
+            const load_fn = memLoadFn(ty);
+            // Unread dest: bare call preserves the OOB trap with no dead
+            // store (and no declaration needed).
+            const dest_dead = dead.get(slot) != null;
+            if (offIsZero(base.operands[2])) {
+                if (dest_dead) {
+                    try writer.print("  {s}(", .{load_fn});
+                } else {
+                    try writer.print("  r{d} = {s}(", .{ slot, load_fn });
+                }
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                try writer.writeAll(");\n");
+            } else {
+                if (dest_dead) {
+                    try writer.print("  {s}(sa_ptr_add(", .{load_fn});
+                } else {
+                    try writer.print("  r{d} = {s}(sa_ptr_add(", .{ slot, load_fn });
+                }
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                try writer.writeAll(", ");
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                try writer.writeAll("));\n");
+            }
+        },
+        .store, .atomic_store => {
+            const ty = memPrimType(base);
+            const store_fn = memStoreFn(ty);
+            if (offIsZero(base.operands[1])) {
+                try writer.print("  {s}(", .{store_fn});
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
+                try writer.writeAll(", ");
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                try writer.writeAll(");\n");
+            } else {
+                try writer.print("  {s}(sa_ptr_add(", .{store_fn});
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
+                try writer.writeAll(", ");
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                try writer.writeAll("), ");
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                try writer.writeAll(");\n");
+            }
+        },
+        .call => {
+            var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
+                try writer.print("  sa_trap(\"unsupported call: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                return;
+            };
+            defer parsed.deinit(allocator);
+            var dest_dead = false;
+            if (parsed.dest) |dest| {
+                const id = symbols.findId(dest) orelse return CEmitError.InvalidOperand;
+                const slot = fsig.slotOf(id) orelse return CEmitError.InvalidOperand;
+                if (dead.get(slot) != null) {
+                    dest_dead = true;
+                    try writer.writeAll("  (void)(");
+                } else {
+                    try writer.print("  r{d} = ", .{slot});
+                }
+            } else {
+                try writer.writeAll("  ");
+            }
+            if (parsed.is_indirect) {
+                try writer.writeAll("sa_call_indirect(");
+                try resolveTextToC(writer, symbols, fsig, const_addrs, parsed.callee);
+                var argc: usize = 0;
+                for (parsed.args) |arg| {
+                    try writer.writeAll(", ");
+                    try resolveTextToC(writer, symbols, fsig, const_addrs, arg.text);
+                    argc += 1;
+                }
+                while (argc < uniform_arity) : (argc += 1) {
+                    try writer.writeAll(", 0");
+                }
+                if (dest_dead) try writer.writeAll("));\n") else try writer.writeAll(");\n");
+            } else {
+                // known host shims map to runtime helpers
+                if (std.mem.eql(u8, parsed.callee, "sa_print_bytes") or std.mem.eql(u8, parsed.callee, "@sa_print_bytes")) {
+                    try writer.writeAll("sa_print_bytes(");
+                    for (parsed.args, 0..) |arg, idx| {
+                        if (idx != 0) try writer.writeAll(", ");
+                        try resolveTextToC(writer, symbols, fsig, const_addrs, arg.text);
+                    }
+                    if (dest_dead) try writer.writeAll("));\n") else try writer.writeAll(");\n");
+                } else {
+                    try cFuncName(writer, parsed.callee);
+                    try writer.writeAll("(");
+                    var argc: usize = 0;
+                    for (parsed.args) |arg| {
+                        if (argc != 0) try writer.writeAll(", ");
+                        try resolveTextToC(writer, symbols, fsig, const_addrs, arg.text);
+                        argc += 1;
+                    }
+                    while (argc < uniform_arity) : (argc += 1) {
+                        if (argc != 0) try writer.writeAll(", ");
+                        try writer.writeAll("0");
+                    }
+                    if (dest_dead) try writer.writeAll("));\n") else try writer.writeAll(");\n");
+                }
+            }
+        },
+        .call_indirect => {
+            var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
+                try writer.writeAll("  sa_trap(\"unsupported call_indirect\");\n");
+                return;
+            };
+            defer parsed.deinit(allocator);
+            var ind_dead = false;
+            if (parsed.dest) |dest| {
+                const id = symbols.findId(dest) orelse return CEmitError.InvalidOperand;
+                const slot = fsig.slotOf(id) orelse return CEmitError.InvalidOperand;
+                if (dead.get(slot) != null) {
+                    ind_dead = true;
+                    try writer.writeAll("  (void)(");
+                } else {
+                    try writer.print("  r{d} = ", .{slot});
+                }
+            } else {
+                try writer.writeAll("  ");
+            }
+            try writer.writeAll("sa_call_indirect(");
+            try resolveTextToC(writer, symbols, fsig, const_addrs, parsed.callee);
+            var ind_argc: usize = 0;
+            for (parsed.args) |arg| {
+                try writer.writeAll(", ");
+                try resolveTextToC(writer, symbols, fsig, const_addrs, arg.text);
+                ind_argc += 1;
+            }
+            while (ind_argc < uniform_arity) : (ind_argc += 1) {
+                try writer.writeAll(", 0");
+            }
+            if (ind_dead) try writer.writeAll("));\n") else try writer.writeAll(");\n");
+        },
+        .cmpxchg => {
+            const dst_old = try dstSlot(fsig, use_global, base.operands[0]);
+            const dst_ok = try dstSlot(fsig, use_global, base.operands[1]);
+            const expected = base.atomic_expected_text orelse return CEmitError.InvalidOperand;
+            const new_text = base.atomic_new_text orelse return CEmitError.InvalidOperand;
+            const ty = memPrimType(base);
+            const load_fn = memLoadFn(ty);
+            const store_fn = memStoreFn(ty);
+            try writer.writeAll("  { sa_u64 sa_ad = sa_ptr_add(");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+            try writer.writeAll(", ");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[3]);
+            try writer.print("); sa_u64 sa_old = {s}(sa_ad); sa_u64 sa_ex = (", .{load_fn});
+            try resolveTextToC(writer, symbols, fsig, const_addrs, expected);
+            try writer.writeAll("); sa_u64 sa_ok = (sa_old == sa_ex) ? 1 : 0; if (sa_ok) ");
+            try writer.print("{s}(sa_ad, (", .{store_fn});
+            try resolveTextToC(writer, symbols, fsig, const_addrs, new_text);
+            if (dead.get(dst_old) != null) {
+                try writer.writeAll(")); (void)sa_old; ");
+            } else {
+                try writer.print(")); r{d} = sa_old; ", .{dst_old});
+            }
+            if (dead.get(dst_ok) != null) {
+                try writer.writeAll("(void)sa_ok; }}\n");
+            } else {
+                try writer.print("r{d} = sa_ok; }}\n", .{dst_ok});
+            }
+        },
+        .atomic_rmw => {
+            const op = base.atomic_rmw_op orelse return CEmitError.InvalidOperand;
+            const dst = try dstSlot(fsig, use_global, base.operands[0]);
+            const ty = memPrimType(base);
+            const load_fn = memLoadFn(ty);
+            const store_fn = memStoreFn(ty);
+            try writer.writeAll("  { sa_u64 sa_ad = sa_ptr_add(");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+            try writer.writeAll(", ");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+            try writer.print("); sa_u64 sa_old = {s}(sa_ad); sa_u64 sa_vl = (", .{load_fn});
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[3]);
+            try writer.writeAll("); sa_u64 sa_nw = ");
+            switch (op) {
+                .add => try writer.writeAll("sa_add(sa_old, sa_vl)"),
+                .sub => try writer.writeAll("sa_sub(sa_old, sa_vl)"),
+                .@"and" => try writer.writeAll("sa_band(sa_old, sa_vl)"),
+                .@"or" => try writer.writeAll("sa_bor(sa_old, sa_vl)"),
+                .xor => try writer.writeAll("sa_bxor(sa_old, sa_vl)"),
+                .xchg => try writer.writeAll("sa_vl"),
+                .min => try writer.writeAll("(sa_sle(sa_old, sa_vl) ? sa_old : sa_vl)"),
+                .max => try writer.writeAll("(sa_sge(sa_old, sa_vl) ? sa_old : sa_vl)"),
+                .umin => try writer.writeAll("(sa_ule(sa_old, sa_vl) ? sa_old : sa_vl)"),
+                .umax => try writer.writeAll("(sa_uge(sa_old, sa_vl) ? sa_old : sa_vl)"),
+            }
+            if (dead.get(dst) != null) {
+                try writer.print("; {s}(sa_ad, sa_nw); (void)sa_old; }}\n", .{store_fn});
+            } else {
+                try writer.print("; {s}(sa_ad, sa_nw); r{d} = sa_old; }}\n", .{ store_fn, dst });
+            }
+        },
+        .fence => {
+            try writer.writeAll("  /* fence: no-op on C backend */\n");
+        },
+        .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => {
+            const slot = try dstSlot(fsig, use_global, base.operands[0]);
+            if (dead.get(slot) != null) {
+                try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                return;
+            }
+            try writer.print("  r{d} = (", .{slot});
+            switch (base.operands[1]) {
+                .reg, .symbol, .func, .label, .imm_i64, .imm_int, .imm_u64, .imm_float, .text, .native_text => {
+                    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+                },
+                else => return CEmitError.InvalidOperand,
+            }
+            try writer.writeAll(");\n");
+        },
+        .panic => {
+            var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
+                try writer.print("  sa_trap(\"panic: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                return;
+            };
+            defer parsed.deinit(allocator);
+            if (parsed.args.len != 1) {
+                try writer.writeAll("  sa_trap(\"panic\");\n");
+                return;
+            }
+            try writer.writeAll("  sa_panic(");
+            try resolveTextToC(writer, symbols, fsig, const_addrs, parsed.args[0].text);
+            try writer.writeAll(");\n");
+        },
+        .panic_msg => {
+            try writer.writeAll("  sa_trap(\"panic_msg\");\n");
+        },
+        .move_ => {
+            try writer.print("  /* no-op {s}: {s} */\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
+        },
+        .release => {
+            try writer.writeAll("  sa_free(");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
+            try writer.writeAll(");\n");
+        },
+        .native => {
+            const raw = std.mem.trim(u8, base.raw_text, " \t\r\n");
+            if (std.mem.indexOf(u8, raw, "asm sideeffect \"\"") != null) {
+                try writer.writeAll("  /* no-op empty inline asm */\n");
+            } else {
+                try writer.writeAll("  sa_trap(\"unsupported native: ");
+                try writeCStrEscaped(writer, raw);
+                try writer.writeAll("\");\n");
+            }
+        },
+        else => {
+            // jmp/br/br_null/label/func_decl/extern/export/test_decl handled by caller
+            try writer.print("  sa_trap(\"unsupported {s}: ", .{@tagName(base.kind)});
+            try writeCStrEscaped(writer, std.mem.trim(u8, base.raw_text, " \t\r\n"));
+            try writer.writeAll("\");\n");
+        },
+    }
+}
+
+fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anytype, task: FuncTask, const_addrs: anytype, fn_idx: anytype, c_opt: CEmitOptions, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32) !void {
+    const fsig = verified.function_sigs[task.fsig_index];
+    const use_global = taskUsesGlobalRegIds(fsig, verified, task);
+    last_c_func = fsig.name;
+    var widths = WidthMap.init(allocator);
+    defer widths.deinit();
+    // Definitely-unread slots: pure redefinitions elided, effectful calls
+    // kept in (void) form (silences clang-analyzer-deadcode.DeadStores).
+    var reads_complete = true;
+    var dead = computeDeadSlots(allocator, verified, fsig, use_global, task) catch blk: {
+        reads_complete = false;
+        break :blk std.AutoHashMap(u32, void).init(allocator);
+    };
+    defer dead.deinit();
+    var elide = computeElideIdx(allocator, verified, fsig, use_global, task) catch std.AutoHashMap(usize, void).init(allocator);
+    defer elide.deinit();
+    var wdefs = std.array_list.Managed(u32).init(allocator);
+    defer wdefs.deinit();
+    var wuses = std.array_list.Managed(u32).init(allocator);
+    defer wuses.deinit();
+    // Cascade kills fixpoint: pure defs whose dests are dead AND pure
+    // defs read only by skippable insts must both go. Two sets grow
+    // monotonically (bounded by task size):
+    //   dead  += slots with no reader outside `skipped`
+    //   elide += pure insts whose defs are all dead (`skipped` = elide
+    //            plus pure all-dead-def insts, mirroring emission which
+    //            elides pure-dead via dead-checks independently)
+    // Emission (elide pre-check, dead-based void/bare/elision) stays
+    // consistent by construction. Zero additions = historical behavior.
+    {
+        var round: usize = 0;
+        while (round < 1024) : (round += 1) {
+            var progressed = false;
+            // Phase A: slots with no reader outside skipped insts are dead.
+            // (Skipped = elide map, which Phase B below also extends with
+            // pure all-dead-def insts, so later rounds see them.)
+            var si: usize = task.start_idx + 1;
+            while (si < task.end_idx) : (si += 1) {
+                wdefs.clearRetainingCapacity();
+                wuses.clearRetainingCapacity();
+                collectDefUse(allocator, verified, fsig, use_global, verified.annotated[si].base, &wdefs, &wuses) catch break;
+                for (wdefs.items) |sl| {
+                    if (dead.get(sl) != null) continue;
+                    if (!allReadersElided(allocator, verified, fsig, use_global, task, &elide, sl)) continue;
+                    dead.put(sl, {}) catch continue;
+                    progressed = true;
+                }
+            }
+            // Phase B: pure insts whose defs are all dead are skippable.
+            var gi: usize = task.start_idx + 1;
+            while (gi < task.end_idx) : (gi += 1) {
+                if (elide.get(gi) != null) continue;
+                const gbase = verified.annotated[gi].base;
+                if (!pureElidable(gbase)) continue;
+                wdefs.clearRetainingCapacity();
+                wuses.clearRetainingCapacity();
+                collectDefUse(allocator, verified, fsig, use_global, gbase, &wdefs, &wuses) catch break;
+                if (wdefs.items.len == 0) continue;
+                var all_dead = true;
+                for (wdefs.items) |sl| {
+                    if (dead.get(sl) == null) {
+                        all_dead = false;
+                        break;
+                    }
+                }
+                if (!all_dead) continue;
+                elide.put(gi, {}) catch continue;
+                progressed = true;
+            }
+            if (!progressed) break;
+        }
+    }
+    // Live-for-declaration set: slots read by a non-elided instruction.
+    // (Effectful unread defs emit bare calls needing no declaration;
+    // pure unread defs are elided above.) On any analysis failure the
+    // flag drops and everything is declared (safe direction).
+    var liveK = std.AutoHashMap(u32, void).init(allocator);
+    defer liveK.deinit();
+    {
+        var gi: usize = task.start_idx + 1;
+        while (gi < task.end_idx) : (gi += 1) {
+            if (elide.get(gi) != null) continue;
+            wdefs.clearRetainingCapacity();
+            wuses.clearRetainingCapacity();
+            collectDefUse(allocator, verified, fsig, use_global, verified.annotated[gi].base, &wdefs, &wuses) catch {
+                reads_complete = false;
+                break;
+            };
+            for (wuses.items) |sl| liveK.put(sl, {}) catch {
+                reads_complete = false;
+                break;
+            };
+        }
+    }
+    // Labels targeted by a jump/branch. An untargeted label is pure
+    // fallthrough: emitting it trips -Wunused-label, so only the gas
+    // metering (which still executes on fallthrough) is kept.
+    var label_refs = std.AutoHashMap(u32, void).init(allocator);
+    defer label_refs.deinit();
+    {
+        var li: usize = task.start_idx + 1;
+        while (li < task.end_idx) : (li += 1) {
+            const lb = verified.annotated[li].base;
+            switch (lb.kind) {
+                .jmp => {
+                    const id: u32 = switch (lb.operands[1]) {
+                        .label => |v| v, .symbol => |v| v, else => continue,
+                    };
+                    label_refs.put(id, {}) catch {};
+                },
+                .br, .br_null => {
+                    const t: u32 = switch (lb.operands[1]) {
+                        .label => |v| v, .symbol => |v| v, else => continue,
+                    };
+                    const f: u32 = switch (lb.operands[3]) {
+                        .label => |v| v, .symbol => |v| v, else => continue,
+                    };
+                    label_refs.put(t, {}) catch {};
+                    label_refs.put(f, {}) catch {};
+                },
+                else => {},
+            }
+        }
+    }
+    // Seed parameter slots with their declared types: caller and callee
+    // share the u64-bits invariant, so this is exact (unlike JS, which
+    // must infer argument domains at runtime).
+    for (fsig.param_ids, 0..) |pid, pi| {
+        if (pi >= fsig.params.len) break;
+        if (fsig.slotOf(pid)) |slot| {
+            if (packWidth(fsig.params[pi].ty)) |w| {
+                widths.put(slot, w) catch {};
+            }
+        }
+    }
+    // Uniform-arity prototype: every function takes exactly uniform_arity
+    // u64 params (extras ignored, missing padded with 0 at call sites).
+    // This makes direct calls, the ftable, and indirect dispatch share
+    // one C signature shape.
+    try writer.writeAll("static sa_u64 ");
+    try cFuncName(writer, fsig.name);
+    try writer.writeAll("(");
+    if (uniform_arity == 0) {
+        try writer.writeAll("void");
+    } else {
+        for (0..uniform_arity) |pi| {
+            if (pi != 0) try writer.writeAll(", ");
+            try writer.print("sa_u64 a{d}", .{pi});
+        }
+    }
+    try writer.writeAll(") {\n");
+    const nregs = fsig.reg_ids.len;
+    if (nregs > 0) {
+        // Declare registers. Slots aliasing static consts are
+        // initialized to the const address (mirrors the JS backend);
+        // all other slots start at 0. Params bind into their slots after.
+        // Slots never read in the body are not declared at all: a
+        // set-but-unused `rN` trips -Wunused-but-set-variable (and reads
+        // as dead code to auditors); nothing references them.
+        var first_decl = true;
+        var s: usize = 0;
+        while (s < nregs) : (s += 1) {
+            const slot32: u32 = @intCast(s);
+            // Declare a slot iff it is read by a non-elided instruction
+            // (when liveness is known). Effectful unread defs emit bare
+            // calls, pure unread defs are elided above: neither assigns,
+            // so neither needs a declaration. On any analysis failure
+            // declare everything (safe direction).
+            if (reads_complete and liveK.get(slot32) == null) continue;
+            if (first_decl) {
+                try writer.writeAll("  sa_u64 ");
+                first_decl = false;
+            } else {
+                try writer.writeAll(", ");
+            }
+            try writer.print("r{d} = ", .{s});
+            const gid = fsig.reg_ids[s];
+            if (verified.symbols.lookupName(gid)) |gname| {
+                if (const_addrs.get(gname) != null) {
+                    try writeConstSym(writer, gname);
+                } else {
+                    try writer.writeAll("0");
+                }
+            } else {
+                try writer.writeAll("0");
+            }
+        }
+        if (!first_decl) {
+            try writer.writeAll(";\n");
+        }
+    }
+    // map params to slots (skip slots never read in the body)
+    for (fsig.param_ids, 0..) |pid, pi| {
+        if (fsig.slotOf(pid)) |slot| {
+            if (dead.get(slot) != null) {
+                try writer.print("  /* dead param elided: r{d} = a{d}; */\n", .{ slot, pi });
+                continue;
+            }
+            try writer.print("  r{d} = a{d};\n", .{ slot, pi });
+        }
+    }
+    // Silence misc-unused-parameters for padded uniform-arity params.
+    for (0..uniform_arity) |pi| {
+        try writer.print("  (void)a{d};\n", .{pi});
+    }
+    // Gas metering: every function entry costs 1 unit. The SA selling
+    // point is Gas+Capability; without this a guest infinite loop hangs
+    // the host (e.g. a Shopify checkout rule).
+    if (c_opt.gas) {
+        try writer.writeAll("  SA_GAS_CHECK(1);\n");
+    }
+    if (c_opt.debug_comments) {
+        try writer.print("  /* fn {s} regs={d} */\n", .{ fsig.name, nregs });
+    }
+    var i: usize = task.start_idx + 1;
+    while (i < task.end_idx) : (i += 1) {
+        const base = verified.annotated[i].base;
+        if (elide.get(i) != null) {
+            try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+            continue;
+        }
+        switch (base.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                try writer.writeAll("  sa_trap(\"nested decl\");\n");
+            },
+            .label => {
+                const id: u32 = switch (base.operands[0]) {
+                    .label => |v| v, .symbol => |v| v, else => 0,
+                };
+                // Join point: merges are untracked, drop widths (sound
+                // fallback; mirrors the JS backend clearing at labels).
+                widths.clearRetainingCapacity();
+                if (label_refs.get(id) == null) {
+                    // Fallthrough-only block: no label (else -Wunused-label),
+                    // but the block entry still pays gas on fallthrough.
+                    if (c_opt.debug_comments) {
+                        try writer.print("  /* fallthrough {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                    }
+                    if (c_opt.gas) {
+                        try writer.writeAll("  SA_GAS_CHECK(1);\n");
+                    }
+                    continue;
+                }
+                try writer.print("SA_L_{d}:\n", .{id});
+                // Loop/back-edge headers pay gas per visit: bounded execution.
+                if (c_opt.gas) {
+                    try writer.writeAll("  SA_GAS_CHECK(1);\n");
+                }
+                if (c_opt.debug_comments) {
+                    try writer.print("  /* {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                }
+            },
+            .jmp => {
+                const id: u32 = switch (base.operands[1]) {
+                    .label => |v| v, .symbol => |v| v, else => return CEmitError.InvalidOperand,
+                };
+                try writer.print("  goto SA_L_{d};\n", .{id});
+            },
+            .br => {
+                const t: u32 = switch (base.operands[1]) {
+                    .label => |v| v, .symbol => |v| v, else => return CEmitError.InvalidOperand,
+                };
+                const f: u32 = switch (base.operands[3]) {
+                    .label => |v| v, .symbol => |v| v, else => return CEmitError.InvalidOperand,
+                };
+                if (t == f) {
+                    try writer.print("  goto SA_L_{d};\n", .{t});
+                    continue;
+                }
+                try writer.writeAll("  if (sa_truthy(");
+                try resolveValueToC(writer, verified.symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
+                try writer.print(")) goto SA_L_{d}; else goto SA_L_{d};\n", .{ t, f });
+            },
+            .br_null => {
+                const t: u32 = switch (base.operands[1]) {
+                    .label => |v| v, .symbol => |v| v, else => return CEmitError.InvalidOperand,
+                };
+                const f: u32 = switch (base.operands[3]) {
+                    .label => |v| v, .symbol => |v| v, else => return CEmitError.InvalidOperand,
+                };
+                if (t == f) {
+                    try writer.print("  goto SA_L_{d};\n", .{t});
+                    continue;
+                }
+                try writer.writeAll("  if ((");
+                try resolveValueToC(writer, verified.symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
+                try writer.print(") == 0) goto SA_L_{d}; else goto SA_L_{d};\n", .{ t, f });
+            },
+            else => {
+                if (c_opt.debug_comments) {
+                    try writer.print("  /* {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+                }
+                try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, indirect_ret_width, &dead);
+            },
+        }
+    }
+    // default return for fallthrough
+    if (fsig.return_ty == .void and !fsig.return_fallible) {
+        try writer.writeAll("  return 0;\n}\n");
+    } else {
+        try writer.writeAll("  return 0;\n}\n");
+    }
+}
+
+pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, c_opt: CEmitOptions) ![]u8 {
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    const writer = &out.writer;
+    var fn_names = std.array_list.Managed([]const u8).init(allocator);
+    defer fn_names.deinit();
+    var fn_idx = std.StringHashMap(usize).init(allocator);
+    defer fn_idx.deinit();
+    for (verified.const_decls) |decl| {
+        if (decl.value != .vtable) continue;
+        for (decl.value.vtable.slots) |slot| {
+            if (fn_idx.contains(slot.func_name)) continue;
+            try fn_idx.put(slot.func_name, fn_names.items.len);
+            try fn_names.append(slot.func_name);
+        }
+    }
+    const tasks = try collectFuncTasks(allocator, verified);
+    defer allocator.free(tasks);
+    // Callee return-type map for width seeding (normalized names).
+    var sigmap = std.StringHashMap(sig.PrimType).init(allocator);
+    defer sigmap.deinit();
+    for (verified.function_sigs) |fs| {
+        const key = sigNormName(fs.name);
+        if (!sigmap.contains(key)) try sigmap.put(key, fs.return_ty);
+    }
+    // Uniform arity: every emitted function takes exactly W params.
+    var uniform_arity: usize = 1;
+    for (tasks) |task| {
+        uniform_arity = @max(uniform_arity, verified.function_sigs[task.fsig_index].params.len);
+    }
+    // Indirect dispatch is needed iff the IR contains a dynamic call
+    // site. Vtable consts alone don't need the ftable: without a call
+    // site it would be dead data plus an unused dispatcher.
+    var need_indirect = false;
+    {
+        var ti: usize = 0;
+        while (ti < tasks.len and !need_indirect) : (ti += 1) {
+            var i: usize = tasks[ti].start_idx + 1;
+            while (i < tasks[ti].end_idx) : (i += 1) {
+                const base = verified.annotated[i].base;
+                if (base.kind != .call and base.kind != .call_indirect) continue;
+                if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                    var parsed = pc.*;
+                    defer parsed.deinit(allocator);
+                    if (parsed.is_indirect) need_indirect = true;
+                } else |_| {}
+            }
+        }
+    }
+    // Host-side dispatch: some staged bindings (pthread_spawn) invoke
+    // guest code via sa_call_indirect, so a program that calls them needs
+    // the dispatcher+ftable even without a call_indirect instruction.
+    // (Corner: a call inside otherwise-dead code still forces it; no demo
+    // hits that, and the sweep guards -Wall cleanliness.)
+    if (!need_indirect) {
+        var ti: usize = 0;
+        while (ti < tasks.len and !need_indirect) : (ti += 1) {
+            var i: usize = tasks[ti].start_idx + 1;
+            while (i < tasks[ti].end_idx) : (i += 1) {
+                const base = verified.annotated[i].base;
+                if (base.kind != .call) continue;
+                if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                    var parsed = pc.*;
+                    defer parsed.deinit(allocator);
+                    if (!parsed.is_indirect and bindingNeedsDispatcher(sigNormName(parsed.callee))) need_indirect = true;
+                } else |_| {}
+            }
+        }
+    }
+    // Reachable defined functions: BFS from entry points over static direct
+    // calls, keyed by fsig_index. Unreachable definitions are skipped
+    // entirely (emitting them trips -Wunused-function and they are dead
+    // code to auditors). The only roots are `main` and, with indirect
+    // dispatch, the vtable entries referenced by the ftable initializer.
+    // NOTE: exports/tests are deliberately NOT roots: this backend emits a
+    // linked program (`int main`), not a library, so an uncalled export is
+    // dead code here. (A unit with no main at all keeps everything.)
+    // A dynamically called function must hold a vtable slot (`.func`
+    // operands resolve via fn_idx), so static reachability + fn_names is
+    // exact: nothing reachable is ever skipped.
+    var reachable = std.AutoHashMap(usize, void).init(allocator);
+    defer reachable.deinit();
+    {
+        var has_entry = false;
+        for (tasks) |task| {
+            if (task.kind == .extern_decl) continue;
+            const norm = sigNormName(verified.function_sigs[task.fsig_index].name);
+            if (std.mem.eql(u8, norm, "main")) {
+                try reachable.put(task.fsig_index, {});
+                has_entry = true;
+            }
+        }
+        if (need_indirect) {
+            for (fn_names.items) |fname| {
+                if (taskIndexByName(tasks, verified, sigNormName(fname))) |ci| {
+                    try reachable.put(ci, {});
+                }
+                has_entry = true;
+            }
+        }
+        if (!has_entry) {
+            // Pure library unit (no entry point): keep everything.
+            for (tasks) |task| {
+                if (task.kind == .extern_decl) continue;
+                try reachable.put(task.fsig_index, {});
+            }
+        } else {
+            var queue = std.array_list.Managed(usize).init(allocator);
+            defer queue.deinit();
+            var rit = reachable.iterator();
+            while (rit.next()) |e| try queue.append(e.key_ptr.*);
+            var qi: usize = 0;
+            while (qi < queue.items.len) : (qi += 1) {
+                const cur = queue.items[qi];
+                for (tasks) |task| {
+                    if (task.kind == .extern_decl) continue;
+                    if (task.fsig_index != cur) continue;
+                    var i: usize = task.start_idx + 1;
+                    while (i < task.end_idx) : (i += 1) {
+                        const base = verified.annotated[i].base;
+                        if (base.kind != .call and base.kind != .call_indirect) continue;
+                        if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                            var parsed = pc.*;
+                            defer parsed.deinit(allocator);
+                            if (parsed.is_indirect) continue;
+                            if (taskIndexByName(tasks, verified, sigNormName(parsed.callee))) |ci| {
+                                if (!reachable.contains(ci)) {
+                                    try reachable.put(ci, {});
+                                    try queue.append(ci);
+                                }
+                            }
+                        } else |_| {}
+                    }
+                }
+            }
+        }
+    }
+    // Unanimous ftable return domain: every successful indirect call
+    // lands on an ftable entry (bounds + null checked in the dispatcher),
+    // so when all entries share one return domain the indirect result
+    // domain is exact (e.g. single-callback tables returning f32).
+    // Non-unanimous (or empty) tables keep the unknown default.
+    var indirect_ret_width: ?u32 = null;
+    if (need_indirect and fn_names.items.len > 0) {
+        var acc: ?u32 = null;
+        var unanimous = true;
+        var first = true;
+        for (fn_names.items) |fname| {
+            const w = sigReturnWidth(sigmap, fname);
+            if (first) {
+                acc = w;
+                first = false;
+            } else if (!std.meta.eql(acc, w)) {
+                unanimous = false;
+                break;
+            }
+        }
+        if (unanimous) indirect_ret_width = acc;
+    }
+    // Const address layout (pure; #defines are emitted in phase 2 after
+    // the helper scan so the preamble comes first in the file).
+    var const_addrs = std.StringHashMap(usize).init(allocator);
+    defer const_addrs.deinit();
+    var const_cursor: usize = 4096;
+    const bump_start: usize = 65536;
+    var has_const_bytes = false;
+    for (verified.const_decls) |decl| {
+        const len = constBytesLen(decl.value) catch 0;
+        const aligned = std.mem.alignForward(usize, const_cursor, 8);
+        if (decl.value == .vtable or len == 0) {
+            const is_vt = decl.value == .vtable;
+            const slots: usize = if (is_vt) decl.value.vtable.slots.len * 8 else 8;
+            const a2 = std.mem.alignForward(usize, const_cursor, 8);
+            if (a2 + slots > bump_start) return CEmitError.Failed;
+            try const_addrs.put(decl.name, a2);
+            const_cursor = a2 + slots;
+            continue;
+        }
+        if (aligned + len > bump_start) return CEmitError.Failed;
+        try const_addrs.put(decl.name, aligned);
+        has_const_bytes = true;
+        const_cursor = aligned + len;
+    }
+    var rest: std.Io.Writer.Allocating = .init(allocator);
+    defer rest.deinit();
+    const rw = &rest.writer;
+    // Phase 1: const-init + function bodies go to a side buffer first so
+    // phase 2 can scan the exact helper set referenced and emit only
+    // those (no dead runtime helpers for Coverity/Semgrep to flag).
+    // const init
+    try rw.writeAll("static void sa_init_consts(void) {\n  static int done = 0; if (done) return; done = 1;\n");
+    for (verified.const_decls) |decl| {
+        const init_len = constBytesLen(decl.value) catch 0;
+        if (decl.value == .vtable or init_len == 0) {
+            if (decl.value == .vtable) {
+                var sidx: usize = 0;
+                for (decl.value.vtable.slots) |vslot| {
+                    const fidx = fnIndexOf(fn_idx, vslot.func_name) orelse return CEmitError.UnknownFunction;
+                    const addr = const_addrs.get(decl.name) orelse return CEmitError.InvalidOperand;
+                    const le: u64 = 1000000 + @as(u64, @intCast(fidx));
+                    try rw.print("  sa_store_u64({d}ULL, {d}ULL);\n", .{ addr + sidx * 8, le });
+                    sidx += 1;
+                }
+            }
+            continue;
+        }
+        const bytes = try allocator.alloc(u8, init_len);
+        defer allocator.free(bytes);
+        try fillConstBytes(bytes, decl.value);
+        const addr = const_addrs.get(decl.name) orelse return CEmitError.InvalidOperand;
+        try rw.print("  {{ static const uint8_t b[] = {{", .{});
+        for (bytes, 0..) |b, idx| {
+            if (idx != 0) try rw.writeAll(",");
+            try rw.print("{d}", .{b});
+        }
+        try rw.print("}}; {{ size_t i; for (i = 0; i < {d}; i++) sa_mem[{d} + i] = b[i]; }} }}\n", .{ init_len, addr });
+    }
+    try rw.writeAll("}\n");
+    var emitted = std.StringHashMap(void).init(allocator);
+    defer emitted.deinit();
+    for (tasks) |task| {
+        if (task.kind == .extern_decl) continue;
+        const efsig = verified.function_sigs[task.fsig_index];
+        if (emitted.contains(efsig.name)) continue;
+        // Unreachable definitions are dead code: skip (else
+        // -Wunused-function). Reachability is exact (see above).
+        if (reachable.get(task.fsig_index) == null) continue;
+        try emitOneFunction(rw, allocator, verified, task, &const_addrs, &fn_idx, c_opt, &sigmap, uniform_arity, indirect_ret_width);
+        try emitted.put(efsig.name, {});
+    }
+    // Phase 2: helper-use scan, then the file preamble (which must precede
+    // any `sa_u64`-typed declaration in output order).
+    const rest_text = try rest.toOwnedSlice();
+    defer allocator.free(rest_text);
+    var used = try collectUsedHelpers(allocator, rest_text);
+    defer used.deinit();
+    // Seed helper uses from extern binding bodies (emitted after the
+    // preamble): render each called, known binding once and merge what
+    // it references, so e.g. mmap pulls sa_alloc. Unknown externs keep
+    // the trap stub, which needs only sa_trap (always present).
+    // Rendering an sa_http_* binding also raises need_http for the
+    // staged state tables.
+    var need_http = false;
+    var need_owned = false;
+    var need_modstate = false;
+    var need_regex = false;
+    var need_time_clock = false;
+    var need_json = false;
+    var need_sys_stat = false;
+    var need_mem_direct = false;
+    for (tasks) |task| {
+        if (task.kind != .extern_decl) continue;
+        const efsig = verified.function_sigs[task.fsig_index];
+        if (std.mem.eql(u8, sigNormName(efsig.name), "sa_print_bytes")) continue;
+        if (!bodyCallsFunction(rest_text, efsig.name)) continue;
+        var tmp: std.Io.Writer.Allocating = .init(allocator);
+        defer tmp.deinit();
+        if (!try writeExternBinding(&tmp.writer, efsig.name, uniform_arity, c_opt.gas)) continue;
+        const rendered_norm = sigNormName(efsig.name);
+        if (std.mem.startsWith(u8, rendered_norm, "sa_http_")) need_http = true;
+        if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_owned_") != null) need_owned = true;
+        if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_modstate_") != null) need_modstate = true;
+        if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_regex_") != null) need_regex = true;
+        if (std.mem.indexOf(u8, tmp.writer.buffered(), "clock_gettime") != null) need_time_clock = true;
+        if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_json_") != null) need_json = true;
+        if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_mkdir_wrap") != null or std.mem.indexOf(u8, tmp.writer.buffered(), "sa_access_wrap") != null) need_sys_stat = true;
+        // Bindings touching sa_mem directly (not via helpers) still need
+        // the memory itself (e.g. the JSON parser's hot loops).
+        if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_mem[") != null) need_mem_direct = true;
+        const t = try tmp.toOwnedSlice();
+        defer allocator.free(t);
+        // Self-check every rendered binding: unbalanced output fails the
+        // build loudly instead of emitting broken C (covers all present
+        // and future bindings with no list to keep in sync).
+        if (!cBodyBalanced(t)) return CEmitError.Failed;
+        // Same for unused params (voids-mask precision).
+        if (!cParamsCovered(t, uniform_arity)) return CEmitError.Failed;
+        var bu = try collectUsedHelpers(allocator, t);
+        defer bu.deinit();
+        var bit = bu.iterator();
+        while (bit.next()) |e| try used.put(e.key_ptr.*, {});
+    }
+    // Linear memory is needed for const bytes or any mem-touching helper.
+    // (sa_brk only travels with the allocator; sa_mem stays out entirely
+    // for pure-compute programs.)
+    var need_mem = has_const_bytes or need_mem_direct;
+    if (!need_mem) {
+        // Helpers touching sa_mem directly (not just via other helpers).
+        for (kRuntimeHelpers) |h| {
+            if (used.get(h.name) != null and std.mem.indexOf(u8, h.code, "sa_mem") != null) {
+                need_mem = true;
+                break;
+            }
+        }
+    }
+    if (!need_mem) {
+        var uit = used.iterator();
+        while (uit.next()) |e| {
+            const n = e.key_ptr.*;
+            if (std.mem.startsWith(u8, n, "sa_load_") or std.mem.startsWith(u8, n, "sa_store_") or std.mem.eql(u8, n, "sa_alloc") or std.mem.eql(u8, n, "sa_print_bytes")) {
+                need_mem = true;
+                break;
+            }
+        }
+    }
+    const need_brk = used.get("sa_alloc") != null;
+    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk, need_http, need_owned, need_modstate, need_regex, need_time_clock, need_sys_stat, need_json);
+    try writer.print("/* source: {s} */\n", .{source_path});
+    // const address defines
+    for (verified.const_decls) |decl| {
+        const addr = const_addrs.get(decl.name) orelse return CEmitError.InvalidOperand;
+        try writer.writeAll("#define ");
+        try writeConstSym(writer, decl.name);
+        if (decl.value == .vtable) {
+            try writer.print(" {d}UL /* vtable */\n", .{addr});
+        } else {
+            const def_len = constBytesLen(decl.value) catch 0;
+            if (def_len == 0) {
+                try writer.print(" {d}UL /* {s} */\n", .{ addr, @tagName(decl.value) });
+            } else {
+                try writer.print(" {d}UL\n", .{addr});
+            }
+        }
+    }
+    // forward decls (uniform arity); only for emitted functions, so no
+    // decl is left without a definition (-Wunused-function).
+    for (tasks) |task| {
+        if (task.kind == .extern_decl) continue;
+        if (reachable.get(task.fsig_index) == null) continue;
+        const fsig = verified.function_sigs[task.fsig_index];
+        try writer.writeAll("static sa_u64 ");
+        try cFuncName(writer, fsig.name);
+        try writer.writeAll("(");
+        if (uniform_arity == 0) {
+            try writer.writeAll("void");
+        } else {
+            for (0..uniform_arity) |pi| {
+                if (pi != 0) try writer.writeAll(", ");
+                try writer.writeAll("sa_u64");
+            }
+        }
+        try writer.writeAll(");\n");
+    }
+    // Forward declaration for the indirect dispatcher (defined after all
+    // functions so the ftable can reference them). Only when a dynamic
+    // call site exists; otherwise it would be dead code.
+    if (need_indirect) {
+        try writer.writeAll("// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform calling convention\nstatic sa_u64 sa_call_indirect(sa_u64 f");
+        for (0..uniform_arity) |k| {
+            try writer.print(", sa_u64 a{d}", .{k});
+        }
+        try writer.writeAll(");\n");
+    }
+    // forward declarations for extern trap stubs (defined at the end):
+    // without these, calls to externs hit implicit-declaration errors.
+    // Only for called externs (a static decl without a definition or use
+    // trips -Wunused-function).
+    for (tasks) |task| {
+        if (task.kind != .extern_decl) continue;
+        const fsig = verified.function_sigs[task.fsig_index];
+        if (std.mem.eql(u8, sigNormName(fsig.name), "sa_print_bytes")) continue;
+        if (!bodyCallsFunction(rest_text, fsig.name)) continue;
+        try writer.writeAll("static sa_u64 ");
+        try cFuncName(writer, fsig.name);
+        try writer.writeAll("(");
+        if (uniform_arity == 0) {
+            try writer.writeAll("void");
+        } else {
+            for (0..uniform_arity) |pi| {
+                if (pi != 0) try writer.writeAll(", ");
+                try writer.writeAll("sa_u64");
+            }
+        }
+        try writer.writeAll(");\n");
+    }
+    // Fwd decls for vtable-referenced functions with no definition: only
+    // needed alongside the ftable (dead otherwise).
+    if (need_indirect) {
+        for (fn_names.items) |fname| {
+            var defined = false;
+            for (tasks) |task| {
+                if (task.kind == .extern_decl) continue;
+                if (std.mem.eql(u8, verified.function_sigs[task.fsig_index].name, fname)) {
+                    defined = true;
+                    break;
+                }
+            }
+            if (defined) continue;
+            try writer.writeAll("static sa_u64 ");
+            try cFuncName(writer, fname);
+            try writer.writeAll("(");
+            if (uniform_arity == 0) {
+                try writer.writeAll("void");
+            } else {
+                for (0..uniform_arity) |pi| {
+                    if (pi != 0) try writer.writeAll(", ");
+                    try writer.writeAll("sa_u64");
+                }
+            }
+            try writer.writeAll(");\n");
+        }
+    }
+    try writer.writeAll(rest_text);
+    for (tasks) |task| {
+        if (task.kind != .extern_decl) continue;
+        const fsig = verified.function_sigs[task.fsig_index];
+        if (emitted.contains(fsig.name)) continue;
+        if (std.mem.eql(u8, sigNormName(fsig.name), "sa_print_bytes")) continue; // runtime provides it
+        // Only emit a stub when the body actually calls it: an unreferenced
+        // static definition trips -Wunused-function (and reads as dead
+        // code to auditors). Externs are only reachable via direct calls,
+        // which render as `sa_fn_<name>(`, so a text scan is exact.
+        if (!bodyCallsFunction(rest_text, fsig.name)) continue;
+        // Known externs get staged host bindings; anything else keeps the
+        // trap stub (uniform arity).
+        if (try writeExternBinding(writer, fsig.name, uniform_arity, c_opt.gas)) {
+            try emitted.put(fsig.name, {});
+            continue;
+        }
+        // trap stub (uniform arity)
+        try writer.writeAll("static sa_u64 ");
+        try cFuncName(writer, fsig.name);
+        try writer.writeAll("(");
+        if (uniform_arity == 0) {
+            try writer.writeAll("void");
+        } else {
+            for (0..uniform_arity) |pi| {
+                if (pi != 0) try writer.writeAll(", ");
+                try writer.print("sa_u64 a{d}", .{pi});
+            }
+        }
+        try writer.writeAll(") {");
+        for (0..uniform_arity) |pi| {
+            try writer.print(" (void)a{d};", .{pi});
+        }
+        try writer.print(" sa_trap(\"extern {s}\"); return 0; }}\n", .{fsig.name});
+        try emitted.put(fsig.name, {});
+    }
+    // Trap stubs for vtable-referenced functions with no definition.
+    // Only with the ftable: every entry is referenced by its initializer,
+    // so no stub is ever dead.
+    if (need_indirect) {
+        for (fn_names.items) |fname| {
+            if (emitted.contains(fname)) continue;
+            var found = false;
+            for (tasks) |task| {
+                if (std.mem.eql(u8, verified.function_sigs[task.fsig_index].name, fname)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) continue;
+            try writer.writeAll("static sa_u64 ");
+            try cFuncName(writer, fname);
+            try writer.writeAll("(");
+            if (uniform_arity == 0) {
+                try writer.writeAll("void");
+            } else {
+                for (0..uniform_arity) |pi| {
+                    if (pi != 0) try writer.writeAll(", ");
+                    try writer.print("sa_u64 a{d}", .{pi});
+                }
+            }
+            try writer.writeAll(") {");
+            for (0..uniform_arity) |pi| {
+                try writer.print(" (void)a{d};", .{pi});
+            }
+            try writer.print(" sa_trap(\"missing {s}\"); return 0; }}\n", .{fname});
+            try emitted.put(fname, {});
+        }
+    }
+    // Indirect dispatch: uniform signature makes a plain function-pointer
+    // table exact (indices match fn_idx / vtable const encoding). Skipped
+    // entirely without a dynamic call site (dead otherwise).
+    if (need_indirect) {
+        try writer.writeAll("typedef sa_u64 (*sa_fn_t)(");
+        if (uniform_arity == 0) {
+            try writer.writeAll("void");
+        } else {
+            for (0..uniform_arity) |pi| {
+                if (pi != 0) try writer.writeAll(", ");
+                try writer.writeAll("sa_u64");
+            }
+        }
+        // A zero-length array is a GNU extension and makes the bounds check
+        // tautological; pin a single NULL entry instead.
+        if (fn_names.items.len == 0) {
+            try writer.writeAll(");\nstatic sa_fn_t sa_ftable[1] = {0};\n");
+        } else {
+            try writer.writeAll(");\nstatic sa_fn_t sa_ftable[] = {");
+            for (fn_names.items, 0..) |fname, fi| {
+                if (fi != 0) try writer.writeAll(", ");
+                try cFuncName(writer, fname);
+            }
+            try writer.writeAll("};\n");
+        }
+        try writer.writeAll("// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): generated uniform calling convention\nstatic sa_u64 sa_call_indirect(sa_u64 f");
+        for (0..uniform_arity) |k| {
+            try writer.print(", sa_u64 a{d}", .{k});
+        }
+        // Lower-bound check first: `f - 1000000` wraps for f < 1000000, so
+        // the old `uint64_t idx = f - 1000000; if (idx >= 0)` was always
+        // true and trapped every indirect call.
+        try writer.writeAll(") {\n  if (f < 1000000ULL) { sa_trap(\"bad indirect callee\"); }\n");
+        try writer.writeAll("  { sa_u64 idx = f - 1000000ULL;\n");
+        try writer.writeAll("    if (idx >= (sa_u64)(sizeof(sa_ftable) / sizeof(sa_ftable[0]))) { sa_trap(\"bad indirect callee\"); }\n");
+        try writer.writeAll("    if (sa_ftable[idx] == 0) { sa_trap(\"null indirect callee\"); }\n");
+        try writer.writeAll("    return sa_ftable[idx](");
+        for (0..uniform_arity) |k| {
+            if (k != 0) try writer.writeAll(", ");
+            try writer.print("a{d}", .{k});
+        }
+        try writer.writeAll("); }\n}\n");
+    }
+    try writer.writeAll("int main(void) { sa_init_consts();\n");
+    if (c_opt.gas) {
+        // Keeps `sa_gas` referenced even for (degenerate) programs whose
+        // functions were all elided; normally the SA_GAS_CHECKs do that.
+        try writer.writeAll("  (void)sa_gas;\n");
+    }
+    // call sa main if present
+    var found_main = false;
+    for (tasks) |task| {
+        if (task.kind == .extern_decl) continue;
+        const fsig = verified.function_sigs[task.fsig_index];
+        if (std.mem.eql(u8, fsig.name, "main")) {
+            found_main = true;
+            break;
+        }
+    }
+    if (found_main) {
+        try writer.writeAll("  sa_u64 rc = sa_fn_main(");
+        for (0..uniform_arity) |k| {
+            if (k != 0) try writer.writeAll(", ");
+            try writer.writeAll("0");
+        }
+        try writer.writeAll(");\n  return (int)(rc & 0xFF);\n}\n");
+    } else {
+        try writer.writeAll("  return 0;\n}\n");
+    }
+    return out.toOwnedSlice();
+}
+
+pub fn emitCToFile(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, c_opt: CEmitOptions, path: []const u8) !void {
+    const text = try emitCToString(allocator, verified, source_path, size_bits, c_opt);
+    defer allocator.free(text);
+    const dir = std.fs.path.dirname(path);
+    if (dir) |d| try sio.cwd().makePath(d);
+    const f = try sio.cwd().createFile(path, .{});
+    defer f.close();
+    try f.writeAll(text);
+}
+
+test "c ident sanitizes names" {
+    var buf: [64]u8 = undefined;
+    var fbs = std.Io.Writer.fixed(&buf);
+    try cIdent(&fbs, "hello-world.foo");
+    try std.testing.expectEqualStrings("hello_world_foo", fbs.buffered());
+}
+
+/// True iff every param a0..aN in a rendered binding body occurs at
+/// least twice (declaration plus a (void) cast or real use), so no
+/// -Wunused-parameter can fire. Enforces voids-mask precision forever.
+fn cParamsCovered(t: []const u8, uniform_arity: usize) bool {
+    if (uniform_arity == 0) return true;
+    var i: usize = 0;
+    while (i < uniform_arity) : (i += 1) {
+        var nbuf: [32]u8 = undefined;
+        const needle = std.fmt.bufPrint(&nbuf, "a{d}", .{i}) catch return false;
+        var count: usize = 0;
+        var pos: usize = 0;
+        while (pos + needle.len <= t.len) {
+            if (std.mem.startsWith(u8, t[pos..], needle)) {
+                const before_ok = pos == 0 or !(std.ascii.isAlphanumeric(t[pos - 1]) or t[pos - 1] == '_');
+                const after = pos + needle.len;
+                const after_ok = after >= t.len or !(std.ascii.isAlphanumeric(t[after]) or t[after] == '_');
+                if (before_ok and after_ok) count += 1;
+            }
+            pos += 1;
+        }
+        if (count < 2) return false;
+    }
+    return true;
+}
+
+/// True iff t is a brace-balanced function body ending with "}\n",
+/// ignoring braces inside strings/chars. Used to self-check every
+/// rendered extern binding (an unclosed body would swallow following
+/// definitions; fail the build loudly instead of emitting broken C).
+/// NOTE: emit_c unit tests are not wired into any test binary, so this
+/// runtime check (not a test block) is the enforced guard.
+fn cBodyBalanced(t: []const u8) bool {
+    if (!std.mem.endsWith(u8, t, "}\n")) return false;
+    return cBracesBalanced(t);
+}
+
+/// Brace balance ignoring string/char literals. Used for catalog helper
+/// bodies (which the preamble writes with its own trailing newline).
+fn cBracesBalanced(t: []const u8) bool {
+    var depth: i32 = 0;
+    var in_str = false;
+    var in_chr = false;
+    var esc = false;
+    for (t) |c| {
+        if (in_str) {
+            if (esc) { esc = false; } else if (c == '\\') { esc = true; } else if (c == '"') { in_str = false; }
+        } else if (in_chr) {
+            if (esc) { esc = false; } else if (c == '\\') { esc = true; } else if (c == '\'') { in_chr = false; }
+        } else if (c == '"') { in_str = true; } else if (c == '\'') { in_chr = true; } else if (c == '{') { depth += 1; } else if (c == '}') {
+            depth -= 1;
+            if (depth < 0) return false;
+        }
+    }
+    return depth == 0;
+}

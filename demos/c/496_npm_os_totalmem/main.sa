@@ -1,0 +1,22 @@
+@import "sa_std/io/print.sai"
+
+@extern npm_totalmem() -> u64
+#npm_bind npm_totalmem "node:os#totalmem"
+
+@const OUT = utf8:"496\n"
+
+// 496 - npm import (zero-arg numeric): node:os totalmem() reports
+// total system memory, which is always positive.
+@main() -> i32:
+L_ENTRY:
+    t = call @npm_totalmem()
+    ok = ugt t, 0
+    !t
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

@@ -900,14 +900,6 @@ L_Q_END:
 @ts_arr_pop(src: ptr) -> i32:
 L_P_ENTRY:
     slen = load src+8 as u64
-    isempty = eq slen, 0
-    br isempty -> L_P_EMPTY, L_P_HAS
-L_P_EMPTY:
-    // 空数组弹空：返 null（调用方 `??` 兜底）；native 下旧代码越界读恰为 0，
-    // wasm 下读到堆垃圾，必须显式守卫。
-    !src
-    return 0
-L_P_HAS:
     last = sub slen, 1
     dptr = load src+0 as ptr
     off = mul last, 4

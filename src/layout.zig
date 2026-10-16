@@ -119,7 +119,7 @@ pub fn compute(
         if (!isIdentChar(c)) return LayoutError.InvalidFieldName;
     }
 
-    var fields = std.ArrayList(LayoutField).init(allocator);
+    var fields = std.array_list.Managed(LayoutField).init(allocator);
     errdefer {
         for (fields.items) |field| allocator.free(field.name);
         fields.deinit();
@@ -298,12 +298,12 @@ test "layout text output rounds offsets and sizes" {
     try std.testing.expectEqual(@as(u32, 16), layout.fields[2].offset);
     try std.testing.expectEqual(@as(u32, 24), layout.fields[3].offset);
 
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    var buf: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer buf.deinit();
-    try writeText(buf.writer(), layout);
+    try writeText(&buf.writer, layout);
     try std.testing.expectEqualStrings(
         "#def Entity_SIZE  = 32\n#def Entity_id = +0\n// 4 bytes padding\n#def Entity_pos_x = +8\n#def Entity_pos_y = +16\n#def Entity_hp = +24\n// 4 bytes tail padding\n",
-        buf.items,
+        buf.writer.buffered(),
     );
 }
 
@@ -317,12 +317,12 @@ test "layout json output and 32-bit ptr alignment" {
     try std.testing.expectEqual(@as(u32, 4), layout.fields[0].size);
     try std.testing.expectEqual(@as(u32, 4), layout.fields[0].alignment);
 
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    var buf: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer buf.deinit();
-    try writeJson(buf.writer(), layout);
+    try writeJson(&buf.writer, layout);
     try std.testing.expectEqualStrings(
         "{\"name\":\"Pair\",\"size\":8,\"fields\":[{\"name\":\"head\",\"offset\":0,\"size\":4,\"ty\":\"ptr\"},{\"name\":\"count\",\"offset\":4,\"size\":4,\"ty\":\"u32\"}]}",
-        buf.items,
+        buf.writer.buffered(),
     );
 }
 
@@ -330,9 +330,9 @@ test "layout debug macro emits static field formatter" {
     var layout = try compute(std.testing.allocator, "Entity", "id:u64, pos:f64, active:i1", 64);
     defer layout.deinit(std.testing.allocator);
 
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    var buf: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer buf.deinit();
-    try writeDebug(buf.writer(), layout);
+    try writeDebug(&buf.writer, layout);
     try std.testing.expectEqualStrings(
         \\#def Entity_SIZE  = 24
         \\#def Entity_id = +0
@@ -352,16 +352,16 @@ test "layout debug macro emits static field formatter" {
         \\    EXPAND PRINT! " }\n"
         \\[END_MACRO]
         \\
-    , buf.items);
+    , buf.writer.buffered());
 }
 
 test "layout dict output emits lookup keys for macro tooling" {
     var layout = try compute(std.testing.allocator, "Entity", "id:u64, pos:f64", 64);
     defer layout.deinit(std.testing.allocator);
 
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    var buf: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer buf.deinit();
-    try writeDict(buf.writer(), layout);
+    try writeDict(&buf.writer, layout);
     try std.testing.expectEqualStrings(
         \\#def LAYOUT_Entity_SIZE = 16
         \\#def LAYOUT_Entity_ALIGN = 8
@@ -374,7 +374,7 @@ test "layout dict output emits lookup keys for macro tooling" {
         \\#def LAYOUT_Entity_pos_ALIGN = 8
         \\// LAYOUT_Entity_pos_TYPE = f64
         \\
-    , buf.items);
+    , buf.writer.buffered());
 }
 
 test "layout handles empty structs, v128 alignment, and invalid names" {

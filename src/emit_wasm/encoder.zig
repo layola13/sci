@@ -1,8 +1,8 @@
 const std = @import("std");
 
-pub const Buffer = std.ArrayList(u8);
+pub const Buffer = std.array_list.Managed(u8);
 
-fn writeUnsignedLeb128(writer: anytype, value: u64) !void {
+fn writeUnsignedLeb128(writer: *std.Io.Writer, value: u64) !void {
     var remaining = value;
     while (true) {
         const byte: u8 = @intCast(remaining & 0x7f);
@@ -15,7 +15,7 @@ fn writeUnsignedLeb128(writer: anytype, value: u64) !void {
     }
 }
 
-fn writeSignedLeb128(writer: anytype, value: i64) !void {
+fn writeSignedLeb128(writer: *std.Io.Writer, value: i64) !void {
     var remaining = value;
     while (true) {
         const raw: u64 = @bitCast(remaining);
@@ -31,28 +31,28 @@ fn writeSignedLeb128(writer: anytype, value: i64) !void {
     }
 }
 
-pub fn writeUleb32(writer: anytype, value: u32) !void {
+pub fn writeUleb32(writer: *std.Io.Writer, value: u32) !void {
     try writeUnsignedLeb128(writer, value);
 }
 
-pub fn writeUleb64(writer: anytype, value: u64) !void {
+pub fn writeUleb64(writer: *std.Io.Writer, value: u64) !void {
     try writeUnsignedLeb128(writer, value);
 }
 
-pub fn writeSleb32(writer: anytype, value: i32) !void {
+pub fn writeSleb32(writer: *std.Io.Writer, value: i32) !void {
     try writeSignedLeb128(writer, value);
 }
 
-pub fn writeSleb64(writer: anytype, value: i64) !void {
+pub fn writeSleb64(writer: *std.Io.Writer, value: i64) !void {
     try writeSignedLeb128(writer, value);
 }
 
 fn expectEncoding(comptime encode_fn: anytype, value: anytype, expected: []const u8) !void {
-    var buffer = Buffer.init(std.testing.allocator);
-    defer buffer.deinit();
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
 
-    try encode_fn(buffer.writer(), value);
-    try std.testing.expectEqualSlices(u8, expected, buffer.items);
+    try encode_fn(&aw.writer, value);
+    try std.testing.expectEqualSlices(u8, expected, aw.writer.buffered());
 }
 
 test "unsigned leb128 encodes 32-bit and 64-bit values" {

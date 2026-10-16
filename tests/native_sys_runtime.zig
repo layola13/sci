@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("sio");
 
 fn exeName(base: []const u8) []const u8 {
     return if (builtin.os.tag == .windows)
@@ -17,22 +18,25 @@ fn runPath(base: []const u8) []const u8 {
         "./native_sys_exit_demo";
 }
 
-fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(source);
+fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
+    var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    var wbuf: [8192]u8 = undefined;
+    var w = file.writer(std.testing.io, &wbuf);
+    try w.interface.writeAll(source);
+    try w.interface.flush();
 }
 
-fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
 }
 
-fn expectSuccess(result: std.process.Child.RunResult) !void {
+fn expectSuccess(result: sio.Child.RunResult) !void {
     switch (result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code != 0) {
                 if (result.stdout.len != 0) std.debug.print("stdout:\n{s}", .{result.stdout});
                 if (result.stderr.len != 0) std.debug.print("stderr:\n{s}", .{result.stderr});
@@ -45,7 +49,7 @@ fn expectSuccess(result: std.process.Child.RunResult) !void {
 }
 
 test "native sys runtime stub compiles to object and links through zig cc" {
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -53,7 +57,7 @@ test "native sys runtime stub compiles to object and links through zig cc" {
     const runtime_source = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime/native_sys.zig");
     defer std.testing.allocator.free(runtime_source);
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const io_demo =
@@ -152,14 +156,14 @@ test "native sys runtime stub compiles to object and links through zig cc" {
     defer std.testing.allocator.free(build_exit_result.stderr);
     try expectSuccess(build_exit_result);
 
-    const exit_result = try std.process.Child.run(.{
+    const exit_result = try sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &[_][]const u8{runPath("native_sys_exit_demo")},
     });
     defer std.testing.allocator.free(exit_result.stdout);
     defer std.testing.allocator.free(exit_result.stderr);
     switch (exit_result.term) {
-        .Exited => |code| try std.testing.expectEqual(@as(u8, 37), code),
+        .exited => |code| try std.testing.expectEqual(@as(u8, 37), code),
         else => return error.TestUnexpectedResult,
     }
 }

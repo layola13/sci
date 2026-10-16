@@ -1,0 +1,30 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"349\n"
+
+// 349 - ashr is an arithmetic (sign-preserving) shift.
+@main() -> i32:
+L_ENTRY:
+    m8 = -8 as i64
+    two = 2 as i64
+    s = ashr m8, two
+    ok_a = eq s, -2
+    p = 16 as i64
+    sp = ashr p, two
+    ok_b = eq sp, 4
+    ok = and ok_a, ok_b
+    !m8
+    !two
+    !s
+    !p
+    !sp
+    !ok_a
+    !ok_b
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

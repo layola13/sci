@@ -1,0 +1,45 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"649\n"
+@const NEG2_VT = vtable { invoke = @neg_two }
+
+// 649 - Callback neg: 0 - 649 == -649, plus 1298 == 649.
+@neg_two(dummy: i64) -> i64:
+L_ENTRY:
+    base = 649 as i64
+    zero = 0 as i64
+    neg = sub zero, base
+    back = sub zero, neg
+    !dummy
+    !base
+    !zero
+    !neg
+    return back
+
+@main() -> i32:
+L_ENTRY:
+    t = &NEG2_VT
+    fp = load t + 0 as ptr
+    z = 0 as i64
+    v = call_indirect fp(z)
+    want = 649 as i64
+    ok_v = eq v, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !fp
+    !z
+    !v
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

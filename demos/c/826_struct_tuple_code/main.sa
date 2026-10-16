@@ -1,0 +1,34 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"826\n"
+
+// 826 - Tuple: (800, 26) second-plus-first == 826, code 0.
+@main() -> i32:
+L_ENTRY:
+    t = alloc 16
+    store t+0, 800 as i64
+    store t+8, 26 as i64
+    x = load t+0 as i64
+    y = load t+8 as i64
+    got = add x, y
+    want = 826 as i64
+    ok_v = eq got, want
+    zero = 0 as i64
+    ok_c = eq zero, 0
+    ok = and ok_v, ok_c
+    !t
+    !x
+    !y
+    !got
+    !want
+    !zero
+    !ok_v
+    !ok_c
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

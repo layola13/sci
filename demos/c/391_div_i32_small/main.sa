@@ -1,0 +1,23 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"391\n"
+
+// 391 - the `div` alias on small signed operands (armor for the
+// kind dispatch: either side signed keeps the sdiv lowering).
+@main() -> i32:
+L_ENTRY:
+    a = 7 as i64
+    b = 2 as i64
+    d = div a, b
+    ok = eq d, 3
+    !a
+    !b
+    !d
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

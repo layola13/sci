@@ -95,7 +95,7 @@ fn inspectFunction(writer: anytype, module: sab.Module, fsig: sig.FunctionSig) !
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -109,7 +109,7 @@ pub fn main() !void {
     };
     const wanted = args.next();
 
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024);
+    const bytes = try sio.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024);
     defer allocator.free(bytes);
 
     var module = try sab.decodeModule(allocator, bytes);

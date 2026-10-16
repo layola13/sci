@@ -1,24 +1,28 @@
 const std = @import("std");
 const saasm = @import("saasm");
 const builtin = @import("builtin");
+const sio = @import("sio");
 
-fn writeSource(dir: std.fs.Dir, path: []const u8, source: []const u8) !void {
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(source);
+fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
+    var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    var wbuf: [8192]u8 = undefined;
+    var w = file.writer(std.testing.io, &wbuf);
+    try w.interface.writeAll(source);
+    try w.interface.flush();
 }
 
-fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
-    return try std.process.Child.run(.{
+fn runCommandAnyExit(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
     });
 }
 
-fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []const []const u8) !std.process.Child.RunResult {
-    const args_json = try std.json.stringifyAlloc(allocator, args, .{});
+fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []const []const u8) !sio.Child.RunResult {
+    const args_json = try std.json.Stringify.valueAlloc(allocator, args, .{});
     defer allocator.free(args_json);
-    const wasm_json = try std.json.stringifyAlloc(allocator, wasm_path, .{});
+    const wasm_json = try std.json.Stringify.valueAlloc(allocator, wasm_path, .{});
     defer allocator.free(wasm_json);
 
     const script = try std.fmt.allocPrint(allocator,
@@ -42,20 +46,20 @@ fn runWasmWithNode(allocator: std.mem.Allocator, wasm_path: []const u8, args: []
 
     const script_path = try std.fs.path.join(allocator, &.{ std.fs.path.dirname(wasm_path) orelse ".", "run_wasm.js" });
     defer allocator.free(script_path);
-    try writeSource(std.fs.cwd(), script_path, script);
-    return try std.process.Child.run(.{
+    try writeSource(std.Io.Dir.cwd(), script_path, script);
+    return try sio.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "node", "--no-warnings", script_path },
     });
 }
 
 fn elapsedMs(start_ns: i128) i128 {
-    return @divTrunc(std.time.nanoTimestamp() - start_ns, std.time.ns_per_ms);
+    return @divTrunc(sio.nanoTimestamp() - start_ns, std.time.ns_per_ms);
 }
 
 fn startTimedPhase(path: []const u8, phase: []const u8) i128 {
     std.debug.print("[wasm-matrix] START demo={s} phase={s}\n", .{ path, phase });
-    return std.time.nanoTimestamp();
+    return sio.nanoTimestamp();
 }
 
 fn endTimedPhase(path: []const u8, phase: []const u8, start_ns: i128) i128 {
@@ -75,10 +79,10 @@ const DemoTiming = struct {
 };
 
 const WasmMatrixStats = struct {
-    timings: std.ArrayList(DemoTiming),
+    timings: std.array_list.Managed(DemoTiming),
 
     fn init(allocator: std.mem.Allocator) WasmMatrixStats {
-        return .{ .timings = std.ArrayList(DemoTiming).init(allocator) };
+        return .{ .timings = std.array_list.Managed(DemoTiming).init(allocator) };
     }
 
     fn deinit(self: *WasmMatrixStats) void {
@@ -149,7 +153,7 @@ const WasmMatrixStats = struct {
 
     fn printSlowestDemos(self: *const WasmMatrixStats) void {
         const limit = 10;
-        var selected = [_]usize{std.math.maxInt(usize)} ** limit;
+        var selected: [limit]usize = @splat(std.math.maxInt(usize));
         var printed: usize = 0;
         std.debug.print("[wasm-matrix] SUMMARY slowest_demos:\n", .{});
         while (printed < limit and printed < self.timings.items.len) : (printed += 1) {
@@ -175,8 +179,8 @@ const WasmMatrixStats = struct {
     fn printSlowestPhases(self: *const WasmMatrixStats) void {
         const limit = 10;
         const phase_count = 4;
-        var selected_demo = [_]usize{std.math.maxInt(usize)} ** limit;
-        var selected_phase = [_]usize{std.math.maxInt(usize)} ** limit;
+        var selected_demo: [limit]usize = @splat(std.math.maxInt(usize));
+        var selected_phase: [limit]usize = @splat(std.math.maxInt(usize));
         var printed: usize = 0;
         std.debug.print("[wasm-matrix] SUMMARY slowest_phases:\n", .{});
         while (printed < limit and printed < self.timings.items.len * phase_count) : (printed += 1) {
@@ -207,7 +211,7 @@ const WasmMatrixStats = struct {
 };
 
 fn boolEnv(name: []const u8) bool {
-    const value = std.process.getEnvVarOwned(std.testing.allocator, name) catch return false;
+    const value = sio.getEnvVarOwned(std.testing.allocator, name) catch return false;
     defer std.testing.allocator.free(value);
     return value.len != 0 and
         !std.mem.eql(u8, value, "0") and
@@ -240,20 +244,43 @@ fn artifactStem(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
     return try allocator.dupe(u8, std.fs.path.basename(parent));
 }
 
+var matrix_seq: usize = 0;
+
+/// Shard selector for long demo matrices: SA_WASM_MATRIX_SHARD="i/n" runs
+/// only demos whose sequence number satisfies seq % n == i (0-based).
+/// Absent or malformed values run every demo (default behavior unchanged).
+fn matrixShardSelected() bool {
+    const seq = matrix_seq;
+    matrix_seq += 1;
+    const value = sio.getEnvVarOwned(std.testing.allocator, "SA_WASM_MATRIX_SHARD") catch return true;
+    defer std.testing.allocator.free(value);
+    var parts = std.mem.splitScalar(u8, value, '/');
+    const i_text = parts.next() orelse return true;
+    const n_text = parts.next() orelse return true;
+    const i = std.fmt.parseUnsigned(usize, i_text, 10) catch return true;
+    const n = std.fmt.parseUnsigned(usize, n_text, 10) catch return true;
+    if (n == 0 or i >= n) return true;
+    return seq % n == i;
+}
+
 fn assertWasmMatrixStdout(stats: *WasmMatrixStats, path: []const u8, expected_stdout: []const u8) !void {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    const node_probe = std.process.Child.run(.{
+    if (!matrixShardSelected()) {
+        std.debug.print("[wasm-matrix] SKIP  demo={s} reason=shard\n", .{path});
+        return;
+    }
+    const node_probe = sio.Child.run(.{
         .allocator = std.testing.allocator,
         .argv = &.{ "node", "--version" },
     }) catch return error.SkipZigTest;
     defer std.testing.allocator.free(node_probe.stdout);
     defer std.testing.allocator.free(node_probe.stderr);
     switch (node_probe.term) {
-        .Exited => |code| if (code != 0) return error.SkipZigTest,
+        .exited => |code| if (code != 0) return error.SkipZigTest,
         else => return error.SkipZigTest,
     }
 
-    var original_cwd = try std.fs.cwd().openDir(".", .{});
+    var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
     const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(repo_root);
@@ -270,7 +297,7 @@ fn assertWasmMatrixStdout(stats: *WasmMatrixStats, path: []const u8, expected_st
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    try tmp.dir.setAsCwd();
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
     defer original_cwd.setAsCwd() catch {};
 
     const stem = try artifactStem(std.testing.allocator, path);
@@ -311,7 +338,7 @@ fn assertWasmMatrixStdout(stats: *WasmMatrixStats, path: []const u8, expected_st
             defer std.testing.allocator.free(exe_result.stdout);
             defer std.testing.allocator.free(exe_result.stderr);
             switch (exe_result.term) {
-                .Exited => |code| {
+                .exited => |code| {
                     if (code != 0 or !std.mem.eql(u8, exe_result.stdout, expected_stdout) or exe_result.stderr.len != 0) {
                         std.debug.print("native demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, exe_result.stdout, exe_result.stderr });
                     }
@@ -348,15 +375,19 @@ fn assertWasmMatrixStdout(stats: *WasmMatrixStats, path: []const u8, expected_st
 
     const bc_path = try std.fmt.allocPrint(std.testing.allocator, "{s}.sa.bc", .{wasm_path});
     defer std.testing.allocator.free(bc_path);
-    const bc_file = try tmp.dir.openFile(bc_path, .{});
-    defer bc_file.close();
-    const bc_bytes = try bc_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    const bc_file = try tmp.dir.openFile(std.testing.io, bc_path, .{});
+    defer bc_file.close(std.testing.io);
+    var bc_rbuf: [8192]u8 = undefined;
+    var bc_reader = bc_file.readerStreaming(std.testing.io, &bc_rbuf);
+    const bc_bytes = try bc_reader.interface.allocRemaining(std.testing.allocator, .limited(4 << 20));
     defer std.testing.allocator.free(bc_bytes);
     try std.testing.expect(bc_bytes.len > 0);
 
-    const wasm_file = try tmp.dir.openFile(wasm_path, .{});
-    defer wasm_file.close();
-    const wasm_bytes = try wasm_file.readToEndAlloc(std.testing.allocator, 1 << 20);
+    const wasm_file = try tmp.dir.openFile(std.testing.io, wasm_path, .{});
+    defer wasm_file.close(std.testing.io);
+    var wasm_rbuf: [8192]u8 = undefined;
+    var wasm_reader = wasm_file.readerStreaming(std.testing.io, &wasm_rbuf);
+    const wasm_bytes = try wasm_reader.interface.allocRemaining(std.testing.allocator, .limited(16 << 20));
     defer std.testing.allocator.free(wasm_bytes);
     try std.testing.expect(wasm_bytes.len > 8);
     try std.testing.expectEqualSlices(u8, &std.wasm.magic, wasm_bytes[0..4]);
@@ -372,7 +403,7 @@ fn assertWasmMatrixStdout(stats: *WasmMatrixStats, path: []const u8, expected_st
         defer std.testing.allocator.free(wasm_result.stdout);
         defer std.testing.allocator.free(wasm_result.stderr);
         switch (wasm_result.term) {
-            .Exited => |code| {
+            .exited => |code| {
                 if (code != 0 or !std.mem.eql(u8, wasm_result.stdout, expected_stdout) or wasm_result.stderr.len != 0) {
                     std.debug.print("wasm demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, wasm_result.stdout, wasm_result.stderr });
                 }
@@ -391,6 +422,8 @@ fn assertWasmMatrixStdout(stats: *WasmMatrixStats, path: []const u8, expected_st
 }
 
 test "llvmc wasm rosetta and support demos match expected output with native sanity subset" {
+    // Requires the LLVM-C native backend (unavailable with -Dllvm=false).
+    if (!saasm.build_options.llvm_enabled) return error.SkipZigTest;
     var stats = WasmMatrixStats.init(std.testing.allocator);
     defer stats.deinit();
     defer stats.printSummary();

@@ -1,0 +1,8 @@
+@const FALL_VT = vtable { get = @fall_get }
+
+@fall_get(dummy: i64, ctx: ptr) -> i32:
+    v = add 519, 0
+    !dummy
+    !ctx
+    !v
+    return 519

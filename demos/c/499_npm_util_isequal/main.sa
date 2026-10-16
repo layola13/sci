@@ -1,0 +1,31 @@
+@import "sa_std/io/print.sai"
+
+@extern npm_iseq(&a: ptr, a_len: u64, &b: ptr, b_len: u64) -> u32
+#npm_bind npm_iseq "node:util#isDeepStrictEqual"
+
+@const QA = utf8:"ab"
+@const QB = utf8:"ab"
+@const QC = utf8:"cd"
+@const OUT = utf8:"499\n"
+
+// 499 - npm import with two UTF8 pairs: node:util isDeepStrictEqual()
+// ('ab' vs 'ab' -> 1, 'ab' vs 'cd' -> 0).
+@main() -> i32:
+L_ENTRY:
+    q1 = call @npm_iseq(&QA, 2, &QB, 2)
+    q2 = call @npm_iseq(&QA, 2, &QC, 2)
+    ok1 = eq q1, 1
+    ok2 = eq q2, 0
+    ok = and ok1, ok2
+    !q1
+    !q2
+    !ok1
+    !ok2
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

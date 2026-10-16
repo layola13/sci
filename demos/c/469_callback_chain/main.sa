@@ -1,0 +1,85 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"469\n"
+@const DBL_VT = vtable { call = @dbl_cb }
+@const ADD_VT = vtable { call = @add_cb }
+
+// 469 - chained callbacks: double then add 1.5 (1.5 -> 3.0 -> 4.5).
+@dbl_cb(x: f64, ctx: ptr) -> f64:
+    two_i = 2 as i32
+    two_f = sitofp two_i as f64
+    r = fmul x, two_f
+    !ctx
+    !x
+    !two_i
+    !two_f
+    return r
+
+@add_cb(x: f64, ctx: ptr) -> f64:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    r = fadd x, one_half
+    !ctx
+    !x
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    return r
+
+@main() -> i32:
+    three = 3 as i32
+    two_i = 2 as i32
+    three_f = sitofp three as f64
+    two_f = sitofp two_i as f64
+    one_half = fdiv three_f, two_f
+    t0 = &DBL_VT
+    fp0 = load t0 + 0 as ptr
+    reg0 = alloc 8
+    store reg0+0, fp0 as ptr
+    t1 = &ADD_VT
+    fp1 = load t1 + 0 as ptr
+    reg1 = alloc 8
+    store reg1+0, fp1 as ptr
+    cb0 = load reg0+0 as ptr
+    ctx0 = alloc 8
+    mid = call_indirect cb0(one_half, ctx0)
+    cb1 = load reg1+0 as ptr
+    ctx1 = alloc 8
+    r = call_indirect cb1(mid, ctx1)
+    nine = 9 as i32
+    nine_f = sitofp nine as f64
+    expect = fdiv nine_f, two_f
+    ok = fcmp_eq r, expect
+    !three
+    !two_i
+    !three_f
+    !two_f
+    !one_half
+    !t0
+    !fp0
+    !reg0
+    !t1
+    !fp1
+    !reg1
+    !cb0
+    !ctx0
+    !mid
+    !cb1
+    !ctx1
+    !r
+    !nine
+    !nine_f
+    !expect
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1

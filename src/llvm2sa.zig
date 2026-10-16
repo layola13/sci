@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("sio");
 
 pub const TranslateError = error{
     OutOfMemory,
@@ -51,7 +52,7 @@ fn sanitizeIdent(allocator: std.mem.Allocator, raw: []const u8, prefix: []const 
         source = source[1 .. source.len - 1];
     }
 
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
 
     if (source.len == 0 or !(std.ascii.isAlphabetic(source[0]) or source[0] == '_')) {
@@ -161,7 +162,7 @@ fn splitTopLevelComma(allocator: std.mem.Allocator, text: []const u8) ![]const [
     const t = trim(text);
     if (t.len == 0) return try allocator.alloc([]const u8, 0);
 
-    var list = std.ArrayList([]const u8).init(allocator);
+    var list = std.array_list.Managed([]const u8).init(allocator);
     errdefer list.deinit();
 
     var paren_depth: usize = 0;
@@ -444,7 +445,7 @@ fn llvmTypedValueToValue(text: []const u8) []const u8 {
 
 fn saValue(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
     var value = trim(raw);
-    value = trim(std.mem.trimRight(u8, value, ","));
+    value = trim(std.mem.trimEnd(u8, value, ","));
     value = llvmTypedValueToValue(value);
 
     if (value.len == 0) return error.InvalidIr;
@@ -502,20 +503,20 @@ fn parseConstantGepBase(allocator: std.mem.Allocator, expr: []const u8) !struct 
     return .{ .name = name, .offset = try gepConstantOffset(allocator, args[0], args[2..]) };
 }
 
-fn appendPointerOperand(out: *std.ArrayList(u8), allocator: std.mem.Allocator, raw: []const u8, hint: []const u8) ![]u8 {
+fn appendPointerOperand(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, raw: []const u8, hint: []const u8) ![]u8 {
     if (std.mem.indexOf(u8, raw, "getelementptr")) |gep_index| {
         const parsed = try parseConstantGepBase(allocator, trim(raw[gep_index..]));
         defer allocator.free(parsed.name);
         const base = try std.fmt.allocPrint(allocator, "&{s}", .{parsed.name});
         defer allocator.free(base);
         const pointer = try std.fmt.allocPrint(allocator, "bc2sa_gep_base_{s}", .{hint});
-        try out.writer().print("  {s} = ptr_add {s}, {d}\n", .{ pointer, base, parsed.offset });
+        try out.print("  {s} = ptr_add {s}, {d}\n", .{ pointer, base, parsed.offset });
         return pointer;
     }
     return try saValue(allocator, raw);
 }
 
-fn appendValue(out: *std.ArrayList(u8), allocator: std.mem.Allocator, value: []const u8) !void {
+fn appendValue(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, value: []const u8) !void {
     const translated = try saValue(allocator, value);
     defer allocator.free(translated);
     try out.appendSlice(translated);
@@ -539,7 +540,7 @@ fn parseParam(allocator: std.mem.Allocator, fragment: []const u8, index: usize) 
     return .{ .name = name, .ty = ty };
 }
 
-fn appendParamList(out: *std.ArrayList(u8), allocator: std.mem.Allocator, params_text: []const u8) !void {
+fn appendParamList(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, params_text: []const u8) !void {
     const params = try splitTopLevelComma(allocator, params_text);
     defer allocator.free(params);
 
@@ -548,11 +549,11 @@ fn appendParamList(out: *std.ArrayList(u8), allocator: std.mem.Allocator, params
         if (idx != 0) try out.appendSlice(", ");
         const param = try parseParam(allocator, param_text, idx);
         defer allocator.free(param.name);
-        try out.writer().print("{s}: {s}", .{ param.name, param.ty });
+        try out.print("{s}: {s}", .{ param.name, param.ty });
     }
 }
 
-fn appendFunctionHeader(out: *std.ArrayList(u8), allocator: std.mem.Allocator, line: []const u8, is_declare: bool) !void {
+fn appendFunctionHeader(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, line: []const u8, is_declare: bool) !void {
     const keyword = if (is_declare) "declare" else "define";
     if (!startsWithWord(line, keyword)) return error.InvalidIr;
 
@@ -569,23 +570,23 @@ fn appendFunctionHeader(out: *std.ArrayList(u8), allocator: std.mem.Allocator, l
     defer allocator.free(name);
 
     if (is_declare) {
-        try out.writer().print("@extern {s}(", .{name});
+        try out.print("@extern {s}(", .{name});
     } else {
-        try out.writer().print("@export {s}(", .{name});
+        try out.print("@export {s}(", .{name});
     }
     try appendParamList(out, allocator, line[open + 1 .. close]);
     try out.append(')');
     if (!std.mem.eql(u8, ret_ty, "void")) {
-        try out.writer().print(" -> {s}", .{ret_ty});
+        try out.print(" -> {s}", .{ret_ty});
     }
     if (!is_declare) try out.append(':');
     try out.append('\n');
 }
 
-fn appendLabel(out: *std.ArrayList(u8), allocator: std.mem.Allocator, raw_label: []const u8) !void {
+fn appendLabel(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, raw_label: []const u8) !void {
     const label = try labelName(allocator, raw_label);
     defer allocator.free(label);
-    try out.writer().print("{s}:\n", .{label});
+    try out.print("{s}:\n", .{label});
 }
 
 fn llvmBinaryOpToSa(op: []const u8) ?[]const u8 {
@@ -637,7 +638,7 @@ fn skipOverflowFlags(text: []const u8) []const u8 {
     }
 }
 
-fn appendBinaryOp(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []const u8, op: []const u8, rest: []const u8) !void {
+fn appendBinaryOp(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, lhs: []const u8, op: []const u8, rest: []const u8) !void {
     const sa_op = llvmBinaryOpToSa(op) orelse return error.UnsupportedInstruction;
     const body = skipOverflowFlags(rest);
     const ty_token = firstTypeToken(body) orelse return error.UnsupportedInstruction;
@@ -648,14 +649,14 @@ fn appendBinaryOp(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []
 
     const dst = try sanitizeIdent(allocator, lhs, "r");
     defer allocator.free(dst);
-    try out.writer().print("  {s} = {s} ", .{ dst, sa_op });
+    try out.print("  {s} = {s} ", .{ dst, sa_op });
     try appendValue(out, allocator, args[0]);
     try out.appendSlice(", ");
     try appendValue(out, allocator, args[1]);
     try out.append('\n');
 }
 
-fn appendIcmp(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []const u8, rest: []const u8) !void {
+fn appendIcmp(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, lhs: []const u8, rest: []const u8) !void {
     var parts = std.mem.tokenizeAny(u8, rest, " \t\r\n");
     const pred = parts.next() orelse return error.InvalidIr;
     const sa_op = llvmIcmpToSa(pred) orelse return error.UnsupportedInstruction;
@@ -669,23 +670,23 @@ fn appendIcmp(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []cons
 
     const dst = try sanitizeIdent(allocator, lhs, "r");
     defer allocator.free(dst);
-    try out.writer().print("  {s} = {s} ", .{ dst, sa_op });
+    try out.print("  {s} = {s} ", .{ dst, sa_op });
     try appendValue(out, allocator, args[0]);
     try out.appendSlice(", ");
     try appendValue(out, allocator, args[1]);
     try out.append('\n');
 }
 
-fn appendAlloca(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []const u8, rest: []const u8) !void {
+fn appendAlloca(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, lhs: []const u8, rest: []const u8) !void {
     const comma = std.mem.indexOfScalar(u8, rest, ',') orelse rest.len;
     const alloc_ty = trim(rest[0..comma]);
     const size = typeBytes(alloc_ty) orelse return error.UnsupportedInstruction;
     const dst = try sanitizeIdent(allocator, lhs, "r");
     defer allocator.free(dst);
-    try out.writer().print("  {s} = stack_alloc {d}\n", .{ dst, size });
+    try out.print("  {s} = stack_alloc {d}\n", .{ dst, size });
 }
 
-fn appendLoad(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []const u8, rest: []const u8) !void {
+fn appendLoad(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, lhs: []const u8, rest: []const u8) !void {
     const args = try splitTopLevelComma(allocator, rest);
     defer allocator.free(args);
     if (args.len < 2) return error.UnsupportedInstruction;
@@ -696,10 +697,10 @@ fn appendLoad(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []cons
     defer allocator.free(dst);
     const base = try appendPointerOperand(out, allocator, args[1], dst);
     defer allocator.free(base);
-    try out.writer().print("  {s} = load {s}+0 as {s}\n", .{ dst, base, sa_ty });
+    try out.print("  {s} = load {s}+0 as {s}\n", .{ dst, base, sa_ty });
 }
 
-fn appendStore(out: *std.ArrayList(u8), allocator: std.mem.Allocator, rest: []const u8) !void {
+fn appendStore(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, rest: []const u8) !void {
     const args = try splitTopLevelComma(allocator, rest);
     defer allocator.free(args);
     if (args.len < 2) return error.UnsupportedInstruction;
@@ -712,15 +713,15 @@ fn appendStore(out: *std.ArrayList(u8), allocator: std.mem.Allocator, rest: []co
     defer allocator.free(hint);
     const base = try appendPointerOperand(out, allocator, args[1], hint);
     defer allocator.free(base);
-    try out.writer().print("  store {s}+0, {s} as {s}\n", .{ base, value, sa_ty });
+    try out.print("  store {s}+0, {s} as {s}\n", .{ base, value, sa_ty });
 }
 
-fn appendBranch(out: *std.ArrayList(u8), allocator: std.mem.Allocator, rest: []const u8) !void {
+fn appendBranch(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, rest: []const u8) !void {
     const t = trim(rest);
     if (std.mem.startsWith(u8, t, "label ")) {
         const label = try labelName(allocator, llvmTypedValueToValue(t["label ".len..]));
         defer allocator.free(label);
-        try out.writer().print("  jmp {s}\n", .{label});
+        try out.print("  jmp {s}\n", .{label});
         return;
     }
 
@@ -733,10 +734,10 @@ fn appendBranch(out: *std.ArrayList(u8), allocator: std.mem.Allocator, rest: []c
     defer allocator.free(true_label);
     const false_label = try labelName(allocator, llvmTypedValueToValue(args[2]));
     defer allocator.free(false_label);
-    try out.writer().print("  br {s} -> {s}, {s}\n", .{ cond, true_label, false_label });
+    try out.print("  br {s} -> {s}, {s}\n", .{ cond, true_label, false_label });
 }
 
-fn appendReturn(out: *std.ArrayList(u8), allocator: std.mem.Allocator, rest: []const u8) !void {
+fn appendReturn(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, rest: []const u8) !void {
     const t = trim(rest);
     if (std.mem.eql(u8, t, "void") or t.len == 0) {
         try out.appendSlice("  return\n");
@@ -747,7 +748,7 @@ fn appendReturn(out: *std.ArrayList(u8), allocator: std.mem.Allocator, rest: []c
     try out.append('\n');
 }
 
-fn appendCast(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []const u8, op: []const u8, rest: []const u8) !void {
+fn appendCast(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, lhs: []const u8, op: []const u8, rest: []const u8) !void {
     const to_idx = std.mem.lastIndexOf(u8, rest, " to ") orelse return error.UnsupportedInstruction;
     const source = trim(rest[0..to_idx]);
     const dest_ty_text = trim(rest[to_idx + 4 ..]);
@@ -755,12 +756,12 @@ fn appendCast(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []cons
     const dest_ty = typeTokenToSa(dest_ty_token) orelse return error.UnsupportedInstruction;
     const dst = try sanitizeIdent(allocator, lhs, "r");
     defer allocator.free(dst);
-    try out.writer().print("  {s} = {s} ", .{ dst, op });
+    try out.print("  {s} = {s} ", .{ dst, op });
     try appendValue(out, allocator, source);
-    try out.writer().print(" as {s}\n", .{dest_ty});
+    try out.print(" as {s}\n", .{dest_ty});
 }
 
-fn appendSelect(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []const u8, rest: []const u8) !void {
+fn appendSelect(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, lhs: []const u8, rest: []const u8) !void {
     const args = try splitTopLevelComma(allocator, rest);
     defer allocator.free(args);
     if (args.len != 3) return error.UnsupportedInstruction;
@@ -789,28 +790,28 @@ fn appendSelect(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []co
     const join_label = try std.fmt.allocPrint(allocator, "L_BC2SA_SELECT_JOIN_{s}", .{dst});
     defer allocator.free(join_label);
 
-    try out.writer().print("  {s} = stack_alloc {d}\n", .{ slot, size });
+    try out.print("  {s} = stack_alloc {d}\n", .{ slot, size });
     try out.appendSlice("  br ");
     try appendValue(out, allocator, args[0]);
-    try out.writer().print(" -> {s}, {s}\n", .{ true_label, false_label });
+    try out.print(" -> {s}, {s}\n", .{ true_label, false_label });
 
-    try out.writer().print("{s}:\n", .{true_label});
-    try out.writer().print("  store {s}+0, ", .{slot});
+    try out.print("{s}:\n", .{true_label});
+    try out.print("  store {s}+0, ", .{slot});
     try appendValue(out, allocator, args[1]);
-    try out.writer().print(" as {s}\n", .{sa_ty});
-    try out.writer().print("  jmp {s}\n", .{join_label});
+    try out.print(" as {s}\n", .{sa_ty});
+    try out.print("  jmp {s}\n", .{join_label});
 
-    try out.writer().print("{s}:\n", .{false_label});
-    try out.writer().print("  store {s}+0, ", .{slot});
+    try out.print("{s}:\n", .{false_label});
+    try out.print("  store {s}+0, ", .{slot});
     try appendValue(out, allocator, args[2]);
-    try out.writer().print(" as {s}\n", .{sa_ty});
-    try out.writer().print("  jmp {s}\n", .{join_label});
+    try out.print(" as {s}\n", .{sa_ty});
+    try out.print("  jmp {s}\n", .{join_label});
 
-    try out.writer().print("{s}:\n", .{join_label});
-    try out.writer().print("  {s} = load {s}+0 as {s}\n", .{ dst, slot, sa_ty });
+    try out.print("{s}:\n", .{join_label});
+    try out.print("  {s} = load {s}+0 as {s}\n", .{ dst, slot, sa_ty });
 }
 
-fn appendGetElementPtr(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []const u8, rest: []const u8) !void {
+fn appendGetElementPtr(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, lhs: []const u8, rest: []const u8) !void {
     var body = trim(rest);
     if (std.mem.startsWith(u8, body, "inbounds ")) body = trim(body["inbounds ".len..]);
     const args = try splitTopLevelComma(allocator, body);
@@ -879,7 +880,7 @@ fn appendGetElementPtr(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lh
             } else {
                 const temp = try std.fmt.allocPrint(allocator, "bc2sa_gep_term_{s}_{d}", .{ dst, term_id });
                 defer allocator.free(temp);
-                try out.writer().print("  {s} = mul {s}, {d}\n", .{ temp, value, stride });
+                try out.print("  {s} = mul {s}, {d}\n", .{ temp, value, stride });
                 term = try allocator.dupe(u8, temp);
             }
             term_id += 1;
@@ -887,7 +888,7 @@ fn appendGetElementPtr(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lh
 
         if (offset_expr) |previous| {
             const sum = try std.fmt.allocPrint(allocator, "bc2sa_gep_offset_{s}_{d}", .{ dst, term_id });
-            try out.writer().print("  {s} = add {s}, {s}\n", .{ sum, previous, term });
+            try out.print("  {s} = add {s}, {s}\n", .{ sum, previous, term });
             allocator.free(previous);
             allocator.free(term);
             offset_expr = sum;
@@ -898,10 +899,10 @@ fn appendGetElementPtr(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lh
 
     const offset = offset_expr orelse try allocator.dupe(u8, "0");
     if (offset_expr == null) offset_expr = offset;
-    try out.writer().print("  {s} = ptr_add {s}, {s}\n", .{ dst, base, offset });
+    try out.print("  {s} = ptr_add {s}, {s}\n", .{ dst, base, offset });
 }
 
-fn appendCall(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: ?[]const u8, rest: []const u8) !void {
+fn appendCall(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, lhs: ?[]const u8, rest: []const u8) !void {
     const call_idx = std.mem.indexOf(u8, rest, "call ") orelse return error.UnsupportedInstruction;
     const call_text = trim(rest[call_idx + "call ".len ..]);
     const at = std.mem.indexOfScalar(u8, call_text, '@');
@@ -921,15 +922,15 @@ fn appendCall(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: ?[]con
         const dst = try sanitizeIdent(allocator, lhs_text, "r");
         defer allocator.free(dst);
         if (indirect) {
-            try out.writer().print("  {s} = call_indirect {s}(", .{ dst, callee });
+            try out.print("  {s} = call_indirect {s}(", .{ dst, callee });
         } else {
-            try out.writer().print("  {s} = call @{s}(", .{ dst, callee });
+            try out.print("  {s} = call @{s}(", .{ dst, callee });
         }
     } else {
         if (indirect) {
-            try out.writer().print("  call_indirect {s}(", .{callee});
+            try out.print("  call_indirect {s}(", .{callee});
         } else {
-            try out.writer().print("  call @{s}(", .{callee});
+            try out.print("  call @{s}(", .{callee});
         }
     }
 
@@ -950,7 +951,7 @@ fn appendCall(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: ?[]con
     try out.appendSlice(")\n");
 }
 
-fn appendAssignmentInstruction(out: *std.ArrayList(u8), allocator: std.mem.Allocator, lhs: []const u8, rhs: []const u8) !void {
+fn appendAssignmentInstruction(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, lhs: []const u8, rhs: []const u8) !void {
     var words = std.mem.tokenizeAny(u8, rhs, " \t\r\n");
     const op = words.next() orelse return error.InvalidIr;
     const rest_start = std.mem.indexOf(u8, rhs, op) orelse return error.InvalidIr;
@@ -972,7 +973,7 @@ fn appendAssignmentInstruction(out: *std.ArrayList(u8), allocator: std.mem.Alloc
     return error.UnsupportedInstruction;
 }
 
-fn appendInstruction(out: *std.ArrayList(u8), allocator: std.mem.Allocator, line: []const u8) !void {
+fn appendInstruction(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, line: []const u8) !void {
     const cleaned = cleanInstructionLine(line);
     const t = trim(cleaned);
     if (t.len == 0) return;
@@ -991,7 +992,7 @@ fn appendInstruction(out: *std.ArrayList(u8), allocator: std.mem.Allocator, line
     return error.UnsupportedInstruction;
 }
 
-fn appendSwitch(out: *std.ArrayList(u8), allocator: std.mem.Allocator, text: []const u8, switch_id: usize) !void {
+fn appendSwitch(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, text: []const u8, switch_id: usize) !void {
     const open = std.mem.indexOfScalar(u8, text, '[') orelse return error.UnsupportedInstruction;
     const close = std.mem.lastIndexOfScalar(u8, text, ']') orelse return error.InvalidIr;
     if (close < open) return error.InvalidIr;
@@ -1008,7 +1009,7 @@ fn appendSwitch(out: *std.ArrayList(u8), allocator: std.mem.Allocator, text: []c
     const default_label = try labelName(allocator, llvmTypedValueToValue(default_text["label ".len..]));
     defer allocator.free(default_label);
 
-    var cases = std.ArrayList([]const []const u8).init(allocator);
+    var cases = std.array_list.Managed([]const []const u8).init(allocator);
     defer {
         for (cases.items) |parts| allocator.free(parts);
         cases.deinit();
@@ -1035,7 +1036,7 @@ fn appendSwitch(out: *std.ArrayList(u8), allocator: std.mem.Allocator, text: []c
     }
 
     if (cases.items.len == 0) {
-        try out.writer().print("  jmp {s}\n", .{default_label});
+        try out.print("  jmp {s}\n", .{default_label});
         return;
     }
 
@@ -1053,21 +1054,21 @@ fn appendSwitch(out: *std.ArrayList(u8), allocator: std.mem.Allocator, text: []c
 
         const cmp_name = try std.fmt.allocPrint(allocator, "bc2sa_switch_cmp_{d}_{d}", .{ switch_id, idx });
         defer allocator.free(cmp_name);
-        try out.writer().print("  {s} = eq {s}, {s}\n", .{ cmp_name, switch_value, case_value });
+        try out.print("  {s} = eq {s}, {s}\n", .{ cmp_name, switch_value, case_value });
 
         if (idx + 1 == cases.items.len) {
-            try out.writer().print("  br {s} -> {s}, {s}\n", .{ cmp_name, case_label, default_label });
+            try out.print("  br {s} -> {s}, {s}\n", .{ cmp_name, case_label, default_label });
         } else {
             const next_label = try std.fmt.allocPrint(allocator, "L_BC2SA_SWITCH_NEXT_{d}_{d}", .{ switch_id, idx });
             defer allocator.free(next_label);
-            try out.writer().print("  br {s} -> {s}, {s}\n", .{ cmp_name, case_label, next_label });
-            try out.writer().print("{s}:\n", .{next_label});
+            try out.print("  br {s} -> {s}, {s}\n", .{ cmp_name, case_label, next_label });
+            try out.print("{s}:\n", .{next_label});
         }
     }
 }
 
 fn decodeLlvmCString(allocator: std.mem.Allocator, literal: []const u8) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
 
     var i: usize = 0;
@@ -1102,7 +1103,7 @@ fn decodeLlvmCString(allocator: std.mem.Allocator, literal: []const u8) ![]u8 {
     return try out.toOwnedSlice();
 }
 
-fn appendSaQuotedByte(out: *std.ArrayList(u8), byte: u8) !void {
+fn appendSaQuotedByte(out: *std.array_list.Managed(u8), byte: u8) !void {
     switch (byte) {
         '\\' => try out.appendSlice("\\\\"),
         '"' => try out.appendSlice("\\\""),
@@ -1114,13 +1115,13 @@ fn appendSaQuotedByte(out: *std.ArrayList(u8), byte: u8) !void {
             if (byte >= 0x20 and byte <= 0x7e) {
                 try out.append(byte);
             } else {
-                try out.writer().print("\\x{X:0>2}", .{byte});
+                try out.print("\\x{X:0>2}", .{byte});
             }
         },
     }
 }
 
-fn appendConstDecl(out: *std.ArrayList(u8), allocator: std.mem.Allocator, line: []const u8) !bool {
+fn appendConstDecl(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, line: []const u8) !bool {
     const eq = std.mem.indexOfScalar(u8, line, '=') orelse return false;
     const raw_name = trim(line[0..eq]);
     if (!std.mem.startsWith(u8, raw_name, "@")) return false;
@@ -1136,12 +1137,12 @@ fn appendConstDecl(out: *std.ArrayList(u8), allocator: std.mem.Allocator, line: 
     defer allocator.free(name);
 
     if (std.unicode.utf8ValidateSlice(bytes)) {
-        try out.writer().print("@const {s} = utf8:\"", .{name});
+        try out.print("@const {s} = utf8:\"", .{name});
         for (bytes) |byte| try appendSaQuotedByte(out, byte);
         try out.appendSlice("\"\n");
     } else {
-        try out.writer().print("@const {s} = hex:", .{name});
-        for (bytes) |byte| try out.writer().print("\\x{X:0>2}", .{byte});
+        try out.print("@const {s} = hex:", .{name});
+        for (bytes) |byte| try out.print("\\x{X:0>2}", .{byte});
         try out.append('\n');
     }
     return true;
@@ -1175,18 +1176,18 @@ fn phiSlotName(allocator: std.mem.Allocator, lhs: []const u8) ![]u8 {
     return try std.fmt.allocPrint(allocator, "bc2sa_phi_slot_{s}", .{dst});
 }
 
-fn appendPhiSlots(out: *std.ArrayList(u8), allocator: std.mem.Allocator, phi_lines: []const []const u8) !void {
+fn appendPhiSlots(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, phi_lines: []const []const u8) !void {
     for (phi_lines) |phi_line| {
         const phi = try parsePhi(allocator, phi_line);
         defer allocator.free(phi.incoming);
         const size = typeBytes(phi.ty) orelse return error.UnsupportedPhi;
         const slot = try phiSlotName(allocator, phi.lhs);
         defer allocator.free(slot);
-        try out.writer().print("  {s} = stack_alloc {d}\n", .{ slot, size });
+        try out.print("  {s} = stack_alloc {d}\n", .{ slot, size });
     }
 }
 
-fn appendPhiLoad(out: *std.ArrayList(u8), allocator: std.mem.Allocator, line: []const u8) !void {
+fn appendPhiLoad(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, line: []const u8) !void {
     const phi = try parsePhi(allocator, line);
     defer allocator.free(phi.incoming);
     const sa_ty = typeTokenToSa(phi.ty) orelse return error.UnsupportedPhi;
@@ -1194,10 +1195,10 @@ fn appendPhiLoad(out: *std.ArrayList(u8), allocator: std.mem.Allocator, line: []
     defer allocator.free(dst);
     const slot = try phiSlotName(allocator, phi.lhs);
     defer allocator.free(slot);
-    try out.writer().print("  {s} = load {s}+0 as {s}\n", .{ dst, slot, sa_ty });
+    try out.print("  {s} = load {s}+0 as {s}\n", .{ dst, slot, sa_ty });
 }
 
-fn appendPhiStoresForBlock(out: *std.ArrayList(u8), allocator: std.mem.Allocator, phi_lines: []const []const u8, block: []const u8) !void {
+fn appendPhiStoresForBlock(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, phi_lines: []const []const u8, block: []const u8) !void {
     for (phi_lines) |phi_line| {
         const phi = try parsePhi(allocator, phi_line);
         defer allocator.free(phi.incoming);
@@ -1214,19 +1215,19 @@ fn appendPhiStoresForBlock(out: *std.ArrayList(u8), allocator: std.mem.Allocator
             if (!std.mem.eql(u8, trim(incoming_block), trim(block))) continue;
             const value = try saValue(allocator, pair[0]);
             defer allocator.free(value);
-            try out.writer().print("  store {s}+0, {s} as {s}\n", .{ slot, value, sa_ty });
+            try out.print("  store {s}+0, {s} as {s}\n", .{ slot, value, sa_ty });
         }
     }
 }
 
-fn appendFunctionBody(out: *std.ArrayList(u8), allocator: std.mem.Allocator, header: []const u8, body: []const []const u8) !void {
+fn appendFunctionBody(out: *std.array_list.Managed(u8), allocator: std.mem.Allocator, header: []const u8, body: []const []const u8) !void {
     try appendFunctionHeader(out, allocator, header, false);
 
-    var phi_lines = std.ArrayList([]const u8).init(allocator);
+    var phi_lines = std.array_list.Managed([]const u8).init(allocator);
     defer phi_lines.deinit();
     for (body) |line| if (isPhiInstruction(line)) try phi_lines.append(line);
 
-    var switch_text = std.ArrayList(u8).init(allocator);
+    var switch_text = std.array_list.Managed(u8).init(allocator);
     defer switch_text.deinit();
     var pending_switch = false;
     var switch_id: usize = 0;
@@ -1312,7 +1313,7 @@ pub fn translateIrSource(allocator: std.mem.Allocator, source: []const u8) ![]u8
     active_type_defs = &type_defs;
     defer active_type_defs = previous_type_defs;
 
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
     var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |raw_line| {
@@ -1329,7 +1330,7 @@ pub fn translateIrSource(allocator: std.mem.Allocator, source: []const u8) ![]u8
             continue;
         }
         if (startsWithWord(line, "define")) {
-            var body = std.ArrayList([]const u8).init(allocator);
+            var body = std.array_list.Managed([]const u8).init(allocator);
             defer body.deinit();
             var closed = false;
             while (lines.next()) |raw_body_line| {
@@ -1352,7 +1353,7 @@ pub fn translateIrSource(allocator: std.mem.Allocator, source: []const u8) ![]u8
 
 fn runLlvmDisTool(allocator: std.mem.Allocator, exe: []const u8, path: []const u8) !?[]u8 {
     const argv = [_][]const u8{ exe, "-o", "-", path };
-    const result = std.process.Child.run(.{
+    const result = sio.Child.run(.{
         .allocator = allocator,
         .argv = argv[0..],
         .max_output_bytes = max_ir_bytes,
@@ -1364,7 +1365,7 @@ fn runLlvmDisTool(allocator: std.mem.Allocator, exe: []const u8, path: []const u
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code == 0) return result.stdout;
             return error.LlvmDisFailed;
         },
@@ -1374,7 +1375,7 @@ fn runLlvmDisTool(allocator: std.mem.Allocator, exe: []const u8, path: []const u
 
 fn runClangDisTool(allocator: std.mem.Allocator, exe: []const u8, path: []const u8) !?[]u8 {
     const argv = [_][]const u8{ exe, "-S", "-emit-llvm", path, "-o", "-" };
-    const result = std.process.Child.run(.{
+    const result = sio.Child.run(.{
         .allocator = allocator,
         .argv = argv[0..],
         .max_output_bytes = max_ir_bytes,
@@ -1386,7 +1387,7 @@ fn runClangDisTool(allocator: std.mem.Allocator, exe: []const u8, path: []const 
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| {
+        .exited => |code| {
             if (code == 0) return result.stdout;
             return error.LlvmDisFailed;
         },
@@ -1405,7 +1406,7 @@ fn disassembleBitcode(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 }
 
 pub fn translateBitcodeFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const source = std.fs.cwd().readFileAlloc(allocator, path, max_bitcode_bytes) catch |err| switch (err) {
+    const source = sio.cwd().readFileAlloc(allocator, path, max_bitcode_bytes) catch |err| switch (err) {
         error.FileNotFound => return error.UnsupportedBitcodeInput,
         else => return err,
     };
@@ -1423,7 +1424,7 @@ pub fn translateBitcodeFile(allocator: std.mem.Allocator, path: []const u8) ![]u
 fn llvmAs(allocator: std.mem.Allocator, input_path: []const u8, output_path: []const u8) !void {
     for (llvm_as_candidates) |candidate| {
         const argv = [_][]const u8{ candidate, input_path, "-o", output_path };
-        const result = std.process.Child.run(.{
+        const result = sio.Child.run(.{
             .allocator = allocator,
             .argv = argv[0..],
         }) catch |err| switch (err) {
@@ -1433,7 +1434,7 @@ fn llvmAs(allocator: std.mem.Allocator, input_path: []const u8, output_path: []c
         defer allocator.free(result.stdout);
         defer allocator.free(result.stderr);
         switch (result.term) {
-            .Exited => |code| if (code == 0) return,
+            .exited => |code| if (code == 0) return,
             else => {},
         }
     }
@@ -1443,7 +1444,8 @@ fn llvmAs(allocator: std.mem.Allocator, input_path: []const u8, output_path: []c
 test "bc2sa translates real llvm bitcode" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    try tmp.dir.writeFile(.{ .sub_path = "sample.ll", .data = 
+    const tmp_dir: sio.Dir = .{ .inner = tmp.dir };
+    try tmp_dir.writeFile(.{ .sub_path = "sample.ll", .data = 
         \\define i32 @main(i32 %lhs, i32 %rhs) {
         \\entry:
         \\  %0 = add i32 %lhs, %rhs
@@ -1456,9 +1458,9 @@ test "bc2sa translates real llvm bitcode" {
         \\}
         \\
     });
-    const ll_path = try tmp.dir.realpathAlloc(std.testing.allocator, "sample.ll");
+    const ll_path = try tmp_dir.realpathAlloc(std.testing.allocator, "sample.ll");
     defer std.testing.allocator.free(ll_path);
-    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const tmp_path = try tmp_dir.realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(tmp_path);
     const bc_path = try std.fs.path.join(std.testing.allocator, &.{ tmp_path, "sample.bc" });
     defer std.testing.allocator.free(bc_path);
@@ -1477,11 +1479,12 @@ test "bc2sa translates real llvm bitcode" {
 test "bc2sa rejects text llvm ir on bitcode-only path" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    try tmp.dir.writeFile(.{
+    const tmp_dir: sio.Dir = .{ .inner = tmp.dir };
+    try tmp_dir.writeFile(.{
         .sub_path = "sample.ll",
         .data = "define i32 @main() {\nentry:\n  ret i32 0\n}\n",
     });
-    const sample_path = try tmp.dir.realpathAlloc(std.testing.allocator, "sample.ll");
+    const sample_path = try tmp_dir.realpathAlloc(std.testing.allocator, "sample.ll");
     defer std.testing.allocator.free(sample_path);
     try std.testing.expectError(error.UnsupportedBitcodeInput, translateBitcodeFile(std.testing.allocator, sample_path));
 }

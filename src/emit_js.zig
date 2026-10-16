@@ -5,6 +5,7 @@ const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
 const call = @import("referee/call.zig");
 const const_decl = @import("common/const_decl.zig");
+const sio = @import("sio");
 
 pub const EmitOptions = emit_options.EmitOptions;
 pub const JsEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, UnsupportedNpmBinding, OutOfMemory };
@@ -243,7 +244,7 @@ fn collectNpmImports(
     tasks: []const FuncTask,
     npm_binds: *const std.StringHashMap([]const u8),
 ) ![]NpmImport {
-    var out = std.ArrayList(NpmImport).init(allocator);
+    var out = std.array_list.Managed(NpmImport).init(allocator);
     errdefer out.deinit();
     for (tasks) |task| {
         if (task.kind != .extern_decl) continue;
@@ -390,7 +391,7 @@ fn emitNpmWrapper(
 }
 
 fn collectFuncTasks(allocator: std.mem.Allocator, verified: anytype) ![]FuncTask {
-    var tasks = std.ArrayList(FuncTask).init(allocator);
+    var tasks = std.array_list.Managed(FuncTask).init(allocator);
     errdefer tasks.deinit();
     var sig_index: usize = 0;
     var idx: usize = 0;
@@ -756,7 +757,7 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\function __sa_cvt_sext_u8(v) { return __sa_narrow(v, 8, true); }
         \\function __sa_cvt_sext_u16(v) { return __sa_narrow(v, 16, true); }
         \\function __sa_cvt_sext_u32(v) { return __sa_narrow(v, 32, true); }
-        \\function __sa_cvt_sext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt(Math.trunc(+v)); }
+        \\function __sa_cvt_sext_i64(v) { return (typeof v === "bigint") ? BigInt.asIntN(64, v) : BigInt.asIntN(64, BigInt(Math.trunc(+v))); }
         \\function __sa_cvt_sext_u64(v) { return (typeof v === "bigint") ? BigInt.asUintN(64, v) : BigInt.asUintN(64, BigInt(Math.trunc(+v))); }
         \\function __sa_cvt_sext_ptr(v) { return __sa_cvt_ptr64(v); }
         \\function __sa_cvt_sitofp_f64(v) { return (typeof v === "bigint") ? Number(v) : (+v); }
@@ -943,15 +944,12 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\  return o + '"';
         \\}
         \\function __sa_json_f64_str(x) {
-        \\  // Zig std.json shortest-scientific float format (probed native:
-        \\  // 7->7e0, 0.5->5e-1, 1e21->1e21, NaN->"nan", Inf->inf, -0->0e0).
+        \\  // Match native (Zig 0.17 std.json decimal shortest): 2.5->"2.5".
         \\  const v = (typeof x === "bigint") ? Number(x) : (+x);
         \\  if (Number.isNaN(v)) return '"nan"';
         \\  if (v === Infinity) return 'inf';
         \\  if (v === -Infinity) return '-inf';
-        \\  const a = (v < 0) ? -v : v;
-        \\  const e = a.toExponential().replace("e+", "e");
-        \\  return ((v < 0) ? "-" : "") + e;
+        \\  return String(v).replace("e+", "e");
         \\}
         \\function __sa_jw_begin(w, open) {
         \\  if (w.result !== null) return 2;
@@ -2043,6 +2041,7 @@ fn emitReturnStmt(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_
 }
 
 fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, bases: *BaseSet, retbase: *const RetBaseTable) !void {
+    _ = use_global;
     _ = fn_idx;
     var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
         try writer.print("  __sa_trap(\"unsupported call: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
@@ -2054,18 +2053,8 @@ fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: a
         return;
     }
     if (parsed.dest) |dest| {
-        // Resolve the destination through the raw register operand (mirrors
-        // every other instruction via dstSlot): for structured/SAB calls the
-        // dest is a function-local slot whose numeric id must not round-trip
-        // through the global symbol table (which can alias it to an
-        // unrelated global name and fail slot lookup with InvalidOperand).
-        // Text-derived calls fall back to the name lookup below.
-        const slot: u32 = if (base.operands[0] == .reg or base.operands[0] == .symbol)
-            try dstSlot(fsig, use_global, base.operands[0])
-        else blk: {
-            const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
-            break :blk fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
-        };
+        const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
+        const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
         // Fresh blocks from allocator shims and proven callees keep base
         // provenance; everything else is killed (unknown). Move-prefix
         // arguments are consumed.
@@ -2101,6 +2090,7 @@ fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: a
 /// Boxed callee values come from vtable loads or `&func` expressions;
 /// results (including fallible {s,v} objects) pass through untouched.
 fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, bases: *BaseSet, retbase: *const RetBaseTable) !void {
+    _ = use_global;
     _ = fn_idx;
     var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
         try writer.print("  __sa_trap(\"unsupported call_indirect: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
@@ -2108,13 +2098,8 @@ fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, sy
     };
     defer parsed.deinit(allocator);
     if (parsed.dest) |dest| {
-        // Same register-operand-first resolution as direct calls above.
-        const slot: u32 = if (base.operands[0] == .reg or base.operands[0] == .symbol)
-            try dstSlot(fsig, use_global, base.operands[0])
-        else blk: {
-            const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
-            break :blk fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
-        };
+        const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
+        const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
         // Fresh blocks from allocator shims and proven callees keep base
         // provenance; everything else is killed (unknown). Move-prefix
         // arguments are consumed.
@@ -2629,9 +2614,9 @@ fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: any
             try writer.writeAll("        ");
             // Reuse the linear emitter, then re-indent (it emits with 2-space indent).
             var buf: [32768]u8 = undefined;
-            var fbs = std.io.fixedBufferStream(&buf);
-            try emitLinearInstruction(fbs.writer(), allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases, retbase, widths, promo);
-            const s = std.mem.trim(u8, fbs.getWritten(), " \t\r\n");
+            var fbs = std.Io.Writer.fixed(&buf);
+            try emitLinearInstruction(&fbs, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases, retbase, widths, promo);
+            const s = std.mem.trim(u8, fbs.buffered(), " \t\r\n");
             // Linear emitter may produce multiple lines; indent each by 8 spaces.
             var it = std.mem.splitScalar(u8, s, '\n');
             var first_line = true;
@@ -2983,11 +2968,11 @@ fn provCallDestBase(
 }
 
 const ProvBody = struct {
-    blocks: std.ArrayList(BlockRange),
+    blocks: std.array_list.Managed(BlockRange),
     lid_to_blk: std.AutoHashMap(u32, usize),
-    succs: std.ArrayList(std.ArrayList(usize)),
-    in_sets: std.ArrayList(BaseSet),
-    out_sets: std.ArrayList(BaseSet),
+    succs: std.array_list.Managed(std.array_list.Managed(usize)),
+    in_sets: std.array_list.Managed(BaseSet),
+    out_sets: std.array_list.Managed(BaseSet),
 
     fn deinit(self: *ProvBody) void {
         for (self.in_sets.items) |*s| s.deinit();
@@ -3013,11 +2998,11 @@ fn provSolveBody(
     seed: ?u32,
 ) JsEmitError!ProvBody {
     var prov = ProvBody{
-        .blocks = std.ArrayList(BlockRange).init(allocator),
+        .blocks = std.array_list.Managed(BlockRange).init(allocator),
         .lid_to_blk = std.AutoHashMap(u32, usize).init(allocator),
-        .succs = std.ArrayList(std.ArrayList(usize)).init(allocator),
-        .in_sets = std.ArrayList(BaseSet).init(allocator),
-        .out_sets = std.ArrayList(BaseSet).init(allocator),
+        .succs = std.array_list.Managed(std.array_list.Managed(usize)).init(allocator),
+        .in_sets = std.array_list.Managed(BaseSet).init(allocator),
+        .out_sets = std.array_list.Managed(BaseSet).init(allocator),
     };
     errdefer prov.deinit();
     {
@@ -3048,7 +3033,7 @@ fn provSolveBody(
         }
     }
     for (prov.blocks.items, 0..) |blk, bi| {
-        var s = std.ArrayList(usize).init(allocator);
+        var s = std.array_list.Managed(usize).init(allocator);
         errdefer s.deinit();
         if (blk.end > blk.start) {
             const last = verified.annotated[blk.end - 1].base;
@@ -3141,7 +3126,7 @@ fn provSolveBody(
                     while (oit.next()) |e| tmp.put(e.key_ptr.*, {}) catch return JsEmitError.OutOfMemory;
                     first_pred = false;
                 } else {
-                    var rm = std.ArrayList(u32).init(allocator);
+                    var rm = std.array_list.Managed(u32).init(allocator);
                     defer rm.deinit();
                     var tit = tmp.iterator();
                     while (tit.next()) |e| {
@@ -3229,7 +3214,7 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
     var promo = try collectPromotableSlots(allocator, verified, fsig, task, use_global);
     defer promo.deinit();
     if (promo.count() != 0) {
-        var pkeys = std.ArrayList(u32).init(allocator);
+        var pkeys = std.array_list.Managed(u32).init(allocator);
         defer pkeys.deinit();
         var pkit = promo.keyIterator();
         while (pkit.next()) |k| try pkeys.append(k.*);
@@ -3444,15 +3429,6 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         // into the output range (second C++ pass). No temp Buffer alloc,
         // no copy-back, no TextDecoder. For clean ASCII input the bytes
         // and return value are identical to Buffer.from(...).length.
-        // Q3 verdict (2026-10): the remaining 1.5-1.7x vs native is the
-        // host-interface physical limit, not a codegen gap. V8/JSC expose
-        // no zero-copy bytes->string channel (latin1/TextDecoder/
-        // fromCharCode all copy; latin1 TextDecoder is windows-1252);
-        // ExternalString needs a native addon (node_api_create_external_
-        // string_latin1, experimental, may still copy) plus immutable
-        // wasm-memory lifetime at odds with linear-memory grow. Keep this
-        // shape; optional N-API external-string probe is evidence-only
-        // (snapshot <0.05ns/B to matter; >=0.12 means flattened/copied).
         // Contract is strict: a short decode (garbage input or an
         // undersized out range) traps instead of returning short, so a
         // caller bug can never become silent data truncation.
@@ -5683,11 +5659,11 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
 }
 
 pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, js_opt: JsEmitOptions, npm_binds: *const std.StringHashMap([]const u8)) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
-    const writer = out.writer();
+    const writer = &out.writer;
     // Indirect-call function table: every vtable slot target, deduped in order.
-    var fn_names = std.ArrayList([]const u8).init(allocator);
+    var fn_names = std.array_list.Managed([]const u8).init(allocator);
     defer fn_names.deinit();
     var fn_idx = std.StringHashMap(usize).init(allocator);
     defer fn_idx.deinit();
@@ -5869,32 +5845,32 @@ pub fn emitJsToFile(allocator: std.mem.Allocator, verified: anytype, source_path
     defer allocator.free(final);
     const needle = "__SA_MEM_BYTES_DECL__";
     if (std.mem.indexOf(u8, final, needle)) |pos| {
-        var patched = std.ArrayList(u8).init(allocator);
+        var patched = std.array_list.Managed(u8).init(allocator);
         errdefer patched.deinit();
         try patched.appendSlice(final[0..pos]);
-        try patched.writer().print("{d}", .{mem_bytes});
+        try patched.print("{d}", .{mem_bytes});
         try patched.appendSlice(final[pos + needle.len ..]);
         const owned = try patched.toOwnedSlice();
         defer allocator.free(owned);
         const dir = std.fs.path.dirname(path);
-        if (dir) |d| try std.fs.cwd().makePath(d);
-        const f = try std.fs.cwd().createFile(path, .{});
+        if (dir) |d| try sio.cwd().makePath(d);
+        const f = try sio.cwd().createFile(path, .{});
         defer f.close();
         try f.writeAll(owned);
         return;
     }
     const dir = std.fs.path.dirname(path);
-    if (dir) |d| try std.fs.cwd().makePath(d);
-    const f = try std.fs.cwd().createFile(path, .{});
+    if (dir) |d| try sio.cwd().makePath(d);
+    const f = try sio.cwd().createFile(path, .{});
     defer f.close();
     try f.writeAll(final);
 }
 
 test "js ident sanitizes names" {
     var buf: [64]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    try jsIdent(fbs.writer(), "hello-world.foo");
-    try std.testing.expectEqualStrings("hello_world_foo", fbs.getWritten());
+    var fbs = std.Io.Writer.fixed(&buf);
+    try jsIdent(&fbs, "hello-world.foo");
+    try std.testing.expectEqualStrings("hello_world_foo", fbs.buffered());
 }
 
 test "js format parses esm and cjs" {

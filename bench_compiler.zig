@@ -8,7 +8,7 @@ pub fn main() !void {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var dir = try std.fs.cwd().openDir("demos/rosetta", .{ .iterate = true });
+    var dir = try sio.cwd().openDir("demos/rosetta", .{ .iterate = true });
     defer dir.close();
 
     var it = dir.iterate();
@@ -22,7 +22,7 @@ pub fn main() !void {
     while (try it.next()) |entry| {
         if (entry.kind == .directory) {
             const file_path = try std.fmt.allocPrint(alloc, "demos/rosetta/{s}/main.sa", .{entry.name});
-            const source = std.fs.cwd().readFileAlloc(alloc, file_path, 1024 * 1024) catch continue;
+            const source = sio.cwd().readFileAlloc(alloc, file_path, 1024 * 1024) catch continue;
             
             const t0 = std.time.nanoTimestamp();
             const flat = flattener.flattenFile(alloc, file_path, source) catch continue;
@@ -40,7 +40,7 @@ pub fn main() !void {
                     const t4 = std.time.nanoTimestamp();
                     total_emit_ns += @intCast(t4 - t2);
 
-                    const result = std.process.Child.run(.{
+                    const result = sio.Child.run(.{
                         .allocator = alloc,
                         .argv = &[_][]const u8{ "zig", "cc", "-c", tmp_bc, "-o", "/dev/null" },
                     }) catch continue;

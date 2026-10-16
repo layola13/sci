@@ -11,7 +11,7 @@ const inst = @import("common/instruction.zig");
 // that VerifyOk would otherwise borrow from FlattenResult, so a hit can return
 // an independent clone for codegen without double-free or dangling pointers.
 
-var mutex: std.Thread.Mutex = .{};
+var mutex: std.atomic.Mutex = .unlocked;
 var passed_map: ?std.AutoHashMap([32]u8, void) = null;
 var result_map: ?std.AutoHashMap([32]u8, OwnedVerifySnapshot) = null;
 
@@ -253,7 +253,9 @@ fn resultMap() *std.AutoHashMap([32]u8, OwnedVerifySnapshot) {
 }
 
 pub fn isVerified(digest: [32]u8) bool {
-    mutex.lock();
+    while (!mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer mutex.unlock();
     const hit = verdictMap().contains(digest);
     if (hit) {
@@ -265,13 +267,17 @@ pub fn isVerified(digest: [32]u8) bool {
 }
 
 pub fn recordVerified(digest: [32]u8) void {
-    mutex.lock();
+    while (!mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer mutex.unlock();
     verdictMap().put(digest, {}) catch {};
 }
 
 pub fn hasResult(digest: [32]u8) bool {
-    mutex.lock();
+    while (!mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer mutex.unlock();
     return resultMap().contains(digest);
 }
@@ -329,7 +335,9 @@ pub fn recordResultFromInstructions(digest: [32]u8, instructions: []const inst.I
         .symbol_names = &.{},
     };
 
-    mutex.lock();
+    while (!mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer mutex.unlock();
     const map = resultMap();
     if (map.fetchRemove(digest)) |old| {
@@ -343,7 +351,9 @@ pub fn recordResultFromInstructions(digest: [32]u8, instructions: []const inst.I
 }
 
 pub fn clear() void {
-    mutex.lock();
+    while (!mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer mutex.unlock();
     if (passed_map) |*m| m.clearRetainingCapacity();
     if (result_map) |*m| {
