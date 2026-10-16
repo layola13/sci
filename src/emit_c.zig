@@ -1427,6 +1427,45 @@ const kRuntimeHelpers: []const HelperDef = &.{
     .{ .name = "sa_regex_find", .code =
     \\static sa_regex_t *sa_regex_find(sa_u64 h) { unsigned i; for (i = 0; i < SA_REGEX_MAX_OBJS; i++) if (sa_regexes[i].h == h) return &sa_regexes[i]; return 0; }
     , .deps = &.{} },
+    .{ .name = "sa_path_norm", .code =
+    \\static sa_u64 sa_path_norm(const uint8_t *s, size_t n, uint8_t *o, size_t cap) {
+    \\  size_t w = 0; size_t i = 0; int abs = (n > 0 && s[0] == '/');
+    \\  int trail = (n > 1 && s[n - 1] == '/');
+    \\  size_t base = abs ? 1 : 0;
+    \\  if (abs) { if (w >= cap) return ~(sa_u64)0; o[w++] = '/'; }
+    \\  while (i < n) {
+    \\    while (i < n && s[i] == '/') i++;
+    \\    if (i >= n) break;
+    \\    size_t j = i; while (j < n && s[j] != '/') j++;
+    \\    size_t sl = j - i;
+    \\    if (sl == 1 && s[i] == '.') { }
+    \\    else if (sl == 2 && s[i] == '.' && s[i + 1] == '.') {
+    \\      size_t e = w;
+    \\      if (w > base && o[w - 1] == '/') e--;
+    \\      size_t ss = e;
+    \\      while (ss > base && o[ss - 1] != '/') ss--;
+    \\      if (w > base && !(e - ss == 2 && o[ss] == '.' && o[ss + 1] == '.')) { w = ss; if (w > base && o[w - 1] == '/') w--; }
+    \\      else if (w == base && !abs) {
+    \\        if (w + 2 > cap) return ~(sa_u64)0;
+    \\        o[w++] = '.'; o[w++] = '.';
+    \\      }
+    \\      else if (w > base) {
+    \\        if (w + 3 > cap) return ~(sa_u64)0;
+    \\        o[w++] = '/'; o[w++] = '.'; o[w++] = '.';
+    \\      }
+    \\    } else {
+    \\      if (w > base) { if (w + 1 > cap) return ~(sa_u64)0; o[w++] = '/'; }
+    \\      if (w + sl > cap) return ~(sa_u64)0;
+    \\      { size_t k; for (k = 0; k < sl; k++) o[w + k] = s[i + k]; }
+    \\      w += sl;
+    \\    }
+    \\    i = j;
+    \\  }
+    \\  if (w == 0) { if (w + 1 > cap) return ~(sa_u64)0; o[w++] = abs ? '/' : '.'; }
+    \\  else if (trail && o[w - 1] != '/') { if (w + 1 > cap) return ~(sa_u64)0; o[w++] = '/'; }
+    \\  return (sa_u64)w;
+    \\}
+    , .deps = &.{} },
     .{ .name = "sa_div_floor", .code =
     \\static sa_i64 sa_div_floor(sa_i64 a, sa_i64 b) { sa_i64 q = a / b; sa_i64 r = a % b; if (r != 0 && ((r < 0) != (b < 0))) q -= 1; return q; }
     , .deps = &.{} },
@@ -1577,6 +1616,11 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         regex_group_count,
         regex_free,
         regex_match_free,
+        node_path_normalize,
+        node_path_dirname,
+        node_path_extname,
+        node_path_is_absolute,
+        node_path_join,
         time_unix_ms,
         time_get_full_year,
         time_get_month,
@@ -1744,6 +1788,16 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b111, .tag = .time_parse_iso }
     else if (std.mem.eql(u8, name, "sa_time_set_field"))
         .{ .voids = all_void ^ 0b111, .tag = .time_set_field }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_path_normalize"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_path_normalize }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_path_dirname"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_path_dirname }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_path_extname"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_path_extname }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_path_is_absolute"))
+        .{ .voids = all_void ^ 0b111, .tag = .node_path_is_absolute }
+    else if (std.mem.eql(u8, name, "sa_node_plugin_path_join"))
+        .{ .voids = all_void ^ 0b1111, .tag = .node_path_join }
     else if (std.mem.eql(u8, name, "sa_http_client_new"))
         .{ .voids = all_void ^ 0b11, .tag = .http_client_new }
     else if (std.mem.eql(u8, name, "sa_http_client_req_new"))
@@ -2440,6 +2494,78 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             // dropping is a no-op that still validates nothing and
             // returns OK, matching observable behavior.
             try writer.writeAll(" return 0; }\n");
+        },
+        .node_path_normalize => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_u64 cap = a1 + 2;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(cap);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, cap);");
+            try writer.writeAll(" sa_u64 n = sa_path_norm(&sa_mem[x], (size_t)a1, &sa_mem[d], (size_t)cap);");
+            try writer.writeAll(" if (n == ~(sa_u64)0) return 1;");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, n); return 0; } } }\n");
+        },
+        .node_path_dirname => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t e = (size_t)a1;");
+            try writer.writeAll(" while (e > 1 && sa_mem[x + e - 1] == '/') e--;");
+            try writer.writeAll(" size_t i = e;");
+            try writer.writeAll(" while (i > 0 && sa_mem[x + i - 1] != '/') i--;");
+            try writer.writeAll(" sa_u64 n; sa_u64 src;");
+            try writer.writeAll(" if (e == 0 || i == 0) { n = 1; src = 0; }");
+            try writer.writeAll(" else if (i == 1) { n = 1; src = 1; }");
+            try writer.writeAll(" else { n = (sa_u64)(i - 1); src = 2; }");
+            try writer.writeAll(" { sa_u64 p = sa_alloc(n);");
+            try writer.writeAll(" uint32_t d = sa_checked_addr(p, n);");
+            try writer.writeAll(" if (src == 0) sa_mem[d] = (uint8_t)'.';");
+            try writer.writeAll(" else if (src == 1) sa_mem[d] = (uint8_t)'/';");
+            try writer.writeAll(" else { size_t k; for (k = 0; k < (size_t)n; k++)");
+            try writer.writeAll(" sa_mem[d + k] = sa_mem[x + k]; }");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, n);");
+            try writer.writeAll(" return 0; } } }\n");
+        },
+        .node_path_extname => {
+            // Zero-copy view into the input (no allocation needed).
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t i = (size_t)a1;");
+            try writer.writeAll(" while (i > 0 && sa_mem[x + i - 1] != '/') i--;");
+            try writer.writeAll(" size_t j = (size_t)a1;");
+            try writer.writeAll(" while (j > i && sa_mem[x + j - 1] != '.') j--;");
+            try writer.writeAll(" if (j <= i || j == i + 1 || j == (size_t)a1) {");
+            try writer.writeAll(" sa_store_u64(a2, 0); sa_store_u64(a3, 0); return 0; }");
+            try writer.writeAll(" sa_store_u64(a2, (sa_u64)x + (j - 1));");
+            try writer.writeAll(" sa_store_u64(a3, (sa_u64)a1 - (j - 1));");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .node_path_is_absolute => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" sa_u64 r = (a1 > 0 && sa_mem[x] == '/') ? 1 : 0;");
+            try writer.writeAll(" sa_store_u32(a2, r); return 0; } }\n");
+        },
+        .node_path_join => {
+            // argv of (ptr,len) pairs; joined with '/' then normalized
+            // in place (output never exceeds input + 1).
+            try writer.writeAll(" { if (a1 > (sa_u64)0x100000u) return 1;");
+            try writer.writeAll(" uint32_t ab = sa_checked_addr(a0, (size_t)(a1 * 16));");
+            try writer.writeAll(" (void)ab;");
+            try writer.writeAll(" sa_u64 total = 0; sa_u64 k;");
+            try writer.writeAll(" for (k = 0; k < a1; k++) {");
+            try writer.writeAll(" sa_u64 l = sa_load_u64(a0 + k * 16 + 8);");
+            try writer.writeAll(" if (l > 0 && total > ~(sa_u64)0 - l - 1) return 1;");
+            try writer.writeAll(" total += l + (k + 1 < a1 && l > 0 ? 1 : 0); }");
+            try writer.writeAll(" sa_u64 p = sa_alloc(total + 2);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, total + 2);");
+            try writer.writeAll(" sa_u64 w = 0;");
+            try writer.writeAll(" for (k = 0; k < a1; k++) {");
+            try writer.writeAll(" sa_u64 pp = sa_load_u64(a0 + k * 16);");
+            try writer.writeAll(" sa_u64 l = sa_load_u64(a0 + k * 16 + 8);");
+            try writer.writeAll(" uint32_t s = sa_checked_addr(pp, (size_t)l);");
+            try writer.writeAll(" if (l > 0 && w > 0) sa_mem[d + w++] = (uint8_t)'/';");
+            try writer.writeAll(" { size_t q; for (q = 0; q < (size_t)l; q++)");
+            try writer.writeAll(" sa_mem[d + w + q] = sa_mem[s + q]; }");
+            try writer.writeAll(" w += l; }");
+            try writer.writeAll(" sa_u64 n = sa_path_norm(&sa_mem[d], (size_t)w, &sa_mem[d], (size_t)(total + 2));");
+            try writer.writeAll(" if (n == ~(sa_u64)0) return 1;");
+            try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, n); return 0; } } }\n");
         },
         .time_unix_ms => {
             // Real wall clock (mirrors the interpreter, not staged).
