@@ -12,7 +12,7 @@ git status --short          # 必须干净；本地构建会改 artifacts/sa_std
                             # 仅验证的话用 git checkout -- artifacts/sa_std/libsa_std.a 还原
 git log --oneline -3
 git tag --sort=-v:refname | head -5   # 确认上一个版本，定出 <VER>
-zig version                 # 0.14.1（见 build.zig.zon minimum_zig_version）
+zig version                 # 0.17.0（见 build.zig.zon minimum_zig_version）
 ```
 
 版本号三处同改：`sci/build.zig.zon` 的 `.version`、
@@ -32,7 +32,7 @@ zig build -Dtarget=x86_64-macos -Dllvm=false        -p /tmp/sa-dist/mac-x86_64
 sh tools/build_freebsd.sh --prefix /tmp/sa-dist/freebsd-x86_64   # 需 sysroot，见下
 ```
 
-FreeBSD 说明：Zig 0.14.1 不自带 freebsd libc，`tools/build_freebsd.sh`
+FreeBSD 说明：Zig 0.17.0 不自带 freebsd libc，`tools/build_freebsd.sh`
 会自动下载 14.4-RELEASE `base.txz`（约 155M）做 sysroot 并生成 `-libc` 文件。
 FreeBSD 主机原生替代路线：`pkg install zig` 后直接 `zig build`。
 

@@ -185,10 +185,10 @@ function maybeWarnMissingZig(subcommand) {
   const msg = [
     `@salang/sa: 'zig' not found on PATH — 'sa ${subcommand}' will fail at the link step.`,
     `  pipeline: .sa -> LLVM-C bitcode (.sa.bc) -> zig cc ${subcommand === 'build-wasm' ? '-target wasm32-wasi ' : ''}-> output`,
-    `  fix: install zig 0.14.1 and ensure 'zig version' works.`,
-    `    easiest (darwin/linux/win): npm install -g @zigc/cli@0.14.1   # bundled with @salang/sa since 0.1.6`,
-    `    or upstream: https://ziglang.org/download/0.14.1/`,
-    `    FreeBSD x86_64 (@zigc has no freebsd build): https://github.com/layola13/sci/releases/download/zig-0.14.1-freebsd/zig-x86_64-freebsd-0.14.1.tar.xz`,
+    `  fix: install zig 0.17.0 and ensure 'zig version' works.`,
+    `    easiest (darwin/linux/win): npm install -g @zigc/cli@0.17.0   # bundled with @salang/sa since 0.1.6`,
+    `    or upstream: https://ziglang.org/download/0.17.0/`,
+    `    FreeBSD x86_64 (@zigc has no freebsd build): https://github.com/layola13/sci/releases/download/zig-0.17.0-freebsd/zig-x86_64-freebsd-0.17.0.tar.xz`,
     `  notes: 'sa run' needs no zig (pure interpreter); build-wasm needs no extra wasi-sdk (zig bundles wasi-libc).`,
   ].join('\n');
   console.error(msg);

@@ -61,11 +61,11 @@ compiled out without losing commands:
 | `test` | yes (compiles + native-runs) | yes | |
 | `check`, `layout`, `size`, `graph`, `skills`, `version` | no | no | |
 
-So: install `zig 0.14.1` once and ensure `zig version` works. Easiest on
+So: install `zig 0.17.0` once and ensure `zig version` works. Easiest on
 darwin/linux/win (npm, `@zigc` has no freebsd build):
 
 ```sh
-npm install -g @zigc/cli@0.14.1   # exact pin: latest is newer and mismatches LLVM 14
+npm install -g @zigc/cli@0.17.0   # exact pin: matches this toolchain
 ```
 
 Also shipped as an `optionalDependency` of `@salang/sa`, so a normal
@@ -74,15 +74,15 @@ Also shipped as an `optionalDependency` of `@salang/sa`, so a normal
 `@zigc/<platform>` package and prepends it to the `zig cc` link step's
 `PATH` — no global `zig` needed. Override with `SA_ZIG_BIN=/path/to/zig`
 (e.g. air-gapped hosts, or our FreeBSD build). Alternatives: upstream
-https://ziglang.org/download/0.14.1/ (`zig-x86_64-linux-0.14.1.tar.xz`
+https://ziglang.org/download/0.17.0/ (`zig-x86_64-linux-0.17.0.tar.xz`
 etc.). FreeBSD has
 no upstream zig build — use ours (built with FreeBSD-native LLVM 19,
 `tools/build_zig_freebsd.sh` documents the recipe):
 
 ```sh
-fetch -o - https://github.com/layola13/sci/releases/download/zig-0.14.1-freebsd/zig-x86_64-freebsd-0.14.1.tar.xz | tar -xJf -
-export PATH="$PWD/zig-x86_64-freebsd-0.14.1:$PATH"
-zig version   # expect 0.14.1
+fetch -o - https://github.com/layola13/sci/releases/download/zig-0.17.0-freebsd/zig-x86_64-freebsd-0.17.0.tar.xz | tar -xJf -
+export PATH="$PWD/zig-x86_64-freebsd-0.17.0:$PATH"
+zig version   # expect 0.17.0
 ```
 
 The launcher

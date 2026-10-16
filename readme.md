@@ -133,7 +133,7 @@ npm install -g @salang/sa
 sa --version
 ```
 
-Prefer building from source (needs Zig 0.14.1; LLVM 14 for the default backend):
+Prefer building from source (needs Zig 0.17.0; LLVM 14 for the default backend):
 
 ```bash
 zig build -Doptimize=ReleaseFast   # output: zig-out/bin/sa
