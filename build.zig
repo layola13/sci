@@ -23,13 +23,24 @@ fn latestGitTag(allocator: std.mem.Allocator, io: std.Io) ?[]const u8 {
         allocator.free(result.stdout);
         return null;
     }
-    const first_line = if (std.mem.indexOfScalar(u8, trimmed, '\n')) |idx| trimmed[0..idx] else trimmed;
-    const owned = allocator.dupe(u8, first_line) catch {
+    // Skip non-release tags (e.g. zig-0.14.1-freebsd toolchain assets):
+    // the embedded version must be a numeric release like 0.1.6.
+    var it = std.mem.splitScalar(u8, trimmed, '\n');
+    while (it.next()) |line| {
+        const tag = std.mem.trim(u8, line, " \t\r");
+        if (tag.len == 0) continue;
+        const body = if (tag[0] == 'v' and tag.len > 1) tag[1..] else tag;
+        if (body.len == 0) continue;
+        if (body[0] < '0' or body[0] > '9') continue;
+        const owned = allocator.dupe(u8, tag) catch {
+            allocator.free(result.stdout);
+            return null;
+        };
         allocator.free(result.stdout);
-        return null;
-    };
+        return owned;
+    }
     allocator.free(result.stdout);
-    return owned;
+    return null;
 }
 
 pub fn build(b: *std.Build) void {
