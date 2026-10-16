@@ -1744,7 +1744,7 @@ fn opCanTrap(opcode: inst.OpKind) bool {
     };
 }
 
-fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, widths: *WidthMap, sigmap: anytype, uniform_arity: usize, dead: *const std.AutoHashMap(u32, void)) !void {
+fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, widths: *WidthMap, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32, dead: *const std.AutoHashMap(u32, void)) !void {
     last_c_inst = base.raw_text;
     last_c_func = fsig.name;
     trackWidths(widths, allocator, symbols, fsig, use_global, base);
@@ -1765,8 +1765,31 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
                             }
                         }
                     }
+                } else if (indirect_ret_width) |w| {
+                    if (parsed.dest) |dest| {
+                        if (symbols.findId(dest)) |id| {
+                            if (fsig.slotOf(id)) |slot| {
+                                widths.put(slot, w) catch {};
+                            }
+                        }
+                    }
                 }
             } else |_| {}
+        },
+        .call_indirect => {
+            if (indirect_ret_width) |w| {
+                if (call.parseInstructionCall(allocator, base, symbols)) |*parsed_const| {
+                    var parsed = parsed_const.*;
+                    defer parsed.deinit(allocator);
+                    if (parsed.dest) |dest| {
+                        if (symbols.findId(dest)) |id| {
+                            if (fsig.slotOf(id)) |slot| {
+                                widths.put(slot, w) catch {};
+                            }
+                        }
+                    }
+                } else |_| {}
+            }
         },
         .try_, .early_return => {
             const dstslot: ?u32 = switch (base.operands[0]) {
@@ -2120,7 +2143,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
     }
 }
 
-fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anytype, task: FuncTask, const_addrs: anytype, fn_idx: anytype, c_opt: CEmitOptions, sigmap: anytype, uniform_arity: usize) !void {
+fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anytype, task: FuncTask, const_addrs: anytype, fn_idx: anytype, c_opt: CEmitOptions, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32) !void {
     const fsig = verified.function_sigs[task.fsig_index];
     const use_global = taskUsesGlobalRegIds(fsig, verified, task);
     last_c_func = fsig.name;
@@ -2335,7 +2358,7 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 if (c_opt.debug_comments) {
                     try writer.print("  /* {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
                 }
-                try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, &dead);
+                try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, indirect_ret_width, &dead);
             },
         }
     }
@@ -2464,6 +2487,28 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
             }
         }
     }
+    // Unanimous ftable return domain: every successful indirect call
+    // lands on an ftable entry (bounds + null checked in the dispatcher),
+    // so when all entries share one return domain the indirect result
+    // domain is exact (e.g. single-callback tables returning f32).
+    // Non-unanimous (or empty) tables keep the unknown default.
+    var indirect_ret_width: ?u32 = null;
+    if (need_indirect and fn_names.items.len > 0) {
+        var acc: ?u32 = null;
+        var unanimous = true;
+        var first = true;
+        for (fn_names.items) |fname| {
+            const w = sigReturnWidth(sigmap, fname);
+            if (first) {
+                acc = w;
+                first = false;
+            } else if (!std.meta.eql(acc, w)) {
+                unanimous = false;
+                break;
+            }
+        }
+        if (unanimous) indirect_ret_width = acc;
+    }
     // Const address layout (pure; #defines are emitted in phase 2 after
     // the helper scan so the preamble comes first in the file).
     var const_addrs = std.StringHashMap(usize).init(allocator);
@@ -2532,7 +2577,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         // Unreachable definitions are dead code: skip (else
         // -Wunused-function). Reachability is exact (see above).
         if (reachable.get(task.fsig_index) == null) continue;
-        try emitOneFunction(rw, allocator, verified, task, &const_addrs, &fn_idx, c_opt, &sigmap, uniform_arity);
+        try emitOneFunction(rw, allocator, verified, task, &const_addrs, &fn_idx, c_opt, &sigmap, uniform_arity, indirect_ret_width);
         try emitted.put(efsig.name, {});
     }
     // Phase 2: helper-use scan, then the file preamble (which must precede
