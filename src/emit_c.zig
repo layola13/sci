@@ -1452,6 +1452,219 @@ const kRuntimeHelpers: []const HelperDef = &.{
     .{ .name = "sa_regex_find", .code =
     \\static sa_regex_t *sa_regex_find(sa_u64 h) { unsigned i; for (i = 0; i < SA_REGEX_MAX_OBJS; i++) if (sa_regexes[i].h == h) return &sa_regexes[i]; return 0; }
     , .deps = &.{} },
+    .{ .name = "sa_json_find", .code =
+    \\static sa_json_node_t *sa_json_find(sa_u64 h) { unsigned i; for (i = 0; i < SA_JSON_MAX_NODES; i++) if (sa_json_nodes[i].h == h) return &sa_json_nodes[i]; return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_json_new", .code =
+    \\static sa_json_node_t *sa_json_new(void) { unsigned i; for (i = 0; i < SA_JSON_MAX_NODES; i++) if (sa_json_nodes[i].h == 0) { sa_u64 h = sa_alloc(8); sa_json_nodes[i].h = h; sa_json_nodes[i].kind = 0; sa_json_nodes[i].first = 0; sa_json_nodes[i].next = 0; sa_json_nodes[i].kptr = 0; sa_json_nodes[i].klen = 0; sa_json_nodes[i].vptr = 0; sa_json_nodes[i].vlen = 0; sa_json_nodes[i].ival = 0; sa_json_nodes[i].fbits = 0; sa_json_nodes[i].bval = 0; return &sa_json_nodes[i]; } return 0; }
+    , .deps = &.{} },
+    .{ .name = "sa_utf8_next", .code =
+    \\static uint32_t sa_utf8_next(const uint8_t *s, size_t n, size_t *i) {
+    \\  size_t k = *i; uint8_t b0;
+    \\  if (k >= n) return ~(uint32_t)0;
+    \\  b0 = s[k];
+    \\  if (b0 < 0x80) { *i = k + 1; return b0; }
+    \\  if (b0 >= 0xC2 && b0 <= 0xDF && k + 1 < n && (s[k + 1] & 0xC0) == 0x80) {
+    \\    *i = k + 2; return ((uint32_t)(b0 & 0x1F) << 6) | (s[k + 1] & 0x3F); }
+    \\  if (b0 >= 0xE0 && b0 <= 0xEF && k + 2 < n && (s[k + 1] & 0xC0) == 0x80 && (s[k + 2] & 0xC0) == 0x80) {
+    \\    uint32_t cp = ((uint32_t)(b0 & 0x0F) << 12) | ((uint32_t)(s[k + 1] & 0x3F) << 6) | (s[k + 2] & 0x3F);
+    \\    if (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF)) return ~(uint32_t)0;
+    \\    *i = k + 3; return cp; }
+    \\  if (b0 >= 0xF0 && b0 <= 0xF4 && k + 3 < n && (s[k + 1] & 0xC0) == 0x80 && (s[k + 2] & 0xC0) == 0x80 && (s[k + 3] & 0xC0) == 0x80) {
+    \\    uint32_t cp = ((uint32_t)(b0 & 0x07) << 18) | ((uint32_t)(s[k + 1] & 0x3F) << 12) | ((uint32_t)(s[k + 2] & 0x3F) << 6) | (s[k + 3] & 0x3F);
+    \\    if (cp < 0x10000 || cp > 0x10FFFF) return ~(uint32_t)0;
+    \\    *i = k + 4; return cp; }
+    \\  return ~(uint32_t)0;
+    \\}
+    , .deps = &.{} },
+    .{ .name = "sa_utf8_enc", .code =
+    \\static unsigned sa_utf8_enc(uint32_t cp, uint8_t *o) {
+    \\  if (cp < 0x80) { o[0] = (uint8_t)cp; return 1; }
+    \\  if (cp < 0x800) { o[0] = (uint8_t)(0xC0 | (cp >> 6)); o[1] = (uint8_t)(0x80 | (cp & 0x3F)); return 2; }
+    \\  if (cp < 0x10000) { o[0] = (uint8_t)(0xE0 | (cp >> 12)); o[1] = (uint8_t)(0x80 | ((cp >> 6) & 0x3F)); o[2] = (uint8_t)(0x80 | (cp & 0x3F)); return 3; }
+    \\  o[0] = (uint8_t)(0xF0 | (cp >> 18)); o[1] = (uint8_t)(0x80 | ((cp >> 12) & 0x3F)); o[2] = (uint8_t)(0x80 | ((cp >> 6) & 0x3F)); o[3] = (uint8_t)(0x80 | (cp & 0x3F)); return 4;
+    \\}
+    , .deps = &.{} },
+    .{ .name = "sa_json_string", .code =
+    \\static int sa_json_string(const uint8_t *s, size_t n, size_t *pos, sa_u64 *out_ptr, sa_u64 *out_len) {
+    \\  size_t i = *pos; size_t w; sa_u64 p; uint32_t d;
+    \\  if (i >= n || s[i] != '"') return 0;
+    \\  i++;
+    \\  p = sa_alloc(n - i + 1);
+    \\  d = sa_checked_addr(p, n - i + 1);
+    \\  w = 0;
+    \\  while (i < n && s[i] != '"') {
+    \\    uint8_t c = s[i];
+    \\    if (c == '\\') {
+    \\      uint8_t e;
+    \\      i++; if (i >= n) return 0; e = s[i];
+    \\      if (e == '"' || e == '\\' || e == '/') sa_mem[d + w++] = e;
+    \\      else if (e == 'b') sa_mem[d + w++] = 8;
+    \\      else if (e == 'f') sa_mem[d + w++] = 12;
+    \\      else if (e == 'n') sa_mem[d + w++] = 10;
+    \\      else if (e == 'r') sa_mem[d + w++] = 13;
+    \\      else if (e == 't') sa_mem[d + w++] = 9;
+    \\      else if (e == 'u') {
+    \\        uint32_t cp = 0; int k;
+    \\        for (k = 0; k < 4; k++) {
+    \\          i++; if (i >= n) return 0;
+    \\          uint8_t h = s[i]; uint32_t v;
+    \\          if (h >= '0' && h <= '9') v = (uint32_t)(h - '0');
+    \\          else if (h >= 'a' && h <= 'f') v = (uint32_t)(h - 'a' + 10);
+    \\          else if (h >= 'A' && h <= 'F') v = (uint32_t)(h - 'A' + 10);
+    \\          else return 0;
+    \\          cp = cp * 16 + v;
+    \\        }
+    \\        if (cp >= 0xD800 && cp <= 0xDBFF) {
+    \\          uint32_t lo;
+    \\          if (i + 2 >= n || s[i + 1] != '\\' || s[i + 2] != 'u') return 0;
+    \\          lo = 0; i += 2;
+    \\          for (k = 0; k < 4; k++) {
+    \\            i++; if (i >= n) return 0;
+    \\            uint8_t h = s[i]; uint32_t v;
+    \\            if (h >= '0' && h <= '9') v = (uint32_t)(h - '0');
+    \\            else if (h >= 'a' && h <= 'f') v = (uint32_t)(h - 'a' + 10);
+    \\            else if (h >= 'A' && h <= 'F') v = (uint32_t)(h - 'A' + 10);
+    \\            else return 0;
+    \\            lo = lo * 16 + v;
+    \\          }
+    \\          if (lo < 0xDC00 || lo > 0xDFFF) return 0;
+    \\          cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+    \\        } else if (cp >= 0xDC00 && cp <= 0xDFFF) return 0;
+    \\        w += sa_utf8_enc(cp, &sa_mem[d + w]);
+    \\      } else return 0;
+    \\      i++;
+    \\    } else if ((uint8_t)c < 0x20) return 0;
+    \\    else { sa_mem[d + w++] = c; i++; }
+    \\  }
+    \\  if (i >= n) return 0;
+    \\  *pos = i + 1;
+    \\  *out_ptr = p;
+    \\  *out_len = w;
+    \\  return 1;
+    \\}
+    , .deps = &.{"sa_utf8_enc"} },
+    .{ .name = "sa_json_parse_value", .code =
+    \\static sa_json_node_t *sa_json_parse_value(const uint8_t *s, size_t n, size_t *pos, int depth) {
+    \\  sa_json_node_t *nd; uint8_t c;
+    \\  if (depth > SA_JSON_MAX_DEPTH) return 0;
+    \\  while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\  if (*pos >= n) return 0;
+    \\  c = s[*pos];
+    \\  if (c == '{') {
+    \\    sa_json_node_t *last = 0;
+    \\    nd = sa_json_new(); if (nd == 0) return 0; nd->kind = 7;
+    \\    (*pos)++;
+    \\    while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\    if (*pos < n && s[*pos] == '}') { (*pos)++; return nd; }
+    \\    for (;;) {
+    \\      sa_u64 kp = 0, kl = 0; sa_json_node_t *v;
+    \\      while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\      if (!sa_json_string(s, n, pos, &kp, &kl)) return 0;
+    \\      while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\      if (*pos >= n || s[*pos] != ':') return 0;
+    \\      (*pos)++;
+    \\      v = sa_json_parse_value(s, n, pos, depth + 1);
+    \\      if (v == 0) return 0;
+    \\      v->kptr = kp; v->klen = kl;
+    \\      if (last == 0) nd->first = (sa_u64)(v - sa_json_nodes) + 1; else last->next = (sa_u64)(v - sa_json_nodes) + 1;
+    \\      last = v;
+    \\      while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\      if (*pos < n && s[*pos] == ',') { (*pos)++; continue; }
+    \\      if (*pos < n && s[*pos] == '}') { (*pos)++; return nd; }
+    \\      return 0;
+    \\    }
+    \\  }
+    \\  if (c == '[') {
+    \\    sa_json_node_t *last = 0;
+    \\    nd = sa_json_new(); if (nd == 0) return 0; nd->kind = 6;
+    \\    (*pos)++;
+    \\    while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\    if (*pos < n && s[*pos] == ']') { (*pos)++; return nd; }
+    \\    for (;;) {
+    \\      sa_json_node_t *v = sa_json_parse_value(s, n, pos, depth + 1);
+    \\      if (v == 0) return 0;
+    \\      if (last == 0) nd->first = (sa_u64)(v - sa_json_nodes) + 1; else last->next = (sa_u64)(v - sa_json_nodes) + 1;
+    \\      last = v;
+    \\      while (*pos < n && (s[*pos] == ' ' || s[*pos] == '\t' || s[*pos] == '\n' || s[*pos] == '\r')) (*pos)++;
+    \\      if (*pos < n && s[*pos] == ',') { (*pos)++; continue; }
+    \\      if (*pos < n && s[*pos] == ']') { (*pos)++; return nd; }
+    \\      return 0;
+    \\    }
+    \\  }
+    \\  if (c == '"') {
+    \\    sa_u64 p = 0, l = 0;
+    \\    nd = sa_json_new(); if (nd == 0) return 0;
+    \\    if (!sa_json_string(s, n, pos, &p, &l)) return 0;
+    \\    nd->kind = 5; nd->vptr = p; nd->vlen = l;
+    \\    return nd;
+    \\  }
+    \\  if (c == 't') {
+    \\    if (*pos + 4 > n || s[*pos+1] != 'r' || s[*pos+2] != 'u' || s[*pos+3] != 'e') return 0;
+    \\    nd = sa_json_new(); if (nd == 0) return 0;
+    \\    *pos += 4; nd->kind = 1; nd->bval = 1;
+    \\    return nd;
+    \\  }
+    \\  if (c == 'f') {
+    \\    if (*pos + 5 > n || s[*pos+1] != 'a' || s[*pos+2] != 'l' || s[*pos+3] != 's' || s[*pos+4] != 'e') return 0;
+    \\    nd = sa_json_new(); if (nd == 0) return 0;
+    \\    *pos += 5; nd->kind = 1; nd->bval = 0;
+    \\    return nd;
+    \\  }
+    \\  if (c == 'n') {
+    \\    if (*pos + 4 > n || s[*pos+1] != 'u' || s[*pos+2] != 'l' || s[*pos+3] != 'l') return 0;
+    \\    nd = sa_json_new(); if (nd == 0) return 0;
+    \\    *pos += 4; nd->kind = 0;
+    \\    return nd;
+    \\  }
+    \\  if (c == '-' || (c >= '0' && c <= '9')) {
+    \\    size_t st = *pos; size_t j = *pos; int is_float = 0;
+    \\    if (s[j] == '-') j++;
+    \\    if (j >= n) return 0;
+    \\    if (s[j] == '0') j++;
+    \\    else if (s[j] >= '1' && s[j] <= '9') { while (j < n && s[j] >= '0' && s[j] <= '9') j++; }
+    \\    else return 0;
+    \\    if (j < n && s[j] == '.') {
+    \\      is_float = 1; j++;
+    \\      if (j >= n || s[j] < '0' || s[j] > '9') return 0;
+    \\      while (j < n && s[j] >= '0' && s[j] <= '9') j++;
+    \\    }
+    \\    if (j < n && (s[j] == 'e' || s[j] == 'E')) {
+    \\      size_t m;
+    \\      is_float = 1; j++;
+    \\      if (j < n && (s[j] == '+' || s[j] == '-')) j++;
+    \\      m = j;
+    \\      while (j < n && s[j] >= '0' && s[j] <= '9') j++;
+    \\      if (m == j) return 0;
+    \\    }
+    \\    nd = sa_json_new(); if (nd == 0) return 0;
+    \\    if (!is_float) {
+    \\      sa_u64 mag = 0; size_t k = st; int neg = 0;
+    \\      if (s[k] == '-') { neg = 1; k++; }
+    \\      for (; k < j; k++) {
+    \\        unsigned dg = (unsigned)(s[k] - '0');
+    \\        if (mag > (~(sa_u64)0 - dg) / 10) break;
+    \\        mag = mag * 10 + dg;
+    \\      }
+    \\      if (k == j && !neg && mag <= (sa_u64)9223372036854775807ULL) { nd->kind = 2; nd->ival = (sa_i64)mag; }
+    \\      else if (k == j && neg && mag <= (sa_u64)9223372036854775808ULL) { nd->kind = 2; nd->ival = (sa_i64)(~(sa_u64)0 - mag + 1); }
+    \\      else is_float = 1;
+    \\    }
+    \\    if (is_float) {
+    \\      sa_u64 span = j - st;
+    \\      sa_u64 tp = sa_alloc(span + 1);
+    \\      uint32_t td = sa_checked_addr(tp, span + 1);
+    \\      size_t q; for (q = 0; q < (size_t)span; q++) sa_mem[td + q] = s[st + q];
+    \\      sa_mem[td + span] = 0; errno = 0;
+    \\      union { sa_u64 u; double v; } t; t.v = strtod((const char *)&sa_mem[td], 0);
+    \\      nd->kind = 3; nd->fbits = t.u;
+    \\    }
+    \\    *pos = j;
+    \\    return nd;
+    \\  }
+    \\  return 0;
+    \\}
+    , .deps = &.{ "sa_json_new", "sa_json_string", "sa_utf8_enc" } },
     .{ .name = "sa_path_norm", .code =
     \\static sa_u64 sa_path_norm(const uint8_t *s, size_t n, uint8_t *o, size_t cap) {
     \\  size_t w = 0; size_t i = 0; int abs = (n > 0 && s[0] == '/');
@@ -1513,33 +1726,6 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  *d = doy - sa_div_floor(153 * mp + 2, 5) + 1;
     \\}
     , .deps = &.{"sa_div_floor"} },
-    .{ .name = "sa_utf8_next", .code =
-    \\static uint32_t sa_utf8_next(const uint8_t *s, size_t n, size_t *i) {
-    \\  size_t k = *i; uint8_t b0;
-    \\  if (k >= n) return ~(uint32_t)0;
-    \\  b0 = s[k];
-    \\  if (b0 < 0x80) { *i = k + 1; return b0; }
-    \\  if (b0 >= 0xC2 && b0 <= 0xDF && k + 1 < n && (s[k + 1] & 0xC0) == 0x80) {
-    \\    *i = k + 2; return ((uint32_t)(b0 & 0x1F) << 6) | (s[k + 1] & 0x3F); }
-    \\  if (b0 >= 0xE0 && b0 <= 0xEF && k + 2 < n && (s[k + 1] & 0xC0) == 0x80 && (s[k + 2] & 0xC0) == 0x80) {
-    \\    uint32_t cp = ((uint32_t)(b0 & 0x0F) << 12) | ((uint32_t)(s[k + 1] & 0x3F) << 6) | (s[k + 2] & 0x3F);
-    \\    if (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF)) return ~(uint32_t)0;
-    \\    *i = k + 3; return cp; }
-    \\  if (b0 >= 0xF0 && b0 <= 0xF4 && k + 3 < n && (s[k + 1] & 0xC0) == 0x80 && (s[k + 2] & 0xC0) == 0x80 && (s[k + 3] & 0xC0) == 0x80) {
-    \\    uint32_t cp = ((uint32_t)(b0 & 0x07) << 18) | ((uint32_t)(s[k + 1] & 0x3F) << 12) | ((uint32_t)(s[k + 2] & 0x3F) << 6) | (s[k + 3] & 0x3F);
-    \\    if (cp < 0x10000 || cp > 0x10FFFF) return ~(uint32_t)0;
-    \\    *i = k + 4; return cp; }
-    \\  return ~(uint32_t)0;
-    \\}
-    , .deps = &.{} },
-    .{ .name = "sa_utf8_enc", .code =
-    \\static unsigned sa_utf8_enc(uint32_t cp, uint8_t *o) {
-    \\  if (cp < 0x80) { o[0] = (uint8_t)cp; return 1; }
-    \\  if (cp < 0x800) { o[0] = (uint8_t)(0xC0 | (cp >> 6)); o[1] = (uint8_t)(0x80 | (cp & 0x3F)); return 2; }
-    \\  if (cp < 0x10000) { o[0] = (uint8_t)(0xE0 | (cp >> 12)); o[1] = (uint8_t)(0x80 | ((cp >> 6) & 0x3F)); o[2] = (uint8_t)(0x80 | (cp & 0x3F)); return 3; }
-    \\  o[0] = (uint8_t)(0xF0 | (cp >> 18)); o[1] = (uint8_t)(0x80 | ((cp >> 12) & 0x3F)); o[2] = (uint8_t)(0x80 | ((cp >> 6) & 0x3F)); o[3] = (uint8_t)(0x80 | (cp & 0x3F)); return 4;
-    \\}
-    , .deps = &.{} },
     .{ .name = "sa_puny_adapt", .code =
     \\static sa_u64 sa_puny_adapt(sa_u64 delta, sa_u64 numpoints, int first) {
     \\  sa_u64 k = 0;
@@ -1549,6 +1735,52 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  return k + (36 - 1 + 1) * delta / (delta + 38);
     \\}
     , .deps = &.{} },
+};
+
+/// Emission order for the catalog, topologically sorted by deps at
+/// comptime (Kahn's algorithm, stable by table order). Callees always
+/// precede callers no matter where entries sit in the table, so adding
+/// helpers can never reintroduce use-before-definition. Unknown deps
+/// (sa_trap, always emitted) are treated as ready; any residual cycle
+/// falls back to table order.
+const kHelpersSorted: [kRuntimeHelpers.len]HelperDef = blk: {
+    @setEvalBranchQuota(100000);
+    var order: [kRuntimeHelpers.len]usize = undefined;
+    var done: [kRuntimeHelpers.len]bool = std.mem.zeroes([kRuntimeHelpers.len]bool);
+    var n: usize = 0;
+    var progress = true;
+    while (progress) {
+        progress = false;
+        for (kRuntimeHelpers, 0..) |h, i| {
+            if (done[i]) continue;
+            var ready = true;
+            for (h.deps) |dep| {
+                for (kRuntimeHelpers, 0..) |h2, j| {
+                    if (std.mem.eql(u8, h2.name, dep)) {
+                        if (!done[j]) ready = false;
+                        break;
+                    }
+                }
+                if (!ready) break;
+            }
+            if (ready) {
+                order[n] = i;
+                n += 1;
+                done[i] = true;
+                progress = true;
+            }
+        }
+    }
+    for (0..kRuntimeHelpers.len) |i| {
+        if (!done[i]) {
+            order[n] = i;
+            n += 1;
+            done[i] = true;
+        }
+    }
+    var out: [kRuntimeHelpers.len]HelperDef = undefined;
+    for (order, 0..) |idx, k| out[k] = kRuntimeHelpers[idx];
+    break :blk out;
 };
 
 /// True iff the already-emitted body text calls `func_name` directly
@@ -1686,6 +1918,15 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         node_qs_unescape,
         node_puny_encode,
         node_puny_decode,
+        json_parse,
+        json_free,
+        json_object_get,
+        json_object_get_i64,
+        json_object_get_string,
+        json_object_get_bool,
+        json_array_get,
+        json_value_count,
+        json_as_i64,
         node_buf_concat,
         node_rand_bytes,
         deno_btoa,
@@ -1879,6 +2120,24 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b1111, .tag = .node_puny_encode }
     else if (std.mem.eql(u8, name, "sa_node_plugin_punycode_decode"))
         .{ .voids = all_void ^ 0b1111, .tag = .node_puny_decode }
+    else if (std.mem.eql(u8, name, "sa_json_parse"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_parse }
+    else if (std.mem.eql(u8, name, "sa_json_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .json_free }
+    else if (std.mem.eql(u8, name, "sa_json_object_get"))
+        .{ .voids = all_void ^ 0b1111, .tag = .json_object_get }
+    else if (std.mem.eql(u8, name, "sa_json_object_get_i64"))
+        .{ .voids = all_void ^ 0b1111, .tag = .json_object_get_i64 }
+    else if (std.mem.eql(u8, name, "sa_json_object_get_string"))
+        .{ .voids = all_void ^ 0b11111, .tag = .json_object_get_string }
+    else if (std.mem.eql(u8, name, "sa_json_object_get_bool"))
+        .{ .voids = all_void ^ 0b1111, .tag = .json_object_get_bool }
+    else if (std.mem.eql(u8, name, "sa_json_array_get"))
+        .{ .voids = all_void ^ 0b111, .tag = .json_array_get }
+    else if (std.mem.eql(u8, name, "sa_json_value_count"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_value_count }
+    else if (std.mem.eql(u8, name, "sa_json_as_i64"))
+        .{ .voids = all_void ^ 0b11, .tag = .json_as_i64 }
     else if (std.mem.eql(u8, name, "sa_node_plugin_buffer_concat"))
         .{ .voids = all_void ^ 0b1111, .tag = .node_buf_concat }
     else if (std.mem.eql(u8, name, "sa_node_plugin_crypto_random_bytes"))
@@ -2974,6 +3233,146 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             try writer.writeAll(" if (clock_gettime(CLOCK_REALTIME, &ts) != 0) return 0;");
             try writer.writeAll(" return (sa_u64)((sa_i64)ts.tv_sec * 1000 + ts.tv_nsec / 1000000); } }\n");
         },
+        .json_parse => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" size_t pos = 0;");
+            try writer.writeAll(" sa_json_node_t *nd = sa_json_parse_value(&sa_mem[x], (size_t)a1, &pos, 0);");
+            try writer.writeAll(" if (nd == 0) return 0;");
+            try writer.writeAll(" while (pos < (size_t)a1 && (sa_mem[x + pos] == ' ' || sa_mem[x + pos] == '\\t' || sa_mem[x + pos] == '\\n' || sa_mem[x + pos] == '\\r')) pos++;");
+            try writer.writeAll(" if (pos != (size_t)a1) return 0;");
+            try writer.writeAll(" return nd->h; } }\n");
+        },
+        .json_free => {
+            try writer.writeAll(" { sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0) return 0;");
+            try writer.writeAll(" o->h = 0; return 0; } }\n");
+        },
+        .json_object_get => {
+            try writer.writeAll(" { sa_store_u64(a3, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 7) return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (a2 == 0) return 1;");
+            try writer.writeAll(" sa_u64 ci = o->first;");
+            try writer.writeAll(" while (ci != 0) {");
+            try writer.writeAll(" sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" if (m->klen == a2) {");
+            try writer.writeAll(" uint32_t mk = sa_checked_addr(m->kptr, m->klen);");
+            try writer.writeAll(" size_t i; int eq = 1;");
+            try writer.writeAll(" for (i = 0; i < (size_t)a2; i++)");
+            try writer.writeAll(" if (sa_mem[mk + i] != sa_mem[k + i]) { eq = 0; break; }");
+            try writer.writeAll(" if (eq) {");
+            try writer.writeAll(" if (m->h == 0) m->h = sa_alloc(8);");
+            try writer.writeAll(" sa_store_u64(a3, m->h); return 0; } }");
+            try writer.writeAll(" ci = m->next; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .json_object_get_i64 => {
+            try writer.writeAll(" { sa_store_u64(a3, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 7) return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (a2 == 0) return 1;");
+            try writer.writeAll(" sa_u64 ci = o->first;");
+            try writer.writeAll(" while (ci != 0) {");
+            try writer.writeAll(" sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" if (m->klen == a2) {");
+            try writer.writeAll(" uint32_t mk = sa_checked_addr(m->kptr, m->klen);");
+            try writer.writeAll(" size_t i; int eq = 1;");
+            try writer.writeAll(" for (i = 0; i < (size_t)a2; i++)");
+            try writer.writeAll(" if (sa_mem[mk + i] != sa_mem[k + i]) { eq = 0; break; }");
+            try writer.writeAll(" if (eq) {");
+            try writer.writeAll(" if (m->kind == 2) { sa_store_u64(a3, (sa_u64)m->ival); return 0; }");
+            try writer.writeAll(" if (m->kind == 3) {");
+            try writer.writeAll(" union { sa_u64 u; double v; } t; t.u = m->fbits;");
+            try writer.writeAll(" if (t.v != t.v) return 1;");
+            try writer.writeAll(" if (t.v >= 9223372036854775808.0 || t.v < -9223372036854775808.0) return 1;");
+            try writer.writeAll(" sa_i64 vv = (sa_i64)t.v;");
+            try writer.writeAll(" union { sa_u64 u; double v; } u2; u2.v = (double)vv;");
+            try writer.writeAll(" if (u2.u != m->fbits) return 1;");
+            try writer.writeAll(" sa_store_u64(a3, (sa_u64)vv); return 0; }");
+            try writer.writeAll(" return 1; } }");
+            try writer.writeAll(" ci = m->next; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .json_object_get_string => {
+            try writer.writeAll(" { sa_store_u64(a3, 0); sa_store_u64(a4, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 7) return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (a2 == 0) return 1;");
+            try writer.writeAll(" sa_u64 ci = o->first;");
+            try writer.writeAll(" while (ci != 0) {");
+            try writer.writeAll(" sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" if (m->klen == a2) {");
+            try writer.writeAll(" uint32_t mk = sa_checked_addr(m->kptr, m->klen);");
+            try writer.writeAll(" size_t i; int eq = 1;");
+            try writer.writeAll(" for (i = 0; i < (size_t)a2; i++)");
+            try writer.writeAll(" if (sa_mem[mk + i] != sa_mem[k + i]) { eq = 0; break; }");
+            try writer.writeAll(" if (eq) {");
+            try writer.writeAll(" if (m->kind != 5) return 1;");
+            try writer.writeAll(" sa_store_u64(a3, m->vptr); sa_store_u64(a4, m->vlen); return 0; } }");
+            try writer.writeAll(" ci = m->next; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .json_object_get_bool => {
+            try writer.writeAll(" { sa_store_u8(a3, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 7) return 1;");
+            try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" if (a2 == 0) return 1;");
+            try writer.writeAll(" sa_u64 ci = o->first;");
+            try writer.writeAll(" while (ci != 0) {");
+            try writer.writeAll(" sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" if (m->klen == a2) {");
+            try writer.writeAll(" uint32_t mk = sa_checked_addr(m->kptr, m->klen);");
+            try writer.writeAll(" size_t i; int eq = 1;");
+            try writer.writeAll(" for (i = 0; i < (size_t)a2; i++)");
+            try writer.writeAll(" if (sa_mem[mk + i] != sa_mem[k + i]) { eq = 0; break; }");
+            try writer.writeAll(" if (eq) {");
+            try writer.writeAll(" if (m->kind != 1) return 1;");
+            try writer.writeAll(" sa_store_u8(a3, m->bval ? 1 : 0); return 0; } }");
+            try writer.writeAll(" ci = m->next; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
+        .json_array_get => {
+            try writer.writeAll(" { sa_store_u64(a2, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0 || o->kind != 6) return 1;");
+            try writer.writeAll(" sa_u64 ci = o->first; sa_u64 i = 0;");
+            try writer.writeAll(" while (ci != 0 && i < a1) {");
+            try writer.writeAll(" sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" ci = m->next; i++; }");
+            try writer.writeAll(" if (ci == 0) return 1;");
+            try writer.writeAll(" { sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" if (m->h == 0) m->h = sa_alloc(8);");
+            try writer.writeAll(" sa_store_u64(a2, m->h); return 0; } } }\n");
+        },
+        .json_value_count => {
+            try writer.writeAll(" { sa_store_u64(a1, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0 || (o->kind != 6 && o->kind != 7)) return 1;");
+            try writer.writeAll(" sa_u64 ci = o->first; sa_u64 n = 0;");
+            try writer.writeAll(" while (ci != 0) {");
+            try writer.writeAll(" sa_json_node_t *m = &sa_json_nodes[ci - 1];");
+            try writer.writeAll(" ci = m->next; n++; }");
+            try writer.writeAll(" sa_store_u64(a1, n); return 0; } }\n");
+        },
+        .json_as_i64 => {
+            try writer.writeAll(" { sa_store_u64(a1, 0);");
+            try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
+            try writer.writeAll(" if (o == 0) return 1;");
+            try writer.writeAll(" if (o->kind == 2) { sa_store_u64(a1, (sa_u64)o->ival); return 0; }");
+            try writer.writeAll(" if (o->kind == 3) {");
+            try writer.writeAll(" union { sa_u64 u; double v; } t; t.u = o->fbits;");
+            try writer.writeAll(" if (t.v != t.v) return 1;");
+            try writer.writeAll(" if (t.v >= 9223372036854775808.0 || t.v < -9223372036854775808.0) return 1;");
+            try writer.writeAll(" sa_i64 vv = (sa_i64)t.v;");
+            try writer.writeAll(" union { sa_u64 u; double v; } u2; u2.v = (double)vv;");
+            try writer.writeAll(" if (u2.u != o->fbits) return 1;");
+            try writer.writeAll(" sa_store_u64(a1, (sa_u64)vv); return 0; }");
+            try writer.writeAll(" return 1; } }\n");
+        },
         .time_get_full_year => {
             try writer.writeAll(" { sa_i64 y, mo, d;");
             try writer.writeAll(" sa_civil_ymd((sa_i64)a0, &y, &mo, &d);");
@@ -3282,6 +3681,7 @@ fn writePreamble(
     need_regex: bool,
     need_time_clock: bool,
     need_sys_stat: bool,
+    need_json: bool,
 ) !void {
     const mem_bytes: usize = @as(usize, c_opt.mem_pages) * 65536;
     try writer.print("/* Generated by `sa build-c` (c backend, MVP). DO NOT EDIT. */\n", .{});
@@ -3376,9 +3776,32 @@ fn writePreamble(
     }
     // Wall-clock needs <time.h> (the _POSIX_C_SOURCE define above
     // already precedes all headers); pure civil arithmetic needs nothing.
+    if (need_time_clock) {
+        try writer.writeAll(
+            \\#include <time.h>
+            \\
+        );
+    }
     if (need_sys_stat) {
         try writer.writeAll(
             \\#include <sys/stat.h>
+            \\
+        );
+    }
+    // JSON DOM nodes (C-side fixed table; string payloads live in guest
+    // memory). Kinds mirror SA_JSON_KIND_*: 0 null, 1 bool, 2 int,
+    // 3 float, 5 string, 6 array, 7 object. Children link via
+    // first/next; object members carry key in kptr/klen.
+    if (need_json) {
+        try writer.writeAll(
+            \\#ifndef SA_JSON_MAX_NODES
+            \\#define SA_JSON_MAX_NODES 256
+            \\#endif
+            \\#ifndef SA_JSON_MAX_DEPTH
+            \\#define SA_JSON_MAX_DEPTH 64
+            \\#endif
+            \\typedef struct { sa_u64 h; unsigned kind; sa_u64 first, next; sa_u64 kptr, klen, vptr, vlen; sa_i64 ival; sa_u64 fbits; unsigned bval; } sa_json_node_t;
+            \\static sa_json_node_t sa_json_nodes[SA_JSON_MAX_NODES];
             \\
         );
     }
@@ -3401,8 +3824,11 @@ fn writePreamble(
             \\
         );
     }
-    for (kRuntimeHelpers) |h| {
+    for (kHelpersSorted) |h| {
         if (used.get(h.name) != null) {
+            // Catalog bodies are hand-written C strings: fail loudly on
+            // imbalance rather than emitting broken output.
+            if (!cBracesBalanced(h.code)) return CEmitError.Failed;
             try writer.writeAll(h.code);
             try writer.writeAll("\n");
         }
@@ -4678,7 +5104,9 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     var need_modstate = false;
     var need_regex = false;
     var need_time_clock = false;
+    var need_json = false;
     var need_sys_stat = false;
+    var need_mem_direct = false;
     for (tasks) |task| {
         if (task.kind != .extern_decl) continue;
         const efsig = verified.function_sigs[task.fsig_index];
@@ -4693,13 +5121,19 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_modstate_") != null) need_modstate = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_regex_") != null) need_regex = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "clock_gettime") != null) need_time_clock = true;
+        if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_json_") != null) need_json = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_mkdir_wrap") != null) need_sys_stat = true;
+        // Bindings touching sa_mem directly (not via helpers) still need
+        // the memory itself (e.g. the JSON parser's hot loops).
+        if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_mem[") != null) need_mem_direct = true;
         const t = try tmp.toOwnedSlice();
         defer allocator.free(t);
         // Self-check every rendered binding: unbalanced output fails the
         // build loudly instead of emitting broken C (covers all present
         // and future bindings with no list to keep in sync).
         if (!cBodyBalanced(t)) return CEmitError.Failed;
+        // Same for unused params (voids-mask precision).
+        if (!cParamsCovered(t, uniform_arity)) return CEmitError.Failed;
         var bu = try collectUsedHelpers(allocator, t);
         defer bu.deinit();
         var bit = bu.iterator();
@@ -4708,7 +5142,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     // Linear memory is needed for const bytes or any mem-touching helper.
     // (sa_brk only travels with the allocator; sa_mem stays out entirely
     // for pure-compute programs.)
-    var need_mem = has_const_bytes;
+    var need_mem = has_const_bytes or need_mem_direct;
     if (!need_mem) {
         var uit = used.iterator();
         while (uit.next()) |e| {
@@ -4720,7 +5154,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         }
     }
     const need_brk = used.get("sa_alloc") != null;
-    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk, need_http, need_owned, need_modstate, need_regex, need_time_clock, need_sys_stat);
+    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk, need_http, need_owned, need_modstate, need_regex, need_time_clock, need_sys_stat, need_json);
     try writer.print("/* source: {s} */\n", .{source_path});
     // const address defines
     for (verified.const_decls) |decl| {
@@ -4974,6 +5408,31 @@ test "c ident sanitizes names" {
     try std.testing.expectEqualStrings("hello_world_foo", fbs.buffered());
 }
 
+/// True iff every param a0..aN in a rendered binding body occurs at
+/// least twice (declaration plus a (void) cast or real use), so no
+/// -Wunused-parameter can fire. Enforces voids-mask precision forever.
+fn cParamsCovered(t: []const u8, uniform_arity: usize) bool {
+    if (uniform_arity == 0) return true;
+    var i: usize = 0;
+    while (i < uniform_arity) : (i += 1) {
+        var nbuf: [32]u8 = undefined;
+        const needle = std.fmt.bufPrint(&nbuf, "a{d}", .{i}) catch return false;
+        var count: usize = 0;
+        var pos: usize = 0;
+        while (pos + needle.len <= t.len) {
+            if (std.mem.startsWith(u8, t[pos..], needle)) {
+                const before_ok = pos == 0 or !(std.ascii.isAlphanumeric(t[pos - 1]) or t[pos - 1] == '_');
+                const after = pos + needle.len;
+                const after_ok = after >= t.len or !(std.ascii.isAlphanumeric(t[after]) or t[after] == '_');
+                if (before_ok and after_ok) count += 1;
+            }
+            pos += 1;
+        }
+        if (count < 2) return false;
+    }
+    return true;
+}
+
 /// True iff t is a brace-balanced function body ending with "}\n",
 /// ignoring braces inside strings/chars. Used to self-check every
 /// rendered extern binding (an unclosed body would swallow following
@@ -4982,6 +5441,12 @@ test "c ident sanitizes names" {
 /// runtime check (not a test block) is the enforced guard.
 fn cBodyBalanced(t: []const u8) bool {
     if (!std.mem.endsWith(u8, t, "}\n")) return false;
+    return cBracesBalanced(t);
+}
+
+/// Brace balance ignoring string/char literals. Used for catalog helper
+/// bodies (which the preamble writes with its own trailing newline).
+fn cBracesBalanced(t: []const u8) bool {
     var depth: i32 = 0;
     var in_str = false;
     var in_chr = false;
