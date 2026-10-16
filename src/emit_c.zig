@@ -452,7 +452,41 @@ fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype
                     }
                 },
                 .eq, .ne, .gt, .lt, .sgt, .slt, .sge, .sle, .ugt, .ult, .uge, .ule, .fcmp_eq, .fcmp_ne, .fcmp_lt, .fcmp_le, .fcmp_gt, .fcmp_ge => widths.put(dst, 1) catch return,
-                .fadd, .fsub, .fmul, .fdiv => widths.put(dst, WidthFloatBit | 64) catch return,
+                .fadd, .fsub, .fmul, .fdiv => {
+                    // Result domain mirrors emission (floatDomain): f32
+                    // whenever the 32-bit helper is selected, otherwise
+                    // f64. Must stay in sync with emitOpExpr or downstream
+                    // fcmp domain selection breaks for f32 chains.
+                    if (floatDomain(widths, fsig, use_global, base.operands[1], base.operands[2]) == .f64) {
+                        widths.put(dst, WidthFloatBit | 64) catch return;
+                    } else {
+                        widths.put(dst, WidthFloatBit | 32) catch return;
+                    }
+                },
+                .div, .rem, .shr => {
+                    // Compat aliases: result width follows the selected
+                    // helper (mirrors cAliasCallee), so chained aliases
+                    // propagate the resolved domain instead of the old
+                    // forced-signed default. (gt/lt results stay in the
+                    // `=> 1` arm above, exactly like the JS backend.)
+                    const kk = cCombinedKind(
+                        cOperandKind(widths, fsig, use_global, base.operands[1]),
+                        cOperandKind(widths, fsig, use_global, base.operands[2]),
+                    );
+                    switch (opcode) {
+                        .div => {
+                            if (kk == .float) widths.put(dst, WidthFloatBit | 64) catch return;
+                            if (kk == .unsigned) widths.put(dst, 64) catch return;
+                            widths.put(dst, 64 | WidthSignBit) catch return;
+                        },
+                        else => {
+                            // .rem: unsigned only when proven; .shr:
+                            // lshr unless proven signed (mirrors JS).
+                            if (kk == .unsigned or (opcode == .shr and kk != .signed)) widths.put(dst, 64) catch return;
+                            widths.put(dst, 64 | WidthSignBit) catch return;
+                        },
+                    }
+                },
                 .sdiv, .srem, .ashr => widths.put(dst, 64 | WidthSignBit) catch return,
                 .udiv, .urem, .lshr => widths.put(dst, 64) catch return,
                 else => widths.put(dst, 64 | WidthSignBit) catch return,
@@ -515,6 +549,90 @@ fn floatWidthIs32(widths: *const WidthMap, fsig: sig.FunctionSig, use_global: bo
     return widthIsFloat(w) and widthBits(w) == 32;
 }
 
+/// Operand domain for kind-driven compat aliases (div/rem/gt/lt/shr),
+/// mirroring the interpreter and the JS backend: float wins, then signed,
+/// else unsigned. Unknown preserves forced-signed lowering, so only
+/// statically-known shapes change behavior.
+const COpndKind = enum { float, signed, unsigned, unknown };
+
+fn cOperandKind(widths: *const WidthMap, fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) COpndKind {
+    if (widthOfOperand(widths, fsig, use_global, op)) |w| {
+        if (widthIsFloat(w)) return .float;
+        return if (widthIsSigned(w)) .signed else .unsigned;
+    }
+    // Text immediates: same numeric cascade as the JS backend.
+    switch (op) {
+        .text, .native_text => |t| {
+            var text = std.mem.trim(u8, t, " \t");
+            if (text.len == 0) return .unknown;
+            if (text[0] == '&' or text[0] == '*' or text[0] == '^') text = std.mem.trim(u8, text[1..], " \t");
+            if (std.mem.lastIndexOf(u8, text, " as ")) |idx| text = std.mem.trim(u8, text[0..idx], " \t\r");
+            if (text.len == 0) return .unknown;
+            if (std.fmt.parseInt(i64, text, 10)) |_| return .signed else |_| {}
+            if (std.fmt.parseInt(u64, text, 10)) |_| return .unsigned else |_| {}
+            if (std.mem.indexOfAny(u8, text, ".eE")) |_| {
+                if (std.fmt.parseFloat(f64, text)) |_| return .float else |_| {}
+            }
+            return .unknown;
+        },
+        else => return .unknown,
+    }
+}
+
+fn cCombinedKind(a: COpndKind, b: COpndKind) COpndKind {
+    if (a == .float or b == .float) return .float;
+    if (a == .signed or b == .signed) return .signed;
+    if (a == .unsigned and b == .unsigned) return .unsigned;
+    return .unknown;
+}
+
+/// C helper for kind-driven compat aliases (div/rem/gt/lt/shr), mirroring
+/// JS aliasCallee. Unknown keeps forced-signed lowering (except shr, where
+/// JS lowers unknown to lshr).
+fn cAliasCallee(opcode: inst.OpKind, k: COpndKind) []const u8 {
+    return switch (opcode) {
+        .div => switch (k) {
+            .float => "sa_fdiv",
+            .unsigned => "sa_udiv",
+            else => "sa_sdiv",
+        },
+        .rem => switch (k) {
+            .unsigned => "sa_urem",
+            else => "sa_srem",
+        },
+        .shr => switch (k) {
+            .signed => "sa_ashr",
+            else => "sa_lshr",
+        },
+        .gt => switch (k) {
+            .float => "sa_fcmp_gt",
+            .unsigned => "sa_ugt",
+            else => "sa_sgt",
+        },
+        .lt => switch (k) {
+            .float => "sa_fcmp_lt",
+            .unsigned => "sa_ult",
+            else => "sa_slt",
+        },
+        else => unreachable,
+    };
+}
+
+/// Narrow logical shift: with a statically sub-64-bit lhs, mask the value
+/// to its width and the count to 5 bits (347: an i32-held 0xFFFFFFFF must
+/// shift as u32, not as sign-extended u64). 64-bit/unknown shapes keep the
+/// plain 64-bit helper. Returns true when the narrow form was emitted.
+fn emitNarrowLshr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, lhs: inst.Operand, rhs: inst.Operand, widths: *const WidthMap) !bool {
+    const w = widthOfOperand(widths, fsig, use_global, lhs) orelse return false;
+    if (widthIsFloat(w) or widthBits(w) >= 64) return false;
+    try writer.print("sa_lshr(sa_srcmask(", .{});
+    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+    try writer.print(", {d}, 0), sa_band(", .{widthBits(w)});
+    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
+    try writer.writeAll(", 31))");
+    return true;
+}
+
 fn emitCvtExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, tgt: sig.PrimType, src_op: inst.Operand, widths: *const WidthMap) !void {
     const sfx: []const u8 = switch (tgt) {
         .i1 => "i1", .i8 => "i8", .i16 => "i16", .i32 => "i32", .i64 => "i64",
@@ -566,6 +684,42 @@ fn emitCvtExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glo
     try writer.writeAll(")");
 }
 
+fn emitF32Operand(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, op: inst.Operand, is32: bool) !void {
+    // Emit an operand for an f32-domain helper: proven-f32 values pass
+    // raw; anything else is truncated to f32 first. Used when one side
+    // of a float op is proven f32 and the other is not proven f64
+    // (typically an indirect-call result whose domain the analysis
+    // cannot see; the verifier guarantees domain consistency, so the
+    // truncation is an identity there).
+    if (is32) {
+        try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, op);
+    } else {
+        try writer.writeAll("sa_f32_bits(sa_bits_f32((");
+        try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, op);
+        try writer.writeAll(")))");
+    }
+}
+
+/// Float-domain decision for binary float ops: .both32 (f32 helper, raw
+/// sides), .mixed32 (f32 helper, unproven side truncated via
+/// emitF32Operand), .f64 (f64 helper, f32 sides promoted). Genuinely mixed
+/// f32/f64 stays on the legacy f64 path.
+const FloatDom = enum { both32, mixed32, f64 };
+
+fn floatDomain(widths: *const WidthMap, fsig: sig.FunctionSig, use_global: bool, lhs: inst.Operand, rhs: inst.Operand) FloatDom {
+    const l32 = floatWidthIs32(widths, fsig, use_global, lhs);
+    const r32 = floatWidthIs32(widths, fsig, use_global, rhs);
+    if (l32 and r32) return .both32;
+    if (l32 or r32) {
+        const other = if (l32) rhs else lhs;
+        if (widthOfOperand(widths, fsig, use_global, other)) |w| {
+            if (widthIsFloat(w) and widthBits(w) == 64) return .f64;
+        }
+        return .mixed32;
+    }
+    return .f64;
+}
+
 fn emitFloatOperand(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, op: inst.Operand, is32: bool, want32: bool) !void {
     // Emit an operand for a float-domain helper: promote f32 to f64 when
     // the helper wants f64, or demote f64 to f32 when it wants f32.
@@ -583,8 +737,9 @@ fn emitFloatOperand(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, us
 }
 
 fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, lhs: inst.Operand, rhs: inst.Operand, widths: *const WidthMap) !void {
-    // Float ALU: both sides statically f32 -> f32 helpers; otherwise f64
-    // helpers with f32 sides promoted (mirrors JS f64-domain helpers).
+    // Float ALU: both sides statically f32 -> f32 helpers; one side f32
+    // with the other unproven -> f32 helpers with truncation; otherwise
+    // f64 helpers with f32 sides promoted (mirrors JS f64-domain helpers).
     switch (opcode) {
         .fadd, .fsub, .fmul, .fdiv => {
             const l32 = floatWidthIs32(widths, fsig, use_global, lhs);
@@ -595,12 +750,29 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
                 .fmul => "sa_fmul",
                 else => "sa_fdiv",
             };
-            const want32 = l32 and r32;
-            if (want32) try writer.print("{s}32(", .{base}) else try writer.print("{s}(", .{base});
-            try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, l32, want32);
-            try writer.writeAll(", ");
-            try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs, r32, want32);
-            try writer.writeAll(")");
+            switch (floatDomain(widths, fsig, use_global, lhs, rhs)) {
+                .both32 => {
+                    try writer.print("{s}32(", .{base});
+                    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+                    try writer.writeAll(", ");
+                    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
+                    try writer.writeAll(")");
+                },
+                .mixed32 => {
+                    try writer.print("{s}32(", .{base});
+                    try emitF32Operand(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, l32);
+                    try writer.writeAll(", ");
+                    try emitF32Operand(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs, r32);
+                    try writer.writeAll(")");
+                },
+                .f64 => {
+                    try writer.print("{s}(", .{base});
+                    try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, l32, false);
+                    try writer.writeAll(", ");
+                    try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs, r32, false);
+                    try writer.writeAll(")");
+                },
+            }
             return;
         },
         .fneg => {
@@ -621,11 +793,77 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
                 .fcmp_gt => "sa_fcmp_gt",
                 else => "sa_fcmp_ge",
             };
-            const want32 = l32 and r32;
-            if (want32) try writer.print("{s}32(", .{base}) else try writer.print("{s}(", .{base});
-            try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, l32, want32);
+            switch (floatDomain(widths, fsig, use_global, lhs, rhs)) {
+                .both32 => {
+                    try writer.print("{s}32(", .{base});
+                    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+                    try writer.writeAll(", ");
+                    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
+                    try writer.writeAll(")");
+                },
+                .mixed32 => {
+                    try writer.print("{s}32(", .{base});
+                    try emitF32Operand(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, l32);
+                    try writer.writeAll(", ");
+                    try emitF32Operand(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs, r32);
+                    try writer.writeAll(")");
+                },
+                .f64 => {
+                    try writer.print("{s}(", .{base});
+                    try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, l32, false);
+                    try writer.writeAll(", ");
+                    try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs, r32, false);
+                    try writer.writeAll(")");
+                },
+            }
+            return;
+        },
+        else => {},
+    }
+    // Kind-driven compat aliases (div/rem/gt/lt/shr): signedness (and
+    // float domain) follows the operand kinds, mirroring the interpreter
+    // and the JS backend. Unknown keeps forced-signed lowering (except
+    // shr, where JS lowers unknown to lshr), so only statically-known
+    // shapes change behavior.
+    switch (opcode) {
+        .div, .rem, .shr, .gt, .lt => {
+            const k = cCombinedKind(cOperandKind(widths, fsig, use_global, lhs), cOperandKind(widths, fsig, use_global, rhs));
+            const callee = cAliasCallee(opcode, k);
+            if ((opcode == .gt or opcode == .lt) and k == .float) {
+                // Float comparisons use the fcmp family with f32 sides
+                // promoted (C holds f32 as low-32-bit patterns).
+                try writer.print("{s}(", .{callee});
+                try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, floatWidthIs32(widths, fsig, use_global, lhs), false);
+                try writer.writeAll(", ");
+                try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs, floatWidthIs32(widths, fsig, use_global, rhs), false);
+                try writer.writeAll(")");
+                return;
+            }
+            if (opcode == .div and k == .float) {
+                try writer.writeAll("sa_fdiv(");
+                try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, floatWidthIs32(widths, fsig, use_global, lhs), false);
+                try writer.writeAll(", ");
+                try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs, floatWidthIs32(widths, fsig, use_global, rhs), false);
+                try writer.writeAll(")");
+                return;
+            }
+            // shr-via-lshr on a narrow lhs needs the 32-bit form too.
+            if (std.mem.eql(u8, callee, "sa_lshr")) {
+                if (try emitNarrowLshr(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, rhs, widths)) return;
+            }
+            try writer.print("{s}(", .{callee});
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
             try writer.writeAll(", ");
-            try emitFloatOperand(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs, r32, want32);
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
+            try writer.writeAll(")");
+            return;
+        },
+        .lshr => {
+            if (try emitNarrowLshr(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs, rhs, widths)) return;
+            try writer.writeAll("sa_lshr(");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, lhs);
+            try writer.writeAll(", ");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, rhs);
             try writer.writeAll(")");
             return;
         },
@@ -634,15 +872,13 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
     const name: []const u8 = switch (opcode) {
         .add => "sa_add", .sub => "sa_sub", .mul => "sa_mul",
         .sdiv => "sa_sdiv", .udiv => "sa_udiv", .srem => "sa_srem", .urem => "sa_urem",
-        .div => "sa_sdiv", .rem => "sa_srem",
         .@"and" => "sa_band", .@"or" => "sa_bor", .xor => "sa_bxor",
-        .shl => "sa_shl", .lshr => "sa_lshr", .ashr => "sa_ashr", .shr => "sa_ashr",
+        .shl => "sa_shl", .lshr => "sa_lshr", .ashr => "sa_ashr",
         .not => "sa_bnot",
         .neg => "sa_neg",
         .eq => "sa_eq", .ne => "sa_ne",
         .slt => "sa_slt", .sle => "sa_sle", .sgt => "sa_sgt", .sge => "sa_sge",
         .ult => "sa_ult", .ule => "sa_ule", .ugt => "sa_ugt", .uge => "sa_uge",
-        .lt => "sa_slt", .gt => "sa_sgt",
         .fadd => "sa_fadd", .fsub => "sa_fsub", .fmul => "sa_fmul", .fdiv => "sa_fdiv",
         .fneg => "sa_fneg",
         .fcmp_eq => "sa_fcmp_eq", .fcmp_ne => "sa_fcmp_ne",
