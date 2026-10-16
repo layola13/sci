@@ -1,0 +1,61 @@
+@import "quic.sal"
+@import "quic.sai"
+
+[MACRO] QUIC_SUPPORTED %out_status, %out_supported
+    __quic_supported_%out_status = stack_alloc 4
+    %out_status = call @sa_std_quic_supported(&__quic_supported_%out_status)
+    %out_supported = load __quic_supported_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] HTTP3_SUPPORTED %out_status, %out_supported
+    __h3_supported_%out_status = stack_alloc 4
+    %out_status = call @sa_std_http3_supported(&__h3_supported_%out_status)
+    %out_supported = load __h3_supported_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] QUIC_CAPABILITIES_JSON %out_status, %out_buffer
+    __quic_caps_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_quic_capabilities_json(&__quic_caps_handle_%out_status)
+    %out_buffer = load __quic_caps_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] QUIC_CONSTANTS_JSON %out_status, %out_buffer
+    __quic_consts_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_quic_constants_json(&__quic_consts_handle_%out_status)
+    %out_buffer = load __quic_consts_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] HTTP3_CONSTANTS_JSON %out_status, %out_buffer
+    __h3_consts_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http3_constants_json(&__h3_consts_handle_%out_status)
+    %out_buffer = load __h3_consts_handle_%out_status+0 as u64
+[END_MACRO]
+
+// Connection/session create is capability-gated: returns
+// SA_QUIC_ERR_UNSUPPORTED until ngtcp2/nghttp3/OpenSSL are installed.
+// Callers must branch on %out_status before using %out_handle.
+[MACRO] QUIC_ENDPOINT_CREATE %out_status, %out_handle
+    __quic_ep_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_quic_endpoint_create(&__quic_ep_handle_%out_status)
+    %out_handle = load __quic_ep_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] HTTP3_SESSION_CREATE %out_status, %out_handle
+    __h3_sess_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http3_session_create(&__h3_sess_handle_%out_status)
+    %out_handle = load __h3_sess_handle_%out_status+0 as u64
+[END_MACRO]
+
+// buffer handle accessors (sci convention)
+
+[MACRO] QUIC_BUFFER_DATA %out_ptr, %buffer
+    %out_ptr = call @sa_std_quic_buffer_data(%buffer)
+[END_MACRO]
+
+[MACRO] QUIC_BUFFER_LEN %out_len, %buffer
+    %out_len = call @sa_std_quic_buffer_len(%buffer)
+[END_MACRO]
+
+[MACRO] QUIC_BUFFER_FREE %out_status, %buffer
+    %out_status = call @sa_std_quic_buffer_free(^%buffer)
+[END_MACRO]

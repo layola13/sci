@@ -1,0 +1,26 @@
+// sa_std QUIC + HTTP/3 surface — capability-gated facade living in the sci runtime.
+//
+// Backend: src/runtime/sa_quic.zig (ngtcp2/nghttp3/OpenSSL dlopen probe).
+// Sessions are NOT yet modeled: endpoint/session create returns -1
+// (SA_QUIC_ERR_UNSUPPORTED) until the native stack is installed. Probes and
+// JSON constants work everywhere, including WASM (always reports unsupported).
+//
+// String/JSON outputs are returned as registered u64 buffer handles,
+// following the same convention as sa_std.http2: read bytes/length with
+// sa_std_quic_buffer_data / sa_std_quic_buffer_len and release with
+// sa_std_quic_buffer_free.
+
+@extern sa_std_quic_supported(&out_supported: ptr) -> i32
+@extern sa_std_http3_supported(&out_supported: ptr) -> i32
+
+@extern sa_std_quic_capabilities_json(&out_handle: ptr) -> i32
+@extern sa_std_quic_constants_json(&out_handle: ptr) -> i32
+@extern sa_std_http3_constants_json(&out_handle: ptr) -> i32
+
+@extern sa_std_quic_endpoint_create(&out_handle: ptr) -> i32
+@extern sa_std_http3_session_create(&out_handle: ptr) -> i32
+
+// buffer handle accessors (sci convention)
+@extern sa_std_quic_buffer_data(buffer: u64) -> &ptr
+@extern sa_std_quic_buffer_len(buffer: u64) -> u64
+@extern sa_std_quic_buffer_free(^buffer: u64) -> i32

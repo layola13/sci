@@ -1,0 +1,27 @@
+// sa_std TLS-server surface — OpenSSL-backed backend living in the sci runtime.
+//
+// SslCtx and Ssl sessions are opaque u64 handles (0 == invalid). ctx_create
+// loads cert/key files and returns -1 (SA_TLS_SERVER_ERR_UNSUPPORTED) when
+// OpenSSL is unavailable. accept() binds an accepted TCP fd to a session.
+//
+// String/JSON outputs are returned as registered u64 buffer handles,
+// following the same convention as sa_std.tls_client: read bytes/length with
+// sa_std_tls_server_buffer_data / sa_std_tls_server_buffer_len and release
+// with sa_std_tls_server_buffer_free.
+
+@extern sa_std_tls_server_supported(&out_supported: ptr) -> i32
+
+@extern sa_std_tls_server_ctx_create(&cert_path: ptr, cert_path_len: u64, &key_path: ptr, key_path_len: u64, &out_ctx: ptr) -> i32
+@extern sa_std_tls_server_ctx_free(ctx: u64) -> i32
+
+@extern sa_std_tls_server_accept(ctx: u64, fd: i32, &out_ssl: ptr) -> i32
+@extern sa_std_tls_server_read(ssl: u64, &out: ptr, cap: u64, &out_read: ptr) -> i32
+@extern sa_std_tls_server_write(ssl: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32
+@extern sa_std_tls_server_close(ssl: u64) -> i32
+
+@extern sa_std_tls_server_status_json(&out_handle: ptr) -> i32
+
+// buffer handle accessors (sci convention)
+@extern sa_std_tls_server_buffer_data(buffer: u64) -> &ptr
+@extern sa_std_tls_server_buffer_len(buffer: u64) -> u64
+@extern sa_std_tls_server_buffer_free(^buffer: u64) -> i32
