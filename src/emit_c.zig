@@ -1421,6 +1421,9 @@ const kRuntimeHelpers: []const HelperDef = &.{
     .{ .name = "sa_owned_find", .code =
     \\static sa_owned_buf_t *sa_owned_find(sa_u64 h) { unsigned i; for (i = 0; i < SA_OWNED_MAX_OBJS; i++) if (sa_owned_bufs[i].h == h) return &sa_owned_bufs[i]; return 0; }
     , .deps = &.{} },
+    .{ .name = "sa_mkdir_wrap", .code =
+    \\static int sa_mkdir_wrap(const uint8_t *p) { return mkdir((const char *)p, 0777); }
+    , .deps = &.{} },
     .{ .name = "sa_owned_drop", .code =
     \\static void sa_owned_drop(sa_u64 h) { sa_owned_buf_t *o = sa_owned_find(h); if (o != 0) o->h = 0; }
     , .deps = &.{"sa_owned_find"} },
@@ -1665,6 +1668,10 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         node_rand_bytes,
         deno_btoa,
         deno_atob,
+        deno_read_file,
+        deno_write_file,
+        deno_remove,
+        deno_mkdir,
         time_unix_ms,
         time_get_full_year,
         time_get_month,
@@ -1858,6 +1865,14 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b1111, .tag = .deno_btoa }
     else if (std.mem.eql(u8, name, "sa_deno_plugin_atob"))
         .{ .voids = all_void ^ 0b1111, .tag = .deno_atob }
+    else if (std.mem.eql(u8, name, "sa_deno_plugin_read_text_file"))
+        .{ .voids = all_void ^ 0b1111, .tag = .deno_read_file }
+    else if (std.mem.eql(u8, name, "sa_deno_plugin_write_text_file"))
+        .{ .voids = all_void ^ 0b1111, .tag = .deno_write_file }
+    else if (std.mem.eql(u8, name, "sa_deno_plugin_remove"))
+        .{ .voids = all_void, .tag = .deno_remove }
+    else if (std.mem.eql(u8, name, "sa_deno_plugin_mkdir"))
+        .{ .voids = all_void ^ 0b111, .tag = .deno_mkdir }
     else if (std.mem.eql(u8, name, "sa_http_client_new"))
         .{ .voids = all_void ^ 0b11, .tag = .http_client_new }
     else if (std.mem.eql(u8, name, "sa_http_client_req_new"))
@@ -2857,6 +2872,80 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             try writer.writeAll(" if (pad < 1) sa_mem[d + w++] = (uint8_t)t; i += 4; }");
             try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
         },
+        .deno_read_file => {
+            // Real host read into fresh guest memory (mirrors the deno
+            // plugin); 0 ok, 2 on any failure.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 == 0) return 2;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 + 1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 + 1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[d + a1] = 0; }");
+            try writer.writeAll(" FILE *f = fopen((const char *)&sa_mem[sa_checked_addr(p, a1 + 1)], \"rb\");");
+            try writer.writeAll(" if (f == 0) return 2;");
+            try writer.writeAll(" if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return 2; }");
+            try writer.writeAll(" long sz = ftell(f);");
+            try writer.writeAll(" if (sz < 0) { fclose(f); return 2; }");
+            try writer.writeAll(" if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return 2; }");
+            try writer.writeAll(" sa_u64 q = sa_alloc((sa_u64)sz == 0 ? 1 : (sa_u64)sz);");
+            try writer.writeAll(" { uint32_t dd = sa_checked_addr(q, (sa_u64)sz == 0 ? 1 : (sa_u64)sz);");
+            try writer.writeAll(" size_t got = fread(&sa_mem[dd], 1, (size_t)sz, f);");
+            try writer.writeAll(" fclose(f);");
+            try writer.writeAll(" if (got != (size_t)sz) return 2;");
+            try writer.writeAll(" sa_store_u64(a2, q); sa_store_u64(a3, (sa_u64)sz); return 0; } } }\n");
+        },
+        .deno_write_file => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
+            try writer.writeAll(" if (a1 == 0) return 2;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 + 1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 + 1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[d + a1] = 0; }");
+            try writer.writeAll(" FILE *f = fopen((const char *)&sa_mem[sa_checked_addr(p, a1 + 1)], \"wb\");");
+            try writer.writeAll(" if (f == 0) return 2;");
+            try writer.writeAll(" { size_t w = 0; while (w < (size_t)a3) {");
+            try writer.writeAll(" size_t n = fwrite(&sa_mem[y + w], 1, (size_t)a3 - w, f);");
+            try writer.writeAll(" if (n == 0) { fclose(f); return 2; } w += n; } }");
+            try writer.writeAll(" if (fclose(f) != 0) return 2;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .deno_remove => {
+            // Non-recursive remove (files + empty dirs via libc
+            // remove); recursive trees are out of scope for now.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 == 0) return 2;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 + 1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 + 1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[d + a1] = 0; }");
+            try writer.writeAll(" if (remove((const char *)&sa_mem[sa_checked_addr(p, a1 + 1)]) != 0) return 2;");
+            try writer.writeAll(" return 0; } }\n");
+        },
+        .deno_mkdir => {
+            // Recursive prefix walk (mkdir -p shape); EEXIST tolerated.
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
+            try writer.writeAll(" if (a1 == 0) return 2;");
+            try writer.writeAll(" sa_u64 p = sa_alloc(a1 + 1);");
+            try writer.writeAll(" { uint32_t d = sa_checked_addr(p, a1 + 1);");
+            try writer.writeAll(" size_t i; for (i = 0; i < (size_t)a1; i++)");
+            try writer.writeAll(" sa_mem[d + i] = sa_mem[x + i];");
+            try writer.writeAll(" sa_mem[d + a1] = 0; }");
+            try writer.writeAll(" { size_t i = (a2 != 0);");
+            try writer.writeAll(" if (i == 0) {");
+            try writer.writeAll(" if (sa_mkdir_wrap(&sa_mem[sa_checked_addr(p, a1 + 1)]) != 0) return 2;");
+            try writer.writeAll(" } else {");
+            try writer.writeAll(" size_t j; for (j = 1; j <= (size_t)a1; j++) {");
+            try writer.writeAll(" if (j == (size_t)a1 || sa_mem[sa_checked_addr(p, a1 + 1) + j] == '/') {");
+            try writer.writeAll(" uint8_t sv = sa_mem[sa_checked_addr(p, a1 + 1) + j];");
+            try writer.writeAll(" sa_mem[sa_checked_addr(p, a1 + 1) + j] = 0;");
+            try writer.writeAll(" if (sa_mkdir_wrap(&sa_mem[sa_checked_addr(p, a1 + 1)]) != 0 && errno != EEXIST) return 2;");
+            try writer.writeAll(" sa_mem[sa_checked_addr(p, a1 + 1) + j] = sv; } } }");
+            try writer.writeAll(" return 0; } } }\n");
+        },
         .time_unix_ms => {
             // Real wall clock (mirrors the interpreter, not staged).
             try writer.writeAll(" { struct timespec ts;");
@@ -3170,6 +3259,7 @@ fn writePreamble(
     need_modstate: bool,
     need_regex: bool,
     need_time_clock: bool,
+    need_sys_stat: bool,
 ) !void {
     const mem_bytes: usize = @as(usize, c_opt.mem_pages) * 65536;
     try writer.print("/* Generated by `sa build-c` (c backend, MVP). DO NOT EDIT. */\n", .{});
@@ -3264,6 +3354,12 @@ fn writePreamble(
     }
     // Wall-clock needs <time.h> (the _POSIX_C_SOURCE define above
     // already precedes all headers); pure civil arithmetic needs nothing.
+    if (need_sys_stat) {
+        try writer.writeAll(
+            \\#include <sys/stat.h>
+            \\
+        );
+    }
     if (need_time_clock) {
         try writer.writeAll(
             \\#include <time.h>
@@ -4560,6 +4656,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     var need_modstate = false;
     var need_regex = false;
     var need_time_clock = false;
+    var need_sys_stat = false;
     for (tasks) |task| {
         if (task.kind != .extern_decl) continue;
         const efsig = verified.function_sigs[task.fsig_index];
@@ -4574,6 +4671,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_modstate_") != null) need_modstate = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_regex_") != null) need_regex = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "clock_gettime") != null) need_time_clock = true;
+        if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_mkdir_wrap") != null) need_sys_stat = true;
         const t = try tmp.toOwnedSlice();
         defer allocator.free(t);
         // Self-check every rendered binding: unbalanced output fails the
@@ -4600,7 +4698,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         }
     }
     const need_brk = used.get("sa_alloc") != null;
-    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk, need_http, need_owned, need_modstate, need_regex, need_time_clock);
+    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk, need_http, need_owned, need_modstate, need_regex, need_time_clock, need_sys_stat);
     try writer.print("/* source: {s} */\n", .{source_path});
     // const address defines
     for (verified.const_decls) |decl| {
