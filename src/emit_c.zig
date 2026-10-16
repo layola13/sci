@@ -2964,7 +2964,7 @@ fn collectDefUse(allocator: std.mem.Allocator, verified: anytype, fsig: sig.Func
     }
 }
 
-fn computeDeadSlots(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, task: FuncTask, out_reads: ?*std.AutoHashMap(u32, void)) !std.AutoHashMap(u32, void) {
+fn computeDeadSlots(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, task: FuncTask) !std.AutoHashMap(u32, void) {
     var defs = std.AutoHashMap(u32, void).init(allocator);
     defer defs.deinit();
     var reads = std.AutoHashMap(u32, void).init(allocator);
@@ -2992,12 +2992,6 @@ fn computeDeadSlots(allocator: std.mem.Allocator, verified: anytype, fsig: sig.F
     while (it.next()) |e| {
         if (reads.get(e.key_ptr.*) == null) try dead.put(e.key_ptr.*, {});
     }
-    if (out_reads) |out| {
-        var rit = reads.iterator();
-        while (rit.next()) |e| {
-            try out.put(e.key_ptr.*, {});
-        }
-    }
     return dead;
 }
 
@@ -3009,6 +3003,49 @@ fn computeDeadSlots(allocator: std.mem.Allocator, verified: anytype, fsig: sig.F
 /// predecessor kill does not dominate across branches), so this stays
 /// deliberately local: anything crossing a join is left to the never-read
 /// (global) filter instead.
+/// Pure, side-effect-free definitions eligible for dead-store elision.
+/// Must stay in sync with emitLinearInstruction's elision arms: anything
+/// here elides (comment only) when its dest is dead, so killing it never
+/// drops traps or observable effects.
+fn pureElidable(base: inst.Instruction) bool {
+    switch (base.kind) {
+        .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow, .ptr_add, .try_, .early_return => return true,
+        .op => {
+            const opcode = base.op_kind orelse return false;
+            return !opCanTrap(opcode);
+        },
+        else => return false,
+    }
+}
+
+/// True iff every instruction reading `slot` is already elided (i.e. the
+/// slot is effectively unread). Used by the cascade-kill worklist.
+fn allReadersElided(
+    allocator: std.mem.Allocator,
+    verified: anytype,
+    fsig: sig.FunctionSig,
+    use_global: bool,
+    task: FuncTask,
+    elide: *const std.AutoHashMap(usize, void),
+    slot: u32,
+) bool {
+    var tmp_defs = std.array_list.Managed(u32).init(allocator);
+    defer tmp_defs.deinit();
+    var tmp_uses = std.array_list.Managed(u32).init(allocator);
+    defer tmp_uses.deinit();
+    var i: usize = task.start_idx + 1;
+    while (i < task.end_idx) : (i += 1) {
+        if (elide.get(i) != null) continue;
+        tmp_defs.clearRetainingCapacity();
+        tmp_uses.clearRetainingCapacity();
+        collectDefUse(allocator, verified, fsig, use_global, verified.annotated[i].base, &tmp_defs, &tmp_uses) catch return false;
+        for (tmp_uses.items) |sl| {
+            if (sl == slot) return false;
+        }
+    }
+    return true;
+}
+
 fn computeElideIdx(allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, task: FuncTask) !std.AutoHashMap(usize, void) {
     var elide = std.AutoHashMap(usize, void).init(allocator);
     errdefer elide.deinit();
@@ -3019,15 +3056,7 @@ fn computeElideIdx(allocator: std.mem.Allocator, verified: anytype, fsig: sig.Fu
     var i: usize = task.start_idx + 1;
     while (i < task.end_idx) : (i += 1) {
         const base = verified.annotated[i].base;
-        const pure_def = switch (base.kind) {
-            .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow, .ptr_add, .try_, .early_return => true,
-            .op => blk: {
-                const opcode = base.op_kind orelse break :blk false;
-                break :blk !opCanTrap(opcode);
-            },
-            else => false,
-        };
-        if (!pure_def) continue;
+        if (!pureElidable(base)) continue;
         tmp_defs.clearRetainingCapacity();
         tmp_uses.clearRetainingCapacity();
         try collectDefUse(allocator, verified, fsig, use_global, base, &tmp_defs, &tmp_uses);
@@ -3529,16 +3558,92 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
     defer widths.deinit();
     // Definitely-unread slots: pure redefinitions elided, effectful calls
     // kept in (void) form (silences clang-analyzer-deadcode.DeadStores).
-    var live_reads = std.AutoHashMap(u32, void).init(allocator);
-    defer live_reads.deinit();
     var reads_complete = true;
-    var dead = computeDeadSlots(allocator, verified, fsig, use_global, task, &live_reads) catch blk: {
+    var dead = computeDeadSlots(allocator, verified, fsig, use_global, task) catch blk: {
         reads_complete = false;
         break :blk std.AutoHashMap(u32, void).init(allocator);
     };
     defer dead.deinit();
     var elide = computeElideIdx(allocator, verified, fsig, use_global, task) catch std.AutoHashMap(usize, void).init(allocator);
     defer elide.deinit();
+    var wdefs = std.array_list.Managed(u32).init(allocator);
+    defer wdefs.deinit();
+    var wuses = std.array_list.Managed(u32).init(allocator);
+    defer wuses.deinit();
+    // Cascade kills fixpoint: pure defs whose dests are dead AND pure
+    // defs read only by skippable insts must both go. Two sets grow
+    // monotonically (bounded by task size):
+    //   dead  += slots with no reader outside `skipped`
+    //   elide += pure insts whose defs are all dead (`skipped` = elide
+    //            plus pure all-dead-def insts, mirroring emission which
+    //            elides pure-dead via dead-checks independently)
+    // Emission (elide pre-check, dead-based void/bare/elision) stays
+    // consistent by construction. Zero additions = historical behavior.
+    {
+        var round: usize = 0;
+        while (round < 1024) : (round += 1) {
+            var progressed = false;
+            // Phase A: slots with no reader outside skipped insts are dead.
+            // (Skipped = elide map, which Phase B below also extends with
+            // pure all-dead-def insts, so later rounds see them.)
+            var si: usize = task.start_idx + 1;
+            while (si < task.end_idx) : (si += 1) {
+                wdefs.clearRetainingCapacity();
+                wuses.clearRetainingCapacity();
+                collectDefUse(allocator, verified, fsig, use_global, verified.annotated[si].base, &wdefs, &wuses) catch break;
+                for (wdefs.items) |sl| {
+                    if (dead.get(sl) != null) continue;
+                    if (!allReadersElided(allocator, verified, fsig, use_global, task, &elide, sl)) continue;
+                    dead.put(sl, {}) catch continue;
+                    progressed = true;
+                }
+            }
+            // Phase B: pure insts whose defs are all dead are skippable.
+            var gi: usize = task.start_idx + 1;
+            while (gi < task.end_idx) : (gi += 1) {
+                if (elide.get(gi) != null) continue;
+                const gbase = verified.annotated[gi].base;
+                if (!pureElidable(gbase)) continue;
+                wdefs.clearRetainingCapacity();
+                wuses.clearRetainingCapacity();
+                collectDefUse(allocator, verified, fsig, use_global, gbase, &wdefs, &wuses) catch break;
+                if (wdefs.items.len == 0) continue;
+                var all_dead = true;
+                for (wdefs.items) |sl| {
+                    if (dead.get(sl) == null) {
+                        all_dead = false;
+                        break;
+                    }
+                }
+                if (!all_dead) continue;
+                elide.put(gi, {}) catch continue;
+                progressed = true;
+            }
+            if (!progressed) break;
+        }
+    }
+    // Live-for-declaration set: slots read by a non-elided instruction.
+    // (Effectful unread defs emit bare calls needing no declaration;
+    // pure unread defs are elided above.) On any analysis failure the
+    // flag drops and everything is declared (safe direction).
+    var liveK = std.AutoHashMap(u32, void).init(allocator);
+    defer liveK.deinit();
+    {
+        var gi: usize = task.start_idx + 1;
+        while (gi < task.end_idx) : (gi += 1) {
+            if (elide.get(gi) != null) continue;
+            wdefs.clearRetainingCapacity();
+            wuses.clearRetainingCapacity();
+            collectDefUse(allocator, verified, fsig, use_global, verified.annotated[gi].base, &wdefs, &wuses) catch {
+                reads_complete = false;
+                break;
+            };
+            for (wuses.items) |sl| liveK.put(sl, {}) catch {
+                reads_complete = false;
+                break;
+            };
+        }
+    }
     // Labels targeted by a jump/branch. An untargeted label is pure
     // fallthrough: emitting it trips -Wunused-label, so only the gas
     // metering (which still executes on fallthrough) is kept.
@@ -3608,13 +3713,12 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         var s: usize = 0;
         while (s < nregs) : (s += 1) {
             const slot32: u32 = @intCast(s);
-            // Declare a slot iff it is read somewhere (when liveness is
-            // known). Effectful instructions with unread dests are
-            // emitted as bare calls (no assignment), so no declaration
-            // is needed for them; pure unread ones are elided outright.
-            // On any analysis failure declare everything (safe direction:
-            // an unused declaration warns, a missing one errors).
-            if (reads_complete and live_reads.get(slot32) == null) continue;
+            // Declare a slot iff it is read by a non-elided instruction
+            // (when liveness is known). Effectful unread defs emit bare
+            // calls, pure unread defs are elided above: neither assigns,
+            // so neither needs a declaration. On any analysis failure
+            // declare everything (safe direction).
+            if (reads_complete and liveK.get(slot32) == null) continue;
             if (first_decl) {
                 try writer.writeAll("  sa_u64 ");
                 first_decl = false;
