@@ -674,9 +674,21 @@ pub const Child = struct {
             .stderr = mapStdio(self.stderr_behavior),
         });
         errdefer inner.kill(io());
-        if (self.stdin_behavior == .Pipe) self.stdin = .{ .inner = inner.stdin.? };
-        if (self.stdout_behavior == .Pipe) self.stdout = .{ .inner = inner.stdout.? };
-        if (self.stderr_behavior == .Pipe) self.stderr = .{ .inner = inner.stderr.? };
+        // Transfer pipe ownership to the sio.File wrappers so the later
+        // inner.kill() cleanup does not double-close fds the caller (or a
+        // responder thread) already closed via those wrappers.
+        if (self.stdin_behavior == .Pipe) {
+            self.stdin = .{ .inner = inner.stdin.? };
+            inner.stdin = null;
+        }
+        if (self.stdout_behavior == .Pipe) {
+            self.stdout = .{ .inner = inner.stdout.? };
+            inner.stdout = null;
+        }
+        if (self.stderr_behavior == .Pipe) {
+            self.stderr = .{ .inner = inner.stderr.? };
+            inner.stderr = null;
+        }
         self.inner = inner;
     }
 
