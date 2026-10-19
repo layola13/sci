@@ -3411,7 +3411,7 @@ int sa_llvmc_emit_module_artifacts(const SaModule *m, const char *out_bitcode_pa
     else { cpu = LLVMGetHostCPUName(); features = LLVMGetHostCPUFeatures(); }
     LLVMTargetMachineRef tm = LLVMCreateTargetMachine(
         target, triple, cpu, features,
-        cg_opt, LLVMRelocDefault, LLVMCodeModelDefault
+        cg_opt, LLVMRelocPIC, LLVMCodeModelDefault
     );
     if (!is_cross) {
         LLVMDisposeMessage(cpu);
