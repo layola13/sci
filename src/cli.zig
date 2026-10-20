@@ -595,6 +595,9 @@ const CompileOptions = struct {
     sab_selected_test_names: []const []const u8 = &.{},
     sab_skip_verify: bool = false,
     target_triple: ?[]const u8 = null,
+    /// Rust-style mutability: allocations bind immutable values and writing
+    /// through them requires an explicit exclusive borrow.
+    default_immutable: bool = false,
 };
 
 const TestCommandOptions = struct {
@@ -1246,6 +1249,8 @@ fn writeCompileOptionsHelp(writer: anytype) !void {
     try writer.writeAll("  --mem-report                   Print compile RSS stage samples; JSON mode includes metrics\n");
     try writer.writeAll("  --offline                      Use local package cache only\n");
     try writer.writeAll("  --ci                           Use CI package preflight behavior\n");
+    try writer.writeAll("  --default-immutable            Rust-style mutability: allocations bind immutable values,\n");
+    try writer.writeAll("                                 writing through them needs an exclusive borrow (`x = &mut y`)\n");
     try writer.writeAll("  --allow-unaudited-risks        Allow high-risk package audit findings\n");
     try writer.writeAll("  --yes, --auto-approve          Approve package review prompts when allowed\n");
     try writer.writeAll("  -p, --package <name>           Select a workspace member package\n");
@@ -4324,6 +4329,12 @@ fn compileOptionsHaveAllowList(options: CompileOptions) bool {
         options.allow_run_requested;
 }
 
+/// Verification mode byte folded into the incremental verdict digest so a
+/// verdict produced in one mode is never reused in another.
+fn verifyModeByte(default_immutable: bool) u8 {
+    return if (default_immutable) 1 else 0;
+}
+
 fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize, options: *CompileOptions) !bool {
     if (try consumeJobsOption(arg, args, index, options)) return true;
     if (try consumeDceOption(arg, args, index, options)) return true;
@@ -4354,6 +4365,14 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
     }
     if (std.mem.eql(u8, arg, "--ci")) {
         options.ci = true;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--default-immutable")) {
+        options.default_immutable = true;
+        // The build and verdict caches are keyed on the source content only,
+        // so a cached artifact from the mutable mode must never be reused for
+        // the immutable mode.
+        options.incremental_cache = false;
         return true;
     }
     if (std.mem.startsWith(u8, arg, "--target=")) {
@@ -5395,6 +5414,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
             .predecoded_symbol_names = flat.symbols.names.items,
             .predecoded_function_sigs = flat.function_sigs,
             .check_exit_leaks = options.sab_selected_test_names.len == 0,
+            .default_immutable = options.default_immutable,
         });
         const verify_ns = if (verify_start) |start| elapsedNs(start) else null;
         if (options.profile) {
@@ -5412,7 +5432,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         }
         return switch (verified) {
             .ok => |ok| blk: {
-                const digest = incr_verify.hashInstructions(flat.instructions);
+                const digest = incr_verify.hashInstructionsMode(flat.instructions, verifyModeByte(options.default_immutable));
                 incr_verify.recordVerified(digest);
                 break :blk .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } };
             },
@@ -5511,7 +5531,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         null;
 
     const verify_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    const content_hash = incr_verify.hashInstructions(flat.instructions);
+    const content_hash = incr_verify.hashInstructionsMode(flat.instructions, verifyModeByte(options.default_immutable));
     // Phase B-B hybrid: on verdict hit rebuild a trusted annotated shell from the
     // current FlattenResult (no dangling VerifyOk reuse). Misses run the referee.
     if (incr_verify.isVerified(content_hash)) {
@@ -5526,7 +5546,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         metrics.cache = .{ .kind = "verdict", .hit = true };
         return .{ .ok = .{ .flat = flat, .verified = trusted, .metrics = metrics } };
     }
-    const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = options.jobs, .package_grants = package_grants, .stage_reporter = verifier_stage_reporter });
+    const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = options.jobs, .package_grants = package_grants, .stage_reporter = verifier_stage_reporter, .default_immutable = options.default_immutable });
     const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
     if (memory_metrics) |*memory| {
         memory.updatePeak(verifier_stage_context.peak_rss_bytes);
@@ -7689,7 +7709,7 @@ fn executeCheck(
                 // SAB encode path is standalone: it never falls back to .sa text.
                 // encodeSabFromFlat re-verifies and returns error.VerificationTrap
                 // on failure, which we surface as a check failure.
-                const sab_bytes = plugin_bridge.encodeSabFromFlat(allocator, &owned.flat) catch |err| {
+                const sab_bytes = plugin_bridge.encodeSabFromFlat(allocator, &owned.flat, compile_options.default_immutable) catch |err| {
                     if (err == error.VerificationTrap) {
                         try stderr.print("check: SAB encode failed: verification trap\n", .{});
                         return 1;
@@ -7785,7 +7805,7 @@ fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, 
     errdefer flat.deinit(allocator);
     const flatten_ns = if (flatten_start) |start| elapsedNs(start) else 0;
 
-    const content_hash = incr_verify.hashInstructions(flat.instructions);
+    const content_hash = incr_verify.hashInstructionsMode(flat.instructions, verifyModeByte(options.default_immutable));
     const verify_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     if (incr_verify.isVerified(content_hash)) {
         // Verdict hit: build a trusted shell without re-running the referee.
@@ -7800,6 +7820,7 @@ fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, 
         .jobs = options.jobs,
         .package_grants = package_grants,
         .stage_reporter = null,
+        .default_immutable = options.default_immutable,
     });
     const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
     return switch (verified) {
@@ -9379,7 +9400,7 @@ test "check --emit-sab roundtrips through compileSource without text fallback" {
     };
     defer ok_sa.deinit(std.testing.allocator);
 
-    const sab_bytes = try plugin_bridge.encodeSabFromFlat(std.testing.allocator, &ok_sa.flat);
+    const sab_bytes = try plugin_bridge.encodeSabFromFlat(std.testing.allocator, &ok_sa.flat, false);
     defer std.testing.allocator.free(sab_bytes);
     // SAB magic "SAB\x00", version 4.0.
     try std.testing.expect(sab_bytes.len > 6);

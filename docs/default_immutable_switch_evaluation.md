@@ -263,6 +263,39 @@ SA 设计层面**天然支持不可变优先** —— 将 `alloc` 的初始 mask
 
 ---
 
+## 8. 实现状态（2026-10-20 落地）
+
+本节记录该提案已实现的部分，与上面的评估（写作时的假设）分开陈述。
+
+### 8.1 已实现
+
+| 组件 | 位置 | 说明 |
+|---|---|---|
+| CLI 开关 | `src/cli.zig`（`--default-immutable`） | `check` / `build` / `build-exe` 等所有走 `consumeCompileOption` 的命令均支持 |
+| 选项传导 | `src/verifier.zig` `VerifyOptions.default_immutable` | 串行与并行两条验证路径都透传 |
+| alloc / stack_alloc | `src/verifier.zig` `allocDefaultMask` | 默认模式下 `alloc` 得到 `Active|Immutable` |
+| 独占借用语法 | `src/flattener/line_classifier.zig` | `x = &mut y` 是唯一能拿到写权限的入口 |
+| 缓存隔离 | `src/incr_verify.zig` `hashInstructionsMode` + `src/cli.zig` `verifyModeByte` | 校验 verdict 摘要混入模式字节；开启开关时同时关闭工程构建缓存 |
+
+### 8.2 语义（与评估稿的差异）
+
+评估稿假设"Immutable 位 = 恒定数据"。实现把两种含义拆开：
+
+| 概念 | 载体 | 可写 | 可移动 | 可释放 | 可独占借用 |
+|---|---|---|---|---|---|
+| `@const` 常量数据 | `flags` 的 `regFlagImmutable` | 否 | 否 | 否 | 否 |
+| 不可变绑定（默认不可变模式下的 `alloc`） | `state` 的 `immutable` 位 | 仅当存在独占借用 | 是 | 是 | 是 |
+
+即 Rust 语义：`let` 绑定不可写，但可以移动、可以交出 `&mut`；`&mut` 是唯一的写权限来源，
+`store` 必须写在借用视图（或持有独占借用的源）上。
+
+### 8.3 尚未实现（后续增量）
+
+- `sa_std` 迁移到 `&mut` 借用模式（评估稿估 500-1500 行）；当前 `sa_std` 仍按可写语义书写，
+  因此 `--default-immutable` 尚未覆盖 `sa_std` 库代码。
+- 默认值翻转：开关默认仍为关闭（可写），翻转前必须先完成 `sa_std` 与前端迁移。
+- `load` 的 Immutable 位传播（评估稿 §2.3）未采纳：当前实现只在借用释放时恢复绑定状态。
+
 ## 参考文件位置
 
 | 组件 | 文件路径 | 关键行号 |

@@ -117,8 +117,9 @@ fn freeFunctionSigs(allocator: std.mem.Allocator, function_sigs: []flattener.Fun
 pub fn encodeSabFromFlat(
     allocator: std.mem.Allocator,
     flat: *const flattener.FlattenResult,
+    default_immutable: bool,
 ) ![]u8 {
-    const verified = try verifier.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{});
+    const verified = try verifier.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .default_immutable = default_immutable });
     switch (verified) {
         .ok => |ok| {
             var owned = ok;
@@ -214,7 +215,7 @@ test "encodeSabFromFlat writes verified register metadata" {
 
     var flat = try flattener.flatten(std.testing.allocator, source);
     defer flat.deinit(std.testing.allocator);
-    const bytes = try encodeSabFromFlat(std.testing.allocator, &flat);
+    const bytes = try encodeSabFromFlat(std.testing.allocator, &flat, false);
     defer std.testing.allocator.free(bytes);
 
     var decoded = try sab.decodeModule(std.testing.allocator, bytes);
@@ -254,7 +255,7 @@ test "encodeSabFromFlat preserves panic_msg argument body" {
 
     var flat = try flattener.flatten(std.testing.allocator, source);
     defer flat.deinit(std.testing.allocator);
-    const bytes = try encodeSabFromFlat(std.testing.allocator, &flat);
+    const bytes = try encodeSabFromFlat(std.testing.allocator, &flat, false);
     defer std.testing.allocator.free(bytes);
 
     var decoded = try sab.decodeModule(std.testing.allocator, bytes);

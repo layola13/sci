@@ -474,6 +474,68 @@ fn assertBuildExeTrap(path: []const u8, out_name: []const u8, expected_trap: []c
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, expected_message));
 }
 
+fn assertCheckTrapWithArgs(path: []const u8, extra: []const []const u8, expected_trap: []const u8, expected_trap_code: u32, expected_message: []const u8) !void {
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
+    defer std.testing.allocator.free(source_path);
+
+    var argv = std.array_list.Managed([]const u8).init(std.testing.allocator);
+    defer argv.deinit();
+    try argv.append("sa");
+    try argv.append("check");
+    try argv.appendSlice(extra);
+    try argv.append(source_path);
+
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        argv.items,
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
+    );
+    try std.testing.expectEqual(@as(u8, 1), code);
+    var trap_buf: [64]u8 = undefined;
+    const trap_text = try std.fmt.bufPrint(&trap_buf, "\"trap\":\"{s}\"", .{expected_trap});
+    var code_buf: [32]u8 = undefined;
+    const code_text = try std.fmt.bufPrint(&code_buf, "\"trap_code\":{d}", .{expected_trap_code});
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, trap_text));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, code_text));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, expected_message));
+}
+
+fn assertCheckOkWithArgs(path: []const u8, extra: []const []const u8) !void {
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
+    defer std.testing.allocator.free(source_path);
+
+    var argv = std.array_list.Managed([]const u8).init(std.testing.allocator);
+    defer argv.deinit();
+    try argv.append("sa");
+    try argv.append("check");
+    try argv.appendSlice(extra);
+    try argv.append(source_path);
+
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        argv.items,
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
+    );
+    try std.testing.expectEqual(@as(u8, 0), code);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "check ok") != null);
+}
+
 fn assertBuildExeLinkFailure(source_name: []const u8, source: []const u8, out_name: []const u8, expected_fragment: []const u8) !void {
     var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
@@ -1818,6 +1880,18 @@ test "borrow conflict demo is rejected with structured trap output" {
 
 test "double mutable borrow demo is rejected with structured trap output" {
     try assertBuildExeTrap("demos/support/mut_borrow_conflict.sa", "mut_borrow_conflict.out", "BorrowConflict", 1008, "borrow rules reject this access");
+}
+
+test "default immutable mode rejects a write without an exclusive borrow" {
+    try assertCheckTrapWithArgs("demos/support/default_immutable_write.sa", &.{"--default-immutable"}, "ConstMutation", 1023, "immutable registers cannot be written, moved, or exclusively borrowed");
+}
+
+test "default immutable mode accepts the same program in the mutable mode" {
+    try assertCheckOkWithArgs("demos/support/default_immutable_write.sa", &.{});
+}
+
+test "default immutable mode accepts an exclusive borrow" {
+    try assertCheckOkWithArgs("demos/rosetta/962_mut_borrow_code/main.sa", &.{"--default-immutable"});
 }
 
 test "read write conflict demo is rejected with structured trap output" {

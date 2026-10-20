@@ -194,8 +194,16 @@ fn hashOperand(hasher: *std.crypto.hash.sha2.Sha256, op: inst.Operand) void {
 /// Sound content hash over verification-relevant instruction fields.
 /// Line numbers are excluded so identical code at different locations can hit.
 pub fn hashInstructions(instructions: []const inst.Instruction) [32]u8 {
+    return hashInstructionsMode(instructions, 0);
+}
+
+/// Same as `hashInstructions`, with the verification mode folded into the
+/// digest. The mode changes what the verifier accepts (for example the
+/// Rust-style immutable default), so verdicts must not be shared across modes.
+pub fn hashInstructionsMode(instructions: []const inst.Instruction, mode: u8) [32]u8 {
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     hasher.update("sa-incr-verify-v1");
+    hasher.update(&.{mode});
     for (instructions) |item| {
         const kind_u: u8 = @intFromEnum(item.kind);
         hasher.update(&.{kind_u});

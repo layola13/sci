@@ -1,0 +1,5 @@
+@main() -> i32:
+box = alloc 4
+store box+0, 1 as i32
+!box
+return 0

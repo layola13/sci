@@ -85,6 +85,9 @@ pub const VerifyOptions = struct {
     predecoded_symbol_names: []const []const u8 = &.{},
     predecoded_function_sigs: []const sig.FunctionSig = &.{},
     check_exit_leaks: bool = true,
+    /// Rust-style mutability: an allocation binds an immutable value. Writing
+    /// through it requires an explicit exclusive borrow (`x = &mut y`).
+    default_immutable: bool = false,
 };
 
 pub const VerifyStageReporter = struct {
@@ -207,6 +210,7 @@ const ParallelVerifyContext = struct {
     workers: []ParallelVerifyWorker,
     requested_jobs: ?usize,
     check_exit_leaks: bool,
+    default_immutable: bool,
     next_chunk: std.atomic.Value(usize),
 };
 
@@ -560,6 +564,23 @@ fn isImmutable(mask: u16) bool {
 fn isImmutableConst(state: []const u16, flags: []const u8, id: u32) bool {
     const idx: usize = @intCast(id);
     return isImmutable(state[idx]) or (flags[idx] & regFlagImmutable) != 0;
+}
+
+/// Const data (`@const`) is a hard constant: it can never be written, moved,
+/// released, or exclusively borrowed. An immutable binding (the Rust-style
+/// `let`) only forbids writing and overwriting; it can still be moved,
+/// released, and mutably borrowed.
+fn isConstData(flags: []const u8, id: u32) bool {
+    const idx: usize = @intCast(id);
+    return (flags[idx] & regFlagImmutable) != 0;
+}
+
+/// The mask a fresh allocation starts with. Rust-style mutability binds an
+/// immutable value by default, so the caller has to take an exclusive borrow
+/// before writing through it.
+fn allocDefaultMask(default_immutable: bool) u16 {
+    if (default_immutable) return maskOf(.active) | maskOf(.immutable);
+    return maskOf(.active);
 }
 
 fn constTrap(
@@ -2676,7 +2697,12 @@ fn writeCheck(
     if (current == 0) return trapReport(.unknown_register, item, function_text, is_ffi_wrapper, name, null, null, "register is not declared in the current scope", null);
     if ((current & maskOf(.consumed)) != 0) return trapReport(.use_after_move, item, function_text, is_ffi_wrapper, name, maskOf(.consumed), current, "moved value is no longer usable", null);
     if (isImmutableConst(state, flags, id)) {
-        return constTrap(item, function_text, is_ffi_wrapper, name, current, "immutable registers cannot be written, moved, or exclusively borrowed");
+        // An exclusive borrow grants write access to an immutable binding
+        // (the Rust `&mut` grant); const data never receives that grant.
+        const exclusive_borrow = (current & maskOf(.locked_mut)) != 0;
+        if (!exclusive_borrow or isConstData(flags, id)) {
+            return constTrap(item, function_text, is_ffi_wrapper, name, current, "immutable registers cannot be written, moved, or exclusively borrowed");
+        }
     }
     if ((current & maskOf(.borrow_view)) != 0) {
         const origin_id = origins[idx] orelse return trapReport(.borrow_conflict, item, function_text, is_ffi_wrapper, name, maskOf(.active), current, "borrow rules reject this access", null);
@@ -2757,7 +2783,7 @@ fn consumeSourceValueCtx(
 ) ?VerifyBodyResult {
     const idx: usize = @intCast(id);
     if (allow_const_copy and isImmutableConst(state, flags, id)) return null;
-    if (isImmutableConst(state, flags, id)) {
+    if (isConstData(flags, id)) {
         return constTrap(item, function_text, is_ffi_wrapper, name, state[idx], "immutable registers cannot be moved");
     }
     if (isStackAllocated(flags, origins, state, id)) {
@@ -2802,11 +2828,12 @@ fn setBorrowState(state: []u16, flags: []u8, origins: []?u32, locks: []u16, dst:
     flags[dst_idx] = if (is_ffi) 0x01 else 0x00;
     origins[dst_idx] = src;
     locks[src_idx] += 1;
-    if (is_mut) {
-        if (state[src_idx] == maskOf(.active)) state[src_idx] = maskOf(.locked_mut);
-    } else {
-        if (state[src_idx] == maskOf(.active)) state[src_idx] = maskOf(.locked_read);
-    }
+    // The immutable bit survives the borrow: an immutable binding stays
+    // immutable after the exclusive borrow is released. Const data keeps its
+    // historic behaviour and is never locked by a borrow.
+    const src_immutable = if (isConstData(flags, src)) 0 else (state[src_idx] & maskOf(.immutable));
+    if (src_immutable == 0 and state[src_idx] != maskOf(.active)) return;
+    state[src_idx] = (if (is_mut) maskOf(.locked_mut) else maskOf(.locked_read)) | src_immutable;
 }
 
 fn clearBorrowCtx(
@@ -3083,6 +3110,7 @@ fn verifyBody(
     check_exit_leaks: bool,
     package_grants: []const pkg_manifest.RequireEntry,
     sax_context: ?SaxValidationContext,
+    default_immutable: bool,
 ) !VerifyBodyResult {
     std.debug.assert(classified_lines.len == instructions.len);
     var sig_index = sig_index_start;
@@ -3357,7 +3385,7 @@ fn verifyBody(
 
         switch (item.kind) {
             .alloc => {
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, allocDefaultMask(default_immutable), &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = 0;
                 recordAllocSize(&interior, item.operands[0].reg, parseAllocSizeOperand(item.operands[1]));
                 gas_alloc_bytes += switch (item.operands[1]) {
@@ -3368,7 +3396,7 @@ fn verifyBody(
                 };
             },
             .stack_alloc => {
-                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, allocDefaultMask(default_immutable), &interior)) |tr| return tr;
                 flags[@intCast(item.operands[0].reg)] = regFlagStackAlloc;
                 recordAllocSize(&interior, item.operands[0].reg, parseAllocSizeOperand(item.operands[1]));
                 gas_alloc_bytes += switch (item.operands[1]) {
@@ -3529,7 +3557,7 @@ fn verifyBody(
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[2], source_reg, state, flags)) |tr| return tr;
                 if (is_mut) {
                     const source_idx: usize = @intCast(source_reg);
-                    if (isImmutableConst(state, flags, source_reg)) {
+                    if (isConstData(flags, source_reg)) {
                         return constTrap(item, current_function_text, current_is_ffi_wrapper, classified.parts[2], state[source_idx], "immutable registers cannot be exclusively borrowed");
                     }
                     if ((state[source_idx] & maskOf(.borrow_view)) != 0 or locks[source_idx] != 0) {
@@ -3598,7 +3626,7 @@ fn verifyBody(
                     // cleared for loop-head phi merges.
                     if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
                 } else {
-                    if (isImmutableConst(state, flags, item.operands[0].reg)) {
+                    if (isConstData(flags, item.operands[0].reg)) {
                         return constTrap(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], state[idx], "immutable registers cannot be released");
                     }
                     if (hasActiveBorrowRefs(locks, item.operands[0].reg)) {
@@ -3629,7 +3657,7 @@ fn verifyBody(
                 if (!current_is_ffi_wrapper) return trapReport(.illegal_unsafe_context, item, current_function_text, current_is_ffi_wrapper, null, null, null, "raw pointer and assume_* instructions are only legal inside @ffi_wrapper", null);
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
                 const is_mut = item.operands[2] == .text and std.mem.eql(u8, item.operands[2].text, "mut");
-                if (is_mut and isImmutableConst(state, flags, item.operands[1].reg)) {
+                if (is_mut and isConstData(flags, item.operands[1].reg)) {
                     return constTrap(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], state[@intCast(item.operands[1].reg)], "immutable registers cannot be exclusively borrowed");
                 }
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active) | maskOf(.borrow_view), &interior)) |tr| return tr;
@@ -3837,7 +3865,7 @@ fn verifyBody(
                                         if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr;
                                     },
                                     .move => {
-                                        if (isImmutableConst(state, flags, arg_id)) {
+                                        if (isConstData(flags, arg_id)) {
                                             return constTrap(item, current_function_text, current_is_ffi_wrapper, arg.text, state[arg_reg_idx], "immutable registers cannot be moved");
                                         }
                                         if (readCheck(item, current_function_text, current_is_ffi_wrapper, arg.text, arg_id, state, flags)) |tr| return tr;
@@ -3952,7 +3980,10 @@ fn verifyBody(
                     if (idx == src_idx) continue;
                     if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
                     if ((mask & maskOf(.active)) == 0 and (mask & maskOf(.locked_read)) == 0 and (mask & maskOf(.locked_mut)) == 0) continue;
-                    if ((mask & maskOf(.immutable)) != 0 or (flags[idx] & regFlagImmutable) != 0) continue;
+                    // Only const data is exempt from the leak check; an
+                    // immutable binding still owns its allocation and must be
+                    // released.
+                    if ((flags[idx] & regFlagImmutable) != 0) continue;
                     if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
                     // Raw pointers carry no ownership (release is a no-op for
                     // them); a live raw-pointer temp is never a leak, same as
@@ -4009,7 +4040,7 @@ fn verifyBody(
                             if (readCheck(item, current_function_text, current_is_ffi_wrapper, item.operands[0].text, ret_id, state, flags)) |tr| {
                                 return tr;
                             }
-                            if (isImmutableConst(state, flags, ret_id)) {
+                            if (isConstData(flags, ret_id)) {
                                 return constTrap(item, current_function_text, current_is_ffi_wrapper, ret_name, state[idx], "immutable registers cannot be returned by move");
                             }
                             if ((state[idx] & maskOf(.fallible)) != 0) {
@@ -4070,7 +4101,9 @@ fn verifyBody(
     if (check_exit_leaks and !fatal_terminated and !current_is_bodyless_extern) {
         for (state, 0..) |mask, idx| {
             if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
-            if ((mask & maskOf(.immutable)) != 0 or (flags[idx] & regFlagImmutable) != 0) continue;
+            // Only const data is exempt from the leak check; an immutable
+            // binding still owns its allocation and must be released.
+            if ((flags[idx] & regFlagImmutable) != 0) continue;
             if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
             // Raw pointers carry no ownership (release is a no-op for them);
             // a live raw-pointer temp is never a leak, same as an ephemeral
@@ -4195,6 +4228,7 @@ fn verifyWorker(context: *ParallelVerifyContext, worker_index: usize) void {
             context.check_exit_leaks and chunk_index + 1 == context.chunks.len,
             context.package_grants,
             context.sax_context,
+            context.default_immutable,
         ) catch |err| {
             job.err = err;
             return;
@@ -4215,10 +4249,11 @@ fn verifyParallel(
     requested_jobs: ?usize,
     check_exit_leaks: bool,
     stage_reporter: ?VerifyStageReporter,
+    default_immutable: bool,
 ) !VerifyBodyResult {
     const worker_count = chooseVerifyWorkerCount(requested_jobs, chunks.len);
     if (worker_count <= 1) {
-        return verifyBody(allocator, instructions, classified_lines, const_decls, metadata, 0, check_exit_leaks, package_grants, sax_context);
+        return verifyBody(allocator, instructions, classified_lines, const_decls, metadata, 0, check_exit_leaks, package_grants, sax_context, default_immutable);
     }
 
     if (stage_reporter) |reporter| reporter.report("parallel_start", worker_count, chunks.len);
@@ -4253,6 +4288,7 @@ fn verifyParallel(
         .workers = workers,
         .requested_jobs = requested_jobs,
         .check_exit_leaks = check_exit_leaks,
+        .default_immutable = default_immutable,
         .next_chunk = std.atomic.Value(usize).init(0),
     };
     _ = context.allocator;
@@ -4406,10 +4442,10 @@ pub fn verifyWithOptions(
     const worker_count = chooseVerifyWorkerCount(options.jobs, chunks.len);
 
     const body_result = if (worker_count > 1 and chunks.len > 0) blk: {
-        const parallel = try verifyParallel(allocator, instructions, classified_lines, const_decls, &metadata, options.package_grants, options.sax_context, chunks, options.jobs, options.check_exit_leaks, options.stage_reporter);
+        const parallel = try verifyParallel(allocator, instructions, classified_lines, const_decls, &metadata, options.package_grants, options.sax_context, chunks, options.jobs, options.check_exit_leaks, options.stage_reporter, options.default_immutable);
         break :blk parallel;
     } else blk: {
-        const serial = try verifyBody(allocator, instructions, classified_lines, const_decls, &metadata, 0, options.check_exit_leaks, options.package_grants, options.sax_context);
+        const serial = try verifyBody(allocator, instructions, classified_lines, const_decls, &metadata, 0, options.check_exit_leaks, options.package_grants, options.sax_context, options.default_immutable);
         if (options.stage_reporter) |reporter| reporter.report("after_body", instructions.len, instructions.len);
         break :blk serial;
     };
@@ -4763,6 +4799,131 @@ test "branch conditions are consumed by control flow" {
                 report.source_line,
                 report.source_text orelse "",
             });
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "default immutable mode rejects writing through an allocation without a borrow" {
+    const source =
+        \\@main() -> i32:
+        \\box = alloc 4
+        \\store box+0, 1 as i32
+        \\!box
+        \\return 0
+    ;
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .default_immutable = true });
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.const_mutation, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "default immutable mode accepts the same program in the mutable mode" {
+    const source =
+        \\@main() -> i32:
+        \\box = alloc 4
+        \\store box+0, 1 as i32
+        \\!box
+        \\return 0
+    ;
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{});
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+        .trap => |report| {
+            std.debug.print("trap={s} msg={s}\n", .{ @tagName(report.trap), report.message });
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "default immutable mode grants write access through an exclusive borrow" {
+    const source =
+        \\@main() -> i32:
+        \\box = alloc 4
+        \\view = &mut box
+        \\store view+0, 1 as i32
+        \\value = load view+0 as i32
+        \\!view
+        \\!box
+        \\!value
+        \\return 0
+    ;
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .default_immutable = true });
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            defer owned.deinit(std.testing.allocator);
+            try std.testing.expect(owned.annotated.len > 0);
+        },
+        .trap => |report| {
+            std.debug.print("trap={s} msg={s} line={}\n", .{ @tagName(report.trap), report.message, report.source_line });
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "default immutable mode keeps the exclusive borrow exclusive" {
+    const source =
+        \\@main() -> i32:
+        \\box = alloc 4
+        \\view = &mut box
+        \\store box+0, 1 as i32
+        \\!view
+        \\!box
+        \\return 0
+    ;
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .default_immutable = true });
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.borrow_conflict, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "default immutable mode still requires the allocation to be released" {
+    const source =
+        \\@main() -> i32:
+        \\box = alloc 4
+        \\return 0
+    ;
+
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .default_immutable = true });
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.memory_leak, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
             return error.TestUnexpectedResult;
         },
     }
