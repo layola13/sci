@@ -214,6 +214,8 @@ L_CA_ENTRY:
     return out
 
 // @ts_str_split 分隔扫描成串元数组（返新句柄数组，调用方持有；段柄作 i32 入槽，
+// 零长分隔符（sl=0）走逐字节切分支（JS split("") 语义；原游标推进
+// nstart = idx + sl 在 sl=0 时原地不动 → 死循环，已修）。
 // 与调用点 saLowerArrayPush 同形，段不单独释放；lim<0 即不限长（node ToUint32
 // 实证），haslim=0 忽略 lim；移植 tsgosa saLowerStringSplit 全形，含 limit 截断）。
 @ts_str_split(bp: ptr, bl: u64, sp: ptr, sl: u64, lim: i32, haslim: i32) -> ptr:
@@ -239,10 +241,31 @@ L_SSP_NEND:
     br use_lim -> L_SSP_USE, L_SSP_INF
 L_SSP_USE:
     eff = add lim_n, 0
-    jmp L_SSP_LOOP
+    jmp L_SSP_GO
 L_SSP_INF:
     eff = 2147483647
-    jmp L_SSP_LOOP
+    jmp L_SSP_GO
+L_SSP_GO:
+    sep0 = eq sl, 0
+    br sep0 -> L_SSP_CHARS, L_SSP_LOOP
+L_SSP_CHARS:
+    ci = 0
+    bl32 = trunc blen
+L_SSP_CH_TOP:
+    cntc = load h+8 as i32
+    roomc = slt cntc, eff
+    br roomc -> L_SSP_CH_MORE, L_SSP_DONE
+L_SSP_CH_MORE:
+    cmore = slt ci, bl32
+    br cmore -> L_SSP_CH_BODY, L_SSP_DONE
+L_SSP_CH_BODY:
+    cptr = add base, ci
+    cpart = alloc 16
+    store cpart+0, cptr as ptr
+    store cpart+8, 1 as u64
+    call @ts_arr_push_word(h, cpart)
+    ci = add ci, 1
+    jmp L_SSP_CH_TOP
 L_SSP_LOOP:
     cnt = load h+8 as i32
     room = slt cnt, eff
