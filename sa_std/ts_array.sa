@@ -1292,3 +1292,37 @@ L_CD_BODY:
     jmp L_CD_TOP
 L_CD_END:
     return dest
+
+// @ts_arr_entries 下标-值对数组（返新句柄数组：每元一个 2 元 i32 数组
+// {i, v}；外层数组存对句柄地址（与薄口嵌套数组模型同形：元素为句柄地址
+// 截断入槽，读回零扩展））。对数组由本符号侧分配（调用方持外层数组柄，
+// 无逐对归属问题）。i32 元数组专用。
+@ts_arr_entries(src: ptr) -> ptr:
+L_TAE_ENTRY:
+    out = alloc 16
+    store out+0, 0 as ptr
+    store out+8, 0 as u64
+    dptr = load src+0 as ptr
+    dlenraw = load src+8 as u64
+    dlen = trunc dlenraw as i32
+    i = 0
+L_TAE_TOP:
+    more = ult i, dlen
+    br more -> L_TAE_BODY, L_TAE_DONE
+L_TAE_BODY:
+    off = mul i, 4
+    vaddr = add dptr, off
+    v = load vaddr + 0 as i32
+    pbuf = alloc 8
+    p0 = add pbuf, 0
+    store p0 + 0, i as i32
+    p1 = add pbuf, 4
+    store p1 + 0, v as i32
+    pair = alloc 16
+    store pair+0, pbuf as ptr
+    store pair+8, 2 as u64
+    call @ts_arr_push_word(out, pair)
+    i = add i, 1
+    jmp L_TAE_TOP
+L_TAE_DONE:
+    return out
