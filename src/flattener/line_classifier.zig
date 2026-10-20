@@ -520,12 +520,25 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
     }
 
     if (std.mem.startsWith(u8, simple_rhs, "&")) {
-        const source = std.mem.trim(u8, simple_rhs["&".len..], " \t");
+        var source = std.mem.trim(u8, simple_rhs["&".len..], " \t");
+        if (source.len == 0) return false;
+        // Rust-style exclusive borrow: `x = &mut y` takes a mutable borrow of
+        // `y`, while `x = &y` keeps the shared borrow. The borrow mode is a
+        // verifier-level discipline only; every backend lowers both forms to
+        // the same pointer value.
+        var mode: []const u8 = "read";
+        if (std.mem.startsWith(u8, source, "mut")) {
+            const rest = source["mut".len..];
+            if (rest.len > 0 and (rest[0] == ' ' or rest[0] == '\t')) {
+                mode = "mut";
+                source = std.mem.trim(u8, rest, " \t");
+            }
+        }
         if (source.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .borrow;
         addPart(line, 0, lhs);
-        addPart(line, 1, "read");
+        addPart(line, 1, mode);
         addPart(line, 2, source);
         return true;
     }
@@ -998,6 +1011,16 @@ test "classify representative line families" {
 
     const borrow = classifyLine("view = assume_borrow raw, mut");
     try std.testing.expectEqual(InstructionForm.assume_borrow, borrow.inst_form.?);
+
+    const shared_borrow = classifyLine("view = &box");
+    try std.testing.expectEqual(InstructionForm.borrow, shared_borrow.inst_form.?);
+    try std.testing.expectEqualStrings("read", shared_borrow.parts[1]);
+    try std.testing.expectEqualStrings("box", shared_borrow.parts[2]);
+
+    const mut_borrow = classifyLine("view = &mut box");
+    try std.testing.expectEqual(InstructionForm.borrow, mut_borrow.inst_form.?);
+    try std.testing.expectEqualStrings("mut", mut_borrow.parts[1]);
+    try std.testing.expectEqualStrings("box", mut_borrow.parts[2]);
 
     const panic = classifyLine("panic(7)");
     try std.testing.expectEqual(LineKind.instruction, panic.kind);

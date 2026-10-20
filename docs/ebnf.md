@@ -26,6 +26,7 @@ cmpxchg        = IDENT "=" "cmpxchg" IDENT "+" LITERAL "," operand "," operand [
 fence          = "fence" [ AtomicOrd ] ;
 AtomicOrd      = "relaxed" | "acquire" | "release" | "acq_rel" | "seq_cst" ;
 rawcast        = IDENT "=" "*" IDENT ;
+borrow         = IDENT "=" "&" [ "mut" ] IDENT ;
 assume_safe    = IDENT "=" "assume_safe" IDENT ;
 assume_borrow  = IDENT "=" "assume_borrow" IDENT [ "," "mut" ] ;
 ```

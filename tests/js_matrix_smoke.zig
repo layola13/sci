@@ -1083,6 +1083,7 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/959_callback_all3_code/main.sa", "959\n");
     try assertJsMatrixStdout("demos/rosetta/960_mem_arena2_code/main.sa", "960\n");
     try assertJsMatrixStdout("demos/rosetta/961_chain32_code/main.sa", "961\n");
+    try assertJsMatrixStdout("demos/rosetta/962_mut_borrow_code/main.sa", "962\n");
     try assertJsMatrixStdout("demos/support/sort_probe.sa", "sort ok\n");
     try assertJsMatrixStdout("demos/support/hashmap_probe.sa", "alpha\nbravo\nmap ok\n");
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");

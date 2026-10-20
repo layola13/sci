@@ -1,0 +1,9 @@
+@main() -> i32:
+box = alloc 4
+first = &mut box
+second = &mut box
+store first+0, 1 as i32
+!first
+!second
+!box
+return 0

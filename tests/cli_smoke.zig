@@ -1596,6 +1596,7 @@ test "ownership and borrow demos compile and print through build-exe" {
     try assertBuildExeStdout("demos/rosetta/61_thread_pool/main.sa", "5\n");
     try assertBuildExeStdout("demos/rosetta/67_resource_pool/main.sa", "20\n");
     try assertBuildExeStdout("demos/rosetta/52_queue_rotate/main.sa", "2,3,1\n");
+    try assertBuildExeStdout("demos/rosetta/962_mut_borrow_code/main.sa", "962\n");
 }
 
 test "core control-flow and data demos compile and print through build-exe" {
@@ -1813,6 +1814,10 @@ test "return after move demo is rejected with structured trap output" {
 
 test "borrow conflict demo is rejected with structured trap output" {
     try assertBuildExeTrap("demos/support/borrow_conflict.sa", "borrow_conflict.out", "BorrowConflict", 1008, "borrow rules reject this access");
+}
+
+test "double mutable borrow demo is rejected with structured trap output" {
+    try assertBuildExeTrap("demos/support/mut_borrow_conflict.sa", "mut_borrow_conflict.out", "BorrowConflict", 1008, "borrow rules reject this access");
 }
 
 test "read write conflict demo is rejected with structured trap output" {

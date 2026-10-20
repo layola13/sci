@@ -58,6 +58,7 @@ test "golden trap baseline regression stays stable" {
         .{ .path = "demos/support/unknown_register.sa", .out_name = "unknown_register.out", .trap = "UnknownRegister", .code = 1007, .message = "register is not declared in the current scope" },
         .{ .path = "demos/support/use_after_move.sa", .out_name = "use_after_move.out", .trap = "UseAfterMove", .code = 1009, .message = "moved value is no longer usable" },
         .{ .path = "demos/support/borrow_conflict.sa", .out_name = "borrow_conflict.out", .trap = "BorrowConflict", .code = 1008, .message = "borrow rules reject this access" },
+        .{ .path = "demos/support/mut_borrow_conflict.sa", .out_name = "mut_borrow_conflict.out", .trap = "BorrowConflict", .code = 1008, .message = "borrow rules reject this access" },
         .{ .path = "demos/support/memory_leak.sa", .out_name = "memory_leak.out", .trap = "MemoryLeak", .code = 1012, .message = "live registers remain at function exit" },
         .{ .path = "demos/support/phi_conflict.sa", .out_name = "phi_conflict.out", .trap = "PhiStateConflict", .code = 1015, .message = "incoming control-flow states do not agree" },
         .{ .path = "demos/support/macro_recursion.sa", .out_name = "macro_recursion.out", .trap = "MacroRecursionLimit", .code = 1005, .message = "macro recursion limit exceeded" },

@@ -1,0 +1,25 @@
+@import "sa_std/io/print.sai"
+
+@const OUT = utf8:"962\n"
+
+// 962 - MutBorrow: a Rust-style exclusive borrow (`&mut`) is the only way to
+// write through an owned allocation; the borrowed source stays locked until
+// the borrow is released.
+@main() -> i32:
+L_ENTRY:
+    box = alloc 4
+    view = &mut box
+    store view+0, 962 as i32
+    value = load view+0 as i32
+    ok = eq value, 962
+    !view
+    !box
+    !value
+    br ok -> L_OK, L_ERR
+L_OK:
+    !ok
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !ok
+    return 1
