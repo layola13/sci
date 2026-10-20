@@ -1326,3 +1326,24 @@ L_TAE_BODY:
     jmp L_TAE_TOP
 L_TAE_DONE:
     return out
+
+// @ts_arr_keys 下标数组（返新句柄数组：元素为 0..len-1 的 i32 下标；外层
+// 数组按 word 存元素，与薄口 i32 数组模型同形）。由本符号侧分配（调用方持
+// 数组柄）。
+@ts_arr_keys(src: ptr) -> ptr:
+L_TAK_ENTRY:
+    out = alloc 16
+    store out+0, 0 as ptr
+    store out+8, 0 as u64
+    dlenraw = load src+8 as u64
+    dlen = trunc dlenraw as i32
+    i = 0
+L_TAK_TOP:
+    more = ult i, dlen
+    br more -> L_TAK_BODY, L_TAK_DONE
+L_TAK_BODY:
+    call @ts_arr_push_word(out, i)
+    i = add i, 1
+    jmp L_TAK_TOP
+L_TAK_DONE:
+    return out
