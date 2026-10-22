@@ -9,10 +9,10 @@
   tools/stage-binaries.sh and the sala "多平台编译" chapter.
 .EXAMPLE
   powershell tools/fetch-binaries.ps1
-  powershell tools/fetch-binaries.ps1 -Version 0.1.2
+  powershell tools/fetch-binaries.ps1 -Version 0.1.8
 #>
 param(
-    [string]$Version = "0.1.2"
+    [string]$Version = "0.1.8"
 )
 
 $ErrorActionPreference = "Stop"
