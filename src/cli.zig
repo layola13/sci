@@ -5834,7 +5834,9 @@ fn appendCacheKeyBytes(out: *std.array_list.Managed(u8), bytes: []const u8) !voi
 }
 
 fn sourceTreeHashCacheHit(cache_key: []const u8) ?[32]u8 {
-    while (!source_tree_hash_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
+    while (!source_tree_hash_cache_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer source_tree_hash_cache_mutex.unlock();
     const cache = sourceTreeHashCacheMap();
     const entry = cache.getPtr(cache_key) orelse return null;
@@ -5865,7 +5867,9 @@ fn storeSourceTreeHashCacheEntry(cache_key: []const u8, digest: [32]u8, files: [
         copied += 1;
     }
 
-    while (!source_tree_hash_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
+    while (!source_tree_hash_cache_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
     defer source_tree_hash_cache_mutex.unlock();
     var cache = sourceTreeHashCacheMap();
     if (cache.getPtr(cache_key)) |old| {
@@ -6604,23 +6608,23 @@ fn projectFunctionCacheManifestPath(allocator: std.mem.Allocator, project_root: 
 
 fn cacheFunctionSig(hasher: *std.crypto.hash.sha2.Sha256, sig_item: anytype) void {
     cacheBytes(hasher, sig_item.name);
-    cacheU64(hasher, @intFromEnum(sig_item.kind));
+    cacheU64(hasher, @backingInt(sig_item.kind));
     cacheBool(hasher, sig_item.return_fallible);
     cacheBool(hasher, sig_item.is_ffi_wrapper);
     cacheBool(hasher, sig_item.ignored);
     cacheBool(hasher, sig_item.should_panic);
-    cacheU64(hasher, @intFromEnum(sig_item.return_ty));
+    cacheU64(hasher, @backingInt(sig_item.return_ty));
     if (sig_item.return_cap) |cap| {
         cacheBool(hasher, true);
-        cacheU64(hasher, @intFromEnum(cap));
+        cacheU64(hasher, @backingInt(cap));
     } else {
         cacheBool(hasher, false);
     }
     if (sig_item.llvm_name) |name| cacheBytes(hasher, name) else cacheBytes(hasher, "");
     for (sig_item.params) |param| {
         cacheBytes(hasher, param.name);
-        cacheU64(hasher, @intFromEnum(param.ty));
-        cacheU64(hasher, @intFromEnum(param.cap));
+        cacheU64(hasher, @backingInt(param.ty));
+        cacheU64(hasher, @backingInt(param.cap));
     }
 }
 
@@ -7476,6 +7480,43 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             var owned = ok;
             defer owned.deinit(allocator);
             rejectNpmBindsUnlessJs("sa build-wasm", &owned.flat, stderr) catch return 1;
+            if (comptime !build_options.llvm_enabled) {
+                // LLVM-C is unavailable in this build. Reuse the pure-Zig C
+                // backend and let `zig cc` lower the portable C to wasm, so
+                // `build-wasm` still produces a runnable module without LLVM.
+                const c_path = try std.fmt.allocPrint(allocator, "{s}.wasm.c", .{artifact_path});
+                defer allocator.free(c_path);
+                defer sio.cwd().deleteFile(c_path) catch {};
+                try ensureParentDir(c_path);
+                const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
+                emit_c.emitCToFile(allocator, owned.verified, source_path, target.size_bits, .{ .debug_comments = debug }, c_path) catch |err| {
+                    try stderr.print("error: C backend emit failed: {s}", .{@errorName(err)});
+                    if (emit_c.last_c_func.len != 0) try stderr.print(" in {s}", .{emit_c.last_c_func});
+                    if (emit_c.last_c_inst.len != 0) try stderr.print(": {s}", .{std.mem.trim(u8, emit_c.last_c_inst, " \t\r\n")});
+                    try stderr.writeAll("\n");
+                    try stderr.writeAll("hint: this sa build has no LLVM-C backend, so wasm fell back to the limited C emitter; rebuild with -Dllvm=true for full wasm support\n");
+                    return 1;
+                };
+                const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
+                recordMetricMemoryAfterEmit(&owned.metrics);
+                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
+
+                const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
+                driver.compileWasm(allocator, c_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, null, stderr) catch |err| switch (err) {
+                    error.ChildProcessFailed => return 1,
+                    else => return err,
+                };
+                const link_ns = if (link_start) |start| elapsedNs(start) else null;
+                recordMetricMemoryAfterLink(&owned.metrics);
+                recordMetricMemoryEnd(&owned.metrics);
+                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
+                finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
+                attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
+                if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_wasm, key, c_path, out_path);
+                if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = false };
+                try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
+                return 0;
+            }
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
