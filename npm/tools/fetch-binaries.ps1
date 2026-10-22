@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+#Requires -Version 5.1
 <#
 .SYNOPSIS
   Fetch prebuilt `sa` binaries from a GitHub Release into the platform
@@ -6,7 +6,7 @@
 .DESCRIPTION
   Binaries are intentionally NOT committed to git (~95MB); the GitHub
   Release is the binary store. Rebuilding instead? See
-  tools/stage-binaries.sh and the sala "多平台编译" chapter.
+  tools/stage-binaries.sh and the sala multiplatform build chapter.
 .EXAMPLE
   powershell tools/fetch-binaries.ps1
   powershell tools/fetch-binaries.ps1 -Version 0.1.8
@@ -16,6 +16,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $Root = Split-Path $PSScriptRoot -Parent
 $Base = "https://github.com/layola13/sci/releases/download/$Version"
 
@@ -63,4 +64,4 @@ Copy-Item -Recurse -Force $StdSrc $StdDst
 Write-Host "[ok] sa stdlib <= $StdSrc"
 
 Remove-Item -Recurse -Force $Tmp
-Write-Host "[✓] all platform binaries staged under npm/packages/*/bin"
+Write-Host "[ok] all platform binaries staged under npm/packages/*/bin"
