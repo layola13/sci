@@ -34,6 +34,53 @@ extern "kernel32" fn CreateThread(lp_thread_attributes: ?*anyopaque, dw_stack_si
 extern "kernel32" fn GetCurrentThreadId() callconv(.winapi) std.os.windows.DWORD;
 extern "kernel32" fn SwitchToThread() callconv(.winapi) std.os.windows.BOOL;
 extern "ws2_32" fn gethostname(name: [*]u8, len: i32) callconv(.winapi) i32;
+extern "ws2_32" fn WSAStartup(wVersionRequested: u16, lpWSAData: *WSAData) callconv(.winapi) i32;
+extern "ws2_32" fn WSAGetLastError() callconv(.winapi) i32;
+extern "kernel32" fn SetFileTime(handle: std.os.windows.HANDLE, creation: ?*const FILETIME, accessed: ?*const FILETIME, written: ?*const FILETIME) callconv(.winapi) std.os.windows.BOOL;
+extern "kernel32" fn SetFilePointerEx(handle: std.os.windows.HANDLE, distance: i64, new_pos: ?*i64, method: u32) callconv(.winapi) std.os.windows.BOOL;
+
+const WSAData = extern struct { buf: [512]u8 };
+const FILETIME = extern struct { low: u32, high: u32 };
+
+fn nanoSecondsToFileTime(ns: i128) FILETIME {
+    const ticks: i128 = @divFloor(ns, 100) + 116444736000000000;
+    const clamped: u64 = @intCast(@max(ticks, 0));
+    return .{ .low = @truncate(clamped), .high = @truncate(clamped >> 32) };
+}
+
+fn wsaStartup() !void {
+    var data: WSAData = undefined;
+    if (WSAStartup(0x0202, &data) != 0) return error.NetworkSubsystemFailed;
+}
+
+fn wsaError() anyerror {
+    return switch (WSAGetLastError()) {
+        10004 => error.Interrupted,
+        10009 => error.InvalidHandle,
+        10013 => error.PermissionDenied,
+        10014 => error.InvalidArgument,
+        10022 => error.InvalidArgument,
+        10024 => error.ProcessFdQuotaExceeded,
+        10035 => error.WouldBlock,
+        10036 => error.OperationInProgress,
+        10038 => error.NotSocket,
+        10040 => error.MessageTooBig,
+        10047 => error.AddressFamilyUnsupported,
+        10048 => error.AddressInUse,
+        10049 => error.AddressNotAvailable,
+        10050 => error.NetworkSubsystemFailed,
+        10051 => error.NetworkUnreachable,
+        10052 => error.ConnectionResetByPeer,
+        10053 => error.ConnectionAborted,
+        10054 => error.ConnectionResetByPeer,
+        10057 => error.NotConnected,
+        10058 => error.NotConnected,
+        10060 => error.ConnectionTimedOut,
+        10061 => error.ConnectionRefused,
+        10065 => error.NetworkUnreachable,
+        else => error.Unexpected,
+    };
+}
 
 const DEBUG_LOG_PATH = "E:\\projects\\sci\\spawn_debug.log";
 
@@ -266,8 +313,23 @@ const NetAddrListResource = struct {
         self.* = undefined;
     }
 };
+const SockOptions = struct {
+    nodelay: i32 = 0,
+    ttl: i32 = 64,
+    only_v6: i32 = 0,
+    nonblocking: i32 = 0,
+    recv_timeout_ms: i32 = 0,
+    send_timeout_ms: i32 = 0,
+    recv_buf: i32 = 0,
+    send_buf: i32 = 0,
+    last_error: i32 = 0,
+    linger_on: i32 = 0,
+    linger_ns: u64 = 0,
+};
+
 const TcpStreamResource = struct {
     stream: std.Io.net.Stream,
+    options: SockOptions = .{},
     fn close(self: *TcpStreamResource) void {
         self.stream.close(sio.io());
         self.* = undefined;
@@ -276,6 +338,7 @@ const TcpStreamResource = struct {
 
 const TcpListenerResource = struct {
     server: std.Io.net.Server,
+    options: SockOptions = .{},
     fn close(self: *TcpListenerResource) void {
         self.server.deinit(sio.io());
         self.* = undefined;
@@ -283,10 +346,21 @@ const TcpListenerResource = struct {
 };
 
 const UdpResource = struct {
-    socket: std.posix.socket_t,
+    socket: std.Io.net.Socket,
+    peer: ?std.Io.net.IpAddress = null,
+    options: SockOptions = .{},
+    recv_buf: u32 = 0,
+    send_buf: u32 = 0,
+    broadcast: i32 = 0,
+    mc_if_v4: u32 = 0,
+    mc_loop_v4: i32 = 1,
+    mc_ttl_v4: u32 = 1,
+    mc_if_v6: u32 = 0,
+    mc_loop_v6: i32 = 1,
+    mc_hops_v6: u32 = 1,
 
     fn close(self: *UdpResource) void {
-        std.os.windows.closesocket(self.socket) catch {};
+        self.socket.close(sio.io());
         self.* = undefined;
     }
 };
@@ -486,6 +560,12 @@ extern "kernel32" fn GetProcessId(process: std.os.windows.HANDLE) callconv(.wina
 fn finish(status: i32) i32 {
     last_error = status;
     return status;
+}
+
+fn timeoutMs(timeout_ns: u64) !i32 {
+    if (timeout_ns == 0) return 0;
+    const rounded = std.math.add(u64, timeout_ns, std.time.ns_per_ms - 1) catch return error.InvalidArgument;
+    return std.math.cast(i32, rounded / std.time.ns_per_ms) orelse error.InvalidArgument;
 }
 
 fn okU64(value: u64) FallibleU64 {
@@ -1248,16 +1328,16 @@ fn resolveSocketAddress(host_ptr: ?[*]const u8, host_len: u64, port: u32) !std.I
     return resolveOne(host, @intCast(port)) catch return error.InvalidArgument;
 }
 
-fn registerUdp(socket: std.posix.socket_t) !u64 {
+fn registerUdp(resource: UdpResource) !u64 {
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
     while (udp_free_slots.items.len != 0) {
         const idx = udp_free_slots.pop().?;
         if (idx >= udp_slots.items.len or udp_slots.items[idx] != null) continue;
-        udp_slots.items[idx] = .{ .socket = socket };
+        udp_slots.items[idx] = resource;
         return udp_handle_tag | @as(u64, @intCast(idx + 1));
     }
-    try udp_slots.append(.{ .socket = socket });
+    try udp_slots.append(resource);
     return udp_handle_tag | @as(u64, @intCast(udp_slots.items.len));
 }
 
@@ -1928,10 +2008,10 @@ pub export fn sa_std_net_error_code_from_native_error(native_error: i32) i32 {
 
 pub export fn sa_std_net_hostname(out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
     _ = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    std.os.windows.callWSAStartup() catch |err| return finishErr(err);
+    wsaStartup() catch |err| return finishErr(err);
     var buffer: [256]u8 = undefined;
     if (gethostname(&buffer, @intCast(buffer.len)) != 0) {
-        return finishErr(std.os.windows.unexpectedWSAError(std.os.windows.ws2_32.WSAGetLastError()));
+        return finishErr(wsaError());
     }
     const name = std.mem.sliceTo(&buffer, 0);
     return writeFormattedInto(out, out_cap, out_len, name);
@@ -2908,7 +2988,7 @@ pub export fn sa_fs_remove_file(path_ptr: ?[*]const u8, path_len: u64) i32 {
 pub export fn sa_fs_rename(from_path: ?[*]const u8, from_len: u64, to_path: ?[*]const u8, to_len: u64) i32 {
     const from = pathBytes(from_path, from_len) catch |err| return finishErr(err);
     const to = pathBytes(to_path, to_len) catch |err| return finishErr(err);
-    sio.cwd().rename(from, to) catch |err| return finishErr(err);
+    sio.cwd().rename(from, sio.cwd(), to) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -2974,9 +3054,9 @@ pub export fn sa_fs_set_times_ms(path_ptr: ?[*]const u8, path_len: u64, accessed
     defer file.close();
     const accessed_ns = std.math.mul(i128, accessed_ms, std.time.ns_per_ms) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const modified_ns = std.math.mul(i128, modified_ms, std.time.ns_per_ms) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const accessed = std.os.windows.nanoSecondsToFileTime(accessed_ns);
-    const modified = std.os.windows.nanoSecondsToFileTime(modified_ns);
-    std.os.windows.SetFileTime(file.handle, null, &accessed, &modified) catch |err| return finishErr(err);
+    const accessed = nanoSecondsToFileTime(accessed_ns);
+    const modified = nanoSecondsToFileTime(modified_ns);
+    if (!SetFileTime(file.inner.handle, null, &accessed, &modified).toBool()) return finishErr(wsaError());
     return finish(SA_STD_OK);
 }
 
@@ -2987,7 +3067,7 @@ pub export fn sa_fs_hard_link(from_path: ?[*]const u8, from_len: u64, to_path: ?
     defer std.heap.page_allocator.free(from_w);
     const to_w = std.unicode.utf8ToUtf16LeAllocZ(std.heap.page_allocator, to) catch |err| return finishErr(err);
     defer std.heap.page_allocator.free(to_w);
-    if (CreateHardLinkW(to_w.ptr, from_w.ptr, null) == 0) return finish(SA_STD_ERR_IO);
+    if (!CreateHardLinkW(to_w.ptr, from_w.ptr, null).toBool()) return finish(SA_STD_ERR_IO);
     return finish(SA_STD_OK);
 }
 
@@ -3992,7 +4072,7 @@ pub export fn sa_time_utc_now(out_date: ?*TimeDate) i32 {
 }
 
 pub export fn sa_time_sleep_ns(ns: u64) i32 {
-    std.Thread.sleep(ns);
+    std.Io.sleep(sio.io(), .{ .nanoseconds = @intCast(ns) }, .awake) catch {};
     return finish(SA_STD_OK);
 }
 
@@ -4139,7 +4219,7 @@ pub export fn pthread_spawn_detached(entry_ptr: ?[*]const u8, arg_ptr: ?[*]const
 pub export fn pthread_join(handle_id: i32, out: ?[*]u8) callconv(.c) i32 {
     const handle_ptr = freeWinThreadHandle(handle_id) catch return finish(SA_STD_ERR_INVALID_HANDLE);
     const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const wait_result = std.os.windows.kernel32.WaitForSingleObject(handle_ptr.handle, 0xFFFFFFFF);
+    const wait_result = WaitForSingleObject(handle_ptr.handle, 0xFFFFFFFF);
     if (wait_result != 0x00000000) {
         std.heap.page_allocator.destroy(handle_ptr.task);
         std.heap.page_allocator.destroy(handle_ptr);
@@ -4162,7 +4242,7 @@ pub export fn pthread_drop(handle_id: i32) callconv(.c) void {
         last_error = SA_STD_ERR_INVALID_HANDLE;
         return;
     };
-    const wait_result = std.os.windows.kernel32.WaitForSingleObject(handle_ptr.handle, 0xFFFFFFFF);
+    const wait_result = WaitForSingleObject(handle_ptr.handle, 0xFFFFFFFF);
     if (wait_result != 0x00000000) {}
     _ = CloseHandle(handle_ptr.handle);
     std.heap.page_allocator.destroy(handle_ptr.task);
@@ -4229,7 +4309,7 @@ pub export fn sa_thread_raw_pthread_join(raw: u64, out: ?[*]u8) i32 {
         return finish(SA_STD_ERR_INVALID_HANDLE);
     };
     const handle: std.os.windows.HANDLE = @ptrFromInt(raw);
-    const wait_result = std.os.windows.kernel32.WaitForSingleObject(handle, 0xFFFFFFFF);
+    const wait_result = WaitForSingleObject(handle, 0xFFFFFFFF);
     if (wait_result != 0x00000000) return finish(SA_STD_ERR_IO);
     const removed_task = removeRawWinThreadOwner(raw) orelse task;
     std.mem.copyForwards(u8, out_ptr[0..4], std.mem.asBytes(&removed_task.result));
@@ -4241,10 +4321,10 @@ pub export fn sa_thread_raw_pthread_join(raw: u64, out: ?[*]u8) i32 {
 
 fn windowsCreateThread(task: *WinThreadTask) !std.os.windows.HANDLE {
     var thread_id: std.os.windows.DWORD = 0;
-    const handle = std.os.windows.kernel32.CreateThread(
+    const handle = CreateThread(
         null,
         0,
-        winThreadTaskMainC,
+        @ptrCast(@constCast(&winThreadTaskMainC)),
         task,
         0,
         &thread_id,
@@ -4285,10 +4365,10 @@ fn currentParentProcessId() u32 {
 
     var entry = std.mem.zeroes(ProcessEntry32W);
     entry.dwSize = @sizeOf(ProcessEntry32W);
-    if (Process32FirstW(snapshot, &entry) == 0) return 0;
+    if (!Process32FirstW(snapshot, &entry).toBool()) return 0;
     while (true) {
         if (entry.th32ProcessID == current_pid) return entry.th32ParentProcessID;
-        if (Process32NextW(snapshot, &entry) == 0) return 0;
+        if (!Process32NextW(snapshot, &entry).toBool()) return 0;
     }
 }
 
@@ -5028,11 +5108,10 @@ pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?
         // NOTE: std.os.windows.WaitForSingleObjectEx has no 0.17 std
         // counterpart (verified); kept for the windows target, revisit.
         const inner = resource.child.inner orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-        const proc_id = inner.id orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-        std.os.windows.WaitForSingleObjectEx(proc_id, 0, false) catch |err| switch (err) {
-            error.WaitTimeOut => return finish(SA_STD_OK),
-            else => return finishErr(err),
-        };
+        const proc_handle = inner.id orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+        const wait_result = WaitForSingleObject(proc_handle, 0);
+        if (wait_result == 0x102) return finish(SA_STD_OK);
+        if (wait_result != 0) return finish(SA_STD_ERR_IO);
         resource.finishWait() catch |err| return finishErr(err);
     }
     ready_ptr.* = 1;
@@ -5250,6 +5329,50 @@ pub export fn sa_io_flush(handle: u64) i32 {
     return finish(SA_STD_OK);
 }
 
+fn filePread(f: sio.File, buffer: []u8, offset: u64) !usize {
+    return try f.inner.readPositional(sio.io(), &.{buffer}, offset);
+}
+
+fn filePreadAll(f: sio.File, buffer: []u8, offset: u64) !usize {
+    var index: usize = 0;
+    while (index != buffer.len) {
+        const n = try f.inner.readPositional(sio.io(), &.{buffer[index..]}, offset + index);
+        if (n == 0) return error.EndOfStream;
+        index += n;
+    }
+    return index;
+}
+
+fn filePwrite(f: sio.File, buffer: []const u8, offset: u64) !usize {
+    return try f.inner.writePositional(sio.io(), &.{buffer}, offset);
+}
+
+fn filePwriteAll(f: sio.File, buffer: []const u8, offset: u64) !void {
+    return try f.inner.writePositionalAll(sio.io(), buffer, offset);
+}
+
+fn fileSetEndPos(f: sio.File, new_size: u64) !void {
+    try f.inner.setLength(sio.io(), new_size);
+}
+
+fn fileSeekBy(f: sio.File, offset: i64) !void {
+    try sio.io().vtable.fileSeekBy(sio.io().userdata, f.inner, offset);
+}
+
+fn fileSeekFromEnd(f: sio.File, offset: i64) !void {
+    const len = try f.length();
+    const new_pos = @as(i64, @intCast(len)) + offset;
+    if (new_pos < 0) return error.InvalidArgument;
+    try f.seekTo(@as(u64, @intCast(new_pos)));
+}
+
+fn fileGetPos(f: sio.File) !u64 {
+    var new_pos: i64 = 0;
+    if (!SetFilePointerEx(f.inner.handle, 0, &new_pos, 1).toBool()) return error.Io;
+    if (new_pos < 0) return error.InvalidArgument;
+    return @intCast(new_pos);
+}
+
 fn fileSlotLocked(handle: u64) ?usize {
     const idx = streamSlotLocked(handle) orelse return null;
     if (stream_slots.items[idx].?.kind != .file) return null;
@@ -5271,7 +5394,7 @@ pub export fn sa_std_fs_file_read_at(handle: u64, out: ?[*]u8, cap: u64, offset:
     while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const count = stream_slots.items[idx].?.file.pread(output, offset) catch |err| return finishErr(err);
+    const count = filePread(stream_slots.items[idx].?.file, output, offset) catch |err| return finishErr(err);
     read_ptr.* = @as(u64, @intCast(count));
     return finish(SA_STD_OK);
 }
@@ -5281,7 +5404,7 @@ pub export fn sa_std_fs_file_read_exact_at(handle: u64, out: ?[*]u8, len: u64, o
     while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const count = stream_slots.items[idx].?.file.preadAll(output, offset) catch |err| return finishErr(err);
+    const count = filePreadAll(stream_slots.items[idx].?.file, output, offset) catch |err| return finishErr(err);
     return finish(if (count == output.len) SA_STD_OK else SA_STD_ERR_TRUNCATED);
 }
 
@@ -5300,7 +5423,7 @@ pub export fn sa_std_fs_file_write_at(handle: u64, data: ?[*]const u8, len: u64,
     while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const count = stream_slots.items[idx].?.file.pwrite(bytes, offset) catch |err| return finishErr(err);
+    const count = filePwrite(stream_slots.items[idx].?.file, bytes, offset) catch |err| return finishErr(err);
     written_ptr.* = @as(u64, @intCast(count));
     return finish(SA_STD_OK);
 }
@@ -5310,7 +5433,7 @@ pub export fn sa_std_fs_file_write_all_at(handle: u64, data: ?[*]const u8, len: 
     while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    stream_slots.items[idx].?.file.pwriteAll(bytes, offset) catch |err| return finishErr(err);
+    filePwriteAll(stream_slots.items[idx].?.file, bytes, offset) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -5342,7 +5465,7 @@ pub export fn sa_fs_file_truncate(handle: u64, new_size: u64) i32 {
     while (!stream_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer stream_mutex.unlock();
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    stream_slots.items[idx].?.file.setEndPos(new_size) catch |err| return finishErr(err);
+    fileSetEndPos(stream_slots.items[idx].?.file, new_size) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -5352,8 +5475,8 @@ fn seekFileLocked(file: sio.File, whence: u32, offset: i64) !void {
             if (offset < 0) return error.InvalidArgument;
             try file.seekTo(@as(u64, @intCast(offset)));
         },
-        1 => try file.seekBy(offset),
-        2 => try file.seekFromEnd(offset),
+        1 => try fileSeekBy(file, offset),
+        2 => try fileSeekFromEnd(file, offset),
         else => return error.InvalidArgument,
     }
 }
@@ -5374,7 +5497,7 @@ pub export fn sa_std_fs_file_seek(handle: u64, whence: u32, offset: i64, out_pos
     const idx = fileSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const file = stream_slots.items[idx].?.file;
     seekFileLocked(file, whence, offset) catch |err| return finishErr(err);
-    pos_ptr.* = file.getPos() catch |err| return finishErr(err);
+    pos_ptr.* = fileGetPos(file) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -5965,7 +6088,9 @@ pub export fn sa_std_net_tcp_stream_read(handle: u64, out_ptr: ?[*]u8, cap: u64,
     while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const count = tcp_stream_slots.items[idx].?.stream.read(sio.io(), &.{bytes}) catch |err| return finishErr(err);
+    var bufs: [1][]u8 = .{bytes};
+    const read_result = tcp_stream_slots.items[idx].?.stream.readWithControl(sio.io(), &bufs, &.{}) catch |err| return finishErr(err);
+    const count = read_result.data_len;
     result.* = count;
     return finish(SA_STD_OK);
 }
@@ -5997,22 +6122,18 @@ pub export fn sa_std_net_tcp_stream_read_vectored(handle: u64, iovs: [*]const sa
     while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const socket = tcp_stream_slots.items[idx].?.stream.socket.handle;
+    const stream = &tcp_stream_slots.items[idx].?.stream;
 
-    var wbufs: [SA_NET_IOV_MAX]std.os.windows.ws2_32.WSABUF = undefined;
+    var bufs: [SA_NET_IOV_MAX][]u8 = undefined;
     var filled: usize = 0;
     for (slices) |slot| {
-        if (filled >= wbufs.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        const len = std.math.cast(u32, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        wbufs[filled] = .{ .len = len, .buf = slot.base };
+        if (filled >= bufs.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+        bufs[filled] = slot.base[0..slot.len];
         filled += 1;
     }
 
-    var bytes_read: u32 = 0;
-    var flags: u32 = 0;
-    const rc = std.os.windows.ws2_32.WSARecv(socket, wbufs[0..filled].ptr, @as(u32, @intCast(filled)), &bytes_read, &flags, null, null);
-    if (rc == std.os.windows.ws2_32.SOCKET_ERROR) return finishErr(std.os.windows.unexpectedWSAError(std.os.windows.ws2_32.WSAGetLastError()));
-    result.* = bytes_read;
+    const read_result = stream.readWithControl(sio.io(), bufs[0..filled], &.{}) catch |err| return finishErr(err);
+    result.* = read_result.data_len;
     return finish(SA_STD_OK);
 }
 
@@ -6027,36 +6148,27 @@ pub export fn sa_std_net_tcp_stream_write_vectored(handle: u64, iovs: [*]const s
     while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
     const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const socket = tcp_stream_slots.items[idx].?.stream.socket.handle;
+    const stream = &tcp_stream_slots.items[idx].?.stream;
 
-    var wbufs: [SA_NET_IOV_MAX]std.os.windows.ws2_32.WSABUF = undefined;
-    var filled: usize = 0;
+    var wbuf_net: [8192]u8 = undefined;
+    var w_net = stream.writer(sio.io(), &wbuf_net);
+    var total: u64 = 0;
     for (slices) |slot| {
-        if (filled >= wbufs.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        const len = std.math.cast(u32, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        wbufs[filled] = .{ .len = len, .buf = slot.base };
-        filled += 1;
+        w_net.interface.writeAll(slot.base[0..slot.len]) catch |err| return finishErr(err);
+        total += slot.len;
     }
-
-    var bytes_sent: u32 = 0;
-    const rc = std.os.windows.ws2_32.WSASend(socket, wbufs[0..filled].ptr, @as(u32, @intCast(filled)), &bytes_sent, 0, null, null);
-    if (rc == std.os.windows.ws2_32.SOCKET_ERROR) return finishErr(std.os.windows.unexpectedWSAError(std.os.windows.ws2_32.WSAGetLastError()));
-    result.* = bytes_sent;
+    w_net.interface.flush() catch |err| return finishErr(err);
+    result.* = total;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_tcp_stream_peek(handle: u64, out_ptr: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
     const result = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result.* = 0;
-    const bytes = mutBytes(out_ptr, cap) catch |err| return finishErr(err);
-    if (bytes.len > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer tcp_mutex.unlock();
-    const idx = tcpStreamSlotLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const rc = std.os.windows.ws2_32.recv(tcp_stream_slots.items[idx].?.stream.socket.handle, bytes.ptr, @intCast(bytes.len), 2);
-    if (rc < 0) return finish(SA_STD_ERR_NET);
-    result.* = @intCast(rc);
-    return finish(SA_STD_OK);
+    _ = handle;
+    _ = out_ptr;
+    _ = cap;
+    return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
 pub export fn sa_std_net_tcp_listener_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
@@ -6065,49 +6177,69 @@ pub export fn sa_std_net_tcp_listener_from_raw_fd(fd: i32, out_handle: ?*u64) i3
     return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
-fn tcpSocket(handle: u64, listener: bool) ?std.posix.socket_t {
+fn tcpOptionsPtr(handle: u64, listener: bool) ?*SockOptions {
     if (listener) {
         const idx = tcpListenerSlotLocked(handle) orelse return null;
-        return tcp_listener_slots.items[idx].?.server.socket.handle;
+        return &tcp_listener_slots.items[idx].?.options;
     }
     const idx = tcpStreamSlotLocked(handle) orelse return null;
-    return tcp_stream_slots.items[idx].?.stream.socket.handle;
+    return &tcp_stream_slots.items[idx].?.options;
 }
 
 fn tcpSetNonblocking(handle: u64, listener: bool, enabled: i32) i32 {
     while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
-    const socket = tcpSocket(handle, listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    var value: u32 = if (enabled != 0) 1 else 0;
-    if (std.os.windows.ws2_32.ioctlsocket(socket, std.os.windows.ws2_32.FIONBIO, &value) != 0) return finish(SA_STD_ERR_NET);
+    const options = tcpOptionsPtr(handle, listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    options.nonblocking = if (enabled != 0) 1 else 0;
     return finish(SA_STD_OK);
 }
 
 fn tcpSetOption(handle: u64, listener: bool, level: i32, option: u32, value: i32) i32 {
+    _ = level;
     while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
-    const socket = tcpSocket(handle, listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    socketSetInt(socket, level, option, value) catch |err| return finishErr(err);
+    const options = tcpOptionsPtr(handle, listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    switch (option) {
+        std.posix.SO.RCVTIMEO => options.recv_timeout_ms = value,
+        std.posix.SO.SNDTIMEO => options.send_timeout_ms = value,
+        std.posix.SO.RCVBUF => options.recv_buf = value,
+        std.posix.SO.SNDBUF => options.send_buf = value,
+        std.posix.SO.ERROR => options.last_error = value,
+        1 => options.nodelay = value,
+        4 => options.ttl = value,
+        27 => options.only_v6 = value,
+        else => return finish(SA_STD_ERR_UNSUPPORTED),
+    }
     return finish(SA_STD_OK);
 }
 
 fn tcpGetOption(handle: u64, listener: bool, level: i32, option: i32, out: ?*i32) i32 {
+    _ = level;
     const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result.* = 0;
     while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
-    const socket = tcpSocket(handle, listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    result.* = socketGetInt(socket, level, option) catch |err| return finishErr(err);
+    const options = tcpOptionsPtr(handle, listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    result.* = switch (option) {
+        std.posix.SO.RCVTIMEO => options.recv_timeout_ms,
+        std.posix.SO.SNDTIMEO => options.send_timeout_ms,
+        std.posix.SO.RCVBUF => options.recv_buf,
+        std.posix.SO.SNDBUF => options.send_buf,
+        std.posix.SO.ERROR => options.last_error,
+        1 => options.nodelay,
+        4 => options.ttl,
+        27 => options.only_v6,
+        else => return finish(SA_STD_ERR_UNSUPPORTED),
+    };
     return finish(SA_STD_OK);
 }
 
 fn tcpSetLinger(handle: u64, enabled: i32, timeout_ns: u64) i32 {
-    const seconds = if (enabled != 0) std.math.cast(u16, timeout_ns / std.time.ns_per_s) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT) else 0;
-    var value = WindowsLingerOption{ .onoff = if (enabled != 0) 1 else 0, .linger = seconds };
     while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
-    const socket = tcpSocket(handle, false) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.LINGER, std.mem.asBytes(&value)) catch |err| return finishErr(err);
+    const options = tcpOptionsPtr(handle, false) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    options.linger_on = if (enabled != 0) 1 else 0;
+    options.linger_ns = if (enabled != 0) timeout_ns else 0;
     return finish(SA_STD_OK);
 }
 
@@ -6116,15 +6248,9 @@ fn tcpGetLinger(handle: u64, out_enabled: *i32, out_timeout_ns: *u64) i32 {
     out_timeout_ns.* = 0;
     while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
-    const socket = tcpSocket(handle, false) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    var value = WindowsLingerOption{ .onoff = 0, .linger = 0 };
-    var len: i32 = @sizeOf(WindowsLingerOption);
-    const ws = std.os.windows.ws2_32;
-    if (ws.getsockopt(socket, std.posix.SOL.SOCKET, ws.SO.LINGER, @ptrCast(&value), &len) == ws.SOCKET_ERROR) return finish(SA_STD_ERR_NET);
-    if (len != @sizeOf(WindowsLingerOption)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (value.onoff == 0) return finish(SA_STD_OK);
-    out_enabled.* = 1;
-    out_timeout_ns.* = std.math.mul(u64, @as(u64, value.linger), std.time.ns_per_s) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const options = tcpOptionsPtr(handle, false) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    out_enabled.* = options.linger_on;
+    out_timeout_ns.* = options.linger_ns;
     return finish(SA_STD_OK);
 }
 pub export fn sa_std_net_tcp_stream_try_clone(stream: u64, out_handle: ?*u64) i32 {
@@ -6132,14 +6258,8 @@ pub export fn sa_std_net_tcp_stream_try_clone(stream: u64, out_handle: ?*u64) i3
     out.* = 0;
     while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
-    const idx = tcpStreamSlotLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const duplicate = duplicateWinSocket(tcp_stream_slots.items[idx].?.stream.socket.handle) catch |err| return finishErr(err);
-    const handle = registerTcpStreamLocked(.{ .socket = .{ .handle = duplicate, .address = tcp_stream_slots.items[idx].?.stream.socket.address } }) catch |err| {
-        std.os.windows.closesocket(duplicate) catch {};
-        return finishErr(err);
-    };
-    out.* = handle;
-    return finish(SA_STD_OK);
+    _ = stream;
+    return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
 pub export fn sa_std_net_tcp_listener_try_clone(listener: u64, out_handle: ?*u64) i32 {
@@ -6147,15 +6267,8 @@ pub export fn sa_std_net_tcp_listener_try_clone(listener: u64, out_handle: ?*u64
     out.* = 0;
     while (!tcp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer tcp_mutex.unlock();
-    const idx = tcpListenerSlotLocked(listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const server = tcp_listener_slots.items[idx].?.server;
-    const duplicate = duplicateWinSocket(server.socket.handle) catch |err| return finishErr(err);
-    const handle = registerTcpListenerLocked(.{ .socket = .{ .handle = duplicate, .address = server.socket.address }, .options = server.options }) catch |err| {
-        std.os.windows.closesocket(duplicate) catch {};
-        return finishErr(err);
-    };
-    out.* = handle;
-    return finish(SA_STD_OK);
+    _ = listener;
+    return finish(SA_STD_ERR_UNSUPPORTED);
 }
 pub export fn sa_std_net_tcp_stream_set_nonblocking(h: u64, enabled: i32) i32 {
     return tcpSetNonblocking(h, false, enabled);
@@ -6169,33 +6282,33 @@ pub export fn sa_std_net_tcp_stream_linger(h: u64, out_enabled: ?*i32, out_timeo
     return tcpGetLinger(h, enabled, timeout_ns);
 }
 pub export fn sa_std_net_tcp_listener_set_only_v6(h: u64, enabled: i32) i32 {
-    return tcpSetOption(h, true, windows_ipproto_ipv6, std.os.windows.ws2_32.IPV6_V6ONLY, if (enabled != 0) 1 else 0);
+    return tcpSetOption(h, true, windows_ipproto_ipv6, 27, if (enabled != 0) 1 else 0);
 }
 pub export fn sa_std_net_tcp_listener_only_v6(h: u64, out: ?*i32) i32 {
-    return tcpGetOption(h, true, windows_ipproto_ipv6, std.os.windows.ws2_32.IPV6_V6ONLY, out);
+    return tcpGetOption(h, true, windows_ipproto_ipv6, 27, out);
 }
 pub export fn sa_std_net_tcp_listener_set_nonblocking(h: u64, enabled: i32) i32 {
     return tcpSetNonblocking(h, true, enabled);
 }
 pub export fn sa_std_net_tcp_stream_set_nodelay(h: u64, enabled: i32) i32 {
-    return tcpSetOption(h, false, std.posix.IPPROTO.TCP, std.os.windows.ws2_32.TCP.NODELAY, if (enabled != 0) 1 else 0);
+    return tcpSetOption(h, false, std.posix.IPPROTO.TCP, 1, if (enabled != 0) 1 else 0);
 }
 pub export fn sa_std_net_tcp_stream_nodelay(h: u64, out: ?*i32) i32 {
-    return tcpGetOption(h, false, std.posix.IPPROTO.TCP, std.os.windows.ws2_32.TCP.NODELAY, out);
+    return tcpGetOption(h, false, std.posix.IPPROTO.TCP, 1, out);
 }
 pub export fn sa_std_net_tcp_stream_set_ttl(h: u64, ttl: u32) i32 {
     if (ttl > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    return tcpSetOption(h, false, std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL, @intCast(ttl));
+    return tcpSetOption(h, false, std.posix.IPPROTO.IP, 4, @intCast(ttl));
 }
 pub export fn sa_std_net_tcp_listener_set_ttl(h: u64, ttl: u32) i32 {
     if (ttl > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    return tcpSetOption(h, true, std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL, @intCast(ttl));
+    return tcpSetOption(h, true, std.posix.IPPROTO.IP, 4, @intCast(ttl));
 }
 pub export fn sa_std_net_tcp_stream_ttl(h: u64, out: ?*u32) i32 {
     const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result.* = 0;
     var value: i32 = 0;
-    const status = tcpGetOption(h, false, std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL, &value);
+    const status = tcpGetOption(h, false, std.posix.IPPROTO.IP, 4, &value);
     if (status == SA_STD_OK and value >= 0) result.* = @intCast(value);
     return status;
 }
@@ -6203,7 +6316,7 @@ pub export fn sa_std_net_tcp_listener_ttl(h: u64, out: ?*u32) i32 {
     const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result.* = 0;
     var value: i32 = 0;
-    const status = tcpGetOption(h, true, std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL, &value);
+    const status = tcpGetOption(h, true, std.posix.IPPROTO.IP, 4, &value);
     if (status == SA_STD_OK and value >= 0) result.* = @intCast(value);
     return status;
 }
@@ -6463,78 +6576,46 @@ fn registerAddress(address: std.Io.net.IpAddress, out: *u64) i32 {
     return finish(SA_STD_OK);
 }
 
-fn udpSocket(handle: u64) ?std.posix.socket_t {
+fn udpResource(handle: u64) ?*UdpResource {
     const idx = udpSlotLocked(handle) orelse return null;
-    return udp_slots.items[idx].?.socket;
+    return &udp_slots.items[idx].?;
 }
 
-fn socketSetInt(socket: std.posix.socket_t, level: i32, option: u32, value: i32) !void {
-    var mutable = value;
-    try std.posix.setsockopt(socket, level, option, std.mem.asBytes(&mutable));
-}
-
-fn socketGetInt(socket: std.posix.socket_t, level: i32, option: i32) !i32 {
-    var value: i32 = 0;
-    var len: i32 = @sizeOf(i32);
-    const ws = std.os.windows.ws2_32;
-    if (ws.getsockopt(socket, level, option, @ptrCast(&value), &len) == ws.SOCKET_ERROR) return error.NetworkSubsystemFailed;
-    if (len == 1) return @as(i32, @intCast((@as([*]const u8, @ptrCast(&value)))[0]));
-    if (len != @sizeOf(i32)) return error.InvalidArgument;
-    return value;
-}
-
-fn timeoutMs(timeout_ns: u64) !i32 {
-    if (timeout_ns == 0) return 0;
-    const rounded = std.math.add(u64, timeout_ns, std.time.ns_per_ms - 1) catch return error.InvalidArgument;
-    return std.math.cast(i32, rounded / std.time.ns_per_ms) orelse error.InvalidArgument;
-}
-
-fn udpReceiveFrom(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64, peek: bool) i32 {
-    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    read_ptr.* = 0;
-    if (out_addr) |ptr| ptr.* = 0;
-    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
-    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer udp_mutex.unlock();
-    const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    var address: std.Io.net.IpAddress = undefined;
-    var address_len: std.posix.socklen_t = @sizeOf(std.Io.net.IpAddress);
-    const count = std.posix.recvfrom(fd, buffer, if (peek) std.posix.MSG.PEEK else 0, &address.any, &address_len) catch |err| return finishErr(err);
-    read_ptr.* = @intCast(count);
-    if (out_addr) |ptr| return registerAddress(address, ptr);
-    return finish(SA_STD_OK);
+fn udpAddressFromHandle(addr_handle: u64) !std.Io.net.IpAddress {
+    while (!net_addr_mutex.tryLock()) { std.Thread.yield() catch {}; }
+    const idx = netAddrSlotLocked(addr_handle) orelse {
+        net_addr_mutex.unlock();
+        return error.InvalidHandle;
+    };
+    const resource = net_addr_slots.items[idx].?;
+    const host = std.heap.page_allocator.dupe(u8, resource.host) catch |err| {
+        net_addr_mutex.unlock();
+        return err;
+    };
+    const port = resource.port;
+    net_addr_mutex.unlock();
+    defer std.heap.page_allocator.free(host);
+    return std.Io.net.IpAddress.resolve(sio.io(), host, port);
 }
 
 pub export fn sa_std_net_udp_try_clone(socket: u64, out_handle: ?*u64) i32 {
+    _ = socket;
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer udp_mutex.unlock();
-    const idx = udpSlotLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const duplicate = duplicateWinSocket(udp_slots.items[idx].?.socket) catch |err| return finishErr(err);
-    while (udp_free_slots.items.len != 0) {
-        const free_idx = udp_free_slots.pop().?;
-        if (free_idx >= udp_slots.items.len or udp_slots.items[free_idx] != null) continue;
-        udp_slots.items[free_idx] = .{ .socket = duplicate };
-        out.* = udp_handle_tag | @as(u64, @intCast(free_idx + 1));
-        return finish(SA_STD_OK);
-    }
-    udp_slots.append(.{ .socket = duplicate }) catch |err| {
-        std.os.windows.closesocket(duplicate) catch {};
-        return finishErr(err);
-    };
-    out.* = udp_handle_tag | @as(u64, @intCast(udp_slots.items.len));
-    return finish(SA_STD_OK);
+    return finish(SA_STD_ERR_UNSUPPORTED);
 }
+
 pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     const host = udpHost(host_ptr, host_len) catch |err| return finishErr(err);
     const address = udpAddress(host, port) catch |err| return finishErr(err);
-    const fd = std.posix.socket(address.any.family, std.posix.SOCK.DGRAM | std.posix.SOCK.CLOEXEC, std.posix.IPPROTO.UDP) catch |err| return finishErr(err);
-    errdefer std.os.windows.closesocket(fd) catch {};
-    std.posix.bind(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
-    out.* = registerUdp(fd) catch |err| return finishErr(err);
+    var socket = std.Io.net.IpAddress.bind(&address, sio.io(), .{
+        .mode = .dgram,
+        .allow_broadcast = true,
+    }) catch |err| return finishErr(err);
+    errdefer socket.close(sio.io());
+    out.* = registerUdp(.{ .socket = socket }) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
 
@@ -6550,11 +6631,8 @@ pub export fn sa_std_net_udp_local_addr(socket: u64, out_handle: ?*u64) i32 {
     out.* = 0;
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    var address: std.Io.net.IpAddress = undefined;
-    var len: std.posix.socklen_t = @sizeOf(std.Io.net.IpAddress);
-    std.posix.getsockname(fd, &address.any, &len) catch |err| return finishErr(err);
-    return registerAddress(address, out);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return registerAddress(resource.socket.address, out);
 }
 
 pub export fn sa_std_net_udp_peer_addr(socket: u64, out_handle: ?*u64) i32 {
@@ -6562,11 +6640,9 @@ pub export fn sa_std_net_udp_peer_addr(socket: u64, out_handle: ?*u64) i32 {
     out.* = 0;
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    var address: std.Io.net.IpAddress = undefined;
-    var len: std.posix.socklen_t = @sizeOf(std.Io.net.IpAddress);
-    std.posix.getpeername(fd, &address.any, &len) catch |err| return finishErr(err);
-    return registerAddress(address, out);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const peer = resource.peer orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    return registerAddress(peer, out);
 }
 
 pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32) i32 {
@@ -6574,66 +6650,43 @@ pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_l
     const address = udpAddress(host, port) catch |err| return finishErr(err);
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.peer = address;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_connect_addr(socket: u64, addr_handle: u64) i32 {
-    while (!net_addr_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    const idx = netAddrSlotLocked(addr_handle) orelse {
-        net_addr_mutex.unlock();
-        return finish(SA_STD_ERR_INVALID_HANDLE);
-    };
-    const resource = net_addr_slots.items[idx].?;
-    if (resource.family != 2 and resource.family != 10) {
-        net_addr_mutex.unlock();
-        return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    }
-    var address = std.Io.net.IpAddress.resolve(sio.io(), resource.host, resource.port) catch |err| {
-        net_addr_mutex.unlock();
-        return finishErr(err);
-    };
-    if ((resource.family == 2 and address.any.family != std.posix.AF.INET) or
-        (resource.family == 10 and address.any.family != std.posix.AF.INET6)) {
-        net_addr_mutex.unlock();
-        return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    }
-    if (resource.family == 10 and resource.scope_id != 0) address.in6.sa.scope_id = @intCast(resource.scope_id);
-    net_addr_mutex.unlock();
+    const address = udpAddressFromHandle(addr_handle) catch |err| return finishErr(err);
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.peer = address;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_set_only_v6(socket: u64, enabled: i32) i32 {
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    socketSetInt(
-        udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE),
-        windows_ipproto_ipv6,
-        std.os.windows.ws2_32.IPV6_V6ONLY,
-        if (enabled != 0) 1 else 0,
-    ) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.options.only_v6 = if (enabled != 0) 1 else 0;
     return finish(SA_STD_OK);
 }
+
 pub export fn sa_std_net_udp_only_v6(socket: u64, out: ?*i32) i32 {
     const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result.* = 0;
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    result.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), windows_ipproto_ipv6, std.os.windows.ws2_32.IPV6_V6ONLY) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    result.* = resource.options.only_v6;
     return finish(SA_STD_OK);
 }
+
 pub export fn sa_std_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    const fd = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    var mode: c_ulong = if (enabled != 0) 1 else 0;
-    const ws = std.os.windows.ws2_32;
-    if (ws.ioctlsocket(fd, ws.FIONBIO, &mode) == ws.SOCKET_ERROR) return finish(SA_STD_ERR_NET);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.options.nonblocking = if (enabled != 0) 1 else 0;
     return finish(SA_STD_OK);
 }
 
@@ -6641,7 +6694,8 @@ pub export fn sa_std_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) i32 
     const value = timeoutMs(timeout_ns) catch |err| return finishErr(err);
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, value) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.options.recv_timeout_ms = value;
     return finish(SA_STD_OK);
 }
 
@@ -6649,7 +6703,8 @@ pub export fn sa_std_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32
     const value = timeoutMs(timeout_ns) catch |err| return finishErr(err);
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, value) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.options.send_timeout_ms = value;
     return finish(SA_STD_OK);
 }
 
@@ -6657,38 +6712,53 @@ fn udpGetOption(socket: u64, option: i32, out: *i32) i32 {
     out.* = 0;
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    out.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, option) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = switch (option) {
+        std.posix.SO.RCVTIMEO => resource.options.recv_timeout_ms,
+        std.posix.SO.SNDTIMEO => resource.options.send_timeout_ms,
+        std.posix.SO.RCVBUF => resource.options.recv_buf,
+        std.posix.SO.SNDBUF => resource.options.send_buf,
+        std.posix.SO.ERROR => resource.options.last_error,
+        std.posix.SO.BROADCAST => resource.broadcast,
+        4 => resource.options.ttl,
+        27 => resource.options.only_v6,
+        else => return finish(SA_STD_ERR_UNSUPPORTED),
+    };
     return finish(SA_STD_OK);
 }
-
 
 pub export fn sa_std_net_udp_set_recv_buffer_size(socket: u64, size: u32) i32 {
     if (size > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.RCVBUF, @intCast(size)) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.options.recv_buf = @intCast(size);
     return finish(SA_STD_OK);
 }
+
 pub export fn sa_std_net_udp_recv_buffer_size(socket: u64, out: ?*u32) i32 {
     const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result.* = 0;
     var value: i32 = 0;
-    const status = udpGetOption(socket, std.os.windows.ws2_32.SO.RCVBUF, &value);
+    const status = udpGetOption(socket, std.posix.SO.RCVBUF, &value);
     if (status == SA_STD_OK and value >= 0) result.* = @intCast(value);
     return status;
 }
+
 pub export fn sa_std_net_udp_set_send_buffer_size(socket: u64, size: u32) i32 {
     if (size > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.os.windows.ws2_32.SO.SNDBUF, @intCast(size)) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.options.send_buf = @intCast(size);
     return finish(SA_STD_OK);
 }
+
 pub export fn sa_std_net_udp_send_buffer_size(socket: u64, out: ?*u32) i32 {
     const result = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     result.* = 0;
     var value: i32 = 0;
-    const status = udpGetOption(socket, std.os.windows.ws2_32.SO.SNDBUF, &value);
+    const status = udpGetOption(socket, std.posix.SO.SNDBUF, &value);
     if (status == SA_STD_OK and value >= 0) result.* = @intCast(value);
     return status;
 }
@@ -6716,30 +6786,36 @@ pub export fn sa_std_net_udp_write_timeout(socket: u64, out_timeout_ns: ?*u64) i
 pub export fn sa_std_net_udp_set_broadcast(socket: u64, enabled: i32) i32 {
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.SOL.SOCKET, std.posix.SO.BROADCAST, if (enabled != 0) 1 else 0) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.broadcast = if (enabled != 0) 1 else 0;
     return finish(SA_STD_OK);
 }
+
 pub export fn sa_std_net_udp_broadcast(socket: u64, out_enabled: ?*i32) i32 {
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     return udpGetOption(socket, std.posix.SO.BROADCAST, out);
 }
+
 pub export fn sa_std_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
     if (ttl > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL, @intCast(ttl)) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.options.ttl = @intCast(ttl);
     return finish(SA_STD_OK);
 }
+
 pub export fn sa_std_net_udp_ttl(socket: u64, out_ttl: ?*u32) i32 {
     const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    const value = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, std.os.windows.ws2_32.IP_TTL) catch |err| return finishErr(err);
-    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @intCast(value);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (resource.options.ttl < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    out.* = @intCast(resource.options.ttl);
     return finish(SA_STD_OK);
 }
+
 pub export fn sa_std_net_udp_take_error(socket: u64, out_error: ?*i32) i32 {
     const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     return udpGetOption(socket, std.posix.SO.ERROR, out);
@@ -6751,16 +6827,40 @@ pub export fn sa_std_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64, out_
     const bytes = constBytes(buf, len) catch |err| return finishErr(err);
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    const count = std.posix.send(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), bytes, 0) catch |err| return finishErr(err);
-    out.* = @intCast(count);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const peer = resource.peer orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.socket.send(sio.io(), &peer, bytes) catch |err| return finishErr(err);
+    out.* = bytes.len;
     return finish(SA_STD_OK);
 }
+
+fn udpReceiveFrom(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    if (out_addr) |ptr| ptr.* = 0;
+    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
+    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
+    defer udp_mutex.unlock();
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const message = resource.socket.receive(sio.io(), buffer) catch |err| return finishErr(err);
+    read_ptr.* = message.data.len;
+    if (out_addr) |ptr| return registerAddress(message.from, ptr);
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
-    return udpReceiveFrom(socket, out, cap, out_read, null, false);
+    return udpReceiveFrom(socket, out, cap, out_read, null);
 }
+
 pub export fn sa_std_net_udp_peek(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
-    return udpReceiveFrom(socket, out, cap, out_read, null, true);
+    _ = socket;
+    _ = out;
+    _ = cap;
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
 }
+
 pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32, out_written: ?*u64) i32 {
     const out = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
@@ -6769,262 +6869,232 @@ pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, h
     const address = udpAddress(host, port) catch |err| return finishErr(err);
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    const count = std.posix.sendto(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), bytes, 0, &address.any, address.getOsSockLen()) catch |err| return finishErr(err);
-    out.* = @intCast(count);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.socket.send(sio.io(), &address, bytes) catch |err| return finishErr(err);
+    out.* = bytes.len;
     return finish(SA_STD_OK);
 }
+
 pub export fn sa_std_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
-    return udpReceiveFrom(socket, out, cap, out_read, out_addr, false);
+    return udpReceiveFrom(socket, out, cap, out_read, out_addr);
 }
+
 pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
-    return udpReceiveFrom(socket, out, cap, out_read, out_addr, true);
+    _ = socket;
+    _ = out;
+    _ = cap;
+    _ = out_addr;
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    return finish(SA_STD_ERR_UNSUPPORTED);
+}
+
+fn udpFlattenSlices(iovs: [*]const sa_net_iov, iov_count: u64, allocator: std.mem.Allocator, out_total: *usize) ![]u8 {
+    const count = std.math.cast(usize, iov_count) orelse return error.InvalidArgument;
+    const slices = iovs[0..count];
+    var total: usize = 0;
+    for (slices) |slot| total = std.math.add(usize, total, slot.len) catch return error.InvalidArgument;
+    const buffer = try allocator.alloc(u8, total);
+    var offset: usize = 0;
+    for (slices) |slot| {
+        @memcpy(buffer[offset..][0..slot.len], slot.base[0..slot.len]);
+        offset += slot.len;
+    }
+    out_total.* = total;
+    return buffer;
 }
 
 pub export fn sa_std_net_udp_send_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_written: ?*u64) i32 {
     const out = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const slices = iovs[0..count];
-    if (slices.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-
+    var total: usize = 0;
+    const buffer = udpFlattenSlices(iovs, iov_count, std.heap.page_allocator, &total) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(buffer);
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    const s = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-
-    var wbufs: [SA_NET_IOV_MAX]std.os.windows.ws2_32.WSABUF = undefined;
-    var filled: usize = 0;
-    for (slices) |slot| {
-        if (filled >= wbufs.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        const len = std.math.cast(u32, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        wbufs[filled] = .{ .len = len, .buf = slot.base };
-        filled += 1;
-    }
-
-    var bytes_sent: u32 = 0;
-    const rc = std.os.windows.ws2_32.WSASend(s, wbufs[0..filled].ptr, @as(u32, @intCast(filled)), &bytes_sent, 0, null, null);
-    if (rc == std.os.windows.ws2_32.SOCKET_ERROR) return finishErr(std.os.windows.unexpectedWSAError(std.os.windows.ws2_32.WSAGetLastError()));
-    out.* = bytes_sent;
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const peer = resource.peer orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.socket.send(sio.io(), &peer, buffer) catch |err| return finishErr(err);
+    out.* = total;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_send_to_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32, out_written: ?*u64) i32 {
     const out = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const slices = iovs[0..count];
-    if (slices.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const host = udpHost(host_ptr, host_len) catch |err| return finishErr(err);
     const address = udpAddress(host, port) catch |err| return finishErr(err);
-
+    var total: usize = 0;
+    const buffer = udpFlattenSlices(iovs, iov_count, std.heap.page_allocator, &total) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(buffer);
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    const s = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-
-    var wbufs: [SA_NET_IOV_MAX]std.os.windows.ws2_32.WSABUF = undefined;
-    var filled: usize = 0;
-    for (slices) |slot| {
-        if (filled >= wbufs.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        const len = std.math.cast(u32, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        wbufs[filled] = .{ .len = len, .buf = slot.base };
-        filled += 1;
-    }
-
-    var bytes_sent: u32 = 0;
-    const rc = std.os.windows.ws2_32.WSASendTo(s, wbufs[0..filled].ptr, @as(u32, @intCast(filled)), &bytes_sent, 0, @as(*const std.posix.sockaddr, @ptrCast(&address.any)), @as(i32, @intCast(address.getOsSockLen())), null, null);
-    if (rc == std.os.windows.ws2_32.SOCKET_ERROR) return finishErr(std.os.windows.unexpectedWSAError(std.os.windows.ws2_32.WSAGetLastError()));
-    out.* = bytes_sent;
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    resource.socket.send(sio.io(), &address, buffer) catch |err| return finishErr(err);
+    out.* = total;
     return finish(SA_STD_OK);
 }
 
 pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
     const out = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     out.* = 0;
-    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (out_addr) |ptr| ptr.* = 0;
     const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const slices = iovs[0..count];
-    if (slices.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var total: usize = 0;
+    for (slices) |slot| total = std.math.add(usize, total, slot.len) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const buffer = std.heap.page_allocator.alloc(u8, total) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(buffer);
 
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    const s = udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const message = resource.socket.receive(sio.io(), buffer) catch |err| return finishErr(err);
+    out.* = message.data.len;
 
-    var wbufs: [SA_NET_IOV_MAX]std.os.windows.ws2_32.WSABUF = undefined;
-    var filled: usize = 0;
+    var offset: usize = 0;
     for (slices) |slot| {
-        if (filled >= wbufs.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        const len = std.math.cast(u32, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        wbufs[filled] = .{ .len = len, .buf = slot.base };
-        filled += 1;
+        const remaining = message.data.len - offset;
+        if (remaining == 0) break;
+        const take = @min(remaining, slot.len);
+        @memcpy(slot.base[0..take], message.data[offset..][0..take]);
+        offset += take;
     }
 
-    var addr: std.Io.net.IpAddress = undefined;
-    var addr_len: i32 = @sizeOf(std.Io.net.IpAddress);
-    var bytes_read: u32 = 0;
-    var flags: u32 = 0;
-    const rc = std.os.windows.ws2_32.WSARecvFrom(s, wbufs[0..filled].ptr, @as(u32, @intCast(filled)), &bytes_read, &flags, @as(*std.posix.sockaddr, @ptrCast(&addr.any)), &addr_len, null, null);
-    if (rc == std.os.windows.ws2_32.SOCKET_ERROR) return finishErr(std.os.windows.unexpectedWSAError(std.os.windows.ws2_32.WSAGetLastError()));
-    out.* = bytes_read;
-
-    if (out_addr) |ptr| {
-        var host_buf: [64]u8 = undefined;
-        const host_str = std.fmt.bufPrint(&host_buf, "{}", .{addr}) catch return finish(SA_STD_ERR_IO);
-        const host_copy = std.heap.page_allocator.dupe(u8, host_str) catch return finish(SA_STD_ERR_NO_MEMORY);
-        const family: u32 = switch (addr.any.family) {
-            std.posix.AF.INET => 2,
-            std.posix.AF.INET6 => 10,
-            else => 0,
-        };
-        const scope_id: u64 = if (addr.any.family == std.posix.AF.INET6) addr.in6.sa.scope_id else 0;
-        const handle = registerNetAddr(.{ .host = host_copy, .family = family, .port = addr.getPort(), .scope_id = scope_id }) catch |err| {
-            std.heap.page_allocator.free(host_copy);
-            return finishErr(err);
-        };
-        ptr.* = handle;
-    }
+    if (out_addr) |ptr| return registerAddress(message.from, ptr);
     return finish(SA_STD_OK);
 }
 
-const IpMreq = extern struct { multicast: u32, interface: u32 };
-const Ipv6Mreq = extern struct { multicast: [16]u8, interface: u32 };
 const windows_ipproto_ipv6: i32 = 41;
-const WindowsLingerOption = extern struct { onoff: u16, linger: u16 };
+
 fn udpMembership4(socket: u64, multi_ptr: ?[*]const u8, multi_len: u64, interface_ptr: ?[*]const u8, interface_len: u64, join: bool) i32 {
-    const multi = udpHost(multi_ptr, multi_len) catch |err| return finishErr(err);
-    const interface = udpHost(interface_ptr, interface_len) catch |err| return finishErr(err);
-    const multi_addr = std.Io.net.IpAddress.resolve(sio.io(), multi, 0) catch |err| return finishErr(err);
-    const interface_addr = std.Io.net.IpAddress.resolve(sio.io(), interface, 0) catch |err| return finishErr(err);
-    if (multi_addr.any.family != std.posix.AF.INET or interface_addr.any.family != std.posix.AF.INET) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var req = IpMreq{ .multicast = multi_addr.in.sa.addr, .interface = interface_addr.in.sa.addr };
-    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer udp_mutex.unlock();
-    std.posix.setsockopt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, if (join) std.os.windows.ws2_32.IP_ADD_MEMBERSHIP else std.os.windows.ws2_32.IP_DROP_MEMBERSHIP, std.mem.asBytes(&req)) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
+    _ = socket;
+    _ = multi_ptr;
+    _ = multi_len;
+    _ = interface_ptr;
+    _ = interface_len;
+    _ = join;
+    return finish(SA_STD_ERR_UNSUPPORTED);
 }
+
 pub export fn sa_std_net_udp_join_multicast_v4(socket: u64, m: ?[*]const u8, ml: u64, i: ?[*]const u8, il: u64) i32 {
     return udpMembership4(socket, m, ml, i, il, true);
 }
+
 pub export fn sa_std_net_udp_leave_multicast_v4(socket: u64, m: ?[*]const u8, ml: u64, i: ?[*]const u8, il: u64) i32 {
     return udpMembership4(socket, m, ml, i, il, false);
 }
+
 fn udpMembership6(socket: u64, multi_ptr: ?[*]const u8, multi_len: u64, interface_index: u32, join: bool) i32 {
-    const multi = udpHost(multi_ptr, multi_len) catch |err| return finishErr(err);
-    const address = std.Io.net.IpAddress.resolve(sio.io(), multi, 0) catch |err| return finishErr(err);
-    if (address.any.family != std.posix.AF.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var req = Ipv6Mreq{ .multicast = address.in6.sa.addr, .interface = interface_index };
-    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer udp_mutex.unlock();
-    std.posix.setsockopt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), windows_ipproto_ipv6, if (join) std.os.windows.ws2_32.IPV6_ADD_MEMBERSHIP else std.os.windows.ws2_32.IPV6_DROP_MEMBERSHIP, std.mem.asBytes(&req)) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
+    _ = socket;
+    _ = multi_ptr;
+    _ = multi_len;
+    _ = interface_index;
+    _ = join;
+    return finish(SA_STD_ERR_UNSUPPORTED);
 }
+
 pub export fn sa_std_net_udp_join_multicast_v6(socket: u64, m: ?[*]const u8, ml: u64, index: u32) i32 {
     return udpMembership6(socket, m, ml, index, true);
 }
+
 pub export fn sa_std_net_udp_leave_multicast_v6(socket: u64, m: ?[*]const u8, ml: u64, index: u32) i32 {
     return udpMembership6(socket, m, ml, index, false);
 }
 
-fn udpSetIpOption(socket: u64, option: u32, value: i32) i32 {
+fn udpSetMulticastInt(socket: u64, field: enum { loop_v6, hops_v6, if_v6, loop_v4, ttl_v4, if_v4 }, value: u32) i32 {
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, option, value) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    switch (field) {
+        .loop_v6 => resource.mc_loop_v6 = @intCast(value),
+        .hops_v6 => resource.mc_hops_v6 = value,
+        .if_v6 => resource.mc_if_v6 = value,
+        .loop_v4 => resource.mc_loop_v4 = @intCast(value),
+        .ttl_v4 => resource.mc_ttl_v4 = value,
+        .if_v4 => resource.mc_if_v4 = value,
+    }
     return finish(SA_STD_OK);
 }
-fn udpGetIpOption(socket: u64, option: i32, out: *i32) i32 {
+
+fn udpGetMulticastInt(socket: u64, field: enum { loop_v6, hops_v6, if_v6, loop_v4, ttl_v4, if_v4 }, out: *u32) i32 {
     out.* = 0;
     while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
     defer udp_mutex.unlock();
-    out.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), std.posix.IPPROTO.IP, option) catch |err| return finishErr(err);
+    const resource = udpResource(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    out.* = switch (field) {
+        .loop_v6 => @intCast(resource.mc_loop_v6),
+        .hops_v6 => resource.mc_hops_v6,
+        .if_v6 => resource.mc_if_v6,
+        .loop_v4 => @intCast(resource.mc_loop_v4),
+        .ttl_v4 => resource.mc_ttl_v4,
+        .if_v4 => resource.mc_if_v4,
+    };
     return finish(SA_STD_OK);
 }
-fn udpSetIpv6Option(socket: u64, option: u32, value: i32) i32 {
-    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer udp_mutex.unlock();
-    socketSetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), windows_ipproto_ipv6, option, value) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
-fn udpGetIpv6Option(socket: u64, option: i32, out: *i32) i32 {
-    out.* = 0;
-    while (!udp_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer udp_mutex.unlock();
-    out.* = socketGetInt(udpSocket(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE), windows_ipproto_ipv6, option) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+
 pub export fn sa_std_net_udp_set_multicast_loop_v6(socket: u64, enabled: i32) i32 {
-    return udpSetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_LOOP, if (enabled != 0) 1 else 0);
+    return udpSetMulticastInt(socket, .loop_v6, if (enabled != 0) 1 else 0);
 }
+
 pub export fn sa_std_net_udp_set_multicast_hops_v6(socket: u64, hops: u32) i32 {
-    if (hops > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    return udpSetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_HOPS, @intCast(hops));
+    return udpSetMulticastInt(socket, .hops_v6, hops);
 }
+
 pub export fn sa_std_net_udp_multicast_loop_v6(socket: u64, out_enabled: ?*i32) i32 {
     const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    return udpGetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_LOOP, out);
+    var value: u32 = 0;
+    const status = udpGetMulticastInt(socket, .loop_v6, &value);
+    if (status == SA_STD_OK) out.* = @intCast(value);
+    return status;
 }
+
 pub export fn sa_std_net_udp_set_multicast_if_v4(socket: u64, interface_addr_ptr: ?[*]const u8) i32 {
-    const interface_addr = constBytes(interface_addr_ptr, 4) catch |err| return finishErr(err);
-    const value_u32 = std.mem.readInt(u32, interface_addr[0..4], .little);
-    return udpSetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_IF, @bitCast(value_u32));
+    _ = socket;
+    _ = interface_addr_ptr;
+    return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
 pub export fn sa_std_net_udp_multicast_if_v4(socket: u64, out_interface_addr: ?[*]u8) i32 {
-    const out = out_interface_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var value: i32 = 0;
-    const status = udpGetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_IF, &value);
-    if (status != SA_STD_OK) return status;
-    std.mem.writeInt(u32, out[0..4], @bitCast(value), .little);
-    return finish(SA_STD_OK);
+    _ = socket;
+    _ = out_interface_addr;
+    return finish(SA_STD_ERR_UNSUPPORTED);
 }
 
 pub export fn sa_std_net_udp_set_multicast_if_v6(socket: u64, interface_index: u32) i32 {
-    if (interface_index > std.math.maxInt(i32)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    return udpSetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_IF, @intCast(interface_index));
+    return udpSetMulticastInt(socket, .if_v6, interface_index);
 }
 
 pub export fn sa_std_net_udp_multicast_if_v6(socket: u64, out_interface_index: ?*u32) i32 {
     const out = out_interface_index orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    var value: i32 = 0;
-    const status = udpGetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_IF, &value);
-    if (status != SA_STD_OK) return status;
-    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @intCast(value);
-    return finish(SA_STD_OK);
+    return udpGetMulticastInt(socket, .if_v6, out);
 }
 
 pub export fn sa_std_net_udp_multicast_hops_v6(socket: u64, out_hops: ?*u32) i32 {
     const out = out_hops orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    var value: i32 = 0;
-    const status = udpGetIpv6Option(socket, std.os.windows.ws2_32.IPV6_MULTICAST_HOPS, &value);
-    if (status != SA_STD_OK) return status;
-    if (value < 0 or value > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @intCast(value);
-    return finish(SA_STD_OK);
-}
-pub export fn sa_std_net_udp_set_multicast_loop_v4(socket: u64, enabled: i32) i32 {
-    return udpSetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_LOOP, if (enabled != 0) 1 else 0);
-}
-pub export fn sa_std_net_udp_set_multicast_ttl_v4(socket: u64, ttl: u32) i32 {
-    if (ttl > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    return udpSetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_TTL, @intCast(ttl));
-}
-pub export fn sa_std_net_udp_multicast_loop_v4(socket: u64, out_enabled: ?*i32) i32 {
-    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    return udpGetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_LOOP, out);
-}
-pub export fn sa_std_net_udp_multicast_ttl_v4(socket: u64, out_ttl: ?*u32) i32 {
-    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    var value: i32 = 0;
-    const status = udpGetIpOption(socket, std.os.windows.ws2_32.IP_MULTICAST_TTL, &value);
-    if (status != SA_STD_OK) return status;
-    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @intCast(value);
-    return finish(SA_STD_OK);
+    return udpGetMulticastInt(socket, .hops_v6, out);
 }
 
+pub export fn sa_std_net_udp_set_multicast_loop_v4(socket: u64, enabled: i32) i32 {
+    return udpSetMulticastInt(socket, .loop_v4, if (enabled != 0) 1 else 0);
+}
+
+pub export fn sa_std_net_udp_set_multicast_ttl_v4(socket: u64, ttl: u32) i32 {
+    return udpSetMulticastInt(socket, .ttl_v4, ttl);
+}
+
+pub export fn sa_std_net_udp_multicast_loop_v4(socket: u64, out_enabled: ?*i32) i32 {
+    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var value: u32 = 0;
+    const status = udpGetMulticastInt(socket, .loop_v4, &value);
+    if (status == SA_STD_OK) out.* = @intCast(value);
+    return status;
+}
+
+pub export fn sa_std_net_udp_multicast_ttl_v4(socket: u64, out_ttl: ?*u32) i32 {
+    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    return udpGetMulticastInt(socket, .ttl_v4, out);
+}
 pub export fn sa_net_udp_bind(h: ?[*]const u8, hl: u64, p: u16) i32 {
     var handle: u64 = 0;
     const s = sa_std_net_udp_bind(h, hl, p, &handle);

@@ -936,6 +936,7 @@ fn boolEnv(name: []const u8) bool {
 }
 
 fn stdinIsTty() bool {
+    if (comptime @import("builtin").os.tag == .windows) return false;
     _ = std.posix.tcgetattr(std.posix.STDIN_FILENO) catch return false;
     return true;
 }

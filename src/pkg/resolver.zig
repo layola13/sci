@@ -288,7 +288,7 @@ fn mapFileReadOnly(path: []const u8, max_bytes: usize) ResolveError!struct { map
         const len = std.math.cast(usize, end_pos) orelse return error.PackageNotResolved;
         if (len == 0 or len > max_bytes) return error.PackageNotResolved;
         const source = file.readToEndAlloc(std.heap.page_allocator, len) catch return error.PackageNotResolved;
-        const mapped = try std.heap.page_allocator.alignedAlloc(u8, std.heap.page_size_min, source.len);
+        const mapped = try std.heap.page_allocator.alignedAlloc(u8, std.mem.Alignment.fromByteUnits(std.heap.page_size_min), source.len);
         @memcpy(mapped, source);
         std.heap.page_allocator.free(source);
         return .{ .mapped = mapped, .source = mapped };

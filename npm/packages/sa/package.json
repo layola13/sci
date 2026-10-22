@@ -1,6 +1,6 @@
 {
   "name": "@salang/sa",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "SA (Safe ASM) toolchain: compiler, runtime and package manager for the SLA language",
   "license": "Apache-2.0",
   "repository": {
@@ -28,12 +28,12 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "@salang/sa-darwin-arm64": "0.1.6",
-    "@salang/sa-darwin-x64": "0.1.6",
-    "@salang/sa-freebsd-x64": "0.1.6",
-    "@salang/sa-linux-arm64": "0.1.6",
-    "@salang/sa-linux-x64": "0.1.6",
-    "@salang/sa-win32-x64": "0.1.6",
+    "@salang/sa-darwin-arm64": "0.1.7",
+    "@salang/sa-darwin-x64": "0.1.7",
+    "@salang/sa-freebsd-x64": "0.1.7",
+    "@salang/sa-linux-arm64": "0.1.7",
+    "@salang/sa-linux-x64": "0.1.7",
+    "@salang/sa-win32-x64": "0.1.7",
     "@zigc/cli": "0.17.0"
   }
 }

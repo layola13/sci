@@ -83,10 +83,9 @@ fn handleFromU64(handle: u64) *WsClientHandle {
 fn tcpRead(stream: std.Io.net.Stream, buf: []u8) WsError!usize {
     if (comptime builtin.cpu.arch.isWasm()) return WsError.EndOfStream;
     std.debug.assert(buf.len != 0);
-    // NOTE(Zig 0.17): `Stream.read` is unusable with the Threaded backend, so
-    // read the blocking socket fd directly (same single-short-read shape as
-    // the old `Stream.read`).
-    return std.posix.read(stream.socket.handle, buf) catch return WsError.EndOfStream;
+    var bufs: [1][]u8 = .{buf};
+    const result = stream.readWithControl(sio.io(), &bufs, &.{}) catch return WsError.EndOfStream;
+    return result.data_len;
 }
 
 fn tcpWriteAll(stream: std.Io.net.Stream, bytes: []const u8) WsError!void {

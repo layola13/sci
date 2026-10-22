@@ -1,5 +1,6 @@
 const std = @import("std");
 const sio = @import("sio");
+const dynlib = @import("dynlib_compat.zig");
 
 pub const abi_version: u32 = 1;
 pub const host_version: []const u8 = "sci-0.2";
@@ -398,7 +399,7 @@ pub const LoadDiagnostic = struct {
 
 const LoadedPlugin = struct {
     path: []const u8,
-    lib: std.DynLib,
+    lib: dynlib.DynLib,
     descriptor: PluginDescriptor,
     permission_policy: RuntimePermissionPolicy = .{},
 
@@ -1645,13 +1646,12 @@ pub const Runtime = struct {
                     return;
                 };
                 defer self.allocator.free(path_z);
-                const handle = std.os.windows.LoadLibraryExW(path_z.ptr, .load_with_altered_search_path) catch |err| {
+                break :blk dynlib.DynLib.openWide(path_z) catch |err| {
                     try self.addDiagnostic(path, @errorName(err));
                     return;
                 };
-                break :blk std.DynLib{ .inner = .{ .dll = handle } };
             }
-            break :blk std.DynLib.open(path) catch |err| {
+            break :blk dynlib.DynLib.open(path) catch |err| {
                 try self.addDiagnostic(path, @errorName(err));
                 return;
             };
@@ -2659,6 +2659,7 @@ fn archiveFilename(format: ArchiveFormat) []const u8 {
 }
 
 fn stdinIsTty() bool {
+    if (comptime @import("builtin").os.tag == .windows) return false;
     _ = std.posix.tcgetattr(std.posix.STDIN_FILENO) catch return false;
     return true;
 }
@@ -3194,7 +3195,7 @@ fn verifySymbolSmoke(allocator: std.mem.Allocator, manifest: SapManifest, artifa
     }
     if (externs.items.len == 0) return 0;
 
-    var lib = std.DynLib.open(artifact_abs) catch |err| {
+    var lib = dynlib.DynLib.open(artifact_abs) catch |err| {
         try stdout.print("plugin artifact could not be opened for symbol smoke: {s}\n", .{@errorName(err)});
         return 1;
     };
@@ -4136,7 +4137,7 @@ fn ensureParentDir(path: []const u8) !void {
     if (std.fs.path.dirname(path)) |dir| try sio.cwd().makePath(dir);
 }
 
-fn loadDescriptor(lib: *std.DynLib) ?PluginDescriptor {
+fn loadDescriptor(lib: *dynlib.DynLib) ?PluginDescriptor {
     if (lib.lookup(*const PluginDescriptor, descriptor_symbol_name)) |descriptor_ptr| {
         return descriptor_ptr.*;
     }

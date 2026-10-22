@@ -581,7 +581,7 @@ pub fn argsAlloc(allocator: std.mem.Allocator) ![][:0]u8 {
             const wcmd = GetCommandLineW();
             var len: usize = 0;
             while (wcmd[len] != 0) : (len += 1) {}
-            var iter = try std.process.Args.Windows.init(allocator, wcmd[0..len]);
+            var iter = try std.process.Args.Iterator.Windows.init(allocator, wcmd[0..len]);
             var list: std.array_list.Managed([:0]u8) = .init(allocator);
             errdefer {
                 for (list.items) |s| allocator.free(s);
