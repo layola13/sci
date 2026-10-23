@@ -8485,22 +8485,22 @@ comptime {
         @export(&fd_open, .{ .name = "fd_open" });
         @export(&fd_read, .{ .name = "fd_read" });
         @export(&fd_close, .{ .name = "fd_close" });
-        @export(&mmap, .{ .name = "mmap" });
-        @export(&munmap, .{ .name = "munmap" });
-        @export(&signal, .{ .name = "signal" });
+        @export(&mmap, .{ .name = "mmap", .visibility = .hidden });
+        @export(&munmap, .{ .name = "munmap", .visibility = .hidden });
+        @export(&signal, .{ .name = "signal", .visibility = .hidden });
         @export(&pthread_spawn, .{ .name = "pthread_spawn" });
         @export(&pthread_spawn_detached, .{ .name = "pthread_spawn_detached" });
-        @export(&pthread_join, .{ .name = "pthread_join" });
+        @export(&pthread_join, .{ .name = "pthread_join", .visibility = .hidden });
         @export(&pthread_drop, .{ .name = "pthread_drop" });
         @export(&sa_thread_as_pthread_t, .{ .name = "sa_thread_as_pthread_t" });
         @export(&sa_thread_into_pthread_t, .{ .name = "sa_thread_into_pthread_t" });
         @export(&sa_thread_raw_pthread_join, .{ .name = "sa_thread_raw_pthread_join" });
-        @export(&dlopen, .{ .name = "dlopen" });
-        @export(&dlsym, .{ .name = "dlsym" });
-        @export(&dlclose, .{ .name = "dlclose" });
-        @export(&sqlite3_prepare, .{ .name = "sqlite3_prepare" });
-        @export(&sqlite3_step, .{ .name = "sqlite3_step" });
-        @export(&sqlite3_finalize, .{ .name = "sqlite3_finalize" });
+        @export(&dlopen, .{ .name = "dlopen", .visibility = .hidden });
+        @export(&dlsym, .{ .name = "dlsym", .visibility = .hidden });
+        @export(&dlclose, .{ .name = "dlclose", .visibility = .hidden });
+        @export(&sqlite3_prepare, .{ .name = "sqlite3_prepare", .visibility = .hidden });
+        @export(&sqlite3_step, .{ .name = "sqlite3_step", .visibility = .hidden });
+        @export(&sqlite3_finalize, .{ .name = "sqlite3_finalize", .visibility = .hidden });
     }
 }
 
