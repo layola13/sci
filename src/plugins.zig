@@ -1863,6 +1863,15 @@ pub const InstallOptions = struct {
     optimize: []const u8 = "ReleaseFast",
 };
 
+/// Plugin kind (sala 05_plugins/20_system_redesign): `command` is the
+/// classic plugin shape; `language` marks a language frontend (e.g. SLA)
+/// that the host dispatches to by file extension instead of exposing a
+/// command namespace. Manifests without a "kind" field default to command.
+const SapPluginKind = enum {
+    command,
+    language,
+};
+
 const SapManifest = struct {
     root_dir: []u8,
     sap_path: []u8,
@@ -1886,6 +1895,8 @@ const SapManifest = struct {
     has_net_permission: bool,
     has_env_permission: bool,
     has_process_permission: bool,
+    kind: SapPluginKind,
+    language_extensions: [][]u8,
 
     fn deinit(self: *SapManifest, allocator: std.mem.Allocator) void {
         allocator.free(self.root_dir);
@@ -1909,6 +1920,8 @@ const SapManifest = struct {
         allocator.free(self.process_exec_permissions);
         for (self.external_urls) |url| allocator.free(url);
         allocator.free(self.external_urls);
+        for (self.language_extensions) |ext| allocator.free(ext);
+        allocator.free(self.language_extensions);
         self.* = undefined;
     }
 };
@@ -2817,6 +2830,20 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
         for (dependencies) |*dep| dep.deinit(allocator);
         allocator.free(dependencies);
     }
+    const kind: SapPluginKind = if (object.get("kind")) |kind_value| blk: {
+        const kind_text = try jsonString(kind_value);
+        if (std.mem.eql(u8, kind_text, "command")) break :blk .command;
+        if (std.mem.eql(u8, kind_text, "language")) break :blk .language;
+        return error.InvalidSapManifest;
+    } else .command;
+    const language_extensions = if (kind == .language)
+        try collectStringArray(allocator, object.get("extensions"))
+    else
+        try allocator.alloc([]u8, 0);
+    errdefer {
+        for (language_extensions) |ext| allocator.free(ext);
+        allocator.free(language_extensions);
+    }
 
     return .{
         .root_dir = root_dir,
@@ -2841,6 +2868,8 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
         .has_net_permission = permission_info.has_net_permission,
         .has_env_permission = permission_info.has_env_permission,
         .has_process_permission = permission_info.has_process_permission,
+        .kind = kind,
+        .language_extensions = language_extensions,
     };
 }
 
