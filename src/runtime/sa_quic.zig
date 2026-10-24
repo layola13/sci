@@ -674,7 +674,7 @@ fn parseIp4LiteralNative(host: []const u8, port: u16) ?SockAddrIn {
 fn lxClose(fd: i32) void {
     if (comptime builtin.cpu.arch.isWasm()) {
     } else {
-        lxClose(fd);
+        _ = std.os.linux.close(fd);
     }
 }
 
