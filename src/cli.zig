@@ -7325,6 +7325,14 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 recordMetricMemoryEnd(&owned.metrics);
                 if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
                 finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
+                // CGU emission produces no whole-module bitcode artifact, so
+                // record the linked executable as the artifact payload: the
+                // build-exe cache entry must still be stored, otherwise every
+                // --jobs build misses the cache and recompiles from scratch.
+                // The hit path consumes output.bin; artifact.sa.bc is only
+                // restored to the intermediate path, which build-exe does
+                // not read back.
+                if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_exe, key, out_path, out_path);
             } else {
                 try ensureParentDir(artifact_path);
                 const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
