@@ -7,6 +7,18 @@ const sio = @import("sio");
 // sa_std build/test graph. Interception wiring lands separately.
 pub const sa_policy = @import("sa_policy.zig");
 
+/// Runtime permission gate (sala 16_policy): checked at resource
+/// acquisition points only. No context installed -> allowed (the
+/// host surface enforces "no policy, no start"). Denial returns the
+/// dedicated SA_STD_ERR_PERMISSION_DENIED status; getters without a
+/// status channel (env, time, random) deny by returning zero, and
+/// every denial is audit-logged through the installed sink.
+fn policyAllows(resource: sa_policy.Resource) bool {
+    if (sa_policy.active_context == null) return true;
+    const now_ns: i64 = @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
+    return sa_policy.gate(std.heap.page_allocator, resource, now_ns);
+}
+
 // wasm32-wasi compat (stage1: archive must compile; sockets/process/dlopen
 // stubbed to UNSUPPORTED): SockAddrT/W/SIG are `void` on wasi, and
 // std.os.linux has no wasm syscalls. Provide minimal layout-compatible
@@ -317,6 +329,7 @@ fn portableRecvmsg(fd: std.posix.fd_t, msg: *MsghdrT, flags: u32) !usize {
     }
 }
 pub const SA_STD_ERR_TRUNCATED: i32 = 9;
+pub const SA_STD_ERR_PERMISSION_DENIED: i32 = 10;
 pub const SA_STD_ERR_UNKNOWN: i32 = 127;
 
 /// Mirrors C sa_net_iov in sa_std.h. Layout must stay { u8* base; usize len; }.
@@ -1647,6 +1660,7 @@ fn mapError(err: anyerror) i32 {
         error.ValueTooLong,
         error.BufferUnderrun,
         => SA_STD_ERR_INVALID_ARGUMENT,
+        error.PolicyDenied => SA_STD_ERR_PERMISSION_DENIED,
         error.AlreadyConnected,
         error.ConnectionPending,
         error.SocketNotConnected,
@@ -2432,6 +2446,7 @@ fn statusName(code: i32) []const u8 {
         SA_STD_ERR_NET => "net",
         SA_STD_ERR_UNSUPPORTED => "unsupported",
         SA_STD_ERR_TRUNCATED => "truncated",
+        SA_STD_ERR_PERMISSION_DENIED => "permission_denied",
         SA_STD_ERR_UNKNOWN => "unknown",
         else => "unknown",
     };
@@ -2704,6 +2719,7 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
     // wasm32-wasi has no fork/exec/pipe2-CLOEXEC; stub.
     if (comptime is_wasm) return error.Unsupported;
     if (argv.len == 0) return error.InvalidArgument;
+    if (!policyAllows(.{ .run = argv[0] })) return error.PolicyDenied;
     if (config.arg0) |arg0| {
         if (std.mem.indexOfScalar(u8, arg0, 0) != null) return error.InvalidArgument;
     }
@@ -7827,6 +7843,7 @@ pub export fn sa_json_buffer_free(buffer: u64) Fallible(i32) {
 }
 
 pub export fn sa_time_instant_ns() u64 {
+    if (!policyAllows(.time)) return 0;
     return monotonicNowNs() catch return 0;
 }
 
@@ -7835,6 +7852,7 @@ pub export fn sa_time_unix_s() i64 {
 }
 
 pub export fn sa_time_unix_ms() i64 {
+    if (!policyAllows(.time)) return 0;
     return std.Io.Clock.real.now(sio.io()).toMilliseconds();
 }
 
@@ -8581,6 +8599,7 @@ pub export fn sa_std_fs_open_read(path_ptr: ?[*]const u8, path_len: u64, out_han
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    if (!policyAllows(.{ .fs = .{ .path = path, .write = false } })) return finish(SA_STD_ERR_PERMISSION_DENIED);
     const file = sio.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return finishErr(err);
     errdefer file.close();
     const handle = registerResource(.{ .file = file }) catch |err| return finishErr(err);
@@ -8592,6 +8611,7 @@ pub export fn sa_std_fs_open_write(path_ptr: ?[*]const u8, path_len: u64, trunca
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    if (!policyAllows(.{ .fs = .{ .path = path, .write = true } })) return finish(SA_STD_ERR_PERMISSION_DENIED);
     const file = sio.cwd().createFile(path, .{ .read = true, .truncate = truncate != 0 }) catch |err| return finishErr(err);
     errdefer file.close();
     const handle = registerResource(.{ .file = file }) catch |err| return finishErr(err);
@@ -13251,6 +13271,7 @@ pub export fn sa_math_pow(base: f64, exp: f64) f64 {
 }
 
 pub export fn sa_math_random() f64 {
+    if (!policyAllows(.random)) return 0;
     const u = cryptoRandomU64();
     return @as(f64, @floatFromInt(u >> 11)) * (1.0 / 9007199254740992.0);
 }
@@ -13288,6 +13309,7 @@ pub export fn sa_fmt_bytes_into(buf: ?[*]const u8, len: u64, out: ?[*]u8, out_ca
 
 pub export fn sa_env_get(key_ptr: ?[*]const u8, key_len: u64) u64 {
     const key = envKeyBytes(key_ptr, key_len) catch return 0;
+    if (!policyAllows(.{ .env = key })) return 0;
     const owned = envGetOwned(key) catch return 0;
     return openOwnedEnvBuffer(owned) catch return 0;
 }
@@ -14133,6 +14155,7 @@ pub export fn sa_std_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port
     handle_ptr.* = 0;
     const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
     const port16 = portFromU32(port) catch |err| return finishErr(err);
+    if (!policyAllows(.{ .net = .{ .host = host, .port = port16 } })) return finish(SA_STD_ERR_PERMISSION_DENIED);
 
     const stream_fd = tcpConnectToHostFd(host, port16) catch |err| return finishErr(err);
     errdefer lxClose(stream_fd);
@@ -15495,4 +15518,30 @@ test "UDP connect by resolved address" {
     try std.testing.expectEqual(@as(u32, 2), sa_net_addr_family(peer_addr));
     try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_udp_connect_addr(client, 0));
     try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_udp_connect_addr(0, target_addr));
+}
+
+test "policy gate intercepts fs open and process spawn at the std surface" {
+    const allocator = std.testing.allocator;
+    const policy = try sa_policy.parsePolicyJson(allocator, "{}");
+    var ctx = sa_policy.PolicyContext.init(allocator, 42, policy);
+    defer ctx.deinit(allocator);
+    sa_policy.installContext(&ctx);
+    defer sa_policy.clearContext();
+
+    const path = "src/runtime/sa_policy.zig";
+    var handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_ERR_PERMISSION_DENIED, sa_std_fs_open_read(path.ptr, path.len, &handle));
+    try std.testing.expectEqual(@as(u64, 0), handle);
+
+    const program = "/bin/true";
+    const argv = [_]SaProcessArgv{.{ .data = program.ptr, .len = program.len }};
+    var process_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_ERR_PERMISSION_DENIED, sa_std_process_run(&argv, argv.len, &process_handle));
+
+    // Without a context the same calls go through (host enforces
+    // "no policy, no start" at its own surface, not in the library).
+    sa_policy.clearContext();
+    try std.testing.expectEqual(SA_STD_OK, sa_std_fs_open_read(path.ptr, path.len, &handle));
+    try std.testing.expect(handle != 0);
+    _ = sa_std_close(handle);
 }

@@ -422,15 +422,88 @@ pub const PolicyContext = struct {
         return false;
     }
 
-    /// Decide with the one-time-token layer first: a matching token
-    /// allows exactly this one call regardless of the base policy.
+    /// Decide with the one-time-token layer: when the base policy
+    /// allows (or audits) the call, the token is left untouched; when
+    /// the base policy would deny it, a matching token allows exactly
+    /// this one call and is consumed.
     pub fn decideWithTokens(self: *PolicyContext, allocator: std.mem.Allocator, resource: Resource, now_ns: i64) Decision {
-        const key = resourceKey(allocator, resource) catch return decide(&self.policy, resource);
+        const base = decide(&self.policy, resource);
+        if (base == .allow or base == .allow_audit) return base;
+        const key = resourceKey(allocator, resource) catch return base;
         defer allocator.free(key);
         if (self.consumeToken(allocator, resource.category(), key, now_ns)) return .allow;
-        return decide(&self.policy, resource);
+        return base;
     }
 };
+
+// ---------------------------------------------------------------------
+// Runtime gate state
+//
+// The host installs at most one active context (the deployment's
+// current policy context) plus an audit sink. With no context
+// installed the gate allows everything: the standard library alone
+// cannot refuse to run, so the "no policy, no start" rule is
+// enforced by the host surface that installs contexts. Context
+// switching is the host's job; the gate reads whichever context is
+// active at the acquisition point.
+
+pub var active_context: ?*PolicyContext = null;
+pub var audit_sink: ?*const fn (line: []const u8) void = null;
+
+pub fn installContext(context: *PolicyContext) void {
+    active_context = context;
+}
+
+pub fn clearContext() void {
+    active_context = null;
+}
+
+pub fn installAuditSink(sink: ?*const fn (line: []const u8) void) void {
+    audit_sink = sink;
+}
+
+fn emitAudit(allocator: std.mem.Allocator, context: *const PolicyContext, resource: Resource, decision_text: []const u8, source: []const u8, now_ns: i64) void {
+    const sink = audit_sink orelse return;
+    const key = resourceKey(allocator, resource) catch return;
+    defer allocator.free(key);
+    const event = AuditEvent{
+        .context_id = context.id,
+        .category = resource.category(),
+        .resource = key,
+        .decision = decision_text,
+        .source = source,
+    };
+    const line = event.formatJsonLine(allocator, now_ns) catch return;
+    defer allocator.free(line);
+    sink(line);
+}
+
+/// The interception entry point used by sa_std acquisition paths.
+/// Emits audit events for denials, audited allows, unhandled asks,
+/// and token consumption; plain policy allows stay silent.
+pub fn gate(allocator: std.mem.Allocator, resource: Resource, now_ns: i64) bool {
+    const context = active_context orelse return true;
+    const base = decide(&context.policy, resource);
+    switch (base) {
+        .allow => return true,
+        .allow_audit => {
+            emitAudit(allocator, context, resource, "allow", "policy-audit", now_ns);
+            return true;
+        },
+        .deny, .deny_ask_unhandled => {
+            const key = resourceKey(allocator, resource) catch null;
+            defer if (key) |owned| allocator.free(owned);
+            if (key) |key_text| {
+                if (context.consumeToken(allocator, resource.category(), key_text, now_ns)) {
+                    emitAudit(allocator, context, resource, "allow", "token", now_ns);
+                    return true;
+                }
+            }
+            emitAudit(allocator, context, resource, "deny", if (base == .deny_ask_unhandled) "ask-unhandled" else "policy", now_ns);
+            return false;
+        },
+    }
+}
 
 // ---------------------------------------------------------------------
 // Audit events
@@ -706,4 +779,53 @@ test "policy: audit event renders as one JSON line with escaped resource" {
     defer allocator.free(line);
     try std.testing.expect(std.mem.indexOf(u8, line, "\"resource\":\"WEIRD\\\"KEY\"") != null);
     try std.testing.expect(std.mem.endsWith(u8, line, "\n"));
+}
+
+var captured_audit: std.array_list.Managed([]u8) = undefined;
+var captured_allocator: std.mem.Allocator = undefined;
+
+fn captureAuditLine(line: []const u8) void {
+    captured_audit.append(captured_allocator.dupe(u8, line) catch return) catch {};
+}
+
+test "policy gate: no context installed allows everything" {
+    clearContext();
+    installAuditSink(null);
+    try std.testing.expect(gate(std.testing.allocator, .{ .env = "ANYTHING" }, 0));
+}
+
+test "policy gate: denial is audited, token allows exactly once, base allow keeps token" {
+    const allocator = std.testing.allocator;
+    captured_audit = std.array_list.Managed([]u8).init(allocator);
+    captured_allocator = allocator;
+    defer {
+        for (captured_audit.items) |line| allocator.free(line);
+        captured_audit.deinit();
+    }
+    installAuditSink(captureAuditLine);
+    defer installAuditSink(null);
+
+    const policy = try parsePolicyJson(allocator, "{\"permissions\":{\"env\":{\"allow\":[\"PUBLIC\"]}}}");
+    var ctx = PolicyContext.init(allocator, 9, policy);
+    defer ctx.deinit(allocator);
+    installContext(&ctx);
+    defer clearContext();
+
+    // Denied by policy, audited once.
+    try std.testing.expect(!gate(allocator, .{ .env = "SECRET" }, 100));
+    try std.testing.expectEqual(@as(usize, 1), captured_audit.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, captured_audit.items[0], "\"decision\":\"deny\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, captured_audit.items[0], "\"resource\":\"SECRET\"") != null);
+
+    // Base-policy allow does not consume the token.
+    try ctx.mintToken(allocator, .env, "PUBLIC", 100, default_token_ttl_ns);
+    try std.testing.expect(gate(allocator, .{ .env = "PUBLIC" }, 200));
+    try std.testing.expectEqual(@as(usize, 1), ctx.tokens.items.len);
+
+    // Token covers one otherwise-denied call, then it is gone.
+    try ctx.mintToken(allocator, .env, "SECRET", 100, default_token_ttl_ns);
+    try std.testing.expect(gate(allocator, .{ .env = "SECRET" }, 300));
+    try std.testing.expect(!gate(allocator, .{ .env = "SECRET" }, 400));
+    try std.testing.expectEqual(@as(usize, 3), captured_audit.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, captured_audit.items[1], "\"source\":\"token\"") != null);
 }
