@@ -1,9 +1,17 @@
-// sa_std QUIC + HTTP/3 surface — capability-gated facade living in the sci runtime.
+// sa_std QUIC + HTTP/3 surface — real protocol machines in the sci runtime.
 //
-// Backend: src/runtime/sa_quic.zig (ngtcp2/nghttp3/OpenSSL dlopen probe).
-// Sessions are NOT yet modeled: endpoint/session create returns -1
-// (SA_QUIC_ERR_UNSUPPORTED) until the native stack is installed. Probes and
-// JSON constants work everywhere, including WASM (always reports unsupported).
+// Backend: src/runtime/sa_quic.zig — libngtcp2 (QUIC transport) + the
+// ngtcp2 GnuTLS crypto backend (TLS 1.3) + libnghttp3 (HTTP/3), all
+// dlopen-bound. Hosts without the stack report supported=0 and the
+// constructors return -1 (SA_STD_ERR_UNSUPPORTED); nothing is faked.
+//
+// Driving model: connections are non-blocking and caller-pumped with
+// sa_std_quic_conn_poll / sa_std_quic_server_poll. A server endpoint
+// owns one UDP socket; accepted connections share it and are driven by
+// sa_std_quic_server_poll (their incoming datagrams are demultiplexed
+// by connection ID). HTTP/3 sessions bind to an existing QUIC
+// connection (client or accepted server connection) and are driven by
+// the same polls.
 //
 // String/JSON outputs are returned as registered u64 buffer handles,
 // following the same convention as sa_std.http2: read bytes/length with
@@ -17,8 +25,32 @@
 @extern sa_std_quic_constants_json(&out_handle: ptr) -> i32
 @extern sa_std_http3_constants_json(&out_handle: ptr) -> i32
 
+// endpoints and connections
 @extern sa_std_quic_endpoint_create(&out_handle: ptr) -> i32
+@extern sa_std_quic_endpoint_destroy(endpoint: u64) -> i32
+@extern sa_std_quic_client_connect(endpoint: u64, host: &ptr, host_len: u64, port: u32, server_name: &ptr, server_name_len: u64, ca_file: &ptr, ca_file_len: u64, alpn: &ptr, alpn_len: u64, &out_conn: ptr) -> i32
+@extern sa_std_quic_server_listen(endpoint: u64, port: u32, cert_file: &ptr, cert_file_len: u64, key_file: &ptr, key_file_len: u64) -> i32
+@extern sa_std_quic_server_poll(endpoint: u64, timeout_ms: u32) -> i32
+@extern sa_std_quic_server_accept(endpoint: u64, &out_conn: ptr) -> i32
+@extern sa_std_quic_conn_poll(conn: u64, timeout_ms: u32) -> i32
+@extern sa_std_quic_conn_handshake_completed(conn: u64, &out_done: ptr) -> i32
+@extern sa_std_quic_conn_close(conn: u64) -> i32
+
+// raw QUIC streams
+@extern sa_std_quic_stream_open(conn: u64, &out_stream_id: ptr) -> i32
+@extern sa_std_quic_stream_write(conn: u64, stream_id: i64, data: &ptr, data_len: u64, fin: u32, &out_written: ptr) -> i32
+@extern sa_std_quic_stream_read(conn: u64, stream_id: i64, out: &ptr, out_cap: u64, &out_read: ptr, &out_fin: ptr) -> i32
+
+// HTTP/3 sessions (bound to a QUIC connection)
 @extern sa_std_http3_session_create(&out_handle: ptr) -> i32
+@extern sa_std_http3_session_bind(session: u64, quic_conn: u64) -> i32
+@extern sa_std_http3_session_destroy(session: u64) -> i32
+@extern sa_std_http3_submit_request(session: u64, method: &ptr, method_len: u64, authority: &ptr, authority_len: u64, path: &ptr, path_len: u64, body: &ptr, body_len: u64, &out_stream_id: ptr) -> i32
+@extern sa_std_http3_server_next_request(session: u64, &out_stream_id: ptr) -> i32
+@extern sa_std_http3_request_field(session: u64, stream_id: i64, name: &ptr, name_len: u64, out: &ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_std_http3_submit_response(session: u64, stream_id: i64, status: u32, body: &ptr, body_len: u64) -> i32
+@extern sa_std_http3_response_status(session: u64, stream_id: i64, &out_status: ptr) -> i32
+@extern sa_std_http3_stream_read(session: u64, stream_id: i64, out: &ptr, out_cap: u64, &out_read: ptr, &out_fin: ptr) -> i32
 
 // buffer handle accessors (sci convention)
 @extern sa_std_quic_buffer_data(buffer: u64) -> &ptr

@@ -32,7 +32,8 @@
 [END_MACRO]
 
 // Connection/session create is capability-gated: returns
-// SA_QUIC_ERR_UNSUPPORTED until ngtcp2/nghttp3/OpenSSL are installed.
+// SA_QUIC_ERR_UNSUPPORTED when the host lacks libngtcp2 +
+// libngtcp2_crypto_gnutls + libgnutls + libnghttp3.
 // Callers must branch on %out_status before using %out_handle.
 [MACRO] QUIC_ENDPOINT_CREATE %out_status, %out_handle
     __quic_ep_handle_%out_status = stack_alloc 8
@@ -58,4 +59,110 @@
 
 [MACRO] QUIC_BUFFER_FREE %out_status, %buffer
     %out_status = call @sa_std_quic_buffer_free(^%buffer)
+[END_MACRO]
+
+// Real connection/session surface (ngtcp2 + GnuTLS crypto + nghttp3
+// in the runtime; constructors return SA_STD_ERR_UNSUPPORTED when the
+// host lacks the stack).
+
+[MACRO] QUIC_ENDPOINT_DESTROY %out_status, %endpoint
+    %out_status = call @sa_std_quic_endpoint_destroy(%endpoint)
+[END_MACRO]
+
+[MACRO] QUIC_CLIENT_CONNECT %out_status, %out_conn, %endpoint, %host, %host_len, %port, %server_name, %server_name_len, %ca_file, %ca_file_len, %alpn, %alpn_len
+    __quic_conn_%out_status = stack_alloc 8
+    %out_status = call @sa_std_quic_client_connect(%endpoint, %host, %host_len, %port, %server_name, %server_name_len, %ca_file, %ca_file_len, %alpn, %alpn_len, &__quic_conn_%out_status)
+    %out_conn = load __quic_conn_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] QUIC_SERVER_LISTEN %out_status, %endpoint, %port, %cert_file, %cert_file_len, %key_file, %key_file_len
+    %out_status = call @sa_std_quic_server_listen(%endpoint, %port, %cert_file, %cert_file_len, %key_file, %key_file_len)
+[END_MACRO]
+
+[MACRO] QUIC_SERVER_POLL %out_status, %endpoint, %timeout_ms
+    %out_status = call @sa_std_quic_server_poll(%endpoint, %timeout_ms)
+[END_MACRO]
+
+[MACRO] QUIC_SERVER_ACCEPT %out_status, %out_conn, %endpoint
+    __quic_acc_%out_status = stack_alloc 8
+    %out_status = call @sa_std_quic_server_accept(%endpoint, &__quic_acc_%out_status)
+    %out_conn = load __quic_acc_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] QUIC_CONN_POLL %out_status, %conn, %timeout_ms
+    %out_status = call @sa_std_quic_conn_poll(%conn, %timeout_ms)
+[END_MACRO]
+
+[MACRO] QUIC_CONN_HANDSHAKE_COMPLETED %out_status, %out_done, %conn
+    __quic_hs_%out_status = stack_alloc 4
+    %out_status = call @sa_std_quic_conn_handshake_completed(%conn, &__quic_hs_%out_status)
+    %out_done = load __quic_hs_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] QUIC_CONN_CLOSE %out_status, %conn
+    %out_status = call @sa_std_quic_conn_close(%conn)
+[END_MACRO]
+
+[MACRO] QUIC_STREAM_OPEN %out_status, %out_stream_id, %conn
+    __quic_sid_%out_status = stack_alloc 8
+    %out_status = call @sa_std_quic_stream_open(%conn, &__quic_sid_%out_status)
+    %out_stream_id = load __quic_sid_%out_status+0 as i64
+[END_MACRO]
+
+[MACRO] QUIC_STREAM_WRITE %out_status, %out_written, %conn, %stream_id, %data, %data_len, %fin
+    __quic_wr_%out_status = stack_alloc 8
+    %out_status = call @sa_std_quic_stream_write(%conn, %stream_id, %data, %data_len, %fin, &__quic_wr_%out_status)
+    %out_written = load __quic_wr_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] QUIC_STREAM_READ %out_status, %out_read, %out_fin, %conn, %stream_id, %out, %out_cap
+    __quic_rd_%out_status = stack_alloc 8
+    __quic_rf_%out_status = stack_alloc 4
+    %out_status = call @sa_std_quic_stream_read(%conn, %stream_id, %out, %out_cap, &__quic_rd_%out_status, &__quic_rf_%out_status)
+    %out_read = load __quic_rd_%out_status+0 as u64
+    %out_fin = load __quic_rf_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] HTTP3_SESSION_BIND %out_status, %session, %quic_conn
+    %out_status = call @sa_std_http3_session_bind(%session, %quic_conn)
+[END_MACRO]
+
+[MACRO] HTTP3_SESSION_DESTROY %out_status, %session
+    %out_status = call @sa_std_http3_session_destroy(%session)
+[END_MACRO]
+
+[MACRO] HTTP3_SUBMIT_REQUEST %out_status, %out_stream_id, %session, %method, %method_len, %authority, %authority_len, %path, %path_len, %body, %body_len
+    __h3_sid_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http3_submit_request(%session, %method, %method_len, %authority, %authority_len, %path, %path_len, %body, %body_len, &__h3_sid_%out_status)
+    %out_stream_id = load __h3_sid_%out_status+0 as i64
+[END_MACRO]
+
+[MACRO] HTTP3_SERVER_NEXT_REQUEST %out_status, %out_stream_id, %session
+    __h3_req_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http3_server_next_request(%session, &__h3_req_%out_status)
+    %out_stream_id = load __h3_req_%out_status+0 as i64
+[END_MACRO]
+
+[MACRO] HTTP3_REQUEST_FIELD %out_status, %out_len, %session, %stream_id, %name, %name_len, %out, %out_cap
+    __h3_fl_%out_status = stack_alloc 8
+    %out_status = call @sa_std_http3_request_field(%session, %stream_id, %name, %name_len, %out, %out_cap, &__h3_fl_%out_status)
+    %out_len = load __h3_fl_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] HTTP3_SUBMIT_RESPONSE %out_status, %session, %stream_id, %status, %body, %body_len
+    %out_status = call @sa_std_http3_submit_response(%session, %stream_id, %status, %body, %body_len)
+[END_MACRO]
+
+[MACRO] HTTP3_RESPONSE_STATUS %out_status, %out_http_status, %session, %stream_id
+    __h3_st_%out_status = stack_alloc 4
+    %out_status = call @sa_std_http3_response_status(%session, %stream_id, &__h3_st_%out_status)
+    %out_http_status = load __h3_st_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] HTTP3_STREAM_READ %out_status, %out_read, %out_fin, %session, %stream_id, %out, %out_cap
+    __h3_rd_%out_status = stack_alloc 8
+    __h3_rf_%out_status = stack_alloc 4
+    %out_status = call @sa_std_http3_stream_read(%session, %stream_id, %out, %out_cap, &__h3_rd_%out_status, &__h3_rf_%out_status)
+    %out_read = load __h3_rd_%out_status+0 as u64
+    %out_fin = load __h3_rf_%out_status+0 as u32
 [END_MACRO]

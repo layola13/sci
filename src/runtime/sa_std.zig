@@ -184,6 +184,8 @@ comptime {
     _ = &@import("sa_http_server.zig").sa_http_server_websocket_write_v2;
     _ = &@import("sa_dtls.zig").sa_std_dtls_supported;
     _ = &@import("sa_quic.zig").sa_std_quic_supported;
+    _ = &@import("sa_quic.zig").sa_std_quic_client_connect;
+    _ = &@import("sa_quic.zig").sa_std_http3_session_bind;
     _ = &@import("sa_thread_local.zig").sa_thread_local_supported;
     if (builtin.os.tag == .linux) {
         _ = &@import("sa_net_uring.zig").sa_netx_init;
