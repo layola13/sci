@@ -126,3 +126,16 @@ SA-ASM 是“零信任”引擎。调用 `sa_http_client_new` 并不是随时随
     "api.example.com": "sha256/XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX="
 }
 ```
+
+## 6. 四后端支持状态（2026-10-24）
+
+内置 net 面（HTTP 客户端/服务端、HTTP/2、QUIC/HTTP3、WebSocket、compress、multipart、SSH）在 SA 的四条输出后端上均可编译链接，语义按后端能力如实分级（不支持即明确报 unsupported，不静默降级）：
+
+| 能力 | native | js | c | wasm32-wasi |
+|---|---|---|---|---|
+| compress（gzip/zlib/deflate；brotli 视 dlopen 可用性） | 完整 | 完整（node:zlib；brotli 完整） | 完整（自包含 inflate/deflate；brotli 不支持） | 完整（纯 Zig flate；brotli 位为 0） |
+| multipart（解析+构建） | 完整 | 完整 | 完整 | 完整 |
+| HTTP 客户端/服务端、HTTP/2、QUIC、WS | 完整 | staged 模型（回环语义） | staged 模型（回环语义） | 可构建链接；WASI preview1 无 socket，网络操作运行时失败 |
+| SSH（客户端+服务端） | 完整（dlopen libssh2/libssh） | 不支持（supported=0） | 不支持（supported=0） | 不支持（supported=0） |
+
+验证：SLA 探针程序（compress/multipart/ssh）在四后端输出一致（ok/ok/none 级别）；wasm 产物用 wasmtime 验证。注意本机 node v20 的 WASI 运行器与 atomics 共享内存不兼容（wasi.start 返回 71），属运行器问题，程序本身正确。wasm std 库构建：，产物在 。
