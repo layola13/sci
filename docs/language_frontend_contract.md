@@ -74,14 +74,14 @@ argv convention `["sa", "<frontend-name>", <subcommand>, ...]`.
 ## Permission confirmation (all plugin kinds)
 
 Confirmation belongs to the host, not the distribution channel. A
-plugin that arrives without a matching  (copied by
+plugin that arrives without a matching `permissions.lock` (copied by
 hand, unpacked from an archive, installed by a package manager) is
 blocked in formal mode with a three-part diagnostic. The remedy is:
 
--  — prints the permission review and prompts
-  on the TTY; on approval it writes the same  a formal
+- `sa plugin confirm <name>` — prints the permission review and prompts
+  on the TTY; on approval it writes the same `permissions.lock` a formal
   install would have produced (current dir and version dir).
--  — the explicit non-interactive form;
+- `sa plugin confirm <name> --yes` — the explicit non-interactive form;
   the review is still printed before the lock is written.
 - Confirmation is bound to the manifest's permission digest: any later
   declaration change invalidates it and confirmation must be repeated.
