@@ -2,6 +2,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const sio = @import("sio");
 
+// Runtime permission policy core (sala 16_policy phase 1): pure decision
+// logic, referenced here so the module and its unit tests join every
+// sa_std build/test graph. Interception wiring lands separately.
+pub const sa_policy = @import("sa_policy.zig");
+
 // wasm32-wasi compat (stage1: archive must compile; sockets/process/dlopen
 // stubbed to UNSUPPORTED): SockAddrT/W/SIG are `void` on wasi, and
 // std.os.linux has no wasm syscalls. Provide minimal layout-compatible
