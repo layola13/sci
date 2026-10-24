@@ -8554,6 +8554,147 @@ pub fn executeWithWritersAndOptions(
     stderr: anytype,
     exec_options: ExecuteOptions,
 ) !u8 {
+    // Language-frontend routing (sala 05_plugins/20_system_redesign):
+    // when a file-consuming verb names a source file whose extension is
+    // owned by an installed kind=language plugin, the frontend compiles
+    // or handles it first and the builtin pipeline continues from there.
+    if (argv.len >= 2) {
+        if (commandFromName(argv[1])) |verb| {
+            if (try routeLanguageFrontend(allocator, verb, argv, stdout, stderr)) |route| {
+                switch (route) {
+                    .handled => |code| return code,
+                    .rewritten => |new_argv| {
+                        defer freeRewrittenArgs(allocator, new_argv);
+                        return try executeWithWritersAndOptionsImpl(allocator, new_argv, stdout, stderr, exec_options);
+                    },
+                }
+            }
+        }
+    }
+    return try executeWithWritersAndOptionsImpl(allocator, argv, stdout, stderr, exec_options);
+}
+
+const LanguageRoute = union(enum) {
+    handled: u8,
+    rewritten: [][]const u8,
+};
+
+fn freeRewrittenArgs(allocator: std.mem.Allocator, args: [][]const u8) void {
+    for (args) |arg| allocator.free(arg);
+    allocator.free(args);
+}
+
+fn routeLanguageFrontend(
+    allocator: std.mem.Allocator,
+    verb: Command,
+    argv: []const []const u8,
+    stdout: anytype,
+    stderr: anytype,
+) !?LanguageRoute {
+    const terminal = switch (verb) {
+        .check, .test_cmd => true,
+        .build, .build_exe, .build_wasm, .build_js, .build_c, .build_obj => false,
+        else => return null,
+    };
+
+    // Find positional source candidates: tokens that are not flags and
+    // not the value of a flag that takes a separate value.
+    var candidate_index: ?usize = null;
+    var candidate_count: usize = 0;
+    var i: usize = 2;
+    while (i < argv.len) : (i += 1) {
+        const arg = argv[i];
+        if (std.mem.eql(u8, arg, "-o") or std.mem.eql(u8, arg, "--out") or
+            std.mem.eql(u8, arg, "--target") or std.mem.eql(u8, arg, "--package"))
+        {
+            i += 1;
+            continue;
+        }
+        if (arg.len == 0 or arg[0] == '-') continue;
+        const ext = std.fs.path.extension(arg);
+        if (ext.len == 0) continue;
+        if (std.mem.eql(u8, ext, ".sa") or std.mem.eql(u8, ext, ".sab")) continue;
+        candidate_count += 1;
+        if (candidate_index == null) candidate_index = i;
+    }
+    if (candidate_index == null) return null;
+    const source_index = candidate_index.?;
+    const source_path = argv[source_index];
+    const ext = std.fs.path.extension(source_path);
+
+    var plugin_auth = try buildPluginRuntimeAuthorization(allocator, argv);
+    defer plugin_auth.deinit(allocator);
+    var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, plugin_auth.input);
+    defer plugin_runtime.deinit();
+    const frontend = plugin_runtime.languageFrontendForExtension(ext) orelse return null;
+    if (candidate_count > 1) {
+        try stderr.print("error[SA-LANGUAGE-FRONTEND]: multiple language source files are not supported in one invocation yet\n", .{});
+        return .{ .handled = 1 };
+    }
+
+    const json_mode = hasJsonFlag(argv);
+    if (terminal) {
+        // Forward the whole command: sa check app.sla -> frontend check.
+        var fwd = std.array_list.Managed([]const u8).init(allocator);
+        defer fwd.deinit();
+        try fwd.append(argv[0]);
+        try fwd.append(frontend);
+        try fwd.appendSlice(argv[1..]);
+        if (try plugin_runtime.dispatchCommand(fwd.items, stdout, stderr, json_mode)) |code| {
+            return .{ .handled = code };
+        }
+        try stderr.print("error[SA-LANGUAGE-FRONTEND]: language frontend {s} does not handle '{s}' for {s} files\n", .{ frontend, commandName(verb), ext });
+        return .{ .handled = 1 };
+    }
+
+    // Build verbs: compile through the frontend, then continue the
+    // builtin pipeline on the generated sibling .sa file.
+    var fwd = std.array_list.Managed([]const u8).init(allocator);
+    defer fwd.deinit();
+    try fwd.append(argv[0]);
+    try fwd.append(frontend);
+    try fwd.append("build");
+    try fwd.append(source_path);
+    const code = (try plugin_runtime.dispatchCommand(fwd.items, stdout, stderr, json_mode)) orelse {
+        try stderr.print("error[SA-LANGUAGE-FRONTEND]: language frontend {s} does not provide a build command\n", .{frontend});
+        return .{ .handled = 1 };
+    };
+    if (code != 0) return .{ .handled = code };
+
+    const stem = source_path[0 .. source_path.len - ext.len];
+    const sa_path = try std.fmt.allocPrint(allocator, "{s}.sa", .{stem});
+    defer allocator.free(sa_path);
+    const generated = blk: {
+        sio.cwd().access(sa_path, .{}) catch break :blk false;
+        break :blk true;
+    };
+    if (!generated) {
+        try stderr.print("error[SA-LANGUAGE-FRONTEND]: language frontend {s} reported success but did not produce {s}\n", .{ frontend, sa_path });
+        return .{ .handled = 1 };
+    }
+
+    var new_argv = std.array_list.Managed([]const u8).init(allocator);
+    errdefer {
+        for (new_argv.items) |arg| allocator.free(arg);
+        new_argv.deinit();
+    }
+    for (argv, 0..) |arg, idx| {
+        if (idx == source_index) {
+            try new_argv.append(try allocator.dupe(u8, sa_path));
+        } else {
+            try new_argv.append(try allocator.dupe(u8, arg));
+        }
+    }
+    return .{ .rewritten = try new_argv.toOwnedSlice() };
+}
+
+fn executeWithWritersAndOptionsImpl(
+    allocator: std.mem.Allocator,
+    argv: []const []const u8,
+    stdout: anytype,
+    stderr: anytype,
+    exec_options: ExecuteOptions,
+) !u8 {
     const normalized_args = try stripJsonFlag(allocator, argv);
     defer allocator.free(normalized_args);
 

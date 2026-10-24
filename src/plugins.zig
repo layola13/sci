@@ -2911,7 +2911,7 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
         return error.InvalidSapManifest;
     } else .command;
     const language_extensions = if (kind == .language)
-        try collectStringArray(allocator, object.get("extensions"))
+        try collectStringArray(allocator, object.get("language_extensions"))
     else
         try allocator.alloc([]u8, 0);
     errdefer {
