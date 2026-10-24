@@ -1828,7 +1828,7 @@ pub const Runtime = struct {
             error.FileNotFound => {
                 return try std.fmt.allocPrint(
                     self.allocator,
-                    "privileged plugin {s} is blocked in formal runtime mode [SA-PLUGIN-PERMISSIONS-LOCK-MISSING]: permissions.lock missing and runtime sandbox is not enforced\n  dev remedy (trusted development only): SA_PLUGIN_DEV=1 sa plugin install --dev <plugin-source-dir>, then verify with `sa plugin list`\n  formal remedy: reinstall formally with `sa plugin install <plugin-source-dir>` and confirm the declared permissions when prompted (this generates permissions.lock); non-interactive environments must complete one interactive formal install first and never hand-write permissions.lock",
+                    "privileged plugin {s} is blocked in formal runtime mode [SA-PLUGIN-PERMISSIONS-LOCK-MISSING]: permissions.lock missing and runtime sandbox is not enforced\n  dev remedy (trusted development only): SA_PLUGIN_DEV=1 sa plugin install --dev <plugin-source-dir>, then verify with `sa plugin list`\n  formal remedy: run `sa plugin confirm <plugin-name>` to review and confirm the installed plugin in place (this generates permissions.lock; --yes is the explicit non-interactive form), or reinstall formally with `sa plugin install <plugin-source-dir>` and confirm when prompted; never hand-write permissions.lock",
                     .{manifest.name},
                 );
             },
@@ -2054,6 +2054,60 @@ const PluginDependency = struct {
         self.* = undefined;
     }
 };
+
+/// First-load confirmation (sala 05_plugins/20_system_redesign): a plugin
+/// may arrive through any channel (manual copy, npm, git) without an
+/// install-time confirmation. `sa plugin confirm <name>` reviews the
+/// installed manifest in place and, on approval, writes the same
+/// permissions.lock a formal install would have produced. The runtime
+/// acceptance rule stays permissionsLockMatches: any later manifest
+/// change (permission digest change) invalidates the confirmation and
+/// it must be repeated. Interactive use prompts on the TTY; --yes is the
+/// explicit non-interactive confirmation (the review is still printed).
+pub fn confirmInstalledPlugin(allocator: std.mem.Allocator, name: []const u8, stdout: anytype, assume_yes: bool) !u8 {
+    const home = try pluginsHome(allocator);
+    defer allocator.free(home);
+    const installed_dir = try std.fs.path.join(allocator, &.{ home, "installed", name, "current" });
+    defer allocator.free(installed_dir);
+    var manifest = parseSapManifest(allocator, installed_dir) catch {
+        try stdout.print("plugin {s} is not installed\n", .{name});
+        return 1;
+    };
+    defer manifest.deinit(allocator);
+
+    if (!manifest.requires_sandbox) {
+        try stdout.print("plugin {s} declares no privileged permissions; nothing to confirm\n", .{name});
+        return 0;
+    }
+    if (try permissionsLockMatches(allocator, manifest)) {
+        try stdout.print("plugin {s}: permissions already confirmed for the current manifest\n", .{name});
+        return 0;
+    }
+
+    const confirmed = if (assume_yes) blk: {
+        const review_text = try renderPermissionsLock(allocator, manifest, false, false);
+        defer allocator.free(review_text);
+        try stdout.print("SA PLUGIN PERMISSION REVIEW\n{s}\nconfirming plugin {s} via explicit --yes\n", .{ review_text, name });
+        break :blk true;
+    } else try confirmPrivilegedPluginInstall(stdout, manifest);
+    if (!confirmed) {
+        try stdout.print("plugin {s} was not confirmed; no permissions.lock written\n", .{name});
+        return 1;
+    }
+
+    const permissions_lock_text = try renderPermissionsLock(allocator, manifest, true, false);
+    defer allocator.free(permissions_lock_text);
+    const permissions_lock_path = try std.fs.path.join(allocator, &.{ installed_dir, "permissions.lock" });
+    defer allocator.free(permissions_lock_path);
+    try writeFileAbsolute(permissions_lock_path, permissions_lock_text);
+    const version_dir = try std.fs.path.join(allocator, &.{ home, "installed", manifest.name, manifest.version });
+    defer allocator.free(version_dir);
+    const version_permissions_lock_path = try std.fs.path.join(allocator, &.{ version_dir, "permissions.lock" });
+    defer allocator.free(version_permissions_lock_path);
+    writeFileAbsolute(version_permissions_lock_path, permissions_lock_text) catch {};
+    try stdout.print("plugin {s}: permissions confirmed; permissions.lock written\n", .{name});
+    return 0;
+}
 
 pub fn installFromPath(allocator: std.mem.Allocator, path: []const u8, stdout: anytype, options: InstallOptions) !u8 {
     return try installFromPathInternal(allocator, path, stdout, options, 0, &.{});

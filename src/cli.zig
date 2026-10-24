@@ -7017,7 +7017,23 @@ fn executePluginCommand(allocator: std.mem.Allocator, args: []const []const u8, 
         if (args.len > 1) return error.UnexpectedArgument;
         return try plugins.listInstalled(allocator, stdout);
     }
-    try stderr.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json> | list\n");
+    if (std.mem.eql(u8, args[0], "confirm")) {
+        var target: ?[]const u8 = null;
+        var assume_yes = false;
+        for (args[1..]) |arg| {
+            if (std.mem.eql(u8, arg, "--yes")) {
+                assume_yes = true;
+                continue;
+            }
+            if (target == null) {
+                target = arg;
+                continue;
+            }
+            return error.UnexpectedArgument;
+        }
+        return try plugins.confirmInstalledPlugin(allocator, target orelse return error.MissingPluginName, stdout, assume_yes);
+    }
+    try stderr.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json> | list | confirm <name> [--yes]\n");
     return 1;
 }
 
