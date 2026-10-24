@@ -440,6 +440,22 @@ const ManifestHelpEntry = struct {
     }
 };
 
+/// A loaded plugin whose manifest declares kind=language, together with
+/// the file extensions it owns (sala 05_plugins/20_system_redesign). The
+/// host resolves source files to frontends through this registry instead
+/// of a plugin command namespace.
+const LanguageFrontend = struct {
+    plugin_name: []u8,
+    extensions: [][]u8,
+
+    fn deinit(self: *LanguageFrontend, allocator: std.mem.Allocator) void {
+        allocator.free(self.plugin_name);
+        for (self.extensions) |ext| allocator.free(ext);
+        allocator.free(self.extensions);
+        self.* = undefined;
+    }
+};
+
 const FsPermissionOp = enum {
     read,
     write,
@@ -1223,6 +1239,7 @@ pub const Runtime = struct {
     allocator: std.mem.Allocator,
     plugins: std.array_list.Managed(LoadedPlugin),
     manifest_help: std.array_list.Managed(ManifestHelpEntry),
+    language_frontends: std.array_list.Managed(LanguageFrontend),
     diagnostics: std.array_list.Managed(LoadDiagnostic),
     host_authorization: RuntimeHostAuthorization,
 
@@ -1231,6 +1248,7 @@ pub const Runtime = struct {
             .allocator = allocator,
             .plugins = std.array_list.Managed(LoadedPlugin).init(allocator),
             .manifest_help = std.array_list.Managed(ManifestHelpEntry).init(allocator),
+            .language_frontends = std.array_list.Managed(LanguageFrontend).init(allocator),
             .diagnostics = std.array_list.Managed(LoadDiagnostic).init(allocator),
             .host_authorization = .{},
         };
@@ -1280,6 +1298,8 @@ pub const Runtime = struct {
         self.plugins.deinit();
         for (self.manifest_help.items) |*entry| entry.deinit(self.allocator);
         self.manifest_help.deinit();
+        for (self.language_frontends.items) |*frontend| frontend.deinit(self.allocator);
+        self.language_frontends.deinit();
         for (self.diagnostics.items) |*diagnostic| diagnostic.deinit(self.allocator);
         self.diagnostics.deinit();
         self.host_authorization.deinit(self.allocator);
@@ -1700,6 +1720,60 @@ pub const Runtime = struct {
             .permission_policy = permission_policy,
         });
         keep_lib = true;
+        try self.noteLanguageFrontend(owned_path);
+    }
+
+    /// Resolve a file extension (including the dot, e.g. ".sla") to the
+    /// language frontend plugin that owns it, or null when no loaded
+    /// language plugin claims it.
+    pub fn languageFrontendForExtension(self: *const Runtime, ext: []const u8) ?[]const u8 {
+        for (self.language_frontends.items) |*frontend| {
+            for (frontend.extensions) |owned| {
+                if (std.mem.eql(u8, owned, ext)) return frontend.plugin_name;
+            }
+        }
+        return null;
+    }
+
+    fn registerLanguageFrontend(self: *Runtime, plugin_name: []const u8, extensions: []const []const u8) !void {
+        var owned = std.array_list.Managed([]u8).init(self.allocator);
+        defer owned.deinit();
+        errdefer {
+            for (owned.items) |ext| self.allocator.free(ext);
+        }
+        for (extensions) |ext| {
+            if (self.languageFrontendForExtension(ext)) |existing| {
+                if (!std.mem.eql(u8, existing, plugin_name)) {
+                    const reason = try std.fmt.allocPrint(
+                        self.allocator,
+                        "language extension {s} is claimed by both {s} and {s}; keeping {s}",
+                        .{ ext, existing, plugin_name, existing },
+                    );
+                    defer self.allocator.free(reason);
+                    try self.addDiagnostic(plugin_name, reason);
+                    continue;
+                }
+                continue;
+            }
+            try owned.append(try self.allocator.dupe(u8, ext));
+        }
+        if (owned.items.len == 0) return;
+        const name_copy = try self.allocator.dupe(u8, plugin_name);
+        errdefer self.allocator.free(name_copy);
+        const exts = try owned.toOwnedSlice();
+        try self.language_frontends.append(.{
+            .plugin_name = name_copy,
+            .extensions = exts,
+        });
+    }
+
+    fn noteLanguageFrontend(self: *Runtime, lib_path: []const u8) !void {
+        const dir_path = std.fs.path.dirname(lib_path) orelse return;
+        var manifest = parseSapManifest(self.allocator, dir_path) catch return;
+        defer manifest.deinit(self.allocator);
+        if (manifest.kind != .language) return;
+        if (manifest.language_extensions.len == 0) return;
+        try self.registerLanguageFrontend(manifest.name, manifest.language_extensions);
     }
 
     fn runtimePolicyDenialForLibrary(self: *Runtime, lib_path: []const u8) !?[]u8 {
@@ -4229,4 +4303,17 @@ fn streamWriteAll(comptime Writer: type) StreamWriteAllFn {
             return @intFromEnum(AbiStatus.ok);
         }
     }.write;
+}
+
+test "language frontend registry resolves extensions and reports conflicts" {
+    const allocator = std.testing.allocator;
+    var runtime = Runtime.init(allocator);
+    defer runtime.deinit();
+    try runtime.registerLanguageFrontend("sla", &.{".sla"});
+    try std.testing.expectEqualStrings("sla", runtime.languageFrontendForExtension(".sla").?);
+    try std.testing.expect(runtime.languageFrontendForExtension(".xyz") == null);
+    try runtime.registerLanguageFrontend("other", &.{ ".sla", ".other" });
+    try std.testing.expectEqualStrings("sla", runtime.languageFrontendForExtension(".sla").?);
+    try std.testing.expectEqualStrings("other", runtime.languageFrontendForExtension(".other").?);
+    try std.testing.expect(runtime.diagnostics.items.len == 1);
 }
