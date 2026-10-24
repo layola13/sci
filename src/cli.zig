@@ -8648,22 +8648,29 @@ fn routeLanguageFrontend(
     }
 
     // Build verbs: compile through the frontend, then continue the
-    // builtin pipeline on the generated sibling .sa file.
+    // builtin pipeline on the generated .sa file. Compile-service
+    // contract v1 (docs/language_frontend_contract.md): the host picks
+    // the output path and passes it explicitly with --out; the frontend
+    // must write the SA text there and report failure with a nonzero
+    // exit code. v1 output placement is the sibling <name>.sa; the host
+    // cache service will move it under the cache directory later.
+    const stem = source_path[0 .. source_path.len - ext.len];
+    const sa_path = try std.fmt.allocPrint(allocator, "{s}.sa", .{stem});
+    defer allocator.free(sa_path);
     var fwd = std.array_list.Managed([]const u8).init(allocator);
     defer fwd.deinit();
     try fwd.append(argv[0]);
     try fwd.append(frontend);
     try fwd.append("build");
     try fwd.append(source_path);
+    try fwd.append("--out");
+    try fwd.append(sa_path);
     const code = (try plugin_runtime.dispatchCommand(fwd.items, stdout, stderr, json_mode)) orelse {
         try stderr.print("error[SA-LANGUAGE-FRONTEND]: language frontend {s} does not provide a build command\n", .{frontend});
         return .{ .handled = 1 };
     };
     if (code != 0) return .{ .handled = code };
 
-    const stem = source_path[0 .. source_path.len - ext.len];
-    const sa_path = try std.fmt.allocPrint(allocator, "{s}.sa", .{stem});
-    defer allocator.free(sa_path);
     const generated = blk: {
         sio.cwd().access(sa_path, .{}) catch break :blk false;
         break :blk true;
