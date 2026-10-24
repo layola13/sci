@@ -1754,7 +1754,7 @@ pub const Runtime = struct {
             error.FileNotFound => {
                 return try std.fmt.allocPrint(
                     self.allocator,
-                    "privileged plugin {s} is blocked in formal runtime mode: permissions.lock missing and runtime sandbox is not enforced",
+                    "privileged plugin {s} is blocked in formal runtime mode [SA-PLUGIN-PERMISSIONS-LOCK-MISSING]: permissions.lock missing and runtime sandbox is not enforced\n  dev remedy (trusted development only): SA_PLUGIN_DEV=1 sa plugin install --dev <plugin-source-dir>, then verify with `sa plugin list`\n  formal remedy: reinstall formally with `sa plugin install <plugin-source-dir>` and confirm the declared permissions when prompted (this generates permissions.lock); non-interactive environments must complete one interactive formal install first and never hand-write permissions.lock",
                     .{manifest.name},
                 );
             },
@@ -1765,14 +1765,14 @@ pub const Runtime = struct {
         if (lockHasKeyValue(lock_text, "dev_install", "true")) {
             return try std.fmt.allocPrint(
                 self.allocator,
-                "privileged plugin {s} is blocked in formal runtime mode: plugin was installed in development mode; use SA_PLUGIN_DEV=1 only for trusted development",
+                "privileged plugin {s} is blocked in formal runtime mode [SA-PLUGIN-DEV-INSTALL-IN-FORMAL-MODE]: plugin was installed in development mode (permissions.lock records dev_install=true)\n  dev remedy (trusted development only): run with SA_PLUGIN_DEV=1, or reinstall with SA_PLUGIN_DEV=1 sa plugin install --dev <plugin-source-dir>\n  formal remedy: reinstall formally with `sa plugin install <plugin-source-dir>` and confirm the declared permissions when prompted",
                 .{manifest.name},
             );
         }
         if (lockHasKeyValue(lock_text, "sandbox_enforced", "true")) return null;
         return try std.fmt.allocPrint(
             self.allocator,
-            "privileged plugin {s} is blocked in formal runtime mode: runtime sandbox/broker enforcement is not active; use SA_PLUGIN_DEV=1 only for trusted development",
+            "privileged plugin {s} is blocked in formal runtime mode [SA-PLUGIN-SANDBOX-NOT-ENFORCED]: runtime sandbox/broker enforcement is not active\n  dev remedy (trusted development only): run with SA_PLUGIN_DEV=1\n  formal remedy: run on a host where the plugin sandbox/broker is enforced so the install records sandbox_enforced=true in permissions.lock; on a host that cannot enforce it, this plugin cannot run in formal mode",
             .{manifest.name},
         );
     }
