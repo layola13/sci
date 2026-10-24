@@ -1735,7 +1735,7 @@ pub const Runtime = struct {
         return null;
     }
 
-    fn registerLanguageFrontend(self: *Runtime, plugin_name: []const u8, extensions: []const []const u8) !void {
+    pub fn registerLanguageFrontend(self: *Runtime, plugin_name: []const u8, extensions: []const []const u8) !void {
         var owned = std.array_list.Managed([]u8).init(self.allocator);
         defer owned.deinit();
         errdefer {
@@ -4305,15 +4305,3 @@ fn streamWriteAll(comptime Writer: type) StreamWriteAllFn {
     }.write;
 }
 
-test "language frontend registry resolves extensions and reports conflicts" {
-    const allocator = std.testing.allocator;
-    var runtime = Runtime.init(allocator);
-    defer runtime.deinit();
-    try runtime.registerLanguageFrontend("sla", &.{".sla"});
-    try std.testing.expectEqualStrings("sla", runtime.languageFrontendForExtension(".sla").?);
-    try std.testing.expect(runtime.languageFrontendForExtension(".xyz") == null);
-    try runtime.registerLanguageFrontend("other", &.{ ".sla", ".other" });
-    try std.testing.expectEqualStrings("sla", runtime.languageFrontendForExtension(".sla").?);
-    try std.testing.expectEqualStrings("other", runtime.languageFrontendForExtension(".other").?);
-    try std.testing.expect(runtime.diagnostics.items.len == 1);
-}

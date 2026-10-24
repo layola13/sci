@@ -2536,3 +2536,16 @@ test "cli allow flags constrain broker env and fs access" {
     try std.testing.expectEqualStrings("run-ok\n", stdout_buffer.items);
     try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
 }
+
+test "language frontend registry resolves extensions and reports conflicts" {
+    const allocator = std.testing.allocator;
+    var runtime = saasm.plugins.Runtime.init(allocator);
+    defer runtime.deinit();
+    try runtime.registerLanguageFrontend("sla", &.{".sla"});
+    try std.testing.expectEqualStrings("sla", runtime.languageFrontendForExtension(".sla").?);
+    try std.testing.expect(runtime.languageFrontendForExtension(".xyz") == null);
+    try runtime.registerLanguageFrontend("other", &.{ ".sla", ".other" });
+    try std.testing.expectEqualStrings("sla", runtime.languageFrontendForExtension(".sla").?);
+    try std.testing.expectEqualStrings("other", runtime.languageFrontendForExtension(".other").?);
+    try std.testing.expect(runtime.diagnostics.items.len == 1);
+}
