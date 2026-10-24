@@ -1,11 +1,13 @@
-# SA-ASM HTTP Client 插件：架构与开发指南
+# SA-ASM HTTP Client（sa_std 内置）：架构与开发指南
 
-> 状态说明：本文描述 HTTP Client 插件的目标架构和 SA-facing ABI 方向。当前独立工程位于 `/home/vscode/projects/sa_plugins/sa_plugin_http_client`，真实实现以该工程的 `src/plugin.zig` / `src/http_saasm_api.zig` / `build.zig` 为准。插件文档中的 grant/syscall 阻断属于宿主权限系统目标设计；当前必须用 `.sai`/symbol smoke 和 native smoke 验证实际可用接口。
+> 状态说明（2026-10-24 更新）：HTTP Client 内核已按"全部基础核心一律内置"原则迁入 sa_std，实现位于 sci `src/runtime/sa_http_client.zig`（随 `libsa_std.a` 发布），声明位于 sci `sa_std/http_client.sai`。**不安装任何插件即可使用全部客户端能力**（同步/异步 v2/WebSocket 客户端/SSE）。原独立工程 `sa_plugin_http_client` 只保留框架层封装，不再承载核心实现。
+>
+> 架构原则：插件只是封装接口使用习惯（API 熟悉度与人体工学），**不代表可以把内涵/能力下放到插件**。所有内核——客户端与服务端两侧，包括 HTTP/1.1、HTTP/2、WebSocket、TCP/UDP、QUIC/HTTP3、TLS 指纹塑形、SSH、multipart、gzip/deflate/brotli——一律内置 sa_std；插件永远不是能力门槛。本文以下内容描述该内置实现的 SA-facing ABI 与行为，接口与原插件保持一致（符号名不变）。
 
 ## 1. 架构目标与定位
-`sa_http_client` 插件是 SA-ASM 的官方原生出站网络组件。它提供极速的 HTTP/HTTPS 请求能力，特别针对 **大模型 (如 OpenAI) API 调用**、**爬虫抓取** 和 **SSE 流式响应** 进行了深度优化。
+`sa_http_client` 是 sa_std 内置的官方原生出站网络组件。它提供 HTTP/HTTPS 请求能力，特别针对 **大模型 (如 OpenAI) API 调用**、**爬虫抓取** 和 **SSE 流式响应** 进行了深度优化。
 
-由于 SA 采用“零信任沙箱”架构，HTTP 客户端被设计为可热插拔的独立 Linux 动态库 (`.so`)。出站请求的 grant 审计与 syscall 阻断是宿主侧必须补齐的安全目标，不能仅靠插件自身保证。
+它曾以可热插拔的独立 Linux 动态库 (`.so`) 形式作为插件发布；2026-10-24 起内核迁入 sa_std（见文首状态说明），插件仓只保留框架层封装。出站请求的 grant 审计与 syscall 阻断是宿主侧必须补齐的安全目标，与该组件以内置还是插件形式存在无关。
 
 ## 2. 核心架构设计
 

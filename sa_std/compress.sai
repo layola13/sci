@@ -1,0 +1,12 @@
+// sa_std compression primitives (src/runtime/sa_compress.zig).
+// Formats: 1 = gzip, 2 = zlib (HTTP deflate), 3 = raw deflate, 4 = brotli.
+// Outputs are u64 buffer handles: read with buffer_data/buffer_len,
+// release with buffer_free.
+
+@extern sa_std_compress_supported(&out_flags: ptr) -> i32
+@extern sa_std_compress_encode(format: u32, data: &ptr, data_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_compress_decode(format: u32, data: &ptr, data_len: u64, &out_handle: ptr) -> i32
+
+@extern sa_std_compress_buffer_data(buffer: u64) -> &ptr
+@extern sa_std_compress_buffer_len(buffer: u64) -> u64
+@extern sa_std_compress_buffer_free(^buffer: u64) -> i32

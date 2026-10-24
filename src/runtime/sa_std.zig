@@ -184,6 +184,14 @@ comptime {
     _ = &@import("sa_http_server.zig").sa_http_server_websocket_write_v2;
     _ = &@import("sa_dtls.zig").sa_std_dtls_supported;
     _ = &@import("sa_quic.zig").sa_std_quic_supported;
+    _ = &@import("sa_http_client.zig").sa_http_client_new;
+    _ = &@import("sa_compress.zig").sa_std_compress_encode;
+    _ = &@import("sa_multipart.zig").sa_std_multipart_parse;
+    _ = &@import("sa_multipart.zig").sa_std_multipart_builder_new;
+    _ = &@import("sa_ssh.zig").sa_std_ssh_client_connect;
+    _ = &@import("sa_ssh.zig").sa_std_ssh_server_listen;
+    _ = &@import("sa_http_client.zig").sa_http_client_new_v2;
+    _ = &@import("sa_http_client.zig").sa_http_client_sse_post;
     _ = &@import("sa_quic.zig").sa_std_quic_client_connect;
     _ = &@import("sa_quic.zig").sa_std_http3_session_bind;
     _ = &@import("sa_thread_local.zig").sa_thread_local_supported;
@@ -5925,11 +5933,11 @@ pub fn fail(comptime T: type, status: i32) Fallible(T) {
     return .{ .status = status, .value = std.mem.zeroes(T) };
 }
 
-// NOTE: sa_http_client_resp_body_slice must NOT be stubbed here. A previous
-// stub returned OK with null/0 and shadowed the real http-client plugin
-// implementation at link time (executable's T beats the .so's U), silently
-// breaking response body reads. The symbol must stay undefined so it
-// resolves to the plugin at runtime.
+// NOTE: sa_http_client_* used to be provided by the http-client plugin
+// and deliberately left undefined here (a stub once shadowed it). Since
+// 2026-10-24 the real implementation is built into sa_std
+// (src/runtime/sa_http_client.zig, migrated from the plugin under the
+// all-cores-built-in doctrine); the plugin keeps only framework wraps.
 
 pub export fn sa_std_version() u32 {
     return SA_STD_ABI_VERSION;

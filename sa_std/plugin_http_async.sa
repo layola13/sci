@@ -1,5 +1,5 @@
 // HTTP client v2 -> PollResult adapter.
-// Import the installed `sa_http_client.sai` before using these macros.
+// Import sa_std's `http_client.sai` before using these macros.
 @import "plugin_async.sa"
 
 [MACRO] SA_HTTP_ASYNC_POLL_V2 %out_poll, %op, %timeout_ms
