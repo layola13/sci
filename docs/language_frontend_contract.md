@@ -70,3 +70,20 @@ argv convention `["sa", "<frontend-name>", <subcommand>, ...]`.
   speculative generalization.
 - `sa <frontend> *` remains available during the transition; the
   standalone frontend binary remains a thin alias.
+
+## Permission confirmation (all plugin kinds)
+
+Confirmation belongs to the host, not the distribution channel. A
+plugin that arrives without a matching  (copied by
+hand, unpacked from an archive, installed by a package manager) is
+blocked in formal mode with a three-part diagnostic. The remedy is:
+
+-  — prints the permission review and prompts
+  on the TTY; on approval it writes the same  a formal
+  install would have produced (current dir and version dir).
+-  — the explicit non-interactive form;
+  the review is still printed before the lock is written.
+- Confirmation is bound to the manifest's permission digest: any later
+  declaration change invalidates it and confirmation must be repeated.
+  A plugin that declares no privileged permissions needs no
+  confirmation.
