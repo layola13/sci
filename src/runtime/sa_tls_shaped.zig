@@ -92,6 +92,14 @@ var ssl_api: ?SslApi = null;
 var ssl_api_mutex = std.Io.Mutex.init;
 
 fn loadSslApi() ?*SslApi {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return null;
+    } else {
+        return loadSslApiNative();
+    }
+}
+
+fn loadSslApiNative() ?*SslApi {
     if (comptime builtin.cpu.arch.isWasm()) return null;
     ssl_api_mutex.lockUncancelable(sio.io());
     defer ssl_api_mutex.unlock(sio.io());

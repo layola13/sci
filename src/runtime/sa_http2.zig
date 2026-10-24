@@ -178,6 +178,14 @@ var nghttp2_api: ?Nghttp2Api = null;
 var nghttp2_api_mutex = std.Io.Mutex.init;
 
 fn loadNghttp2Api() ?*Nghttp2Api {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return null;
+    } else {
+        return loadNghttp2ApiNative();
+    }
+}
+
+fn loadNghttp2ApiNative() ?*Nghttp2Api {
     if (comptime builtin.cpu.arch.isWasm()) return null;
     nghttp2_api_mutex.lockUncancelable(sio.io());
     defer nghttp2_api_mutex.unlock(sio.io());
@@ -601,6 +609,19 @@ pub export fn sa_std_http2_client_request_with_settings(url_ptr: ?[*]const u8, u
     return http2ClientRequestImpl(url_ptr, url_len, method_ptr, method_len, body_ptr, body_len, sj, out_handle);
 }
 
+fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        var iov = [_]std.os.wasi.iovec_t{.{ .base = buf.ptr, .len = buf.len }};
+        var n: usize = 0;
+        const err = std.os.wasi.fd_read(fd, &iov, iov.len, &n);
+        if (err != .SUCCESS) return error.Io;
+        return n;
+    } else {
+        return std.posix.read(fd, buf);
+    }
+}
+
+
 fn http2ClientRequestImpl(url_ptr: ?[*]const u8, url_len: u64, method_ptr: ?[*]const u8, method_len: u64, body_ptr: ?[*]const u8, body_len: u64, settings_json: ?[]const u8, out_handle: ?*u64) i32 {
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
@@ -683,7 +704,7 @@ fn http2ClientRequestImpl(url_ptr: ?[*]const u8, url_len: u64, method_ptr: ?[*]c
     var saw_response = false;
     var idle_reads: u8 = 0;
     while (api.session_want_read(session) != 0 and idle_reads < 4) {
-        const n = std.posix.read(stream.socket.handle, &read_buf) catch return SA_STD_ERR_INVALID_ARGUMENT;
+        const n = posixRead(stream.socket.handle, &read_buf) catch return SA_STD_ERR_INVALID_ARGUMENT;
         if (n == 0) break;
         idle_reads = 0;
         const consumed = api.session_mem_recv(session, &read_buf, n);
@@ -1344,7 +1365,7 @@ test "client_request_with_settings puts custom SETTINGS in the client preface" {
         var fds = [_]std.posix.pollfd{.{ .fd = stream.socket.handle, .events = std.posix.POLL.IN, .revents = 0 }};
         const ready = try std.posix.poll(&fds, 100);
         if (ready == 0) continue;
-        const n = try std.posix.read(stream.socket.handle, buf[have..]);
+        const n = try posixRead(stream.socket.handle, buf[have..]);
         if (n == 0) break;
         have += n;
     }

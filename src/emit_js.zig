@@ -2764,6 +2764,98 @@ fn isAllocatorShim(name: []const u8) bool {
 /// opposed to a trap stub). A same-module `@export` never shadows these.
 fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_print_bytes")) return true;
+    if (std.mem.eql(u8, name, "sa_std_compress_supported")) return true;
+    if (std.mem.eql(u8, name, "sa_std_compress_encode")) return true;
+    if (std.mem.eql(u8, name, "sa_std_compress_decode")) return true;
+    if (std.mem.eql(u8, name, "sa_std_compress_buffer_data")) return true;
+    if (std.mem.eql(u8, name, "sa_std_compress_buffer_len")) return true;
+    if (std.mem.eql(u8, name, "sa_std_compress_buffer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_parse")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_count")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_part_name")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_part_filename")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_part_content_type")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_part_header")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_part_body")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_builder_new")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_builder_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_builder_add_field")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_builder_add_file")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_builder_boundary")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_builder_content_type")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_builder_finish")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_buffer_data")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_buffer_len")) return true;
+    if (std.mem.eql(u8, name, "sa_std_multipart_buffer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_supported")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_buffer_data")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_buffer_len")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_buffer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_client_connect")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_hostkey_fingerprint")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_auth_password")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_auth_keyfile")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_exec")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_sftp_read")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_sftp_write")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_sftp_stat")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_session_close")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_server_listen")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_server_accept")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_server_auth_next")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_server_auth_accept")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_server_auth_deny")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_server_channel_accept")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_server_channel_exec")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_channel_write")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_channel_read")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_channel_send_exit")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_channel_close")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_server_session_close")) return true;
+    if (std.mem.eql(u8, name, "sa_std_ssh_server_bind_close")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_new_joined")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_add_openai_auth")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_resp_get_header")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_resp_body_slice")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_resp_body_ptr")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_resp_body_len")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_send_async")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_async_poll")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_async_take_response")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_async_free")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_websocket_connect")) return true;
+    if (std.mem.eql(u8, name, "sa_http_websocket_read")) return true;
+    if (std.mem.eql(u8, name, "sa_http_websocket_write")) return true;
+    if (std.mem.eql(u8, name, "sa_http_websocket_free")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_sse_post")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_sse_read")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_sse_poll")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_sse_status")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_sse_free")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_sse_turn")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_sse_turn_free")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_new_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_new_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_add_header_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_set_body_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_set_timeout_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_set_max_response_bytes_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_send_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_send_async_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_async_poll_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_async_take_response_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_async_cancel_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_async_free_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_websocket_connect_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_websocket_connect_unix_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_websocket_connect_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_client_req_websocket_connect_unix_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_websocket_poll_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_websocket_read_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_websocket_write_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_websocket_close_v2")) return true;
+    if (std.mem.eql(u8, name, "sa_http_websocket_free_v2")) return true;
     if (std.mem.eql(u8, name, "sa_mfill")) return true;
     if (std.mem.eql(u8, name, "sa_mcopy")) return true;
     if (std.mem.eql(u8, name, "sa_msum_u8")) return true;
@@ -5324,6 +5416,1422 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             try writer.writeAll("function sqlite3_finalize(stmt) { return 0; }\n");
             return;
         }
+        if (std.mem.eql(u8, fsig.name, "sa_std_compress_supported")) {
+            try writer.writeAll(
+                \\function sa_std_compress_supported(out_flags) {
+                \\  let flags = 0;
+                \\  const z = __sa_node_builtin("node:zlib");
+                \\  if (z) { flags = 1; if (z.brotliCompressSync && z.brotliDecompressSync) flags |= 2; }
+                \\  __sa_store_i64(out_flags, BigInt(flags));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_compress_encode")) {
+            try writer.writeAll(
+                \\function sa_std_compress_encode(format, data, data_len, out_handle) {
+                \\  const z = __sa_node_builtin("node:zlib");
+                \\  if (!z) return 8;
+                \\  const f = __sa_num(format);
+                \\  const a = __sa_addr(data), n = __sa_num(data_len);
+                \\  const input = __sa_u8.slice(a, a + n);
+                \\  let out = null;
+                \\  try {
+                \\    if (f === 1) out = z.gzipSync(input);
+                \\    else if (f === 2) out = z.deflateSync(input);
+                \\    else if (f === 3) out = z.deflateRawSync(input);
+                \\    else if (f === 4) { if (!z.brotliCompressSync) return 8; out = z.brotliCompressSync(input); }
+                \\    else return 1;
+                \\  } catch (e) { return 6; }
+                \\  globalThis.__sa_cbuf = (globalThis.__sa_cbuf || { next: 1, map: {} });
+                \\  const id = globalThis.__sa_cbuf.next++;
+                \\  globalThis.__sa_cbuf.map[id] = { bytes: new Uint8Array(out), addr: 0 };
+                \\  __sa_store_i64(out_handle, BigInt(id));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_compress_decode")) {
+            try writer.writeAll(
+                \\function sa_std_compress_decode(format, data, data_len, out_handle) {
+                \\  const z = __sa_node_builtin("node:zlib");
+                \\  if (!z) return 8;
+                \\  const f = __sa_num(format);
+                \\  const a = __sa_addr(data), n = __sa_num(data_len);
+                \\  const input = __sa_u8.slice(a, a + n);
+                \\  let out = null;
+                \\  try {
+                \\    if (f === 1) out = z.gunzipSync(input);
+                \\    else if (f === 2) out = z.inflateSync(input);
+                \\    else if (f === 3) out = z.inflateRawSync(input);
+                \\    else if (f === 4) { if (!z.brotliDecompressSync) return 8; out = z.brotliDecompressSync(input); }
+                \\    else return 1;
+                \\  } catch (e) { return 6; }
+                \\  globalThis.__sa_cbuf = (globalThis.__sa_cbuf || { next: 1, map: {} });
+                \\  const id = globalThis.__sa_cbuf.next++;
+                \\  globalThis.__sa_cbuf.map[id] = { bytes: new Uint8Array(out), addr: 0 };
+                \\  __sa_store_i64(out_handle, BigInt(id));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_compress_buffer_data")) {
+            try writer.writeAll(
+                \\function sa_std_compress_buffer_data(buffer) {
+                \\  const m = globalThis.__sa_cbuf;
+                \\  const rec = m ? m.map[Number(buffer)] : null;
+                \\  if (!rec) return 0;
+                \\  if (!rec.addr) { rec.addr = __sa_alloc(rec.bytes.length); __sa_u8.set(rec.bytes, rec.addr); }
+                \\  return rec.addr;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_compress_buffer_len")) {
+            try writer.writeAll(
+                \\function sa_std_compress_buffer_len(buffer) {
+                \\  const m = globalThis.__sa_cbuf;
+                \\  const rec = m ? m.map[Number(buffer)] : null;
+                \\  return rec ? BigInt(rec.bytes.length) : BigInt(0);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_compress_buffer_free")) {
+            try writer.writeAll(
+                \\function sa_std_compress_buffer_free(buffer) {
+                \\  const m = globalThis.__sa_cbuf;
+                \\  if (m) { const rec = m.map[Number(buffer)]; if (rec) { if (rec.addr) __sa_free(rec.addr); delete m.map[Number(buffer)]; } }
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_parse")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_parse(body, body_len, content_type, content_type_len, out_handle) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const dec = new globalThis.TextDecoder();
+                \\  const ba = __sa_addr(body), bn = __sa_num(body_len);
+                \\  const ca = __sa_addr(content_type), cn = __sa_num(content_type_len);
+                \\  const ct = dec.decode(__sa_u8.slice(ca, ca + cn));
+                \\  let boundary = null;
+                \\  for (const part of ct.split(";")) {
+                \\    const t = part.trim();
+                \\    if (t.startsWith("boundary=")) { boundary = t.slice(9).trim(); if (boundary.startsWith("\"") && boundary.endsWith("\"")) boundary = boundary.slice(1, -1); }
+                \\  }
+                \\  if (!boundary) return 1;
+                \\  const raw = __sa_u8.slice(ba, ba + bn);
+                \\  let text = "";
+                \\  for (let i = 0; i < raw.length; i += 8192) text += String.fromCharCode.apply(null, raw.subarray(i, i + 8192));
+                \\  const segs = text.split("--" + boundary);
+                \\  const parts = [];
+                \\  for (let i = 1; i < segs.length; i++) {
+                \\    let seg = segs[i];
+                \\    if (seg.startsWith("--")) break;
+                \\    if (!seg.startsWith("\r\n")) return 1;
+                \\    seg = seg.slice(2);
+                \\    if (seg.endsWith("\r\n")) seg = seg.slice(0, -2);
+                \\    const cut = seg.indexOf("\r\n\r\n");
+                \\    if (cut < 0) return 1;
+                \\    const head = seg.slice(0, cut);
+                \\    const pbody = seg.slice(cut + 4);
+                \\    const part = { name: "", filename: null, contentType: null, headers: [], body: new Uint8Array(pbody.length) };
+                \\    for (let j = 0; j < pbody.length; j++) part.body[j] = pbody.charCodeAt(j) & 255;
+                \\    for (const line of head.split("\r\n")) {
+                \\      const colon = line.indexOf(":");
+                \\      if (colon < 0) continue;
+                \\      const hn = line.slice(0, colon).trim();
+                \\      const hv = line.slice(colon + 1).trim();
+                \\      part.headers.push([hn, hv]);
+                \\      const lhn = hn.toLowerCase();
+                \\      if (lhn === "content-type") part.contentType = hv;
+                \\      if (lhn === "content-disposition") {
+                \\        for (const tok of hv.split(";")) {
+                \\          const t = tok.trim();
+                \\          const eq = t.indexOf("=");
+                \\          if (eq < 0) continue;
+                \\          const k = t.slice(0, eq).trim();
+                \\          let v = t.slice(eq + 1).trim();
+                \\          if (v.startsWith("\"") && v.endsWith("\"")) v = v.slice(1, -1);
+                \\          if (k === "name") part.name = v;
+                \\          if (k === "filename") part.filename = v;
+                \\        }
+                \\      }
+                \\    }
+                \\    parts.push(part);
+                \\  }
+                \\  const id = globalThis.__sa_mp.next++;
+                \\  globalThis.__sa_mp.items[id] = { kind: "parsed", parts: parts };
+                \\  __sa_store_i64(out_handle, BigInt(id));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_free")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_free(handle) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  delete globalThis.__sa_mp.items[Number(handle)];
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_count")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_count(handle) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const it = globalThis.__sa_mp.items[Number(handle)];
+                \\  return (it && it.kind === "parsed") ? BigInt(it.parts.length) : BigInt(0);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_part_name")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_part_name(handle, index, out, cap, out_len) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const it = globalThis.__sa_mp.items[Number(handle)];
+                \\  if (!it || it.kind !== "parsed") return 3;
+                \\  const part = it.parts[__sa_num(index)];
+                \\  if (!part) return 3;
+                \\  const value = part.name;
+                \\  const enc = new globalThis.TextEncoder();
+                \\  const bytes = enc.encode(value);
+                \\  __sa_store_i64(out_len, BigInt(bytes.length));
+                \\  if (__sa_num(cap) < bytes.length) return 9;
+                \\  __sa_u8.set(bytes, __sa_addr(out));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_part_filename")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_part_filename(handle, index, out, cap, out_len) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const it = globalThis.__sa_mp.items[Number(handle)];
+                \\  if (!it || it.kind !== "parsed") return 3;
+                \\  const part = it.parts[__sa_num(index)];
+                \\  if (!part) return 3;
+                \\  const value = part.filename;
+                \\  if (value === null || value === undefined) return 100;
+                \\  const enc = new globalThis.TextEncoder();
+                \\  const bytes = enc.encode(value);
+                \\  __sa_store_i64(out_len, BigInt(bytes.length));
+                \\  if (__sa_num(cap) < bytes.length) return 9;
+                \\  __sa_u8.set(bytes, __sa_addr(out));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_part_content_type")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_part_content_type(handle, index, out, cap, out_len) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const it = globalThis.__sa_mp.items[Number(handle)];
+                \\  if (!it || it.kind !== "parsed") return 3;
+                \\  const part = it.parts[__sa_num(index)];
+                \\  if (!part) return 3;
+                \\  const value = part.contentType;
+                \\  if (value === null || value === undefined) return 100;
+                \\  const enc = new globalThis.TextEncoder();
+                \\  const bytes = enc.encode(value);
+                \\  __sa_store_i64(out_len, BigInt(bytes.length));
+                \\  if (__sa_num(cap) < bytes.length) return 9;
+                \\  __sa_u8.set(bytes, __sa_addr(out));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_part_header")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_part_header(handle, index, name, name_len, out, cap, out_len) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const it = globalThis.__sa_mp.items[Number(handle)];
+                \\  if (!it || it.kind !== "parsed") return 3;
+                \\  const part = it.parts[__sa_num(index)];
+                \\  if (!part) return 3;
+                \\  const dec = new globalThis.TextDecoder();
+                \\  const na = __sa_addr(name), nn = __sa_num(name_len);
+                \\  const want = dec.decode(__sa_u8.slice(na, na + nn)).toLowerCase();
+                \\  let value = null;
+                \\  for (const pair of part.headers) { if (pair[0].toLowerCase() === want) { value = pair[1]; break; } }
+                \\  if (value === null) return 100;
+                \\  const enc = new globalThis.TextEncoder();
+                \\  const bytes = enc.encode(value);
+                \\  __sa_store_i64(out_len, BigInt(bytes.length));
+                \\  if (__sa_num(cap) < bytes.length) return 9;
+                \\  __sa_u8.set(bytes, __sa_addr(out));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_part_body")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_part_body(handle, index, out_ptr, out_len) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const it = globalThis.__sa_mp.items[Number(handle)];
+                \\  if (!it || it.kind !== "parsed") return 3;
+                \\  const part = it.parts[__sa_num(index)];
+                \\  if (!part) return 3;
+                \\  if (!part.addr) { part.addr = __sa_alloc(part.body.length); __sa_u8.set(part.body, part.addr); }
+                \\  __sa_store_ptr(out_ptr, part.addr);
+                \\  __sa_store_i64(out_len, BigInt(part.body.length));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_builder_new")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_builder_new(out_handle) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const id = globalThis.__sa_mp.next++;
+                \\  globalThis.__sa_mp.items[id] = { kind: "builder", list: [], boundary: "----sa-std-multipart-js-" + id };
+                \\  __sa_store_i64(out_handle, BigInt(id));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_builder_free")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_builder_free(handle) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  delete globalThis.__sa_mp.items[Number(handle)];
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_builder_add_field")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_builder_add_field(handle, name, name_len, value, value_len) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const it = globalThis.__sa_mp.items[Number(handle)];
+                \\  if (!it || it.kind !== "builder") return 2;
+                \\  const na = __sa_addr(name), nn = __sa_num(name_len);
+                \\  const va = __sa_addr(value), vn = __sa_num(value_len);
+                \\  it.list.push({ name: __sa_u8.slice(na, na + nn), filename: null, contentType: null, data: __sa_u8.slice(va, va + vn) });
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_builder_add_file")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_builder_add_file(handle, name, name_len, filename, filename_len, content_type, content_type_len, data, data_len) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const it = globalThis.__sa_mp.items[Number(handle)];
+                \\  if (!it || it.kind !== "builder") return 2;
+                \\  it.list.push({
+                \\    name: __sa_u8.slice(__sa_addr(name), __sa_addr(name) + __sa_num(name_len)),
+                \\    filename: __sa_u8.slice(__sa_addr(filename), __sa_addr(filename) + __sa_num(filename_len)),
+                \\    contentType: __sa_u8.slice(__sa_addr(content_type), __sa_addr(content_type) + __sa_num(content_type_len)),
+                \\    data: __sa_u8.slice(__sa_addr(data), __sa_addr(data) + __sa_num(data_len))
+                \\  });
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_builder_boundary")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_builder_boundary(handle, out, cap, out_len) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const it = globalThis.__sa_mp.items[Number(handle)];
+                \\  if (!it || it.kind !== "builder") return 2;
+                \\  const value = it.boundary;
+                \\  const enc = new globalThis.TextEncoder();
+                \\  const bytes = enc.encode(value);
+                \\  __sa_store_i64(out_len, BigInt(bytes.length));
+                \\  if (__sa_num(cap) < bytes.length) return 9;
+                \\  __sa_u8.set(bytes, __sa_addr(out));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_builder_content_type")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_builder_content_type(handle, out, cap, out_len) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const it = globalThis.__sa_mp.items[Number(handle)];
+                \\  if (!it || it.kind !== "builder") return 2;
+                \\  const value = "multipart/form-data; boundary=" + it.boundary;
+                \\  const enc = new globalThis.TextEncoder();
+                \\  const bytes = enc.encode(value);
+                \\  __sa_store_i64(out_len, BigInt(bytes.length));
+                \\  if (__sa_num(cap) < bytes.length) return 9;
+                \\  __sa_u8.set(bytes, __sa_addr(out));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_builder_finish")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_builder_finish(handle, out_handle) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const it = globalThis.__sa_mp.items[Number(handle)];
+                \\  if (!it || it.kind !== "builder") return 2;
+                \\  const enc = new globalThis.TextEncoder();
+                \\  const chunks = [];
+                \\  chunks.push(enc.encode("--" + it.boundary));
+                \\  for (const item of it.list) {
+                \\    chunks.push(enc.encode("\r\nContent-Disposition: form-data; name=\""));
+                \\    chunks.push(item.name);
+                \\    if (item.filename !== null) {
+                \\      chunks.push(enc.encode("\"; filename=\""));
+                \\      chunks.push(item.filename);
+                \\    }
+                \\    chunks.push(enc.encode("\""));
+                \\    if (item.contentType !== null) {
+                \\      chunks.push(enc.encode("\r\nContent-Type: "));
+                \\      chunks.push(item.contentType);
+                \\    }
+                \\    chunks.push(enc.encode("\r\n\r\n"));
+                \\    chunks.push(item.data);
+                \\  }
+                \\  chunks.push(enc.encode("\r\n--" + it.boundary + "--\r\n"));
+                \\  let total = 0;
+                \\  for (const c of chunks) total += c.length;
+                \\  const bytes = new Uint8Array(total);
+                \\  let off = 0;
+                \\  for (const c of chunks) { bytes.set(c, off); off += c.length; }
+                \\  const id = globalThis.__sa_mp.next++;
+                \\  globalThis.__sa_mp.bufs[id] = { bytes: bytes, addr: 0 };
+                \\  __sa_store_i64(out_handle, BigInt(id));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_buffer_data")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_buffer_data(buffer) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const rec = globalThis.__sa_mp.bufs[Number(buffer)];
+                \\  if (!rec) return 0;
+                \\  if (!rec.addr) { rec.addr = __sa_alloc(rec.bytes.length); __sa_u8.set(rec.bytes, rec.addr); }
+                \\  return rec.addr;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_buffer_len")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_buffer_len(buffer) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const rec = globalThis.__sa_mp.bufs[Number(buffer)];
+                \\  return rec ? BigInt(rec.bytes.length) : BigInt(0);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_multipart_buffer_free")) {
+            try writer.writeAll(
+                \\function sa_std_multipart_buffer_free(buffer) {
+                \\  globalThis.__sa_mp = (globalThis.__sa_mp || { next: 1, items: {}, bufs: {} });
+                \\  const rec = globalThis.__sa_mp.bufs[Number(buffer)];
+                \\  if (rec) { if (rec.addr) __sa_free(rec.addr); delete globalThis.__sa_mp.bufs[Number(buffer)]; }
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_supported")) {
+            try writer.writeAll(
+                \\function sa_std_ssh_supported(out_flags) {
+                \\  __sa_store_i64(out_flags, BigInt(0));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_buffer_data")) {
+            try writer.writeAll("function sa_std_ssh_buffer_data(buffer) { return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_buffer_len")) {
+            try writer.writeAll("function sa_std_ssh_buffer_len(buffer) { return BigInt(0); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_buffer_free")) {
+            try writer.writeAll("function sa_std_ssh_buffer_free() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_client_connect")) {
+            try writer.writeAll("function sa_std_ssh_client_connect(host, host_len, port, out_session) { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_hostkey_fingerprint")) {
+            try writer.writeAll("function sa_std_ssh_hostkey_fingerprint() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_auth_password")) {
+            try writer.writeAll("function sa_std_ssh_auth_password() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_auth_keyfile")) {
+            try writer.writeAll("function sa_std_ssh_auth_keyfile() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_exec")) {
+            try writer.writeAll("function sa_std_ssh_exec(session, command, command_len, out_stdout, out_stderr, out_exit) { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_sftp_read")) {
+            try writer.writeAll("function sa_std_ssh_sftp_read() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_sftp_write")) {
+            try writer.writeAll("function sa_std_ssh_sftp_write() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_sftp_stat")) {
+            try writer.writeAll("function sa_std_ssh_sftp_stat() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_session_close")) {
+            try writer.writeAll("function sa_std_ssh_session_close() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_server_listen")) {
+            try writer.writeAll("function sa_std_ssh_server_listen() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_server_accept")) {
+            try writer.writeAll("function sa_std_ssh_server_accept() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_server_auth_next")) {
+            try writer.writeAll("function sa_std_ssh_server_auth_next() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_server_auth_accept")) {
+            try writer.writeAll("function sa_std_ssh_server_auth_accept() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_server_auth_deny")) {
+            try writer.writeAll("function sa_std_ssh_server_auth_deny() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_server_channel_accept")) {
+            try writer.writeAll("function sa_std_ssh_server_channel_accept() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_server_channel_exec")) {
+            try writer.writeAll("function sa_std_ssh_server_channel_exec() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_channel_write")) {
+            try writer.writeAll("function sa_std_ssh_channel_write() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_channel_read")) {
+            try writer.writeAll("function sa_std_ssh_channel_read() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_channel_send_exit")) {
+            try writer.writeAll("function sa_std_ssh_channel_send_exit() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_channel_close")) {
+            try writer.writeAll("function sa_std_ssh_channel_close() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_server_session_close")) {
+            try writer.writeAll("function sa_std_ssh_server_session_close() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_ssh_server_bind_close")) {
+            try writer.writeAll("function sa_std_ssh_server_bind_close() { return 8; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_new_joined")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_new_joined(client, method, target, target_len, path, path_len, preserve, out_req) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const dec = new globalThis.TextDecoder();
+                \\  const ta = __sa_addr(target), tn = __sa_num(target_len);
+                \\  const pa = __sa_addr(path), pn = __sa_num(path_len);
+                \\  const url = dec.decode(__sa_u8.slice(ta, ta + tn)) + dec.decode(__sa_u8.slice(pa, pa + pn));
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_req[__sa_addr(h)] = { method: __sa_num(method), url: url, headers: {}, body: new Uint8Array(0) };
+                \\  __sa_store_ptr(out_req, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_add_openai_auth")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_add_openai_auth(req, key, key_len) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const r = globalThis.__sa_http_req[__sa_addr(req)];
+                \\  if (!r) return 2;
+                \\  const dec = new globalThis.TextDecoder();
+                \\  const ka = __sa_addr(key), kn = __sa_num(key_len);
+                \\  r.headers["authorization"] = "Bearer " + dec.decode(__sa_u8.slice(ka, ka + kn));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_resp_get_header")) {
+            try writer.writeAll(
+                \\function sa_http_client_resp_get_header(resp, key, key_len, out_val, out_len) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const r = globalThis.__sa_http_resp[__sa_addr(resp)];
+                \\  if (!r) return 2;
+                \\  const dec = new globalThis.TextDecoder();
+                \\  const ka = __sa_addr(key), kn = __sa_num(key_len);
+                \\  const want = dec.decode(__sa_u8.slice(ka, ka + kn)).toLowerCase();
+                \\  const headers = r.headers || {};
+                \\  for (const k of Object.keys(headers)) {
+                \\    if (k.toLowerCase() === want) {
+                \\      const enc = new globalThis.TextEncoder();
+                \\      const bytes = enc.encode(headers[k]);
+                \\      const p = __sa_alloc(bytes.length);
+                \\      __sa_u8.set(bytes, p);
+                \\      __sa_store_ptr(out_val, p);
+                \\      __sa_store_i64(out_len, BigInt(bytes.length));
+                \\      return 0;
+                \\    }
+                \\  }
+                \\  return 2;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_resp_body_slice")) {
+            try writer.writeAll(
+                \\function sa_http_client_resp_body_slice(resp, out_body, out_len) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const r = globalThis.__sa_http_resp[__sa_addr(resp)];
+                \\  if (!r) return 2;
+                \\  if (!r.body_addr) { r.body_addr = __sa_alloc(r.body.length); __sa_u8.set(r.body, r.body_addr); }
+                \\  __sa_store_ptr(out_body, r.body_addr);
+                \\  __sa_store_i64(out_len, BigInt(r.body.length));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_resp_body_ptr")) {
+            try writer.writeAll(
+                \\function sa_http_client_resp_body_ptr(resp) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const r = globalThis.__sa_http_resp[__sa_addr(resp)];
+                \\  if (!r) return 0;
+                \\  if (!r.body_addr) { r.body_addr = __sa_alloc(r.body.length); __sa_u8.set(r.body, r.body_addr); }
+                \\  return r.body_addr;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_resp_body_len")) {
+            try writer.writeAll(
+                \\function sa_http_client_resp_body_len(resp) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const r = globalThis.__sa_http_resp[__sa_addr(resp)];
+                \\  return r ? BigInt(r.body.length) : BigInt(0);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_send_async")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_send_async(req, out_op) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const r = globalThis.__sa_http_req[__sa_addr(req)];
+                \\  if (!r) return 2;
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_op[__sa_addr(h)] = { resp: { status: 200, body: r.body.slice(), headers: Object.assign({}, r.headers) }, taken: false };
+                \\  __sa_store_ptr(out_op, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_async_poll")) {
+            try writer.writeAll(
+                \\function sa_http_client_async_poll(op, out_ready) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const o = globalThis.__sa_http_op[__sa_addr(op)];
+                \\  if (!o) return 2;
+                \\  __sa_store_i64(out_ready, BigInt(1));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_async_take_response")) {
+            try writer.writeAll(
+                \\function sa_http_client_async_take_response(op, out_resp) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const o = globalThis.__sa_http_op[__sa_addr(op)];
+                \\  if (!o || o.taken) return 2;
+                \\  o.taken = true;
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_resp[__sa_addr(h)] = o.resp;
+                \\  __sa_store_ptr(out_resp, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_async_free")) {
+            try writer.writeAll(
+                \\function sa_http_client_async_free(op) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  delete globalThis.__sa_http_op[__sa_addr(op)];
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_websocket_connect")) {
+            try writer.writeAll(
+                \\function sa_http_client_websocket_connect(client, url, url_len, out_ws) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_ws[__sa_addr(h)] = { queue: [], stream: new Uint8Array(0), closed: false };
+                \\  __sa_store_ptr(out_ws, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_websocket_write")) {
+            try writer.writeAll(
+                \\function sa_http_websocket_write(ws, opcode, data, data_len) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const w = globalThis.__sa_http_ws[__sa_addr(ws)];
+                \\  if (!w) return 2;
+                \\  const a = __sa_addr(data), n = __sa_num(data_len);
+                \\  w.queue.push({ opcode: __sa_num(opcode), bytes: __sa_u8.slice(a, a + n) });
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_websocket_read")) {
+            try writer.writeAll(
+                \\function sa_http_websocket_read(ws, max_len, out_opcode, out_ptr, out_len) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const w = globalThis.__sa_http_ws[__sa_addr(ws)];
+                \\  if (!w) return 2;
+                \\  const msg = w.queue.shift();
+                \\  if (!msg) { __sa_store_i64(out_len, BigInt(0)); return 2; }
+                \\  const p = __sa_alloc(msg.bytes.length);
+                \\  __sa_u8.set(msg.bytes, p);
+                \\  __sa_store_i64(out_opcode, BigInt(msg.opcode));
+                \\  __sa_store_ptr(out_ptr, p);
+                \\  __sa_store_i64(out_len, BigInt(msg.bytes.length));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_websocket_free")) {
+            try writer.writeAll(
+                \\function sa_http_websocket_free(ws) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  delete globalThis.__sa_http_ws[__sa_addr(ws)];
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_sse_post")) {
+            try writer.writeAll(
+                \\function sa_http_client_sse_post(url, url_len, body, body_len, key, key_len, out_handle) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const a = __sa_addr(body), n = __sa_num(body_len);
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_sse[__sa_addr(h)] = { body: __sa_u8.slice(a, a + n), off: 0, status: 200 };
+                \\  __sa_store_ptr(out_handle, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_sse_read")) {
+            try writer.writeAll(
+                \\function sa_http_client_sse_read(handle, buf, buf_cap, out_len) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const rec = globalThis.__sa_http_sse[__sa_addr(handle)];
+                \\  if (!rec) return 2;
+                \\  const cap = __sa_num(buf_cap);
+                \\  const n = Math.min(cap, rec.body.length - rec.off);
+                \\  __sa_u8.set(rec.body.subarray(rec.off, rec.off + n), __sa_addr(buf));
+                \\  rec.off += n;
+                \\  __sa_store_i64(out_len, BigInt(n));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_sse_poll")) {
+            try writer.writeAll(
+                \\function sa_http_client_sse_poll(handle, out_done) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const rec = globalThis.__sa_http_sse[__sa_addr(handle)];
+                \\  if (!rec) return 2;
+                \\  __sa_store_i64(out_done, BigInt(rec.off >= rec.body.length ? 1 : 0));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_sse_status")) {
+            try writer.writeAll(
+                \\function sa_http_client_sse_status(handle) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const rec = globalThis.__sa_http_sse[__sa_addr(handle)];
+                \\  return rec ? rec.status : 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_sse_free")) {
+            try writer.writeAll(
+                \\function sa_http_client_sse_free(handle) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  delete globalThis.__sa_http_sse[__sa_addr(handle)];
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_sse_turn")) {
+            try writer.writeAll(
+                \\function sa_http_client_sse_turn(url, url_len, body, body_len, key, key_len, api_mode, out_text, out_text_len, out_calls, out_calls_len) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const a = __sa_addr(body), n = __sa_num(body_len);
+                \\  const text = __sa_u8.slice(a, a + n);
+                \\  const tp = __sa_alloc(text.length);
+                \\  __sa_u8.set(text, tp);
+                \\  const cp = __sa_alloc(1);
+                \\  __sa_store_ptr(out_text, tp);
+                \\  __sa_store_i64(out_text_len, BigInt(text.length));
+                \\  __sa_store_ptr(out_calls, cp);
+                \\  __sa_store_i64(out_calls_len, BigInt(0));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_sse_turn_free")) {
+            try writer.writeAll("function sa_http_client_sse_turn_free(buf, len) { }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_new_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_new_v2(use_tls, ca_bundle_path, ca_bundle_path_len, out_client) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_c[__sa_addr(h)] = { tls: __sa_num(use_tls), v2: true };
+                \\  __sa_store_ptr(out_client, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_new_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_new_v2(client, method, url, url_len, out_req) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const dec = new globalThis.TextDecoder();
+                \\  const a = __sa_addr(url), n = __sa_num(url_len);
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_req[__sa_addr(h)] = { method: __sa_num(method), url: dec.decode(__sa_u8.slice(a, a + n)), headers: {}, body: new Uint8Array(0), timeout: 0, max: 0 };
+                \\  __sa_store_ptr(out_req, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_add_header_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_add_header_v2(req, key, key_len, value, value_len) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const r = globalThis.__sa_http_req[__sa_addr(req)];
+                \\  if (!r) return 5;
+                \\  const dec = new globalThis.TextDecoder();
+                \\  const ka = __sa_addr(key), kn = __sa_num(key_len);
+                \\  const va = __sa_addr(value), vn = __sa_num(value_len);
+                \\  r.headers[dec.decode(__sa_u8.slice(ka, ka + kn))] = dec.decode(__sa_u8.slice(va, va + vn));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_set_body_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_set_body_v2(req, body, body_len) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const r = globalThis.__sa_http_req[__sa_addr(req)];
+                \\  if (!r) return 5;
+                \\  const a = __sa_addr(body), n = __sa_num(body_len);
+                \\  r.body = __sa_u8.slice(a, a + n);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_set_timeout_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_set_timeout_v2(req, timeout_ms) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const r = globalThis.__sa_http_req[__sa_addr(req)];
+                \\  if (!r) return 5;
+                \\  r.timeout = __sa_num(timeout_ms);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_set_max_response_bytes_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_set_max_response_bytes_v2(req, max_bytes) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const r = globalThis.__sa_http_req[__sa_addr(req)];
+                \\  if (!r) return 5;
+                \\  r.max = __sa_num(max_bytes);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_send_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_send_v2(req, out_resp) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const r = globalThis.__sa_http_req[__sa_addr(req)];
+                \\  if (!r) return 5;
+                \\  if (r.max && r.body.length > r.max) return 4;
+                \\  const resp = { status: 200, body: r.body.slice(), headers: Object.assign({}, r.headers) };
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_resp[__sa_addr(h)] = resp;
+                \\  __sa_store_ptr(out_resp, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_send_async_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_send_async_v2(req, out_op) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const r = globalThis.__sa_http_req[__sa_addr(req)];
+                \\  if (!r) return 5;
+                \\  if (r.max && r.body.length > r.max) return 4;
+                \\  const resp = { status: 200, body: r.body.slice(), headers: Object.assign({}, r.headers) };
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_op[__sa_addr(h)] = { resp: resp, taken: false, v2: true };
+                \\  __sa_store_ptr(out_op, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_async_poll_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_async_poll_v2(op, timeout_ms, out_ready) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const o = globalThis.__sa_http_op[__sa_addr(op)];
+                \\  if (!o) return 5;
+                \\  __sa_store_i64(out_ready, BigInt(o.cancelled ? 0 : 1));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_async_take_response_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_async_take_response_v2(op, out_resp) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const o = globalThis.__sa_http_op[__sa_addr(op)];
+                \\  if (!o || o.taken || o.cancelled) return 5;
+                \\  o.taken = true;
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_resp[__sa_addr(h)] = o.resp;
+                \\  __sa_store_ptr(out_resp, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_async_cancel_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_async_cancel_v2(op) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const o = globalThis.__sa_http_op[__sa_addr(op)];
+                \\  if (!o) return 5;
+                \\  o.cancelled = true;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_async_free_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_async_free_v2(op) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  delete globalThis.__sa_http_op[__sa_addr(op)];
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_websocket_connect_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_websocket_connect_v2(client, url, url_len, timeout_ms, out_ws) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_ws[__sa_addr(h)] = { queue: [], stream: new Uint8Array(0), off: 0, closed: false };
+                \\  __sa_store_ptr(out_ws, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_websocket_connect_unix_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_websocket_connect_unix_v2(client, socket_path, socket_path_len, url, url_len, timeout_ms, out_ws) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_ws[__sa_addr(h)] = { queue: [], stream: new Uint8Array(0), off: 0, closed: false };
+                \\  __sa_store_ptr(out_ws, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_websocket_connect_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_websocket_connect_v2(req, timeout_ms, out_ws) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_ws[__sa_addr(h)] = { queue: [], stream: new Uint8Array(0), off: 0, closed: false };
+                \\  __sa_store_ptr(out_ws, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_client_req_websocket_connect_unix_v2")) {
+            try writer.writeAll(
+                \\function sa_http_client_req_websocket_connect_unix_v2(req, socket_path, socket_path_len, timeout_ms, out_ws) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const h = __sa_alloc(8);
+                \\  globalThis.__sa_http_ws[__sa_addr(h)] = { queue: [], stream: new Uint8Array(0), off: 0, closed: false };
+                \\  __sa_store_ptr(out_ws, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_websocket_poll_v2")) {
+            try writer.writeAll(
+                \\function sa_http_websocket_poll_v2(ws, interests, timeout_ms, out_events) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const w = globalThis.__sa_http_ws[__sa_addr(ws)];
+                \\  if (!w) return 5;
+                \\  let ev = 2;
+                \\  if (w.off < w.stream.length || w.queue.length) ev |= 1;
+                \\  if (w.closed) ev |= 4;
+                \\  __sa_store_i64(out_events, BigInt(ev));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_websocket_write_v2")) {
+            try writer.writeAll(
+                \\function sa_http_websocket_write_v2(ws, opcode, data, data_len, out_written) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const w = globalThis.__sa_http_ws[__sa_addr(ws)];
+                \\  if (!w) return 5;
+                \\  const a = __sa_addr(data), n = __sa_num(data_len);
+                \\  const chunk = __sa_u8.slice(a, a + n);
+                \\  const merged = new Uint8Array(w.stream.length + chunk.length);
+                \\  merged.set(w.stream, 0);
+                \\  merged.set(chunk, w.stream.length);
+                \\  w.stream = merged;
+                \\  __sa_store_i64(out_written, BigInt(n));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_websocket_read_v2")) {
+            try writer.writeAll(
+                \\function sa_http_websocket_read_v2(ws, max_len, out_opcode, out_ptr, out_len) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const w = globalThis.__sa_http_ws[__sa_addr(ws)];
+                \\  if (!w) return 5;
+                \\  const avail = w.stream.length - w.off;
+                \\  if (avail <= 0) { __sa_store_i64(out_len, BigInt(0)); return w.closed ? 2 : 1; }
+                \\  const n = Math.min(avail, __sa_num(max_len));
+                \\  const chunk = w.stream.slice(w.off, w.off + n);
+                \\  w.off += n;
+                \\  if (!w.read_addr || w.read_cap < chunk.length) { w.read_addr = __sa_alloc(chunk.length); w.read_cap = chunk.length; }
+                \\  __sa_u8.set(chunk, w.read_addr);
+                \\  __sa_store_i64(out_opcode, BigInt(2));
+                \\  __sa_store_ptr(out_ptr, w.read_addr);
+                \\  __sa_store_i64(out_len, BigInt(n));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_websocket_close_v2")) {
+            try writer.writeAll(
+                \\function sa_http_websocket_close_v2(ws, code, reason, reason_len) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  const w = globalThis.__sa_http_ws[__sa_addr(ws)];
+                \\  if (!w) return 5;
+                \\  w.closed = true;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_http_websocket_free_v2")) {
+            try writer.writeAll(
+                \\function sa_http_websocket_free_v2(ws) {
+                \\  globalThis.__sa_http_c = (globalThis.__sa_http_c || {});
+                \\  globalThis.__sa_http_req = (globalThis.__sa_http_req || {});
+                \\  globalThis.__sa_http_resp = (globalThis.__sa_http_resp || {});
+                \\  globalThis.__sa_http_rd = (globalThis.__sa_http_rd || {});
+                \\  globalThis.__sa_http_op = (globalThis.__sa_http_op || {});
+                \\  globalThis.__sa_http_ws = (globalThis.__sa_http_ws || {});
+                \\  globalThis.__sa_http_sse = (globalThis.__sa_http_sse || {});
+                \\  delete globalThis.__sa_http_ws[__sa_addr(ws)];
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
         // HTTP client/server shims (staged oracle semantics: in-heap echo and
         // canned request/response, same single-threaded simulation waterline
         // as the fd/pthread/sqlite shims above; the native plugin oracles do
@@ -5802,6 +7310,7 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         try emitted.put(fsig.name, {});
         if (std.mem.eql(u8, fsig.name, "main")) has_main = true;
     }
+    var stub_emitted = std.StringHashMap(void).init(allocator);
     // extern stubs (so calls don't ReferenceError; they trap with name).
     // `#npm_bind` externs get a marshaling wrapper instead, unless a
     // same-module `@export` already satisfies the declaration.
@@ -5815,8 +7324,9 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
             try emitted.put(fsig.name, {});
             continue;
         }
-        if (!isKnownShim(fsig.name) and emitted.contains(fsig.name)) continue;
+        if (emitted.contains(fsig.name) or stub_emitted.contains(fsig.name)) continue;
         try emitOneFunction(writer, allocator, verified, task, &const_addrs, &fn_idx, js_opt, &retbase);
+        try stub_emitted.put(fsig.name, {});
     }
     // exports + main runner
     if (js_opt.format == .cjs) {

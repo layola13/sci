@@ -8553,9 +8553,19 @@ comptime {
         @export(&sa_thread_as_pthread_t, .{ .name = "sa_thread_as_pthread_t" });
         @export(&sa_thread_into_pthread_t, .{ .name = "sa_thread_into_pthread_t" });
         @export(&sa_thread_raw_pthread_join, .{ .name = "sa_thread_raw_pthread_join" });
-        @export(&dlopen, .{ .name = "dlopen", .visibility = .hidden });
-        @export(&dlsym, .{ .name = "dlsym", .visibility = .hidden });
-        @export(&dlclose, .{ .name = "dlclose", .visibility = .hidden });
+        // The dl* compatibility definitions must only be exported where the
+        // target has no real libc dlopen (wasi / no-libc links). On libc
+        // targets they capture std.DynLib's extern references at link time
+        // (hidden visibility does not prevent archive-member binding), which
+        // silently replaced every runtime dlopen with the cookie stub:
+        // brotli/QUIC/TLS loaders degraded and SSH crashed calling the
+        // cookie address from SA-produced binaries. Test builds never saw
+        // it because this block is skipped under builtin.is_test.
+        if (builtin.os.tag == .wasi or !builtin.link_libc) {
+            @export(&dlopen, .{ .name = "dlopen", .visibility = .hidden });
+            @export(&dlsym, .{ .name = "dlsym", .visibility = .hidden });
+            @export(&dlclose, .{ .name = "dlclose", .visibility = .hidden });
+        }
         @export(&sqlite3_prepare, .{ .name = "sqlite3_prepare", .visibility = .hidden });
         @export(&sqlite3_step, .{ .name = "sqlite3_step", .visibility = .hidden });
         @export(&sqlite3_finalize, .{ .name = "sqlite3_finalize", .visibility = .hidden });

@@ -3,6 +3,7 @@
 // HTTP/WS/TCP/UDP cores are built into sa_std; plugins only provide frameworks).
 // Formerly vite_api.zig in the plugin (the file contained no Vite-specific code).
 const std = @import("std");
+const builtin = @import("builtin");
 const sa_std_net = @import("sa_ws_stream.zig");
 
 const sio = @import("sio");
@@ -13,7 +14,9 @@ var sigpipe_mu: std.atomic.Mutex = .unlocked;
 fn noopSigpipe(_: i32) callconv(.c) void {}
 
 fn installSigpipeHandler() void {
-    if (comptime @hasDecl(std.posix.SIG, "PIPE")) {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return;
+    } else if (comptime @hasDecl(std.posix.SIG, "PIPE")) {
         const act: std.posix.Sigaction = .{
             .handler = .{ .handler = noopSigpipe },
             .mask = std.posix.sigemptyset(),
@@ -109,6 +112,14 @@ pub fn pollStream(fd: std.posix.fd_t, events: i16, timeout_ms: u32, out_events: 
 }
 
 fn setNonBlocking(stream: std.Io.net.Stream) !void {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return;
+    } else {
+        return setNonBlockingNative(stream);
+    }
+}
+
+fn setNonBlockingNative(stream: std.Io.net.Stream) !void {
     const fd = stream.socket.handle;
     const rc_get = std.c.fcntl(fd, std.os.linux.F.GETFL, @as(c_int, 0));
     if (rc_get < 0) return error.Unexpected;
@@ -119,7 +130,23 @@ fn setNonBlocking(stream: std.Io.net.Stream) !void {
 }
 
 /// Restore fully blocking I/O and clear any receive timeout.
+fn acceptFlags() c_uint {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return 0;
+    } else {
+        return @intCast(std.posix.SOCK.CLOEXEC);
+    }
+}
+
 fn setBlocking(stream: std.Io.net.Stream) !void {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return;
+    } else {
+        return setBlockingNative(stream);
+    }
+}
+
+fn setBlockingNative(stream: std.Io.net.Stream) !void {
     const fd = stream.socket.handle;
     const rc_get = std.c.fcntl(fd, std.os.linux.F.GETFL, @as(c_int, 0));
     if (rc_get < 0) return error.Unexpected;
@@ -131,7 +158,23 @@ fn setBlocking(stream: std.Io.net.Stream) !void {
     std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&zero)) catch {};
 }
 
+fn ipprotoTcp() c_int {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return 6;
+    } else {
+        return std.posix.IPPROTO.TCP;
+    }
+}
+
 fn setReceiveTimeout(stream: std.Io.net.Stream, timeout_ms: u32) !void {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return;
+    } else {
+        return setReceiveTimeoutNative(stream, timeout_ms);
+    }
+}
+
+fn setReceiveTimeoutNative(stream: std.Io.net.Stream, timeout_ms: u32) !void {
     if (timeout_ms == 0) return setNonBlocking(stream);
     const timeout = std.posix.timeval{
         .sec = @intCast(timeout_ms / 1000),
@@ -141,6 +184,14 @@ fn setReceiveTimeout(stream: std.Io.net.Stream, timeout_ms: u32) !void {
 }
 
 fn setNonBlockingFd(fd: std.posix.fd_t) !void {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return;
+    } else {
+        return setNonBlockingFdNative(fd);
+    }
+}
+
+fn setNonBlockingFdNative(fd: std.posix.fd_t) !void {
     const rc_get = std.c.fcntl(fd, std.os.linux.F.GETFL, @as(c_int, 0));
     if (rc_get < 0) return error.Unexpected;
     const flags: c_int = @intCast(rc_get);
@@ -289,6 +340,15 @@ pub const ThreadPool = struct {
     done: std.atomic.Value(usize),
 };
 
+
+fn spawnPoolWorker(pool: *ThreadPool) !std.Thread {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return error.UnsupportedPlatform;
+    } else {
+        return std.Thread.spawn(.{}, workerMain, .{pool});
+    }
+}
+
 fn workerMain(pool: *ThreadPool) void {
     const srv = pool.server;
     while (!pool.stopping.load(.acquire)) {
@@ -326,6 +386,14 @@ pub const HttpServer = struct {
     pool: ?*ThreadPool = null,
 
     pub fn init(allocator: std.mem.Allocator) !*HttpServer {
+        if (comptime builtin.cpu.arch.isWasm()) {
+            return error.UnsupportedPlatform;
+        } else {
+            return initNative(allocator);
+        }
+    }
+
+    pub fn initNative(allocator: std.mem.Allocator) !*HttpServer {
         const self = try allocator.create(HttpServer);
         errdefer allocator.destroy(self);
         var pipe: [2]std.posix.fd_t = undefined;
@@ -432,7 +500,7 @@ pub const HttpServer = struct {
 
         var started: usize = 0;
         while (started < n) : (started += 1) {
-            threads[started] = std.Thread.spawn(.{}, workerMain, .{pool}) catch |err| {
+            threads[started] = spawnPoolWorker(pool) catch |err| {
                 pool.stopping.store(true, .release);
                 for (threads[0..started]) |t| t.join();
                 self.pool = null;
@@ -473,6 +541,19 @@ pub const HttpServer = struct {
     /// plus the recycle wake pipe: tells the accept loop which class of fd
     /// is actionable so it can skip sweeping the idle pool when only the
     /// listener has traffic.
+
+fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        var iov = [_]std.os.wasi.iovec_t{.{ .base = buf.ptr, .len = buf.len }};
+        var n: usize = 0;
+        const err = std.os.wasi.fd_read(fd, &iov, iov.len, &n);
+        if (err != .SUCCESS) return error.Io;
+        return n;
+    } else {
+        return std.posix.read(fd, buf);
+    }
+}
+
     fn pollAcceptEx(self: *HttpServer, timeout_ms: u32) PollOutcome {
         const bad = PollOutcome{ .status = .invalid, .recycled_ready = false, .listener_ready = false };
         var fds: [max_recycled_conns + 2]std.posix.pollfd = undefined;        var nfds: usize = 0;
@@ -524,7 +605,7 @@ pub const HttpServer = struct {
         if (fds[nrec].revents & std.posix.POLL.IN != 0) {
             recycled_ready = true;
             var tmp: [64]u8 = undefined;
-            while (std.posix.read(self.wake_pipe[0], &tmp)) |n| {
+            while (posixRead(self.wake_pipe[0], &tmp)) |n| {
                 if (n == 0) break;
             } else |_| {}
         }
@@ -729,7 +810,7 @@ pub const HttpServer = struct {
         // queue (TOCTOU), so accept via raw accept4 and map EAGAIN to null.
         var addr: std.posix.sockaddr = undefined;
         var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr);
-        const rc = std.c.accept4(listener.socket.handle, &addr, &addr_len, std.posix.SOCK.CLOEXEC);
+        const rc = std.c.accept4(listener.socket.handle, &addr, &addr_len, acceptFlags());
         if (rc < 0) {
             const e = std.c.errno(rc);
             if (e == .AGAIN) return null;
@@ -737,7 +818,7 @@ pub const HttpServer = struct {
             return error.ConnectionAborted;
         }
         const one: c_int = 1;
-        std.posix.setsockopt(rc, std.posix.IPPROTO.TCP, 1, std.mem.asBytes(&one)) catch {};
+        std.posix.setsockopt(rc, ipprotoTcp(), 1, std.mem.asBytes(&one)) catch {};
         const accepted: std.Io.net.Stream = .{
             .socket = .{ .handle = @intCast(rc), .address = listener.socket.address },
         };
@@ -930,6 +1011,14 @@ pub const HttpServer = struct {
     /// socket is peeked: real bytes (pipelined next request) mean "keep",
     /// EOF means "drop".
     pub fn isPeerClosed(stream: std.Io.net.Stream) bool {
+        if (comptime builtin.cpu.arch.isWasm()) {
+            return true;
+        } else {
+            return isPeerClosedNative(stream);
+        }
+    }
+
+    pub fn isPeerClosedNative(stream: std.Io.net.Stream) bool {
         var pfd = [1]std.posix.pollfd{.{
             .fd = stream.socket.handle,
             .events = std.posix.POLL.IN,

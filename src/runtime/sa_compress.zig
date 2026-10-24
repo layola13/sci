@@ -9,6 +9,7 @@
 //! argument, 5 no memory, 6 io, 8 unsupported, 9 truncated).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const sio = @import("sio");
 
 const OK: i32 = 0;
@@ -82,6 +83,14 @@ var brotli_tried: bool = false;
 var brotli_mu = std.Io.Mutex.init;
 
 fn loadBrotli() ?BrotliApi {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return null;
+    } else {
+        return loadBrotliNative();
+    }
+}
+
+fn loadBrotliNative() ?BrotliApi {
     brotli_mu.lockUncancelable(sio.io());
     defer brotli_mu.unlock(sio.io());
     if (brotli_api) |a| return a;

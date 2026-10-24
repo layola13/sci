@@ -3,21 +3,21 @@
 // owned copy of the request body; builder finishes into a buffer
 // handle (multipart_buffer_data/_len/_free).
 
-@extern sa_std_multipart_parse(body: &ptr, body_len: u64, content_type: &ptr, content_type_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_multipart_parse(&body: ptr, body_len: u64, &content_type: ptr, content_type_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_multipart_free(^handle: u64) -> i32
 @extern sa_std_multipart_count(handle: u64) -> u64
-@extern sa_std_multipart_part_name(handle: u64, index: u64, out: &ptr, cap: u64, &out_len: ptr) -> i32
-@extern sa_std_multipart_part_filename(handle: u64, index: u64, out: &ptr, cap: u64, &out_len: ptr) -> i32
-@extern sa_std_multipart_part_content_type(handle: u64, index: u64, out: &ptr, cap: u64, &out_len: ptr) -> i32
-@extern sa_std_multipart_part_header(handle: u64, index: u64, name: &ptr, name_len: u64, out: &ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_std_multipart_part_name(handle: u64, index: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_std_multipart_part_filename(handle: u64, index: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_std_multipart_part_content_type(handle: u64, index: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_std_multipart_part_header(handle: u64, index: u64, &name: ptr, name_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
 @extern sa_std_multipart_part_body(handle: u64, index: u64, &out_ptr: ptr, &out_len: ptr) -> i32
 
 @extern sa_std_multipart_builder_new(&out_handle: ptr) -> i32
 @extern sa_std_multipart_builder_free(^handle: u64) -> i32
-@extern sa_std_multipart_builder_add_field(handle: u64, name: &ptr, name_len: u64, value: &ptr, value_len: u64) -> i32
-@extern sa_std_multipart_builder_add_file(handle: u64, name: &ptr, name_len: u64, filename: &ptr, filename_len: u64, content_type: &ptr, content_type_len: u64, data: &ptr, data_len: u64) -> i32
-@extern sa_std_multipart_builder_boundary(handle: u64, out: &ptr, cap: u64, &out_len: ptr) -> i32
-@extern sa_std_multipart_builder_content_type(handle: u64, out: &ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_std_multipart_builder_add_field(handle: u64, &name: ptr, name_len: u64, &value: ptr, value_len: u64) -> i32
+@extern sa_std_multipart_builder_add_file(handle: u64, &name: ptr, name_len: u64, &filename: ptr, filename_len: u64, &content_type: ptr, content_type_len: u64, &data: ptr, data_len: u64) -> i32
+@extern sa_std_multipart_builder_boundary(handle: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_std_multipart_builder_content_type(handle: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
 @extern sa_std_multipart_builder_finish(handle: u64, &out_handle: ptr) -> i32
 
 @extern sa_std_multipart_buffer_data(buffer: u64) -> &ptr

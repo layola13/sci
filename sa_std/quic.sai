@@ -28,8 +28,8 @@
 // endpoints and connections
 @extern sa_std_quic_endpoint_create(&out_handle: ptr) -> i32
 @extern sa_std_quic_endpoint_destroy(endpoint: u64) -> i32
-@extern sa_std_quic_client_connect(endpoint: u64, host: &ptr, host_len: u64, port: u32, server_name: &ptr, server_name_len: u64, ca_file: &ptr, ca_file_len: u64, alpn: &ptr, alpn_len: u64, &out_conn: ptr) -> i32
-@extern sa_std_quic_server_listen(endpoint: u64, port: u32, cert_file: &ptr, cert_file_len: u64, key_file: &ptr, key_file_len: u64) -> i32
+@extern sa_std_quic_client_connect(endpoint: u64, &host: ptr, host_len: u64, port: u32, &server_name: ptr, server_name_len: u64, &ca_file: ptr, ca_file_len: u64, &alpn: ptr, alpn_len: u64, &out_conn: ptr) -> i32
+@extern sa_std_quic_server_listen(endpoint: u64, port: u32, &cert_file: ptr, cert_file_len: u64, &key_file: ptr, key_file_len: u64) -> i32
 @extern sa_std_quic_server_poll(endpoint: u64, timeout_ms: u32) -> i32
 @extern sa_std_quic_server_accept(endpoint: u64, &out_conn: ptr) -> i32
 @extern sa_std_quic_conn_poll(conn: u64, timeout_ms: u32) -> i32
@@ -38,19 +38,19 @@
 
 // raw QUIC streams
 @extern sa_std_quic_stream_open(conn: u64, &out_stream_id: ptr) -> i32
-@extern sa_std_quic_stream_write(conn: u64, stream_id: i64, data: &ptr, data_len: u64, fin: u32, &out_written: ptr) -> i32
-@extern sa_std_quic_stream_read(conn: u64, stream_id: i64, out: &ptr, out_cap: u64, &out_read: ptr, &out_fin: ptr) -> i32
+@extern sa_std_quic_stream_write(conn: u64, stream_id: i64, &data: ptr, data_len: u64, fin: u32, &out_written: ptr) -> i32
+@extern sa_std_quic_stream_read(conn: u64, stream_id: i64, &out: ptr, out_cap: u64, &out_read: ptr, &out_fin: ptr) -> i32
 
 // HTTP/3 sessions (bound to a QUIC connection)
 @extern sa_std_http3_session_create(&out_handle: ptr) -> i32
 @extern sa_std_http3_session_bind(session: u64, quic_conn: u64) -> i32
 @extern sa_std_http3_session_destroy(session: u64) -> i32
-@extern sa_std_http3_submit_request(session: u64, method: &ptr, method_len: u64, authority: &ptr, authority_len: u64, path: &ptr, path_len: u64, body: &ptr, body_len: u64, &out_stream_id: ptr) -> i32
+@extern sa_std_http3_submit_request(session: u64, &method: ptr, method_len: u64, &authority: ptr, authority_len: u64, &path: ptr, path_len: u64, &body: ptr, body_len: u64, &out_stream_id: ptr) -> i32
 @extern sa_std_http3_server_next_request(session: u64, &out_stream_id: ptr) -> i32
-@extern sa_std_http3_request_field(session: u64, stream_id: i64, name: &ptr, name_len: u64, out: &ptr, out_cap: u64, &out_len: ptr) -> i32
-@extern sa_std_http3_submit_response(session: u64, stream_id: i64, status: u32, body: &ptr, body_len: u64) -> i32
+@extern sa_std_http3_request_field(session: u64, stream_id: i64, &name: ptr, name_len: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_std_http3_submit_response(session: u64, stream_id: i64, status: u32, &body: ptr, body_len: u64) -> i32
 @extern sa_std_http3_response_status(session: u64, stream_id: i64, &out_status: ptr) -> i32
-@extern sa_std_http3_stream_read(session: u64, stream_id: i64, out: &ptr, out_cap: u64, &out_read: ptr, &out_fin: ptr) -> i32
+@extern sa_std_http3_stream_read(session: u64, stream_id: i64, &out: ptr, out_cap: u64, &out_read: ptr, &out_fin: ptr) -> i32
 
 // buffer handle accessors (sci convention)
 @extern sa_std_quic_buffer_data(buffer: u64) -> &ptr

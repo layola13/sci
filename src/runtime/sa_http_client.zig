@@ -469,7 +469,11 @@ pub const HttpRequestAsyncOp = struct {
             .allocator = cloned_request.allocator,
             .request = cloned_request,
         };
-        self.thread = try std.Thread.spawn(.{}, HttpRequestAsyncOp.run, .{self});
+        if (comptime builtin.cpu.arch.isWasm()) {
+            HttpRequestAsyncOp.run(self);
+        } else {
+            self.thread = try std.Thread.spawn(.{}, HttpRequestAsyncOp.run, .{self});
+        }
         return self;
     }
 
@@ -1357,7 +1361,7 @@ pub export fn sa_http_client_websocket_connect(client: ?*anyopaque, url_ptr: ?[*
 // Spawns curl in the background writing the response body to a temp file
 // as it arrives (-N/--no-buffer). The caller polls and reads incrementally.
 
-var sse_stream_counter = std.atomic.Value(u64).init(0);
+var sse_stream_counter = std.atomic.Value(u32).init(0);
 
 const SseStream = struct {
     allocator: std.mem.Allocator,
@@ -1373,7 +1377,7 @@ const SseStream = struct {
 
 fn sseTempPath(allocator: std.mem.Allocator, suffix: []const u8) ![]u8 {
     const n = sse_stream_counter.fetchAdd(1, .monotonic);
-    const pid = std.os.linux.getpid();
+    const pid: i32 = if (comptime builtin.cpu.arch.isWasm()) 0 else std.os.linux.getpid();
     return std.fmt.allocPrint(allocator, "/tmp/scodex_sse_{d}_{d}.{s}", .{ pid, n, suffix });
 }
 
@@ -1412,6 +1416,22 @@ fn sseParseRetryAfter(header_path: []const u8) u64 {
 }
 
 fn sseCheckFinished(s: *SseStream) void {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return;
+    } else {
+        sseCheckFinishedNative(s);
+    }
+}
+
+fn sseCheckFinishedNative(s: *SseStream) void {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return;
+    } else {
+        sseCheckFinishedNativeNative(s);
+    }
+}
+
+fn sseCheckFinishedNativeNative(s: *SseStream) void {
     if (s.finished) return;
     // NOTE(Zig 0.17): `std.posix.waitpid` was removed; poll via raw Linux
     // wait4 with WNOHANG (curl SSE path is Linux-only in practice).
@@ -1443,7 +1463,7 @@ pub export fn sa_http_client_sse_post(
 ) u32 {
     const allocator = std.heap.page_allocator;
     const slot = out_handle orelse return 1;
-    const url = if (url_ptr) |p| p[0..url_len] else return 1;
+    const url = if (url_ptr) |p| p[0..@intCast(url_len)] else return 1;
 
     const body_path = sseTempPath(allocator, "body") catch return 1;
     errdefer allocator.free(body_path);
@@ -1457,7 +1477,7 @@ pub export fn sa_http_client_sse_post(
         const f = sio.cwd().createFile(req_body_path, .{}) catch return 1;
         defer f.close();
         if (body_ptr) |p| {
-            f.writeAll(p[0..body_len]) catch return 1;
+            f.writeAll(p[0..@intCast(body_len)]) catch return 1;
         }
     }
 
@@ -1478,7 +1498,7 @@ pub export fn sa_http_client_sse_post(
     var auth_buf: ?[]u8 = null;
     defer if (auth_buf) |a| allocator.free(a);
     if (key_ptr) |kp| {
-        auth_buf = std.fmt.allocPrint(allocator, "Authorization: Bearer {s}", .{kp[0..key_len]}) catch return 1;
+        auth_buf = std.fmt.allocPrint(allocator, "Authorization: Bearer {s}", .{kp[0..@intCast(key_len)]}) catch return 1;
         args.append("-H") catch return 1;
         args.append(auth_buf.?) catch return 1;
     }
@@ -1816,7 +1836,7 @@ fn sseReadNew(s: *SseStream, offset: *usize) ![]u8 {
     const size = stat.size;
     if (size <= offset.*) return try s.allocator.alloc(u8, 0);
     const len = size - offset.*;
-    var data = try s.allocator.alloc(u8, len);
+    var data = try s.allocator.alloc(u8, @intCast(len));
     errdefer s.allocator.free(data);
     try f.seekTo(offset.*);
     var n: usize = 0;
@@ -2126,7 +2146,7 @@ fn sseJsonEscape(out: *std.array_list.Managed(u8), s: []const u8) !void {
 
 pub export fn sa_http_client_sse_turn_free(ptr: ?[*]u8, len: u64) void {
     if (ptr) |p| {
-        const slice = p[0..len];
+        const slice = p[0..@intCast(len)];
         std.heap.page_allocator.free(slice);
     }
 }
@@ -2562,7 +2582,11 @@ const V2AsyncOp = struct {
         const self = try request.allocator.create(V2AsyncOp);
         errdefer request.allocator.destroy(self);
         self.* = .{ .allocator = request.allocator, .request = request };
-        self.thread = try std.Thread.spawn(.{}, run, .{self});
+        if (comptime builtin.cpu.arch.isWasm()) {
+            run(self);
+        } else {
+            self.thread = try std.Thread.spawn(.{}, run, .{self});
+        }
         return self;
     }
 
@@ -2725,6 +2749,19 @@ const WebSocketV2 = struct {
     closed: bool = false,
     io_mutex: std.atomic.Mutex = .unlocked,
 
+fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        var iov = [_]std.os.wasi.iovec_t{.{ .base = buf.ptr, .len = buf.len }};
+        var n: usize = 0;
+        const err = std.os.wasi.fd_read(fd, &iov, iov.len, &n);
+        if (err != .SUCCESS) return error.Io;
+        return n;
+    } else {
+        return std.posix.read(fd, buf);
+    }
+}
+
+
     fn rawRead(self: *WebSocketV2, buffer: []u8) V2Error!usize {
         if (self.tls_client) |t| {
             return t.reader.readSliceShort(buffer) catch return error.Io;
@@ -2734,7 +2771,7 @@ const WebSocketV2 = struct {
         // blocking socket fd directly with single-short-read shape.
         // Callers loop on need_more; handshake preserves over-read bytes
         // into receive_buffer explicitly.
-        return std.posix.read(self.stream.socket.handle, buffer) catch return error.Io;
+        return posixRead(self.stream.socket.handle, buffer) catch return error.Io;
     }
 
     fn rawWrite(self: *WebSocketV2, bytes: []const u8) V2Error!void {
@@ -3439,7 +3476,11 @@ const TestServer = struct {
         if (sysErr(linux.getsockname(fd, @ptrCast(&addr), &alen))) return error.GetsocknameFailed;
         const self = try testing.allocator.create(TestServer);
         self.* = .{ .thread = undefined, .port = std.mem.bigToNative(u16, addr.port), .listen_fd = fd };
-        self.thread = try std.Thread.spawn(.{}, runServer, .{ fd, handler });
+        if (comptime builtin.cpu.arch.isWasm()) {
+            return error.UnsupportedPlatform;
+        } else {
+            self.thread = try std.Thread.spawn(.{}, runServer, .{ fd, handler });
+        }
         return self;
     }
 

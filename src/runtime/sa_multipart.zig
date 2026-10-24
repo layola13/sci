@@ -9,6 +9,7 @@
 //! 2 invalid handle, 3 not found, 5 no memory, 9 truncated).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const sio = @import("sio");
 
 const OK: i32 = 0;
@@ -273,7 +274,7 @@ var builder_mu = std.Io.Mutex.init;
 var builder_map: std.AutoHashMapUnmanaged(u64, *Builder) = .empty;
 var builder_next: u64 = 1;
 
-var boundary_counter = std.atomic.Value(u64).init(0);
+var boundary_counter = std.atomic.Value(u32).init(0);
 
 pub export fn sa_std_multipart_builder_new(out_handle: ?*u64) i32 {
     const slot = out_handle orelse return ERR_INVALID;
@@ -282,7 +283,7 @@ pub export fn sa_std_multipart_builder_new(out_handle: ?*u64) i32 {
     const b = allocator.create(Builder) catch return ERR_NOMEM;
     errdefer allocator.destroy(b);
     const n = boundary_counter.fetchAdd(1, .monotonic);
-    const pid = std.os.linux.getpid();
+    const pid: i32 = if (comptime builtin.cpu.arch.isWasm()) 0 else std.os.linux.getpid();
     b.boundary = std.fmt.allocPrint(allocator, "----sa-std-multipart-{d}-{d}", .{ pid, n }) catch return ERR_NOMEM;
     b.allocator = allocator;
     b.body = std.array_list.Managed(u8).init(allocator);

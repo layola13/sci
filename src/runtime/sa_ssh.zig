@@ -21,6 +21,7 @@
 //! 3 not found, 4 access, 5 no memory, 6 io, 7 net, 8 unsupported).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const sio = @import("sio");
 
 const OK: i32 = 0;
@@ -105,6 +106,14 @@ var ssh2_tried: bool = false;
 var ssh2_mu = std.Io.Mutex.init;
 
 fn loadSsh2() ?*const Ssh2 {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return null;
+    } else {
+        return loadSsh2Native();
+    }
+}
+
+fn loadSsh2Native() ?*const Ssh2 {
     ssh2_mu.lockUncancelable(sio.io());
     defer ssh2_mu.unlock(sio.io());
     if (ssh2_api) |*a| return a;
@@ -162,6 +171,14 @@ fn toZ(allocator: std.mem.Allocator, s: []const u8) ?[:0]u8 {
 }
 
 fn tcpConnect(host: []const u8, port: u16) !i32 {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return error.UnsupportedPlatform;
+    } else {
+        return tcpConnectNative(host, port);
+    }
+}
+
+fn tcpConnectNative(host: []const u8, port: u16) !i32 {
     const host_z = toZ(ALLOC, host) orelse return error.OutOfMemory;
     defer ALLOC.free(host_z);
     var port_buf: [8]u8 = undefined;
@@ -178,7 +195,7 @@ fn tcpConnect(host: []const u8, port: u16) !i32 {
     const rc = std.os.linux.socket(std.posix.AF.INET, std.os.linux.SOCK.STREAM | std.os.linux.SOCK.CLOEXEC, 0);
     if (@as(isize, @bitCast(rc)) < 0) return error.SocketFailed;
     const fd: i32 = @intCast(rc);
-    errdefer _ = std.os.linux.close(fd);
+    errdefer lxClose(fd);
     // 20 s send/recv timeouts so blocking libssh2 calls cannot hang forever
     const tv = std.posix.timeval{ .sec = 20, .usec = 0 };
     _ = std.os.linux.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&tv).ptr, @sizeOf(std.posix.timeval));
@@ -205,18 +222,18 @@ pub export fn sa_std_ssh_client_connect(host: ?[*]const u8, host_len: u64, port:
     if (port == 0 or port > 65535) return ERR_INVALID;
     const fd = tcpConnect(host_ptr[0..@intCast(host_len)], @intCast(port)) catch return ERR_NET;
     const session = api.session_init(null, null, null, null) orelse {
-        _ = std.os.linux.close(fd);
+        lxClose(fd);
         return ERR_IO;
     };
     api.session_set_blocking(session, 1);
     if (api.session_handshake(session, fd) != 0) {
         _ = api.session_free(session);
-        _ = std.os.linux.close(fd);
+        lxClose(fd);
         return ERR_NET;
     }
     const client = ALLOC.create(Client) catch {
         _ = api.session_free(session);
-        _ = std.os.linux.close(fd);
+        lxClose(fd);
         return ERR_NOMEM;
     };
     client.* = .{ .api = api, .session = session, .fd = fd };
@@ -275,6 +292,28 @@ pub export fn sa_std_ssh_auth_keyfile(session: ?*anyopaque, user: ?[*]const u8, 
 
 const MAX_CAPTURE: usize = 64 * 1024 * 1024;
 
+fn lxClose(fd: i32) void {
+    if (comptime builtin.cpu.arch.isWasm()) {
+    } else {
+        _ = std.os.linux.close(fd);
+    }
+}
+
+fn sleepMs(ms: u32) void {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        var start: std.os.wasi.timestamp_t = 0;
+        _ = std.os.wasi.clock_time_get(.MONOTONIC, 0, &start);
+        const want: std.os.wasi.timestamp_t = @as(std.os.wasi.timestamp_t, ms) * std.time.ns_per_ms;
+        while (true) {
+            var now: std.os.wasi.timestamp_t = 0;
+            _ = std.os.wasi.clock_time_get(.MONOTONIC, 0, &now);
+            if (now - start >= want) break;
+        }
+    } else {
+        _ = std.os.linux.nanosleep(&.{ .sec = 0, .nsec = @as(i64, @intCast(ms)) * std.time.ns_per_ms }, null);
+    }
+}
+
 fn readChannelAll(api: *const Ssh2, channel: ?*anyopaque, stream: c_int, list: *std.array_list.Managed(u8)) !void {
     var buf: [16384]u8 = undefined;
     var eagain_spins: usize = 0;
@@ -291,7 +330,7 @@ fn readChannelAll(api: *const Ssh2, channel: ?*anyopaque, stream: c_int, list: *
             // surface EAGAIN while the transport flushes; retry.
             eagain_spins += 1;
             if (eagain_spins > 15000) return error.Io;
-            _ = std.os.linux.nanosleep(&.{ .sec = 0, .nsec = 2 * std.time.ns_per_ms }, null);
+            sleepMs(2);
         } else if (n == -43) {
             // LIBSSH2_ERROR_CHANNEL_CLOSED: a fast server that sends
             // data + exit status + EOF + CLOSE in one burst makes
@@ -328,7 +367,7 @@ pub export fn sa_std_ssh_exec(session: ?*anyopaque, command: ?[*]const u8, comma
         if (src == 0) break;
         if (src != -37 or startup_spins >= 5000) return ERR_IO;
         startup_spins += 1;
-        _ = std.os.linux.nanosleep(&.{ .sec = 0, .nsec = 2 * std.time.ns_per_ms }, null);
+        sleepMs(2);
     }
     var out_list = std.array_list.Managed(u8).init(ALLOC);
     errdefer out_list.deinit();
@@ -374,7 +413,7 @@ pub export fn sa_std_ssh_sftp_read(session: ?*anyopaque, path: ?[*]const u8, pat
         } else if (n == -37) {
             sftp_spins += 1;
             if (sftp_spins > 15000) return ERR_IO;
-            _ = std.os.linux.nanosleep(&.{ .sec = 0, .nsec = 2 * std.time.ns_per_ms }, null);
+            sleepMs(2);
         } else return ERR_IO;
     }
     slot.* = registerBuffer(list.toOwnedSlice() catch return ERR_NOMEM) catch return ERR_NOMEM;
@@ -398,7 +437,7 @@ pub export fn sa_std_ssh_sftp_write(session: ?*anyopaque, path: ?[*]const u8, pa
         if (n == -37) {
             write_spins += 1;
             if (write_spins > 15000) return ERR_IO;
-            _ = std.os.linux.nanosleep(&.{ .sec = 0, .nsec = 2 * std.time.ns_per_ms }, null);
+            sleepMs(2);
             continue;
         }
         if (n <= 0) return ERR_IO;
@@ -428,7 +467,7 @@ pub export fn sa_std_ssh_session_close(session: ?*anyopaque) i32 {
     if (client.sftp) |s| _ = client.api.sftp_shutdown(s);
     _ = client.api.session_disconnect(client.session, 11, "bye", "");
     _ = client.api.session_free(client.session);
-    _ = std.os.linux.close(client.fd);
+    lxClose(client.fd);
     ALLOC.destroy(client);
     return OK;
 }
@@ -476,6 +515,14 @@ var ssh_tried: bool = false;
 var ssh_mu = std.Io.Mutex.init;
 
 fn loadSsh() ?*const Ssh {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return null;
+    } else {
+        return loadSshNative();
+    }
+}
+
+fn loadSshNative() ?*const Ssh {
     ssh_mu.lockUncancelable(sio.io());
     defer ssh_mu.unlock(sio.io());
     if (ssh_api) |*a| return a;
@@ -849,7 +896,7 @@ fn freePort() !u16 {
     const rc = std.os.linux.socket(std.posix.AF.INET, std.os.linux.SOCK.STREAM | std.os.linux.SOCK.CLOEXEC, 0);
     if (@as(isize, @bitCast(rc)) < 0) return error.SocketFailed;
     const fd: i32 = @intCast(rc);
-    defer _ = std.os.linux.close(fd);
+    defer lxClose(fd);
     var addr = std.posix.sockaddr.in{ .family = std.posix.AF.INET, .port = 0, .addr = @bitCast([4]u8{ 127, 0, 0, 1 }) };
     if (@as(isize, @bitCast(std.os.linux.bind(fd, @ptrCast(&addr), @sizeOf(std.posix.sockaddr.in)))) < 0) return error.BindFailed;
     var alen: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.in);

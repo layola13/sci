@@ -12,21 +12,21 @@
 @extern sa_std_ssh_buffer_free(^buffer: u64) -> i32
 
 // ---- client ----
-@extern sa_std_ssh_client_connect(host: &ptr, host_len: u64, port: u32, &out_session: ptr) -> i32
-@extern sa_std_ssh_hostkey_fingerprint(session: ptr, out: &ptr, cap: u64, &out_len: ptr) -> i32
-@extern sa_std_ssh_auth_password(session: ptr, user: &ptr, user_len: u64, password: &ptr, password_len: u64) -> i32
-@extern sa_std_ssh_auth_keyfile(session: ptr, user: &ptr, user_len: u64, pub_path: &ptr, pub_path_len: u64, priv_path: &ptr, priv_path_len: u64, passphrase: &ptr, passphrase_len: u64) -> i32
-@extern sa_std_ssh_exec(session: ptr, command: &ptr, command_len: u64, &out_stdout: ptr, &out_stderr: ptr, &out_exit: ptr) -> i32
-@extern sa_std_ssh_sftp_read(session: ptr, path: &ptr, path_len: u64, &out_handle: ptr) -> i32
-@extern sa_std_ssh_sftp_write(session: ptr, path: &ptr, path_len: u64, data: &ptr, data_len: u64) -> i32
-@extern sa_std_ssh_sftp_stat(session: ptr, path: &ptr, path_len: u64, &out_size: ptr, &out_is_dir: ptr) -> i32
+@extern sa_std_ssh_client_connect(&host: ptr, host_len: u64, port: u32, &out_session: ptr) -> i32
+@extern sa_std_ssh_hostkey_fingerprint(session: ptr, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_std_ssh_auth_password(session: ptr, &user: ptr, user_len: u64, &password: ptr, password_len: u64) -> i32
+@extern sa_std_ssh_auth_keyfile(session: ptr, &user: ptr, user_len: u64, &pub_path: ptr, pub_path_len: u64, &priv_path: ptr, priv_path_len: u64, &passphrase: ptr, passphrase_len: u64) -> i32
+@extern sa_std_ssh_exec(session: ptr, &command: ptr, command_len: u64, &out_stdout: ptr, &out_stderr: ptr, &out_exit: ptr) -> i32
+@extern sa_std_ssh_sftp_read(session: ptr, &path: ptr, path_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_ssh_sftp_write(session: ptr, &path: ptr, path_len: u64, &data: ptr, data_len: u64) -> i32
+@extern sa_std_ssh_sftp_stat(session: ptr, &path: ptr, path_len: u64, &out_size: ptr, &out_is_dir: ptr) -> i32
 @extern sa_std_ssh_session_close(^session: ptr) -> i32
 
 // ---- server ----
 // auth_next kinds: 1 = password (secret = password), 2 = public key
 // (secret = base64 key blob; state 0 = query only, 1 = signed).
 // channel_exec kinds: 1 = exec (command buffer), 2 = shell.
-@extern sa_std_ssh_server_listen(bind_addr: &ptr, bind_addr_len: u64, port: u32, hostkey_path: &ptr, hostkey_path_len: u64, &out_bind: ptr) -> i32
+@extern sa_std_ssh_server_listen(&bind_addr: ptr, bind_addr_len: u64, port: u32, &hostkey_path: ptr, hostkey_path_len: u64, &out_bind: ptr) -> i32
 @extern sa_std_ssh_server_bind_close(^bind: ptr) -> i32
 @extern sa_std_ssh_server_accept(bind: ptr, &out_session: ptr) -> i32
 @extern sa_std_ssh_server_auth_next(session: ptr, &out_kind: ptr, &out_user: ptr, &out_secret: ptr, &out_state: ptr) -> i32
@@ -34,8 +34,8 @@
 @extern sa_std_ssh_server_auth_deny(session: ptr) -> i32
 @extern sa_std_ssh_server_channel_accept(session: ptr, &out_channel: ptr) -> i32
 @extern sa_std_ssh_server_channel_exec(session: ptr, &out_kind: ptr, &out_command: ptr) -> i32
-@extern sa_std_ssh_channel_write(channel: ptr, stream: u32, data: &ptr, data_len: u64, &out_written: ptr) -> i32
-@extern sa_std_ssh_channel_read(channel: ptr, stream: u32, out: &ptr, cap: u64, &out_read: ptr) -> i32
+@extern sa_std_ssh_channel_write(channel: ptr, stream: u32, &data: ptr, data_len: u64, &out_written: ptr) -> i32
+@extern sa_std_ssh_channel_read(channel: ptr, stream: u32, &out: ptr, cap: u64, &out_read: ptr) -> i32
 @extern sa_std_ssh_channel_send_exit(channel: ptr, exit_code: i32) -> i32
 @extern sa_std_ssh_channel_close(^channel: ptr) -> i32
 @extern sa_std_ssh_server_session_close(^session: ptr) -> i32

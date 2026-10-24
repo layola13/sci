@@ -296,6 +296,14 @@ var h3_api: ?H3Api = null;
 var api_mutex = std.Io.Mutex.init;
 
 fn openFirst(candidates: []const []const u8) ?std.DynLib {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return null;
+    } else {
+        return openFirstNative(candidates);
+    }
+}
+
+fn openFirstNative(candidates: []const []const u8) ?std.DynLib {
     for (candidates) |c| {
         if (std.DynLib.open(c)) |lib| return lib else |_| {}
     }
@@ -303,6 +311,14 @@ fn openFirst(candidates: []const []const u8) ?std.DynLib {
 }
 
 fn loadNgApi() ?*NgApi {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return null;
+    } else {
+        return loadNgApiNative();
+    }
+}
+
+fn loadNgApiNative() ?*NgApi {
     if (comptime builtin.cpu.arch.isWasm()) return null;
     api_mutex.lockUncancelable(sio.io());
     defer api_mutex.unlock(sio.io());
@@ -378,6 +394,14 @@ fn loadGnuApi() ?*GnuApi {
 }
 
 fn loadH3Api() ?*H3Api {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return null;
+    } else {
+        return loadH3ApiNative();
+    }
+}
+
+fn loadH3ApiNative() ?*H3Api {
     if (comptime builtin.cpu.arch.isWasm()) return null;
     api_mutex.lockUncancelable(sio.io());
     defer api_mutex.unlock(sio.io());
@@ -412,7 +436,9 @@ fn quicStackAvailable() bool {
 
 // ---- connection objects -------------------------------------------------------
 
-const SockStorage = std.posix.sockaddr.storage;
+const SockStorageWasm = extern struct { bytes: [128]u8 align(8) };
+const SockStorage = if (builtin.cpu.arch.isWasm()) SockStorageWasm else std.posix.sockaddr.storage;
+const SockAddrIn = if (builtin.cpu.arch.isWasm()) [16]u8 else std.posix.sockaddr.in;
 
 const RawStream = struct {
     recv: std.ArrayListUnmanaged(u8) = .empty,
@@ -455,9 +481,9 @@ const QuicConn = struct {
     }
     fn sendPacket(self: *QuicConn, bytes: []const u8) void {
         if (self.owns_fd) {
-            _ = std.os.linux.sendto(self.fd, bytes.ptr, bytes.len, 0, null, 0);
+            _ = lxSendTo(self.fd, bytes.ptr, bytes.len, 0, null, 0);
         } else {
-            _ = std.os.linux.sendto(self.fd, bytes.ptr, bytes.len, 0, @ptrCast(&self.peer), self.peer_len);
+            _ = lxSendTo(self.fd, bytes.ptr, bytes.len, 0, &self.peer, self.peer_len);
         }
     }
     fn getStream(self: *QuicConn, id: i64) ?*RawStream {
@@ -603,7 +629,7 @@ fn buildTransportParams(ng: *NgApi, original_dcid: ?NgCid) [NG_TP_SIZE]u8 {
     writeTpField(&b, NG_TP_OFF_MAX_IDLE_TIMEOUT, 30_000_000_000);
     writeTpField(&b, NG_TP_OFF_ACTIVE_CID_LIMIT, 4);
     if (original_dcid) |cid| {
-        std.mem.writeInt(usize, b[NG_TP_OFF_ORIGINAL_DCID..][0..8], cid.datalen, .little);
+        std.mem.writeInt(u64, b[NG_TP_OFF_ORIGINAL_DCID..][0..8], cid.datalen, .little);
         @memcpy(b[NG_TP_OFF_ORIGINAL_DCID + 8 ..][0..20], &cid.data);
     }
     return b;
@@ -611,7 +637,15 @@ fn buildTransportParams(ng: *NgApi, original_dcid: ?NgCid) [NG_TP_SIZE]u8 {
 
 // ---- UDP + address helpers ------------------------------------------------------
 
-fn parseIp4Literal(host: []const u8, port: u16) ?std.posix.sockaddr.in {
+fn parseIp4Literal(host: []const u8, port: u16) ?SockAddrIn {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return null;
+    } else {
+        return parseIp4LiteralNative(host, port);
+    }
+}
+
+fn parseIp4LiteralNative(host: []const u8, port: u16) ?SockAddrIn {
     var addr: u32 = 0;
     var part: u32 = 0;
     var dots: usize = 0;
@@ -637,7 +671,54 @@ fn parseIp4Literal(host: []const u8, port: u16) ?std.posix.sockaddr.in {
     };
 }
 
-fn resolveIp4(host: []const u8, port: u16) !std.posix.sockaddr.in {
+fn lxClose(fd: i32) void {
+    if (comptime builtin.cpu.arch.isWasm()) {
+    } else {
+        lxClose(fd);
+    }
+}
+
+fn lxSendTo(fd: i32, buf: [*]const u8, len: usize, flags: u32, dest: ?*const SockStorage, dest_len: std.posix.socklen_t) isize {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return -1;
+    } else {
+        return @bitCast(std.os.linux.sendto(fd, buf, len, flags, @ptrCast(dest), dest_len));
+    }
+}
+
+fn lxConnect(fd: i32, storage: *const SockStorage, len: std.posix.socklen_t) isize {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return -1;
+    } else {
+        return @bitCast(std.os.linux.connect(fd, @ptrCast(storage), len));
+    }
+}
+
+fn lxBind(fd: i32, storage: *const SockStorage, len: std.posix.socklen_t) isize {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return -1;
+    } else {
+        return @bitCast(std.os.linux.bind(fd, @ptrCast(storage), len));
+    }
+}
+
+fn lxRecvFrom(fd: i32, buf: [*]u8, len: usize, flags: u32, src: ?*SockStorage, src_len: ?*std.posix.socklen_t) isize {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return -1;
+    } else {
+        return @bitCast(std.os.linux.recvfrom(fd, buf, len, flags, @ptrCast(src), src_len));
+    }
+}
+
+fn resolveIp4(host: []const u8, port: u16) !SockAddrIn {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return error.UnsupportedPlatform;
+    } else {
+        return resolveIp4Native(host, port);
+    }
+}
+
+fn resolveIp4Native(host: []const u8, port: u16) !SockAddrIn {
     if (parseIp4Literal(host, port)) |a| return a;
     if (std.mem.eql(u8, host, "localhost")) return parseIp4Literal("127.0.0.1", port).?;
     const host_z = toZ(std.heap.page_allocator, host) orelse return error.OutOfMemory;
@@ -658,19 +739,35 @@ fn resolveIp4(host: []const u8, port: u16) !std.posix.sockaddr.in {
     return sa.*;
 }
 
-fn storageFromIn(sa: std.posix.sockaddr.in) struct { storage: SockStorage, len: std.posix.socklen_t } {
+fn storageFromIn(sa: SockAddrIn) struct { storage: SockStorage, len: std.posix.socklen_t } {
     var storage: SockStorage = undefined;
-    @memcpy(std.mem.asBytes(&storage)[0..@sizeOf(std.posix.sockaddr.in)], std.mem.asBytes(&sa));
-    return .{ .storage = storage, .len = @sizeOf(std.posix.sockaddr.in) };
+    @memcpy(std.mem.asBytes(&storage)[0..@sizeOf(SockAddrIn)], std.mem.asBytes(&sa));
+    return .{ .storage = storage, .len = @sizeOf(SockAddrIn) };
 }
 
 fn udpSocket() !std.posix.fd_t {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return error.UnsupportedPlatform;
+    } else {
+        return udpSocketNative();
+    }
+}
+
+fn udpSocketNative() !std.posix.fd_t {
     const rc = std.os.linux.socket(std.posix.AF.INET, std.os.linux.SOCK.DGRAM | std.os.linux.SOCK.CLOEXEC | std.os.linux.SOCK.NONBLOCK, 0);
     if (@as(isize, @bitCast(rc)) < 0) return error.SocketFailed;
     return @intCast(rc);
 }
 
 fn socketLocalAddr(fd: std.posix.fd_t, out: *SockStorage, out_len: *std.posix.socklen_t) !void {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return error.UnsupportedPlatform;
+    } else {
+        return socketLocalAddrNative(fd, out, out_len);
+    }
+}
+
+fn socketLocalAddrNative(fd: std.posix.fd_t, out: *SockStorage, out_len: *std.posix.socklen_t) !void {
     out_len.* = @sizeOf(SockStorage);
     const rc = std.os.linux.getsockname(fd, @ptrCast(out), out_len);
     if (@as(isize, @bitCast(rc)) < 0) return error.GetsocknameFailed;
@@ -879,9 +976,9 @@ pub export fn sa_std_quic_client_connect(endpoint: u64, host_ptr: ?[*]const u8, 
 
     const addr = resolveIp4(host, @intCast(port)) catch return SA_STD_ERR_IO;
     const fd = udpSocket() catch return SA_STD_ERR_IO;
-    errdefer _ = std.os.linux.close(fd);
+    errdefer lxClose(fd);
     const peer_st = storageFromIn(addr);
-    if (@as(isize, @bitCast(std.os.linux.connect(fd, @ptrCast(&peer_st.storage), peer_st.len))) < 0) return SA_STD_ERR_IO;
+    if (lxConnect(fd, &peer_st.storage, peer_st.len) < 0) return SA_STD_ERR_IO;
 
     const qc = std.heap.page_allocator.create(QuicConn) catch return SA_STD_ERR_NO_MEMORY;
     errdefer std.heap.page_allocator.destroy(qc);
@@ -907,7 +1004,7 @@ pub export fn sa_std_quic_client_connect(endpoint: u64, host_ptr: ?[*]const u8, 
     if (ng.conn_client_new(&conn, &dcid, &scid, &p, NG_PROTO_VER_V1, 1, &cbs, 1, &settings, 1, &tp, null, qc) != 0) {
         if (qc.session) |sess| ga.deinit(sess);
         if (qc.cred) |c| ga.cert_free(c);
-        _ = std.os.linux.close(fd);
+        lxClose(fd);
         std.heap.page_allocator.destroy(qc);
         return SA_STD_ERR_IO;
     }
@@ -939,10 +1036,10 @@ pub export fn sa_std_quic_server_listen(endpoint: u64, port: u32, cert_ptr: ?[*]
     if (ga.cert_key_file(cred, cert_z.ptr, key_z.ptr, GNUTLS_X509_FMT_PEM) < 0) return SA_STD_ERR_IO;
 
     const fd = udpSocket() catch return SA_STD_ERR_IO;
-    errdefer _ = std.os.linux.close(fd);
+    errdefer lxClose(fd);
     const bind_addr = parseIp4Literal("0.0.0.0", @intCast(port)).?;
     const bs = storageFromIn(bind_addr);
-    if (@as(isize, @bitCast(std.os.linux.bind(fd, @ptrCast(&bs.storage), bs.len))) < 0) return SA_STD_ERR_IO;
+    if (lxBind(fd, &bs.storage, bs.len) < 0) return SA_STD_ERR_IO;
 
     const l = std.heap.page_allocator.create(QuicListener) catch return SA_STD_ERR_NO_MEMORY;
     l.* = .{ .fd = fd, .cred = cred };
@@ -965,7 +1062,7 @@ fn destroyListener(l: *QuicListener) void {
         if (ga) |g| g.cert_free(c);
     }
     _ = ng;
-    _ = std.os.linux.close(l.fd);
+    lxClose(l.fd);
     std.heap.page_allocator.destroy(l);
 }
 
@@ -1000,7 +1097,7 @@ fn destroyConn(qc: *QuicConn, send_close: bool) void {
         std.heap.page_allocator.destroy(sp.*);
     }
     qc.streams.deinit(std.heap.page_allocator);
-    if (qc.owns_fd) _ = std.os.linux.close(qc.fd);
+    if (qc.owns_fd) lxClose(qc.fd);
     std.heap.page_allocator.destroy(qc);
 }
 
@@ -1126,9 +1223,9 @@ pub export fn sa_std_quic_server_poll(endpoint: u64, timeout_ms: u32) i32 {
     while (guard_n < 256) : (guard_n += 1) {
         var src: SockStorage = undefined;
         var src_len: std.posix.socklen_t = @sizeOf(SockStorage);
-        const rc = std.os.linux.recvfrom(l.fd, &buf, buf.len, 0, @ptrCast(&src), &src_len);
-        if (@as(isize, @bitCast(rc)) <= 0) break;
-        const n = rc;
+        const rc = lxRecvFrom(l.fd, &buf, buf.len, 0, &src, &src_len);
+        if (rc <= 0) break;
+        const n: usize = @intCast(rc);
         dispatchDatagram(l, buf[0..n], &src, src_len);
     }
     for (l.conns.items) |qc| driveConnTimersAndFlush(qc);
@@ -1172,9 +1269,9 @@ pub export fn sa_std_quic_conn_poll(handle: u64, timeout_ms: u32) i32 {
     var buf: [65536]u8 = undefined;
     var guard_n: usize = 0;
     while (guard_n < 256) : (guard_n += 1) {
-        const rc = std.os.linux.recvfrom(qc.fd, &buf, buf.len, 0, null, null);
-        if (@as(isize, @bitCast(rc)) <= 0) break;
-        const n = rc;
+        const rc = lxRecvFrom(qc.fd, &buf, buf.len, 0, null, null);
+        if (rc <= 0) break;
+        const n: usize = @intCast(rc);
         var p = qc.path();
         var pi = NgPktInfo{ .ecn = 0 };
         _ = ng.conn_read_pkt(qc.conn, &p, 1, &pi, &buf, n, nowNs());
@@ -1929,11 +2026,19 @@ fn makeCertPair(allocator: std.mem.Allocator, dirpath: []const u8) !struct { cer
 }
 
 fn freeUdpPort() !u16 {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return error.UnsupportedPlatform;
+    } else {
+        return freeUdpPortNative();
+    }
+}
+
+fn freeUdpPortNative() !u16 {
     const fd = try udpSocket();
-    defer _ = std.os.linux.close(fd);
+    defer lxClose(fd);
     const addr = parseIp4Literal("127.0.0.1", 0).?;
     const bs = storageFromIn(addr);
-    if (@as(isize, @bitCast(std.os.linux.bind(fd, @ptrCast(&bs.storage), bs.len))) < 0) return error.BindFailed;
+    if (lxBind(fd, &bs.storage, bs.len) < 0) return error.BindFailed;
     var storage: SockStorage = undefined;
     var len: std.posix.socklen_t = @sizeOf(SockStorage);
     try socketLocalAddr(fd, &storage, &len);

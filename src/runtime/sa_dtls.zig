@@ -75,6 +75,14 @@ var dtls_api: ?DtlsApi = null;
 var dtls_api_mutex = std.Io.Mutex.init;
 
 fn loadDtlsApi() ?*DtlsApi {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return null;
+    } else {
+        return loadDtlsApiNative();
+    }
+}
+
+fn loadDtlsApiNative() ?*DtlsApi {
     if (comptime builtin.cpu.arch.isWasm()) return null;
     dtls_api_mutex.lockUncancelable(sio.io());
     defer dtls_api_mutex.unlock(sio.io());
