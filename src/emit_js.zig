@@ -5806,9 +5806,11 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\  if (!it || it.kind !== "builder") return 2;
                 \\  const enc = new globalThis.TextEncoder();
                 \\  const chunks = [];
-                \\  chunks.push(enc.encode("--" + it.boundary));
+                \\  let first = true;
                 \\  for (const item of it.list) {
-                \\    chunks.push(enc.encode("\r\nContent-Disposition: form-data; name=\""));
+                \\    if (!first) chunks.push(enc.encode("\r\n"));
+                \\    first = false;
+                \\    chunks.push(enc.encode("--" + it.boundary + "\r\nContent-Disposition: form-data; name=\""));
                 \\    chunks.push(item.name);
                 \\    if (item.filename !== null) {
                 \\      chunks.push(enc.encode("\"; filename=\""));

@@ -1,0 +1,168 @@
+@import "sa_std/io/print.sai"
+@import "sa_std/compress.sai"
+
+// 963 - compress checksum: gzip round trip must be byte-exact.
+// The djb2-style checksum over the decoded bytes must equal the
+// checksum over the original constant, on every backend.
+
+@const DATA = utf8:"hello hello hello hello"
+@const RESULT_OK = utf8:"ok\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def DATA_LEN = 23
+
+@fnv_update(h: u64, &p: ptr, len: u64) -> u64:
+L_ENTRY:
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u64
+    h_slot = stack_alloc 8
+    store h_slot+0, h as u64
+    !h
+    jmp L_COND
+
+L_COND:
+    i = load i_slot+0 as u64
+    more = ult i, len
+    br more -> L_BODY, L_END
+
+L_BODY:
+    bp = ptr_add p, i
+    b = load bp+0 as u8
+    w = zext b as u64
+    hh = load h_slot+0 as u64
+    m = mul hh, 33
+    nh = add m, w
+    store h_slot+0, nh as u64
+    next = add i, 1
+    store i_slot+0, next as u64
+    !bp
+    !b
+    !w
+    !hh
+    !m
+    !nh
+    !next
+    !i
+    !more
+    jmp L_COND
+
+L_END:
+    !i
+    !more
+    !len
+    !p
+    out = load h_slot+0 as u64
+    return out
+
+@main() -> i32:
+L_ENTRY:
+    flags = stack_alloc 8
+    store flags+0, 0 as u64
+    fp = ptr_add flags, 0
+    st = call @sa_std_compress_supported(&fp)
+    !fp
+    bad0 = ne st, 0
+    !st
+    br bad0 -> L_FAIL0, L_1
+
+L_FAIL0:
+    !bad0
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
+
+L_1:
+    !bad0
+    fl = load flags+0 as u64
+    bit = and fl, 1
+    !fl
+    has = ne bit, 0
+    !bit
+    br has -> L_2, L_FAIL1
+
+L_FAIL1:
+    !has
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
+
+L_2:
+    !has
+    enc = stack_alloc 8
+    store enc+0, 0 as u64
+    fmt = 1
+    eo = ptr_add enc, 0
+    st2 = call @sa_std_compress_encode(fmt, &DATA, DATA_LEN, &eo)
+    !eo
+    !fmt
+    bad2 = ne st2, 0
+    !st2
+    br bad2 -> L_FAIL2, L_3
+
+L_FAIL2:
+    !bad2
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 2
+
+L_3:
+    !bad2
+    eh = load enc+0 as u64
+    ep = call @sa_std_compress_buffer_data(eh)
+    !eh
+    eh2 = load enc+0 as u64
+    el = call @sa_std_compress_buffer_len(eh2)
+    !eh2
+    dec = stack_alloc 8
+    store dec+0, 0 as u64
+    fmt2 = 1
+    do_ = ptr_add dec, 0
+    st3 = call @sa_std_compress_decode(fmt2, &ep, el, &do_)
+    !do_
+    !fmt2
+    !ep
+    !el
+    bad3 = ne st3, 0
+    !st3
+    br bad3 -> L_FAIL3, L_4
+
+L_FAIL3:
+    !bad3
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 3
+
+L_4:
+    !bad3
+    dh = load dec+0 as u64
+    dp = call @sa_std_compress_buffer_data(dh)
+    !dh
+    dh2 = load dec+0 as u64
+    dl = call @sa_std_compress_buffer_len(dh2)
+    !dh2
+    okl = eq dl, DATA_LEN
+    br okl -> L_5, L_FAIL4
+
+L_FAIL4:
+    !okl
+    !dp
+    !dl
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 4
+
+L_5:
+    !okl
+    h1 = call @fnv_update(5381, &DATA, DATA_LEN)
+    h2 = call @fnv_update(5381, &dp, dl)
+    !dp
+    !dl
+    okh = eq h1, h2
+    !h1
+    !h2
+    br okh -> L_OK, L_FAIL5
+
+L_FAIL5:
+    !okh
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 5
+
+L_OK:
+    !okh
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0

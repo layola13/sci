@@ -1,0 +1,486 @@
+@import "sa_std/io/print.sai"
+@import "sa_std/multipart.sai"
+
+// 964 - multipart checksum: parse a fixed form-data body, checksum
+// the part bodies, then rebuild with the builder, re-parse the built
+// bytes and require the same checksum. Byte-exact on every backend;
+// the generated boundary never enters the compared data.
+
+@const BODY = utf8:"--X\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n1\r\n--X\r\nContent-Disposition: form-data; name=\"f\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nDATA\r\n--X--\r\n"
+@const CT = utf8:"multipart/form-data; boundary=X"
+@const NAME_A = utf8:"a"
+@const NAME_F = utf8:"f"
+@const V1 = utf8:"1"
+@const F1 = utf8:"DATA"
+@const FNAME = utf8:"x.txt"
+@const CTP = utf8:"text/plain"
+@const RESULT_OK = utf8:"ok\n"
+@const RESULT_ERR = utf8:"error\n"
+
+#def BODY_LEN = 158
+#def CT_LEN = 31
+
+@fnv_update(h: u64, &p: ptr, len: u64) -> u64:
+L_ENTRY:
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u64
+    h_slot = stack_alloc 8
+    store h_slot+0, h as u64
+    !h
+    jmp L_COND
+
+L_COND:
+    i = load i_slot+0 as u64
+    more = ult i, len
+    br more -> L_BODY, L_END
+
+L_BODY:
+    bp = ptr_add p, i
+    b = load bp+0 as u8
+    w = zext b as u64
+    hh = load h_slot+0 as u64
+    m = mul hh, 33
+    nh = add m, w
+    store h_slot+0, nh as u64
+    next = add i, 1
+    store i_slot+0, next as u64
+    !bp
+    !b
+    !w
+    !hh
+    !m
+    !nh
+    !next
+    !i
+    !more
+    jmp L_COND
+
+L_END:
+    !i
+    !more
+    !len
+    !p
+    out = load h_slot+0 as u64
+    return out
+
+@main() -> i32:
+L_ENTRY:
+    h = stack_alloc 8
+    store h+0, 0 as u64
+    ho = ptr_add h, 0
+    st = call @sa_std_multipart_parse(&BODY, BODY_LEN, &CT, CT_LEN, &ho)
+    !ho
+    bad = ne st, 0
+    !st
+    br bad -> L_FAIL_bad, L_1
+
+L_1:
+    !bad
+    hv = load h+0 as u64
+    cnt = call @sa_std_multipart_count(hv)
+    !hv
+    okc = eq cnt, 2
+    !cnt
+    br okc -> L_2, L_FAIL_okc
+
+L_2:
+    !okc
+    bp = stack_alloc 8
+    store bp+0, 0 as ptr
+    bl = stack_alloc 8
+    store bl+0, 0 as u64
+    hv2 = load h+0 as u64
+    bpo = ptr_add bp, 0
+    blo = ptr_add bl, 0
+    st2 = call @sa_std_multipart_part_body(hv2, 0, &bpo, &blo)
+    !hv2
+    !bpo
+    !blo
+    bad2 = ne st2, 0
+    !st2
+    br bad2 -> L_FAIL_bad2, L_3
+
+L_3:
+    !bad2
+    blv = load bl+0 as u64
+    okl = eq blv, 1
+    !blv
+    br okl -> L_4, L_FAIL_okl
+
+L_4:
+    !okl
+    pv = load bp+0 as ptr
+    ha = call @fnv_update(5381, &pv, 1)
+    !pv
+    hv3 = load h+0 as u64
+    bpo2 = ptr_add bp, 0
+    blo2 = ptr_add bl, 0
+    st3 = call @sa_std_multipart_part_body(hv3, 1, &bpo2, &blo2)
+    !hv3
+    !bpo2
+    !blo2
+    bad3 = ne st3, 0
+    !st3
+    br bad3 -> L_FAIL_bad3, L_5
+
+L_5:
+    !bad3
+    blv2 = load bl+0 as u64
+    okl2 = eq blv2, 4
+    !blv2
+    br okl2 -> L_6, L_FAIL_okl2
+
+L_6:
+    !okl2
+    pv2 = load bp+0 as ptr
+    hb = call @fnv_update(ha, &pv2, 4)
+    !pv2
+    !ha
+    e1 = call @fnv_update(5381, &V1, 1)
+    e2 = call @fnv_update(e1, &F1, 4)
+    !e1
+    oke = eq hb, e2
+    !hb
+    br oke -> L_7, L_FAIL_oke
+
+L_7:
+    !oke
+    !e2
+    nb = stack_alloc 64
+    nl = stack_alloc 8
+    store nl+0, 0 as u64
+    hv4 = load h+0 as u64
+    nbo = ptr_add nb, 0
+    nlo = ptr_add nl, 0
+    st4 = call @sa_std_multipart_part_name(hv4, 0, &nbo, 64, &nlo)
+    !hv4
+    !nbo
+    !nlo
+    bad4 = ne st4, 0
+    !st4
+    br bad4 -> L_FAIL_bad4, L_8
+
+L_8:
+    !bad4
+    nlv = load nl+0 as u64
+    okn = eq nlv, 1
+    !nlv
+    br okn -> L_9, L_FAIL_okn
+
+L_9:
+    !okn
+    fb = stack_alloc 64
+    fl = stack_alloc 8
+    store fl+0, 0 as u64
+    hv5 = load h+0 as u64
+    fbo = ptr_add fb, 0
+    flo = ptr_add fl, 0
+    st5 = call @sa_std_multipart_part_filename(hv5, 1, &fbo, 64, &flo)
+    !hv5
+    !fbo
+    !flo
+    bad5 = ne st5, 0
+    !st5
+    br bad5 -> L_FAIL_bad5, L_10
+
+L_10:
+    !bad5
+    flv = load fl+0 as u64
+    okf = eq flv, 5
+    !flv
+    br okf -> L_11, L_FAIL_okf
+
+L_11:
+    !okf
+    fbp = ptr_add fb, 0
+    hf = call @fnv_update(5381, &fbp, 5)
+    !fbp
+    ef = call @fnv_update(5381, &FNAME, 5)
+    okhf = eq hf, ef
+    !hf
+    !ef
+    br okhf -> L_12, L_FAIL_okhf
+
+L_12:
+    !okhf
+    b = stack_alloc 8
+    store b+0, 0 as u64
+    bo = ptr_add b, 0
+    st6 = call @sa_std_multipart_builder_new(&bo)
+    !bo
+    bad6 = ne st6, 0
+    !st6
+    br bad6 -> L_FAIL_bad6, L_13
+
+L_13:
+    !bad6
+    bv = load b+0 as u64
+    st7 = call @sa_std_multipart_builder_add_field(bv, &NAME_A, 1, &V1, 1)
+    !bv
+    bad7 = ne st7, 0
+    !st7
+    br bad7 -> L_FAIL_bad7, L_14
+
+L_14:
+    !bad7
+    bv2 = load b+0 as u64
+    st8 = call @sa_std_multipart_builder_add_file(bv2, &NAME_F, 1, &FNAME, 5, &CTP, 10, &F1, 4)
+    !bv2
+    bad8 = ne st8, 0
+    !st8
+    br bad8 -> L_FAIL_bad8, L_15
+
+L_15:
+    !bad8
+    ctb = stack_alloc 128
+    ctl = stack_alloc 8
+    store ctl+0, 0 as u64
+    bv3 = load b+0 as u64
+    ctbo = ptr_add ctb, 0
+    ctlo = ptr_add ctl, 0
+    st9 = call @sa_std_multipart_builder_content_type(bv3, &ctbo, 128, &ctlo)
+    !bv3
+    !ctbo
+    !ctlo
+    bad9 = ne st9, 0
+    !st9
+    br bad9 -> L_FAIL_bad9, L_16
+
+L_16:
+    !bad9
+    buf = stack_alloc 8
+    store buf+0, 0 as u64
+    bv4 = load b+0 as u64
+    bufo = ptr_add buf, 0
+    st10 = call @sa_std_multipart_builder_finish(bv4, &bufo)
+    !bv4
+    !bufo
+    bad10 = ne st10, 0
+    !st10
+    br bad10 -> L_FAIL_bad10, L_17
+
+L_17:
+    !bad10
+    bufv = load buf+0 as u64
+    blen = call @sa_std_multipart_buffer_len(bufv)
+    !bufv
+    nz = ne blen, 0
+    br nz -> L_18, L_FAIL_nz
+
+L_18:
+    !nz
+    bufv2 = load buf+0 as u64
+    bdata = call @sa_std_multipart_buffer_data(bufv2)
+    !bufv2
+    ctlv = load ctl+0 as u64
+    h2 = stack_alloc 8
+    store h2+0, 0 as u64
+    h2o = ptr_add h2, 0
+    ctbp = ptr_add ctb, 0
+    st11 = call @sa_std_multipart_parse(&bdata, blen, &ctbp, ctlv, &h2o)
+    !bdata
+    !blen
+    !ctbp
+    !ctlv
+    !h2o
+    bad11 = ne st11, 0
+    !st11
+    br bad11 -> L_FAIL_bad11, L_19
+
+L_19:
+    !bad11
+    h2v = load h2+0 as u64
+    cnt2 = call @sa_std_multipart_count(h2v)
+    !h2v
+    okc2 = eq cnt2, 2
+    !cnt2
+    br okc2 -> L_20, L_FAIL_okc2
+
+L_20:
+    !okc2
+    h2v2 = load h2+0 as u64
+    bpo3 = ptr_add bp, 0
+    blo3 = ptr_add bl, 0
+    st12 = call @sa_std_multipart_part_body(h2v2, 0, &bpo3, &blo3)
+    !h2v2
+    !bpo3
+    !blo3
+    bad12 = ne st12, 0
+    !st12
+    br bad12 -> L_FAIL_bad12, L_21
+
+L_21:
+    !bad12
+    blv3 = load bl+0 as u64
+    okl3 = eq blv3, 1
+    !blv3
+    br okl3 -> L_22, L_FAIL_okl3
+
+L_22:
+    !okl3
+    pv3 = load bp+0 as ptr
+    h2a = call @fnv_update(5381, &pv3, 1)
+    !pv3
+    h2v3 = load h2+0 as u64
+    bpo4 = ptr_add bp, 0
+    blo4 = ptr_add bl, 0
+    st13 = call @sa_std_multipart_part_body(h2v3, 1, &bpo4, &blo4)
+    !h2v3
+    !bpo4
+    !blo4
+    bad13 = ne st13, 0
+    !st13
+    br bad13 -> L_FAIL_bad13, L_23
+
+L_23:
+    !bad13
+    blv4 = load bl+0 as u64
+    okl4 = eq blv4, 4
+    !blv4
+    br okl4 -> L_24, L_FAIL_okl4
+
+L_24:
+    !okl4
+    pv4 = load bp+0 as ptr
+    h2b = call @fnv_update(h2a, &pv4, 4)
+    !pv4
+    !h2a
+    e1b = call @fnv_update(5381, &V1, 1)
+    e2b = call @fnv_update(e1b, &F1, 4)
+    !e1b
+    okf2 = eq h2b, e2b
+    !h2b
+    !e2b
+    br okf2 -> L_OK, L_FAIL_okf2
+
+L_OK:
+    !okf2
+    call @sa_print_bytes(&RESULT_OK, 3)
+    return 0
+
+L_FAIL_bad:
+    !bad
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 1
+
+L_FAIL_okc:
+    !okc
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 2
+
+L_FAIL_bad2:
+    !bad2
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 3
+
+L_FAIL_okl:
+    !okl
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 4
+
+L_FAIL_bad3:
+    !bad3
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 5
+
+L_FAIL_okl2:
+    !okl2
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 6
+
+L_FAIL_oke:
+    !oke
+    !e2
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 7
+
+L_FAIL_bad4:
+    !bad4
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 8
+
+L_FAIL_okn:
+    !okn
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 9
+
+L_FAIL_bad5:
+    !bad5
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 10
+
+L_FAIL_okf:
+    !okf
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 11
+
+L_FAIL_okhf:
+    !okhf
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 12
+
+L_FAIL_bad6:
+    !bad6
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 13
+
+L_FAIL_bad7:
+    !bad7
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 14
+
+L_FAIL_bad8:
+    !bad8
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 15
+
+L_FAIL_bad9:
+    !bad9
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 16
+
+L_FAIL_bad10:
+    !bad10
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 17
+
+L_FAIL_nz:
+    !nz
+    !blen
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 18
+
+L_FAIL_bad11:
+    !bad11
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 19
+
+L_FAIL_okc2:
+    !okc2
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 20
+
+L_FAIL_bad12:
+    !bad12
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 21
+
+L_FAIL_okl3:
+    !okl3
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 22
+
+L_FAIL_bad13:
+    !bad13
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 23
+
+L_FAIL_okl4:
+    !okl4
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 24
+
+L_FAIL_okf2:
+    !okf2
+    call @sa_print_bytes(&RESULT_ERR, 6)
+    return 25

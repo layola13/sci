@@ -134,6 +134,8 @@ test "c backend rosetta demos match expected output under cc" {
     try assertCMatrixStdout("demos/rosetta/21_while_loop/main.sa", "15\n");
     try assertCMatrixStdout("demos/rosetta/23_nested_loops/main.sa", "18\n");
     try assertCMatrixStdout("demos/rosetta/13_array_sum/main.sa", "10\n");
+    try assertCMatrixStdout("demos/rosetta/963_compress_checksum/main.sa", "ok\n");
+    try assertCMatrixStdout("demos/rosetta/964_multipart_checksum/main.sa", "ok\n");
 }
 
 test "c backend emits sane C for hello world" {

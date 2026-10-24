@@ -538,4 +538,6 @@ test "llvmc wasm rosetta and support demos match expected output with native san
     try assertWasmMatrixStdout(&stats, "demos/support/hashset_probe.sa", "set ok\n");
     try assertWasmMatrixStdout(&stats, "demos/support/once_probe.sa", "once ok\n");
     try assertWasmMatrixStdout(&stats, "demos/support/mpsc_probe.sa", "mpsc ok\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/963_compress_checksum/main.sa", "ok\n");
+    try assertWasmMatrixStdout(&stats, "demos/rosetta/964_multipart_checksum/main.sa", "ok\n");
 }

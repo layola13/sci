@@ -425,6 +425,9 @@ test "js backend rosetta demos match expected output under node" {
     // native covers them with real 127.0.0.1 loopback instead.
     try assertJsMatrixStdout("demos/rosetta/301_http_client_saasm/main.sa", "ok\n");
     try assertJsMatrixStdout("demos/rosetta/302_http_server_saasm/main.sa", "ok\n");
+    // 963/964: built-in compress/multipart checksums (byte-exact round trips).
+    try assertJsMatrixStdout("demos/rosetta/963_compress_checksum/main.sa", "ok\n");
+    try assertJsMatrixStdout("demos/rosetta/964_multipart_checksum/main.sa", "ok\n");
     try assertJsMatrixStdout("demos/rosetta/303_match_guard_macro/main.sa", "negative,zero,small,large\n");
     try assertJsMatrixStdout("demos/rosetta/304_while_let_macro/main.sa", "6\n");
     try assertJsMatrixStdout("demos/rosetta/305_range_pattern_macro/main.sa", "0,1,2,3,-1");

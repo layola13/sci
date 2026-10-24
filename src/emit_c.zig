@@ -1821,7 +1821,6 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\    for (i = 0; i < bnd_n; i++) mp->bnd[i] = sa_mem[bnd_a + i];
     \\    mp->bnd_n = bnd_n;
     \\  }
-    \\  sa_mp_accs(mp, "--"); sa_mp_accb(mp);
     \\  sa_store_u64(out_slot, mp->h);
     \\  return 0;
     \\}
@@ -1830,7 +1829,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\static int sa_mp_add_field(sa_u64 h, sa_u64 na, sa_u64 nn, sa_u64 va, sa_u64 vn, int is_file, sa_u64 fa, sa_u64 fnn, sa_u64 ca, sa_u64 cn, sa_u64 da, sa_u64 dn) {
     \\  sa_mp_t *mp = sa_mp_find(h);
     \\  if (!mp || mp->kind != 2) return 3;
-    \\  sa_mp_accs(mp, "\r\nContent-Disposition: form-data; name=\"");
+    \\  if (mp->acc_n > 0) sa_mp_accs(mp, "\r\n"); sa_mp_accs(mp, "--"); sa_mp_accb(mp); sa_mp_accs(mp, "\r\nContent-Disposition: form-data; name=\"");
     \\  sa_mp_acc(mp, (uint32_t)na, nn);
     \\  sa_mp_accs(mp, "\"");
     \\  if (is_file) { sa_mp_accs(mp, "; filename=\""); sa_mp_acc(mp, (uint32_t)fa, fnn); sa_mp_accs(mp, "\""); }
