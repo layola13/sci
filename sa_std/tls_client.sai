@@ -37,3 +37,24 @@
 @extern sa_std_tls_client_buffer_data(buffer: u64) -> &ptr
 @extern sa_std_tls_client_buffer_len(buffer: u64) -> u64
 @extern sa_std_tls_client_buffer_free(^buffer: u64) -> i32
+
+// ---- shaped client (sa_tls_shaped.zig): profile-controlled ClientHello ----
+// Profile JSON keys: preset (chrome|firefox|safari|go|default), alpn[],
+// ciphersuites, ciphers, groups, sigalgs, min_version, max_version,
+// ca_file. Unknown keys are rejected; grease:true -> UNSUPPORTED.
+// hello_ja3/ja4 are computed from the ClientHello bytes actually sent
+// (captured via an OpenSSL message callback), never estimated.
+
+@extern sa_std_tls_shaped_supported(&out_supported: ptr) -> i32
+@extern sa_std_tls_shaped_connect(&host: ptr, host_len: u64, port: u32, &profile: ptr, profile_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_tls_shaped_read(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
+@extern sa_std_tls_shaped_write(handle: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32
+@extern sa_std_tls_shaped_close(handle: u64) -> i32
+@extern sa_std_tls_shaped_negotiated_json(handle: u64, &out_handle: ptr) -> i32
+@extern sa_std_tls_shaped_hello_ja3(handle: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_std_tls_shaped_hello_ja3_string(handle: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_std_tls_shaped_hello_ja4(handle: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+
+@extern sa_std_tls_shaped_buffer_data(buffer: u64) -> &ptr
+@extern sa_std_tls_shaped_buffer_len(buffer: u64) -> u64
+@extern sa_std_tls_shaped_buffer_free(^buffer: u64) -> i32

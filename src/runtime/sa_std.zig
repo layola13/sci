@@ -120,6 +120,7 @@ comptime {
     const http2 = @import("sa_http2.zig");
     _ = &http2.sa_std_http2_supported;
     _ = &http2.sa_std_http2_client_request;
+    _ = &http2.sa_std_http2_client_request_with_settings;
     _ = &http2.sa_std_http2_nghttp2_version_json;
     _ = &http2.sa_std_http2_status_json;
     _ = &http2.sa_std_http2_constants_json;
@@ -133,6 +134,7 @@ comptime {
     _ = &http2.sa_std_http2_buffer_free;
     _ = &@import("sa_tls_server.zig").sa_std_tls_server_supported;
     _ = &@import("sa_tls_client.zig").sa_std_tls_client_supported;
+    _ = &@import("sa_tls_shaped.zig").sa_std_tls_shaped_supported;
     _ = &@import("sa_ws_client.zig").sa_std_ws_client_supported;
     _ = &@import("sa_http_server.zig").sa_http_server_accept;
     _ = &@import("sa_http_server.zig").sa_http_server_accept_v2;

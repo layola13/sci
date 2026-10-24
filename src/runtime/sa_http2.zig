@@ -410,6 +410,11 @@ const HTTP2_CLIENT_PREFACE = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 const HTTP2_FRAME_SETTINGS: u8 = 0x4;
 const HTTP2_FLAG_ACK: u8 = 0x1;
 
+const Nghttp2SettingsEntry = extern struct {
+    settings_id: i32,
+    value: u32,
+};
+
 const Http2SettingPair = struct {
     id: u16,
     value: u32,
@@ -579,6 +584,24 @@ fn writeHandle(out_handle: ?*u64, handle: u64) i32 {
 }
 
 pub export fn sa_std_http2_client_request(url_ptr: ?[*]const u8, url_len: u64, method_ptr: ?[*]const u8, method_len: u64, body_ptr: ?[*]const u8, body_len: u64, out_handle: ?*u64) i32 {
+    return http2ClientRequestImpl(url_ptr, url_len, method_ptr, method_len, body_ptr, body_len, null, out_handle);
+}
+
+/// client_request with a shaped connection preface: settings_json uses the
+/// get_packed_settings dialect (headerTableSize, initialWindowSize,
+/// maxFrameSize, maxConcurrentStreams, maxHeaderListSize, enablePush,
+/// enableConnectProtocol, customSettings). These values are what a peer
+/// (or a fingerprinting middlebox) sees as this client's HTTP/2
+/// fingerprint; pseudo-header order stays nghttp2's.
+pub export fn sa_std_http2_client_request_with_settings(url_ptr: ?[*]const u8, url_len: u64, method_ptr: ?[*]const u8, method_len: u64, body_ptr: ?[*]const u8, body_len: u64, settings_ptr: ?[*]const u8, settings_len: u64, out_handle: ?*u64) i32 {
+    const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    slot.* = 0;
+    const settings_n = u64ToUsize(settings_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const sj: []const u8 = if (settings_ptr) |ptr| ptr[0..settings_n] else "";
+    return http2ClientRequestImpl(url_ptr, url_len, method_ptr, method_len, body_ptr, body_len, sj, out_handle);
+}
+
+fn http2ClientRequestImpl(url_ptr: ?[*]const u8, url_len: u64, method_ptr: ?[*]const u8, method_len: u64, body_ptr: ?[*]const u8, body_len: u64, settings_json: ?[]const u8, out_handle: ?*u64) i32 {
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
     if (comptime builtin.cpu.arch.isWasm()) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -613,7 +636,25 @@ pub export fn sa_std_http2_client_request(url_ptr: ?[*]const u8, url_len: u64, m
     if (api.session_client_new(&session, callbacks, @ptrCast(&state)) != 0) return SA_STD_ERR_INVALID_ARGUMENT;
     defer api.session_del(session);
 
-    if (api.submit_settings(session, NGHTTP2_FLAG_NONE, null, 0) != 0) return SA_STD_ERR_INVALID_ARGUMENT;
+    if (settings_json) |sj| {
+        // HTTP/2 fingerprint shaping: the caller's SETTINGS become the
+        // client connection preface instead of nghttp2's defaults.
+        var parsed_s = std.json.parseFromSlice(std.json.Value, allocator, sj, .{}) catch return SA_STD_ERR_INVALID_ARGUMENT;
+        defer parsed_s.deinit();
+        if (parsed_s.value != .object) return SA_STD_ERR_INVALID_ARGUMENT;
+        const packed_bytes = http2PackedSettings(allocator, parsed_s.value.object) catch return SA_STD_ERR_INVALID_ARGUMENT;
+        defer allocator.free(packed_bytes);
+        var entries: [24]Nghttp2SettingsEntry = undefined;
+        const count = packed_bytes.len / 6;
+        if (count > entries.len) return SA_STD_ERR_INVALID_ARGUMENT;
+        for (0..count) |i| {
+            const pair = http2ReadSetting(packed_bytes, i * 6);
+            entries[i] = .{ .settings_id = pair.id, .value = pair.value };
+        }
+        if (api.submit_settings(session, NGHTTP2_FLAG_NONE, @ptrCast(&entries), count) != 0) return SA_STD_ERR_INVALID_ARGUMENT;
+    } else {
+        if (api.submit_settings(session, NGHTTP2_FLAG_NONE, null, 0) != 0) return SA_STD_ERR_INVALID_ARGUMENT;
+    }
 
     var authority_buf: [512]u8 = undefined;
     const authority = if (parsed.port == 80)
@@ -708,6 +749,23 @@ pub export fn sa_std_http2_sensitive_headers(out_handle: ?*u64) i32 {
     ));
 }
 
+/// Pack a settings JSON object (the get_packed_settings dialect) into the
+/// 6-byte-per-entry wire form shared by the frame helpers and the client
+/// request path.
+fn http2PackedSettings(allocator: std.mem.Allocator, obj: std.json.ObjectMap) ![]u8 {
+    var out = std.array_list.Managed(u8).init(allocator);
+    errdefer out.deinit();
+    try http2AppendCustomSettings(&out, obj);
+    try http2AppendNumericSetting(&out, obj, "headerTableSize", HTTP2_SETTINGS_HEADER_TABLE_SIZE, 0, std.math.maxInt(u32));
+    try http2AppendNumericSetting(&out, obj, "maxConcurrentStreams", HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 0, std.math.maxInt(u32));
+    try http2AppendNumericSetting(&out, obj, "initialWindowSize", HTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 0, HTTP2_MAX_INITIAL_WINDOW_SIZE);
+    try http2AppendNumericSetting(&out, obj, "maxFrameSize", HTTP2_SETTINGS_MAX_FRAME_SIZE, 16_384, HTTP2_MAX_FRAME_SIZE);
+    try http2AppendMaxHeaderSetting(&out, obj);
+    try http2AppendBoolSetting(&out, obj, "enablePush", HTTP2_SETTINGS_ENABLE_PUSH);
+    try http2AppendBoolSetting(&out, obj, "enableConnectProtocol", HTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL);
+    return out.toOwnedSlice();
+}
+
 pub export fn sa_std_http2_get_packed_settings(settings_json_ptr: ?[*]const u8, settings_json_len: u64, out_handle: ?*u64) i32 {
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
@@ -716,20 +774,7 @@ pub export fn sa_std_http2_get_packed_settings(settings_json_ptr: ?[*]const u8, 
     var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, settings_json, .{}) catch return SA_STD_ERR_INVALID_ARGUMENT;
     defer parsed.deinit();
     if (parsed.value != .object) return SA_STD_ERR_INVALID_ARGUMENT;
-    const obj = parsed.value.object;
-
-    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    errdefer out.deinit();
-    http2AppendCustomSettings(&out, obj) catch return SA_STD_ERR_INVALID_ARGUMENT;
-    http2AppendNumericSetting(&out, obj, "headerTableSize", HTTP2_SETTINGS_HEADER_TABLE_SIZE, 0, std.math.maxInt(u32)) catch return SA_STD_ERR_INVALID_ARGUMENT;
-    http2AppendNumericSetting(&out, obj, "maxConcurrentStreams", HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 0, std.math.maxInt(u32)) catch return SA_STD_ERR_INVALID_ARGUMENT;
-    http2AppendNumericSetting(&out, obj, "initialWindowSize", HTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 0, HTTP2_MAX_INITIAL_WINDOW_SIZE) catch return SA_STD_ERR_INVALID_ARGUMENT;
-    http2AppendNumericSetting(&out, obj, "maxFrameSize", HTTP2_SETTINGS_MAX_FRAME_SIZE, 16_384, HTTP2_MAX_FRAME_SIZE) catch return SA_STD_ERR_INVALID_ARGUMENT;
-    http2AppendMaxHeaderSetting(&out, obj) catch return SA_STD_ERR_INVALID_ARGUMENT;
-    http2AppendBoolSetting(&out, obj, "enablePush", HTTP2_SETTINGS_ENABLE_PUSH) catch return SA_STD_ERR_INVALID_ARGUMENT;
-    http2AppendBoolSetting(&out, obj, "enableConnectProtocol", HTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL) catch return SA_STD_ERR_INVALID_ARGUMENT;
-
-    const owned = out.toOwnedSlice() catch return SA_STD_ERR_NO_MEMORY;
+    const owned = http2PackedSettings(std.heap.page_allocator, parsed.value.object) catch |err| return if (err == error.OutOfMemory) SA_STD_ERR_NO_MEMORY else SA_STD_ERR_INVALID_ARGUMENT;
     return writeHandle(out_handle, registerBuffer(owned));
 }
 
@@ -1263,4 +1308,70 @@ test "export fn return-status domain never overlaps SA_STD_OK" {
     try testing.expect(SA_STD_ERR_NO_MEMORY < 0);
     try testing.expect(SA_STD_ERR_INVALID_ARGUMENT < 0);
     try testing.expect(@as(u32, 0x8000_0000) != 0); // UnsupportedStatus sentinel for flush
+}
+
+fn h2SettingsClientThread(port: u16) void {
+    var url_buf: [128]u8 = undefined;
+    const url = std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/", .{port}) catch return;
+    const settings = "{\"headerTableSize\":8192,\"initialWindowSize\":1000000,\"maxFrameSize\":32768}";
+    var out: u64 = 0;
+    _ = sa_std_http2_client_request_with_settings(url.ptr, url.len, "GET".ptr, 3, null, 0, settings.ptr, settings.len, &out);
+    if (out != 0) _ = sa_std_http2_buffer_free(out);
+}
+
+test "client_request_with_settings puts custom SETTINGS in the client preface" {
+    if (loadNghttp2Api() == null) return;
+    const probe = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try probe.listen(sio.io(), .{ .reuse_address = true });
+    defer listener.deinit(sio.io());
+    const port = switch (listener.socket.address) {
+        .ip4 => |a| a.port,
+        .ip6 => |a| a.port,
+    };
+
+    const thread = try std.Thread.spawn(.{}, h2SettingsClientThread, .{port});
+    var stream = try listener.accept(sio.io());
+
+    // Accumulate bytes until the preface (24) + first frame are complete.
+    var buf: [8192]u8 = undefined;
+    var have: usize = 0;
+    var polls: usize = 0;
+    while (polls < 100) : (polls += 1) {
+        if (have >= 24 + 9) {
+            const hdr = try http2ReadFrameHeader(buf[24..]);
+            if (have >= 24 + 9 + hdr.len) break;
+        }
+        var fds = [_]std.posix.pollfd{.{ .fd = stream.socket.handle, .events = std.posix.POLL.IN, .revents = 0 }};
+        const ready = try std.posix.poll(&fds, 100);
+        if (ready == 0) continue;
+        const n = try std.posix.read(stream.socket.handle, buf[have..]);
+        if (n == 0) break;
+        have += n;
+    }
+    try testing.expect(have >= 24 + 9);
+    try testing.expect(std.mem.startsWith(u8, buf[0..24], "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"));
+    const hdr = try http2ReadFrameHeader(buf[24..]);
+    try testing.expectEqual(HTTP2_FRAME_SETTINGS, hdr.frame_type);
+    try testing.expectEqual(@as(u32, 0), hdr.stream_id);
+    const payload = buf[24 + 9 ..][0..hdr.len];
+    try testing.expect(payload.len % 6 == 0);
+    var found_table: ?u32 = null;
+    var found_window: ?u32 = null;
+    var found_frame: ?u32 = null;
+    var off: usize = 0;
+    while (off < payload.len) : (off += 6) {
+        const pair = http2ReadSetting(payload, off);
+        switch (pair.id) {
+            HTTP2_SETTINGS_HEADER_TABLE_SIZE => found_table = pair.value,
+            HTTP2_SETTINGS_INITIAL_WINDOW_SIZE => found_window = pair.value,
+            HTTP2_SETTINGS_MAX_FRAME_SIZE => found_frame = pair.value,
+            else => {},
+        }
+    }
+    try testing.expectEqual(@as(?u32, 8192), found_table);
+    try testing.expectEqual(@as(?u32, 1000000), found_window);
+    try testing.expectEqual(@as(?u32, 32768), found_frame);
+
+    stream.close(sio.io());
+    thread.join();
 }
