@@ -49,6 +49,7 @@
 @extern sa_std_net_addr_list_remaining(list: u64, &out_remaining: ptr) -> i32
 @extern sa_std_net_addr_list_reset(list: u64) -> i32
 @extern sa_std_net_addr_list_free(list: u64) -> i32
+@extern sa_std_net_addr_reverse_lookup(addr: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_std_net_tcp_listener_set_nonblocking(listener: u64, enabled: i32) -> i32
 @extern sa_std_net_tcp_listener_set_ttl(listener: u64, ttl: u32) -> i32
 @extern sa_std_net_tcp_listener_ttl(listener: u64, &out_ttl: ptr) -> i32

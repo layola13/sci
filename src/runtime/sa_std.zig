@@ -11200,6 +11200,35 @@ pub export fn sa_std_net_addr_list_reset(list_handle: u64) i32 {
 pub export fn sa_std_net_addr_list_free(list_handle: u64) i32 {
     return sa_std_close(list_handle);
 }
+
+/// Reverse DNS lookup (getnameinfo, NI_NAMEREQD) for a resolved address
+/// handle produced by sa_std_net_to_socket_addr_list/_first or a stream's
+/// peer/local addr. Output semantics mirror sa_std_net_hostname: call with
+/// (null, 0, &len) to size the buffer; SA_STD_ERR_TRUNCATED when it does
+/// not fit. SA_STD_ERR_IO when the address has no name (NXDOMAIN / no PTR).
+pub export fn sa_std_net_addr_reverse_lookup(addr_handle: u64, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    _ = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (comptime builtin.cpu.arch.isWasm()) return finish(SA_STD_ERR_UNSUPPORTED);
+    // Snapshot the sockaddr under the registry lock; getnameinfo itself can
+    // block on DNS and must not hold the registry.
+    var address: NetAddress = undefined;
+    {
+        while (!registry_mutex.tryLock()) {
+            std.Thread.yield() catch {};
+        }
+        defer registry_mutex.unlock();
+        const resource = getResourceLocked(addr_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+        address = switch (resource.*) {
+            .net_addr => |*value| value.addr,
+            else => return finish(SA_STD_ERR_INVALID_HANDLE),
+        };
+    }
+    var name_buf: [1025]u8 = undefined;
+    const rc = std.c.getnameinfo(address.sockAddr(), address.getOsSockLen(), &name_buf, name_buf.len, null, 0, .{ .NAMEREQD = true });
+    if (@intFromEnum(rc) != 0) return finish(SA_STD_ERR_IO);
+    const name = std.mem.sliceTo(&name_buf, 0);
+    return writeFormattedInto(out, out_cap, out_len, name);
+}
 pub export fn sa_std_net_to_socket_addr_first(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
@@ -15298,6 +15327,37 @@ test "hostname reports required length and validates buffers" {
     try std.testing.expectEqual(length, small_length);
     try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_hostname(null, 1, &small_length));
     try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_hostname(&small, small.len, null));
+}
+
+test "dns reverse lookup round-trips a resolved address" {
+    const host = "127.0.0.1";
+    var address: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_to_socket_addr_first(host.ptr, host.len, 80, &address));
+    try std.testing.expect(address != 0);
+    defer _ = sa_net_addr_free(address);
+
+    // Length query first (hostname-style contract), then the real read.
+    var needed: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_addr_reverse_lookup(address, null, 0, &needed));
+    try std.testing.expect(needed > 0);
+    var buf: [256]u8 = undefined;
+    var out_len: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_addr_reverse_lookup(address, &buf, buf.len, &out_len));
+    try std.testing.expectEqual(needed, out_len);
+    try std.testing.expectEqualStrings("localhost", buf[0..@intCast(out_len)]);
+
+    // Contract errors.
+    var dummy: u64 = 0;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_addr_reverse_lookup(0, &buf, buf.len, &dummy));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_addr_reverse_lookup(address, &buf, buf.len, null));
+}
+
+test "dns forward lookup rejects an unresolvable name" {
+    const bad = "nonexistent.invalid";
+    var handle: u64 = 77;
+    const rc = sa_std_net_to_socket_addr_list(bad.ptr, bad.len, 80, &handle);
+    try std.testing.expect(rc != SA_STD_OK);
+    try std.testing.expectEqual(@as(u64, 0), handle);
 }
 
 test "POSIX errno maps to Rust-style network error kinds" {

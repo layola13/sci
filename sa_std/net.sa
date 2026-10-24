@@ -1193,6 +1193,12 @@
     %out_len = load __net_addr_format_len_%out_status+0 as u64
 [END_MACRO]
 
+[MACRO] NET_ADDR_REVERSE_LOOKUP %out_status, %out_len, %addr, %buf, %cap
+    __net_addr_reverse_len_%out_status = stack_alloc 8
+    %out_status = call @sa_std_net_addr_reverse_lookup(%addr, &%buf, %cap, &__net_addr_reverse_len_%out_status)
+    %out_len = load __net_addr_reverse_len_%out_status+0 as u64
+[END_MACRO]
+
 [MACRO] NET_ADDR_IS_IPV4 %out_flag, %addr
     __net_addr_family_%out_flag = call @sa_net_addr_family(%addr)
     %out_flag = eq __net_addr_family_%out_flag, SA_NET_AF_INET
