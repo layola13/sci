@@ -106,6 +106,8 @@ pub const BrokerOp = enum(u32) {
     fs_read = 2,
     http_request = 3,
     process_spawn = 4,
+    cache_lookup = 5,
+    cache_store = 6,
 };
 
 pub const BrokerStatus = enum(u32) {
@@ -187,6 +189,37 @@ pub const BrokerProcessSpawnResult = struct {
     exit_code: u32,
     stdout: []const u8,
     stderr: []const u8,
+};
+
+pub const BrokerCacheLookupRequest = extern struct {
+    ns_ptr: [*]const u8,
+    ns_len: usize,
+    key_ptr: [*]const u8,
+    key_len: usize,
+    closure_ptr: [*]const u8,
+    closure_len: usize,
+    value_ptr: ?[*]u8,
+    value_cap: usize,
+};
+
+pub const BrokerCacheLookupResponse = extern struct {
+    hit: u32,
+    value_len: usize,
+};
+
+pub const BrokerCacheStoreRequest = extern struct {
+    ns_ptr: [*]const u8,
+    ns_len: usize,
+    key_ptr: [*]const u8,
+    key_len: usize,
+    closure_ptr: [*]const u8,
+    closure_len: usize,
+    value_ptr: [*]const u8,
+    value_len: usize,
+};
+
+pub const BrokerCacheStoreResponse = extern struct {
+    stored: u32,
 };
 
 pub const BrokerError = error{
@@ -299,6 +332,84 @@ pub fn brokerHttpRequest(
         .insufficient_buffer => error.InsufficientBuffer,
         .failed => error.Failed,
     };
+}
+
+pub fn brokerCacheStore(ctx: *const Context, ns: []const u8, key_material: []const u8, closure_blob: []const u8, bytes: []const u8) BrokerError!void {
+    if (!brokerAvailable(ctx)) return error.Unsupported;
+    const broker_call = ctx.broker_call orelse return error.Unsupported;
+    var response = BrokerCacheStoreResponse{ .stored = 0 };
+    const request = BrokerCacheStoreRequest{
+        .ns_ptr = ns.ptr,
+        .ns_len = ns.len,
+        .key_ptr = key_material.ptr,
+        .key_len = key_material.len,
+        .closure_ptr = closure_blob.ptr,
+        .closure_len = closure_blob.len,
+        .value_ptr = bytes.ptr,
+        .value_len = bytes.len,
+    };
+    const status = brokerStatusFromInt(broker_call(ctx.broker_ctx, @intFromEnum(BrokerOp.cache_store), &request, &response));
+    return switch (status) {
+        .ok => {},
+        .denied => error.Denied,
+        .unsupported => error.Unsupported,
+        .invalid_request => error.InvalidRequest,
+        .not_found => error.NotFound,
+        .insufficient_buffer => error.InsufficientBuffer,
+        .failed => error.Failed,
+    };
+}
+
+/// Two-pass lookup: returns the stored artifact bytes when the host
+/// reports a hit, null on a miss. The caller owns the returned bytes.
+pub fn brokerCacheLookupAlloc(ctx: *const Context, allocator: std.mem.Allocator, ns: []const u8, key_material: []const u8, closure_blob: []const u8) BrokerError!?[]u8 {
+    if (!brokerAvailable(ctx)) return error.Unsupported;
+    const broker_call = ctx.broker_call orelse return error.Unsupported;
+    var response = BrokerCacheLookupResponse{ .hit = 0, .value_len = 0 };
+    var request = BrokerCacheLookupRequest{
+        .ns_ptr = ns.ptr,
+        .ns_len = ns.len,
+        .key_ptr = key_material.ptr,
+        .key_len = key_material.len,
+        .closure_ptr = closure_blob.ptr,
+        .closure_len = closure_blob.len,
+        .value_ptr = null,
+        .value_cap = 0,
+    };
+    var status = brokerStatusFromInt(broker_call(ctx.broker_ctx, @intFromEnum(BrokerOp.cache_lookup), &request, &response));
+    if (status == .ok) {
+        if (response.hit == 0) return null;
+    } else if (status != .insufficient_buffer) {
+        return switch (status) {
+            .denied => error.Denied,
+            .unsupported => error.Unsupported,
+            .invalid_request => error.InvalidRequest,
+            .not_found => error.NotFound,
+            .failed => error.Failed,
+            else => error.Failed,
+        };
+    }
+    const buffer = allocator.alloc(u8, response.value_len) catch return error.Failed;
+    errdefer allocator.free(buffer);
+    request.value_ptr = if (buffer.len == 0) null else buffer.ptr;
+    request.value_cap = buffer.len;
+    var response2 = BrokerCacheLookupResponse{ .hit = 0, .value_len = 0 };
+    status = brokerStatusFromInt(broker_call(ctx.broker_ctx, @intFromEnum(BrokerOp.cache_lookup), &request, &response2));
+    switch (status) {
+        .ok => {
+            if (response2.hit == 0) {
+                allocator.free(buffer);
+                return null;
+            }
+            return buffer[0..response2.value_len];
+        },
+        .denied => return error.Denied,
+        .unsupported => return error.Unsupported,
+        .invalid_request => return error.InvalidRequest,
+        .not_found => return error.NotFound,
+        .insufficient_buffer => return error.InsufficientBuffer,
+        .failed => return error.Failed,
+    }
 }
 
 pub fn brokerProcessSpawn(
@@ -696,6 +807,208 @@ const RuntimeBroker = struct {
 const max_net_probe_bytes: usize = 4 * 1024 * 1024;
 const max_process_probe_bytes: usize = 4 * 1024 * 1024;
 
+// ---------------------------------------------------------------------
+// Frontend compile cache (host cache service). A language frontend's
+// compile artifacts are stored under the host cache root, keyed by
+// frontend-supplied opaque key material, and served back only while
+// every file in the recorded dependency closure still hashes to its
+// recorded value (Wyhash of contents + length) — the same freshness rule
+// the SLA plugin's local gate implements for standalone use. These ops
+// are host-internal storage for a plugin's own compile artifacts: they
+// do not consult the plugin permission policy (namespaces separate
+// frontends, and the artifacts are compiled text, not secrets).
+// Namespace validation and hashed key directory names keep every path
+// traversal-free.
+
+const max_frontend_cache_manifest_bytes: usize = 64 * 1024 * 1024;
+const max_frontend_cache_dep_bytes: usize = 256 * 1024 * 1024;
+const max_frontend_cache_artifact_bytes: usize = 1024 * 1024 * 1024;
+const frontend_cache_manifest_version: u32 = 1;
+
+const FrontendCacheDep = struct {
+    path: []const u8,
+    len: u64,
+    hash: u64,
+};
+
+const FrontendCacheManifest = struct {
+    version: u32,
+    deps: []const FrontendCacheDep,
+};
+
+fn frontendCacheRoot(allocator: std.mem.Allocator) ![]u8 {
+    if (sio.getEnvVarOwned(allocator, "SA_FRONTEND_CACHE_DIR")) |dir| {
+        return dir;
+    } else |err| switch (err) {
+        error.EnvironmentVariableNotFound => {},
+        else => return err,
+    }
+    if (sio.getEnvVarOwned(allocator, "XDG_CACHE_HOME")) |base| {
+        defer allocator.free(base);
+        return std.fs.path.join(allocator, &.{ base, "sa", "frontend" });
+    } else |err| switch (err) {
+        error.EnvironmentVariableNotFound => {},
+        else => return err,
+    }
+    if (sio.getEnvVarOwned(allocator, "HOME")) |home| {
+        defer allocator.free(home);
+        return std.fs.path.join(allocator, &.{ home, ".cache", "sa", "frontend" });
+    } else |err| switch (err) {
+        error.EnvironmentVariableNotFound => {},
+        else => return err,
+    }
+    return error.EnvironmentVariableNotFound;
+}
+
+fn validFrontendCacheNamespace(ns: []const u8) bool {
+    if (ns.len == 0 or ns.len > 64) return false;
+    if (std.mem.eql(u8, ns, ".") or std.mem.eql(u8, ns, "..")) return false;
+    for (ns) |c| {
+        const ok = (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '.' or c == '-' or c == '_';
+        if (!ok) return false;
+    }
+    return true;
+}
+
+fn frontendCacheEntryDir(allocator: std.mem.Allocator, root: []const u8, ns: []const u8, key_material: []const u8) ![]u8 {
+    var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(key_material, &digest, .{});
+    const hex = std.fmt.bytesToHex(digest, .lower);
+    return std.fs.path.join(allocator, &.{ root, ns, &hex });
+}
+
+/// The closure blob format is owned by the broker contract: a u32
+/// little-endian count, then per entry a u32 little-endian length and
+/// the path bytes. Returns slices into the blob.
+fn parseFrontendCacheClosure(allocator: std.mem.Allocator, blob: []const u8) ![]const []const u8 {
+    if (blob.len < 4) return error.InvalidClosure;
+    const count = std.mem.readInt(u32, blob[0..4], .little);
+    if (count > 100000) return error.InvalidClosure;
+    var paths = std.array_list.Managed([]const u8).init(allocator);
+    errdefer paths.deinit();
+    var offset: usize = 4;
+    for (0..count) |_| {
+        if (offset + 4 > blob.len) return error.InvalidClosure;
+        const len = std.mem.readInt(u32, blob[offset..][0..4], .little);
+        offset += 4;
+        if (offset + len > blob.len) return error.InvalidClosure;
+        try paths.append(blob[offset .. offset + len]);
+        offset += len;
+    }
+    if (offset != blob.len) return error.InvalidClosure;
+    return paths.toOwnedSlice();
+}
+
+fn frontendCacheFileHash(allocator: std.mem.Allocator, path: []const u8) !FrontendCacheDep {
+    const bytes = try sio.cwd().readFileAlloc(allocator, path, max_frontend_cache_dep_bytes);
+    defer allocator.free(bytes);
+    return .{ .path = path, .len = @intCast(bytes.len), .hash = std.hash.Wyhash.hash(0, bytes) };
+}
+
+fn runtimeBrokerCacheLookup(broker: *const RuntimeBroker, req: ?*const anyopaque, resp: ?*anyopaque) BrokerStatus {
+    const request = if (req) |raw|
+        @as(*const BrokerCacheLookupRequest, @ptrCast(@alignCast(raw)))
+    else
+        return .invalid_request;
+    const response = if (resp) |raw|
+        @as(*BrokerCacheLookupResponse, @ptrCast(@alignCast(raw)))
+    else
+        return .invalid_request;
+    response.* = .{ .hit = 0, .value_len = 0 };
+
+    if (request.ns_len == 0 or request.key_len == 0) return .invalid_request;
+    if (request.value_cap != 0 and request.value_ptr == null) return .invalid_request;
+    const ns = request.ns_ptr[0..request.ns_len];
+    if (!validFrontendCacheNamespace(ns)) return .invalid_request;
+
+    const allocator = broker.allocator;
+    const key_material = request.key_ptr[0..request.key_len];
+    const closure = parseFrontendCacheClosure(allocator, request.closure_ptr[0..request.closure_len]) catch return .invalid_request;
+    defer allocator.free(closure);
+
+    const root = frontendCacheRoot(allocator) catch return .failed;
+    defer allocator.free(root);
+    const entry_dir = frontendCacheEntryDir(allocator, root, ns, key_material) catch return .failed;
+    defer allocator.free(entry_dir);
+    const manifest_path = std.fs.path.join(allocator, &.{ entry_dir, "manifest.json" }) catch return .failed;
+    defer allocator.free(manifest_path);
+    // Every doubt below is a miss, not a failure: an unreadable or stale
+    // entry simply means the frontend compiles in full.
+    const manifest_bytes = sio.cwd().readFileAlloc(allocator, manifest_path, max_frontend_cache_manifest_bytes) catch return .ok;
+    defer allocator.free(manifest_bytes);
+    const manifest = std.json.parseFromSlice(FrontendCacheManifest, allocator, manifest_bytes, .{}) catch return .ok;
+    defer manifest.deinit();
+    if (manifest.value.version != frontend_cache_manifest_version) return .ok;
+    if (manifest.value.deps.len != closure.len) return .ok;
+    for (manifest.value.deps, closure) |dep, path| {
+        if (!std.mem.eql(u8, dep.path, path)) return .ok;
+        const current = frontendCacheFileHash(allocator, path) catch return .ok;
+        if (current.len != dep.len or current.hash != dep.hash) return .ok;
+    }
+    const artifact_path = std.fs.path.join(allocator, &.{ entry_dir, "artifact.bin" }) catch return .failed;
+    defer allocator.free(artifact_path);
+    const artifact = sio.cwd().readFileAlloc(allocator, artifact_path, max_frontend_cache_artifact_bytes) catch return .ok;
+    defer allocator.free(artifact);
+
+    response.value_len = artifact.len;
+    if (artifact.len > request.value_cap) return .insufficient_buffer;
+    if (artifact.len != 0) {
+        const out_ptr = request.value_ptr orelse return .invalid_request;
+        @memcpy(out_ptr[0..artifact.len], artifact);
+    }
+    response.hit = 1;
+    return .ok;
+}
+
+fn runtimeBrokerCacheStore(broker: *const RuntimeBroker, req: ?*const anyopaque, resp: ?*anyopaque) BrokerStatus {
+    const request = if (req) |raw|
+        @as(*const BrokerCacheStoreRequest, @ptrCast(@alignCast(raw)))
+    else
+        return .invalid_request;
+    const response = if (resp) |raw|
+        @as(*BrokerCacheStoreResponse, @ptrCast(@alignCast(raw)))
+    else
+        return .invalid_request;
+    response.* = .{ .stored = 0 };
+
+    if (request.ns_len == 0 or request.key_len == 0) return .invalid_request;
+    if (request.value_len > max_frontend_cache_artifact_bytes) return .invalid_request;
+    const ns = request.ns_ptr[0..request.ns_len];
+    if (!validFrontendCacheNamespace(ns)) return .invalid_request;
+
+    const allocator = broker.allocator;
+    const key_material = request.key_ptr[0..request.key_len];
+    const closure = parseFrontendCacheClosure(allocator, request.closure_ptr[0..request.closure_len]) catch return .invalid_request;
+    defer allocator.free(closure);
+
+    var deps = std.array_list.Managed(FrontendCacheDep).init(allocator);
+    defer deps.deinit();
+    for (closure) |path| {
+        const dep = frontendCacheFileHash(allocator, path) catch return .failed;
+        deps.append(dep) catch return .failed;
+    }
+
+    const root = frontendCacheRoot(allocator) catch return .failed;
+    defer allocator.free(root);
+    const entry_dir = frontendCacheEntryDir(allocator, root, ns, key_material) catch return .failed;
+    defer allocator.free(entry_dir);
+    sio.cwd().makePath(entry_dir) catch return .failed;
+
+    const artifact_path = std.fs.path.join(allocator, &.{ entry_dir, "artifact.bin" }) catch return .failed;
+    defer allocator.free(artifact_path);
+    sio.cwd().writeFile(.{ .sub_path = artifact_path, .data = request.value_ptr[0..request.value_len] }) catch return .failed;
+
+    const manifest: FrontendCacheManifest = .{ .version = frontend_cache_manifest_version, .deps = deps.items };
+    const manifest_json = std.json.Stringify.valueAlloc(allocator, manifest, .{}) catch return .failed;
+    defer allocator.free(manifest_json);
+    const manifest_path = std.fs.path.join(allocator, &.{ entry_dir, "manifest.json" }) catch return .failed;
+    defer allocator.free(manifest_path);
+    sio.cwd().writeFile(.{ .sub_path = manifest_path, .data = manifest_json }) catch return .failed;
+
+    response.stored = 1;
+    return .ok;
+}
+
 fn runtimeBrokerCall(ctx: ?*anyopaque, op_value: u32, req: ?*const anyopaque, resp: ?*anyopaque) callconv(.c) u32 {
     const broker = if (ctx) |raw|
         @as(*const RuntimeBroker, @ptrCast(@alignCast(raw)))
@@ -707,6 +1020,8 @@ fn runtimeBrokerCall(ctx: ?*anyopaque, op_value: u32, req: ?*const anyopaque, re
         @intFromEnum(BrokerOp.fs_read) => BrokerOp.fs_read,
         @intFromEnum(BrokerOp.http_request) => BrokerOp.http_request,
         @intFromEnum(BrokerOp.process_spawn) => BrokerOp.process_spawn,
+        @intFromEnum(BrokerOp.cache_lookup) => BrokerOp.cache_lookup,
+        @intFromEnum(BrokerOp.cache_store) => BrokerOp.cache_store,
         else => return @intFromEnum(BrokerStatus.unsupported),
     };
 
@@ -715,6 +1030,8 @@ fn runtimeBrokerCall(ctx: ?*anyopaque, op_value: u32, req: ?*const anyopaque, re
         .fs_read => runtimeBrokerFsRead(broker, req, resp),
         .http_request => runtimeBrokerHttpRequest(broker, req, resp),
         .process_spawn => runtimeBrokerProcessSpawn(broker, req, resp),
+        .cache_lookup => runtimeBrokerCacheLookup(broker, req, resp),
+        .cache_store => runtimeBrokerCacheStore(broker, req, resp),
     });
 }
 
