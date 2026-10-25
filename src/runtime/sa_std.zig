@@ -137,7 +137,10 @@ fn policyBootstrap() callconv(.c) void {
     }
 }
 
-var policy_bootstrap_init_entry: *const fn () callconv(.c) void linksection(".init_array") = &policyBootstrap;
+// align(8) is load-bearing: with a larger section alignment the linker
+// pads .init_array up to the boundary, and glibc's init walk calls that
+// zero padding as a null function pointer before main ever runs.
+var policy_bootstrap_init_entry: *const fn () callconv(.c) void align(8) linksection(".init_array") = &policyBootstrap;
 
 comptime {
     if (!builtin.is_test and builtin.os.tag == .linux and !is_wasm) {
