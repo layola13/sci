@@ -9,6 +9,7 @@ const cap = @import("common/capability.zig");
 const inst = @import("common/instruction.zig");
 const sig = @import("common/signature.zig");
 const sio = @import("sio");
+const sa_policy = @import("runtime/sa_policy.zig");
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = 1;
 const SA_STD_ERR_INVALID_HANDLE: i32 = 2;
@@ -19,6 +20,7 @@ const SA_STD_ERR_IO: i32 = 6;
 const SA_STD_ERR_NET: i32 = 7;
 const SA_STD_ERR_UNSUPPORTED: i32 = 8;
 const SA_STD_ERR_TRUNCATED: i32 = 9;
+const SA_STD_ERR_PERMISSION_DENIED: i32 = 10;
 const SA_STD_ERR_UNKNOWN: i32 = 127;
 
 pub const RunError = error{
@@ -34,6 +36,7 @@ pub const RunError = error{
     UnsupportedExtern,
     UnsupportedInstruction,
     UnsupportedSysIntrinsic,
+    PolicyDenied,
     UserExit,
 };
 
@@ -1666,24 +1669,26 @@ const Interpreter = struct {
         }
         if (std.mem.eql(u8, name, "sa_time_instant_ns")) {
             if (args.len != 0) return RunError.InvalidOperand;
-            return .{ .handled = .{ .ty = .u64, .bits = self.monotonicNowNs() catch 0 } };
+            return .{ .handled = .{ .ty = .u64, .bits = if (policyGateAllows(self.allocator, .time)) (self.monotonicNowNs() catch 0) else 0 } };
         }
         if (std.mem.eql(u8, name, "sa_time_unix_s")) {
             if (args.len != 0) return RunError.InvalidOperand;
-            return .{ .handled = .{ .ty = .i64, .bits = @as(u64, @bitCast(sio.timestampSeconds())) } };
+            return .{ .handled = .{ .ty = .i64, .bits = if (policyGateAllows(self.allocator, .time)) @as(u64, @bitCast(sio.timestampSeconds())) else 0 } };
         }
         if (std.mem.eql(u8, name, "sa_time_unix_ms")) {
             if (args.len != 0) return RunError.InvalidOperand;
-            return .{ .handled = .{ .ty = .i64, .bits = @as(u64, @bitCast(std.Io.Clock.real.now(sio.io()).toMilliseconds())) } };
+            return .{ .handled = .{ .ty = .i64, .bits = if (policyGateAllows(self.allocator, .time)) @as(u64, @bitCast(std.Io.Clock.real.now(sio.io()).toMilliseconds())) else 0 } };
         }
         if (std.mem.eql(u8, name, "sa_time_unix_ns")) {
             if (args.len != 0) return RunError.InvalidOperand;
+            if (!policyGateAllows(self.allocator, .time)) return .{ .handled = .{ .ty = .i64, .bits = 0 } };
             const ts = std.Io.Clock.real.now(sio.io()).toNanoseconds();
             const unix_ns = @as(i64, @intCast(ts));
             return .{ .handled = .{ .ty = .i64, .bits = @as(u64, @bitCast(unix_ns)) } };
         }
         if (std.mem.eql(u8, name, "sa_time_utc_now")) {
             if (args.len != 1) return RunError.InvalidOperand;
+            if (!policyGateAllows(self.allocator, .time)) return .{ .handled = makeFallibleI32(SA_STD_ERR_PERMISSION_DENIED) };
             self.writeUtcNow(args[0].bits) catch |err| {
                 const status = switch (err) {
                     error.InvalidAddress => SA_STD_ERR_INVALID_ARGUMENT,
@@ -1736,6 +1741,10 @@ const Interpreter = struct {
         if (std.mem.eql(u8, name, "sys_read_file")) {
             if (args.len != 3) return RunError.InvalidOperand;
             const path = try self.memory.sliceAt(args[0].bits, @as(usize, @intCast(args[1].bits)));
+            if (!policyGateAllows(self.allocator, .{ .fs = .{ .path = path, .write = false } })) {
+                self.stderr.print("[sa-policy] denied fs read: {s}\n", .{path}) catch {};
+                return RunError.PolicyDenied;
+            }
             var file = try sio.cwd().openFile(path, .{});
             defer file.close();
             const data = try file.readToEndAlloc(self.allocator, 1 << 30);
@@ -1752,6 +1761,10 @@ const Interpreter = struct {
             if (args.len != 4) return RunError.InvalidOperand;
             const path = try self.memory.sliceAt(args[0].bits, @as(usize, @intCast(args[1].bits)));
             const data = try self.memory.sliceAt(args[2].bits, @as(usize, @intCast(args[3].bits)));
+            if (!policyGateAllows(self.allocator, .{ .fs = .{ .path = path, .write = true } })) {
+                self.stderr.print("[sa-policy] denied fs write: {s}\n", .{path}) catch {};
+                return RunError.PolicyDenied;
+            }
             var file = try sio.cwd().createFile(path, .{ .truncate = true });
             defer file.close();
             try file.writeAll(data);
@@ -2306,6 +2319,110 @@ pub fn runFunctionAtIndexWithBinaryArgs(
     defer allocator.free(args);
 
     return try runPrepared(&interp, sig_index, args);
+}
+
+
+// ---------------------------------------------------------------------
+// Runtime policy for interpreted runs (16_policy phase 1, slice 3b).
+// Mirrors the produced-binary bootstrap (sa_std.zig policyBootstrap):
+// SA_POLICY_ALLOW_ALL > SA_POLICY_JSON > SA_POLICY_FILE, and
+// SA_POLICY_REQUIRED refuses to run without a policy. The interpreter's
+// gated surface is its intrinsic table: sys_read_file / sys_write_file
+// and the five clock getters. Denied fs access aborts the run with
+// RunError.PolicyDenied (the sys intrinsics have no status channel);
+// denied clock reads return 0, like the native status-less getters.
+
+var run_audit_path: ?[]const u8 = null;
+
+fn runPolicyAuditSink(line: []const u8) void {
+    const path = run_audit_path orelse return;
+    const file = sio.cwd().createFile(path, .{ .truncate = false }) catch return;
+    defer file.close();
+    const end = file.getEndPos() catch return;
+    file.seekTo(end) catch return;
+    file.writeAll(line) catch {};
+}
+
+fn policyEnvOwned(allocator: std.mem.Allocator, name: []const u8) ?[]u8 {
+    return sio.getEnvVarOwned(allocator, name) catch null;
+}
+
+fn policyEnvFlag(allocator: std.mem.Allocator, name: []const u8) bool {
+    const value = policyEnvOwned(allocator, name) orelse return false;
+    defer allocator.free(value);
+    return std.mem.eql(u8, value, "1");
+}
+
+fn installRunPolicy(allocator: std.mem.Allocator, policy: sa_policy.Policy) !void {
+    const context = try allocator.create(sa_policy.PolicyContext);
+    context.* = sa_policy.PolicyContext.init(allocator, 1, policy);
+    sa_policy.installContext(context);
+    var audit_path: ?[]u8 = policyEnvOwned(allocator, "SA_AUDIT_FILE");
+    if (audit_path == null) {
+        if (policy.audit_sink) |sink| {
+            if (std.mem.startsWith(u8, sink, "file://")) {
+                audit_path = try allocator.dupe(u8, sink["file://".len..]);
+            }
+        }
+    }
+    if (audit_path) |path| {
+        run_audit_path = path;
+        sa_policy.installAuditSink(runPolicyAuditSink);
+    }
+}
+
+fn installParsedPolicy(allocator: std.mem.Allocator, stderr: anytype, text: []const u8) !void {
+    const policy = sa_policy.parsePolicyJson(allocator, text) catch |err| {
+        stderr.print("[sa-policy] {s}\n", .{@errorName(err)}) catch {};
+        return error.InvalidPolicy;
+    };
+    installRunPolicy(allocator, policy) catch return error.OutOfMemory;
+}
+
+pub fn installPolicyFromEnv(allocator: std.mem.Allocator, stderr: anytype) !void {
+    if (policyEnvFlag(allocator, "SA_POLICY_ALLOW_ALL")) {
+        try installParsedPolicy(allocator, stderr, "{\"permissions\":{\"net\":{\"mode\":\"allow\"},\"fs\":{\"mode\":\"allow\"},\"env\":{\"mode\":\"allow\"},\"run\":{\"mode\":\"allow\"},\"time\":{\"mode\":\"allow\"},\"random\":{\"mode\":\"allow\"}}}");
+        stderr.writeAll("[sa-policy] allow-all policy engaged via SA_POLICY_ALLOW_ALL (audit trace)\n") catch {};
+        if (run_audit_path != null) {
+            const now_ns: i64 = @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
+            const event = sa_policy.AuditEvent{ .context_id = 1, .category = .run, .resource = "SA_POLICY_ALLOW_ALL", .decision = "allow-all", .source = "env" };
+            if (event.formatJsonLine(allocator, now_ns)) |line| {
+                defer allocator.free(line);
+                runPolicyAuditSink(line);
+            } else |_| {}
+        }
+        return;
+    }
+    if (policyEnvOwned(allocator, "SA_POLICY_JSON")) |text| {
+        defer allocator.free(text);
+        try installParsedPolicy(allocator, stderr, text);
+        return;
+    }
+    if (policyEnvOwned(allocator, "SA_POLICY_FILE")) |path| {
+        defer allocator.free(path);
+        var file = sio.cwd().openFile(path, .{}) catch {
+            stderr.writeAll("[sa-policy] SA_POLICY_FILE is set but cannot be opened\n") catch {};
+            return error.PolicyFileUnreadable;
+        };
+        defer file.close();
+        const text = file.readToEndAlloc(allocator, 1 << 20) catch {
+            stderr.writeAll("[sa-policy] SA_POLICY_FILE cannot be read\n") catch {};
+            return error.PolicyFileUnreadable;
+        };
+        defer allocator.free(text);
+        try installParsedPolicy(allocator, stderr, text);
+        return;
+    }
+    if (policyEnvFlag(allocator, "SA_POLICY_REQUIRED")) {
+        stderr.writeAll("[sa-policy] SA_POLICY_REQUIRED is set but no policy was provided (set SA_POLICY_JSON, SA_POLICY_FILE, or SA_POLICY_ALLOW_ALL=1)\n") catch {};
+        return error.PolicyRequired;
+    }
+}
+
+fn policyGateAllows(allocator: std.mem.Allocator, resource: sa_policy.Resource) bool {
+    if (sa_policy.active_context == null) return true;
+    const now_ns: i64 = @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
+    return sa_policy.gate(allocator, resource, now_ns);
 }
 
 pub fn runWithWriters(

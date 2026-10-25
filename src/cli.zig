@@ -7120,9 +7120,14 @@ fn executeRun(
             defer run_out_forward.writer().flush() catch {};
             var run_err_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
             defer run_err_forward.writer().flush() catch {};
+            interp.installPolicyFromEnv(allocator, stderr) catch |err| switch (err) {
+                error.PolicyRequired => return 1,
+                else => return 2,
+            };
             const code = interp.runWithWriters(allocator, &owned.verified, argv, run_out_forward.writer(), run_err_forward.writer()) catch |err| switch (err) {
                 error.UserExit => 0,
                 error.UnsupportedExtern => return 1,
+                error.PolicyDenied => return 1,
                 else => {
                     try printCliError(stderr, err, diagnostics_mode);
                     return 1;

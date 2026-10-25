@@ -7989,6 +7989,7 @@ pub export fn sa_time_instant_ns() u64 {
 }
 
 pub export fn sa_time_unix_s() i64 {
+    if (!policyAllows(.time)) return 0;
     return sio.timestampSeconds();
 }
 
@@ -8343,12 +8344,14 @@ pub export fn sa_time_set_field(ms: i64, field: u64, value: i64) i64 {
 }
 
 pub export fn sa_time_unix_ns() i64 {
+    if (!policyAllows(.time)) return 0;
     const ts = std.Io.Clock.real.now(sio.io()).toNanoseconds();
     return std.math.cast(i64, ts) orelse std.math.maxInt(i64);
 }
 
 pub export fn sa_time_utc_now(out_date: ?*TimeDate) i32 {
     const ptr = out_date orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (!policyAllows(.time)) return finish(SA_STD_ERR_PERMISSION_DENIED);
     fillUtcNow(ptr) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
