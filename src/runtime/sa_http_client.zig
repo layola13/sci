@@ -1415,6 +1415,24 @@ fn sseParseRetryAfter(header_path: []const u8) u64 {
     return 0;
 }
 
+// Blocking reap of an SSE curl child by its own pid. Do NOT use
+// std.process.Child.wait() here: sseCheckFinished polls with a
+// raw waitpid(pid, WNOHANG) and may already have reaped the
+// child, after which Child.wait() blocks in the Io reaper's
+// waitpid(-1) until some unrelated child of the process exits
+// (deadlock when a long-lived child, e.g. an MCP server, is
+// alive). One mechanism, one pid: this wait.
+fn sseWaitSioChild(child: *sio.Child) void {
+    if (builtin.os.tag != .linux) {
+        _ = child.wait() catch {};
+        return;
+    }
+    const inner = &(child.inner orelse return);
+    const pid = inner.id orelse return;
+    var status: i32 = 0;
+    _ = std.os.linux.waitpid(pid, &status, 0);
+}
+
 fn sseCheckFinished(s: *SseStream) void {
     if (comptime builtin.cpu.arch.isWasm()) {
         return;
@@ -1523,7 +1541,7 @@ pub export fn sa_http_client_sse_post(
 
     const s = allocator.create(SseStream) catch {
         child.kill() catch {};
-        _ = child.wait() catch {};
+        sseWaitSioChild(&child);
         return 1;
     };
     s.* = .{
@@ -1589,7 +1607,7 @@ pub export fn sa_http_client_sse_free(handle: ?*anyopaque) u32 {
     const s = @as(*SseStream, @ptrCast(@alignCast(handle orelse return 1)));
     if (!s.finished) {
         _ = s.child.kill() catch {};
-        _ = s.child.wait() catch {};
+        sseWaitSioChild(&s.child);
     }
     sio.cwd().deleteFile(s.body_path) catch {};
     sio.cwd().deleteFile(s.header_path) catch {};
