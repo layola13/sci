@@ -477,12 +477,58 @@ fn resolveFromPluginImportRoot(
     };
 }
 
+/// The plugin name an import root belongs to. Roots are built as
+/// <home>/installed/<name>/current/sa (the workspace staging mirrors
+/// that layout), so the name is the segment between "installed" and
+/// "current". Roots of any other shape are not addressable by a
+/// qualified plugin import.
+fn pluginNameForImportRoot(root_dir: []const u8) ?[]const u8 {
+    var parts = std.mem.tokenizeAny(u8, root_dir, "/\\");
+    var prev: ?[]const u8 = null;
+    var prev2: ?[]const u8 = null;
+    while (parts.next()) |part| {
+        if (std.mem.eql(u8, part, "sa")) {
+            if (prev) |p1| {
+                if (std.mem.eql(u8, p1, "current")) {
+                    if (prev2) |name| {
+                        if (name.len != 0) return name;
+                    }
+                }
+            }
+        }
+        prev2 = prev;
+        prev = part;
+    }
+    return null;
+}
+
 fn resolveFromPluginImportRoots(
     allocator: std.mem.Allocator,
     import_path: []const u8,
     options: ResolveOptions,
 ) ResolveError!?ResolvedImport {
     if (!isPluginInterfaceImportPath(import_path)) return null;
+    // Qualified plugin import: plugin/<name>/<relative interface path>
+    // resolves inside that one plugin's import root only. A qualified
+    // import never falls through to another plugin or to the bare-name
+    // search: when the named plugin is absent or does not ship the
+    // file, the import is explicitly unresolved.
+    if (std.mem.startsWith(u8, import_path, "plugin/")) {
+        const rest = import_path["plugin/".len..];
+        const slash = std.mem.indexOfScalar(u8, rest, '/') orelse return error.PackageNotResolved;
+        const wanted = rest[0..slash];
+        const rel = rest[slash + 1 ..];
+        if (wanted.len == 0 or !isPluginInterfaceImportPath(rel)) return error.PackageNotResolved;
+        for (options.plugin_import_roots) |root_dir| {
+            const name = pluginNameForImportRoot(root_dir) orelse continue;
+            if (!std.mem.eql(u8, name, wanted)) continue;
+            if (try resolveFromPluginImportRoot(allocator, root_dir, rel, options.max_local_file_bytes)) |resolved| {
+                return resolved;
+            }
+            return error.PackageNotResolved;
+        }
+        return error.PackageNotResolved;
+    }
     for (options.plugin_import_roots) |root_dir| {
         if (try resolveFromPluginImportRoot(allocator, root_dir, import_path, options.max_local_file_bytes)) |resolved| {
             return resolved;
@@ -932,4 +978,61 @@ test "resolveImport bounds globally mapped source size" {
             .{ .project_root = home, .home_dir = home, .max_local_file_bytes = 8 },
         ),
     );
+}
+
+test "resolveImport resolves qualified plugin imports inside the named plugin only" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.createDirPath(std.testing.io, "plugins/installed/deno/current/sa");
+    try tmp.dir.createDirPath(std.testing.io, "plugins/installed/node/current/sa");
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "plugins/installed/deno/current/sa/shared.sal",
+        .data = "@const ORIGIN: u64 = 1\n",
+    });
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "plugins/installed/node/current/sa/shared.sal",
+        .data = "@const ORIGIN: u64 = 2\n",
+    });
+
+    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(root);
+    const deno_root = try tmp.dir.realPathFileAlloc(std.testing.io, "plugins/installed/deno/current/sa", std.testing.allocator);
+    defer std.testing.allocator.free(deno_root);
+    const node_root = try tmp.dir.realPathFileAlloc(std.testing.io, "plugins/installed/node/current/sa", std.testing.allocator);
+    defer std.testing.allocator.free(node_root);
+    const roots = [_][]const u8{ deno_root, node_root };
+
+    // Bare imports keep the legacy first-root-wins behavior.
+    {
+        const resolved = try resolveImport(std.testing.allocator, &.{}, root, "shared.sal", .{ .project_root = root, .plugin_import_roots = &roots });
+        defer {
+            var owned = resolved;
+            owned.deinit(std.testing.allocator);
+        }
+        try std.testing.expectEqualStrings("@const ORIGIN: u64 = 1\n", resolved.source);
+    }
+    // A qualified import names its plugin and resolves there even
+    // when an earlier root ships the same relative path.
+    {
+        const resolved = try resolveImport(std.testing.allocator, &.{}, root, "plugin/node/shared.sal", .{ .project_root = root, .plugin_import_roots = &roots });
+        defer {
+            var owned = resolved;
+            owned.deinit(std.testing.allocator);
+        }
+        try std.testing.expectEqualStrings("@const ORIGIN: u64 = 2\n", resolved.source);
+        try std.testing.expect(pathEndsWithPortable(resolved.entry_path, "plugins/installed/node/current/sa/shared.sal"));
+    }
+    {
+        const resolved = try resolveImport(std.testing.allocator, &.{}, root, "plugin/deno/shared.sal", .{ .project_root = root, .plugin_import_roots = &roots });
+        defer {
+            var owned = resolved;
+            owned.deinit(std.testing.allocator);
+        }
+        try std.testing.expectEqualStrings("@const ORIGIN: u64 = 1\n", resolved.source);
+    }
+    // Qualified imports never fall through: unknown plugin names and
+    // files the named plugin does not ship are explicit failures.
+    try std.testing.expectError(error.PackageNotResolved, resolveImport(std.testing.allocator, &.{}, root, "plugin/missing/shared.sal", .{ .project_root = root, .plugin_import_roots = &roots }));
+    try std.testing.expectError(error.PackageNotResolved, resolveImport(std.testing.allocator, &.{}, root, "plugin/deno/absent.sal", .{ .project_root = root, .plugin_import_roots = &roots }));
 }
