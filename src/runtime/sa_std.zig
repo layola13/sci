@@ -22,6 +22,13 @@ fn policyAllows(resource: sa_policy.Resource) bool {
     return sa_policy.gate(std.heap.page_allocator, resource, now_ns);
 }
 
+/// Run-category policy check shared with satellite runtime files
+/// (sa_pty.zig): a PTY spawn acquires a process exactly like the spawn
+/// funnel above, so it goes through the same 16_policy gate.
+pub fn saStdPolicyAllowsRun(program: []const u8) bool {
+    return policyAllows(.{ .run = program });
+}
+
 // ---------------------------------------------------------------------
 // Policy bootstrap for produced binaries (sala 16_policy phase 1,
 // slice 3). The deployment supplies the policy through the
@@ -359,6 +366,18 @@ comptime {
     _ = &@import("sa_toml.zig").sa_toml_table_len;
     _ = &@import("sa_toml.zig").sa_toml_array_get_string;
     _ = &@import("sa_toml.zig").sa_toml_array_get_i64;
+    if (builtin.os.tag == .linux) {
+        _ = &@import("sa_pty.zig").sa_pty_spawn;
+        _ = &@import("sa_pty.zig").sa_pty_read;
+        _ = &@import("sa_pty.zig").sa_pty_write;
+        _ = &@import("sa_pty.zig").sa_pty_poll;
+        _ = &@import("sa_pty.zig").sa_pty_resize;
+        _ = &@import("sa_pty.zig").sa_pty_winsize;
+        _ = &@import("sa_pty.zig").sa_pty_pid;
+        _ = &@import("sa_pty.zig").sa_pty_kill;
+        _ = &@import("sa_pty.zig").sa_pty_try_wait;
+        _ = &@import("sa_pty.zig").sa_pty_close;
+    }
     _ = &@import("sa_ssh.zig").sa_std_ssh_client_connect;
     _ = &@import("sa_ssh.zig").sa_std_ssh_server_listen;
     _ = &@import("sa_http_client.zig").sa_http_client_new_v2;

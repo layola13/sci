@@ -8,3 +8,19 @@
 @extern sa_term_epoll_ctl(epoll: ptr, op: u32, target: ptr, events: u32, data: u64) -> i32!
 @extern sa_term_epoll_wait(epoll: ptr, &events: ptr, max_events: u64, timeout_ms: i32, &out_count: ptr) -> i32!
 @extern sa_term_epoll_close(^epoll: ptr) -> i32!
+
+// PTY sessions (sa_pty_*, Linux): a spawned child owns the slave side as
+// its controlling terminal; the caller drives the master through an
+// opaque owned u64 handle. poll events: 1 readable, 2 hangup/closed.
+// try_wait status: exit code, or 128 + signal. argv entries are
+// (ptr, len) pairs like the process spawn surface, argv[0] included.
+@extern sa_pty_spawn(&file: ptr, file_len: u64, &argv: ptr, argv_len: u64, cols: u16, rows: u16, &out_handle: ptr) -> i32
+@extern sa_pty_read(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
+@extern sa_pty_write(handle: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32
+@extern sa_pty_poll(handle: u64, timeout_ms: i32, &out_events: ptr) -> i32
+@extern sa_pty_resize(handle: u64, cols: u16, rows: u16) -> i32
+@extern sa_pty_winsize(handle: u64, &out_cols: ptr, &out_rows: ptr) -> i32
+@extern sa_pty_pid(handle: u64, &out_pid: ptr) -> i32
+@extern sa_pty_kill(handle: u64, sig: u32) -> i32
+@extern sa_pty_try_wait(handle: u64, &out_done: ptr, &out_status: ptr) -> i32
+@extern sa_pty_close(^handle: u64) -> i32
