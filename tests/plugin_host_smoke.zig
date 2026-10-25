@@ -3416,7 +3416,7 @@ test "plugin installer installs npm packages and enforces registry integrity and
     // Stage one plugin project as two npm tarballs: a well-formed
     // package and an "evil" twin whose package.json carries a
     // lifecycle script. npm tarballs wrap the payload in package/.
-    try writeInstallablePluginProject(std.testing.allocator, tmp.dir, "stage/package", "npmfix", "npmfix", "sa_plugin_npmfix_probe", "", "", "return 0;", false, false);
+    try writeInstallablePluginProject(std.testing.allocator, tmp.dir, "stage/package", "npmfix", "npmfix", "sa_plugin_npmfix_probe", "{\"fs\": [], \"net\": [], \"env\": [], \"process\": {\"spawn\": false, \"exec\": []}}", "", "return 0;", false, false);
     try writeSource(tmp.dir, "stage/package/package.json",
         \\{
         \\  "name": "sa-plugin-npmfix",
@@ -3430,7 +3430,7 @@ test "plugin installer installs npm packages and enforces registry integrity and
     defer std.testing.allocator.free(tar_good.stderr);
     try expectSuccess(tar_good);
 
-    try writeInstallablePluginProject(std.testing.allocator, tmp.dir, "stage_evil/package", "npmfix", "npmfix", "sa_plugin_npmfix_probe", "", "", "return 0;", false, false);
+    try writeInstallablePluginProject(std.testing.allocator, tmp.dir, "stage_evil/package", "npmfix", "npmfix", "sa_plugin_npmfix_probe", "{\"fs\": [], \"net\": [], \"env\": [], \"process\": {\"spawn\": false, \"exec\": []}}", "", "return 0;", false, false);
     try writeSource(tmp.dir, "stage_evil/package/package.json",
         \\{
         \\  "name": "sa-plugin-evilfix",
