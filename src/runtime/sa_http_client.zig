@@ -1683,10 +1683,14 @@ fn sseTurnImpl(
             }
             return 2;
         }
-        // Wait for HTTP status.
+        // Wait for HTTP status. The poll cap must tolerate slow
+        // time-to-first-byte upstreams: a grok tool-call request was
+        // measured at 20s to first byte, over the old 200*50ms = 10s
+        // cap, which surfaced as a spurious upstream error. 3600*50ms
+        // = 180s; a dead transfer still ends the wait via poll done.
         var status: u16 = 0;
         var waits: u32 = 0;
-        while (waits < 200) : (waits += 1) {
+        while (waits < 3600) : (waits += 1) {
             const st = sa_http_client_sse_status(handle);
             if (st != 0) {
                 status = st;
