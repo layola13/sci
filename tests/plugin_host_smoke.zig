@@ -3035,22 +3035,22 @@ test "workspace declared plugin stages and dispatches without global install or 
     const broker_cli_artifact = try dynLibInstallPath(std.testing.allocator, "broker_cli");
     defer std.testing.allocator.free(broker_cli_artifact);
     const plugin_manifest = try std.fmt.allocPrint(std.testing.allocator,
-        \\\\{{
-        \\\\  "schema": "sa.plugin/1",
-        \\\\  "name": "broker-cli",
-        \\\\  "version": "0.1.0",
-        \\\\  "artifacts": {{
-        \\\\    "{s}": {{ "path": "{s}" }}
-        \\\\  }},
-        \\\\  "skills": [],
-        \\\\  "permissions": {{
-        \\\\    "fs": [],
-        \\\\    "net": [],
-        \\\\    "env": ["SA_BROKER_*"],
-        \\\\    "process": {{ "spawn": false, "exec": [] }}
-        \\\\  }},
-        \\\\  "dependencies": {{}}
-        \\\\}}
+        \\{{
+        \\  "schema": "sa.plugin/1",
+        \\  "name": "broker-cli",
+        \\  "version": "0.1.0",
+        \\  "artifacts": {{
+        \\    "{s}": {{ "path": "{s}" }}
+        \\  }},
+        \\  "skills": [],
+        \\  "permissions": {{
+        \\    "fs": [],
+        \\    "net": [],
+        \\    "env": ["SA_BROKER_*"],
+        \\    "process": {{ "spawn": false, "exec": [] }}
+        \\  }},
+        \\  "dependencies": {{}}
+        \\}}
     , .{ targetArtifactKey(), broker_cli_artifact });
     defer std.testing.allocator.free(plugin_manifest);
     try writeSource(tmp.dir, "broker_cli/sap.json", plugin_manifest);
@@ -3109,7 +3109,6 @@ test "workspace declared plugin stages and dispatches without global install or 
         sio.managedWriter(&stdout_buffer),
         sio.managedWriter(&stderr_buffer),
     );
-    if (code != 41) std.debug.print("WSDBG code={d} out={s} err={s} END", .{ code, stdout_buffer.items, stderr_buffer.items });
     try std.testing.expectEqual(@as(u8, 41), code);
     try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "DENIED") != null);
 
