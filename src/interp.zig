@@ -2379,6 +2379,24 @@ fn installParsedPolicy(allocator: std.mem.Allocator, stderr: anytype, text: []co
     installRunPolicy(allocator, policy) catch return error.OutOfMemory;
 }
 
+/// Mints SA_POLICY_TOKENS_JSON specs into the installed context
+/// (parity with the produced-binary bootstrap in sa_std.zig).
+fn mintEnvTokens(allocator: std.mem.Allocator, stderr: anytype) !void {
+    const text = policyEnvOwned(allocator, "SA_POLICY_TOKENS_JSON") orelse return;
+    defer allocator.free(text);
+    const context = sa_policy.active_context orelse {
+        stderr.writeAll("[sa-policy] SA_POLICY_TOKENS_JSON is set but no policy was provided (tokens need a policy context to bind to)\n") catch {};
+        return error.PolicyTokensWithoutPolicy;
+    };
+    const specs = sa_policy.parseTokenSpecsJson(allocator, text) catch |err| {
+        stderr.print("[sa-policy] {s}\n", .{@errorName(err)}) catch {};
+        return error.InvalidPolicy;
+    };
+    defer sa_policy.freeTokenSpecs(allocator, specs);
+    const now_ns: i64 = @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
+    sa_policy.mintTokenSpecs(context, allocator, specs, now_ns) catch return error.OutOfMemory;
+}
+
 pub fn installPolicyFromEnv(allocator: std.mem.Allocator, stderr: anytype) !void {
     if (policyEnvFlag(allocator, "SA_POLICY_ALLOW_ALL")) {
         try installParsedPolicy(allocator, stderr, "{\"permissions\":{\"net\":{\"mode\":\"allow\"},\"fs\":{\"mode\":\"allow\"},\"env\":{\"mode\":\"allow\"},\"run\":{\"mode\":\"allow\"},\"time\":{\"mode\":\"allow\"},\"random\":{\"mode\":\"allow\"}}}");
@@ -2391,11 +2409,13 @@ pub fn installPolicyFromEnv(allocator: std.mem.Allocator, stderr: anytype) !void
                 runPolicyAuditSink(line);
             } else |_| {}
         }
+        try mintEnvTokens(allocator, stderr);
         return;
     }
     if (policyEnvOwned(allocator, "SA_POLICY_JSON")) |text| {
         defer allocator.free(text);
         try installParsedPolicy(allocator, stderr, text);
+        try mintEnvTokens(allocator, stderr);
         return;
     }
     if (policyEnvOwned(allocator, "SA_POLICY_FILE")) |path| {
@@ -2411,11 +2431,17 @@ pub fn installPolicyFromEnv(allocator: std.mem.Allocator, stderr: anytype) !void
         };
         defer allocator.free(text);
         try installParsedPolicy(allocator, stderr, text);
+        try mintEnvTokens(allocator, stderr);
         return;
     }
     if (policyEnvFlag(allocator, "SA_POLICY_REQUIRED")) {
         stderr.writeAll("[sa-policy] SA_POLICY_REQUIRED is set but no policy was provided (set SA_POLICY_JSON, SA_POLICY_FILE, or SA_POLICY_ALLOW_ALL=1)\n") catch {};
         return error.PolicyRequired;
+    }
+    if (policyEnvOwned(allocator, "SA_POLICY_TOKENS_JSON")) |text| {
+        allocator.free(text);
+        stderr.writeAll("[sa-policy] SA_POLICY_TOKENS_JSON is set but no policy was provided (tokens need a policy context to bind to)\n") catch {};
+        return error.PolicyTokensWithoutPolicy;
     }
 }
 

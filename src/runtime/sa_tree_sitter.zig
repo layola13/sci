@@ -395,6 +395,17 @@ pub export fn sa_ts_node_type(handle: u64, buf_ptr: ?[*]u8, cap: u64, out_len: ?
     return copyOut(std.mem.span(text_z), buf_ptr, cap, out_len);
 }
 
+pub export fn sa_ts_node_byte_range(handle: u64, out_start: ?*u32, out_end: ?*u32) i32 {
+    const s_out = out_start orelse return ERR_INVALID;
+    const e_out = out_end orelse return ERR_INVALID;
+    s_out.* = 0;
+    e_out.* = 0;
+    const entry = getNode(handle) orelse return ERR_HANDLE;
+    s_out.* = fns.node_start_byte(entry.node);
+    e_out.* = fns.node_end_byte(entry.node);
+    return OK;
+}
+
 pub export fn sa_ts_node_text(handle: u64, buf_ptr: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
     const entry = getNode(handle) orelse return ERR_HANDLE;
     const tree = getTree(entry.tree_handle) orelse return ERR_HANDLE;

@@ -660,6 +660,65 @@ pub fn parsePolicyJson(allocator: std.mem.Allocator, text: []const u8) !Policy {
     return policy;
 }
 
+pub const TokenSpec = struct {
+    category: Category,
+    key: []const u8,
+    ttl_ns: i64 = default_token_ttl_ns,
+};
+
+/// Strict parser for the SA_POLICY_TOKENS_JSON surface:
+/// [{"category":"fs","key":"read:/abs/path","ttl_s":120}, ...]
+/// ttl_s is optional (1..3600); anything unknown is InvalidPolicy.
+pub fn parseTokenSpecsJson(allocator: std.mem.Allocator, text: []const u8) ![]TokenSpec {
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, text, .{});
+    defer parsed.deinit();
+    if (parsed.value != .array) return error.InvalidPolicy;
+    var specs = std.array_list.Managed(TokenSpec).init(allocator);
+    errdefer {
+        for (specs.items) |spec| allocator.free(spec.key);
+        specs.deinit();
+    }
+    for (parsed.value.array.items) |item| {
+        const object = try jsonObject(item);
+        var category: ?Category = null;
+        var key: ?[]const u8 = null;
+        var ttl_ns: i64 = default_token_ttl_ns;
+        var it = object.iterator();
+        while (it.next()) |entry| {
+            if (std.mem.eql(u8, entry.key_ptr.*, "category")) {
+                category = categoryFromName(try jsonString(entry.value_ptr.*)) orelse return error.InvalidPolicy;
+            } else if (std.mem.eql(u8, entry.key_ptr.*, "key")) {
+                key = try jsonString(entry.value_ptr.*);
+            } else if (std.mem.eql(u8, entry.key_ptr.*, "ttl_s")) {
+                if (entry.value_ptr.* != .integer) return error.InvalidPolicy;
+                const seconds = entry.value_ptr.integer;
+                if (seconds < 1 or seconds > 3600) return error.InvalidPolicy;
+                ttl_ns = seconds * std.time.ns_per_s;
+            } else {
+                return error.InvalidPolicy;
+            }
+        }
+        const cat = category orelse return error.InvalidPolicy;
+        const k = key orelse return error.InvalidPolicy;
+        if (k.len == 0 or k.len > 4096) return error.InvalidPolicy;
+        try specs.append(.{ .category = cat, .key = try allocator.dupe(u8, k), .ttl_ns = ttl_ns });
+    }
+    return try specs.toOwnedSlice();
+}
+
+pub fn freeTokenSpecs(allocator: std.mem.Allocator, specs: []TokenSpec) void {
+    for (specs) |spec| allocator.free(spec.key);
+    allocator.free(specs);
+}
+
+/// Mints every spec into the context (the host-side approval already
+/// happened wherever the specs came from; this is the delivery step).
+pub fn mintTokenSpecs(context: *PolicyContext, allocator: std.mem.Allocator, specs: []const TokenSpec, now_ns: i64) !void {
+    for (specs) |spec| {
+        try context.mintToken(allocator, spec.category, spec.key, now_ns, spec.ttl_ns);
+    }
+}
+
 fn categoryFromName(name: []const u8) ?Category {
     inline for ([_]Category{ .net, .fs, .env, .run, .time, .random }) |category| {
         if (std.mem.eql(u8, name, @tagName(category))) return category;
@@ -679,6 +738,35 @@ fn dupeStrings(allocator: std.mem.Allocator, items: []const []const u8) ![][]u8 
 
 // ---------------------------------------------------------------------
 // Tests
+
+test "policy tokens json: parse, mint, consume once" {
+    const allocator = std.testing.allocator;
+    const specs = try parseTokenSpecsJson(allocator, "[{\"category\":\"fs\",\"key\":\"read:/tmp/x\",\"ttl_s\":60}]");
+    defer freeTokenSpecs(allocator, specs);
+    try std.testing.expectEqual(@as(usize, 1), specs.len);
+    try std.testing.expectEqual(Category.fs, specs[0].category);
+    try std.testing.expectEqual(@as(i64, 60 * std.time.ns_per_s), specs[0].ttl_ns);
+
+    var policy = try parsePolicyJson(allocator, "{\"permissions\":{\"fs\":{\"mode\":\"ask\"}}}");
+    defer policy.deinit(allocator);
+    var context = PolicyContext.init(allocator, 7, policy);
+    defer context.deinit(allocator);
+    try mintTokenSpecs(&context, allocator, specs, 1000);
+    // ask -> deny without a token for other resources
+    try std.testing.expectEqual(Decision.deny_ask_unhandled, context.decideWithTokens(allocator, .{ .fs = .{ .path = "/tmp/y", .write = false } }, 2000));
+    // token allows exactly once
+    try std.testing.expectEqual(Decision.allow, context.decideWithTokens(allocator, .{ .fs = .{ .path = "/tmp/x", .write = false } }, 2000));
+    try std.testing.expectEqual(Decision.deny_ask_unhandled, context.decideWithTokens(allocator, .{ .fs = .{ .path = "/tmp/x", .write = false } }, 2000));
+}
+
+test "policy tokens json: strict shape" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.InvalidPolicy, parseTokenSpecsJson(allocator, "{}"));
+    try std.testing.expectError(error.InvalidPolicy, parseTokenSpecsJson(allocator, "[{\"category\":\"bogus\",\"key\":\"x\"}]"));
+    try std.testing.expectError(error.InvalidPolicy, parseTokenSpecsJson(allocator, "[{\"category\":\"fs\"}]"));
+    try std.testing.expectError(error.InvalidPolicy, parseTokenSpecsJson(allocator, "[{\"category\":\"fs\",\"key\":\"x\",\"ttl_s\":0}]"));
+    try std.testing.expectError(error.InvalidPolicy, parseTokenSpecsJson(allocator, "[{\"category\":\"fs\",\"key\":\"x\",\"extra\":1}]"));
+}
 
 test "policy: absent categories default to deny" {
     const allocator = std.testing.allocator;

@@ -40,6 +40,7 @@ pub fn saStdPolicyAllowsFsRead(path: []const u8) bool {
 // slice 3). The deployment supplies the policy through the
 // environment; an ELF constructor installs it before main runs:
 //   SA_POLICY_JSON      inline policy JSON (highest priority)
+//   SA_POLICY_TOKENS_JSON  one-time token specs minted into the root context
 //   SA_POLICY_FILE      path to a policy JSON file
 //   SA_POLICY_ALLOW_ALL "1" engages an explicit allow-all policy (the
 //                       -A analog) and always leaves an audit trace
@@ -115,6 +116,20 @@ fn installPolicyText(allocator: std.mem.Allocator, text: []const u8) void {
     context.* = sa_policy.PolicyContext.init(allocator, 1, policy);
     policy_context_storage = context;
     sa_policy.installContext(context);
+
+    // One-time tokens delivered by the launcher (16_policy phase 1):
+    // the host mints them after approval and hands them over through
+    // SA_POLICY_TOKENS_JSON; they are minted into the root context
+    // here, before main runs.
+    if (policyEnvOwned(allocator, "SA_POLICY_TOKENS_JSON")) |tokens_text| {
+        defer allocator.free(tokens_text);
+        const specs = sa_policy.parseTokenSpecsJson(allocator, tokens_text) catch |err|
+            policyBootstrapFail(@errorName(err), 2);
+        defer sa_policy.freeTokenSpecs(allocator, specs);
+        const now_ns: i64 = @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
+        sa_policy.mintTokenSpecs(context, allocator, specs, now_ns) catch
+            policyBootstrapFail("out of memory", 2);
+    }
 }
 
 var policy_bootstrap_attempted: bool = false;
@@ -158,6 +173,11 @@ fn policyBootstrap() callconv(.c) void {
 
     if (policyEnvFlag(allocator, "SA_POLICY_REQUIRED")) {
         policyBootstrapFail("SA_POLICY_REQUIRED is set but no policy was provided (set SA_POLICY_JSON, SA_POLICY_FILE, or SA_POLICY_ALLOW_ALL=1)", 1);
+    }
+
+    if (policyEnvOwned(allocator, "SA_POLICY_TOKENS_JSON")) |tokens_text| {
+        allocator.free(tokens_text);
+        policyBootstrapFail("SA_POLICY_TOKENS_JSON is set but no policy was provided (tokens need a policy context to bind to)", 1);
     }
 }
 
@@ -389,6 +409,7 @@ comptime {
     _ = &@import("sa_tree_sitter.zig").sa_ts_node_free;
     _ = &@import("sa_tree_sitter.zig").sa_ts_node_type;
     _ = &@import("sa_tree_sitter.zig").sa_ts_node_text;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_byte_range;
     _ = &@import("sa_tree_sitter.zig").sa_ts_node_child_count;
     _ = &@import("sa_tree_sitter.zig").sa_ts_node_named_child_count;
     _ = &@import("sa_tree_sitter.zig").sa_ts_node_child;
