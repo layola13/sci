@@ -1,0 +1,23 @@
+// SA-facing contracts for tree-sitter code analysis (sa_ts_*, sa_std
+// built-in, P0-4). The core library and grammars are dlopen'ed at
+// runtime (see sa_tree_sitter.zig for resolution rules); when the core
+// is absent sa_ts_available() returns 0 and parser_new fails with
+// status 8 (unsupported) instead of silently degrading.
+// Handles are opaque owned u64 values. Node text comes from the
+// tree's own copy of the source. child/child_by_field return
+// out_node == 0 when the child or field is absent.
+@extern sa_ts_available() -> u32
+@extern sa_ts_parser_new(&out_handle: ptr) -> i32
+@extern sa_ts_parser_free(^handle: u64) -> i32
+@extern sa_ts_parser_set_language(handle: u64, &name: ptr, name_len: u64) -> i32
+@extern sa_ts_parse(handle: u64, &src: ptr, src_len: u64, &out_tree: ptr) -> i32
+@extern sa_ts_tree_free(^handle: u64) -> i32
+@extern sa_ts_tree_root(handle: u64, &out_node: ptr) -> i32
+@extern sa_ts_tree_sexp(handle: u64, &buf: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_ts_node_free(^handle: u64) -> i32
+@extern sa_ts_node_type(handle: u64, &buf: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_ts_node_text(handle: u64, &buf: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_ts_node_child_count(handle: u64, &out_count: ptr) -> i32
+@extern sa_ts_node_named_child_count(handle: u64, &out_count: ptr) -> i32
+@extern sa_ts_node_child(handle: u64, index: u32, named: u32, &out_node: ptr) -> i32
+@extern sa_ts_node_child_by_field(handle: u64, &field: ptr, field_len: u64, &out_node: ptr) -> i32

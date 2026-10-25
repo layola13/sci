@@ -372,6 +372,21 @@ comptime {
     _ = &@import("sa_toml.zig").sa_toml_table_len;
     _ = &@import("sa_toml.zig").sa_toml_array_get_string;
     _ = &@import("sa_toml.zig").sa_toml_array_get_i64;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_available;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_parser_new;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_parser_free;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_parser_set_language;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_parse;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_tree_free;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_tree_root;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_tree_sexp;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_free;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_type;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_text;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_child_count;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_named_child_count;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_child;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_child_by_field;
     if (builtin.os.tag == .linux) {
         _ = &@import("sa_pty.zig").sa_pty_spawn;
         _ = &@import("sa_pty.zig").sa_pty_read;
