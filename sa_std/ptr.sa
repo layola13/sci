@@ -501,3 +501,13 @@
     store %out_nonnull+NonNull_ptr, __nonnull_cast_ptr_%out_nonnull as ptr
     !__nonnull_cast_ptr_%out_nonnull
 [END_MACRO]
+
+// PTR_BYTE_AT %out_byte, %ptr_reg, %byte_offset -- %out_byte =
+// load u8 at %ptr_reg + %byte_offset. Statement macro in the
+// pointer-out style: the address temporary is released inside
+// the expansion, so it composes inside loops.
+[MACRO] PTR_BYTE_AT %out_byte, %ptr_reg, %byte_offset
+    __ptr_byte_at_addr = ptr_add %ptr_reg, %byte_offset
+    %out_byte = load __ptr_byte_at_addr+0 as u8
+    !__ptr_byte_at_addr
+[END_MACRO]
