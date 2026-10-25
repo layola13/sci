@@ -953,11 +953,63 @@ const JsonDocumentHandle = struct {
     }
 };
 
+// A JSON node handle addresses a value inside its document tree by PATH
+// (object keys / array indices from the document root). Every acquire
+// re-resolves the path against the live tree, so a mutation performed
+// through any handle is visible through all other handles of the same
+// document. Removing the exact key a handle points at (or an ancestor of
+// it) detaches the handle: later operations fail with InvalidHandle
+// instead of reading a stale snapshot.
+const JsonPathSegment = union(enum) {
+    key: []const u8,
+    index: usize,
+};
+
+fn freeJsonPath(allocator: std.mem.Allocator, path: []const JsonPathSegment) void {
+    if (path.len == 0) return;
+    for (path) |segment| {
+        switch (segment) {
+            .key => |key| allocator.free(key),
+            .index => {},
+        }
+    }
+    allocator.free(path);
+}
+
+// Returns a fully-owned copy of `base` with `segment` appended (key bytes
+// duplicated with `allocator`).
+fn jsonPathAppend(allocator: std.mem.Allocator, base: []const JsonPathSegment, segment: JsonPathSegment) ![]JsonPathSegment {
+    const path = try allocator.alloc(JsonPathSegment, base.len + 1);
+    errdefer allocator.free(path);
+    for (base, 0..) |seg, i| {
+        path[i] = switch (seg) {
+            .key => |key| .{ .key = try allocator.dupe(u8, key) },
+            .index => |idx| .{ .index = idx },
+        };
+    }
+    path[base.len] = switch (segment) {
+        .key => |key| .{ .key = try allocator.dupe(u8, key) },
+        .index => |idx| .{ .index = idx },
+    };
+    return path;
+}
+
 const JsonNodeHandle = struct {
     document: *JsonDocumentHandle,
+    // Resolved snapshot of the tree value at acquire time. The copy stored
+    // in a registry slot is a placeholder; acquires always re-resolve.
     value: std.json.Value,
+    path: []const JsonPathSegment = &.{},
+    // Only the handle stored in a registry slot (and the transient child
+    // handle handed to registerJsonNode) owns its path allocation.
+    path_owned: bool = false,
 
     fn deinit(self: *JsonNodeHandle) void {
+        if (self.path_owned) {
+            freeJsonPath(self.document.allocator, self.path);
+            self.path = &.{};
+            self.path_owned = false;
+        }
         self.document.release();
     }
 };
@@ -1270,9 +1322,10 @@ fn jsonValueAsBool(value: std.json.Value) !bool {
     };
 }
 
-fn registerJsonNode(document: *JsonDocumentHandle, value: std.json.Value, retain_document: bool) !u64 {
+fn registerJsonNode(document: *JsonDocumentHandle, path: []const JsonPathSegment, retain_document: bool) !u64 {
     if (retain_document) document.retain();
-    return registerResource(.{ .json_node = .{ .document = document, .value = value } }) catch |err| {
+    return registerResource(.{ .json_node = .{ .document = document, .value = .null, .path = path, .path_owned = true } }) catch |err| {
+        freeJsonPath(document.allocator, path);
         document.release();
         return err;
     };
@@ -1285,12 +1338,55 @@ fn acquireJsonNode(handle: u64) !JsonNodeHandle {
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
     return switch (resource.*) {
-        .json_node => |node| blk: {
-            node.document.retain();
-            break :blk node;
+        .json_node => |slot| blk: {
+            slot.document.retain();
+            const resolved = jsonResolvePath(slot.document, slot.path) catch |err| {
+                slot.document.release();
+                return err;
+            };
+            break :blk .{
+                .document = slot.document,
+                .value = resolved,
+                .path = slot.path,
+                .path_owned = false,
+            };
         },
         else => error.InvalidHandle,
     };
+}
+
+// Walks `path` from the document root and returns a pointer to the live
+// tree value. The pointer is only valid until the next tree mutation.
+fn jsonResolvePathPtr(document: *JsonDocumentHandle, path: []const JsonPathSegment) !*std.json.Value {
+    var current: *std.json.Value = &document.parsed.value;
+    for (path) |segment| {
+        switch (segment) {
+            .key => |key| {
+                switch (current.*) {
+                    .object => |*map| {
+                        const idx = map.getIndex(key) orelse return error.InvalidHandle;
+                        current = &map.values()[idx];
+                    },
+                    else => return error.InvalidHandle,
+                }
+            },
+            .index => |idx| {
+                switch (current.*) {
+                    .array => |*array| {
+                        if (idx >= array.items.len) return error.InvalidHandle;
+                        current = &array.items[idx];
+                    },
+                    else => return error.InvalidHandle,
+                }
+            },
+        }
+    }
+    return current;
+}
+
+fn jsonResolvePath(document: *JsonDocumentHandle, path: []const JsonPathSegment) !std.json.Value {
+    const target = try jsonResolvePathPtr(document, path);
+    return target.*;
 }
 
 fn jsonDocumentFromSlice(allocator: std.mem.Allocator, input: []const u8) !*JsonDocumentHandle {
@@ -1309,9 +1405,12 @@ fn jsonObjectGet(node: JsonNodeHandle, key: []const u8) !JsonNodeHandle {
     return switch (node.value) {
         .object => |object| {
             const child = object.get(key) orelse return error.FileNotFound;
+            const path = try jsonPathAppend(node.document.allocator, node.path, .{ .key = key });
             return .{
                 .document = node.document,
                 .value = child,
+                .path = path,
+                .path_owned = true,
             };
         },
         else => error.InvalidHandle,
@@ -1323,9 +1422,12 @@ fn jsonArrayGet(node: JsonNodeHandle, index: u64) !JsonNodeHandle {
         .array => |array| {
             const idx: usize = @intCast(index);
             if (idx >= array.items.len) return error.FileNotFound;
+            const path = try jsonPathAppend(node.document.allocator, node.path, .{ .index = idx });
             return .{
                 .document = node.document,
                 .value = array.items[idx],
+                .path = path,
+                .path_owned = true,
             };
         },
         else => error.InvalidHandle,
@@ -1361,6 +1463,103 @@ fn jsonSerializeBuffer(allocator: std.mem.Allocator, value: std.json.Value) !u64
         allocator.free(bytes);
         return err;
     };
+}
+
+// Deep-copies a JSON value into `allocator` (the target document's arena),
+// duplicating every string, array and object so the copy shares no storage
+// with the source tree.
+fn jsonValueClone(allocator: std.mem.Allocator, value: std.json.Value) !std.json.Value {
+    return switch (value) {
+        .null => .null,
+        .bool => |inner| .{ .bool = inner },
+        .integer => |inner| .{ .integer = inner },
+        .float => |inner| .{ .float = inner },
+        .number_string => |text| .{ .number_string = try allocator.dupe(u8, text) },
+        .string => |text| .{ .string = try allocator.dupe(u8, text) },
+        .array => |array| blk: {
+            var cloned = std.json.Array.init(allocator);
+            errdefer cloned.deinit();
+            for (array.items) |item| {
+                try cloned.append(try jsonValueClone(allocator, item));
+            }
+            break :blk .{ .array = cloned };
+        },
+        .object => |object| blk: {
+            var cloned: std.json.ObjectMap = .empty;
+            var it = object.iterator();
+            while (it.next()) |entry| {
+                const key_copy = try allocator.dupe(u8, entry.key_ptr.*);
+                try cloned.put(allocator, key_copy, try jsonValueClone(allocator, entry.value_ptr.*));
+            }
+            break :blk .{ .object = cloned };
+        },
+    };
+}
+
+const JsonMutation = struct {
+    document: *JsonDocumentHandle,
+    target: *std.json.Value,
+};
+
+// Resolves the handle's slot under the registry lock for an in-place tree
+// mutation. The caller must hold no other registry acquisition.
+fn jsonMutationTarget(handle: u64) !JsonMutation {
+    const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
+    const slot = switch (resource.*) {
+        .json_node => |*node| node,
+        else => return error.InvalidHandle,
+    };
+    return .{
+        .document = slot.document,
+        .target = try jsonResolvePathPtr(slot.document, slot.path),
+    };
+}
+
+fn jsonObjectSetLocked(handle: u64, key: []const u8, value: std.json.Value) !void {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const mutation = try jsonMutationTarget(handle);
+    switch (mutation.target.*) {
+        .object => |*map| {
+            const arena = mutation.document.parsed.arena.allocator();
+            // put() keeps the stored key slice for an existing key, so the
+            // caller's key only needs an arena copy when it is inserted.
+            if (map.getIndex(key) != null) {
+                try map.put(arena, key, value);
+            } else {
+                try map.put(arena, try arena.dupe(u8, key), value);
+            }
+        },
+        else => return error.InvalidHandle,
+    }
+}
+
+fn jsonArrayPushLocked(handle: u64, value: std.json.Value) !void {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const mutation = try jsonMutationTarget(handle);
+    switch (mutation.target.*) {
+        .array => |*array| try array.append(value),
+        else => return error.InvalidHandle,
+    }
+}
+
+fn jsonObjectRemoveLocked(handle: u64, key: []const u8) !void {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const mutation = try jsonMutationTarget(handle);
+    switch (mutation.target.*) {
+        .object => |*map| {
+            if (!map.orderedRemove(key)) return error.FileNotFound;
+        },
+        else => return error.InvalidHandle,
+    }
 }
 
 fn acquireJsonWriterForWrite(writer: u64) !*JsonWriterHandle {
@@ -7285,7 +7484,7 @@ pub export fn sa_deno_memory_usage() u64 {
 pub export fn sa_json_parse(json_bytes: ?[*]const u8, len: u64) u64 {
     const input = constBytes(json_bytes, len) catch return 0;
     const document = jsonDocumentFromSlice(std.heap.page_allocator, input) catch return 0;
-    return registerJsonNode(document, document.parsed.value, false) catch return 0;
+    return registerJsonNode(document, &.{}, false) catch return 0;
 }
 
 pub export fn sa_json_kind(node: u64) u32 {
@@ -7302,7 +7501,7 @@ pub export fn sa_json_object_get(node: u64, key_ptr: ?[*]const u8, key_len: u64,
     var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
     defer node_value.deinit();
     const child = jsonObjectGet(node_value, key) catch |err| return finishErr(err);
-    const handle = registerJsonNode(child.document, child.value, true) catch |err| return finishErr(err);
+    const handle = registerJsonNode(child.document, child.path, true) catch |err| return finishErr(err);
     handle_ptr.* = handle;
     return finish(SA_STD_OK);
 }
@@ -7313,7 +7512,7 @@ pub export fn sa_json_array_get(node: u64, index: u64, out_handle: ?*u64) i32 {
     var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
     defer node_value.deinit();
     const child = jsonArrayGet(node_value, index) catch |err| return finishErr(err);
-    const handle = registerJsonNode(child.document, child.value, true) catch |err| return finishErr(err);
+    const handle = registerJsonNode(child.document, child.path, true) catch |err| return finishErr(err);
     handle_ptr.* = handle;
     return finish(SA_STD_OK);
 }
@@ -7460,6 +7659,264 @@ pub export fn sa_json_stringify(node: u64, out_handle: ?*u64) i32 {
     const handle = jsonSerializeBuffer(std.heap.page_allocator, node_value.value) catch |err| return finishErr(err);
     handle_ptr.* = handle;
     return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_object_set_string(node: u64, key_ptr: ?[*]const u8, key_len: u64, data_ptr: ?[*]const u8, data_len: u64) i32 {
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    if (key.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const data = constBytes(data_ptr, data_len) catch |err| return finishErr(err);
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const arena = node_value.document.parsed.arena.allocator();
+    const owned = arena.dupe(u8, data) catch |err| return finishErr(err);
+    jsonObjectSetLocked(node, key, .{ .string = owned }) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_object_set_i64(node: u64, key_ptr: ?[*]const u8, key_len: u64, value: i64) i32 {
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    if (key.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    jsonObjectSetLocked(node, key, .{ .integer = value }) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_object_set_f64(node: u64, key_ptr: ?[*]const u8, key_len: u64, value: f64) i32 {
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    if (key.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (!std.math.isFinite(value)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    jsonObjectSetLocked(node, key, .{ .float = value }) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_object_set_bool(node: u64, key_ptr: ?[*]const u8, key_len: u64, value: u8) i32 {
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    if (key.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    jsonObjectSetLocked(node, key, .{ .bool = value != 0 }) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_object_set_null(node: u64, key_ptr: ?[*]const u8, key_len: u64) i32 {
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    if (key.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    jsonObjectSetLocked(node, key, .null) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_object_set_node(node: u64, key_ptr: ?[*]const u8, key_len: u64, child: u64) i32 {
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    if (key.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    var child_value = acquireJsonNode(child) catch |err| return finishErr(err);
+    defer child_value.deinit();
+    // Deep-copy the child into this document's arena: the stored value must
+    // not alias the child document's tree.
+    const arena = node_value.document.parsed.arena.allocator();
+    const cloned = jsonValueClone(arena, child_value.value) catch |err| return finishErr(err);
+    jsonObjectSetLocked(node, key, cloned) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_object_remove(node: u64, key_ptr: ?[*]const u8, key_len: u64) i32 {
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    if (key.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    jsonObjectRemoveLocked(node, key) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_array_push_string(node: u64, data_ptr: ?[*]const u8, data_len: u64) i32 {
+    const data = constBytes(data_ptr, data_len) catch |err| return finishErr(err);
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    const arena = node_value.document.parsed.arena.allocator();
+    const owned = arena.dupe(u8, data) catch |err| return finishErr(err);
+    jsonArrayPushLocked(node, .{ .string = owned }) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_array_push_i64(node: u64, value: i64) i32 {
+    jsonArrayPushLocked(node, .{ .integer = value }) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_array_push_f64(node: u64, value: f64) i32 {
+    if (!std.math.isFinite(value)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    jsonArrayPushLocked(node, .{ .float = value }) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_array_push_bool(node: u64, value: u8) i32 {
+    jsonArrayPushLocked(node, .{ .bool = value != 0 }) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_array_push_null(node: u64) i32 {
+    jsonArrayPushLocked(node, .null) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_json_array_push_node(node: u64, child: u64) i32 {
+    var node_value = acquireJsonNode(node) catch |err| return finishErr(err);
+    defer node_value.deinit();
+    var child_value = acquireJsonNode(child) catch |err| return finishErr(err);
+    defer child_value.deinit();
+    const arena = node_value.document.parsed.arena.allocator();
+    const cloned = jsonValueClone(arena, child_value.value) catch |err| return finishErr(err);
+    jsonArrayPushLocked(node, cloned) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+test "sa_json object set/get/enumerate/remove roundtrip" {
+    const doc = "{\"a\":1,\"b\":\"x\"}";
+    const root = sa_json_parse(doc.ptr, @intCast(doc.len));
+    try std.testing.expect(root != 0);
+    defer _ = sa_json_free(root);
+
+    var count: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_value_count(root, &count));
+    try std.testing.expectEqual(@as(u64, 2), count);
+
+    var key_ptr: ?[*]const u8 = null;
+    var key_len: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_key_at(root, 0, &key_ptr, &key_len));
+    try std.testing.expectEqualStrings("a", key_ptr.?[0..@intCast(key_len)]);
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_key_at(root, 1, &key_ptr, &key_len));
+    try std.testing.expectEqualStrings("b", key_ptr.?[0..@intCast(key_len)]);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_set_string(root, "c", 1, "hello", 5));
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_set_i64(root, "d", 1, 42));
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_set_bool(root, "e", 1, 1));
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_set_f64(root, "f", 1, 2.5));
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_set_null(root, "g", 1));
+    try std.testing.expectEqual(SA_STD_OK, sa_json_value_count(root, &count));
+    try std.testing.expectEqual(@as(u64, 7), count);
+    // Enumeration follows insertion order.
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_key_at(root, 2, &key_ptr, &key_len));
+    try std.testing.expectEqualStrings("c", key_ptr.?[0..@intCast(key_len)]);
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_key_at(root, 6, &key_ptr, &key_len));
+    try std.testing.expectEqualStrings("g", key_ptr.?[0..@intCast(key_len)]);
+
+    var i64_out: i64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_get_i64(root, "d", 1, &i64_out));
+    try std.testing.expectEqual(@as(i64, 42), i64_out);
+    var str_ptr: ?[*]const u8 = null;
+    var str_len: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_get_string(root, "c", 1, &str_ptr, &str_len));
+    try std.testing.expectEqualStrings("hello", str_ptr.?[0..@intCast(str_len)]);
+    var bool_out: u8 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_get_bool(root, "e", 1, &bool_out));
+    try std.testing.expectEqual(@as(u8, 1), bool_out);
+    var f64_out: f64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_get_f64(root, "f", 1, &f64_out));
+    try std.testing.expectEqual(@as(f64, 2.5), f64_out);
+    var child: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_get(root, "g", 1, &child));
+    try std.testing.expectEqual(SA_JSON_KIND_NULL, sa_json_kind(child));
+    _ = sa_json_free(child);
+
+    // Overwriting an existing key keeps its count and position.
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_set_i64(root, "a", 1, 7));
+    try std.testing.expectEqual(SA_STD_OK, sa_json_value_count(root, &count));
+    try std.testing.expectEqual(@as(u64, 7), count);
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_key_at(root, 0, &key_ptr, &key_len));
+    try std.testing.expectEqualStrings("a", key_ptr.?[0..@intCast(key_len)]);
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_get_i64(root, "a", 1, &i64_out));
+    try std.testing.expectEqual(@as(i64, 7), i64_out);
+
+    // Removing a middle key preserves the order of the survivors.
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_remove(root, "b", 1));
+    try std.testing.expectEqual(SA_STD_OK, sa_json_value_count(root, &count));
+    try std.testing.expectEqual(@as(u64, 6), count);
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_key_at(root, 1, &key_ptr, &key_len));
+    try std.testing.expectEqualStrings("c", key_ptr.?[0..@intCast(key_len)]);
+    try std.testing.expect(sa_json_object_get_i64(root, "b", 1, &i64_out) != SA_STD_OK);
+    try std.testing.expect(sa_json_object_remove(root, "b", 1) != SA_STD_OK);
+
+    var buf: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_stringify(root, &buf));
+    defer _ = sa_json_buffer_free(buf);
+    const text = sa_json_buffer_data(buf).?[0..@intCast(sa_json_buffer_len(buf))];
+    try std.testing.expectEqualStrings("{\"a\":7,\"c\":\"hello\",\"d\":42,\"e\":true,\"f\":2.5,\"g\":null}", text);
+}
+
+test "sa_json array push appends in order" {
+    const doc = "[]";
+    const root = sa_json_parse(doc.ptr, @intCast(doc.len));
+    try std.testing.expect(root != 0);
+    defer _ = sa_json_free(root);
+
+    try std.testing.expectEqual(SA_STD_OK, sa_json_array_push_i64(root, 1));
+    try std.testing.expectEqual(SA_STD_OK, sa_json_array_push_string(root, "two", 3));
+    try std.testing.expectEqual(SA_STD_OK, sa_json_array_push_bool(root, 1));
+    try std.testing.expectEqual(SA_STD_OK, sa_json_array_push_f64(root, 2.5));
+    try std.testing.expectEqual(SA_STD_OK, sa_json_array_push_null(root));
+
+    const doc2 = "{\"k\":true}";
+    const node2 = sa_json_parse(doc2.ptr, @intCast(doc2.len));
+    try std.testing.expect(node2 != 0);
+    defer _ = sa_json_free(node2);
+    try std.testing.expectEqual(SA_STD_OK, sa_json_array_push_node(root, node2));
+
+    var count: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_value_count(root, &count));
+    try std.testing.expectEqual(@as(u64, 6), count);
+    var elem: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_array_get(root, 0, &elem));
+    var i64_out: i64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_as_i64(elem, &i64_out));
+    try std.testing.expectEqual(@as(i64, 1), i64_out);
+    _ = sa_json_free(elem);
+    try std.testing.expectEqual(SA_STD_OK, sa_json_array_get(root, 5, &elem));
+    try std.testing.expectEqual(SA_JSON_KIND_OBJECT, sa_json_kind(elem));
+    _ = sa_json_free(elem);
+
+    var buf: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_stringify(root, &buf));
+    defer _ = sa_json_buffer_free(buf);
+    const text = sa_json_buffer_data(buf).?[0..@intCast(sa_json_buffer_len(buf))];
+    try std.testing.expectEqualStrings("[1,\"two\",true,2.5,null,{\"k\":true}]", text);
+
+    // Wrong-kind targets are explicit errors, never silent no-ops.
+    try std.testing.expect(sa_json_array_push_i64(node2, 1) != SA_STD_OK);
+    try std.testing.expect(sa_json_object_set_i64(root, "x", 1, 1) != SA_STD_OK);
+}
+
+test "sa_json mutation is visible across handles; removed key detaches its handle" {
+    const doc = "{\"outer\":{\"x\":1},\"list\":[]}";
+    const root = sa_json_parse(doc.ptr, @intCast(doc.len));
+    try std.testing.expect(root != 0);
+    defer _ = sa_json_free(root);
+
+    var outer: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_get(root, "outer", 5, &outer));
+    defer _ = sa_json_free(outer);
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_set_string(outer, "y", 1, "z", 1));
+
+    var list: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_get(root, "list", 4, &list));
+    defer _ = sa_json_free(list);
+    try std.testing.expectEqual(SA_STD_OK, sa_json_array_push_i64(list, 7));
+    try std.testing.expectEqual(SA_STD_OK, sa_json_array_push_string(list, "s", 1));
+
+    const doc2 = "{\"n\":[1,2]}";
+    const other = sa_json_parse(doc2.ptr, @intCast(doc2.len));
+    try std.testing.expect(other != 0);
+    defer _ = sa_json_free(other);
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_set_node(root, "attached", 8, other));
+    // set_node deep-copies: later mutation of the source document must not
+    // leak into the attached copy.
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_set_i64(other, "n", 1, 99));
+
+    var buf: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_json_stringify(root, &buf));
+    const text = sa_json_buffer_data(buf).?[0..@intCast(sa_json_buffer_len(buf))];
+    try std.testing.expectEqualStrings("{\"outer\":{\"x\":1,\"y\":\"z\"},\"list\":[7,\"s\"],\"attached\":{\"n\":[1,2]}}", text);
+    _ = sa_json_buffer_free(buf);
+
+    // Removing the key detaches the previously obtained child handle.
+    try std.testing.expectEqual(SA_STD_OK, sa_json_object_remove(root, "outer", 5));
+    try std.testing.expect(sa_json_object_set_string(outer, "q", 1, "v", 1) != SA_STD_OK);
+    try std.testing.expectEqual(SA_JSON_KIND_INVALID, sa_json_kind(outer));
 }
 
 pub export fn sa_json_scanner_new(out_handle: ?*u64) i32 {

@@ -11,6 +11,7 @@
 # lack a Windows export remain listed below; do not remove them based on
 # declarations alone.
 
+sa_b64dec_simd
 sa_deno_chat_json_to_responses
 sa_deno_chat_sse_to_responses
 sa_deno_jsonrpc_params_string_literal
@@ -18,9 +19,21 @@ sa_deno_responses_chat_fallback_request
 sa_deno_responses_json_normalize
 sa_deno_responses_request_normalize
 sa_deno_responses_sse_normalize
-sa_b64dec_simd
 sa_hexdec_simd
 sa_http_client_resp_body_slice
+sa_json_array_push_bool
+sa_json_array_push_f64
+sa_json_array_push_i64
+sa_json_array_push_node
+sa_json_array_push_null
+sa_json_array_push_string
+sa_json_object_remove
+sa_json_object_set_bool
+sa_json_object_set_f64
+sa_json_object_set_i64
+sa_json_object_set_node
+sa_json_object_set_null
+sa_json_object_set_string
 sa_mfind_u8
 sa_net_unix_addr_abstract_len
 sa_net_unix_addr_abstract_ptr

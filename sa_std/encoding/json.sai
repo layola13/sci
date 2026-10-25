@@ -15,6 +15,19 @@
 @extern sa_json_as_f64(node: u64, &out_value: ptr) -> i32
 @extern sa_json_as_i64(node: u64, &out_value: ptr) -> i32
 @extern sa_json_as_bool(node: u64, &out_value: ptr) -> i32
+@extern sa_json_object_set_string(node: u64, &key: ptr, key_len: u64, &data: ptr, len: u64) -> i32
+@extern sa_json_object_set_i64(node: u64, &key: ptr, key_len: u64, value: i64) -> i32
+@extern sa_json_object_set_f64(node: u64, &key: ptr, key_len: u64, value: f64) -> i32
+@extern sa_json_object_set_bool(node: u64, &key: ptr, key_len: u64, value: u8) -> i32
+@extern sa_json_object_set_null(node: u64, &key: ptr, key_len: u64) -> i32
+@extern sa_json_object_set_node(node: u64, &key: ptr, key_len: u64, child: u64) -> i32
+@extern sa_json_object_remove(node: u64, &key: ptr, key_len: u64) -> i32
+@extern sa_json_array_push_string(node: u64, &data: ptr, len: u64) -> i32
+@extern sa_json_array_push_i64(node: u64, value: i64) -> i32
+@extern sa_json_array_push_f64(node: u64, value: f64) -> i32
+@extern sa_json_array_push_bool(node: u64, value: u8) -> i32
+@extern sa_json_array_push_null(node: u64) -> i32
+@extern sa_json_array_push_node(node: u64, child: u64) -> i32
 @extern sa_json_string_ptr(node: u64) -> &ptr
 @extern sa_json_string_len(node: u64) -> u64
 @extern sa_json_value_count(node: u64, &out_count: ptr) -> i32
