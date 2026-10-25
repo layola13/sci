@@ -2891,3 +2891,236 @@ test "runtime broker cache ops store, hit, and invalidate on closure change" {
     try std.testing.expectEqual(@as(u8, 0), bad_ns_code);
     try std.testing.expectEqualStrings("STATUS 3\n", stdout_buffer.items);
 }
+
+test "workspace declared plugin stages and dispatches without global install or dev mode" {
+    const test_start = startTimedTest("workspace declared plugin stages and dispatches without global install or dev mode");
+    defer endTimedTest("workspace declared plugin stages and dispatches without global install or dev mode", test_start);
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.createDirPath(std.testing.io, "broker_cli/src");
+    try writeSource(tmp.dir, "broker_cli/build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const root_module = b.createModule(.{
+        \\        .root_source_file = b.path("src/plugin.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    const lib = b.addLibrary(.{
+        \\        .name = "broker_cli",
+        \\        .root_module = root_module,
+        \\        .linkage = .dynamic,
+        \\    });
+        \\    b.installArtifact(lib);
+        \\}
+    );
+    try writeSource(tmp.dir, "broker_cli/src/plugin.zig",
+        \\const std = @import("std");
+        \\
+        \\const SkillSection = struct {
+        \\    name: []const u8,
+        \\    summary: []const u8,
+        \\    items: []const []const u8,
+        \\};
+        \\
+        \\const BrokerCallFn = *const fn (ctx: ?*anyopaque, op: u32, req: ?*const anyopaque, resp: ?*anyopaque) callconv(.c) u32;
+        \\
+        \\const Context = struct {
+        \\    allocator: std.mem.Allocator,
+        \\    host_version: ?[]const u8 = null,
+        \\    log: ?*const fn (ctx: *const anyopaque, level: u8, message_ptr: [*]const u8, message_len: usize) callconv(.c) void = null,
+        \\    log_ctx: ?*anyopaque = null,
+        \\    json_mode: bool = false,
+        \\    broker_abi_version: u32 = 0,
+        \\    broker_call: ?BrokerCallFn = null,
+        \\    broker_ctx: ?*anyopaque = null,
+        \\};
+        \\
+        \\const HostStream = extern struct {
+        \\    ctx: ?*anyopaque,
+        \\    write_all: ?*const fn (ctx: ?*anyopaque, bytes: [*]const u8, len: usize) callconv(.c) u32,
+        \\};
+        \\
+        \\const BrokerEnvGetRequest = extern struct {
+        \\    name_ptr: [*]const u8,
+        \\    name_len: usize,
+        \\    value_ptr: ?[*]u8,
+        \\    value_cap: usize,
+        \\};
+        \\
+        \\const BrokerEnvGetResponse = extern struct {
+        \\    value_len: usize,
+        \\};
+        \\
+        \\const PluginDescriptor = extern struct {
+        \\    abi_version: u32,
+        \\    descriptor_size: u32,
+        \\    name: [*:0]const u8,
+        \\    init: ?*const fn (ctx: *const Context) callconv(.c) u32,
+        \\    prebuild: ?*const fn (ctx: *const Context, compile_options: ?*anyopaque) callconv(.c) u32,
+        \\    postbuild: ?*const fn (ctx: *const Context) callconv(.c) u32,
+        \\    handle_command: ?*const fn (ctx: *const Context, argv: [*]const [*:0]const u8, argv_len: usize, stdout: HostStream, stderr: HostStream, out_code: *u8) callconv(.c) u32,
+        \\    skills_ptr: [*]const SkillSection,
+        \\    skills_len: usize,
+        \\};
+        \\
+        \\const skills = [_]SkillSection{};
+        \\
+        \\fn writeAll(stream: HostStream, bytes: []const u8) u32 {
+        \\    const write_fn = stream.write_all orelse return 2;
+        \\    return write_fn(stream.ctx, bytes.ptr, bytes.len);
+        \\}
+        \\
+        \\fn brokerEnvGet(ctx: *const Context, name: []const u8, buffer: []u8, out_len: *usize) u32 {
+        \\    const broker_call = ctx.broker_call orelse return 2;
+        \\    var response = BrokerEnvGetResponse{ .value_len = 0 };
+        \\    const request = BrokerEnvGetRequest{
+        \\        .name_ptr = name.ptr,
+        \\        .name_len = name.len,
+        \\        .value_ptr = if (buffer.len == 0) null else buffer.ptr,
+        \\        .value_cap = buffer.len,
+        \\    };
+        \\    const status = broker_call(ctx.broker_ctx, 1, &request, &response);
+        \\    out_len.* = response.value_len;
+        \\    return status;
+        \\}
+        \\
+        \\fn handle(ctx: *const Context, argv: [*]const [*:0]const u8, argv_len: usize, stdout: HostStream, stderr: HostStream, out_code: *u8) callconv(.c) u32 {
+        \\    _ = stderr;
+        \\    if (argv_len < 2) return 1;
+        \\    const command = std.mem.span(argv[1]);
+        \\    if (std.mem.eql(u8, command, "broker-env-cli")) {
+        \\        if (argv_len < 3) return 1;
+        \\        const subject = std.mem.span(argv[2]);
+        \\        var buffer: [512]u8 = undefined;
+        \\        var out_len: usize = 0;
+        \\        const status = brokerEnvGet(ctx, subject, buffer[0..], &out_len);
+        \\        if (status == 0) {
+        \\            out_code.* = 0;
+        \\            if (writeAll(stdout, buffer[0..out_len]) != 0) return 2;
+        \\            if (writeAll(stdout, "\n") != 0) return 2;
+        \\            return 0;
+        \\        }
+        \\        if (status == 1) {
+        \\            out_code.* = 41;
+        \\            return writeAll(stdout, "DENIED\n");
+        \\        }
+        \\        out_code.* = 42;
+        \\        return writeAll(stdout, "OTHER\n");
+        \\    }
+        \\    return 1;
+        \\}
+        \\
+        \\pub export const saasm_plugin_descriptor_v1: PluginDescriptor = .{
+        \\    .abi_version = 1,
+        \\    .descriptor_size = @as(u32, @intCast(@sizeOf(PluginDescriptor))),
+        \\    .name = "broker-cli",
+        \\    .init = null,
+        \\    .prebuild = null,
+        \\    .postbuild = null,
+        \\    .handle_command = handle,
+        \\    .skills_ptr = skills[0..].ptr,
+        \\    .skills_len = skills.len,
+        \\};
+    );
+    const broker_cli_artifact = try dynLibInstallPath(std.testing.allocator, "broker_cli");
+    defer std.testing.allocator.free(broker_cli_artifact);
+    const plugin_manifest = try std.fmt.allocPrint(std.testing.allocator,
+        \\\\{{
+        \\\\  "schema": "sa.plugin/1",
+        \\\\  "name": "broker-cli",
+        \\\\  "version": "0.1.0",
+        \\\\  "artifacts": {{
+        \\\\    "{s}": {{ "path": "{s}" }}
+        \\\\  }},
+        \\\\  "skills": [],
+        \\\\  "permissions": {{
+        \\\\    "fs": [],
+        \\\\    "net": [],
+        \\\\    "env": ["SA_BROKER_*"],
+        \\\\    "process": {{ "spawn": false, "exec": [] }}
+        \\\\  }},
+        \\\\  "dependencies": {{}}
+        \\\\}}
+    , .{ targetArtifactKey(), broker_cli_artifact });
+    defer std.testing.allocator.free(plugin_manifest);
+    try writeSource(tmp.dir, "broker_cli/sap.json", plugin_manifest);
+
+    try writeSource(tmp.dir, "sa.mod", "require_plugin broker_cli @0.1.0 abi 1\n");
+
+    const home_name: [:0]const u8 = "SA_PLUGINS_HOME";
+    const saved_home = try saveEnvVarZ(std.testing.allocator, home_name);
+    defer {
+        if (saved_home) |value| {
+            setEnvVarZ(home_name, value) catch {};
+            std.testing.allocator.free(value);
+        } else {
+            unsetEnvVarZ(home_name);
+        }
+    }
+    try setEnvVarZ(home_name, "state");
+
+    const dev_name: [:0]const u8 = "SA_PLUGIN_DEV";
+    const saved_dev = try saveEnvVarZ(std.testing.allocator, dev_name);
+    defer {
+        if (saved_dev) |value| {
+            setEnvVarZ(dev_name, value) catch {};
+            std.testing.allocator.free(value);
+        } else {
+            unsetEnvVarZ(dev_name);
+        }
+    }
+    unsetEnvVarZ(dev_name);
+
+    const secret_name: [:0]const u8 = "SA_BROKER_ALLOWED";
+    const saved_secret = try saveEnvVarZ(std.testing.allocator, secret_name);
+    defer {
+        if (saved_secret) |value| {
+            setEnvVarZ(secret_name, value) catch {};
+            std.testing.allocator.free(value);
+        } else {
+            unsetEnvVarZ(secret_name);
+        }
+    }
+    try setEnvVarZ(secret_name, "workspace-secret");
+
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    // The plugin is privileged (declares an env permission), is NOT in
+    // the global plugins home, and SA_PLUGIN_DEV is unset: only the
+    // project's workspace declaration can stage and load it. The
+    // broker call itself is denied (no CLI authorization granted),
+    // which proves dispatch reached the staged plugin.
+    const code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        &.{ "sa", "broker-env-cli", "SA_BROKER_ALLOWED" },
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
+    );
+    if (code != 41) std.debug.print("WSDBG code={d} out={s} err={s} END", .{ code, stdout_buffer.items, stderr_buffer.items });
+    try std.testing.expectEqual(@as(u8, 41), code);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_buffer.items, "DENIED") != null);
+
+    const lock_text = try sio.cwd().readFileAlloc(std.testing.allocator, ".sa-cache/workspace-plugins/installed/broker-cli/current/permissions.lock", 1 << 20);
+    defer std.testing.allocator.free(lock_text);
+    try std.testing.expect(std.mem.indexOf(u8, lock_text, "workspace_declared=true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, lock_text, "dev_install=false") != null);
+
+    var global_exists = true;
+    sio.cwd().access("state/installed/broker-cli/current", .{}) catch {
+        global_exists = false;
+    };
+    try std.testing.expect(!global_exists);
+}

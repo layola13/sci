@@ -1,6 +1,7 @@
 const std = @import("std");
 const sio = @import("sio");
 const dynlib = @import("dynlib_compat.zig");
+const pkg_manifest = @import("pkg/manifest.zig");
 
 pub const abi_version: u32 = 1;
 pub const host_version: []const u8 = "sci-0.2";
@@ -1029,6 +1030,63 @@ fn runtimeBrokerCacheStore(broker: *const RuntimeBroker, req: ?*const anyopaque,
     return .ok;
 }
 
+
+/// Content stamp over a workspace plugin source directory: sap.json,
+/// build files, and everything under src/ (relative path + length +
+/// Wyhash of contents, chained). Zero means "could not stamp" and
+/// always counts as stale.
+fn workspaceSourceStamp(allocator: std.mem.Allocator, root: []const u8) !u64 {
+    var files = std.array_list.Managed([]u8).init(allocator);
+    defer {
+        for (files.items) |f| allocator.free(f);
+        files.deinit();
+    }
+    for ([_][]const u8{ "sap.json", "build.zig", "build.zig.zon" }) |rel| {
+        const full = try std.fs.path.join(allocator, &.{ root, rel });
+        defer allocator.free(full);
+        if (fileExistsAbsolute(full)) try files.append(try allocator.dupe(u8, rel));
+    }
+    const src_dir = try std.fs.path.join(allocator, &.{ root, "src" });
+    defer allocator.free(src_dir);
+    collectWorkspaceFiles(allocator, src_dir, "src", &files) catch {};
+    std.mem.sort([]u8, files.items, {}, struct {
+        fn lt(_: void, a: []u8, b: []u8) bool {
+            return std.mem.order(u8, a, b) == .lt;
+        }
+    }.lt);
+    var hasher = std.hash.Wyhash.init(0);
+    for (files.items) |rel| {
+        const full = try std.fs.path.join(allocator, &.{ root, rel });
+        defer allocator.free(full);
+        const bytes = sio.cwd().readFileAlloc(allocator, full, 64 * 1024 * 1024) catch return 0;
+        defer allocator.free(bytes);
+        hasher.update(rel);
+        hasher.update(&std.mem.toBytes(@as(u64, @intCast(bytes.len))));
+        hasher.update(&std.mem.toBytes(std.hash.Wyhash.hash(0, bytes)));
+    }
+    return hasher.final();
+}
+
+fn collectWorkspaceFiles(allocator: std.mem.Allocator, dir_path: []const u8, rel_prefix: []const u8, out: *std.array_list.Managed([]u8)) !void {
+    var dir = sio.openDirAbsolute(dir_path, .{ .iterate = true }) catch return;
+    defer dir.close();
+    var it = dir.iterate();
+    while (try it.next()) |entry| {
+        const rel = try std.fs.path.join(allocator, &.{ rel_prefix, entry.name });
+        errdefer allocator.free(rel);
+        const full = try std.fs.path.join(allocator, &.{ dir_path, entry.name });
+        defer allocator.free(full);
+        switch (entry.kind) {
+            .file, .sym_link => try out.append(rel),
+            .directory => {
+                try collectWorkspaceFiles(allocator, full, rel, out);
+                allocator.free(rel);
+            },
+            else => allocator.free(rel),
+        }
+    }
+}
+
 fn runtimeBrokerCall(ctx: ?*anyopaque, op_value: u32, req: ?*const anyopaque, resp: ?*anyopaque) callconv(.c) u32 {
     const broker = if (ctx) |raw|
         @as(*const RuntimeBroker, @ptrCast(@alignCast(raw)))
@@ -1579,6 +1637,13 @@ pub const Runtime = struct {
     language_frontends: std.array_list.Managed(LanguageFrontend),
     diagnostics: std.array_list.Managed(LoadDiagnostic),
     host_authorization: RuntimeHostAuthorization,
+    /// Staged "current" directories of workspace-declared plugins
+    /// (sa.mod require_plugin with a local directory), staged by this
+    /// process from this project's declaration. Membership is the
+    /// runtime-policy provenance for those directories: a directory on
+    /// disk cannot enter this set without going through the current
+    /// project's declaration + staging in this run.
+    workspace_plugin_dirs: std.array_list.Managed([]u8),
 
     pub fn init(allocator: std.mem.Allocator) Runtime {
         return .{
@@ -1588,6 +1653,7 @@ pub const Runtime = struct {
             .language_frontends = std.array_list.Managed(LanguageFrontend).init(allocator),
             .diagnostics = std.array_list.Managed(LoadDiagnostic).init(allocator),
             .host_authorization = .{},
+            .workspace_plugin_dirs = std.array_list.Managed([]u8).init(allocator),
         };
     }
 
@@ -1603,6 +1669,7 @@ pub const Runtime = struct {
             .dev_mode = pluginDevMode(allocator),
         });
         errdefer runtime.deinit();
+        runtime.loadWorkspacePlugins();
         try runtime.loadFromEnv();
         return runtime;
     }
@@ -1610,6 +1677,7 @@ pub const Runtime = struct {
     pub fn initFromEnvWithAuthorization(allocator: std.mem.Allocator, authorization: RuntimeAuthorizationInput) !Runtime {
         var runtime = try Runtime.initWithAuthorization(allocator, authorization);
         errdefer runtime.deinit();
+        runtime.loadWorkspacePlugins();
         try runtime.loadFromEnv();
         return runtime;
     }
@@ -1639,8 +1707,101 @@ pub const Runtime = struct {
         self.language_frontends.deinit();
         for (self.diagnostics.items) |*diagnostic| diagnostic.deinit(self.allocator);
         self.diagnostics.deinit();
+        for (self.workspace_plugin_dirs.items) |dir| self.allocator.free(dir);
+        self.workspace_plugin_dirs.deinit();
         self.host_authorization.deinit(self.allocator);
         self.* = undefined;
+    }
+
+    /// Loads plugins declared by the current project's sa.mod
+    /// (require_plugin with a local directory identity). Each declared
+    /// source directory is staged into
+    /// <project>/.sa-cache/workspace-plugins/ with the regular install
+    /// machinery (the in-repo declaration substitutes for the
+    /// interactive install confirmation), reusing the staged build
+    /// while the source stamp is unchanged. Failures land in
+    /// diagnostics, never fatal: a broken workspace plugin must not
+    /// take down unrelated commands.
+    pub fn loadWorkspacePlugins(self: *Runtime) void {
+        const allocator = self.allocator;
+        const declared_root = self.host_authorization.project_root orelse return;
+        const root_abs = sio.cwd().realpathAlloc(allocator, declared_root) catch null;
+        defer if (root_abs) |root| allocator.free(root);
+        const project_root = root_abs orelse declared_root;
+        const mod_path = std.fs.path.join(allocator, &.{ project_root, "sa.mod" }) catch return;
+        defer allocator.free(mod_path);
+        const source = sio.cwd().readFileAlloc(allocator, mod_path, pkg_manifest.max_manifest_bytes) catch return;
+        defer allocator.free(source);
+        var project = pkg_manifest.parseManifestWithFile(allocator, source, "sa.mod") catch |err| {
+            self.addDiagnostic(mod_path, @errorName(err)) catch {};
+            return;
+        };
+        defer project.deinit(allocator);
+        for (project.plugin_requires) |entry| {
+            self.stageWorkspacePlugin(project_root, entry.identity) catch |err| {
+                self.addDiagnostic(entry.identity, @errorName(err)) catch {};
+            };
+        }
+    }
+
+    fn stageWorkspacePlugin(self: *Runtime, project_root: []const u8, identity: []const u8) !void {
+        const allocator = self.allocator;
+        const candidate = if (std.fs.path.isAbsolute(identity))
+            try allocator.dupe(u8, identity)
+        else
+            try std.fs.path.join(allocator, &.{ project_root, identity });
+        defer allocator.free(candidate);
+        const sap_path = try std.fs.path.join(allocator, &.{ candidate, "sap.json" });
+        defer allocator.free(sap_path);
+        if (!fileExistsAbsolute(sap_path)) return; // name-based require: existing semantics
+        var source_manifest = parseSapManifest(allocator, sap_path) catch |err| {
+            try self.addDiagnostic(candidate, @errorName(err));
+            return;
+        };
+        defer source_manifest.deinit(allocator);
+        const name = source_manifest.name;
+
+        const staging_root = try std.fs.path.join(allocator, &.{ project_root, ".sa-cache", "workspace-plugins" });
+        defer allocator.free(staging_root);
+        const staged_current = try std.fs.path.join(allocator, &.{ staging_root, "installed", name, "current" });
+        defer allocator.free(staged_current);
+        const stamp_name = try std.fmt.allocPrint(allocator, "{s}.stamp", .{name});
+        defer allocator.free(stamp_name);
+        const stamp_path = try std.fs.path.join(allocator, &.{ staging_root, stamp_name });
+        defer allocator.free(stamp_path);
+
+        const stamp = workspaceSourceStamp(allocator, candidate) catch 0;
+        const stamp_text = try std.fmt.allocPrint(allocator, "{x:0>16}", .{stamp});
+        defer allocator.free(stamp_text);
+        var fresh = false;
+        if (stamp != 0 and dirExistsAbsolute(staged_current)) {
+            if (sio.cwd().readFileAlloc(allocator, stamp_path, 64)) |old| {
+                defer allocator.free(old);
+                fresh = std.mem.eql(u8, old, stamp_text);
+            } else |_| {}
+        }
+        if (!fresh) {
+            var captured = std.array_list.Managed(u8).init(allocator);
+            defer captured.deinit();
+            const code = installFromPath(allocator, candidate, sio.managedWriter(&captured), .{ .home_path = staging_root, .workspace_declared = true }) catch |err| {
+                try self.addDiagnostic(candidate, @errorName(err));
+                return;
+            };
+            if (code != 0) {
+                const items = captured.items;
+                const tail = items[if (items.len > 512) items.len - 512 else 0..];
+                const message = try std.fmt.allocPrint(allocator, "workspace plugin staging failed: {s}", .{tail});
+                defer allocator.free(message);
+                try self.addDiagnostic(candidate, message);
+                return;
+            }
+            std.debug.print("[sa] workspace plugin {s} staged from {s} (source changed or first use)\n", .{ name, candidate });
+            sio.cwd().makePath(staging_root) catch {};
+            sio.cwd().writeFile(.{ .sub_path = stamp_path, .data = stamp_text }) catch {};
+        }
+
+        try self.workspace_plugin_dirs.append(try allocator.dupe(u8, staged_current));
+        try self.loadDirectory(staged_current);
     }
 
     pub fn loadFromEnv(self: *Runtime) !void {
@@ -2026,6 +2187,16 @@ pub const Runtime = struct {
             return;
         }
 
+        {
+            const new_name = std.mem.span(descriptor.name);
+            for (self.plugins.items) |*existing| {
+                if (std.mem.eql(u8, std.mem.span(existing.descriptor.name), new_name)) {
+                    try self.addDiagnostic(path, "plugin shadowed by an earlier-loaded plugin of the same name (a workspace declaration takes precedence)");
+                    return;
+                }
+            }
+        }
+
         var permission_policy = try loadRuntimePermissionPolicy(self.allocator, path);
         errdefer permission_policy.deinit(self.allocator);
 
@@ -2148,6 +2319,9 @@ pub const Runtime = struct {
 
     fn runtimePolicyDenialForDirectory(self: *Runtime, dir_path: []const u8) !?[]u8 {
         if (pluginDevMode(self.allocator) or self.host_authorization.dev_mode) return null;
+        for (self.workspace_plugin_dirs.items) |staged| {
+            if (std.mem.eql(u8, staged, dir_path)) return null;
+        }
 
         const sap_path = try std.fs.path.join(self.allocator, &.{ dir_path, "sap.json" });
         defer self.allocator.free(sap_path);
@@ -2272,6 +2446,15 @@ pub const InstallOptions = struct {
     dev: bool = false,
     review: bool = false,
     optimize: []const u8 = "ReleaseFast",
+    /// Install into this plugins home instead of the resolved default
+    /// (workspace plugin staging installs into the project's local
+    /// staging root).
+    home_path: ?[]const u8 = null,
+    /// The plugin is declared by the project's sa.mod
+    /// (require_plugin with a local directory): the in-repo declaration
+    /// substitutes for the interactive install confirmation, and the
+    /// rendered permissions.lock records workspace_declared=true.
+    workspace_declared: bool = false,
 };
 
 /// Plugin kind (sala 05_plugins/20_system_redesign): `command` is the
@@ -2422,7 +2605,7 @@ pub fn confirmInstalledPlugin(allocator: std.mem.Allocator, name: []const u8, st
     }
 
     const confirmed = if (assume_yes) blk: {
-        const review_text = try renderPermissionsLock(allocator, manifest, false, false);
+        const review_text = try renderPermissionsLock(allocator, manifest, false, false, false);
         defer allocator.free(review_text);
         try stdout.print("SA PLUGIN PERMISSION REVIEW\n{s}\nconfirming plugin {s} via explicit --yes\n", .{ review_text, name });
         break :blk true;
@@ -2432,7 +2615,7 @@ pub fn confirmInstalledPlugin(allocator: std.mem.Allocator, name: []const u8, st
         return 1;
     }
 
-    const permissions_lock_text = try renderPermissionsLock(allocator, manifest, true, false);
+    const permissions_lock_text = try renderPermissionsLock(allocator, manifest, true, false, false);
     defer allocator.free(permissions_lock_text);
     const permissions_lock_path = try std.fs.path.join(allocator, &.{ installed_dir, "permissions.lock" });
     defer allocator.free(permissions_lock_path);
@@ -2477,7 +2660,7 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
     next_ancestors[ancestors.len] = manifest.sap_path;
 
     if (options.review) {
-        const review_text = try renderPermissionsLock(allocator, manifest, false, false);
+        const review_text = try renderPermissionsLock(allocator, manifest, false, false, false);
         defer allocator.free(review_text);
         try stdout.writeAll(review_text);
         return 0;
@@ -2494,12 +2677,12 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
 
     const locked_permissions_confirmed = try permissionsLockMatches(allocator, manifest);
     var manual_permissions_confirmed = false;
-    if (manifest.requires_sandbox and !locked_permissions_confirmed and !options.dev and !pluginDevMode(allocator)) {
+    if (manifest.requires_sandbox and !locked_permissions_confirmed and !options.dev and !options.workspace_declared and !pluginDevMode(allocator)) {
         const confirmed = try confirmPrivilegedPluginInstall(stdout, manifest);
         if (!confirmed) return 1;
         manual_permissions_confirmed = true;
     }
-    const permissions_confirmed = !manifest.requires_sandbox or locked_permissions_confirmed or manual_permissions_confirmed;
+    const permissions_confirmed = !manifest.requires_sandbox or locked_permissions_confirmed or manual_permissions_confirmed or options.workspace_declared;
 
     if (try verifyInterfaceFiles(allocator, manifest) != 0) return 1;
     if (try verifyAssetFiles(allocator, manifest) != 0) return 1;
@@ -2514,7 +2697,7 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
         return 1;
     }
 
-    const home = try pluginsHome(allocator);
+    const home = if (options.home_path) |override| try allocator.dupe(u8, override) else try pluginsHome(allocator);
     defer allocator.free(home);
     const installed_dir = try std.fs.path.join(allocator, &.{ home, "installed", manifest.name, "current" });
     defer allocator.free(installed_dir);
@@ -2601,7 +2784,7 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
     try writeFileAbsolute(version_lock_path, lock_text);
 
     const dev_install = options.dev or pluginDevMode(allocator);
-    const permissions_lock_text = try renderPermissionsLock(allocator, manifest, permissions_confirmed, dev_install);
+    const permissions_lock_text = try renderPermissionsLock(allocator, manifest, permissions_confirmed, dev_install, options.workspace_declared);
     defer allocator.free(permissions_lock_text);
     const permissions_lock_path = try std.fs.path.join(allocator, &.{ installed_dir, "permissions.lock" });
     defer allocator.free(permissions_lock_path);
@@ -2691,7 +2874,7 @@ pub fn listInstalled(allocator: std.mem.Allocator, stdout: anytype) !u8 {
     return 0;
 }
 
-fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, confirmed: bool, dev_install: bool) ![]u8 {
+fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, confirmed: bool, dev_install: bool, workspace_declared: bool) ![]u8 {
     var aw: std.Io.Writer.Allocating = .init(allocator);
     errdefer aw.deinit();
     const w = &aw.writer;
@@ -2707,6 +2890,7 @@ fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, co
         \\requires_confirmation={s}
         \\confirmed={s}
         \\dev_install={s}
+        \\workspace_declared={s}
         \\artifact_scan=dynamic-imports
         \\sandbox_enforced=false
         \\
@@ -2718,6 +2902,7 @@ fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, co
         if (manifest.requires_sandbox) "true" else "false",
         if (confirmed) "true" else "false",
         if (dev_install) "true" else "false",
+        if (workspace_declared) "true" else "false",
     });
     if (manifest.external_urls.len != 0) {
         try w.writeAll("external_urls\n");
