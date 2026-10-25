@@ -147,6 +147,12 @@ pub const Dependency = struct {
     source_sha256: ?[32]u8 = null,
 };
 
+/// Sink for non-fatal resolution diagnostics (for example an
+/// ambiguous bare plugin import that several plugins provide). The
+/// resolver formats one message per diagnostic and hands it to the
+/// callback; the CLI wires it to stderr.
+pub const DiagnosticFn = *const fn (ctx: ?*anyopaque, message: []const u8) void;
+
 pub const ResolveOptions = struct {
     project_root: ?[]const u8 = null,
     home_dir: ?[]const u8 = null,
@@ -156,6 +162,8 @@ pub const ResolveOptions = struct {
     plugin_import_roots: []const []const u8 = &.{},
     stable_import_roots: []const []const u8 = &.{},
     max_local_file_bytes: usize = 16 * 1024 * 1024,
+    diagnostics: ?DiagnosticFn = null,
+    diagnostics_ctx: ?*anyopaque = null,
 };
 
 pub const ResolvedImport = struct {
@@ -502,6 +510,56 @@ fn pluginNameForImportRoot(root_dir: []const u8) ?[]const u8 {
     return null;
 }
 
+/// Existence-only counterpart of resolveFromPluginImportRoot: same
+/// canonicalization and root-containment rules, without reading the
+/// file. Used to detect that a later root also provides an import a
+/// bare-name search already resolved in an earlier root.
+fn pluginImportRootHasImport(
+    allocator: std.mem.Allocator,
+    root_dir: []const u8,
+    import_path: []const u8,
+) bool {
+    const canonical_root = sio.cwd().realpathAlloc(allocator, root_dir) catch return false;
+    defer allocator.free(canonical_root);
+    const candidate = pathJoin(allocator, &.{ canonical_root, import_path }) catch return false;
+    defer allocator.free(candidate);
+    const canonical_entry = sio.cwd().realpathAlloc(allocator, candidate) catch return false;
+    defer allocator.free(canonical_entry);
+    return pathWithinRoot(canonical_root, canonical_entry);
+}
+
+/// Reports an ambiguous bare plugin import through the diagnostics
+/// sink: the first root still wins (legacy behavior), but the choice
+/// is no longer silent. Diagnostics never fail the resolution itself,
+/// so every allocation here is best-effort.
+fn noteAmbiguousPluginImport(
+    allocator: std.mem.Allocator,
+    import_path: []const u8,
+    options: ResolveOptions,
+    winner_root: []const u8,
+    later_roots: []const []const u8,
+) void {
+    const callback = options.diagnostics orelse return;
+    var names = std.array_list.Managed([]const u8).init(allocator);
+    defer names.deinit();
+    for (later_roots) |root_dir| {
+        if (pluginImportRootHasImport(allocator, root_dir, import_path)) {
+            names.append(pluginNameForImportRoot(root_dir) orelse root_dir) catch return;
+        }
+    }
+    if (names.items.len == 0) return;
+    const joined = std.mem.join(allocator, ", ", names.items) catch return;
+    defer allocator.free(joined);
+    const winner = pluginNameForImportRoot(winner_root) orelse winner_root;
+    const message = std.fmt.allocPrint(
+        allocator,
+        "ambiguous plugin import '{s}': provided by multiple plugins; using {s}, shadowed: {s}. Qualify the import as plugin/<plugin-name>/{s} to choose the provider explicitly.",
+        .{ import_path, winner, joined, import_path },
+    ) catch return;
+    defer allocator.free(message);
+    callback(options.diagnostics_ctx, message);
+}
+
 fn resolveFromPluginImportRoots(
     allocator: std.mem.Allocator,
     import_path: []const u8,
@@ -529,8 +587,9 @@ fn resolveFromPluginImportRoots(
         }
         return error.PackageNotResolved;
     }
-    for (options.plugin_import_roots) |root_dir| {
+    for (options.plugin_import_roots, 0..) |root_dir, index| {
         if (try resolveFromPluginImportRoot(allocator, root_dir, import_path, options.max_local_file_bytes)) |resolved| {
+            noteAmbiguousPluginImport(allocator, import_path, options, root_dir, options.plugin_import_roots[index + 1 ..]);
             return resolved;
         }
     }
@@ -1035,4 +1094,100 @@ test "resolveImport resolves qualified plugin imports inside the named plugin on
     // files the named plugin does not ship are explicit failures.
     try std.testing.expectError(error.PackageNotResolved, resolveImport(std.testing.allocator, &.{}, root, "plugin/missing/shared.sal", .{ .project_root = root, .plugin_import_roots = &roots }));
     try std.testing.expectError(error.PackageNotResolved, resolveImport(std.testing.allocator, &.{}, root, "plugin/deno/absent.sal", .{ .project_root = root, .plugin_import_roots = &roots }));
+}
+
+test "resolveImport reports ambiguous bare plugin imports through the diagnostics sink" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.createDirPath(std.testing.io, "plugins/installed/deno/current/sa");
+    try tmp.dir.createDirPath(std.testing.io, "plugins/installed/node/current/sa");
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "plugins/installed/deno/current/sa/shared.sal",
+        .data = "@const ORIGIN: u64 = 1\n",
+    });
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "plugins/installed/node/current/sa/shared.sal",
+        .data = "@const ORIGIN: u64 = 2\n",
+    });
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "plugins/installed/deno/current/sa/only_deno.sal",
+        .data = "@const ORIGIN: u64 = 3\n",
+    });
+
+    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(root);
+    const deno_root = try tmp.dir.realPathFileAlloc(std.testing.io, "plugins/installed/deno/current/sa", std.testing.allocator);
+    defer std.testing.allocator.free(deno_root);
+    const node_root = try tmp.dir.realPathFileAlloc(std.testing.io, "plugins/installed/node/current/sa", std.testing.allocator);
+    defer std.testing.allocator.free(node_root);
+    const roots = [_][]const u8{ deno_root, node_root };
+
+    const Capture = struct {
+        messages: std.array_list.Managed([]u8),
+
+        fn onDiagnostic(ctx: ?*anyopaque, message: []const u8) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            const copy = std.testing.allocator.dupe(u8, message) catch return;
+            self.messages.append(copy) catch std.testing.allocator.free(copy);
+        }
+    };
+    var capture = Capture{ .messages = std.array_list.Managed([]u8).init(std.testing.allocator) };
+    defer {
+        for (capture.messages.items) |message| std.testing.allocator.free(message);
+        capture.messages.deinit();
+    }
+
+    // Bare import provided by both roots: first root still wins, and
+    // exactly one diagnostic names the winner and the shadowed plugin.
+    {
+        const resolved = try resolveImport(std.testing.allocator, &.{}, root, "shared.sal", .{
+            .project_root = root,
+            .plugin_import_roots = &roots,
+            .diagnostics = &Capture.onDiagnostic,
+            .diagnostics_ctx = &capture,
+        });
+        defer {
+            var owned = resolved;
+            owned.deinit(std.testing.allocator);
+        }
+        try std.testing.expectEqualStrings("@const ORIGIN: u64 = 1\n", resolved.source);
+    }
+    try std.testing.expectEqual(@as(usize, 1), capture.messages.items.len);
+    const message = capture.messages.items[0];
+    try std.testing.expect(std.mem.indexOf(u8, message, "ambiguous plugin import 'shared.sal'") != null);
+    try std.testing.expect(std.mem.indexOf(u8, message, "using deno") != null);
+    try std.testing.expect(std.mem.indexOf(u8, message, "shadowed: node") != null);
+
+    // A bare import only one root provides stays quiet.
+    {
+        const resolved = try resolveImport(std.testing.allocator, &.{}, root, "only_deno.sal", .{
+            .project_root = root,
+            .plugin_import_roots = &roots,
+            .diagnostics = &Capture.onDiagnostic,
+            .diagnostics_ctx = &capture,
+        });
+        defer {
+            var owned = resolved;
+            owned.deinit(std.testing.allocator);
+        }
+        try std.testing.expectEqualStrings("@const ORIGIN: u64 = 3\n", resolved.source);
+    }
+    try std.testing.expectEqual(@as(usize, 1), capture.messages.items.len);
+
+    // A qualified import is explicit by construction: no diagnostic.
+    {
+        const resolved = try resolveImport(std.testing.allocator, &.{}, root, "plugin/node/shared.sal", .{
+            .project_root = root,
+            .plugin_import_roots = &roots,
+            .diagnostics = &Capture.onDiagnostic,
+            .diagnostics_ctx = &capture,
+        });
+        defer {
+            var owned = resolved;
+            owned.deinit(std.testing.allocator);
+        }
+        try std.testing.expectEqualStrings("@const ORIGIN: u64 = 2\n", resolved.source);
+    }
+    try std.testing.expectEqual(@as(usize, 1), capture.messages.items.len);
 }
