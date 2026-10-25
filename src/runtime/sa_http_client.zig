@@ -1614,7 +1614,7 @@ pub export fn sa_http_client_sse_turn(
     out_text_ptr: ?*?[*]u8, out_text_len: ?*u64,
     out_calls_ptr: ?*?[*]u8, out_calls_len: ?*u64,
 ) u32 {
-    return sseTurnImpl(url_ptr, url_len, body_ptr, body_len, key_ptr, key_len, api_mode, out_text_ptr, out_text_len, out_calls_ptr, out_calls_len, null, null);
+    return sseTurnImpl(url_ptr, url_len, body_ptr, body_len, key_ptr, key_len, api_mode, out_text_ptr, out_text_len, out_calls_ptr, out_calls_len, null, null, null, null);
 }
 
 // sse_turn plus the channel-reported usage object: out_usage
@@ -1632,8 +1632,9 @@ pub export fn sa_http_client_sse_turn_ex(
     out_text_ptr: ?*?[*]u8, out_text_len: ?*u64,
     out_calls_ptr: ?*?[*]u8, out_calls_len: ?*u64,
     out_usage_ptr: ?*?[*]u8, out_usage_len: ?*u64,
+    out_reasoning_ptr: ?*?[*]u8, out_reasoning_len: ?*u64,
 ) u32 {
-    return sseTurnImpl(url_ptr, url_len, body_ptr, body_len, key_ptr, key_len, api_mode, out_text_ptr, out_text_len, out_calls_ptr, out_calls_len, out_usage_ptr, out_usage_len);
+    return sseTurnImpl(url_ptr, url_len, body_ptr, body_len, key_ptr, key_len, api_mode, out_text_ptr, out_text_len, out_calls_ptr, out_calls_len, out_usage_ptr, out_usage_len, out_reasoning_ptr, out_reasoning_len);
 }
 
 fn sseTurnImpl(
@@ -1644,6 +1645,7 @@ fn sseTurnImpl(
     out_text_ptr: ?*?[*]u8, out_text_len: ?*u64,
     out_calls_ptr: ?*?[*]u8, out_calls_len: ?*u64,
     out_usage_ptr: ?*?[*]u8, out_usage_len: ?*u64,
+    out_reasoning_ptr: ?*?[*]u8, out_reasoning_len: ?*u64,
 ) u32 {
     const otp = out_text_ptr orelse return 2;
     const otl = out_text_len orelse return 2;
@@ -1657,6 +1659,12 @@ fn sseTurnImpl(
         if (out_usage_len) |oul| {
             oup.* = null;
             oul.* = 0;
+        }
+    }
+    if (out_reasoning_ptr) |orp| {
+        if (out_reasoning_len) |orl| {
+            orp.* = null;
+            orl.* = 0;
         }
     }
 
@@ -1693,7 +1701,7 @@ fn sseTurnImpl(
             // Success: stream to completion. sseTurnStream does not free handle;
             // we free it here via defer.
             defer _ = sa_http_client_sse_free(handle);
-            return sseTurnStream(handle, api_mode, otp, otl, ocp, ocl, out_usage_ptr, out_usage_len);
+            return sseTurnStream(handle, api_mode, otp, otl, ocp, ocl, out_usage_ptr, out_usage_len, out_reasoning_ptr, out_reasoning_len);
         }
         // Non-200: check if retryable.
         const s = @as(*SseStream, @ptrCast(@alignCast(handle.?)));
@@ -1716,6 +1724,7 @@ fn sseTurnStream(
     otp: *?[*]u8, otl: *u64,
     ocp: *?[*]u8, ocl: *u64,
     oup_opt: ?*?[*]u8, oul_opt: ?*u64,
+    orp_opt: ?*?[*]u8, orl_opt: ?*u64,
 ) u32 {
     const allocator = std.heap.page_allocator;
     const s = @as(*SseStream, @ptrCast(@alignCast(handle.?)));
@@ -1746,6 +1755,8 @@ fn sseTurnStream(
     var stream_done = false;
     var usage = std.array_list.Managed(u8).init(allocator);
     defer usage.deinit();
+    var reasoning = std.array_list.Managed(u8).init(allocator);
+    defer reasoning.deinit();
 
     var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
@@ -1776,7 +1787,7 @@ fn sseTurnStream(
                         stream_done = true;
                     } else if (data.payload.len > 0) {
                         sseCaptureUsage(data.payload, &usage);
-                        sseHandleEvent(allocator, data.payload, api_mode, &text, &calls, &active, &stream_done, stdout) catch {};
+                        sseHandleEvent(allocator, data.payload, api_mode, &text, &reasoning, &calls, &active, &stream_done, stdout) catch {};
                     }
                 }
                 // Remove processed event (+ delimiter length).
@@ -1798,7 +1809,7 @@ fn sseTurnStream(
                     defer if (data.owned) allocator.free(data.payload);
                     if (!data.is_done and data.payload.len > 0) {
                         sseCaptureUsage(data.payload, &usage);
-                        sseHandleEvent(allocator, data.payload, api_mode, &text, &calls, &active, &stream_done, stdout) catch {};
+                        sseHandleEvent(allocator, data.payload, api_mode, &text, &reasoning, &calls, &active, &stream_done, stdout) catch {};
                     }
                 }
             }
@@ -1862,6 +1873,21 @@ fn sseTurnStream(
         }
     } else {
         allocator.free(usage_slice);
+    }
+    const reasoning_slice = reasoning.toOwnedSlice() catch {
+        allocator.free(cj_slice);
+        allocator.free(text_slice);
+        return 2;
+    };
+    if (orp_opt) |orp| {
+        if (orl_opt) |orl| {
+            orp.* = reasoning_slice.ptr;
+            orl.* = reasoning_slice.len;
+        } else {
+            allocator.free(reasoning_slice);
+        }
+    } else {
+        allocator.free(reasoning_slice);
     }
 
     return if (calls.items.len > 0) 1 else 0;
@@ -2016,11 +2042,34 @@ test "sse usage capture extracts the last usage object" {
     try std.testing.expectEqual(@as(usize, 0), usage2.items.len);
 }
 
+test "sse chat events accumulate reasoning separately from text" {
+    const alloc = std.testing.allocator;
+    var text = std.array_list.Managed(u8).init(alloc);
+    defer text.deinit();
+    var reasoning = std.array_list.Managed(u8).init(alloc);
+    defer reasoning.deinit();
+    var calls = std.array_list.Managed(SseCall).init(alloc);
+    defer calls.deinit();
+    var active = std.array_list.Managed(SseCall).init(alloc);
+    defer active.deinit();
+    var done = false;
+    const DiscardWriter = struct {
+        pub fn writeAll(_: *@This(), _: []const u8) !void {}
+    };
+    var dw = DiscardWriter{};
+    const w = &dw;
+    try sseHandleEvent(alloc, "{\"choices\":[{\"delta\":{\"reasoning\":\"The user\"}}]}", 1, &text, &reasoning, &calls, &active, &done, w);
+    try sseHandleEvent(alloc, "{\"choices\":[{\"delta\":{\"reasoning\":\" asks.\",\"content\":\"ok\"}}]}", 1, &text, &reasoning, &calls, &active, &done, w);
+    try std.testing.expectEqualStrings("The user asks.", reasoning.items);
+    try std.testing.expectEqualStrings("ok", text.items);
+}
+
 fn sseHandleEvent(
     allocator: std.mem.Allocator,
     data: []const u8,
     api_mode: u64,
     text: *std.array_list.Managed(u8),
+    reasoning: *std.array_list.Managed(u8),
     calls: *std.array_list.Managed(SseCall),
     active: *std.array_list.Managed(SseCall),
     stream_done: *bool,
@@ -2030,9 +2079,9 @@ fn sseHandleEvent(
     defer parsed.deinit();
     const root = parsed.value;
     if (api_mode == 0) {
-        try sseHandleResponsesEvent(allocator, root, text, calls, active, stream_done, stdout);
+        try sseHandleResponsesEvent(allocator, root, text, reasoning, calls, active, stream_done, stdout);
     } else {
-        try sseHandleChatEvent(allocator, root, text, calls, active, stream_done, stdout);
+        try sseHandleChatEvent(allocator, root, text, reasoning, calls, active, stream_done, stdout);
     }
 }
 
@@ -2070,6 +2119,7 @@ fn sseHandleResponsesEvent(
     allocator: std.mem.Allocator,
     root: std.json.Value,
     text: *std.array_list.Managed(u8),
+    reasoning: *std.array_list.Managed(u8),
     calls: *std.array_list.Managed(SseCall),
     active: *std.array_list.Managed(SseCall),
     stream_done: *bool,
@@ -2084,6 +2134,12 @@ fn sseHandleResponsesEvent(
             if (sseJsonStr(dval)) |ds| {
                 try stdout.writeAll(ds);
                 try text.appendSlice(ds);
+            }
+        }
+    } else if (std.mem.eql(u8, tstr, "response.reasoning_summary_text.delta") or std.mem.eql(u8, tstr, "response.reasoning_text.delta")) {
+        if (obj.get("delta")) |dval| {
+            if (sseJsonStr(dval)) |ds| {
+                try reasoning.appendSlice(ds);
             }
         }
     } else if (std.mem.eql(u8, tstr, "response.output_item.added")) {
@@ -2161,6 +2217,7 @@ fn sseHandleChatEvent(
     allocator: std.mem.Allocator,
     root: std.json.Value,
     text: *std.array_list.Managed(u8),
+    reasoning: *std.array_list.Managed(u8),
     calls: *std.array_list.Managed(SseCall),
     active: *std.array_list.Managed(SseCall),
     stream_done: *bool,
@@ -2179,6 +2236,21 @@ fn sseHandleChatEvent(
         if (sseJsonStr(cv)) |cs| {
             try stdout.writeAll(cs);
             try text.appendSlice(cs);
+        }
+    }
+
+    // Reasoning text (chat shapes: delta.reasoning on some
+    // gateways, delta.reasoning_content on DeepSeek-style APIs).
+    // Accumulated separately; never printed, never mixed into
+    // the answer text.
+    if (delta.get("reasoning")) |rv| {
+        if (sseJsonStr(rv)) |rs| {
+            try reasoning.appendSlice(rs);
+        }
+    }
+    if (delta.get("reasoning_content")) |rv| {
+        if (sseJsonStr(rv)) |rs| {
+            try reasoning.appendSlice(rs);
         }
     }
 
