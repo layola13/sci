@@ -125,3 +125,16 @@
 @extern sa_fs_chroot(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_mkfifo(&path: ptr, path_len: u64, mode: u32) -> i32
 @extern sa_std_fs_read_link(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
+
+// FS watch (sa_fs_watch_*, Linux inotify): create a watcher, add paths
+// with a raw inotify mask (IN_CREATE 0x100, IN_MODIFY 0x2,
+// IN_CLOSE_WRITE 0x8, IN_DELETE 0x200, IN_MOVED_FROM 0x40,
+// IN_MOVED_TO 0x80, IN_ATTRIB 0x4, IN_ISDIR 0x40000000,
+// IN_Q_OVERFLOW 0x10), then drain parsed events with next: out_ready
+// is 1 when an event was delivered (name is empty for file watches).
+@extern sa_fs_watch_create(&out_handle: ptr) -> i32
+@extern sa_fs_watch_add(handle: u64, &path: ptr, path_len: u64, mask: u32, &out_wd: ptr) -> i32
+@extern sa_fs_watch_remove(handle: u64, wd: i32) -> i32
+@extern sa_fs_watch_poll(handle: u64, timeout_ms: i32, &out_pending: ptr) -> i32
+@extern sa_fs_watch_next(handle: u64, &out_ready: ptr, &out_wd: ptr, &out_mask: ptr, &out_cookie: ptr, &name: ptr, name_cap: u64, &out_name_len: ptr) -> i32
+@extern sa_fs_watch_close(^handle: u64) -> i32

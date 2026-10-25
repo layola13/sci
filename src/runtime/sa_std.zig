@@ -29,6 +29,12 @@ pub fn saStdPolicyAllowsRun(program: []const u8) bool {
     return policyAllows(.{ .run = program });
 }
 
+/// Fs-read policy check shared with satellite runtime files
+/// (sa_fs_watch.zig): registering a watch is a read-side acquisition.
+pub fn saStdPolicyAllowsFsRead(path: []const u8) bool {
+    return policyAllows(.{ .fs = .{ .path = path, .write = false } });
+}
+
 // ---------------------------------------------------------------------
 // Policy bootstrap for produced binaries (sala 16_policy phase 1,
 // slice 3). The deployment supplies the policy through the
@@ -377,6 +383,12 @@ comptime {
         _ = &@import("sa_pty.zig").sa_pty_kill;
         _ = &@import("sa_pty.zig").sa_pty_try_wait;
         _ = &@import("sa_pty.zig").sa_pty_close;
+        _ = &@import("sa_fs_watch.zig").sa_fs_watch_create;
+        _ = &@import("sa_fs_watch.zig").sa_fs_watch_add;
+        _ = &@import("sa_fs_watch.zig").sa_fs_watch_remove;
+        _ = &@import("sa_fs_watch.zig").sa_fs_watch_poll;
+        _ = &@import("sa_fs_watch.zig").sa_fs_watch_next;
+        _ = &@import("sa_fs_watch.zig").sa_fs_watch_close;
     }
     _ = &@import("sa_ssh.zig").sa_std_ssh_client_connect;
     _ = &@import("sa_ssh.zig").sa_std_ssh_server_listen;
