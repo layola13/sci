@@ -556,6 +556,21 @@ const ManifestHelpEntry = struct {
 /// the file extensions it owns (sala 05_plugins/20_system_redesign). The
 /// host resolves source files to frontends through this registry instead
 /// of a plugin command namespace.
+/// One entry of the host command index: a top-level command name a
+/// plugin declared in its manifest ("commands") and the plugin that
+/// claimed it first. Declared commands dispatch straight to their
+/// claimant instead of the legacy offer-to-all scan.
+const CommandClaim = struct {
+    command: []u8,
+    plugin_name: []u8,
+
+    fn deinit(self: *CommandClaim, allocator: std.mem.Allocator) void {
+        allocator.free(self.command);
+        allocator.free(self.plugin_name);
+        self.* = undefined;
+    }
+};
+
 const LanguageFrontend = struct {
     plugin_name: []u8,
     extensions: [][]u8,
@@ -1644,6 +1659,13 @@ pub const Runtime = struct {
     /// disk cannot enter this set without going through the current
     /// project's declaration + staging in this run.
     workspace_plugin_dirs: std.array_list.Managed([]u8),
+    command_claims: std.array_list.Managed(CommandClaim),
+    /// Set when the host itself constructed the dispatch argv
+    /// (language extension routing builds `sa <frontend> build ...`
+    /// internally); suppresses the legacy two-layer invocation
+    /// deprecation notice for that dispatch. A user-typed
+    /// `sa <frontend> <verb>` keeps the notice.
+    suppress_legacy_frontend_notice: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) Runtime {
         return .{
@@ -1654,6 +1676,7 @@ pub const Runtime = struct {
             .diagnostics = std.array_list.Managed(LoadDiagnostic).init(allocator),
             .host_authorization = .{},
             .workspace_plugin_dirs = std.array_list.Managed([]u8).init(allocator),
+            .command_claims = std.array_list.Managed(CommandClaim).init(allocator),
         };
     }
 
@@ -1709,6 +1732,8 @@ pub const Runtime = struct {
         self.diagnostics.deinit();
         for (self.workspace_plugin_dirs.items) |dir| self.allocator.free(dir);
         self.workspace_plugin_dirs.deinit();
+        for (self.command_claims.items) |*claim| claim.deinit(self.allocator);
+        self.command_claims.deinit();
         self.host_authorization.deinit(self.allocator);
         self.* = undefined;
     }
@@ -1913,6 +1938,48 @@ pub const Runtime = struct {
         }
     }
 
+    /// Invokes one loaded plugin's command handler. Returns the exit
+    /// code when the plugin handled the command (failures are
+    /// reported here and also yield a code), or null when the plugin
+    /// takes no commands or answered unknown_command.
+    fn invokePluginCommand(
+        self: *Runtime,
+        loaded: *LoadedPlugin,
+        c_argv: []const [*:0]const u8,
+        json_mode: bool,
+        stdout_stream: HostStream,
+        stderr_stream: HostStream,
+        stderr: anytype,
+    ) !?u8 {
+        const handle = loaded.descriptor.handle_command orelse return null;
+        var broker = RuntimeBroker{
+            .allocator = self.allocator,
+            .policy = &loaded.permission_policy,
+            .authorization = &self.host_authorization,
+        };
+        var ctx = Context{
+            .allocator = self.allocator,
+            .json_mode = json_mode,
+            .broker_abi_version = broker_abi_version,
+            .broker_call = runtimeBrokerCall,
+            .broker_ctx = &broker,
+        };
+        var out_code: u8 = 0;
+        const status_value = handle(&ctx, c_argv.ptr, c_argv.len, stdout_stream, stderr_stream, &out_code);
+        const status = abiStatusFromInt(status_value);
+        switch (status) {
+            .ok => return out_code,
+            .unknown_command => return null,
+            .failed, .version_mismatch, .invalid_descriptor => {
+                try stderr.print("error[SA-PLUGIN]: plugin {s} failed with {s}\n", .{
+                    std.mem.span(loaded.descriptor.name),
+                    @tagName(status),
+                });
+                return 1;
+            },
+        }
+    }
+
     pub fn dispatchCommand(
         self: *Runtime,
         argv: []const []const u8,
@@ -1943,34 +2010,32 @@ pub const Runtime = struct {
         const stdout_stream = HostStream{ .ctx = &stdout_ctx, .write_all = streamWriteAll(@TypeOf(stdout_value)) };
         const stderr_stream = HostStream{ .ctx = &stderr_ctx, .write_all = streamWriteAll(@TypeOf(stderr_value)) };
 
-        for (self.plugins.items) |*loaded| {
-            var broker = RuntimeBroker{
-                .allocator = self.allocator,
-                .policy = &loaded.permission_policy,
-                .authorization = &self.host_authorization,
-            };
-            var ctx = Context{
-                .allocator = self.allocator,
-                .json_mode = json_mode,
-                .broker_abi_version = broker_abi_version,
-                .broker_call = runtimeBrokerCall,
-                .broker_ctx = &broker,
-            };
-            const handle = loaded.descriptor.handle_command orelse continue;
-            var out_code: u8 = 0;
-            const status_value = handle(&ctx, c_argv.ptr, c_argv.len, stdout_stream, stderr_stream, &out_code);
-            const status = abiStatusFromInt(status_value);
-            switch (status) {
-                .ok => return out_code,
-                .unknown_command => continue,
-                .failed, .version_mismatch, .invalid_descriptor => {
-                    try stderr.print("error[SA-PLUGIN]: plugin {s} failed with {s}\n", .{
-                        std.mem.span(loaded.descriptor.name),
-                        @tagName(status),
-                    });
-                    return 1;
-                },
+        // Legacy two-layer language invocation: `sa <frontend>
+        // <verb> ...` still dispatches, but language frontends are
+        // routed by file extension, so the direct host verb is the
+        // preferred form. Host-constructed dispatches (extension
+        // routing) set suppress_legacy_frontend_notice and stay quiet.
+        if (!self.suppress_legacy_frontend_notice and argv.len >= 3) {
+            if (self.languageFrontendNamed(argv[1])) |frontend| {
+                const ext = if (frontend.extensions.len != 0) frontend.extensions[0] else "";
+                try stderr.print("note[SA-PLUGIN]: 'sa {s} {s}' is deprecated: language frontends are dispatched by file extension, so run the host verb directly (e.g. 'sa {s} <file{s}>'). The 'sa {s}' form keeps working during the transition.\n", .{ argv[1], argv[2], argv[2], ext, argv[1] });
             }
+        }
+
+        // A command declared in a manifest ("commands") dispatches
+        // straight to its claimant and the claim is authoritative:
+        // the claimant's answer stands even when it is
+        // unknown_command. Undeclared commands keep the legacy
+        // offer-to-all scan in load order.
+        if (self.commandClaimant(argv[1])) |claimant| {
+            for (self.plugins.items) |*loaded| {
+                if (!std.mem.eql(u8, std.mem.span(loaded.descriptor.name), claimant)) continue;
+                return try self.invokePluginCommand(loaded, c_argv, json_mode, stdout_stream, stderr_stream, stderr);
+            }
+        }
+
+        for (self.plugins.items) |*loaded| {
+            if (try self.invokePluginCommand(loaded, c_argv, json_mode, stdout_stream, stderr_stream, stderr)) |code| return code;
         }
         return null;
     }
@@ -2229,6 +2294,7 @@ pub const Runtime = struct {
         });
         keep_lib = true;
         try self.noteLanguageFrontend(owned_path);
+        try self.noteCommandClaims(owned_path);
     }
 
     /// Resolve a file extension (including the dot, e.g. ".sla") to the
@@ -2241,6 +2307,66 @@ pub const Runtime = struct {
             }
         }
         return null;
+    }
+
+    fn languageFrontendNamed(self: *const Runtime, name: []const u8) ?*const LanguageFrontend {
+        for (self.language_frontends.items) |*frontend| {
+            if (std.mem.eql(u8, frontend.plugin_name, name)) return frontend;
+        }
+        return null;
+    }
+
+    /// The plugin that claimed a top-level command through its
+    /// manifest "commands" declaration, or null when the command is
+    /// undeclared and dispatch falls back to the legacy scan.
+    pub fn commandClaimant(self: *const Runtime, command: []const u8) ?[]const u8 {
+        for (self.command_claims.items) |*claim| {
+            if (std.mem.eql(u8, claim.command, command)) return claim.plugin_name;
+        }
+        return null;
+    }
+
+    /// Registers a plugin's declared commands in the host command
+    /// index. The first claimant keeps a command; a later claim by a
+    /// different plugin is skipped and reported as a load diagnostic
+    /// naming both plugins, never silently shadowed.
+    pub fn registerCommandClaims(self: *Runtime, plugin_name: []const u8, commands: []const []const u8) !void {
+        var owned = std.array_list.Managed(CommandClaim).init(self.allocator);
+        defer owned.deinit();
+        errdefer {
+            for (owned.items) |*claim| claim.deinit(self.allocator);
+        }
+        for (commands) |command| {
+            if (command.len == 0) continue;
+            if (self.commandClaimant(command)) |existing| {
+                if (!std.mem.eql(u8, existing, plugin_name)) {
+                    const reason = try std.fmt.allocPrint(
+                        self.allocator,
+                        "command {s} is claimed by both {s} and {s}; keeping {s}",
+                        .{ command, existing, plugin_name, existing },
+                    );
+                    defer self.allocator.free(reason);
+                    try self.addDiagnostic(plugin_name, reason);
+                }
+                continue;
+            }
+            var already = false;
+            for (owned.items) |*claim| {
+                if (std.mem.eql(u8, claim.command, command)) {
+                    already = true;
+                    break;
+                }
+            }
+            if (already) continue;
+            try owned.append(.{
+                .command = try self.allocator.dupe(u8, command),
+                .plugin_name = try self.allocator.dupe(u8, plugin_name),
+            });
+        }
+        if (owned.items.len == 0) return;
+        const claims = try owned.toOwnedSlice();
+        defer self.allocator.free(claims);
+        try self.command_claims.appendSlice(claims);
     }
 
     pub fn registerLanguageFrontend(self: *Runtime, plugin_name: []const u8, extensions: []const []const u8) !void {
@@ -2273,6 +2399,14 @@ pub const Runtime = struct {
             .plugin_name = name_copy,
             .extensions = exts,
         });
+    }
+
+    fn noteCommandClaims(self: *Runtime, lib_path: []const u8) !void {
+        const dir_path = std.fs.path.dirname(lib_path) orelse return;
+        var manifest = parseSapManifest(self.allocator, dir_path) catch return;
+        defer manifest.deinit(self.allocator);
+        if (manifest.commands.len == 0) return;
+        try self.registerCommandClaims(manifest.name, manifest.commands);
     }
 
     fn noteLanguageFrontend(self: *Runtime, lib_path: []const u8) !void {
@@ -2491,6 +2625,7 @@ const SapManifest = struct {
     has_process_permission: bool,
     kind: SapPluginKind,
     language_extensions: [][]u8,
+    commands: [][]u8,
 
     fn deinit(self: *SapManifest, allocator: std.mem.Allocator) void {
         allocator.free(self.root_dir);
@@ -2516,6 +2651,8 @@ const SapManifest = struct {
         allocator.free(self.external_urls);
         for (self.language_extensions) |ext| allocator.free(ext);
         allocator.free(self.language_extensions);
+        for (self.commands) |command| allocator.free(command);
+        allocator.free(self.commands);
         self.* = undefined;
     }
 };
@@ -3494,6 +3631,19 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
         for (language_extensions) |ext| allocator.free(ext);
         allocator.free(language_extensions);
     }
+    const commands = try collectStringArray(allocator, object.get("commands"));
+    errdefer {
+        for (commands) |command| allocator.free(command);
+        allocator.free(commands);
+    }
+    // A declared command is a single argv token: empty entries and
+    // entries containing whitespace could never be dispatched to.
+    for (commands) |command| {
+        if (command.len == 0) return error.InvalidSapManifest;
+        for (command) |ch| {
+            if (ch == ' ' or ch == '\t' or ch == '/') return error.InvalidSapManifest;
+        }
+    }
 
     return .{
         .root_dir = root_dir,
@@ -3520,6 +3670,7 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
         .has_process_permission = permission_info.has_process_permission,
         .kind = kind,
         .language_extensions = language_extensions,
+        .commands = commands,
     };
 }
 
@@ -3947,7 +4098,48 @@ fn verifyInstalledExternSymbolConflicts(allocator: std.mem.Allocator, manifest: 
             return 1;
         }
     }
+    try printExternNamespaceHint(allocator, manifest, current.items, stdout);
     return 0;
+}
+
+/// Advisory namespace check for a plugin's declared externs. Plugin
+/// externs share one flat link space across all installed plugins, so
+/// a plugin's own symbols should carry its namespace: the canonical
+/// prefix is sa_plugin_<name>_ and the established sa_<name>_ family
+/// counts as namespaced; sa_std_ symbols belong to the standard
+/// library. Anything else is listed once per install so authors can
+/// rename before a collision makes an install fail outright. The
+/// hint never blocks the install.
+fn printExternNamespaceHint(
+    allocator: std.mem.Allocator,
+    manifest: SapManifest,
+    symbols: []const []u8,
+    stdout: anytype,
+) !void {
+    const underscored = try allocator.dupe(u8, manifest.name);
+    defer allocator.free(underscored);
+    for (underscored) |*ch| {
+        if (ch.* == '-') ch.* = '_';
+    }
+    const canonical = try std.fmt.allocPrint(allocator, "sa_plugin_{s}_", .{underscored});
+    defer allocator.free(canonical);
+    const legacy = try std.fmt.allocPrint(allocator, "sa_{s}_", .{underscored});
+    defer allocator.free(legacy);
+    var loose = std.array_list.Managed([]const u8).init(allocator);
+    defer loose.deinit();
+    for (symbols) |symbol| {
+        if (std.mem.startsWith(u8, symbol, canonical)) continue;
+        if (std.mem.startsWith(u8, symbol, legacy)) continue;
+        if (std.mem.startsWith(u8, symbol, "sa_std_")) continue;
+        try loose.append(symbol);
+    }
+    if (loose.items.len == 0) return;
+    const joined = try std.mem.join(allocator, ", ", loose.items);
+    defer allocator.free(joined);
+    try stdout.print(
+        "plugin extern namespace hint: {s} declares extern symbol(s) outside its namespace: {s}. Plugin externs share one flat link space; prefix new symbols with {s} so they cannot collide with other plugins.\n",
+        .{ manifest.name, joined, canonical },
+    );
 }
 
 fn collectInstalledExternProviders(

@@ -442,6 +442,7 @@ fn collectSourceGraph(ctx: *GraphBuildContext, source_path: []const u8) !usize {
             .project_root = ctx.project_root,
             .offline = ctx.offline,
             .plugin_import_roots = ctx.plugin_import_roots,
+            .diagnostics = &reportPluginImportDiagnostic,
         });
         defer imported.deinit(ctx.allocator);
 
@@ -5507,6 +5508,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
             .offline = options.offline,
             .plugin_import_roots = plugin_import_roots,
             .stable_import_roots = stable_import_roots,
+            .diagnostics = &reportPluginImportDiagnostic,
         },
     };
     const setup_ns = if (setup_start) |start| elapsedNs(start) else 0;
@@ -6997,6 +6999,14 @@ fn executePkgCommandFallback(allocator: std.mem.Allocator, args: []const []const
     return null;
 }
 
+/// Resolver diagnostics sink for plugin import resolution: the
+/// resolver reports non-fatal findings (an ambiguous bare plugin
+/// import that several plugins provide) through this callback; the
+/// CLI surfaces them on stderr.
+fn reportPluginImportDiagnostic(_: ?*anyopaque, message: []const u8) void {
+    std.debug.print("{s}\n", .{message});
+}
+
 fn executePluginCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
     if (args.len == 0) {
         try stderr.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json> | list\n");
@@ -7879,6 +7889,7 @@ fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, 
             .offline = options.offline,
             .plugin_import_roots = plugin_import_roots,
             .stable_import_roots = stable_import_roots,
+            .diagnostics = &reportPluginImportDiagnostic,
         },
     };
     const setup_ns = if (setup_start) |start| elapsedNs(start) else 0;
@@ -8661,6 +8672,10 @@ fn routeLanguageFrontend(
     defer plugin_auth.deinit(allocator);
     var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, plugin_auth.input);
     defer plugin_runtime.deinit();
+    // This runtime only ever dispatches argv the host constructed
+    // itself (`sa <frontend> build ...`); the legacy two-layer
+    // deprecation notice is for user-typed invocations, not routing.
+    plugin_runtime.suppress_legacy_frontend_notice = true;
     const frontend = plugin_runtime.languageFrontendForExtension(ext) orelse return null;
     if (candidate_count > 1) {
         try stderr.print("error[SA-LANGUAGE-FRONTEND]: multiple language source files are not supported in one invocation yet\n", .{});
