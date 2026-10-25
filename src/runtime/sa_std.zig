@@ -14,6 +14,9 @@ pub const sa_policy = @import("sa_policy.zig");
 /// status channel (env, time, random) deny by returning zero, and
 /// every denial is audit-logged through the installed sink.
 fn policyAllows(resource: sa_policy.Resource) bool {
+    // On wasm there is no ELF-constructor guarantee, so the first gated
+    // call installs the policy lazily (policyBootstrap is idempotent).
+    if (comptime is_wasm) policyBootstrap();
     if (sa_policy.active_context == null) return true;
     const now_ns: i64 = @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
     return sa_policy.gate(std.heap.page_allocator, resource, now_ns);
@@ -80,9 +83,14 @@ fn installPolicyText(allocator: std.mem.Allocator, text: []const u8) void {
     if (audit_path) |path| {
         defer allocator.free(path);
         var open_flags: std.posix.O = .{};
-        open_flags.ACCMODE = .WRONLY;
+        // WASI's O struct has no ACCMODE/APPEND fields (access mode and
+        // append live in fd rights/fdflags there); std.posix.openat maps
+        // what exists. Audit-sink open stays best-effort on every target.
+        if (comptime !is_wasm) {
+            open_flags.ACCMODE = .WRONLY;
+            open_flags.APPEND = true;
+        }
         open_flags.CREAT = true;
-        open_flags.APPEND = true;
         if (std.posix.openat(std.posix.AT.FDCWD, path, open_flags, @as(std.posix.mode_t, 0o644))) |fd| {
             policy_audit_fd = fd;
             sa_policy.installAuditSink(policyAuditSink);
@@ -96,8 +104,11 @@ fn installPolicyText(allocator: std.mem.Allocator, text: []const u8) void {
     sa_policy.installContext(context);
 }
 
+var policy_bootstrap_attempted: bool = false;
+
 fn policyBootstrap() callconv(.c) void {
-    if (comptime is_wasm) return;
+    if (policy_bootstrap_attempted) return;
+    policy_bootstrap_attempted = true;
     const allocator = std.heap.page_allocator;
 
     if (policyEnvFlag(allocator, "SA_POLICY_ALLOW_ALL")) {
