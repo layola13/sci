@@ -19,6 +19,133 @@ fn policyAllows(resource: sa_policy.Resource) bool {
     return sa_policy.gate(std.heap.page_allocator, resource, now_ns);
 }
 
+// ---------------------------------------------------------------------
+// Policy bootstrap for produced binaries (sala 16_policy phase 1,
+// slice 3). The deployment supplies the policy through the
+// environment; an ELF constructor installs it before main runs:
+//   SA_POLICY_JSON      inline policy JSON (highest priority)
+//   SA_POLICY_FILE      path to a policy JSON file
+//   SA_POLICY_ALLOW_ALL "1" engages an explicit allow-all policy (the
+//                       -A analog) and always leaves an audit trace
+//   SA_POLICY_REQUIRED  "1" with none of the above: refuse to start
+//   SA_AUDIT_FILE       audit JSONL destination; otherwise the
+//                       policy's audit.sink file:// path; otherwise
+//                       audit events are dropped
+// With nothing set, no context is installed and the process runs in
+// legacy mode; SA_POLICY_REQUIRED is how a deployment closes that
+// door. A policy that is present but unreadable or invalid is a hard
+// startup failure, never a silent fallback to legacy mode.
+
+var policy_context_storage: ?*sa_policy.PolicyContext = null;
+var policy_audit_fd: ?std.posix.fd_t = null;
+
+fn policyBootstrapWriteStderr(text: []const u8) void {
+    _ = lxWrite(2, text) catch {};
+}
+
+fn policyAuditSink(line: []const u8) void {
+    const fd = policy_audit_fd orelse return;
+    _ = lxWrite(fd, line) catch {};
+}
+
+fn policyBootstrapFail(message: []const u8, code: u8) noreturn {
+    policyBootstrapWriteStderr("[sa-policy] ");
+    policyBootstrapWriteStderr(message);
+    policyBootstrapWriteStderr("\n");
+    std.process.exit(code);
+}
+
+fn policyEnvOwned(allocator: std.mem.Allocator, name: []const u8) ?[]u8 {
+    return sio.getEnvVarOwned(allocator, name) catch null;
+}
+
+fn policyEnvFlag(allocator: std.mem.Allocator, name: []const u8) bool {
+    const value = policyEnvOwned(allocator, name) orelse return false;
+    defer allocator.free(value);
+    return std.mem.eql(u8, value, "1");
+}
+
+fn installPolicyText(allocator: std.mem.Allocator, text: []const u8) void {
+    const policy = sa_policy.parsePolicyJson(allocator, text) catch |err|
+        policyBootstrapFail(@errorName(err), 2);
+
+    var audit_path: ?[]u8 = policyEnvOwned(allocator, "SA_AUDIT_FILE");
+    if (audit_path == null) {
+        if (policy.audit_sink) |sink| {
+            if (std.mem.startsWith(u8, sink, "file://")) {
+                audit_path = allocator.dupe(u8, sink["file://".len..]) catch null;
+            }
+        }
+    }
+    if (audit_path) |path| {
+        defer allocator.free(path);
+        var open_flags: std.posix.O = .{};
+        open_flags.ACCMODE = .WRONLY;
+        open_flags.CREAT = true;
+        open_flags.APPEND = true;
+        if (std.posix.openat(std.posix.AT.FDCWD, path, open_flags, @as(std.posix.mode_t, 0o644))) |fd| {
+            policy_audit_fd = fd;
+            sa_policy.installAuditSink(policyAuditSink);
+        } else |_| {}
+    }
+
+    const context = allocator.create(sa_policy.PolicyContext) catch
+        policyBootstrapFail("out of memory", 2);
+    context.* = sa_policy.PolicyContext.init(allocator, 1, policy);
+    policy_context_storage = context;
+    sa_policy.installContext(context);
+}
+
+fn policyBootstrap() callconv(.c) void {
+    if (comptime is_wasm) return;
+    const allocator = std.heap.page_allocator;
+
+    if (policyEnvFlag(allocator, "SA_POLICY_ALLOW_ALL")) {
+        installPolicyText(allocator, "{\"permissions\":{\"net\":{\"mode\":\"allow\"},\"fs\":{\"mode\":\"allow\"},\"env\":{\"mode\":\"allow\"},\"run\":{\"mode\":\"allow\"},\"time\":{\"mode\":\"allow\"},\"random\":{\"mode\":\"allow\"}}}");
+        policyBootstrapWriteStderr("[sa-policy] allow-all policy engaged via SA_POLICY_ALLOW_ALL (audit trace)\n");
+        if (policy_audit_fd != null) {
+            const now_ns: i64 = @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
+            const event = sa_policy.AuditEvent{ .context_id = 1, .category = .run, .resource = "SA_POLICY_ALLOW_ALL", .decision = "allow-all", .source = "env" };
+            if (event.formatJsonLine(allocator, now_ns)) |line| {
+                defer allocator.free(line);
+                policyAuditSink(line);
+            } else |_| {}
+        }
+        return;
+    }
+
+    if (policyEnvOwned(allocator, "SA_POLICY_JSON")) |json_text| {
+        defer allocator.free(json_text);
+        installPolicyText(allocator, json_text);
+        return;
+    }
+
+    if (policyEnvOwned(allocator, "SA_POLICY_FILE")) |path| {
+        defer allocator.free(path);
+        var file = sio.cwd().openFile(path, .{}) catch
+            policyBootstrapFail("SA_POLICY_FILE is set but cannot be opened", 2);
+        defer file.close();
+        const text = file.readToEndAlloc(allocator, 1 << 20) catch
+            policyBootstrapFail("SA_POLICY_FILE cannot be read", 2);
+        defer allocator.free(text);
+        installPolicyText(allocator, text);
+        return;
+    }
+
+    if (policyEnvFlag(allocator, "SA_POLICY_REQUIRED")) {
+        policyBootstrapFail("SA_POLICY_REQUIRED is set but no policy was provided (set SA_POLICY_JSON, SA_POLICY_FILE, or SA_POLICY_ALLOW_ALL=1)", 1);
+    }
+}
+
+var policy_bootstrap_init_entry: *const fn () callconv(.c) void linksection(".init_array") = &policyBootstrap;
+
+comptime {
+    if (!builtin.is_test and builtin.os.tag == .linux and !is_wasm) {
+        @export(&policyBootstrap, .{ .name = "sa_policy_bootstrap" });
+        @export(&policy_bootstrap_init_entry, .{ .name = "__sa_policy_bootstrap_init" });
+    }
+}
+
 // wasm32-wasi compat (stage1: archive must compile; sockets/process/dlopen
 // stubbed to UNSUPPORTED): SockAddrT/W/SIG are `void` on wasi, and
 // std.os.linux has no wasm syscalls. Provide minimal layout-compatible
