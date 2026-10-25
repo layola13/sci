@@ -6588,6 +6588,11 @@ fn executeCacheCommand(allocator: std.mem.Allocator, args: []const []const u8, s
     defer allocator.free(project_root);
     const stats = try cleanProjectCache(allocator, project_root, options);
     try stdout.print("cache clean: scanned={d} removed={d} kept={d} dry_run={} max_age_days={d}\n", .{ stats.scanned, stats.removed, stats.kept, options.dry_run, options.max_age_days });
+    if (!options.dry_run) {
+        if (plugins.cleanFrontendCache(allocator) catch false) {
+            try stdout.print("cache clean: frontend cache removed\n", .{});
+        }
+    }
     return 0;
 }
 

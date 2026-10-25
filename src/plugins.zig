@@ -905,6 +905,18 @@ fn frontendCacheFileHash(allocator: std.mem.Allocator, path: []const u8) !Fronte
     return .{ .path = path, .len = @intCast(bytes.len), .hash = std.hash.Wyhash.hash(0, bytes) };
 }
 
+/// Removes the whole frontend cache root (used by the cache clean command).
+/// Returns true when a root existed and was removed.
+pub fn cleanFrontendCache(allocator: std.mem.Allocator) !bool {
+    const root = frontendCacheRoot(allocator) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => return false,
+        else => return err,
+    };
+    defer allocator.free(root);
+    sio.cwd().deleteTree(root) catch return false;
+    return true;
+}
+
 fn runtimeBrokerCacheLookup(broker: *const RuntimeBroker, req: ?*const anyopaque, resp: ?*anyopaque) BrokerStatus {
     const request = if (req) |raw|
         @as(*const BrokerCacheLookupRequest, @ptrCast(@alignCast(raw)))
@@ -923,8 +935,12 @@ fn runtimeBrokerCacheLookup(broker: *const RuntimeBroker, req: ?*const anyopaque
 
     const allocator = broker.allocator;
     const key_material = request.key_ptr[0..request.key_len];
-    const closure = parseFrontendCacheClosure(allocator, request.closure_ptr[0..request.closure_len]) catch return .invalid_request;
-    defer allocator.free(closure);
+    const closure_owned = request.closure_len != 0;
+    const closure: []const []const u8 = if (closure_owned)
+        parseFrontendCacheClosure(allocator, request.closure_ptr[0..request.closure_len]) catch return .invalid_request
+    else
+        &.{};
+    defer if (closure_owned) allocator.free(closure);
 
     const root = frontendCacheRoot(allocator) catch return .failed;
     defer allocator.free(root);
@@ -939,10 +955,10 @@ fn runtimeBrokerCacheLookup(broker: *const RuntimeBroker, req: ?*const anyopaque
     const manifest = std.json.parseFromSlice(FrontendCacheManifest, allocator, manifest_bytes, .{}) catch return .ok;
     defer manifest.deinit();
     if (manifest.value.version != frontend_cache_manifest_version) return .ok;
-    if (manifest.value.deps.len != closure.len) return .ok;
-    for (manifest.value.deps, closure) |dep, path| {
-        if (!std.mem.eql(u8, dep.path, path)) return .ok;
-        const current = frontendCacheFileHash(allocator, path) catch return .ok;
+    if (closure_owned and manifest.value.deps.len != closure.len) return .ok;
+    for (manifest.value.deps, 0..) |dep, i| {
+        if (closure_owned and !std.mem.eql(u8, dep.path, closure[i])) return .ok;
+        const current = frontendCacheFileHash(allocator, dep.path) catch return .ok;
         if (current.len != dep.len or current.hash != dep.hash) return .ok;
     }
     const artifact_path = std.fs.path.join(allocator, &.{ entry_dir, "artifact.bin" }) catch return .failed;
