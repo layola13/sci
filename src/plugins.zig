@@ -2776,7 +2776,7 @@ fn installFromPathInternal(allocator: std.mem.Allocator, path: []const u8, stdou
         try stdout.writeAll("refusing to install a raw dynamic library; install a plugin project directory or sap.json instead\n");
         return 1;
     }
-    if (std.mem.startsWith(u8, path, "github:") or std.mem.indexOf(u8, path, "://") != null) {
+    if (std.mem.startsWith(u8, path, "github:") or std.mem.startsWith(u8, path, "npm:") or std.mem.indexOf(u8, path, "://") != null) {
         const fetched_root = try fetchRemotePluginSource(allocator, path, stdout, options);
         defer allocator.free(fetched_root);
         return try installFromPathInternal(allocator, fetched_root, stdout, options, depth, ancestors);
@@ -3155,6 +3155,9 @@ const ArchiveFormat = enum {
 };
 
 fn fetchRemotePluginSource(allocator: std.mem.Allocator, spec_text: []const u8, stdout: anytype, options: InstallOptions) ![]u8 {
+    if (std.mem.startsWith(u8, spec_text, "npm:")) {
+        return try fetchNpmPluginSource(allocator, spec_text, stdout, options);
+    }
     var spec = try parseRemotePluginSpec(allocator, spec_text);
     defer spec.deinit(allocator);
 
@@ -3293,6 +3296,264 @@ fn childExitedZero(term: sio.Child.Term) bool {
         .exited => |code| code == 0,
         else => false,
     };
+}
+
+const npm_default_registry = "https://registry.npmjs.org";
+
+/// npm channel for plugin sources: `sa plugin install npm:<name>[@<version>]`.
+///
+/// The channel is inert by contract: the registry only ever drops
+/// files here. The host resolves the package through registry
+/// metadata, downloads the tarball, verifies it against the
+/// registry-signed integrity digest (sha512 SRI; sha1 shasum as the
+/// legacy fallback), extracts it, and hands the extracted source
+/// tree to the regular install pipeline — building, permissions and
+/// confirmation all stay with the host, exactly like a local path.
+/// Packages carrying npm lifecycle scripts (preinstall / install /
+/// postinstall) are refused outright: install-time code execution is
+/// precisely what this channel must never enable, here or under npm
+/// itself. The registry base defaults to registry.npmjs.org and can
+/// be overridden with SA_NPM_REGISTRY (mirrors, local test servers).
+const NpmPackageSpec = struct {
+    name: []const u8,
+    version: ?[]const u8,
+};
+
+fn parseNpmPackageSpec(spec_text: []const u8) !NpmPackageSpec {
+    std.debug.assert(std.mem.startsWith(u8, spec_text, "npm:"));
+    const body = spec_text["npm:".len..];
+    if (body.len == 0) return error.InvalidNpmPackageSpec;
+    // A scoped name starts with '@'; the version separator is the
+    // last '@' that is not the scope marker.
+    var name_end = body.len;
+    if (std.mem.lastIndexOfScalar(u8, body, '@')) |idx| {
+        if (idx != 0) name_end = idx;
+    }
+    const name = body[0..name_end];
+    const version: ?[]const u8 = if (name_end < body.len) body[name_end + 1 ..] else null;
+    if (version) |v| {
+        if (v.len == 0) return error.InvalidNpmPackageSpec;
+    }
+    if (!validNpmPackageName(name)) return error.InvalidNpmPackageSpec;
+    return .{ .name = name, .version = version };
+}
+
+fn validNpmPackageName(name: []const u8) bool {
+    if (name.len == 0 or name.len > 214) return false;
+    if (std.mem.indexOf(u8, name, "..") != null) return false;
+    for (name) |ch| {
+        const ok = (ch >= 'a' and ch <= 'z') or (ch >= '0' and ch <= '9') or
+            ch == '-' or ch == '.' or ch == '_' or ch == '~' or ch == '/' or ch == '@';
+        if (!ok) return false;
+    }
+    if (name[0] == '@') {
+        const slash = std.mem.indexOfScalar(u8, name, '/') orelse return false;
+        if (slash <= 1 or slash == name.len - 1) return false;
+        if (std.mem.indexOfScalar(u8, name[slash + 1 ..], '/') != null) return false;
+    } else {
+        if (std.mem.indexOfScalar(u8, name, '/') != null) return false;
+    }
+    return true;
+}
+
+fn npmRegistryBase(allocator: std.mem.Allocator) ![]u8 {
+    const value = sio.getEnvVarOwned(allocator, "SA_NPM_REGISTRY") catch
+        return try allocator.dupe(u8, npm_default_registry);
+    errdefer allocator.free(value);
+    if (std.mem.trim(u8, value, " \t\r\n").len == 0) {
+        allocator.free(value);
+        return try allocator.dupe(u8, npm_default_registry);
+    }
+    return value;
+}
+
+fn npmEncodePackageName(allocator: std.mem.Allocator, name: []const u8) ![]u8 {
+    if (name.len > 0 and name[0] == '@') {
+        if (std.mem.indexOfScalar(u8, name, '/')) |slash| {
+            return try std.fmt.allocPrint(allocator, "{s}%2f{s}", .{ name[0..slash], name[slash + 1 ..] });
+        }
+    }
+    return try allocator.dupe(u8, name);
+}
+
+const NpmResolvedTarball = struct {
+    version: []u8,
+    tarball_url: []u8,
+    integrity: ?[]u8,
+    shasum: ?[]u8,
+
+    fn deinit(self: *NpmResolvedTarball, allocator: std.mem.Allocator) void {
+        allocator.free(self.version);
+        allocator.free(self.tarball_url);
+        if (self.integrity) |value| allocator.free(value);
+        if (self.shasum) |value| allocator.free(value);
+        self.* = undefined;
+    }
+};
+
+fn jsonObjectValue(value: std.json.Value) ?std.json.ObjectMap {
+    return switch (value) {
+        .object => |object| object,
+        else => null,
+    };
+}
+
+fn resolveNpmTarball(allocator: std.mem.Allocator, metadata_text: []const u8, spec: NpmPackageSpec, stdout: anytype) !NpmResolvedTarball {
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, metadata_text, .{});
+    defer parsed.deinit();
+    const root = jsonObjectValue(parsed.value) orelse return error.InvalidNpmRegistryResponse;
+
+    const version_name: []const u8 = if (spec.version) |v| v else blk: {
+        const tags_value = root.get("dist-tags") orelse return error.InvalidNpmRegistryResponse;
+        const tags = jsonObjectValue(tags_value) orelse return error.InvalidNpmRegistryResponse;
+        const latest = tags.get("latest") orelse return error.InvalidNpmRegistryResponse;
+        break :blk try jsonString(latest);
+    };
+
+    const versions_value = root.get("versions") orelse return error.InvalidNpmRegistryResponse;
+    const versions = jsonObjectValue(versions_value) orelse return error.InvalidNpmRegistryResponse;
+    const version_value = versions.get(version_name) orelse {
+        try stdout.print("npm package {s} has no version {s}\n", .{ spec.name, version_name });
+        return error.NpmVersionNotFound;
+    };
+    const version_doc = jsonObjectValue(version_value) orelse return error.InvalidNpmRegistryResponse;
+    const dist_value = version_doc.get("dist") orelse return error.InvalidNpmRegistryResponse;
+    const dist = jsonObjectValue(dist_value) orelse return error.InvalidNpmRegistryResponse;
+    const tarball_value = dist.get("tarball") orelse return error.InvalidNpmRegistryResponse;
+
+    return .{
+        .version = try allocator.dupe(u8, version_name),
+        .tarball_url = try allocator.dupe(u8, try jsonString(tarball_value)),
+        .integrity = if (dist.get("integrity")) |v| try allocator.dupe(u8, try jsonString(v)) else null,
+        .shasum = if (dist.get("shasum")) |v| try allocator.dupe(u8, try jsonString(v)) else null,
+    };
+}
+
+fn verifyNpmTarballIntegrity(allocator: std.mem.Allocator, tarball_path: []const u8, resolved: NpmResolvedTarball, stdout: anytype) !void {
+    if (resolved.integrity) |integrity| {
+        // SRI form: "<algorithm>-<base64 digest>". The public
+        // registry issues sha512; anything else is refused rather
+        // than silently trusted.
+        if (!std.mem.startsWith(u8, integrity, "sha512-")) {
+            try stdout.print("npm tarball integrity uses an unsupported algorithm: {s}\n", .{integrity});
+            return error.NpmIntegrityMismatch;
+        }
+        const data = try readFileAbsoluteAlloc(allocator, tarball_path, 256 << 20);
+        defer allocator.free(data);
+        var digest: [64]u8 = undefined;
+        std.crypto.hash.sha2.Sha512.hash(data, &digest, .{});
+        var encoded_buf: [128]u8 = undefined;
+        const encoded = std.base64.standard.Encoder.encode(&encoded_buf, &digest);
+        if (!std.mem.eql(u8, encoded, integrity["sha512-".len..])) {
+            try stdout.print("npm tarball integrity mismatch for {s}\n", .{resolved.tarball_url});
+            return error.NpmIntegrityMismatch;
+        }
+        try stdout.print("npm tarball integrity verified (sha512)\n", .{});
+        return;
+    }
+    if (resolved.shasum) |shasum| {
+        const data = try readFileAbsoluteAlloc(allocator, tarball_path, 256 << 20);
+        defer allocator.free(data);
+        var digest: [20]u8 = undefined;
+        std.crypto.hash.Sha1.hash(data, &digest, .{});
+        const hex = std.fmt.bytesToHex(digest, .lower);
+        if (!std.mem.eql(u8, hex[0..], shasum)) {
+            try stdout.print("npm tarball integrity mismatch for {s}\n", .{resolved.tarball_url});
+            return error.NpmIntegrityMismatch;
+        }
+        try stdout.print("npm tarball integrity verified (sha1)\n", .{});
+        return;
+    }
+    try stdout.print("npm registry response carries no integrity digest for {s}; refusing unverifiable bytes\n", .{resolved.tarball_url});
+    return error.NpmIntegrityMissing;
+}
+
+/// npm packages must be inert: files only, never install-time code.
+/// sa itself never runs package scripts, but the same tarball
+/// installed through npm elsewhere would — so a package carrying
+/// lifecycle scripts is refused on this channel outright.
+fn verifyNoNpmLifecycleScripts(allocator: std.mem.Allocator, root: []const u8, stdout: anytype) !void {
+    const pkg_path = try std.fs.path.join(allocator, &.{ root, "package.json" });
+    defer allocator.free(pkg_path);
+    const text = readFileAbsoluteAlloc(allocator, pkg_path, 1 << 20) catch |err| switch (err) {
+        error.FileNotFound => return,
+        else => return err,
+    };
+    defer allocator.free(text);
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, text, .{}) catch return;
+    defer parsed.deinit();
+    const root_obj = jsonObjectValue(parsed.value) orelse return;
+    const scripts_value = root_obj.get("scripts") orelse return;
+    const scripts = jsonObjectValue(scripts_value) orelse return;
+    for ([_][]const u8{ "preinstall", "install", "postinstall" }) |key| {
+        if (scripts.get(key) != null) {
+            try stdout.print("refusing npm plugin package with lifecycle script \"{s}\": npm packages must be inert (files only, no install-time code execution)\n", .{key});
+            return error.NpmLifecycleScriptsForbidden;
+        }
+    }
+}
+
+fn fetchNpmPluginSource(allocator: std.mem.Allocator, spec_text: []const u8, stdout: anytype, options: InstallOptions) ![]u8 {
+    const spec = try parseNpmPackageSpec(spec_text);
+
+    const registry_owned = try npmRegistryBase(allocator);
+    defer allocator.free(registry_owned);
+    const registry = std.mem.trimEnd(u8, registry_owned, "/");
+
+    // Formal mode mirrors the other remote channels: a floating
+    // version is a moving target, so an exact version is required,
+    // and the registry target is confirmed like any remote URL. The
+    // registry's integrity digest then pins the bytes themselves.
+    if (!options.dev and !pluginDevMode(allocator)) {
+        if (spec.version == null) {
+            try stdout.print("refusing npm plugin install without an exact version: {s} (use npm:{s}@<version>)\n", .{ spec_text, spec.name });
+            return error.RemotePluginRefRequired;
+        }
+        const page_url = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ registry, spec.name });
+        defer allocator.free(page_url);
+        if (!try confirmExternalUrl(stdout, page_url)) return error.RemotePluginUrlNotConfirmed;
+    }
+
+    const home = try pluginsHome(allocator);
+    defer allocator.free(home);
+    const cache_root = try std.fs.path.join(allocator, &.{ home, "cache", "npm" });
+    defer allocator.free(cache_root);
+    try sio.cwd().makePath(cache_root);
+    const cache_key = remoteCacheKey(spec_text);
+    const cache_key_hex = std.fmt.bytesToHex(cache_key, .lower);
+    const bundle_dir = try std.fs.path.join(allocator, &.{ cache_root, cache_key_hex[0..] });
+    defer allocator.free(bundle_dir);
+    if (dirExistsAbsolute(bundle_dir)) try sio.cwd().deleteTree(bundle_dir);
+    try sio.cwd().makePath(bundle_dir);
+
+    const encoded_name = try npmEncodePackageName(allocator, spec.name);
+    defer allocator.free(encoded_name);
+    const metadata_url = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ registry, encoded_name });
+    defer allocator.free(metadata_url);
+    const metadata_path = try std.fs.path.join(allocator, &.{ bundle_dir, "metadata.json" });
+    defer allocator.free(metadata_path);
+    try downloadRemoteFile(allocator, metadata_url, metadata_path, stdout);
+    const metadata_text = try readFileAbsoluteAlloc(allocator, metadata_path, 16 << 20);
+    defer allocator.free(metadata_text);
+
+    var resolved = try resolveNpmTarball(allocator, metadata_text, spec, stdout);
+    defer resolved.deinit(allocator);
+    try stdout.print("npm plugin {s}@{s} resolved from {s}\n", .{ spec.name, resolved.version, registry });
+
+    const tarball_path = try std.fs.path.join(allocator, &.{ bundle_dir, "package.tgz" });
+    defer allocator.free(tarball_path);
+    try downloadRemoteFile(allocator, resolved.tarball_url, tarball_path, stdout);
+    try verifyNpmTarballIntegrity(allocator, tarball_path, resolved, stdout);
+
+    const extract_dir = try std.fs.path.join(allocator, &.{ bundle_dir, "extract" });
+    defer allocator.free(extract_dir);
+    try sio.cwd().makePath(extract_dir);
+    try extractArchiveToDirectory(allocator, tarball_path, extract_dir, .tgz, stdout);
+
+    const root = try findExtractedPluginRoot(allocator, extract_dir);
+    errdefer allocator.free(root);
+    try verifyNoNpmLifecycleScripts(allocator, root, stdout);
+    return root;
 }
 
 fn fetchRemoteArchivePluginSource(allocator: std.mem.Allocator, spec: RemotePluginSpec, stdout: anytype) ![]u8 {

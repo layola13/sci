@@ -1343,7 +1343,7 @@ fn printCacheHelp(writer: anytype, args: []const []const u8) !void {
 fn printPluginHelp(writer: anytype, args: []const []const u8) !void {
     const sub = if (args.len != 0 and !isHelpFlag(args[0])) args[0] else "";
     if (std.mem.eql(u8, sub, "install")) {
-        try writer.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json>\n\n");
+        try writer.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json|npm:<name>[@<version>]>\n\n");
         try writer.writeAll("Build, verify, and install a native SA plugin project.\n\n");
         try writer.writeAll("Options:\n");
         try writer.writeAll("  --dev                          Allow development-mode install checks\n");
@@ -7009,12 +7009,12 @@ fn reportPluginImportDiagnostic(_: ?*anyopaque, message: []const u8) void {
 
 fn executePluginCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
     if (args.len == 0) {
-        try stderr.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json> | list\n");
+        try stderr.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json|npm:<name>[@<version>]> | list | confirm <name> [--yes]\n");
         return 1;
     }
     if (std.mem.eql(u8, args[0], "install")) {
         if (args.len < 2) {
-            try stderr.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json>\n");
+            try stderr.writeAll("usage: sa plugin install [--dev] [--review] <path|sap.json|npm:<name>[@<version>]>\n");
             return 1;
         }
         var dev = false;
