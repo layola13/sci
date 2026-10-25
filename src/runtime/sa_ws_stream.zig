@@ -1,7 +1,7 @@
 // WebSocket frame streaming helpers for the built-in HTTP server.
 // Moved into sci from sa_plugin_http_server (2026-10-24, HTTP/WS core built into sa_std).
 const std = @import("std");
-const sa_net = @import("sa_net_primitives.zig");
+const sa_net = @import("sa_net_primitives");
 
 pub const WebSocketFrame = struct {
     opcode: u8,

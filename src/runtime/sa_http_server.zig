@@ -4,7 +4,7 @@
 // Formerly vite_api.zig in the plugin (the file contained no Vite-specific code).
 const std = @import("std");
 const builtin = @import("builtin");
-const sa_std_net = @import("sa_ws_stream.zig");
+const sa_std_net = @import("sa_ws_stream");
 
 const sio = @import("sio");
 
@@ -1744,7 +1744,7 @@ fn methodStringAlloc(allocator: std.mem.Allocator, method: std.http.Method) ![]u
 // AbiStatus mirrors the plugin ABI enum (ok=0, failed=2).
 // ---------------------------------------------------------------------------
 const AbiStatus = enum(u32) { ok = 0, failed = 2 };
-const ws_net = @import("sa_ws_stream.zig");
+const ws_net = @import("sa_ws_stream");
 pub const SaHttpServerHandle = extern struct {
     impl: ?*anyopaque,
 };

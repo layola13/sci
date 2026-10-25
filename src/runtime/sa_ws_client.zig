@@ -27,7 +27,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const primitives = @import("sa_net_primitives.zig");
+const primitives = @import("sa_net_primitives");
 const tls_client = @import("sa_tls_client.zig");
 const sio = @import("sio");
 

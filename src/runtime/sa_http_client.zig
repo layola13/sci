@@ -22,7 +22,7 @@ const AbiStatus = enum(u32) { ok = 0, failed = 2 };
 
 
 // ---- shared WS frame helpers (ex plugin sa_std_net.zig) ----
-const sa_net = @import("sa_net_primitives.zig");
+const sa_net = @import("sa_net_primitives");
 
 pub const WebSocketFrame = struct {
     opcode: u8,

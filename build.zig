@@ -78,6 +78,24 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    // The net primitives and the WebSocket stream layer are shared by the
+    // HTTP client/server cores, the WS client and the io_uring layer. Like
+    // "sio" above they are exposed as named imports: as plain relative
+    // imports the same file would land in two modules whenever a consumer
+    // (e.g. a plugin) compiles the client and server cores side by side,
+    // which Zig rejects ("file exists in modules ...").
+    const sa_net_primitives_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_net_primitives.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const sa_ws_stream_module = b.createModule(.{
+        .root_source_file = b.path("src/runtime/sa_ws_stream.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    sa_ws_stream_module.addImport("sa_net_primitives", sa_net_primitives_module);
+
     const sa_std_archive_rel = targetSaStdArchivePath(target.result.os.tag);
     const sa_std_root = targetSaStdRoot(target.result.os.tag);
     validateLlvmConfig(b, target.result.os.tag, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
@@ -94,6 +112,8 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     lib_module.addImport("sio", sio_module);
+    lib_module.addImport("sa_net_primitives", sa_net_primitives_module);
+    lib_module.addImport("sa_ws_stream", sa_ws_stream_module);
     addLlvmcSupportToModule(b, lib_module, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     lib_module.addOptions("build_options", build_options);
     // NOTE: lib re-exports runtime/sa_std.zig (swizzle/pthread C shims).
@@ -117,6 +137,8 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     sa_std_static_module.addImport("sio", sio_module);
+    sa_std_static_module.addImport("sa_net_primitives", sa_net_primitives_module);
+    sa_std_static_module.addImport("sa_ws_stream", sa_ws_stream_module);
     addHostThreadShimToModule(b, sa_std_static_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_std_static_module);
     const sa_std_static = b.addLibrary(.{
@@ -135,6 +157,8 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     sa_std_shared_module.addImport("sio", sio_module);
+    sa_std_shared_module.addImport("sa_net_primitives", sa_net_primitives_module);
+    sa_std_shared_module.addImport("sa_ws_stream", sa_ws_stream_module);
     addHostThreadShimToModule(b, sa_std_shared_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_std_shared_module);
     const sa_std_shared = b.addLibrary(.{
@@ -624,6 +648,8 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     sa_std_unit_module.addImport("sio", sio_module);
+    sa_std_unit_module.addImport("sa_net_primitives", sa_net_primitives_module);
+    sa_std_unit_module.addImport("sa_ws_stream", sa_ws_stream_module);
     sa_std_unit_module.addOptions("build_options", build_options);
     // NOTE: sa_std.zig references the swizzle/pthread C shims; test roots
     // compiling it directly must link them (like the sa_std lib modules).

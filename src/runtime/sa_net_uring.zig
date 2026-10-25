@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const sa_std = @import("sa_std.zig");
-const net_primitives = @import("sa_net_primitives.zig");
+const net_primitives = @import("sa_net_primitives");
 const sio = @import("sio");
 
 const net = std.Io.net;
