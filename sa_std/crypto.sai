@@ -1,0 +1,16 @@
+// SA-facing contracts for auth small items (sa_std built-in, P0-6):
+// bcrypt password hashing via the system libxcrypt, and OS keyring
+// access via libsecret / the session Secret Service. When a backing
+// library is missing the calls fail with status 8 (unsupported)
+// instead of silently degrading; a missing keyring entry is status 3.
+// bcrypt hashes are the standard 60-char $2b$ form; cost 4..31.
+// keyring_available reports the library only — a missing secret
+// service surfaces as status 6 (io) on keyring operations. The set
+// collection is chosen per call; empty means the OS default
+// collection ("session" is the always-present in-memory one).
+@extern sa_bcrypt_hash(&pw: ptr, pw_len: u64, cost: u32, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_bcrypt_verify(&pw: ptr, pw_len: u64, &hash: ptr, hash_len: u64, &out_match: ptr) -> i32
+@extern sa_keyring_available() -> u32
+@extern sa_keyring_set(&collection: ptr, collection_len: u64, &key: ptr, key_len: u64, &secret: ptr, secret_len: u64) -> i32
+@extern sa_keyring_get(&key: ptr, key_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_keyring_remove(&key: ptr, key_len: u64) -> i32

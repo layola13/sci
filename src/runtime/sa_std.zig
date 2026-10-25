@@ -372,6 +372,12 @@ comptime {
     _ = &@import("sa_toml.zig").sa_toml_table_len;
     _ = &@import("sa_toml.zig").sa_toml_array_get_string;
     _ = &@import("sa_toml.zig").sa_toml_array_get_i64;
+    _ = &@import("sa_crypto.zig").sa_bcrypt_hash;
+    _ = &@import("sa_crypto.zig").sa_bcrypt_verify;
+    _ = &@import("sa_crypto.zig").sa_keyring_available;
+    _ = &@import("sa_crypto.zig").sa_keyring_set;
+    _ = &@import("sa_crypto.zig").sa_keyring_get;
+    _ = &@import("sa_crypto.zig").sa_keyring_remove;
     _ = &@import("sa_tree_sitter.zig").sa_ts_available;
     _ = &@import("sa_tree_sitter.zig").sa_ts_parser_new;
     _ = &@import("sa_tree_sitter.zig").sa_ts_parser_free;
