@@ -1000,9 +1000,13 @@ fn runtimeBrokerCacheStore(broker: *const RuntimeBroker, req: ?*const anyopaque,
     var deps = std.array_list.Managed(FrontendCacheDep).init(allocator);
     defer deps.deinit();
     for (closure) |path| {
-        const dep = frontendCacheFileHash(allocator, path) catch return .failed;
+        // Mirror the frontends' local gates: a dependency that cannot be
+        // read at store time is simply left unrecorded (the gate stays
+        // disarmed for it), never a hard failure.
+        const dep = frontendCacheFileHash(allocator, path) catch continue;
         deps.append(dep) catch return .failed;
     }
+    if (deps.items.len == 0) return .failed;
 
     const root = frontendCacheRoot(allocator) catch return .failed;
     defer allocator.free(root);
