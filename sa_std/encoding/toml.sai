@@ -1,0 +1,21 @@
+// SA-facing contracts for the Zig-backed sa_std.encoding.toml module.
+// TOML documents are opaque OWNED U64 HANDLES (not pointers), mirroring
+// the JSON surface. Values are read by dotted path
+// ("mcp_servers.jex.command"); array elements in a path may be addressed
+// by a numeric segment ("servers.0.host"). Kinds: 1 string, 2 integer,
+// 3 float, 4 bool, 5 datetime (raw text preserved), 6 array, 7 table.
+// Duplicate keys and table redefinitions fail sa_toml_parse (returns 0)
+// and are reported through sa_toml_last_error — never silently last-wins.
+@extern sa_toml_parse(&toml_bytes: ptr, len: u64) -> u64
+@extern sa_toml_free(^doc: u64) -> i32
+@extern sa_toml_last_error(&out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_toml_kind(doc: u64, &path: ptr, path_len: u64, &out_kind: ptr) -> i32
+@extern sa_toml_get_string(doc: u64, &path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_toml_get_datetime(doc: u64, &path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_toml_get_i64(doc: u64, &path: ptr, path_len: u64, &out_value: ptr) -> i32
+@extern sa_toml_get_f64(doc: u64, &path: ptr, path_len: u64, &out_value: ptr) -> i32
+@extern sa_toml_get_bool(doc: u64, &path: ptr, path_len: u64, &out_value: ptr) -> i32
+@extern sa_toml_array_len(doc: u64, &path: ptr, path_len: u64, &out_len: ptr) -> i32
+@extern sa_toml_table_len(doc: u64, &path: ptr, path_len: u64, &out_len: ptr) -> i32
+@extern sa_toml_array_get_string(doc: u64, &path: ptr, path_len: u64, index: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_toml_array_get_i64(doc: u64, &path: ptr, path_len: u64, index: u64, &out_value: ptr) -> i32
