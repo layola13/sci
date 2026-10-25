@@ -2363,6 +2363,26 @@ fn sseJsonEscape(out: *std.array_list.Managed(u8), s: []const u8) !void {
     }
 }
 
+/// Frees all four out buffers of an sse turn at once
+/// (sa_http_client_sse_turn / _ex). Exists alongside the
+/// per-buffer sa_http_client_sse_turn_free: that one returns
+/// void, and SLA codegen cannot pass plain ptrs to
+/// void-returning ptr externs (CapabilityMismatch), while
+/// value-returning externs accept them. Zero-length outs are
+/// skipped (their slices may be sentinels, not allocations).
+pub export fn sa_http_client_sse_turn_free_all(
+    text_ptr: ?[*]u8, text_len: u64,
+    calls_ptr: ?[*]u8, calls_len: u64,
+    usage_ptr: ?[*]u8, usage_len: u64,
+    reasoning_ptr: ?[*]u8, reasoning_len: u64,
+) u32 {
+    if (text_len > 0) sa_http_client_sse_turn_free(text_ptr, text_len);
+    if (calls_len > 0) sa_http_client_sse_turn_free(calls_ptr, calls_len);
+    if (usage_len > 0) sa_http_client_sse_turn_free(usage_ptr, usage_len);
+    if (reasoning_len > 0) sa_http_client_sse_turn_free(reasoning_ptr, reasoning_len);
+    return 0;
+}
+
 pub export fn sa_http_client_sse_turn_free(ptr: ?[*]u8, len: u64) void {
     if (ptr) |p| {
         const slice = p[0..@intCast(len)];

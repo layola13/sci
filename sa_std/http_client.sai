@@ -71,3 +71,4 @@
 @extern sa_http_client_sse_turn(&url: ptr, url_len: u64, &body: ptr, body_len: u64, &key: ptr, key_len: u64, api_mode: u64, &out_text: ptr, &out_text_len: ptr, &out_calls: ptr, &out_calls_len: ptr) -> u32
 @extern sa_http_client_sse_turn_ex(&url: ptr, url_len: u64, &body: ptr, body_len: u64, &key: ptr, key_len: u64, api_mode: u64, &out_text: ptr, &out_text_len: ptr, &out_calls: ptr, &out_calls_len: ptr, &out_usage: ptr, &out_usage_len: ptr, &out_reasoning: ptr, &out_reasoning_len: ptr) -> u32
 @extern sa_http_client_sse_turn_free(&buf: ptr, len: u64) -> void
+@extern sa_http_client_sse_turn_free_all(&text: ptr, text_len: u64, &calls: ptr, calls_len: u64, &usage: ptr, usage_len: u64, &reasoning: ptr, reasoning_len: u64) -> u32
