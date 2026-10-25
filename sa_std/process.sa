@@ -286,6 +286,30 @@ L_PROCESS_OUTPUT_FREE_DONE_%out_status:
     %out_stderr = load __process_stream_cwd_stderr_slot_%out_stderr+0 as u64
 [END_MACRO]
 
+[MACRO] PROCESS_SPAWN_BIDI %out_status, %out_process, %out_stdin, %out_stdout, %out_stderr, %argv, %argv_len
+    __process_bidi_proc_slot_%out_process = stack_alloc 8
+    __process_bidi_stdin_slot_%out_stdin = stack_alloc 8
+    __process_bidi_stdout_slot_%out_stdout = stack_alloc 8
+    __process_bidi_stderr_slot_%out_stderr = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_bidi(&%argv, %argv_len, &__process_bidi_proc_slot_%out_process, &__process_bidi_stdin_slot_%out_stdin, &__process_bidi_stdout_slot_%out_stdout, &__process_bidi_stderr_slot_%out_stderr)
+    %out_process = load __process_bidi_proc_slot_%out_process+0 as u64
+    %out_stdin = load __process_bidi_stdin_slot_%out_stdin+0 as u64
+    %out_stdout = load __process_bidi_stdout_slot_%out_stdout+0 as u64
+    %out_stderr = load __process_bidi_stderr_slot_%out_stderr+0 as u64
+[END_MACRO]
+
+[MACRO] PROCESS_SPAWN_BIDI_CWD %out_status, %out_process, %out_stdin, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len
+    __process_bidi_cwd_proc_slot_%out_process = stack_alloc 8
+    __process_bidi_cwd_stdin_slot_%out_stdin = stack_alloc 8
+    __process_bidi_cwd_stdout_slot_%out_stdout = stack_alloc 8
+    __process_bidi_cwd_stderr_slot_%out_stderr = stack_alloc 8
+    %out_status = call @sa_std_process_spawn_bidi_cwd(&%argv, %argv_len, &%cwd, %cwd_len, &__process_bidi_cwd_proc_slot_%out_process, &__process_bidi_cwd_stdin_slot_%out_stdin, &__process_bidi_cwd_stdout_slot_%out_stdout, &__process_bidi_cwd_stderr_slot_%out_stderr)
+    %out_process = load __process_bidi_cwd_proc_slot_%out_process+0 as u64
+    %out_stdin = load __process_bidi_cwd_stdin_slot_%out_stdin+0 as u64
+    %out_stdout = load __process_bidi_cwd_stdout_slot_%out_stdout+0 as u64
+    %out_stderr = load __process_bidi_cwd_stderr_slot_%out_stderr+0 as u64
+[END_MACRO]
+
 [MACRO] PROCESS_RUN_COMMAND_EXT %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len, %has_cwd, %arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid
     __process_run_ext_slot_%out_process = stack_alloc 8
     %out_status = call @sa_std_process_run_command_ext(&%argv, %argv_len, &%cwd, %cwd_len, %has_cwd, &%arg0, %arg0_len, %has_arg0, %process_group, %has_process_group, %setsid, &__process_run_ext_slot_%out_process)
