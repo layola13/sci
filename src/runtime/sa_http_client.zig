@@ -1614,6 +1614,37 @@ pub export fn sa_http_client_sse_turn(
     out_text_ptr: ?*?[*]u8, out_text_len: ?*u64,
     out_calls_ptr: ?*?[*]u8, out_calls_len: ?*u64,
 ) u32 {
+    return sseTurnImpl(url_ptr, url_len, body_ptr, body_len, key_ptr, key_len, api_mode, out_text_ptr, out_text_len, out_calls_ptr, out_calls_len, null, null);
+}
+
+// sse_turn plus the channel-reported usage object: out_usage
+// receives the raw JSON span of the last top-level "usage" value
+// in the stream (for example
+// {"prompt_tokens":N,"completion_tokens":N,"total_tokens":N}).
+// It stays empty when the channel reports no usage; callers must
+// treat absence as "not reported", never as zero. Free with
+// sa_http_client_sse_turn_free like the other outs.
+pub export fn sa_http_client_sse_turn_ex(
+    url_ptr: ?[*]const u8, url_len: u64,
+    body_ptr: ?[*]const u8, body_len: u64,
+    key_ptr: ?[*]const u8, key_len: u64,
+    api_mode: u64,
+    out_text_ptr: ?*?[*]u8, out_text_len: ?*u64,
+    out_calls_ptr: ?*?[*]u8, out_calls_len: ?*u64,
+    out_usage_ptr: ?*?[*]u8, out_usage_len: ?*u64,
+) u32 {
+    return sseTurnImpl(url_ptr, url_len, body_ptr, body_len, key_ptr, key_len, api_mode, out_text_ptr, out_text_len, out_calls_ptr, out_calls_len, out_usage_ptr, out_usage_len);
+}
+
+fn sseTurnImpl(
+    url_ptr: ?[*]const u8, url_len: u64,
+    body_ptr: ?[*]const u8, body_len: u64,
+    key_ptr: ?[*]const u8, key_len: u64,
+    api_mode: u64,
+    out_text_ptr: ?*?[*]u8, out_text_len: ?*u64,
+    out_calls_ptr: ?*?[*]u8, out_calls_len: ?*u64,
+    out_usage_ptr: ?*?[*]u8, out_usage_len: ?*u64,
+) u32 {
     const otp = out_text_ptr orelse return 2;
     const otl = out_text_len orelse return 2;
     const ocp = out_calls_ptr orelse return 2;
@@ -1622,6 +1653,12 @@ pub export fn sa_http_client_sse_turn(
     otl.* = 0;
     ocp.* = null;
     ocl.* = 0;
+    if (out_usage_ptr) |oup| {
+        if (out_usage_len) |oul| {
+            oup.* = null;
+            oul.* = 0;
+        }
+    }
 
     // Retry wrapper: up to 5 retries (6 attempts) on 429/5xx/transient network errors.
     // Exponential backoff 1/2/4/8/16s, respecting Retry-After (capped at 5min).
@@ -1656,7 +1693,7 @@ pub export fn sa_http_client_sse_turn(
             // Success: stream to completion. sseTurnStream does not free handle;
             // we free it here via defer.
             defer _ = sa_http_client_sse_free(handle);
-            return sseTurnStream(handle, api_mode, otp, otl, ocp, ocl);
+            return sseTurnStream(handle, api_mode, otp, otl, ocp, ocl, out_usage_ptr, out_usage_len);
         }
         // Non-200: check if retryable.
         const s = @as(*SseStream, @ptrCast(@alignCast(handle.?)));
@@ -1678,6 +1715,7 @@ fn sseTurnStream(
     api_mode: u64,
     otp: *?[*]u8, otl: *u64,
     ocp: *?[*]u8, ocl: *u64,
+    oup_opt: ?*?[*]u8, oul_opt: ?*u64,
 ) u32 {
     const allocator = std.heap.page_allocator;
     const s = @as(*SseStream, @ptrCast(@alignCast(handle.?)));
@@ -1706,6 +1744,8 @@ fn sseTurnStream(
         active.deinit();
     }
     var stream_done = false;
+    var usage = std.array_list.Managed(u8).init(allocator);
+    defer usage.deinit();
 
     var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
@@ -1735,6 +1775,7 @@ fn sseTurnStream(
                     if (data.is_done) {
                         stream_done = true;
                     } else if (data.payload.len > 0) {
+                        sseCaptureUsage(data.payload, &usage);
                         sseHandleEvent(allocator, data.payload, api_mode, &text, &calls, &active, &stream_done, stdout) catch {};
                     }
                 }
@@ -1756,6 +1797,7 @@ fn sseTurnStream(
                 if (sseParseEventData(allocator, buf.items)) |data| {
                     defer if (data.owned) allocator.free(data.payload);
                     if (!data.is_done and data.payload.len > 0) {
+                        sseCaptureUsage(data.payload, &usage);
                         sseHandleEvent(allocator, data.payload, api_mode, &text, &calls, &active, &stream_done, stdout) catch {};
                     }
                 }
@@ -1799,11 +1841,28 @@ fn sseTurnStream(
         return 2;
     };
 
+    const usage_slice = usage.toOwnedSlice() catch {
+        allocator.free(cj_slice);
+        allocator.free(text_slice);
+        return 2;
+    };
+    errdefer allocator.free(usage_slice);
+
     // All succeeded; assign outputs.
     otp.* = text_slice.ptr;
     otl.* = text_slice.len;
     ocp.* = cj_slice.ptr;
     ocl.* = cj_slice.len;
+    if (oup_opt) |oup| {
+        if (oul_opt) |oul| {
+            oup.* = usage_slice.ptr;
+            oul.* = usage_slice.len;
+        } else {
+            allocator.free(usage_slice);
+        }
+    } else {
+        allocator.free(usage_slice);
+    }
 
     return if (calls.items.len > 0) 1 else 0;
 }
@@ -1889,6 +1948,72 @@ fn sseParseEventData(allocator: std.mem.Allocator, ev: []const u8) ?SseEventData
     // Join with \n.
     const joined = std.mem.join(allocator, "\n", parts.items) catch return null;
     return .{ .payload = joined, .is_done = false, .owned = true };
+}
+
+/// Captures the raw JSON span of the last top-level "usage"
+/// object in one SSE event payload. Escaped quotes inside string
+/// values cannot form a false match because the search requires
+/// a literal opening quote directly before the key.
+fn sseCaptureUsage(payload: []const u8, usage: *std.array_list.Managed(u8)) void {
+    const key = "\"usage\"";
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, payload, i, key)) |pos| {
+        var j = pos + key.len;
+        while (j < payload.len and (payload[j] == ' ' or payload[j] == '\t')) : (j += 1) {}
+        if (j < payload.len and payload[j] == ':') {
+            j += 1;
+            while (j < payload.len and (payload[j] == ' ' or payload[j] == '\t')) : (j += 1) {}
+            if (j < payload.len and payload[j] == '{') {
+                var depth: usize = 0;
+                var in_str = false;
+                var esc = false;
+                var k = j;
+                while (k < payload.len) : (k += 1) {
+                    const c = payload[k];
+                    if (in_str) {
+                        if (esc) {
+                            esc = false;
+                        } else if (c == '\\') {
+                            esc = true;
+                        } else if (c == '"') {
+                            in_str = false;
+                        }
+                    } else if (c == '"') {
+                        in_str = true;
+                    } else if (c == '{') {
+                        depth += 1;
+                    } else if (c == '}') {
+                        depth -= 1;
+                        if (depth == 0) {
+                            usage.clearRetainingCapacity();
+                            usage.appendSlice(payload[j .. k + 1]) catch return;
+                            return;
+                        }
+                    }
+                }
+                return;
+            }
+        }
+        i = pos + key.len;
+    }
+}
+
+test "sse usage capture extracts the last usage object" {
+    const alloc = std.testing.allocator;
+    var usage = std.array_list.Managed(u8).init(alloc);
+    defer usage.deinit();
+    sseCaptureUsage("{\"choices\":[],\"usage\":{\"prompt_tokens\":47,\"completion_tokens\":31,\"total_tokens\":78,\"prompt_tokens_details\":{\"cached_tokens\":0}}}", &usage);
+    try std.testing.expectEqualStrings("{\"prompt_tokens\":47,\"completion_tokens\":31,\"total_tokens\":78,\"prompt_tokens_details\":{\"cached_tokens\":0}}", usage.items);
+    // A later, smaller usage replaces the earlier one.
+    sseCaptureUsage("{\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":2,\"total_tokens\":3}}", &usage);
+    try std.testing.expectEqualStrings("{\"prompt_tokens\":1,\"completion_tokens\":2,\"total_tokens\":3}", usage.items);
+    // null usage and content text do not capture.
+    var usage2 = std.array_list.Managed(u8).init(alloc);
+    defer usage2.deinit();
+    sseCaptureUsage("{\"usage\":null}", &usage2);
+    try std.testing.expectEqual(@as(usize, 0), usage2.items.len);
+    sseCaptureUsage("{\"choices\":[{\"delta\":{\"content\":\"say \\\"usage\\\" please\"}}]}", &usage2);
+    try std.testing.expectEqual(@as(usize, 0), usage2.items.len);
 }
 
 fn sseHandleEvent(
