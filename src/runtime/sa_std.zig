@@ -2685,12 +2685,14 @@ const ProcessSpawnConfig = struct {
     gid: ?u32 = null,
     groups: ?[]const u32 = null,
     chroot_path: ?[]const u8 = null,
+    stdin: bool = false,
 };
 
 const SpawnResult = struct {
     process: u64 = 0,
     stdout: ?u64 = null,
     stderr: ?u64 = null,
+    stdin: ?u64 = null,
 };
 
 fn statusFromWaitStatus(status: u32) u32 {
@@ -2860,6 +2862,7 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
     // wasm32-wasi has no fork/exec/pipe2-CLOEXEC; stub.
     if (comptime is_wasm) return error.Unsupported;
     if (argv.len == 0) return error.InvalidArgument;
+    if (config.stdin and mode != .stream) return error.InvalidArgument;
     if (!policyAllows(.{ .run = argv[0] })) return error.PolicyDenied;
     if (config.arg0) |arg0| {
         if (std.mem.indexOfScalar(u8, arg0, 0) != null) return error.InvalidArgument;
@@ -2868,15 +2871,21 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
     const use_pipes = mode != .inherit;
     var stdout_pipe: [2]std.posix.fd_t = .{ -1, -1 };
     var stderr_pipe: [2]std.posix.fd_t = .{ -1, -1 };
+    var stdin_pipe: [2]std.posix.fd_t = .{ -1, -1 };
     defer {
         if (stdout_pipe[0] != -1) lxClose(stdout_pipe[0]);
         if (stdout_pipe[1] != -1) lxClose(stdout_pipe[1]);
         if (stderr_pipe[0] != -1) lxClose(stderr_pipe[0]);
         if (stderr_pipe[1] != -1) lxClose(stderr_pipe[1]);
+        if (stdin_pipe[0] != -1) lxClose(stdin_pipe[0]);
+        if (stdin_pipe[1] != -1) lxClose(stdin_pipe[1]);
     }
     if (use_pipes) {
         stdout_pipe = try lxPipe2(.{ .CLOEXEC = true });
         stderr_pipe = try lxPipe2(.{ .CLOEXEC = true });
+    }
+    if (config.stdin) {
+        stdin_pipe = try lxPipe2(.{ .CLOEXEC = true });
     }
 
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -2921,6 +2930,11 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
             lxClose(stderr_pipe[0]);
             try lxDup2(stdout_pipe[1], std.posix.STDOUT_FILENO);
             try lxDup2(stderr_pipe[1], std.posix.STDERR_FILENO);
+        }
+        if (stdin_pipe[0] != -1) {
+            lxClose(stdin_pipe[1]);
+            try lxDup2(stdin_pipe[0], std.posix.STDIN_FILENO);
+            lxClose(stdin_pipe[0]);
         }
         if (use_pipes) {
             lxClose(stdout_pipe[1]);
@@ -2971,6 +2985,10 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
         stdout_pipe[1] = -1;
         stderr_pipe[1] = -1;
     }
+    if (stdin_pipe[0] != -1) {
+        lxClose(stdin_pipe[0]);
+        stdin_pipe[0] = -1;
+    }
 
     var result: SpawnResult = .{};
     switch (mode) {
@@ -3013,6 +3031,15 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
                 return err;
             };
             stderr_pipe[0] = -1;
+            if (stdin_pipe[1] != -1) {
+                result.stdin = registerResource(.{ .owned_fd = .{ .fd = stdin_pipe[1] } }) catch |err| {
+                    if (result.stdout) |stdout_handle| _ = sa_std_close(stdout_handle);
+                    if (result.stderr) |stderr_handle| _ = sa_std_close(stderr_handle);
+                    killAndWaitChild(pid);
+                    return err;
+                };
+                stdin_pipe[1] = -1;
+            }
             result.process = registerResource(.{ .process = .{
                 .pid = pid,
                 .process_group = effective_process_group,
@@ -3021,6 +3048,7 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
             } }) catch |err| {
                 if (result.stdout) |stdout_handle| _ = sa_std_close(stdout_handle);
                 if (result.stderr) |stderr_handle| _ = sa_std_close(stderr_handle);
+                if (result.stdin) |stdin_handle| _ = sa_std_close(stdin_handle);
                 killAndWaitChild(pid);
                 return err;
             };
@@ -8872,6 +8900,48 @@ pub export fn sa_std_process_spawn_stream_cwd(argv_ptr: ?[*]const SaProcessArgv,
     const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
     const result = spawnProcessCwd(std.heap.page_allocator, argv, .stream, cwd) catch |err| return finishErr(err);
     process_ptr.* = result.process;
+    stdout_ptr.* = result.stdout orelse 0;
+    stderr_ptr.* = result.stderr orelse 0;
+    return finish(SA_STD_OK);
+}
+
+
+pub export fn sa_std_process_spawn_bidi(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_process: ?*u64, out_stdin: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdin_ptr = out_stdin orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    process_ptr.* = 0;
+    stdin_ptr.* = 0;
+    stdout_ptr.* = 0;
+    stderr_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, null, .{ .stdin = true }) catch |err| return finishErr(err);
+    process_ptr.* = result.process;
+    stdin_ptr.* = result.stdin orelse 0;
+    stdout_ptr.* = result.stdout orelse 0;
+    stderr_ptr.* = result.stderr orelse 0;
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_process_spawn_bidi_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_process: ?*u64, out_stdin: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdin_ptr = out_stdin orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    process_ptr.* = 0;
+    stdin_ptr.* = 0;
+    stdout_ptr.* = 0;
+    stderr_ptr.* = 0;
+    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
+    defer std.heap.page_allocator.free(argv);
+    const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
+    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, .{ .stdin = true }) catch |err| return finishErr(err);
+    process_ptr.* = result.process;
+    stdin_ptr.* = result.stdin orelse 0;
     stdout_ptr.* = result.stdout orelse 0;
     stderr_ptr.* = result.stderr orelse 0;
     return finish(SA_STD_OK);

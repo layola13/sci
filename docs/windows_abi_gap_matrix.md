@@ -59,9 +59,9 @@
 
 `sa_std_fd_as_raw`, `sa_std_fd_close_raw`, `sa_std_fd_dup`, `sa_std_fd_dup_raw`, `sa_std_fd_from_raw`, `sa_std_fd_into_raw`, `sa_std_pidfd_kill`, `sa_std_pidfd_send_signal`, `sa_std_pidfd_try_wait`, `sa_std_pidfd_try_wait_raw`, `sa_std_pidfd_wait`, `sa_std_pidfd_wait_raw`
 
-### 进程扩展与 POSIX 进程状态（22）
+### 进程扩展与 POSIX 进程状态（24）
 
-`sa_std_process_abort`, `sa_std_process_exec_command_ext`, `sa_std_process_exit_status_code`, `sa_std_process_exit_status_continued`, `sa_std_process_exit_status_core_dumped`, `sa_std_process_exit_status_signal`, `sa_std_process_exit_status_stopped_signal`, `sa_std_process_group_id`, `sa_std_process_parent_id`, `sa_std_process_run_command_ext_chroot`, `sa_std_process_run_command_ext_groups`, `sa_std_process_run_command_ext_pidfd`, `sa_std_process_run_command_ext_uid_gid`, `sa_std_process_spawn_command_ext_chroot`, `sa_std_process_spawn_command_ext_groups`, `sa_std_process_spawn_command_ext_pidfd`, `sa_std_process_spawn_command_ext_uid_gid`, `sa_std_process_spawn_stream_command_ext_chroot`, `sa_std_process_spawn_stream_command_ext_groups`, `sa_std_process_spawn_stream_command_ext_pidfd`, `sa_std_process_spawn_stream_command_ext_uid_gid`, `sa_std_process_user_id`
+`sa_std_process_abort`, `sa_std_process_exec_command_ext`, `sa_std_process_exit_status_code`, `sa_std_process_exit_status_continued`, `sa_std_process_exit_status_core_dumped`, `sa_std_process_exit_status_signal`, `sa_std_process_exit_status_stopped_signal`, `sa_std_process_group_id`, `sa_std_process_parent_id`, `sa_std_process_run_command_ext_chroot`, `sa_std_process_run_command_ext_groups`, `sa_std_process_run_command_ext_pidfd`, `sa_std_process_run_command_ext_uid_gid`, `sa_std_process_spawn_bidi`, `sa_std_process_spawn_bidi_cwd`, `sa_std_process_spawn_command_ext_chroot`, `sa_std_process_spawn_command_ext_groups`, `sa_std_process_spawn_command_ext_pidfd`, `sa_std_process_spawn_command_ext_uid_gid`, `sa_std_process_spawn_stream_command_ext_chroot`, `sa_std_process_spawn_stream_command_ext_groups`, `sa_std_process_spawn_stream_command_ext_pidfd`, `sa_std_process_spawn_stream_command_ext_uid_gid`, `sa_std_process_user_id`
 
 ### TCP、UDP 与地址（84）
 

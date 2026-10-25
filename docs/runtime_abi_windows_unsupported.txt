@@ -38,3 +38,5 @@ sa_regex_group_start
 sa_regex_match
 sa_regex_match_free
 sa_std_process_abort
+sa_std_process_spawn_bidi
+sa_std_process_spawn_bidi_cwd

@@ -797,6 +797,103 @@ test "sa_std fmt and process exports are usable from C" {
     try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std fmt/process ok"));
 }
 
+test "sa_std process bidi spawn round-trips stdin to stdout from C" {
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const include_dir = try original_cwd.realpathAlloc(std.testing.allocator, "src/runtime");
+    defer std.testing.allocator.free(include_dir);
+
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    defer original_cwd.setAsCwd() catch {};
+
+    const c_source =
+\\#include "sa_std.h"
+\\#include <stdint.h>
+\\#include <stdio.h>
+\\#include <string.h>
+\\
+\\int main(void) {
+\\    SaProcessArgv argv[1];
+\\    argv[0].data = (const uint8_t *)"/bin/cat";
+\\    argv[0].len = 8;
+\\    uint64_t process = 0;
+\\    uint64_t stdin_h = 0;
+\\    uint64_t stdout_h = 0;
+\\    uint64_t stderr_h = 0;
+\\    if (sa_std_process_spawn_bidi(argv, 1, &process, &stdin_h, &stdout_h, &stderr_h) != SA_STD_OK) return 2;
+\\    if (process == 0 || stdin_h == 0 || stdout_h == 0 || stderr_h == 0) return 3;
+\\    const char *msg = "bidi-roundtrip\n";
+\\    uint64_t written = 0;
+\\    if (sa_io_write(stdin_h, (const uint8_t *)msg, 15, &written) != SA_STD_OK) return 4;
+\\    if (written != 15) return 5;
+\\    if (sa_std_close(stdin_h) != SA_STD_OK) return 6;
+\\    char buf[64];
+\\    uint64_t total = 0;
+\\    uint64_t n = 0;
+\\    for (;;) {
+\\        if (sa_io_read(stdout_h, (uint8_t *)buf + total, sizeof(buf) - total, &n) != SA_STD_OK) return 7;
+\\        if (n == 0) break;
+\\        total += n;
+\\        if (total >= sizeof(buf)) return 8;
+\\    }
+\\    if (total != 15 || memcmp(buf, msg, 15) != 0) return 9;
+\\    uint64_t en = 1;
+\\    if (sa_io_read(stderr_h, (uint8_t *)buf, sizeof(buf), &en) != SA_STD_OK) return 10;
+\\    if (en != 0) return 11;
+\\    uint32_t code = 99;
+\\    if (sa_std_process_wait(process, &code) != SA_STD_OK) return 12;
+\\    if (code != 0) return 13;
+\\    if (sa_std_close(stdout_h) != SA_STD_OK) return 14;
+\\    if (sa_std_close(stderr_h) != SA_STD_OK) return 15;
+\\    if (sa_std_process_close(process) != SA_STD_OK) return 16;
+\\    if (sa_std_process_spawn_bidi(argv, 1, &process, 0, &stdout_h, &stderr_h) != SA_STD_ERR_INVALID_ARGUMENT) return 17;
+\\    process = 0;
+\\    stdin_h = 0;
+\\    stdout_h = 0;
+\\    stderr_h = 0;
+\\    if (sa_std_process_spawn_bidi_cwd(argv, 1, (const uint8_t *)"/tmp", 4, &process, &stdin_h, &stdout_h, &stderr_h) != SA_STD_OK) return 18;
+\\    if (sa_std_close(stdin_h) != SA_STD_OK) return 19;
+\\    code = 99;
+\\    if (sa_std_process_wait(process, &code) != SA_STD_OK) return 20;
+\\    if (code != 0) return 21;
+\\    if (sa_std_close(stdout_h) != SA_STD_OK) return 22;
+\\    if (sa_std_close(stderr_h) != SA_STD_OK) return 23;
+\\    if (sa_std_process_close(process) != SA_STD_OK) return 24;
+\\    puts("sa_std process bidi ok");
+\\    return 0;
+\\}
+\\
+    ;
+    try writeSource(tmp.dir, "main.c", c_source);
+
+    try copyRuntimeArchiveToCwd();
+
+    const build_demo_argv = [_][]const u8{
+        "zig",
+        "cc",
+        "-I",
+        include_dir,
+        "main.c",
+        "libsa_std.a",
+        "-lc",
+        "-o",
+        "sa_std_bididemo",
+    };
+    const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
+    defer std.testing.allocator.free(build_demo_result.stdout);
+    defer std.testing.allocator.free(build_demo_result.stderr);
+    try expectSuccess(build_demo_result);
+
+    const run_result = try runCommand(std.testing.allocator, &.{"./sa_std_bididemo"});
+    defer std.testing.allocator.free(run_result.stdout);
+    defer std.testing.allocator.free(run_result.stderr);
+    try expectSuccess(run_result);
+    try std.testing.expect(std.mem.containsAtLeast(u8, run_result.stdout, 1, "sa_std process bidi ok"));
+}
+
 test "sa_std detached pthread export runs without join" {
     var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();
