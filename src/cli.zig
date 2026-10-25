@@ -1255,7 +1255,7 @@ fn writeCompileOptionsHelp(writer: anytype) !void {
     try writer.writeAll("  --allow-unaudited-risks        Allow high-risk package audit findings\n");
     try writer.writeAll("  --yes, --auto-approve          Approve package review prompts when allowed\n");
     try writer.writeAll("  -p, --package <name>           Select a workspace member package\n");
-    try writer.writeAll("  -P, --permission-set <name>    Select a named permission set\n");
+    try writer.writeAll("  -P, --permission-set <name>    Select a named permission set (@dev = built-in dev preset: all categories open, no sa.mod needed)\n");
     try writer.writeAll("  --allow-env[=list]             Allow environment access for reviewed packages\n");
     try writer.writeAll("  --allow-net[=list]             Allow network access for reviewed packages\n");
     try writer.writeAll("  --allow-read[=list]            Allow filesystem reads for reviewed packages\n");
@@ -4316,6 +4316,7 @@ fn verifyProjectPackageState(
 }
 
 fn manifestPermissionSetExists(project_manifest: manifest.Manifest, name: []const u8) bool {
+    if (std.mem.eql(u8, name, "@dev")) return true;
     for (project_manifest.permission_sets) |set| {
         if (std.mem.eql(u8, set.name, name)) return true;
     }
@@ -5299,6 +5300,13 @@ fn buildPluginRuntimeAuthorization(allocator: std.mem.Allocator, args: []const [
     errdefer allocator.free(project_root);
 
     if (permission_set) |set_name| {
+        if (std.mem.eql(u8, set_name, "@dev")) {
+            allow_env_declared = true;
+            allow_read_declared = true;
+            allow_write_declared = true;
+            allow_net_declared = true;
+            allow_run_declared = true;
+        } else if (true) {
         var project_manifest = (try readProjectManifest(allocator, project_root)) orelse return error.InvalidPermissionSet;
         defer project_manifest.deinit(allocator);
         const selected = findPermissionSet(project_manifest, set_name) orelse return error.InvalidPermissionSet;
@@ -5307,6 +5315,7 @@ fn buildPluginRuntimeAuthorization(allocator: std.mem.Allocator, args: []const [
         try appendPermissionSetStrings(allocator, &write, selected.write);
         try appendPermissionSetStrings(allocator, &net, selected.net);
         try appendPermissionSetStrings(allocator, &run, selected.run);
+        }
     }
     try validateRunAllowList(run.items);
 
