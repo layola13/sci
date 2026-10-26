@@ -19,8 +19,11 @@ cc -O2 -fPIC -shared tree-sitter/lib/src/lib.c -Itree-sitter/lib/include -Itree-
 echo "core built: $(stat -c%s "$OUT/libtree-sitter.so") bytes"
 cc -O2 -fPIC -shared tree-sitter-typescript/typescript/src/parser.c tree-sitter-typescript/typescript/src/scanner.c -Itree-sitter-typescript/typescript/src -o "$OUT/libtree-sitter-typescript.so"
 echo "grammar built: $(stat -c%s "$OUT/libtree-sitter-typescript.so") bytes"
+cc -O2 -fPIC -shared tree-sitter-typescript/tsx/src/parser.c tree-sitter-typescript/tsx/src/scanner.c -Itree-sitter-typescript/tsx/src -o "$OUT/libtree-sitter-tsx.so"
+echo "tsx grammar built: $(stat -c%s "$OUT/libtree-sitter-tsx.so") bytes"
 nm -D "$OUT/libtree-sitter.so" | grep -c " T ts_"
 nm -D "$OUT/libtree-sitter-typescript.so" | grep "tree_sitter_typescript"
+nm -D "$OUT/libtree-sitter-tsx.so" | grep "tree_sitter_tsx"
 grep -n "LANGUAGE_VERSION" tree-sitter/lib/include/tree_sitter/api.h | head -2
 grep -n "LANGUAGE_VERSION" tree-sitter-typescript/typescript/src/parser.c | head -1
 echo "=== TS BUILD DONE ==="

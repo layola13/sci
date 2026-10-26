@@ -1,0 +1,16 @@
+// SA-facing contracts for sa_std global cells (sa_global_*, sa_std
+// built-in, 2026-10-26). Process-wide named cells: the Rust-style
+// replacement for top-level mutable globals (SLA has neither mutable
+// globals nor an unsafe marker). u64 and bytes cells are independent
+// namespaces keyed by name; every operation is mutex-guarded, add is
+// a locked read-modify-write, and set_once never overwrites.
+// u64_get / bytes_get on an unset name return SA_STD_ERR_NOT_FOUND
+// (3). bytes_get with a too-small buffer returns
+// SA_STD_ERR_TRUNCATED (9) and still reports the required length
+// through out_len.
+@extern sa_global_u64_set(&name: ptr, name_len: u64, value: u64) -> i32
+@extern sa_global_u64_get(&name: ptr, name_len: u64, &out: ptr) -> i32
+@extern sa_global_u64_set_once(&name: ptr, name_len: u64, value: u64, &out_already: ptr) -> i32
+@extern sa_global_u64_add(&name: ptr, name_len: u64, delta: i64, &out: ptr) -> i32
+@extern sa_global_bytes_set(&name: ptr, name_len: u64, &value: ptr, value_len: u64) -> i32
+@extern sa_global_bytes_get(&name: ptr, name_len: u64, &buf: ptr, cap: u64, &out_len: ptr) -> i32

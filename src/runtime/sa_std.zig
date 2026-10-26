@@ -6,6 +6,7 @@ const sio = @import("sio");
 // logic, referenced here so the module and its unit tests join every
 // sa_std build/test graph. Interception wiring lands separately.
 pub const sa_policy = @import("sa_policy.zig");
+pub const sa_globals = @import("sa_globals.zig");
 
 /// Runtime permission gate (sala 16_policy): checked at resource
 /// acquisition points only. No context installed -> allowed (the
@@ -414,6 +415,12 @@ comptime {
     _ = &@import("sa_tree_sitter.zig").sa_ts_node_named_child_count;
     _ = &@import("sa_tree_sitter.zig").sa_ts_node_child;
     _ = &@import("sa_tree_sitter.zig").sa_ts_node_child_by_field;
+    _ = &sa_globals.sa_global_u64_set;
+    _ = &sa_globals.sa_global_u64_get;
+    _ = &sa_globals.sa_global_u64_set_once;
+    _ = &sa_globals.sa_global_u64_add;
+    _ = &sa_globals.sa_global_bytes_set;
+    _ = &sa_globals.sa_global_bytes_get;
     if (builtin.os.tag == .linux) {
         _ = &@import("sa_pty.zig").sa_pty_spawn;
         _ = &@import("sa_pty.zig").sa_pty_read;
@@ -557,6 +564,7 @@ fn portableRecvmsg(fd: std.posix.fd_t, msg: *MsghdrT, flags: u32) !usize {
 }
 pub const SA_STD_ERR_TRUNCATED: i32 = 9;
 pub const SA_STD_ERR_PERMISSION_DENIED: i32 = 10;
+pub const SA_STD_ERR_ALREADY_EXISTS: i32 = 11;
 pub const SA_STD_ERR_UNKNOWN: i32 = 127;
 
 /// Mirrors C sa_net_iov in sa_std.h. Layout must stay { u8* base; usize len; }.
@@ -2067,6 +2075,7 @@ fn mapError(err: anyerror) i32 {
         error.InvalidArgument => SA_STD_ERR_INVALID_ARGUMENT,
         error.InvalidHandle => SA_STD_ERR_INVALID_HANDLE,
         error.OutOfMemory => SA_STD_ERR_NO_MEMORY,
+        error.PathAlreadyExists => SA_STD_ERR_ALREADY_EXISTS,
         error.FileNotFound => SA_STD_ERR_NOT_FOUND,
         error.AccessDenied, error.PermissionDenied => SA_STD_ERR_ACCESS,
         error.WouldBlock => SA_STD_ERR_IO,
@@ -10743,6 +10752,24 @@ pub export fn sa_std_fs_open_options(path_ptr: ?[*]const u8, path_len: u64, flag
     return finish(SA_STD_OK);
 }
 
+/// Atomic create-exclusive open (2026-10-26): read|write|create with
+/// O_EXCL merged through custom flags. An existing path fails with
+/// SA_STD_ERR_ALREADY_EXISTS (via error.PathAlreadyExists in mapError),
+/// which lock-file protocols need to tell "lost the race" apart from a
+/// generic IO failure.
+pub export fn sa_std_fs_open_create_excl(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    const file = saFsOpenFile(path, 1 | 2 | 4, 0o666, 128) catch |err| return finishErr(err);
+    const handle = registerResource(.{ .file = file }) catch |err| {
+        file.close();
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_fs_file_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;
@@ -11728,6 +11755,86 @@ pub export fn sa_fs_make_dir_mode(path_ptr: ?[*]const u8, path_len: u64, mode: u
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
     mkdirPathWithMode(path, @as(std.posix.mode_t, @intCast(mode))) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
+}
+
+/// One mkdir -p segment: create the directory, or accept an existing
+/// one only when it really is a directory. An existing non-directory
+/// reports PathAlreadyExists (final segment) or fails the next
+/// segment with NotDir; neither is a silent success.
+fn mkdirPOne(prefix: []const u8) !void {
+    lxMkdirat(std.posix.AT.FDCWD, prefix, 0o777) catch |err| switch (err) {
+        error.PathAlreadyExists => {
+            const stat = try sio.cwd().statFile(prefix);
+            if (stat.kind != .directory) return error.PathAlreadyExists;
+        },
+        else => return err,
+    };
+}
+
+fn mkdirP(path: []const u8) !void {
+    if (path.len == 0) return error.InvalidArgument;
+    var index: usize = 0;
+    while (index <= path.len) {
+        const at_boundary = index == path.len or path[index] == '/';
+        if (at_boundary and index > 0) {
+            const prefix = path[0..index];
+            if (!std.mem.eql(u8, prefix, "/") and !std.mem.eql(u8, prefix, ".")) {
+                try mkdirPOne(prefix);
+            }
+        }
+        index += 1;
+    }
+}
+
+/// mkdir -p (2026-10-26): create every missing directory along the
+/// path. Existing directories along the way (including the final
+/// segment) are success; the TS mkdirSync(recursive) counterpart.
+pub export fn sa_fs_mkdir_p(path_ptr: ?[*]const u8, path_len: u64) i32 {
+    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+    mkdirP(path) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+test "sa_fs_mkdir_p creates nested dirs, is idempotent, and rejects file paths" {
+    const alloc = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const base = try std.fmt.allocPrint(alloc, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    defer alloc.free(base);
+    const deep = try std.fmt.allocPrint(alloc, "{s}/a/b/c", .{base});
+    defer alloc.free(deep);
+    try std.testing.expectEqual(SA_STD_OK, sa_fs_mkdir_p(deep.ptr, @intCast(deep.len)));
+    const stat = try sio.cwd().statFile(deep);
+    try std.testing.expect(stat.kind == .directory);
+    // Idempotent: a second call over existing directories succeeds.
+    try std.testing.expectEqual(SA_STD_OK, sa_fs_mkdir_p(deep.ptr, @intCast(deep.len)));
+    // An existing file as the final segment is ALREADY_EXISTS.
+    const file_path = try std.fmt.allocPrint(alloc, "{s}/a/file.txt", .{base});
+    defer alloc.free(file_path);
+    {
+        var f = try tmp.dir.createFile(std.testing.io, "a/file.txt", .{});
+        f.close(std.testing.io);
+    }
+    try std.testing.expectEqual(SA_STD_ERR_ALREADY_EXISTS, sa_fs_mkdir_p(file_path.ptr, @intCast(file_path.len)));
+    // A path through a file is an error, never a silent success.
+    const through = try std.fmt.allocPrint(alloc, "{s}/a/file.txt/child", .{base});
+    defer alloc.free(through);
+    try std.testing.expect(sa_fs_mkdir_p(through.ptr, @intCast(through.len)) != SA_STD_OK);
+}
+
+test "sa_std_fs_open_create_excl: second create reports ALREADY_EXISTS" {
+    const alloc = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const path = try std.fmt.allocPrint(alloc, ".zig-cache/tmp/{s}/lock.txt", .{&tmp.sub_path});
+    defer alloc.free(path);
+    var handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_fs_open_create_excl(path.ptr, @intCast(path.len), &handle));
+    try std.testing.expect(handle != 0);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_close(handle));
+    var second: u64 = 99;
+    try std.testing.expectEqual(SA_STD_ERR_ALREADY_EXISTS, sa_std_fs_open_create_excl(path.ptr, @intCast(path.len), &second));
+    try std.testing.expectEqual(@as(u64, 0), second);
 }
 
 pub export fn sa_fs_create_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {

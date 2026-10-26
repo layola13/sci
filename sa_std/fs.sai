@@ -17,6 +17,7 @@
 @extern sa_std_fs_open_read(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_fs_open_write(&path: ptr, path_len: u64, truncate: u32, &out_handle: ptr) -> i32
 @extern sa_std_fs_open_options(&path: ptr, path_len: u64, flags: u32, create_mode: u32, custom_flags: u32, &out_handle: ptr) -> i32
+@extern sa_std_fs_open_create_excl(&path: ptr, path_len: u64, &out_handle: ptr) -> i32
 @extern sa_std_fs_file_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
 @extern sa_std_fs_file_read(file: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
 @extern sa_std_fs_file_read_at(file: u64, &buf: ptr, cap: u64, offset: u64, &out_read: ptr) -> i32
@@ -111,6 +112,7 @@
 @extern sa_fs_make_dir_mode(&path: ptr, path_len: u64, mode: u32) -> i32
 @extern sa_fs_create_dir(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_create_dir_mode(&path: ptr, path_len: u64, mode: u32) -> i32
+@extern sa_fs_mkdir_p(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_remove_dir(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_remove_dir_all(&path: ptr, path_len: u64) -> i32
 @extern sa_fs_remove_path(&path: ptr, path_len: u64) -> i32

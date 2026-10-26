@@ -20,6 +20,8 @@ extern "C" {
 #define SA_STD_ERR_NET 7
 #define SA_STD_ERR_UNSUPPORTED 8
 #define SA_STD_ERR_TRUNCATED 9
+/* 10 is SA_STD_ERR_PERMISSION_DENIED (runtime policy; Zig-side define). */
+#define SA_STD_ERR_ALREADY_EXISTS 11
 #define SA_STD_ERR_UNKNOWN 127
 
 #define SA_STD_STDIN 1ull
@@ -233,6 +235,17 @@ int32_t sa_json_array_push_f64(uint64_t node, double value);
 int32_t sa_json_array_push_bool(uint64_t node, uint8_t value);
 int32_t sa_json_array_push_null(uint64_t node);
 int32_t sa_json_array_push_node(uint64_t node, uint64_t child);
+
+/* Global cells (2026-10-26): process-wide named state, the Rust-style
+ * replacement for mutable globals. Statuses: NOT_FOUND (3) on unset
+ * names; bytes_get reports TRUNCATED (9) with the required length in
+ * out_len when the buffer is too small. */
+int32_t sa_global_u64_set(const uint8_t *name, uint64_t name_len, uint64_t value);
+int32_t sa_global_u64_get(const uint8_t *name, uint64_t name_len, uint64_t *out);
+int32_t sa_global_u64_set_once(const uint8_t *name, uint64_t name_len, uint64_t value, uint64_t *out_already);
+int32_t sa_global_u64_add(const uint8_t *name, uint64_t name_len, int64_t delta, uint64_t *out);
+int32_t sa_global_bytes_set(const uint8_t *name, uint64_t name_len, const uint8_t *value, uint64_t value_len);
+int32_t sa_global_bytes_get(const uint8_t *name, uint64_t name_len, uint8_t *buf, uint64_t cap, uint64_t *out_len);
 int32_t sa_json_free(uint64_t node);
 int32_t sa_json_stringify(uint64_t node, uint64_t *out_handle);
 uint8_t *sa_json_buffer_data(uint64_t buffer);
@@ -343,6 +356,7 @@ int32_t sa_io_buffer_free(SaIoBuffer *buffer);
 int32_t sa_std_fs_open_read(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 int32_t sa_std_fs_open_write(const uint8_t *path, uint64_t path_len, uint32_t truncate, uint64_t *out_handle);
 int32_t sa_std_fs_open_options(const uint8_t *path, uint64_t path_len, uint32_t flags, uint32_t create_mode, uint32_t custom_flags, uint64_t *out_handle);
+int32_t sa_std_fs_open_create_excl(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 int32_t sa_std_fs_remove(const uint8_t *path, uint64_t path_len);
 int32_t sa_std_fs_exists(const uint8_t *path, uint64_t path_len);
 int32_t sa_std_fs_try_exists(const uint8_t *path, uint64_t path_len, uint8_t *out_exists);
@@ -424,6 +438,7 @@ int32_t sa_fs_remove_file(const uint8_t *path, uint64_t path_len);
 int32_t sa_fs_rename(const uint8_t *from_path, uint64_t from_len, const uint8_t *to_path, uint64_t to_len);
 int32_t sa_fs_make_dir(const uint8_t *path, uint64_t path_len);
 int32_t sa_fs_make_dir_mode(const uint8_t *path, uint64_t path_len, uint32_t mode);
+int32_t sa_fs_mkdir_p(const uint8_t *path, uint64_t path_len);
 int32_t sa_fs_create_dir(const uint8_t *path, uint64_t path_len);
 int32_t sa_fs_create_dir_mode(const uint8_t *path, uint64_t path_len, uint32_t mode);
 int32_t sa_fs_remove_dir(const uint8_t *path, uint64_t path_len);

@@ -19,6 +19,13 @@ sa_deno_responses_chat_fallback_request
 sa_deno_responses_json_normalize
 sa_deno_responses_request_normalize
 sa_deno_responses_sse_normalize
+sa_fs_mkdir_p
+sa_global_bytes_get
+sa_global_bytes_set
+sa_global_u64_add
+sa_global_u64_get
+sa_global_u64_set
+sa_global_u64_set_once
 sa_hexdec_simd
 sa_http_client_resp_body_slice
 sa_json_array_push_bool
@@ -50,6 +57,7 @@ sa_regex_group_ptr
 sa_regex_group_start
 sa_regex_match
 sa_regex_match_free
+sa_std_fs_open_create_excl
 sa_std_process_abort
 sa_std_process_spawn_bidi
 sa_std_process_spawn_bidi_cwd
