@@ -56,6 +56,10 @@ const FnNodeChild = *const fn (TSNode, u32) callconv(.c) TSNode;
 const FnNodeChildByFieldName = *const fn (TSNode, [*]const u8, u32) callconv(.c) TSNode;
 const FnNodeStartByte = *const fn (TSNode) callconv(.c) u32;
 const FnNodeEndByte = *const fn (TSNode) callconv(.c) u32;
+const TSPoint = extern struct { row: u32, column: u32 };
+const FnNodeParent = *const fn (TSNode) callconv(.c) TSNode;
+const FnNodeFlag = *const fn (TSNode) callconv(.c) bool;
+const FnNodePoint = *const fn (TSNode) callconv(.c) TSPoint;
 const FnLanguageFn = *const fn () callconv(.c) ?*const anyopaque;
 
 extern "c" fn free(?*anyopaque) void;
@@ -79,6 +83,12 @@ const Fns = struct {
     node_child_by_field_name: FnNodeChildByFieldName,
     node_start_byte: FnNodeStartByte,
     node_end_byte: FnNodeEndByte,
+    node_parent: FnNodeParent,
+    node_is_named: FnNodeFlag,
+    node_is_missing: FnNodeFlag,
+    node_has_error: FnNodeFlag,
+    node_start_point: FnNodePoint,
+    node_end_point: FnNodePoint,
 };
 
 var load_mu = std.Io.Mutex.init;
@@ -136,6 +146,12 @@ fn ensureLoaded() bool {
         .node_child_by_field_name = l.lookup(FnNodeChildByFieldName, "ts_node_child_by_field_name") orelse return false,
         .node_start_byte = l.lookup(FnNodeStartByte, "ts_node_start_byte") orelse return false,
         .node_end_byte = l.lookup(FnNodeEndByte, "ts_node_end_byte") orelse return false,
+        .node_parent = l.lookup(FnNodeParent, "ts_node_parent") orelse return false,
+        .node_is_named = l.lookup(FnNodeFlag, "ts_node_is_named") orelse return false,
+        .node_is_missing = l.lookup(FnNodeFlag, "ts_node_is_missing") orelse return false,
+        .node_has_error = l.lookup(FnNodeFlag, "ts_node_has_error") orelse return false,
+        .node_start_point = l.lookup(FnNodePoint, "ts_node_start_point") orelse return false,
+        .node_end_point = l.lookup(FnNodePoint, "ts_node_end_point") orelse return false,
     };
     fns = table;
     core_lib = lib;
@@ -453,7 +469,160 @@ pub export fn sa_ts_node_child_by_field(handle: u64, field_ptr: ?[*]const u8, fi
     return OK;
 }
 
+pub export fn sa_ts_node_parent(handle: u64, out_node: ?*u64) i32 {
+    const out = out_node orelse return ERR_INVALID;
+    out.* = 0;
+    const entry = getNode(handle) orelse return ERR_HANDLE;
+    const parent = fns.node_parent(entry.node);
+    if (fns.node_is_null(parent)) return OK; // root node: out stays 0 (no parent)
+    out.* = registerNode(parent, entry.tree_handle) catch return ERR_NOMEM;
+    return OK;
+}
+
+pub export fn sa_ts_node_is_named(handle: u64, out_flag: ?*u32) i32 {
+    const out = out_flag orelse return ERR_INVALID;
+    out.* = 0;
+    const entry = getNode(handle) orelse return ERR_HANDLE;
+    out.* = if (fns.node_is_named(entry.node)) @as(u32, 1) else 0;
+    return OK;
+}
+
+pub export fn sa_ts_node_is_missing(handle: u64, out_flag: ?*u32) i32 {
+    const out = out_flag orelse return ERR_INVALID;
+    out.* = 0;
+    const entry = getNode(handle) orelse return ERR_HANDLE;
+    out.* = if (fns.node_is_missing(entry.node)) @as(u32, 1) else 0;
+    return OK;
+}
+
+pub export fn sa_ts_node_has_error(handle: u64, out_flag: ?*u32) i32 {
+    const out = out_flag orelse return ERR_INVALID;
+    out.* = 0;
+    const entry = getNode(handle) orelse return ERR_HANDLE;
+    out.* = if (fns.node_has_error(entry.node)) @as(u32, 1) else 0;
+    return OK;
+}
+
+pub export fn sa_ts_node_start_point(handle: u64, out_row: ?*u32, out_col: ?*u32) i32 {
+    const r_out = out_row orelse return ERR_INVALID;
+    const c_out = out_col orelse return ERR_INVALID;
+    r_out.* = 0;
+    c_out.* = 0;
+    const entry = getNode(handle) orelse return ERR_HANDLE;
+    const pt = fns.node_start_point(entry.node);
+    r_out.* = pt.row;
+    c_out.* = pt.column;
+    return OK;
+}
+
+pub export fn sa_ts_node_end_point(handle: u64, out_row: ?*u32, out_col: ?*u32) i32 {
+    const r_out = out_row orelse return ERR_INVALID;
+    const c_out = out_col orelse return ERR_INVALID;
+    r_out.* = 0;
+    c_out.* = 0;
+    const entry = getNode(handle) orelse return ERR_HANDLE;
+    const pt = fns.node_end_point(entry.node);
+    r_out.* = pt.row;
+    c_out.* = pt.column;
+    return OK;
+}
+
 // ---------------- tests ----------------
+
+fn anyMissingBelow(node: u64) bool {
+    var flag: u32 = 0;
+    if (sa_ts_node_is_missing(node, &flag) != OK) return false;
+    if (flag != 0) return true;
+    var count: u32 = 0;
+    if (sa_ts_node_child_count(node, &count) != OK) return false;
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        var ch: u64 = 0;
+        if (sa_ts_node_child(node, i, 0, &ch) != OK) return false;
+        if (ch == 0) continue;
+        defer _ = sa_ts_node_free(ch);
+        if (anyMissingBelow(ch)) return true;
+    }
+    return false;
+}
+
+test "tree-sitter: parent, points, and node flags" {
+    setTsDir();
+    var parser: u64 = 0;
+    try std.testing.expectEqual(OK, sa_ts_parser_new(&parser));
+    defer _ = sa_ts_parser_free(parser);
+    try std.testing.expectEqual(OK, sa_ts_parser_set_language(parser, "typescript".ptr, 10));
+
+    const src = "function add(a: number): number {\n  return a;\n}\n";
+    var tree: u64 = 0;
+    try std.testing.expectEqual(OK, sa_ts_parse(parser, src.ptr, src.len, &tree));
+    defer _ = sa_ts_tree_free(tree);
+    var root: u64 = 0;
+    try std.testing.expectEqual(OK, sa_ts_tree_root(tree, &root));
+    defer _ = sa_ts_node_free(root);
+
+    var flag: u32 = 0;
+    var parent: u64 = 999;
+    try std.testing.expectEqual(OK, sa_ts_node_parent(root, &parent));
+    try std.testing.expectEqual(@as(u64, 0), parent); // root has no parent
+    try std.testing.expectEqual(OK, sa_ts_node_is_named(root, &flag));
+    try std.testing.expectEqual(@as(u32, 1), flag);
+    try std.testing.expectEqual(OK, sa_ts_node_is_missing(root, &flag));
+    try std.testing.expectEqual(@as(u32, 0), flag);
+    try std.testing.expectEqual(OK, sa_ts_node_has_error(root, &flag));
+    try std.testing.expectEqual(@as(u32, 0), flag);
+
+    var fn_node: u64 = 0;
+    try std.testing.expectEqual(OK, sa_ts_node_child(root, 0, 1, &fn_node));
+    try std.testing.expect(fn_node != 0);
+    defer _ = sa_ts_node_free(fn_node);
+
+    try std.testing.expectEqual(OK, sa_ts_node_parent(fn_node, &parent));
+    try std.testing.expect(parent != 0);
+    var buf: [64]u8 = undefined;
+    const ptype = try readInto(sa_ts_node_type, parent, &buf);
+    try std.testing.expectEqualStrings("program", ptype);
+    _ = sa_ts_node_free(parent);
+
+    var row: u32 = 99;
+    var col: u32 = 99;
+    try std.testing.expectEqual(OK, sa_ts_node_start_point(fn_node, &row, &col));
+    try std.testing.expectEqual(@as(u32, 0), row);
+    try std.testing.expectEqual(@as(u32, 0), col);
+    var name_node: u64 = 0;
+    try std.testing.expectEqual(OK, sa_ts_node_child_by_field(fn_node, "name".ptr, 4, &name_node));
+    try std.testing.expect(name_node != 0);
+    defer _ = sa_ts_node_free(name_node);
+    try std.testing.expectEqual(OK, sa_ts_node_start_point(name_node, &row, &col));
+    try std.testing.expectEqual(@as(u32, 0), row);
+    try std.testing.expectEqual(@as(u32, 9), col);
+    try std.testing.expectEqual(OK, sa_ts_node_end_point(name_node, &row, &col));
+    try std.testing.expectEqual(@as(u32, 0), row);
+    try std.testing.expectEqual(@as(u32, 12), col);
+    try std.testing.expectEqual(OK, sa_ts_node_end_point(fn_node, &row, &col));
+    try std.testing.expectEqual(@as(u32, 2), row);
+
+    // The "function" keyword child is unnamed; named children report 1.
+    var kw: u64 = 0;
+    try std.testing.expectEqual(OK, sa_ts_node_child(fn_node, 0, 0, &kw));
+    try std.testing.expect(kw != 0);
+    defer _ = sa_ts_node_free(kw);
+    try std.testing.expectEqual(OK, sa_ts_node_is_named(kw, &flag));
+    try std.testing.expectEqual(@as(u32, 0), flag);
+
+    // Truncated source (unclosed body brace): the tree reports an error
+    // and error recovery inserts a MISSING node (pinned grammar, probed).
+    const bad = "function add(a: number): number {\n  return a;\n";
+    var btree: u64 = 0;
+    try std.testing.expectEqual(OK, sa_ts_parse(parser, bad.ptr, bad.len, &btree));
+    defer _ = sa_ts_tree_free(btree);
+    var broot: u64 = 0;
+    try std.testing.expectEqual(OK, sa_ts_tree_root(btree, &broot));
+    defer _ = sa_ts_node_free(broot);
+    try std.testing.expectEqual(OK, sa_ts_node_has_error(broot, &flag));
+    try std.testing.expectEqual(@as(u32, 1), flag);
+    try std.testing.expect(anyMissingBelow(broot));
+}
 
 fn setTsDir() void {
     _ = setenv("SA_TREE_SITTER_DIR", "/content/sa_all/sci/artifacts/tree_sitter", 1);

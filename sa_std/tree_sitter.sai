@@ -22,3 +22,11 @@
 @extern sa_ts_node_named_child_count(handle: u64, &out_count: ptr) -> i32
 @extern sa_ts_node_child(handle: u64, index: u32, named: u32, &out_node: ptr) -> i32
 @extern sa_ts_node_child_by_field(handle: u64, &field: ptr, field_len: u64, &out_node: ptr) -> i32
+// Node navigation and flags: parent yields out_node == 0 at the root;
+// flags are u32 0/1 out-params; points are (row, column-bytes) pairs.
+@extern sa_ts_node_parent(handle: u64, &out_node: ptr) -> i32
+@extern sa_ts_node_is_named(handle: u64, &out_flag: ptr) -> i32
+@extern sa_ts_node_is_missing(handle: u64, &out_flag: ptr) -> i32
+@extern sa_ts_node_has_error(handle: u64, &out_flag: ptr) -> i32
+@extern sa_ts_node_start_point(handle: u64, &out_row: ptr, &out_col: ptr) -> i32
+@extern sa_ts_node_end_point(handle: u64, &out_row: ptr, &out_col: ptr) -> i32

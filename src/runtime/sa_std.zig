@@ -415,6 +415,12 @@ comptime {
     _ = &@import("sa_tree_sitter.zig").sa_ts_node_named_child_count;
     _ = &@import("sa_tree_sitter.zig").sa_ts_node_child;
     _ = &@import("sa_tree_sitter.zig").sa_ts_node_child_by_field;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_parent;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_is_named;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_is_missing;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_has_error;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_start_point;
+    _ = &@import("sa_tree_sitter.zig").sa_ts_node_end_point;
     _ = &sa_globals.sa_global_u64_set;
     _ = &sa_globals.sa_global_u64_get;
     _ = &sa_globals.sa_global_u64_set_once;
