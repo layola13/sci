@@ -1,0 +1,192 @@
+// sa_std/timer.sla — timer surface for SLA async: a poll-driven delay
+// future plus a cancellable one-shot timer handle.
+//
+// Why this shape: SLA futures are lazy polling values with no reactor,
+// so a delay is a future whose poll returns Pending until a monotonic
+// deadline passes (the same contract as future::defer_ready, which also
+// relies on the driver re-polling). Each poll does O(1) work and never
+// blocks the polling thread, so delay futures compose with .await,
+// future::join2 and task::poll drivers exactly like async-fn futures.
+// Reference drivers in this tree re-poll with a ~1ms backoff
+// (async.sla sched_backoff_ms, rosetta 314); a driver that re-polls
+// in a tight loop will spin, as it already does for defer_ready
+// futures today.
+//
+// Composition notes (measured 2026-10-26):
+//   - join2 of two delays is verified: both deadlines stay independent
+//     (elapsed = max, values correct), as are sequential .await chains
+//     and mixing a delay with non-delay futures under join2.
+//   - future::select2 is NOT usable to race a delay against work in
+//     the current toolchain: the right child cannot win while the left
+//     child is pending (the race resolves as the left child, whenever
+//     it finishes). This is a compiler-side select2 defect, not a
+//     timer property — minimal repro without any timer:
+//     select2(spin(5000), spin(10)) resolves as the LEFT child.
+//     Until that is fixed, a timeout is expressed by polling
+//     timer_check in the driver loop, not by select2.
+//   - Drive ONE root future per task::poll driver and compose inside
+//     it. Interleaving polls of two independent root tasks of the
+//     same async fn from one driver corrupts their state (measured
+//     with plain counter futures, no timers involved).
+//   - One access mode per timer per driver frame: polling a
+//     timer_wait future that owns a timer while the same frame also
+//     cancels/checks a clone handle of that timer is measured to
+//     break the sync side (the cancellation stops being observed).
+//     Timers that a driver cancels are driven with timer_check
+//     directly, not through a wait future in the same frame.
+//
+// Surface (mirrors the setTimeout family as used by real code):
+//   delay_ms(ms)            -> the `await sleep(ms)` form: a future that
+//                              resolves 0 once ms milliseconds elapsed.
+//   timer_after_ms(ms)      -> a Timer handle (setTimeout with handle).
+//   timer_cancel(&t)        -> clearTimeout: marks the handle cancelled.
+//   timer_wait(t).await     -> 0 = fired at the deadline; 1 = the timer
+//                              was already cancelled when the wait
+//                              started. A cancellation that lands while
+//                              a wait is in flight is NOT observed by
+//                              the future itself (shape note 3): the
+//                              driver observes it through timer_check
+//                              between polls and stops waiting — the
+//                              poll-driven equivalent of clearTimeout,
+//                              whose contract is that the callback
+//                              never fires.
+//   timer_remaining_ms(&t)  -> milliseconds until the deadline (0 when
+//                              due); timer_is_cancelled(&t) reads the flag.
+//   timer_check(&t)         -> 0 pending / 1 fired / 2 cancelled, for
+//                              driver loops and sync callers.
+//   timer_clone(&t)         -> a second handle to the same timer, so
+//                              one handle can wait while another cancels.
+//
+// setInterval has no separate surface: an interval is a loop that
+// awaits delay_ms(period) (or timer_wait) once per round, which keeps
+// cancellation and drift handling explicit at the call site.
+//
+// Timer state: the deadline is an immutable field (written once at
+// creation, so reads need no lock); the cancelled flag is a plain
+// i32 cell shared through an Arc (TimerFlag below), written once
+// (0 -> 1) by timer_cancel and read by the sync accessors. All flag
+// traffic is sync-side by design (shape note 3).
+//
+// Time source is the monotonic clock behind Instant::now()
+// (sa_time_instant_ns); deadlines are immune to wall-clock changes.
+// Deadline arithmetic saturates: an absurd ms whose nanosecond span
+// would overflow u64 pins the deadline at u64::MAX instead of wrapping.
+//
+// Shape notes (compiler pitfalls, measured 2026-10-26 while probing
+// this surface; the crash forms reproduce at 1ms-per-poll drivers
+// between 150ms and 180ms and vanish in the shapes used below):
+//   1. The clock read must NOT sit in the while condition of an
+//      async fn whose loop body awaits (`while now_ns() < deadline
+//      { defer_ready(0).await }` segfaults).
+//   2. Locals carried across the suspension must stay minimal: an
+//      extra accumulator written after the await in a flag-controlled
+//      loop (e.g. a spin counter next to the done flag) segfaults
+//      the same way; a loop whose counter IS the condition variable
+//      is unaffected (5000 iterations pass).
+//   3. A poll loop cannot observe shared state written after the
+//      future was created. Every channel was measured at 400ms /
+//      1ms-per-poll and faulted (signal 11, a referee trap, or
+//      silently stale values): Mutex::lock per poll, dereferencing
+//      an Arc reached through a struct field, extracting the Arc
+//      into a prologue local (clone or move), reading it through a
+//      sync helper, delegating to a child future that takes the Arc
+//      as a direct parameter, and raw-address loads. Even a direct
+//      Arc parameter whose fields are read in the loop returns
+//      stale values once the pointee is written mid-flight. The
+//      channels that ARE stable inside a loop are scalar locals and
+//      extern calls (the clock). timer_wait is therefore scalar-only
+//      in its loop, with a single flag check in its prologue;
+//      cancellation is observed by drivers via timer_check.
+// The body-check form below (bool flag condition, clock read in the
+// loop body, only flag + deadline live across the await) is stable.
+
+@import "sa_std/time.sla"
+@import "sa_std/future.sa"
+@import "sa_std/core/arc.sa"
+
+struct TimerFlag {
+    v: i32,
+}
+
+struct Timer {
+    deadline_ns: u64,
+    flag: Arc<TimerFlag>,
+}
+
+fn timer_now_ns() -> u64 {
+    let now = Instant::now();
+    return now.raw_ns();
+}
+
+fn timer_deadline_from_ms(ms: u64) -> u64 {
+    let start: u64 = timer_now_ns();
+    let deadline: u64 = start + ms * 1000000;
+    if deadline < start {
+        return 18446744073709551615u64;
+    };
+    return deadline;
+}
+
+async fn delay_ms(ms: u64) -> i32 {
+    let deadline: u64 = timer_deadline_from_ms(ms);
+    let done: bool = false;
+    while done == false {
+        let tick: i32 = future::defer_ready(0).await;
+        if timer_now_ns() >= deadline {
+            done = true;
+        };
+    }
+    return 0;
+}
+
+fn timer_after_ms(ms: u64) -> Timer {
+    return Timer { deadline_ns: timer_deadline_from_ms(ms), flag: Arc::new(TimerFlag { v: 0 }) };
+}
+
+fn timer_clone(t: &Timer) -> Timer {
+    return Timer { deadline_ns: t.deadline_ns, flag: t.flag.clone() };
+}
+
+fn timer_cancel(t: &Timer) {
+    (*t.flag).v = 1;
+}
+
+fn timer_is_cancelled(t: &Timer) -> bool {
+    let v: i32 = (*t.flag).v;
+    return v == 1;
+}
+
+fn timer_remaining_ms(t: &Timer) -> u64 {
+    let now: u64 = timer_now_ns();
+    if now >= t.deadline_ns {
+        return 0;
+    };
+    return (t.deadline_ns - now) / 1000000;
+}
+
+// 0 = still pending, 1 = fired, 2 = cancelled. Reads the flag cell
+// and the immutable deadline field directly.
+fn timer_check(t: &Timer) -> i32 {
+    if timer_is_cancelled(t) == true {
+        return 2;
+    };
+    if timer_now_ns() >= t.deadline_ns {
+        return 1;
+    };
+    return 0;
+}
+
+async fn timer_wait(t: Timer) -> i32 {
+    if timer_is_cancelled(&t) == true {
+        return 1;
+    };
+    let deadline: u64 = t.deadline_ns;
+    let done: bool = false;
+    while done == false {
+        let tick: i32 = future::defer_ready(0).await;
+        if timer_now_ns() >= deadline {
+            done = true;
+        };
+    }
+    return 0;
+}
