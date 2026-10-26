@@ -30,3 +30,26 @@
 @extern sa_ts_node_has_error(handle: u64, &out_flag: ptr) -> i32
 @extern sa_ts_node_start_point(handle: u64, &out_row: ptr, &out_col: ptr) -> i32
 @extern sa_ts_node_end_point(handle: u64, &out_row: ptr, &out_col: ptr) -> i32
+// Queries: S-expression patterns compiled against a grammar by name.
+// On a compile failure query_new returns status 1 (invalid) and reports
+// the C error offset and kind through the out params (TSQueryErrorType:
+// 1 syntax, 2 node type, 3 field, 4 capture, 5 structure, 6 language).
+// A cursor is stateful: exec binds it to a root node, next_match walks
+// matches, and match_capture reads the current match's captures as
+// node handles owned by the same tree as the exec node.
+@extern sa_ts_query_new(&lang: ptr, lang_len: u64, &src: ptr, src_len: u64, &out_query: ptr, &out_err_offset: ptr, &out_err_kind: ptr) -> i32
+@extern sa_ts_query_free(^handle: u64) -> i32
+@extern sa_ts_query_pattern_count(handle: u64, &out_count: ptr) -> i32
+@extern sa_ts_query_capture_count(handle: u64, &out_count: ptr) -> i32
+@extern sa_ts_query_capture_name(handle: u64, index: u32, &buf: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_ts_query_cursor_new(&out_cursor: ptr) -> i32
+@extern sa_ts_query_cursor_free(^handle: u64) -> i32
+@extern sa_ts_query_exec(cursor: u64, query: u64, node: u64) -> i32
+@extern sa_ts_query_next_match(cursor: u64, &out_has: ptr, &out_pattern: ptr, &out_captures: ptr) -> i32
+@extern sa_ts_query_match_capture(cursor: u64, index: u32, &out_node: ptr, &out_capture: ptr) -> i32
+// Incremental parsing: describe the edit on the old tree, then reparse
+// with it as old_tree. After tree_edit the old tree is only an input to
+// parse_incremental; read nodes from the new tree. Points are
+// (row, column-in-bytes) pairs, as in node_start_point.
+@extern sa_ts_tree_edit(handle: u64, start_byte: u32, old_end_byte: u32, new_end_byte: u32, start_row: u32, start_col: u32, old_end_row: u32, old_end_col: u32, new_end_row: u32, new_end_col: u32) -> i32
+@extern sa_ts_parse_incremental(handle: u64, old_tree: u64, &src: ptr, src_len: u64, &out_tree: ptr) -> i32
