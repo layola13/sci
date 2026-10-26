@@ -712,6 +712,10 @@ pub const SA_REGEX_NEWLINE: c_int = 4;
 pub const SA_REGEX_NOSUB: c_int = 8;
 pub const SA_REGEX_NOTBOL: c_int = 1;
 pub const SA_REGEX_NOTEOL: c_int = 2;
+// eflags slot value for regexec: restrict the search to the pmatch[0] range
+// while reporting absolute offsets. glibc assigns it the same numeric value
+// as the SA_REGEX_NEWLINE *cflag*; the two live in different parameters.
+pub const SA_REGEX_STARTEND: c_int = 4;
 pub const SA_REGEX_REG_NOERROR: c_int = 0;
 pub const SA_REGEX_REG_OK: c_int = 0;
 pub const SA_REGEX_REG_NOMATCH: c_int = 1;
@@ -1276,6 +1280,48 @@ const RegexMatchHandle = struct {
     }
 };
 
+const RegexMatchListHandle = struct {
+    allocator: std.mem.Allocator,
+    text_z: []u8,
+    // One group-offset array per match; every inner slice has
+    // regexGroupCount(regex) entries (group 0 = the whole match).
+    matches: [][]RegexMatchC,
+
+    fn destroy(self: *RegexMatchListHandle) void {
+        for (self.matches) |groups| {
+            if (groups.len != 0) self.allocator.free(groups);
+        }
+        if (self.matches.len != 0) self.allocator.free(self.matches);
+        if (self.text_z.len != 0) self.allocator.free(self.text_z);
+        self.allocator.destroy(self);
+    }
+};
+
+const RegexSplitListHandle = struct {
+    allocator: std.mem.Allocator,
+    text_z: []u8,
+    // Pieces are (start, end) byte ranges into text_z; rm_so < 0 marks a
+    // capture group that did not participate (JS `undefined`, surfaced as
+    // an empty piece by the accessors).
+    pieces: []RegexMatchC,
+
+    fn destroy(self: *RegexSplitListHandle) void {
+        if (self.pieces.len != 0) self.allocator.free(self.pieces);
+        if (self.text_z.len != 0) self.allocator.free(self.text_z);
+        self.allocator.destroy(self);
+    }
+};
+
+const RegexBufferHandle = struct {
+    allocator: std.mem.Allocator,
+    bytes: []u8,
+
+    fn destroy(self: *RegexBufferHandle) void {
+        if (self.bytes.len != 0) self.allocator.free(self.bytes);
+        self.allocator.destroy(self);
+    }
+};
+
 fn regexErrorToZig(rc: c_int) anyerror {
     return switch (rc) {
         SA_REGEX_REG_NOMATCH => error.FileNotFound,
@@ -1317,6 +1363,237 @@ fn regexMatchHandle(regex_handle: *RegexHandle, text: []const u8) !*RegexMatchHa
         .allocator = allocator,
         .text_z = owned_text,
         .matches = groups,
+    };
+    return handle;
+}
+
+// Copies text into an owned NUL-terminated buffer, rejecting embedded NUL
+// bytes exactly like regexMatchHandle does.
+fn regexOwnedTextZ(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
+    if (std.mem.indexOfScalar(u8, text, 0) != null) return error.InvalidArgument;
+    const owned = try allocator.alloc(u8, text.len + 1);
+    @memcpy(owned[0..text.len], text);
+    owned[text.len] = 0;
+    return owned;
+}
+
+// Runs regexec over the byte range [start, end) of an owned NUL-terminated
+// text using REG_STARTEND, so reported offsets stay absolute and `^` / `$`
+// keep whole-text semantics. Returns the raw regcomp-family status code.
+fn regexExecRange(regex_handle: *RegexHandle, text_z: []const u8, start: usize, end: usize, groups: []RegexMatchC) c_int {
+    groups[0].rm_so = @intCast(start);
+    groups[0].rm_eo = @intCast(end);
+    return regexec(&regex_handle.compiled, @ptrCast(text_z.ptr), groups.len, groups.ptr, SA_REGEX_STARTEND);
+}
+
+// Collects every non-overlapping match in text_z (an owned NUL-terminated
+// copy), in left-to-right order. After an empty match the search advances
+// one byte — the byte-level form of the JS global-exec loop (JS advances
+// one code point; this engine is byte-oriented). Caller owns the returned
+// outer slice and every inner groups slice.
+fn regexCollectMatches(allocator: std.mem.Allocator, regex_handle: *RegexHandle, text_z: []const u8) ![][]RegexMatchC {
+    const text_len = text_z.len - 1;
+    const group_count = regexGroupCount(regex_handle);
+    var list = std.array_list.Managed([]RegexMatchC).init(allocator);
+    errdefer {
+        for (list.items) |groups| allocator.free(groups);
+        list.deinit();
+    }
+    var pos: usize = 0;
+    while (pos <= text_len) {
+        const groups = try allocator.alloc(RegexMatchC, group_count);
+        const rc = regexExecRange(regex_handle, text_z, pos, text_len, groups);
+        if (rc == SA_REGEX_REG_NOMATCH) {
+            allocator.free(groups);
+            break;
+        }
+        if (rc != SA_REGEX_REG_NOERROR) {
+            allocator.free(groups);
+            return regexErrorToZig(rc);
+        }
+        list.append(groups) catch |err| {
+            allocator.free(groups);
+            return err;
+        };
+        const match_start: usize = @intCast(groups[0].rm_so);
+        const match_end: usize = @intCast(groups[0].rm_eo);
+        pos = if (match_end == match_start) match_end + 1 else match_end;
+    }
+    return list.toOwnedSlice();
+}
+
+fn regexAppendGroup(out: *std.array_list.Managed(u8), text: []const u8, groups: []RegexMatchC, idx: usize) !void {
+    if (idx >= groups.len) return;
+    const reg = groups[idx];
+    if (reg.rm_so < 0 or reg.rm_eo < 0) return;
+    const start: usize = @intCast(reg.rm_so);
+    const end: usize = @intCast(reg.rm_eo);
+    try out.appendSlice(text[start..end]);
+}
+
+// Appends the JS-style substitution of `replacement` for one match:
+// $$ is a literal $, $& the whole match, $` the text before the match,
+// $' the text after it, and $n / $nn capture groups (a group that did not
+// participate expands to nothing; an out-of-range $n stays literal).
+// $<name> passes through literally: POSIX ERE has no named groups.
+fn regexAppendExpansion(out: *std.array_list.Managed(u8), text: []const u8, groups: []RegexMatchC, replacement: []const u8) !void {
+    const group_total = groups.len - 1;
+    var i: usize = 0;
+    while (i < replacement.len) {
+        const c = replacement[i];
+        if (c != '$' or i + 1 >= replacement.len) {
+            try out.append(c);
+            i += 1;
+            continue;
+        }
+        const next = replacement[i + 1];
+        if (next == '$') {
+            try out.append('$');
+            i += 2;
+        } else if (next == '&') {
+            try regexAppendGroup(out, text, groups, 0);
+            i += 2;
+        } else if (next == '`') {
+            const start: usize = @intCast(groups[0].rm_so);
+            try out.appendSlice(text[0..start]);
+            i += 2;
+        } else if (next == '\'') {
+            const end: usize = @intCast(groups[0].rm_eo);
+            try out.appendSlice(text[end..]);
+            i += 2;
+        } else if (next >= '1' and next <= '9') {
+            const d1: usize = @intCast(next - '0');
+            var consumed: usize = 0;
+            if (i + 2 < replacement.len and replacement[i + 2] >= '0' and replacement[i + 2] <= '9') {
+                const nn = d1 * 10 + @as(usize, @intCast(replacement[i + 2] - '0'));
+                if (nn >= 1 and nn <= group_total) {
+                    try regexAppendGroup(out, text, groups, nn);
+                    consumed = 3;
+                }
+            }
+            if (consumed == 0 and d1 <= group_total) {
+                try regexAppendGroup(out, text, groups, d1);
+                consumed = 2;
+            }
+            if (consumed == 0) {
+                try out.append('$');
+                i += 1;
+            } else {
+                i += consumed;
+            }
+        } else {
+            try out.append('$');
+            i += 1;
+        }
+    }
+}
+
+// Builds the replaced text. With `global` false only the first match is
+// replaced (JS String.replace without /g); with true every match from the
+// global iteration is replaced (JS /g and replaceAll). The result is an
+// owned slice; when nothing matches it is a copy of the input text.
+fn regexBuildReplace(allocator: std.mem.Allocator, regex_handle: *RegexHandle, text_z: []const u8, replacement: []const u8, global: bool) ![]u8 {
+    const text = text_z[0 .. text_z.len - 1];
+    var out = std.array_list.Managed(u8).init(allocator);
+    errdefer out.deinit();
+    if (!global) {
+        const group_count = regexGroupCount(regex_handle);
+        const groups = try allocator.alloc(RegexMatchC, group_count);
+        defer allocator.free(groups);
+        const rc = regexExecRange(regex_handle, text_z, 0, text.len, groups);
+        if (rc == SA_REGEX_REG_NOMATCH) {
+            try out.appendSlice(text);
+            return out.toOwnedSlice();
+        }
+        if (rc != SA_REGEX_REG_NOERROR) return regexErrorToZig(rc);
+        const start: usize = @intCast(groups[0].rm_so);
+        const end: usize = @intCast(groups[0].rm_eo);
+        try out.appendSlice(text[0..start]);
+        try regexAppendExpansion(&out, text, groups, replacement);
+        try out.appendSlice(text[end..]);
+        return out.toOwnedSlice();
+    }
+    const matches = try regexCollectMatches(allocator, regex_handle, text_z);
+    defer {
+        for (matches) |groups| allocator.free(groups);
+        allocator.free(matches);
+    }
+    var last: usize = 0;
+    for (matches) |groups| {
+        const start: usize = @intCast(groups[0].rm_so);
+        const end: usize = @intCast(groups[0].rm_eo);
+        try out.appendSlice(text[last..start]);
+        try regexAppendExpansion(&out, text, groups, replacement);
+        last = end;
+    }
+    try out.appendSlice(text[last..]);
+    return out.toOwnedSlice();
+}
+
+// Builds the piece list for JS String.split semantics over text_z. Pieces
+// are (start, end) ranges into text_z; non-participating capture groups
+// keep rm_so < 0. `limit` caps the TOTAL piece count (groups included);
+// limit == 0 means no limit in this API (JS limit 0 returns [] — a
+// deliberate divergence, documented in regex.sai).
+fn regexSplitHandle(allocator: std.mem.Allocator, regex_handle: *RegexHandle, text_z: []u8, limit: u64) !*RegexSplitListHandle {
+    const text_len = text_z.len - 1;
+    errdefer allocator.free(text_z);
+    const group_count = regexGroupCount(regex_handle);
+    const limit_n: usize = if (limit == 0) std.math.maxInt(usize) else @intCast(limit);
+    var pieces = std.array_list.Managed(RegexMatchC).init(allocator);
+    errdefer pieces.deinit();
+    const groups = try allocator.alloc(RegexMatchC, group_count);
+    defer allocator.free(groups);
+    if (text_len == 0) {
+        // JS: empty input yields [] when the pattern matches at 0,
+        // otherwise a single empty piece.
+        const rc = regexExecRange(regex_handle, text_z, 0, 0, groups);
+        if (rc != SA_REGEX_REG_NOMATCH and rc != SA_REGEX_REG_NOERROR) return regexErrorToZig(rc);
+        if (rc == SA_REGEX_REG_NOMATCH) {
+            try pieces.append(.{ .rm_so = 0, .rm_eo = 0 });
+        }
+    } else {
+        var p: usize = 0;
+        var q: usize = 0;
+        var done = false;
+        while (!done and q <= text_len) {
+            const rc = regexExecRange(regex_handle, text_z, q, text_len, groups);
+            if (rc == SA_REGEX_REG_NOMATCH) break;
+            if (rc != SA_REGEX_REG_NOERROR) return regexErrorToZig(rc);
+            const m_start: usize = @intCast(groups[0].rm_so);
+            const m_end: usize = @intCast(groups[0].rm_eo);
+            if (m_end == p) {
+                // Empty match exactly at the previous match end: JS split
+                // skips it and retries one byte later.
+                q = m_end + 1;
+                continue;
+            }
+            try pieces.append(.{ .rm_so = @intCast(p), .rm_eo = @intCast(m_start) });
+            if (pieces.items.len >= limit_n) {
+                done = true;
+                break;
+            }
+            for (groups[1..]) |g| {
+                try pieces.append(g);
+                if (pieces.items.len >= limit_n) {
+                    done = true;
+                    break;
+                }
+            }
+            if (done) break;
+            p = m_end;
+            q = p;
+        }
+        if (!done) {
+            try pieces.append(.{ .rm_so = @intCast(p), .rm_eo = @intCast(text_len) });
+        }
+    }
+    const handle = try allocator.create(RegexSplitListHandle);
+    errdefer allocator.destroy(handle);
+    handle.* = .{
+        .allocator = allocator,
+        .text_z = text_z,
+        .pieces = try pieces.toOwnedSlice(),
     };
     return handle;
 }
@@ -1851,6 +2128,9 @@ const Resource = union(enum) {
     json_writer: *JsonWriterHandle,
     regex: *RegexHandle,
     regex_match: *RegexMatchHandle,
+    regex_match_list: *RegexMatchListHandle,
+    regex_split_list: *RegexSplitListHandle,
+    regex_buffer: *RegexBufferHandle,
     owned_fd: OwnedFdHandle,
     terminal_session: TerminalSession,
     process: ProcessHandle,
@@ -1881,6 +2161,9 @@ const Resource = union(enum) {
             .json_writer => |writer| writer.deinit(),
             .regex => |regex| regex.destroy(),
             .regex_match => |match| match.destroy(),
+            .regex_match_list => |list| list.destroy(),
+            .regex_split_list => |list| list.destroy(),
+            .regex_buffer => |buffer| buffer.destroy(),
             .owned_fd => |*fd| fd.deinit(),
             .terminal_session => |*session| {
                 // No terminal sessions can exist on WASI (raw_enter stubbed);
@@ -8604,6 +8887,405 @@ pub export fn sa_regex_match_free(match: u64) Fallible(i32) {
     if (status != SA_STD_OK) return fail(i32, status);
     return ok(i32, 0);
 }
+pub export fn sa_regex_match_all(regex: u64, text: ?[*]const u8, text_len: u64) u64 {
+    const input = constBytes(text, text_len) catch return 0;
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(regex) orelse return 0;
+    const regex_handle = switch (resource.*) {
+        .regex => |handle| handle,
+        else => return 0,
+    };
+    const allocator = regex_handle.allocator;
+    const text_z = regexOwnedTextZ(allocator, input) catch return 0;
+    const matches = regexCollectMatches(allocator, regex_handle, text_z) catch {
+        allocator.free(text_z);
+        return 0;
+    };
+    const handle = allocator.create(RegexMatchListHandle) catch {
+        for (matches) |groups| allocator.free(groups);
+        allocator.free(matches);
+        allocator.free(text_z);
+        return 0;
+    };
+    handle.* = .{ .allocator = allocator, .text_z = text_z, .matches = matches };
+    return registerResourceLocked(.{ .regex_match_list = handle }) catch |err| {
+        handle.destroy();
+        _ = finishErr(err);
+        return 0;
+    };
+}
+
+pub export fn sa_regex_match_list_count(list: u64) u64 {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(list) orelse return 0;
+    return switch (resource.*) {
+        .regex_match_list => |handle| @as(u64, @intCast(handle.matches.len)),
+        else => 0,
+    };
+}
+
+pub export fn sa_regex_match_list_at(list: u64, index: u64) u64 {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(list) orelse return 0;
+    const list_handle = switch (resource.*) {
+        .regex_match_list => |handle| handle,
+        else => return 0,
+    };
+    const idx: usize = @intCast(index);
+    if (idx >= list_handle.matches.len) return 0;
+    const allocator = list_handle.allocator;
+    const text = list_handle.text_z[0 .. list_handle.text_z.len - 1];
+    const match_handle = RegexMatchHandle.init(allocator, text, list_handle.matches[idx].len) catch return 0;
+    @memcpy(match_handle.matches, list_handle.matches[idx]);
+    return registerResourceLocked(.{ .regex_match = match_handle }) catch |err| {
+        match_handle.destroy();
+        _ = finishErr(err);
+        return 0;
+    };
+}
+
+pub export fn sa_regex_match_list_free(list: u64) Fallible(i32) {
+    const status = sa_std_close(list);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
+}
+
+fn regexReplaceBuffer(regex: u64, text: ?[*]const u8, text_len: u64, replacement: ?[*]const u8, replacement_len: u64, global: bool) u64 {
+    const input = constBytes(text, text_len) catch return 0;
+    const repl = constBytes(replacement, replacement_len) catch return 0;
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(regex) orelse return 0;
+    const regex_handle = switch (resource.*) {
+        .regex => |handle| handle,
+        else => return 0,
+    };
+    const allocator = regex_handle.allocator;
+    const text_z = regexOwnedTextZ(allocator, input) catch return 0;
+    defer allocator.free(text_z);
+    const bytes = regexBuildReplace(allocator, regex_handle, text_z, repl, global) catch return 0;
+    const handle = allocator.create(RegexBufferHandle) catch {
+        allocator.free(bytes);
+        return 0;
+    };
+    handle.* = .{ .allocator = allocator, .bytes = bytes };
+    return registerResourceLocked(.{ .regex_buffer = handle }) catch |err| {
+        handle.destroy();
+        _ = finishErr(err);
+        return 0;
+    };
+}
+
+pub export fn sa_regex_replace(regex: u64, text: ?[*]const u8, text_len: u64, replacement: ?[*]const u8, replacement_len: u64) u64 {
+    return regexReplaceBuffer(regex, text, text_len, replacement, replacement_len, false);
+}
+
+pub export fn sa_regex_replace_all(regex: u64, text: ?[*]const u8, text_len: u64, replacement: ?[*]const u8, replacement_len: u64) u64 {
+    return regexReplaceBuffer(regex, text, text_len, replacement, replacement_len, true);
+}
+
+pub export fn sa_regex_buffer_data(buffer: u64) ?[*]u8 {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(buffer) orelse return null;
+    return switch (resource.*) {
+        .regex_buffer => |handle| handle.bytes.ptr,
+        else => null,
+    };
+}
+
+pub export fn sa_regex_buffer_len(buffer: u64) u64 {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(buffer) orelse return 0;
+    return switch (resource.*) {
+        .regex_buffer => |handle| @as(u64, @intCast(handle.bytes.len)),
+        else => 0,
+    };
+}
+
+pub export fn sa_regex_buffer_free(buffer: u64) Fallible(i32) {
+    const status = sa_std_close(buffer);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
+}
+
+pub export fn sa_regex_split(regex: u64, text: ?[*]const u8, text_len: u64, limit: u64) u64 {
+    const input = constBytes(text, text_len) catch return 0;
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(regex) orelse return 0;
+    const regex_handle = switch (resource.*) {
+        .regex => |handle| handle,
+        else => return 0,
+    };
+    const allocator = regex_handle.allocator;
+    const text_z = regexOwnedTextZ(allocator, input) catch return 0;
+    const handle = regexSplitHandle(allocator, regex_handle, text_z, limit) catch return 0;
+    return registerResourceLocked(.{ .regex_split_list = handle }) catch |err| {
+        handle.destroy();
+        _ = finishErr(err);
+        return 0;
+    };
+}
+
+pub export fn sa_regex_split_count(list: u64) u64 {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(list) orelse return 0;
+    return switch (resource.*) {
+        .regex_split_list => |handle| @as(u64, @intCast(handle.pieces.len)),
+        else => 0,
+    };
+}
+
+pub export fn sa_regex_split_ptr(list: u64, index: u64) ?[*]const u8 {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(list) orelse return null;
+    const list_handle = switch (resource.*) {
+        .regex_split_list => |handle| handle,
+        else => return null,
+    };
+    const idx: usize = @intCast(index);
+    if (idx >= list_handle.pieces.len) return null;
+    const piece = list_handle.pieces[idx];
+    if (piece.rm_so < 0) return null;
+    const start: usize = @intCast(piece.rm_so);
+    return list_handle.text_z[start..].ptr;
+}
+
+pub export fn sa_regex_split_len(list: u64, index: u64) u64 {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(list) orelse return 0;
+    const list_handle = switch (resource.*) {
+        .regex_split_list => |handle| handle,
+        else => return 0,
+    };
+    const idx: usize = @intCast(index);
+    if (idx >= list_handle.pieces.len) return 0;
+    const piece = list_handle.pieces[idx];
+    if (piece.rm_so < 0 or piece.rm_eo < 0) return 0;
+    return @as(u64, @intCast(piece.rm_eo - piece.rm_so));
+}
+
+pub export fn sa_regex_split_free(list: u64) Fallible(i32) {
+    const status = sa_std_close(list);
+    if (status != SA_STD_OK) return fail(i32, status);
+    return ok(i32, 0);
+}
+
+test "regex: replace expands group references" {
+    const pat: []const u8 = "([a-z]+)@([a-z]+)";
+    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
+    try std.testing.expect(re != 0);
+    defer _ = sa_regex_free(re);
+
+    const text: []const u8 = "user@host";
+    const repl: []const u8 = "$2/$1";
+    const buf = sa_regex_replace(re, text.ptr, text.len, repl.ptr, repl.len);
+    try std.testing.expect(buf != 0);
+    defer _ = sa_regex_buffer_free(buf);
+    const out = sa_regex_buffer_data(buf).?[0..@intCast(sa_regex_buffer_len(buf))];
+    try std.testing.expectEqualStrings("host/user", out);
+
+    // $& whole match, $$ literal dollar, $` prefix, $' suffix, and an
+    // out-of-range $9 that must stay literal.
+    const text2: []const u8 = "x user@host y";
+    const repl2: []const u8 = "[$&|$$|$`|$'|$9]";
+    const buf2 = sa_regex_replace(re, text2.ptr, text2.len, repl2.ptr, repl2.len);
+    try std.testing.expect(buf2 != 0);
+    defer _ = sa_regex_buffer_free(buf2);
+    const out2 = sa_regex_buffer_data(buf2).?[0..@intCast(sa_regex_buffer_len(buf2))];
+    try std.testing.expectEqualStrings("x [user@host|$|x | y|$9] y", out2);
+}
+
+test "regex: replace is first-only and replace_all is global" {
+    const pat: []const u8 = "([a-z])([0-9])";
+    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
+    try std.testing.expect(re != 0);
+    defer _ = sa_regex_free(re);
+    const text: []const u8 = "a1 b2";
+    const repl: []const u8 = "$2$1";
+
+    const buf = sa_regex_replace(re, text.ptr, text.len, repl.ptr, repl.len);
+    try std.testing.expect(buf != 0);
+    defer _ = sa_regex_buffer_free(buf);
+    try std.testing.expectEqualStrings("1a b2", sa_regex_buffer_data(buf).?[0..@intCast(sa_regex_buffer_len(buf))]);
+
+    const buf2 = sa_regex_replace_all(re, text.ptr, text.len, repl.ptr, repl.len);
+    try std.testing.expect(buf2 != 0);
+    defer _ = sa_regex_buffer_free(buf2);
+    try std.testing.expectEqualStrings("1a 2b", sa_regex_buffer_data(buf2).?[0..@intCast(sa_regex_buffer_len(buf2))]);
+
+    const plain: []const u8 = "zz";
+    const buf3 = sa_regex_replace_all(re, plain.ptr, plain.len, repl.ptr, repl.len);
+    try std.testing.expect(buf3 != 0);
+    defer _ = sa_regex_buffer_free(buf3);
+    try std.testing.expectEqualStrings("zz", sa_regex_buffer_data(buf3).?[0..@intCast(sa_regex_buffer_len(buf3))]);
+}
+
+test "regex: replace_all expands empty matches like the JS global loop" {
+    const pat: []const u8 = "x*";
+    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
+    try std.testing.expect(re != 0);
+    defer _ = sa_regex_free(re);
+    const text: []const u8 = "ab";
+    const repl: []const u8 = "-";
+    const buf = sa_regex_replace_all(re, text.ptr, text.len, repl.ptr, repl.len);
+    try std.testing.expect(buf != 0);
+    defer _ = sa_regex_buffer_free(buf);
+    try std.testing.expectEqualStrings("-a-b-", sa_regex_buffer_data(buf).?[0..@intCast(sa_regex_buffer_len(buf))]);
+}
+
+test "regex: match_all collects matches with capture groups" {
+    const pat: []const u8 = "([a-z])([0-9])";
+    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
+    try std.testing.expect(re != 0);
+    defer _ = sa_regex_free(re);
+    const text: []const u8 = "a1 b2 c";
+    const list = sa_regex_match_all(re, text.ptr, text.len);
+    try std.testing.expect(list != 0);
+    defer _ = sa_regex_match_list_free(list);
+    try std.testing.expectEqual(@as(u64, 2), sa_regex_match_list_count(list));
+
+    const m0 = sa_regex_match_list_at(list, 0);
+    try std.testing.expect(m0 != 0);
+    defer _ = sa_regex_match_free(m0);
+    try std.testing.expectEqual(@as(u64, 0), sa_regex_group_start(m0, 0));
+    try std.testing.expectEqualStrings("a1", sa_regex_group_ptr(m0, 0).?[0..@intCast(sa_regex_group_len(m0, 0))]);
+    try std.testing.expectEqualStrings("a", sa_regex_group_ptr(m0, 1).?[0..@intCast(sa_regex_group_len(m0, 1))]);
+    try std.testing.expectEqualStrings("1", sa_regex_group_ptr(m0, 2).?[0..@intCast(sa_regex_group_len(m0, 2))]);
+
+    const m1 = sa_regex_match_list_at(list, 1);
+    try std.testing.expect(m1 != 0);
+    defer _ = sa_regex_match_free(m1);
+    try std.testing.expectEqual(@as(u64, 3), sa_regex_group_start(m1, 0));
+    try std.testing.expectEqualStrings("b2", sa_regex_group_ptr(m1, 0).?[0..@intCast(sa_regex_group_len(m1, 0))]);
+
+    try std.testing.expectEqual(@as(u64, 0), sa_regex_match_list_at(list, 2));
+}
+
+test "regex: match_all reports the trailing empty match" {
+    const pat: []const u8 = "a*";
+    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
+    try std.testing.expect(re != 0);
+    defer _ = sa_regex_free(re);
+    const text: []const u8 = "b";
+    const list = sa_regex_match_all(re, text.ptr, text.len);
+    try std.testing.expect(list != 0);
+    defer _ = sa_regex_match_list_free(list);
+    try std.testing.expectEqual(@as(u64, 2), sa_regex_match_list_count(list));
+    const m0 = sa_regex_match_list_at(list, 0);
+    try std.testing.expect(m0 != 0);
+    defer _ = sa_regex_match_free(m0);
+    try std.testing.expectEqual(@as(u64, 0), sa_regex_group_start(m0, 0));
+    try std.testing.expectEqual(@as(u64, 0), sa_regex_group_len(m0, 0));
+    const m1 = sa_regex_match_list_at(list, 1);
+    try std.testing.expect(m1 != 0);
+    defer _ = sa_regex_match_free(m1);
+    try std.testing.expectEqual(@as(u64, 1), sa_regex_group_start(m1, 0));
+    try std.testing.expectEqual(@as(u64, 0), sa_regex_group_len(m1, 0));
+}
+
+test "regex: split leading trailing and consecutive separators" {
+    const pat: []const u8 = ",";
+    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
+    try std.testing.expect(re != 0);
+    defer _ = sa_regex_free(re);
+
+    const text: []const u8 = "a,,b,";
+    const list = sa_regex_split(re, text.ptr, text.len, 0);
+    try std.testing.expect(list != 0);
+    defer _ = sa_regex_split_free(list);
+    try std.testing.expectEqual(@as(u64, 4), sa_regex_split_count(list));
+    try std.testing.expectEqualStrings("a", sa_regex_split_ptr(list, 0).?[0..@intCast(sa_regex_split_len(list, 0))]);
+    try std.testing.expectEqualStrings("", sa_regex_split_ptr(list, 1).?[0..@intCast(sa_regex_split_len(list, 1))]);
+    try std.testing.expectEqualStrings("b", sa_regex_split_ptr(list, 2).?[0..@intCast(sa_regex_split_len(list, 2))]);
+    try std.testing.expectEqualStrings("", sa_regex_split_ptr(list, 3).?[0..@intCast(sa_regex_split_len(list, 3))]);
+
+    const text2: []const u8 = ",a";
+    const list2 = sa_regex_split(re, text2.ptr, text2.len, 0);
+    try std.testing.expect(list2 != 0);
+    defer _ = sa_regex_split_free(list2);
+    try std.testing.expectEqual(@as(u64, 2), sa_regex_split_count(list2));
+    try std.testing.expectEqualStrings("", sa_regex_split_ptr(list2, 0).?[0..@intCast(sa_regex_split_len(list2, 0))]);
+    try std.testing.expectEqualStrings("a", sa_regex_split_ptr(list2, 1).?[0..@intCast(sa_regex_split_len(list2, 1))]);
+
+    const text3: []const u8 = "abc";
+    const list3 = sa_regex_split(re, text3.ptr, text3.len, 0);
+    try std.testing.expect(list3 != 0);
+    defer _ = sa_regex_split_free(list3);
+    try std.testing.expectEqual(@as(u64, 1), sa_regex_split_count(list3));
+    try std.testing.expectEqualStrings("abc", sa_regex_split_ptr(list3, 0).?[0..@intCast(sa_regex_split_len(list3, 0))]);
+
+    const empty: []const u8 = "";
+    const list4 = sa_regex_split(re, empty.ptr, empty.len, 0);
+    try std.testing.expect(list4 != 0);
+    defer _ = sa_regex_split_free(list4);
+    try std.testing.expectEqual(@as(u64, 1), sa_regex_split_count(list4));
+    try std.testing.expectEqual(@as(u64, 0), sa_regex_split_len(list4, 0));
+}
+
+test "regex: split inserts capture groups and honors limit" {
+    const pat: []const u8 = "([0-9])";
+    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
+    try std.testing.expect(re != 0);
+    defer _ = sa_regex_free(re);
+    const text: []const u8 = "a1b2c";
+
+    const list = sa_regex_split(re, text.ptr, text.len, 0);
+    try std.testing.expect(list != 0);
+    defer _ = sa_regex_split_free(list);
+    try std.testing.expectEqual(@as(u64, 5), sa_regex_split_count(list));
+    try std.testing.expectEqualStrings("a", sa_regex_split_ptr(list, 0).?[0..@intCast(sa_regex_split_len(list, 0))]);
+    try std.testing.expectEqualStrings("1", sa_regex_split_ptr(list, 1).?[0..@intCast(sa_regex_split_len(list, 1))]);
+    try std.testing.expectEqualStrings("b", sa_regex_split_ptr(list, 2).?[0..@intCast(sa_regex_split_len(list, 2))]);
+    try std.testing.expectEqualStrings("2", sa_regex_split_ptr(list, 3).?[0..@intCast(sa_regex_split_len(list, 3))]);
+    try std.testing.expectEqualStrings("c", sa_regex_split_ptr(list, 4).?[0..@intCast(sa_regex_split_len(list, 4))]);
+
+    const list2 = sa_regex_split(re, text.ptr, text.len, 3);
+    try std.testing.expect(list2 != 0);
+    defer _ = sa_regex_split_free(list2);
+    try std.testing.expectEqual(@as(u64, 3), sa_regex_split_count(list2));
+    try std.testing.expectEqualStrings("b", sa_regex_split_ptr(list2, 2).?[0..@intCast(sa_regex_split_len(list2, 2))]);
+
+    // Empty input whose pattern matches at 0 splits to zero pieces (JS).
+    const pat2: []const u8 = "a*";
+    const re2 = sa_regex_compile(pat2.ptr, pat2.len, SA_REGEX_EXTENDED);
+    try std.testing.expect(re2 != 0);
+    defer _ = sa_regex_free(re2);
+    const empty: []const u8 = "";
+    const list3 = sa_regex_split(re2, empty.ptr, empty.len, 0);
+    try std.testing.expect(list3 != 0);
+    defer _ = sa_regex_split_free(list3);
+    try std.testing.expectEqual(@as(u64, 0), sa_regex_split_count(list3));
+}
+
 
 pub export fn sa_json_buffer_data(buffer: u64) ?[*]u8 {
     while (!registry_mutex.tryLock()) {

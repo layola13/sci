@@ -13,3 +13,64 @@
 @extern sa_regex_group_count(regex: u64) -> u64
 @extern sa_regex_free(^regex: u64) -> i32!
 @extern sa_regex_match_free(^match: u64) -> i32!
+// ---------------------------------------------------------------------------
+// Global iteration / replace / split surface. Same u64-handle conventions
+// as the single-match surface above; every handle is released with its
+// matching *_free (or sa_std_close).
+//
+// sa_regex_match_all runs the JS global-exec loop over the whole text and
+// returns a match-LIST handle (not a match handle): count matches with
+// sa_regex_match_list_count and materialize each one as an ordinary match
+// handle with sa_regex_match_list_at, then read it with sa_regex_group_*.
+// A pattern that can match empty also produces the trailing empty match at
+// end-of-text (JS matchAll parity); after an empty match the search
+// advances ONE BYTE (this engine is byte-oriented; JS advances one code
+// point). A text with no matches yields a valid list of count 0.
+//
+// sa_regex_replace replaces the first match only; sa_regex_replace_all
+// replaces every match from the global iteration. Both return a
+// regex_buffer handle holding the new text (a copy of the input when
+// nothing matches); read it with sa_regex_buffer_data/len. The replacement
+// is a template expanded JS-style:
+//   $$  literal $            $&  whole match
+//   $`  text before match    $'  text after match
+//   $n / $nn  capture group (a non-participating group expands to nothing;
+//             an out-of-range group number stays literal)
+// A JS replacer CALLBACK cannot be expressed — the template is the only
+// form. $<name> stays literal (see the engine limits below).
+//
+// sa_regex_split splits like JS String.prototype.split with a RegExp: the
+// pieces between matches, with the matches' capture groups inserted
+// between them. Pieces are read with sa_regex_split_ptr/len; a capture
+// group that did not participate reports len 0 and a null ptr (JS would
+// put `undefined` in the array). limit caps the TOTAL piece count
+// including inserted groups (JS parity), except that limit == 0 means NO
+// limit here — JS limit 0 returns [], a deliberate divergence: 0 is the
+// natural "unset" value of this API.
+//
+// ENGINE LIMITS (POSIX ERE via libc regcomp/regexec; this surface adds no
+// pattern rewriting, so patterns are the caller's responsibility):
+// - No lookahead/lookbehind, no named groups, no non-greedy quantifiers,
+//   no \p{...} unicode property classes, no /u-flag semantics.
+// - \d is NOT a digit class in glibc ERE (it reads as a literal 'd');
+//   write [0-9] or [[:digit:]]. \w, \s and \b work only as glibc
+//   extensions. JS (?:...) non-capturing groups are not ERE syntax; ERE
+//   (...) groups always capture.
+// - '.' matches '\n' unless the pattern was compiled with REG_NEWLINE;
+//   JS excludes '\n' by default and includes it with /s — the compile-time
+//   cflags chosen by the caller decide.
+// - Text containing a NUL byte is rejected (0 handle), like sa_regex_match.
+@extern sa_regex_match_all(regex: u64, &text: ptr, text_len: u64) -> u64
+@extern sa_regex_match_list_count(list: u64) -> u64
+@extern sa_regex_match_list_at(list: u64, index: u64) -> u64
+@extern sa_regex_match_list_free(^list: u64) -> i32!
+@extern sa_regex_replace(regex: u64, &text: ptr, text_len: u64, &replacement: ptr, replacement_len: u64) -> u64
+@extern sa_regex_replace_all(regex: u64, &text: ptr, text_len: u64, &replacement: ptr, replacement_len: u64) -> u64
+@extern sa_regex_buffer_data(buffer: u64) -> &ptr
+@extern sa_regex_buffer_len(buffer: u64) -> u64
+@extern sa_regex_buffer_free(^buffer: u64) -> i32!
+@extern sa_regex_split(regex: u64, &text: ptr, text_len: u64, limit: u64) -> u64
+@extern sa_regex_split_count(list: u64) -> u64
+@extern sa_regex_split_ptr(list: u64, index: u64) -> &ptr
+@extern sa_regex_split_len(list: u64, index: u64) -> u64
+@extern sa_regex_split_free(^list: u64) -> i32!
