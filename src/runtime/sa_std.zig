@@ -7,6 +7,7 @@ const sio = @import("sio");
 // sa_std build/test graph. Interception wiring lands separately.
 pub const sa_policy = @import("sa_policy.zig");
 pub const sa_globals = @import("sa_globals.zig");
+pub const sa_identity = @import("sa_identity.zig");
 
 /// Runtime permission gate (sala 16_policy): checked at resource
 /// acquisition points only. No context installed -> allowed (the
@@ -455,6 +456,23 @@ comptime {
     _ = &sa_globals.sa_global_u64_add;
     _ = &sa_globals.sa_global_bytes_set;
     _ = &sa_globals.sa_global_bytes_get;
+    _ = &sa_identity.sa_idmap_new;
+    _ = &sa_identity.sa_idmap_free;
+    _ = &sa_identity.sa_idmap_set;
+    _ = &sa_identity.sa_idmap_get;
+    _ = &sa_identity.sa_idmap_set_u64;
+    _ = &sa_identity.sa_idmap_get_u64;
+    _ = &sa_identity.sa_idmap_has;
+    _ = &sa_identity.sa_idmap_remove;
+    _ = &sa_identity.sa_idmap_len;
+    _ = &sa_identity.sa_idmap_clear;
+    _ = &sa_identity.sa_idset_new;
+    _ = &sa_identity.sa_idset_free;
+    _ = &sa_identity.sa_idset_add;
+    _ = &sa_identity.sa_idset_has;
+    _ = &sa_identity.sa_idset_remove;
+    _ = &sa_identity.sa_idset_len;
+    _ = &sa_identity.sa_idset_clear;
     if (builtin.os.tag == .linux) {
         _ = &@import("sa_pty.zig").sa_pty_spawn;
         _ = &@import("sa_pty.zig").sa_pty_read;

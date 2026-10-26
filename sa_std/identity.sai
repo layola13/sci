@@ -1,0 +1,44 @@
+// SA-facing contracts for sa_std identity-keyed collections
+// (sa_idmap_* / sa_idset_*, sa_std built-in, 2026-10-26): the
+// sanctioned native substitute for JS WeakMap / WeakSet in converted
+// CXU code (miniModelHistory history cache, omniRouteFree identity
+// stores, server runtime request tables — all identity-keyed side
+// tables using only get/set/has/delete).
+//
+// One deliberate, documented difference: these collections are
+// STRONG, not weak. SA/SLA has no garbage collector and sa_std has
+// no finalization hook, so the WeakMap behaviour "the entry vanishes
+// when the key object dies" has no counterpart and is NOT emulated.
+// Keys are u64 identity tokens chosen by the caller (an object's
+// address, or a stable per-object id such as a runtime handle);
+// entries live until sa_idmap_remove / sa_idset_remove, clear, or
+// free. Callers keying by short-lived objects must remove entries
+// when the object goes away, exactly as the original code already
+// does at its delete-disciplined call sites.
+//
+// Status codes mirror sa_globals: OK=0, INVALID_ARGUMENT=1,
+// NOT_FOUND=3, NO_MEMORY=5, TRUNCATED=9. Handles come from
+// sa_idmap_new / sa_idset_new, are never reused, and a stale handle
+// reports NOT_FOUND; handle 0 is INVALID_ARGUMENT. Map values are
+// byte strings (copy-in / copy-out); the _u64 pair stores a u64 in
+// the same map as its 8-byte little-endian encoding, and
+// sa_idmap_get_u64 on a value of any other length is
+// INVALID_ARGUMENT. sa_idmap_get with a too-small buffer returns
+// TRUNCATED and still reports the required length through out_len.
+@extern sa_idmap_new(&out: ptr) -> i32
+@extern sa_idmap_free(handle: u64) -> i32
+@extern sa_idmap_set(handle: u64, key: u64, &value: ptr, value_len: u64) -> i32
+@extern sa_idmap_get(handle: u64, key: u64, &buf: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_idmap_set_u64(handle: u64, key: u64, value: u64) -> i32
+@extern sa_idmap_get_u64(handle: u64, key: u64, &out: ptr) -> i32
+@extern sa_idmap_has(handle: u64, key: u64, &out: ptr) -> i32
+@extern sa_idmap_remove(handle: u64, key: u64) -> i32
+@extern sa_idmap_len(handle: u64, &out: ptr) -> i32
+@extern sa_idmap_clear(handle: u64) -> i32
+@extern sa_idset_new(&out: ptr) -> i32
+@extern sa_idset_free(handle: u64) -> i32
+@extern sa_idset_add(handle: u64, key: u64) -> i32
+@extern sa_idset_has(handle: u64, key: u64, &out: ptr) -> i32
+@extern sa_idset_remove(handle: u64, key: u64) -> i32
+@extern sa_idset_len(handle: u64, &out: ptr) -> i32
+@extern sa_idset_clear(handle: u64) -> i32
