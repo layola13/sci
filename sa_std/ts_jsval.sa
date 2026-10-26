@@ -46,3 +46,29 @@ L_TJT_TAG:
     r2 = and r1, numPass
     res = and r2, strPass
     return res
+
+// @ts_jsval_box_inst 求实例句柄的 jsval 装箱（JEV sa_std_branch_box 0.96）：
+// 0 柄即 undefined 装箱（kind 0），非零柄即 object 装箱（kind 4，载荷即句柄）。
+// 布局与归属与 tsgosa `saBoxJsVal` 同形（internal/transpile/sa_expr.go:8765：
+// alloc 32，+0 kind i32，+8 载荷 ptr，+16 载荷 i32/f64，+24 0 ptr 侧车清零）。
+// 分支语义为本函数新增（调用点原先对 inst 标识符恒 box kind 4、对 null/undefined
+// 恒 box kind 0/6；可选实例域 0/柄两态需在同一调用点判定，故合成为分支 helper）。
+// 调用方持有新柄（alloc 32）；源句柄为借用，不释放、不转移。
+@ts_jsval_box_inst(h: ptr) -> ptr:
+L_TJBI_ENTRY:
+    nz = ne h, 0
+    br nz -> L_TJBI_OBJ, L_TJBI_UNDEF
+L_TJBI_UNDEF:
+    u = alloc 32
+    store u+0, 0 as i32
+    store u+8, 0 as ptr
+    store u+16, 0 as i32
+    store u+24, 0 as ptr
+    return u
+L_TJBI_OBJ:
+    o = alloc 32
+    store o+0, 4 as i32
+    store o+8, h as ptr
+    store o+16, 0 as i32
+    store o+24, 0 as ptr
+    return o

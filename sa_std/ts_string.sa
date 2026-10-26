@@ -587,3 +587,52 @@ L_SC_EQ:
     jmp L_SC_END
 L_SC_END:
     return ord
+
+// @ts_arr_join_str_sep 串元数组经分隔符拼接成新柄（返新 16 字节柄，调用方持有；
+// 分隔符除首元外；空数组返空串；JEV sa_std_sep_helper 1.0）。
+// 元读法与 `@ts_arr_join_strs` 同形（元为 4 字节句柄字，柄 +8 读长度，
+// 段经 `@ts_arr_join_append` 合并，元柄为借用不释放）；分隔符分支与
+// `@ts_arr_join_vals` 同形（分隔符切片临时建柄，用后释放）。
+// 形状证据：tsgosa 数组 join 调用位（internal/transpile/sa_arr.go:9389
+// join 案）原先对串元数组大声拒（join_vals 只懂 i32 元）；本函数补齐串元分隔拼接。
+@ts_arr_join_str_sep(h: ptr, sp: ptr, sl: u64) -> ptr:
+L_JSS_ENTRY:
+    acc0 = alloc 16
+    store acc0+0, &jn_empty as ptr
+    store acc0+8, 0 as u64
+    aslot = alloc 8
+    store aslot+0, acc0 as ptr
+    ln = load h+8 as u64
+    data = load h+0 as ptr
+    i = 0
+    jmp L_JSS_TOP
+L_JSS_TOP:
+    c = slt i, ln
+    br c -> L_JSS_BODY, L_JSS_END
+L_JSS_BODY:
+    first = ne i, 0
+    br first -> L_JSS_SEP, L_JSS_ELEM
+L_JSS_SEP:
+    a0 = load aslot+0 as ptr
+    seph = alloc 16
+    store seph+0, sp as ptr
+    store seph+8, sl as u64
+    a1 = call @ts_arr_join_append(a0, seph, sl)
+    !seph
+    store aslot+0, a1 as ptr
+    jmp L_JSS_ELEM
+L_JSS_ELEM:
+    off = mul i, 4
+    addr = add data, off
+    eh = load addr+0 as i32
+    el = load eh+8 as u64
+    a2 = load aslot+0 as ptr
+    a3 = call @ts_arr_join_append(a2, eh, el)
+    store aslot+0, a3 as ptr
+    inext = add i, 1
+    i = inext
+    jmp L_JSS_TOP
+L_JSS_END:
+    acc = load aslot+0 as ptr
+    !aslot
+    return acc
