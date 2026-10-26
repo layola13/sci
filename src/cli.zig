@@ -4547,7 +4547,13 @@ fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     if (builtin.is_test) test_source_tree_load_count += 1;
     var file = try sio.cwd().openFile(path, .{});
     defer file.close();
-    return try file.readToEndAlloc(allocator, 16 * 1024 * 1024);
+    // C2b: the 16 MiB cap also guards .sab inputs, but the SLA compiler
+    // emits .sab files far beyond that for large module closures
+    // (measured 20-85 MiB for the saVmTool closure), so `sa test` on
+    // such a .sab died with error.StreamTooLong before doing any work.
+    // Source files are fully buffered by every downstream stage anyway;
+    // keep a 1 GiB sanity ceiling instead.
+    return try file.readToEndAlloc(allocator, 1024 * 1024 * 1024);
 }
 
 fn loadSabFlat(allocator: std.mem.Allocator, source_path: []const u8) !flattener.FlattenResult {
