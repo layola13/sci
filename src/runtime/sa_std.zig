@@ -16073,6 +16073,50 @@ pub export fn sa_std_net_ja4_hash12(input_ptr: ?[*]const u8, input_len: u64, out
     return finish(SA_STD_OK);
 }
 
+// HMAC-SHA-256 (RFC 2104, vectors in RFC 4231) of msg under key, written
+// as 64 lowercase hex chars into out (cap must be >= 64). Same status
+// model as sa_std_net_sha256_hex.
+pub export fn sa_hmac_sha256_hex(key_ptr: ?[*]const u8, key_len: u64, msg_ptr: ?[*]const u8, msg_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    len_slot.* = 0;
+    if (out_cap < 64) return finish(SA_STD_ERR_TRUNCATED);
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    const msg = constBytes(msg_ptr, msg_len) catch |err| return finishErr(err);
+    const out = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var digest: [32]u8 = undefined;
+    std.crypto.auth.hmac.sha2.HmacSha256.create(&digest, msg, key);
+    writeHexLower(out[0..64], digest[0..]);
+    len_slot.* = 64;
+    return finish(SA_STD_OK);
+}
+
+// HMAC-SHA-1 (RFC 2104, vectors in RFC 2202) of msg under key, written
+// as 40 lowercase hex chars into out (cap must be >= 40).
+pub export fn sa_hmac_sha1_hex(key_ptr: ?[*]const u8, key_len: u64, msg_ptr: ?[*]const u8, msg_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    len_slot.* = 0;
+    if (out_cap < 40) return finish(SA_STD_ERR_TRUNCATED);
+    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
+    const msg = constBytes(msg_ptr, msg_len) catch |err| return finishErr(err);
+    const out = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var digest: [20]u8 = undefined;
+    std.crypto.auth.hmac.HmacSha1.create(&digest, msg, key);
+    writeHexLower(out[0..40], digest[0..]);
+    len_slot.* = 40;
+    return finish(SA_STD_OK);
+}
+
+// Fill the caller buffer with bytes from the OS CSPRNG (the same source
+// behind cryptoRandomU64 and sa_deno_random_uuid). A zero length is a
+// no-op success, including with a null pointer.
+pub export fn sa_crypto_random_bytes(out_ptr: ?[*]u8, len: u64) i32 {
+    if (len == 0) return finish(SA_STD_OK);
+    const out = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const n = lenAsUsize(len) catch |err| return finishErr(err);
+    sio.io().random(out[0..n]);
+    return finish(SA_STD_OK);
+}
+
 fn expectTimeoutRoundedUpWithin(requested_ns: u64, observed_ns: u64) !void {
     try std.testing.expect(observed_ns >= requested_ns);
     try std.testing.expect(observed_ns - requested_ns <= 10 * std.time.ns_per_ms);
@@ -16110,6 +16154,95 @@ test "ja3/ja4 reject too-small output buffers" {
     try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_std_net_ja3_hash("x", 1, &small, small.len, &n));
     try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_std_net_sha256_hex("x", 1, &small, small.len, &n));
     try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_std_net_ja4_hash12("x", 1, &small, small.len, &n));
+}
+
+test "hmac sha256 matches RFC 4231 vectors" {
+    var out: [64]u8 = undefined;
+    var out_len: u64 = 0;
+
+    // Test Case 1: key = 0x0b x 20, data = "Hi There".
+    const key1: [20]u8 = @splat(0x0b);
+    const data1 = "Hi There";
+    try std.testing.expectEqual(SA_STD_OK, sa_hmac_sha256_hex(&key1, key1.len, data1.ptr, data1.len, &out, out.len, &out_len));
+    try std.testing.expectEqual(@as(u64, 64), out_len);
+    try std.testing.expectEqualStrings("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7", out[0..64]);
+
+    // Test Case 2: key = "Jefe", data = "what do ya want for nothing?".
+    const key2 = "Jefe";
+    const data2 = "what do ya want for nothing?";
+    try std.testing.expectEqual(SA_STD_OK, sa_hmac_sha256_hex(key2.ptr, key2.len, data2.ptr, data2.len, &out, out.len, &out_len));
+    try std.testing.expectEqualStrings("5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843", out[0..64]);
+
+    // Test Case 6: key = 0xaa x 131 (longer than the 64-byte block size,
+    // so the key itself is hashed first).
+    const key6: [131]u8 = @splat(0xaa);
+    const data6 = "Test Using Larger Than Block-Size Key - Hash Key First";
+    try std.testing.expectEqual(SA_STD_OK, sa_hmac_sha256_hex(&key6, key6.len, data6.ptr, data6.len, &out, out.len, &out_len));
+    try std.testing.expectEqualStrings("60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54", out[0..64]);
+}
+
+test "hmac sha1 matches RFC 2202 vectors" {
+    var out: [40]u8 = undefined;
+    var out_len: u64 = 0;
+
+    // Case 1: key = 0x0b x 20, data = "Hi There".
+    const key1: [20]u8 = @splat(0x0b);
+    const data1 = "Hi There";
+    try std.testing.expectEqual(SA_STD_OK, sa_hmac_sha1_hex(&key1, key1.len, data1.ptr, data1.len, &out, out.len, &out_len));
+    try std.testing.expectEqual(@as(u64, 40), out_len);
+    try std.testing.expectEqualStrings("b617318655057264e28bc0b6fb378c8ef146be00", out[0..40]);
+
+    // Case 2: key = "Jefe", data = "what do ya want for nothing?".
+    const key2 = "Jefe";
+    const data2 = "what do ya want for nothing?";
+    try std.testing.expectEqual(SA_STD_OK, sa_hmac_sha1_hex(key2.ptr, key2.len, data2.ptr, data2.len, &out, out.len, &out_len));
+    try std.testing.expectEqualStrings("effcdf6ae5eb2fa2d27416d5f184df9c259a7c79", out[0..40]);
+
+    // Case 6: key = 0xaa x 80 (longer than the 64-byte block size).
+    const key6: [80]u8 = @splat(0xaa);
+    const data6 = "Test Using Larger Than Block-Size Key - Hash Key First";
+    try std.testing.expectEqual(SA_STD_OK, sa_hmac_sha1_hex(&key6, key6.len, data6.ptr, data6.len, &out, out.len, &out_len));
+    try std.testing.expectEqualStrings("aa4ae5e15272d00e95705637ce8a3b55ed402112", out[0..40]);
+}
+
+test "hmac hex rejects too-small output buffers" {
+    var small: [16]u8 = undefined;
+    var n: u64 = 0;
+    try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_hmac_sha256_hex("k", 1, "x", 1, &small, small.len, &n));
+    try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_hmac_sha1_hex("k", 1, "x", 1, &small, small.len, &n));
+}
+
+test "crypto random bytes fills the caller buffer" {
+    var a: [32]u8 = undefined;
+    var b: [32]u8 = undefined;
+    try std.testing.expectEqual(SA_STD_OK, sa_crypto_random_bytes(&a, a.len));
+    try std.testing.expectEqual(SA_STD_OK, sa_crypto_random_bytes(&b, b.len));
+    // Two independent 32-byte draws colliding has probability 2^-256.
+    try std.testing.expect(!std.mem.eql(u8, &a, &b));
+    try std.testing.expectEqual(SA_STD_OK, sa_crypto_random_bytes(null, 0));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_crypto_random_bytes(null, 4));
+}
+
+test "deno random uuid returns well-formed v4 text" {
+    const h1 = sa_deno_random_uuid();
+    try std.testing.expect(h1 != 0);
+    defer _ = sa_fmt_buffer_free(h1);
+    const data = sa_fmt_buffer_data(h1) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 36), sa_fmt_buffer_len(h1));
+    const text = data[0..36];
+    // RFC 4122 layout: 8-4-4-4-12 lowercase hex, version 4, variant 10xx.
+    try std.testing.expect(text[8] == '-' and text[13] == '-' and text[18] == '-' and text[23] == '-');
+    try std.testing.expect(text[14] == '4');
+    try std.testing.expect(text[19] == '8' or text[19] == '9' or text[19] == 'a' or text[19] == 'b');
+    for (text, 0..) |c, i| {
+        if (i == 8 or i == 13 or i == 18 or i == 23) continue;
+        try std.testing.expect((c >= '0' and c <= '9') or (c >= 'a' and c <= 'f'));
+    }
+    const h2 = sa_deno_random_uuid();
+    try std.testing.expect(h2 != 0);
+    defer _ = sa_fmt_buffer_free(h2);
+    const data2 = sa_fmt_buffer_data(h2) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(!std.mem.eql(u8, text, data2[0..36]));
 }
 
 test "socket helper round trip on raw udp socket" {

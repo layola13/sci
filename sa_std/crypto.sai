@@ -14,3 +14,19 @@
 @extern sa_keyring_set(&collection: ptr, collection_len: u64, &key: ptr, key_len: u64, &secret: ptr, secret_len: u64) -> i32
 @extern sa_keyring_get(&key: ptr, key_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
 @extern sa_keyring_remove(&key: ptr, key_len: u64) -> i32
+
+// HMAC (RFC 2104) digests as lowercase hex text, following the
+// sa_std_net_sha256_hex status model: 0 on success, 9 (truncated)
+// when cap is too small (sha256 needs cap >= 64, sha1 cap >= 40),
+// invalid argument otherwise. The hex form matches the published
+// RFC 4231 (sha256) and RFC 2202 (sha1) test vectors directly.
+// sa_crypto_random_bytes fills the caller buffer from the OS CSPRNG,
+// the same source behind the runtime's internal random draws.
+// sa_deno_random_uuid returns a fmt-buffer handle holding a 36-char
+// RFC 4122 version-4 UUID (read with sa_fmt_buffer_data/len, release
+// with sa_fmt_buffer_free); 0 on failure. Its runtime implementation
+// predates this declaration.
+@extern sa_hmac_sha256_hex(&key: ptr, key_len: u64, &msg: ptr, msg_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_hmac_sha1_hex(&key: ptr, key_len: u64, &msg: ptr, msg_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_crypto_random_bytes(&out: ptr, len: u64) -> i32
+@extern sa_deno_random_uuid() -> u64
