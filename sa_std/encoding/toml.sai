@@ -6,6 +6,18 @@
 // 3 float, 4 bool, 5 datetime (raw text preserved), 6 array, 7 table.
 // Duplicate keys and table redefinitions fail sa_toml_parse (returns 0)
 // and are reported through sa_toml_last_error — never silently last-wins.
+// Write side: sa_toml_new builds an empty document; set_* creates
+// intermediate tables on demand and replaces whatever sits at the path;
+// a mutation walk descends into inline tables, and array elements
+// (including arrays of tables) are addressed by explicit numeric
+// segments only, exactly as on the read side. array_push_* appends,
+// creating the array when the
+// path is free; sa_toml_remove deletes a key, or an array element when
+// the final segment is numeric. sa_toml_stringify emits TOML text that
+// sa_toml_parse reads back; the buffer is document-owned and is
+// invalidated by the next mutation or stringify of that document.
+// sa_toml_table_key_at enumerates a table's keys in insertion order
+// and pairs with sa_toml_table_len (empty path = the root table).
 @extern sa_toml_parse(&toml_bytes: ptr, len: u64) -> u64
 @extern sa_toml_free(^doc: u64) -> i32
 @extern sa_toml_last_error(&out_ptr: ptr, &out_len: ptr) -> i32
@@ -19,3 +31,19 @@
 @extern sa_toml_table_len(doc: u64, &path: ptr, path_len: u64, &out_len: ptr) -> i32
 @extern sa_toml_array_get_string(doc: u64, &path: ptr, path_len: u64, index: u64, &out_ptr: ptr, &out_len: ptr) -> i32
 @extern sa_toml_array_get_i64(doc: u64, &path: ptr, path_len: u64, index: u64, &out_value: ptr) -> i32
+@extern sa_toml_new() -> u64
+@extern sa_toml_table_key_at(doc: u64, &path: ptr, path_len: u64, index: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_toml_set_string(doc: u64, &path: ptr, path_len: u64, &value: ptr, value_len: u64) -> i32
+@extern sa_toml_set_datetime(doc: u64, &path: ptr, path_len: u64, &value: ptr, value_len: u64) -> i32
+@extern sa_toml_set_i64(doc: u64, &path: ptr, path_len: u64, value: i64) -> i32
+@extern sa_toml_set_f64(doc: u64, &path: ptr, path_len: u64, value: f64) -> i32
+@extern sa_toml_set_bool(doc: u64, &path: ptr, path_len: u64, value: u32) -> i32
+@extern sa_toml_set_table(doc: u64, &path: ptr, path_len: u64) -> i32
+@extern sa_toml_remove(doc: u64, &path: ptr, path_len: u64) -> i32
+@extern sa_toml_array_push_string(doc: u64, &path: ptr, path_len: u64, &value: ptr, value_len: u64) -> i32
+@extern sa_toml_array_push_datetime(doc: u64, &path: ptr, path_len: u64, &value: ptr, value_len: u64) -> i32
+@extern sa_toml_array_push_i64(doc: u64, &path: ptr, path_len: u64, value: i64) -> i32
+@extern sa_toml_array_push_f64(doc: u64, &path: ptr, path_len: u64, value: f64) -> i32
+@extern sa_toml_array_push_bool(doc: u64, &path: ptr, path_len: u64, value: u32) -> i32
+@extern sa_toml_array_push_table(doc: u64, &path: ptr, path_len: u64) -> i32
+@extern sa_toml_stringify(doc: u64, &out_ptr: ptr, &out_len: ptr) -> i32

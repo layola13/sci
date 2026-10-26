@@ -1,4 +1,5 @@
-//! sa_std TOML: parser + dotted-path accessors (P0-6 / D4).
+//! sa_std TOML: parser + dotted-path accessors + builder/serializer
+//! (P0-6 / D4).
 //!
 //! TOML v1.0 document model mirroring the JSON surface shape: parse the
 //! whole text into a handle, then read values by dotted path
@@ -8,6 +9,15 @@
 //! check depends on duplicates being visible, never last-wins).
 //! Status codes mirror sa_std.zig (0 ok, 1 invalid argument, 2 invalid
 //! handle, 3 not found, 5 no memory).
+//!
+//! The write side (sa_toml_new / set_* / array_push_* / remove /
+//! stringify) mutates the handle's tree in place: set_* replaces
+//! whatever sits at the path, intermediate tables are created on
+//! demand, and mutation walks descend into inline tables (the
+//! inline-table restriction is a parse-time text rule, not a builder
+//! rule). sa_toml_stringify emits TOML text that this parser reads
+//! back; its buffer is document-owned and invalidated by the next
+//! mutation or stringify of the same document.
 
 const std = @import("std");
 const sio = @import("sio");
@@ -53,8 +63,10 @@ const Value = struct {
 const Document = struct {
     allocator: std.mem.Allocator,
     root: *Table,
+    ser_buf: ?[]u8 = null,
 
     fn deinit(self: *Document) void {
+        if (self.ser_buf) |buf| self.allocator.free(buf);
         freeTable(self.allocator, self.root);
         self.allocator.destroy(self);
     }
@@ -921,6 +933,595 @@ pub export fn sa_toml_array_get_i64(handle: u64, path_ptr: ?[*]const u8, path_le
     return OK;
 }
 
+// ---------------- mutation + serialization (builder) ----------------
+//
+// The write side mirrors the JSON mutation surface's design language
+// (handle + set_* family + a serialization exit), adapted to this
+// module's dotted-path addressing. set_* REPLACES whatever sits at the
+// path (freeing the old value); intermediate tables are created on
+// demand with created_as .dotted. Mutation walks descend into inline
+// tables: parsed configs (env = { ... }) must stay editable, and the
+// inline-table restriction is a text rule, not a builder rule.
+
+const WriteError = error{ Invalid, NotFound, OutOfMemory };
+
+fn bareTable(alloc: std.mem.Allocator, created_as: CreatedAs) WriteError!*Table {
+    const t = alloc.create(Table) catch return error.OutOfMemory;
+    t.* = .{ .entries = std.array_list.Managed(Entry).init(alloc), .created_as = created_as };
+    return t;
+}
+
+// Invalidate the cached serialization after a successful mutation.
+fn touch(doc: *Document) void {
+    if (doc.ser_buf) |buf| {
+        doc.allocator.free(buf);
+        doc.ser_buf = null;
+    }
+}
+
+// Descend one existing container value during a mutation walk. Only
+// tables qualify: arrays are addressed by explicit numeric segments
+// (handled by the walks themselves), never by an implicit "most
+// recent element", so a path means the same thing to the mutation
+// walks as it does to resolveValue on the read side.
+fn descendMutable(value: *Value) WriteError!*Table {
+    if (value.kind == KIND_TABLE) return value.table.?;
+    return error.Invalid;
+}
+
+// Walk segs as CONTAINERS from the root and return the table they land
+// in. With create=false nothing is allocated and a missing segment
+// yields error.NotFound (callers read that as "creatable"); with
+// create=true missing segments become fresh tables. A numeric segment
+// directly after an array key indexes that array, exactly like the
+// read side's resolveValue.
+fn walkParent(doc: *Document, segs: []const []const u8, create: bool) WriteError!*Table {
+    const alloc = doc.allocator;
+    var table = doc.root;
+    var i: usize = 0;
+    while (i < segs.len) {
+        const seg = segs[i];
+        const entry = Parser.findEntry(table, seg) orelse {
+            if (!create) return error.NotFound;
+            const t = try bareTable(alloc, .dotted);
+            const key_copy = alloc.dupe(u8, seg) catch {
+                freeTable(alloc, t);
+                return error.OutOfMemory;
+            };
+            table.entries.append(.{ .key = key_copy, .value = .{ .kind = KIND_TABLE, .table = t } }) catch {
+                alloc.free(key_copy);
+                freeTable(alloc, t);
+                return error.OutOfMemory;
+            };
+            table = t;
+            i += 1;
+            continue;
+        };
+        if (entry.value.kind == KIND_ARRAY and i + 1 < segs.len) {
+            if (std.fmt.parseInt(usize, segs[i + 1], 10)) |idx| {
+                if (idx >= entry.value.array.len) return error.Invalid;
+                const elem = &entry.value.array[idx];
+                if (elem.kind != KIND_TABLE) return error.Invalid;
+                table = elem.table.?;
+                i += 2;
+                continue;
+            } else |_| {}
+            return error.Invalid;
+        }
+        table = try descendMutable(&entry.value);
+        i += 1;
+    }
+    return table;
+}
+
+// Install `value` at `path`, taking ownership of it on every outcome
+// (it is freed again on failure). The parent chain is validated before
+// any table is created, so a rejected set leaves the document
+// untouched apart from tables a dry run proved creatable.
+fn setValueAt(doc: *Document, path: []const u8, value: Value) i32 {
+    const alloc = doc.allocator;
+    const segs = splitPath(alloc, path) catch {
+        freeValue(alloc, value);
+        return ERR_NOMEM;
+    };
+    defer freePathSegs(alloc, segs);
+    if (segs.len == 0) {
+        freeValue(alloc, value);
+        return ERR_INVALID;
+    }
+    _ = walkParent(doc, segs[0 .. segs.len - 1], false) catch |err| switch (err) {
+        error.NotFound => {},
+        error.OutOfMemory => {
+            freeValue(alloc, value);
+            return ERR_NOMEM;
+        },
+        else => {
+            freeValue(alloc, value);
+            return ERR_INVALID;
+        },
+    };
+    const parent = walkParent(doc, segs[0 .. segs.len - 1], true) catch {
+        freeValue(alloc, value);
+        return ERR_NOMEM;
+    };
+    const key = segs[segs.len - 1];
+    if (Parser.findEntry(parent, key)) |entry| {
+        freeValue(alloc, entry.value);
+        entry.value = value;
+    } else {
+        const key_copy = alloc.dupe(u8, key) catch {
+            freeValue(alloc, value);
+            return ERR_NOMEM;
+        };
+        parent.entries.append(.{ .key = key_copy, .value = value }) catch {
+            alloc.free(key_copy);
+            freeValue(alloc, value);
+            return ERR_NOMEM;
+        };
+    }
+    touch(doc);
+    return OK;
+}
+
+fn appendToArray(alloc: std.mem.Allocator, arr_value: *Value, value: Value) WriteError!void {
+    var items = std.array_list.Managed(Value).init(alloc);
+    defer items.deinit();
+    items.appendSlice(arr_value.array) catch return error.OutOfMemory;
+    items.append(value) catch return error.OutOfMemory;
+    const new_arr = items.toOwnedSlice() catch return error.OutOfMemory;
+    alloc.free(arr_value.array);
+    arr_value.array = new_arr;
+}
+
+// Append `value` to the array at `path`, creating the array when the
+// path is still free. is_table marks arrays created by
+// sa_toml_array_push_table so they serialize as [[table]] blocks.
+fn pushValueAt(doc: *Document, path: []const u8, value: Value, is_table: bool) i32 {
+    const alloc = doc.allocator;
+    const segs = splitPath(alloc, path) catch {
+        freeValue(alloc, value);
+        return ERR_NOMEM;
+    };
+    defer freePathSegs(alloc, segs);
+    if (segs.len == 0) {
+        freeValue(alloc, value);
+        return ERR_INVALID;
+    }
+    // Reject up front when a non-array already sits at the path, or a
+    // scalar would land in an array of tables.
+    if (resolveValue(doc, path)) |existing| {
+        if (existing.kind != KIND_ARRAY or (existing.array_of_tables and !is_table)) {
+            freeValue(alloc, value);
+            return ERR_INVALID;
+        }
+    }
+    _ = walkParent(doc, segs[0 .. segs.len - 1], false) catch |err| switch (err) {
+        error.NotFound => {},
+        error.OutOfMemory => {
+            freeValue(alloc, value);
+            return ERR_NOMEM;
+        },
+        else => {
+            freeValue(alloc, value);
+            return ERR_INVALID;
+        },
+    };
+    const parent = walkParent(doc, segs[0 .. segs.len - 1], true) catch {
+        freeValue(alloc, value);
+        return ERR_NOMEM;
+    };
+    const key = segs[segs.len - 1];
+    if (Parser.findEntry(parent, key)) |entry| {
+        appendToArray(alloc, &entry.value, value) catch {
+            freeValue(alloc, value);
+            return ERR_NOMEM;
+        };
+    } else {
+        const key_copy = alloc.dupe(u8, key) catch {
+            freeValue(alloc, value);
+            return ERR_NOMEM;
+        };
+        var items = std.array_list.Managed(Value).init(alloc);
+        defer items.deinit();
+        items.append(value) catch {
+            alloc.free(key_copy);
+            freeValue(alloc, value);
+            return ERR_NOMEM;
+        };
+        const arr = items.toOwnedSlice() catch {
+            alloc.free(key_copy);
+            freeValue(alloc, value);
+            return ERR_NOMEM;
+        };
+        parent.entries.append(.{ .key = key_copy, .value = .{ .kind = KIND_ARRAY, .array = arr, .array_of_tables = is_table } }) catch {
+            alloc.free(key_copy);
+            const arr_value = Value{ .kind = KIND_ARRAY, .array = arr, .array_of_tables = is_table };
+            freeValue(alloc, arr_value);
+            return ERR_NOMEM;
+        };
+    }
+    touch(doc);
+    return OK;
+}
+
+fn removeAtPath(doc: *Document, path: []const u8) i32 {
+    const alloc = doc.allocator;
+    const segs = splitPath(alloc, path) catch return ERR_NOMEM;
+    defer freePathSegs(alloc, segs);
+    if (segs.len == 0) return ERR_INVALID;
+    var table = doc.root;
+    var i: usize = 0;
+    while (i + 1 < segs.len) {
+        const entry = Parser.findEntry(table, segs[i]) orelse return ERR_NOT_FOUND;
+        switch (entry.value.kind) {
+            KIND_TABLE => {
+                table = entry.value.table.?;
+                i += 1;
+            },
+            KIND_ARRAY => {
+                if (std.fmt.parseInt(usize, segs[i + 1], 10)) |idx| {
+                    if (idx >= entry.value.array.len) return ERR_NOT_FOUND;
+                    if (i + 2 == segs.len) {
+                        // The final segment indexes this array: remove
+                        // the element itself.
+                        var items = std.array_list.Managed(Value).init(alloc);
+                        defer items.deinit();
+                        items.appendSlice(entry.value.array) catch return ERR_NOMEM;
+                        const removed = items.orderedRemove(idx);
+                        const new_arr = items.toOwnedSlice() catch return ERR_NOMEM;
+                        alloc.free(entry.value.array);
+                        entry.value.array = new_arr;
+                        freeValue(alloc, removed);
+                        touch(doc);
+                        return OK;
+                    }
+                    const elem = &entry.value.array[idx];
+                    if (elem.kind != KIND_TABLE) return ERR_NOT_FOUND;
+                    table = elem.table.?;
+                    i += 2;
+                } else |_| {
+                    // A non-numeric segment addresses nothing inside
+                    // an array (read-side parity).
+                    return ERR_NOT_FOUND;
+                }
+            },
+            else => return ERR_NOT_FOUND,
+        }
+    }
+    const key = segs[segs.len - 1];
+    for (table.entries.items, 0..) |entry, idx| {
+        if (std.mem.eql(u8, entry.key, key)) {
+            const removed = table.entries.orderedRemove(idx);
+            alloc.free(removed.key);
+            freeValue(alloc, removed.value);
+            touch(doc);
+            return OK;
+        }
+    }
+    return ERR_NOT_FOUND;
+}
+
+// ---------------- serializer ----------------
+
+fn isBareKey(key: []const u8) bool {
+    if (key.len == 0) return false;
+    for (key) |c| {
+        const ok = (c >= 'A' and c <= 'Z') or (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '_' or c == '-';
+        if (!ok) return false;
+    }
+    return true;
+}
+
+fn writeEscapedInto(out: *std.array_list.Managed(u8), s: []const u8) error{OutOfMemory}!void {
+    const hexd = "0123456789ABCDEF";
+    for (s) |c| {
+        switch (c) {
+            '"' => try out.appendSlice("\\\""),
+            '\\' => try out.appendSlice("\\\\"),
+            0x08 => try out.appendSlice("\\b"),
+            '\t' => try out.appendSlice("\\t"),
+            '\n' => try out.appendSlice("\\n"),
+            0x0C => try out.appendSlice("\\f"),
+            '\r' => try out.appendSlice("\\r"),
+            else => {
+                if (c < 0x20 or c == 0x7F) {
+                    try out.appendSlice("\\u00");
+                    try out.append(hexd[(c >> 4) & 0xF]);
+                    try out.append(hexd[c & 0xF]);
+                } else {
+                    try out.append(c);
+                }
+            },
+        }
+    }
+}
+
+fn writeKeyInto(out: *std.array_list.Managed(u8), key: []const u8) error{OutOfMemory}!void {
+    if (isBareKey(key)) {
+        try out.appendSlice(key);
+        return;
+    }
+    try out.append('"');
+    try writeEscapedInto(out, key);
+    try out.append('"');
+}
+
+fn writeFloatInto(alloc: std.mem.Allocator, out: *std.array_list.Managed(u8), v: f64) error{OutOfMemory}!void {
+    if (std.math.isNan(v)) {
+        try out.appendSlice("nan");
+        return;
+    }
+    if (std.math.isInf(v)) {
+        try out.appendSlice(if (v > 0) "inf" else "-inf");
+        return;
+    }
+    const s = try std.fmt.allocPrint(alloc, "{d}", .{v});
+    defer alloc.free(s);
+    try out.appendSlice(s);
+    // Keep the value a float on reparse: bare "1" would read back as
+    // an integer.
+    if (std.mem.indexOfAny(u8, s, ".eE") == null) try out.appendSlice(".0");
+}
+
+// Value form: scalars, arrays and tables as they appear after "=" or
+// inside an array (tables become inline tables here).
+fn writeValueInto(alloc: std.mem.Allocator, out: *std.array_list.Managed(u8), value: Value) error{OutOfMemory}!void {
+    switch (value.kind) {
+        KIND_STRING => {
+            try out.append('"');
+            try writeEscapedInto(out, value.str);
+            try out.append('"');
+        },
+        KIND_DATETIME => try out.appendSlice(value.str),
+        KIND_INTEGER => {
+            const s = try std.fmt.allocPrint(alloc, "{d}", .{value.int});
+            defer alloc.free(s);
+            try out.appendSlice(s);
+        },
+        KIND_FLOAT => try writeFloatInto(alloc, out, value.float),
+        KIND_BOOL => try out.appendSlice(if (value.boolean) "true" else "false"),
+        KIND_ARRAY => {
+            try out.append('[');
+            for (value.array, 0..) |item, idx| {
+                if (idx > 0) try out.appendSlice(", ");
+                try writeValueInto(alloc, out, item);
+            }
+            try out.append(']');
+        },
+        KIND_TABLE => {
+            const t = value.table.?;
+            try out.appendSlice("{");
+            for (t.entries.items, 0..) |entry, idx| {
+                if (idx > 0) try out.appendSlice(",");
+                try out.append(' ');
+                try writeKeyInto(out, entry.key);
+                try out.appendSlice(" = ");
+                try writeValueInto(alloc, out, entry.value);
+            }
+            if (t.entries.items.len > 0) try out.append(' ');
+            try out.append('}');
+        },
+        else => {},
+    }
+}
+
+fn childPrefix(alloc: std.mem.Allocator, prefix: []const u8, key: []const u8) error{OutOfMemory}![]u8 {
+    var seg = std.array_list.Managed(u8).init(alloc);
+    defer seg.deinit();
+    try writeKeyInto(&seg, key);
+    if (prefix.len == 0) return alloc.dupe(u8, seg.items);
+    return std.fmt.allocPrint(alloc, "{s}.{s}", .{ prefix, seg.items });
+}
+
+// Section form: plain entries first (they belong to the section the
+// caller just opened), then subtable sections, then [[array]] blocks.
+// prefix is this table's written dotted path ("" for the root).
+fn writeTableInto(alloc: std.mem.Allocator, out: *std.array_list.Managed(u8), table: *Table, prefix: []const u8) error{OutOfMemory}!void {
+    for (table.entries.items) |entry| {
+        const v = entry.value;
+        if (v.kind == KIND_TABLE) continue;
+        if (v.kind == KIND_ARRAY and v.array_of_tables) continue;
+        try writeKeyInto(out, entry.key);
+        try out.appendSlice(" = ");
+        try writeValueInto(alloc, out, v);
+        try out.append('\n');
+    }
+    for (table.entries.items) |entry| {
+        if (entry.value.kind != KIND_TABLE) continue;
+        const p = try childPrefix(alloc, prefix, entry.key);
+        defer alloc.free(p);
+        try out.append('[');
+        try out.appendSlice(p);
+        try out.appendSlice("]\n");
+        try writeTableInto(alloc, out, entry.value.table.?, p);
+    }
+    for (table.entries.items) |entry| {
+        const v = entry.value;
+        if (v.kind != KIND_ARRAY or !v.array_of_tables) continue;
+        const p = try childPrefix(alloc, prefix, entry.key);
+        defer alloc.free(p);
+        for (v.array) |elem| {
+            if (elem.kind != KIND_TABLE) continue;
+            try out.appendSlice("[[");
+            try out.appendSlice(p);
+            try out.appendSlice("]]\n");
+            try writeTableInto(alloc, out, elem.table.?, p);
+        }
+    }
+}
+
+// ---------------- write-side exports ----------------
+
+pub export fn sa_toml_new() u64 {
+    const alloc = std.heap.page_allocator;
+    const root = bareTable(alloc, .header) catch return 0;
+    root.header_defined = true;
+    const doc = alloc.create(Document) catch {
+        freeTable(alloc, root);
+        return 0;
+    };
+    doc.* = .{ .allocator = alloc, .root = root };
+    return registerDocument(doc) catch {
+        doc.deinit();
+        return 0;
+    };
+}
+
+pub export fn sa_toml_table_key_at(handle: u64, path_ptr: ?[*]const u8, path_len: u64, index: u64, out_ptr: ?*?[*]const u8, out_len: ?*u64) i32 {
+    const ptr_slot = out_ptr orelse return ERR_INVALID;
+    const len_slot = out_len orelse return ERR_INVALID;
+    ptr_slot.* = null;
+    len_slot.* = 0;
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    var table = doc.root;
+    if (path.len != 0) {
+        const v = resolveValue(doc, path) orelse return ERR_NOT_FOUND;
+        if (v.kind != KIND_TABLE) return ERR_INVALID;
+        table = v.table.?;
+    }
+    if (index >= table.entries.items.len) return ERR_NOT_FOUND;
+    const key = table.entries.items[@intCast(index)].key;
+    ptr_slot.* = key.ptr;
+    len_slot.* = @intCast(key.len);
+    return OK;
+}
+
+pub export fn sa_toml_set_string(handle: u64, path_ptr: ?[*]const u8, path_len: u64, val_ptr: ?[*]const u8, val_len: u64) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    const raw = constSlice(val_ptr, val_len) orelse return ERR_INVALID;
+    const owned = doc.allocator.dupe(u8, raw) catch return ERR_NOMEM;
+    return setValueAt(doc, path, .{ .kind = KIND_STRING, .str = owned });
+}
+
+pub export fn sa_toml_set_datetime(handle: u64, path_ptr: ?[*]const u8, path_len: u64, val_ptr: ?[*]const u8, val_len: u64) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    const raw = constSlice(val_ptr, val_len) orelse return ERR_INVALID;
+    const owned = doc.allocator.dupe(u8, raw) catch return ERR_NOMEM;
+    return setValueAt(doc, path, .{ .kind = KIND_DATETIME, .str = owned });
+}
+
+pub export fn sa_toml_set_i64(handle: u64, path_ptr: ?[*]const u8, path_len: u64, value: i64) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    return setValueAt(doc, path, .{ .kind = KIND_INTEGER, .int = value });
+}
+
+pub export fn sa_toml_set_f64(handle: u64, path_ptr: ?[*]const u8, path_len: u64, value: f64) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    return setValueAt(doc, path, .{ .kind = KIND_FLOAT, .float = value });
+}
+
+pub export fn sa_toml_set_bool(handle: u64, path_ptr: ?[*]const u8, path_len: u64, value: u32) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    return setValueAt(doc, path, .{ .kind = KIND_BOOL, .boolean = value != 0 });
+}
+
+pub export fn sa_toml_set_table(handle: u64, path_ptr: ?[*]const u8, path_len: u64) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    const alloc = doc.allocator;
+    const segs = splitPath(alloc, path) catch return ERR_NOMEM;
+    defer freePathSegs(alloc, segs);
+    if (segs.len == 0) return ERR_INVALID;
+    _ = walkParent(doc, segs[0 .. segs.len - 1], false) catch |err| switch (err) {
+        error.NotFound => {},
+        error.OutOfMemory => return ERR_NOMEM,
+        else => return ERR_INVALID,
+    };
+    const parent = walkParent(doc, segs[0 .. segs.len - 1], true) catch return ERR_NOMEM;
+    const key = segs[segs.len - 1];
+    if (Parser.findEntry(parent, key)) |entry| {
+        // Ensuring a table that already exists is a no-op success; a
+        // conflicting non-table is never silently destroyed.
+        if (entry.value.kind != KIND_TABLE) return ERR_INVALID;
+        touch(doc);
+        return OK;
+    }
+    const t = bareTable(alloc, .dotted) catch return ERR_NOMEM;
+    const key_copy = alloc.dupe(u8, key) catch {
+        freeTable(alloc, t);
+        return ERR_NOMEM;
+    };
+    parent.entries.append(.{ .key = key_copy, .value = .{ .kind = KIND_TABLE, .table = t } }) catch {
+        alloc.free(key_copy);
+        freeTable(alloc, t);
+        return ERR_NOMEM;
+    };
+    touch(doc);
+    return OK;
+}
+
+pub export fn sa_toml_remove(handle: u64, path_ptr: ?[*]const u8, path_len: u64) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    return removeAtPath(doc, path);
+}
+
+pub export fn sa_toml_array_push_string(handle: u64, path_ptr: ?[*]const u8, path_len: u64, val_ptr: ?[*]const u8, val_len: u64) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    const raw = constSlice(val_ptr, val_len) orelse return ERR_INVALID;
+    const owned = doc.allocator.dupe(u8, raw) catch return ERR_NOMEM;
+    return pushValueAt(doc, path, .{ .kind = KIND_STRING, .str = owned }, false);
+}
+
+pub export fn sa_toml_array_push_datetime(handle: u64, path_ptr: ?[*]const u8, path_len: u64, val_ptr: ?[*]const u8, val_len: u64) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    const raw = constSlice(val_ptr, val_len) orelse return ERR_INVALID;
+    const owned = doc.allocator.dupe(u8, raw) catch return ERR_NOMEM;
+    return pushValueAt(doc, path, .{ .kind = KIND_DATETIME, .str = owned }, false);
+}
+
+pub export fn sa_toml_array_push_i64(handle: u64, path_ptr: ?[*]const u8, path_len: u64, value: i64) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    return pushValueAt(doc, path, .{ .kind = KIND_INTEGER, .int = value }, false);
+}
+
+pub export fn sa_toml_array_push_f64(handle: u64, path_ptr: ?[*]const u8, path_len: u64, value: f64) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    return pushValueAt(doc, path, .{ .kind = KIND_FLOAT, .float = value }, false);
+}
+
+pub export fn sa_toml_array_push_bool(handle: u64, path_ptr: ?[*]const u8, path_len: u64, value: u32) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    return pushValueAt(doc, path, .{ .kind = KIND_BOOL, .boolean = value != 0 }, false);
+}
+
+pub export fn sa_toml_array_push_table(handle: u64, path_ptr: ?[*]const u8, path_len: u64) i32 {
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const path = constSlice(path_ptr, path_len) orelse return ERR_INVALID;
+    const t = bareTable(doc.allocator, .header) catch return ERR_NOMEM;
+    t.header_defined = true;
+    return pushValueAt(doc, path, .{ .kind = KIND_TABLE, .table = t }, true);
+}
+
+pub export fn sa_toml_stringify(handle: u64, out_ptr: ?*?[*]const u8, out_len: ?*u64) i32 {
+    const ptr_slot = out_ptr orelse return ERR_INVALID;
+    const len_slot = out_len orelse return ERR_INVALID;
+    ptr_slot.* = null;
+    len_slot.* = 0;
+    const doc = getDocument(handle) orelse return ERR_HANDLE;
+    const alloc = doc.allocator;
+    var out = std.array_list.Managed(u8).init(alloc);
+    defer out.deinit();
+    writeTableInto(alloc, &out, doc.root, "") catch return ERR_NOMEM;
+    const buf = out.toOwnedSlice() catch return ERR_NOMEM;
+    if (doc.ser_buf) |old| alloc.free(old);
+    doc.ser_buf = buf;
+    ptr_slot.* = buf.ptr;
+    len_slot.* = @intCast(buf.len);
+    return OK;
+}
+
 // ---------------- tests ----------------
 
 test "toml: codex-style config values by dotted path" {
@@ -1031,4 +1632,245 @@ test "toml: string forms and escapes" {
     try std.testing.expectEqual(@as(i64, 0xDEADBEEF), iv);
     try std.testing.expectEqual(OK, sa_toml_get_i64(doc, "under".ptr, 5, &iv));
     try std.testing.expectEqual(@as(i64, 1000000), iv);
+}
+
+test "toml: table key enumeration" {
+    const text =
+        \\name = "cxu"
+        \\version = 3
+        \\
+        \\[owner]
+        \\name = "layola13"
+        \\id = 7
+        \\
+        \\[empty]
+    ;
+    const doc = sa_toml_parse(text.ptr, text.len);
+    try std.testing.expect(doc != 0);
+    defer _ = sa_toml_free(doc);
+
+    var n: u64 = 0;
+    try std.testing.expectEqual(OK, sa_toml_table_len(doc, "".ptr, 0, &n));
+    try std.testing.expectEqual(@as(u64, 4), n);
+
+    var kp: ?[*]const u8 = null;
+    var kl: u64 = 0;
+    try std.testing.expectEqual(OK, sa_toml_table_key_at(doc, "".ptr, 0, 0, &kp, &kl));
+    try std.testing.expectEqualStrings("name", kp.?[0..@intCast(kl)]);
+    try std.testing.expectEqual(OK, sa_toml_table_key_at(doc, "".ptr, 0, 3, &kp, &kl));
+    try std.testing.expectEqualStrings("empty", kp.?[0..@intCast(kl)]);
+    try std.testing.expectEqual(ERR_NOT_FOUND, sa_toml_table_key_at(doc, "".ptr, 0, 4, &kp, &kl));
+
+    const owner = "owner";
+    try std.testing.expectEqual(OK, sa_toml_table_len(doc, owner.ptr, owner.len, &n));
+    try std.testing.expectEqual(@as(u64, 2), n);
+    try std.testing.expectEqual(OK, sa_toml_table_key_at(doc, owner.ptr, owner.len, 1, &kp, &kl));
+    try std.testing.expectEqualStrings("id", kp.?[0..@intCast(kl)]);
+
+    const empty = "empty";
+    try std.testing.expectEqual(OK, sa_toml_table_len(doc, empty.ptr, empty.len, &n));
+    try std.testing.expectEqual(@as(u64, 0), n);
+    try std.testing.expectEqual(ERR_NOT_FOUND, sa_toml_table_key_at(doc, empty.ptr, empty.len, 0, &kp, &kl));
+
+    const not_table = "name";
+    try std.testing.expectEqual(ERR_INVALID, sa_toml_table_key_at(doc, not_table.ptr, not_table.len, 0, &kp, &kl));
+    const missing = "nope";
+    try std.testing.expectEqual(ERR_NOT_FOUND, sa_toml_table_key_at(doc, missing.ptr, missing.len, 0, &kp, &kl));
+    try std.testing.expectEqual(ERR_HANDLE, sa_toml_table_key_at(999999, "".ptr, 0, 0, &kp, &kl));
+}
+
+test "toml: build a document and stringify round-trip" {
+    const doc = sa_toml_new();
+    try std.testing.expect(doc != 0);
+    defer _ = sa_toml_free(doc);
+
+    const title = "title";
+    const cfg = "cfg.toml";
+    try std.testing.expectEqual(OK, sa_toml_set_string(doc, title.ptr, title.len, cfg.ptr, cfg.len));
+    const debug = "debug";
+    try std.testing.expectEqual(OK, sa_toml_set_bool(doc, debug.ptr, debug.len, 1));
+    const ratio = "ratio";
+    try std.testing.expectEqual(OK, sa_toml_set_f64(doc, ratio.ptr, ratio.len, 1.0));
+    const stamp = "stamp";
+    const when = "2026-10-26T01:02:03Z";
+    try std.testing.expectEqual(OK, sa_toml_set_datetime(doc, stamp.ptr, stamp.len, when.ptr, when.len));
+
+    const host = "server.host";
+    const hostv = "localhost";
+    try std.testing.expectEqual(OK, sa_toml_set_string(doc, host.ptr, host.len, hostv.ptr, hostv.len));
+    const port = "server.port";
+    try std.testing.expectEqual(OK, sa_toml_set_i64(doc, port.ptr, port.len, 8080));
+    const opts = "server.opts";
+    try std.testing.expectEqual(OK, sa_toml_set_table(doc, opts.ptr, opts.len));
+    // Ensuring a table that already exists is a no-op success.
+    try std.testing.expectEqual(OK, sa_toml_set_table(doc, opts.ptr, opts.len));
+    // ...but a scalar in the way is an error, never silently destroyed.
+    try std.testing.expectEqual(ERR_INVALID, sa_toml_set_table(doc, title.ptr, title.len));
+
+    const tags = "tags";
+    const t1 = "alpha";
+    const t2 = "beta";
+    try std.testing.expectEqual(OK, sa_toml_array_push_string(doc, tags.ptr, tags.len, t1.ptr, t1.len));
+    try std.testing.expectEqual(OK, sa_toml_array_push_string(doc, tags.ptr, tags.len, t2.ptr, t2.len));
+    const nums = "nums";
+    try std.testing.expectEqual(OK, sa_toml_array_push_i64(doc, nums.ptr, nums.len, 10));
+    try std.testing.expectEqual(OK, sa_toml_array_push_f64(doc, nums.ptr, nums.len, 2.5));
+    try std.testing.expectEqual(OK, sa_toml_array_push_bool(doc, nums.ptr, nums.len, 0));
+    const stamps = "stamps";
+    try std.testing.expectEqual(OK, sa_toml_array_push_datetime(doc, stamps.ptr, stamps.len, when.ptr, when.len));
+    // A scalar push into an array of tables is rejected.
+    const servers = "servers";
+    try std.testing.expectEqual(OK, sa_toml_array_push_table(doc, servers.ptr, servers.len));
+    try std.testing.expectEqual(ERR_INVALID, sa_toml_array_push_i64(doc, servers.ptr, servers.len, 1));
+    try std.testing.expectEqual(OK, sa_toml_array_push_table(doc, servers.ptr, servers.len));
+    const s0 = "servers.0.host";
+    const h0 = "a.example";
+    try std.testing.expectEqual(OK, sa_toml_set_string(doc, s0.ptr, s0.len, h0.ptr, h0.len));
+    const s1 = "servers.1.host";
+    const h1 = "b.example";
+    try std.testing.expectEqual(OK, sa_toml_set_string(doc, s1.ptr, s1.len, h1.ptr, h1.len));
+    const s1p = "servers.1.port";
+    try std.testing.expectEqual(OK, sa_toml_set_i64(doc, s1p.ptr, s1p.len, 9001));
+    // Array elements are addressed by explicit index only: the bare
+    // form resolves neither on the read side nor on the write side.
+    const slast = "servers.host";
+    var chk: ?[*]const u8 = null;
+    var chkl: u64 = 0;
+    try std.testing.expectEqual(ERR_NOT_FOUND, sa_toml_get_string(doc, slast.ptr, slast.len, &chk, &chkl));
+    try std.testing.expectEqual(ERR_INVALID, sa_toml_set_string(doc, slast.ptr, slast.len, h1.ptr, h1.len));
+
+    var sp: ?[*]const u8 = null;
+    var sl: u64 = 0;
+    try std.testing.expectEqual(OK, sa_toml_stringify(doc, &sp, &sl));
+    const text = sp.?[0..@intCast(sl)];
+    try std.testing.expect(std.mem.indexOf(u8, text, "[server]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "[[servers]]") != null);
+
+    const doc2 = sa_toml_parse(text.ptr, text.len);
+    try std.testing.expect(doc2 != 0);
+    defer _ = sa_toml_free(doc2);
+    var iv: i64 = 0;
+    try std.testing.expectEqual(OK, sa_toml_get_i64(doc2, port.ptr, port.len, &iv));
+    try std.testing.expectEqual(@as(i64, 8080), iv);
+    var fv: f64 = 0;
+    try std.testing.expectEqual(OK, sa_toml_get_f64(doc2, ratio.ptr, ratio.len, &fv));
+    try std.testing.expectEqual(@as(f64, 1.0), fv);
+    var kind: u32 = 0;
+    try std.testing.expectEqual(OK, sa_toml_kind(doc2, ratio.ptr, ratio.len, &kind));
+    try std.testing.expectEqual(KIND_FLOAT, kind);
+    try std.testing.expectEqual(OK, sa_toml_kind(doc2, stamp.ptr, stamp.len, &kind));
+    try std.testing.expectEqual(KIND_DATETIME, kind);
+    var n: u64 = 0;
+    try std.testing.expectEqual(OK, sa_toml_array_len(doc2, servers.ptr, servers.len, &n));
+    try std.testing.expectEqual(@as(u64, 2), n);
+    try std.testing.expectEqual(OK, sa_toml_get_string(doc2, s1.ptr, s1.len, &sp, &sl));
+    try std.testing.expectEqualStrings("b.example", sp.?[0..@intCast(sl)]);
+    try std.testing.expectEqual(OK, sa_toml_table_len(doc2, opts.ptr, opts.len, &n));
+    try std.testing.expectEqual(@as(u64, 0), n);
+    try std.testing.expectEqual(OK, sa_toml_array_get_string(doc2, tags.ptr, tags.len, 1, &sp, &sl));
+    try std.testing.expectEqualStrings("beta", sp.?[0..@intCast(sl)]);
+    try std.testing.expectEqual(OK, sa_toml_array_len(doc2, stamps.ptr, stamps.len, &n));
+    try std.testing.expectEqual(@as(u64, 1), n);
+}
+
+test "toml: mutate a parsed document" {
+    const text =
+        \\model = "old"
+        \\keep = 1
+        \\
+        \\[mcp_servers.jex]
+        \\command = "node"
+        \\args = ["a", "b", "c"]
+        \\env = { API_KEY = "k1", RETRIES = 3 }
+    ;
+    const doc = sa_toml_parse(text.ptr, text.len);
+    try std.testing.expect(doc != 0);
+    defer _ = sa_toml_free(doc);
+
+    const model = "model";
+    const newv = "new";
+    try std.testing.expectEqual(OK, sa_toml_set_string(doc, model.ptr, model.len, newv.ptr, newv.len));
+    var sp: ?[*]const u8 = null;
+    var sl: u64 = 0;
+    try std.testing.expectEqual(OK, sa_toml_get_string(doc, model.ptr, model.len, &sp, &sl));
+    try std.testing.expectEqualStrings("new", sp.?[0..@intCast(sl)]);
+
+    // Descend into an inline table and replace a value inside it.
+    const retries = "mcp_servers.jex.env.RETRIES";
+    try std.testing.expectEqual(OK, sa_toml_set_i64(doc, retries.ptr, retries.len, 9));
+    var iv: i64 = 0;
+    try std.testing.expectEqual(OK, sa_toml_get_i64(doc, retries.ptr, retries.len, &iv));
+    try std.testing.expectEqual(@as(i64, 9), iv);
+
+    // A set whose parent path crosses a scalar is an invalid argument
+    // and leaves the document untouched.
+    const through = "keep.x";
+    try std.testing.expectEqual(ERR_INVALID, sa_toml_set_i64(doc, through.ptr, through.len, 1));
+    try std.testing.expectEqual(OK, sa_toml_get_i64(doc, "keep".ptr, 4, &iv));
+    try std.testing.expectEqual(@as(i64, 1), iv);
+
+    // Remove a key, then an array element (numeric final segment).
+    const keep = "keep";
+    try std.testing.expectEqual(OK, sa_toml_remove(doc, keep.ptr, keep.len));
+    var kind: u32 = 0;
+    try std.testing.expectEqual(ERR_NOT_FOUND, sa_toml_kind(doc, keep.ptr, keep.len, &kind));
+    try std.testing.expectEqual(ERR_NOT_FOUND, sa_toml_remove(doc, keep.ptr, keep.len));
+
+    const args0 = "mcp_servers.jex.args.0";
+    try std.testing.expectEqual(OK, sa_toml_remove(doc, args0.ptr, args0.len));
+    const args = "mcp_servers.jex.args";
+    var n: u64 = 0;
+    try std.testing.expectEqual(OK, sa_toml_array_len(doc, args.ptr, args.len, &n));
+    try std.testing.expectEqual(@as(u64, 2), n);
+    try std.testing.expectEqual(OK, sa_toml_array_get_string(doc, args.ptr, args.len, 0, &sp, &sl));
+    try std.testing.expectEqualStrings("b", sp.?[0..@intCast(sl)]);
+
+    // Stringify and reparse: the mutations survive the round trip.
+    try std.testing.expectEqual(OK, sa_toml_stringify(doc, &sp, &sl));
+    const out = sp.?[0..@intCast(sl)];
+    const doc2 = sa_toml_parse(out.ptr, out.len);
+    try std.testing.expect(doc2 != 0);
+    defer _ = sa_toml_free(doc2);
+    try std.testing.expectEqual(OK, sa_toml_get_i64(doc2, retries.ptr, retries.len, &iv));
+    try std.testing.expectEqual(@as(i64, 9), iv);
+    try std.testing.expectEqual(ERR_NOT_FOUND, sa_toml_kind(doc2, keep.ptr, keep.len, &kind));
+    try std.testing.expectEqual(OK, sa_toml_get_string(doc2, model.ptr, model.len, &sp, &sl));
+    try std.testing.expectEqualStrings("new", sp.?[0..@intCast(sl)]);
+}
+
+test "toml: stringify escapes, float forms and quoted keys" {
+    const doc = sa_toml_new();
+    try std.testing.expect(doc != 0);
+    defer _ = sa_toml_free(doc);
+
+    const tricky = "tricky";
+    const raw = "a\"b\\c\nd\te";
+    try std.testing.expectEqual(OK, sa_toml_set_string(doc, tricky.ptr, tricky.len, raw.ptr, raw.len));
+    const half = "half";
+    try std.testing.expectEqual(OK, sa_toml_set_f64(doc, half.ptr, half.len, 0.5));
+    const neg = "neg";
+    try std.testing.expectEqual(OK, sa_toml_set_f64(doc, neg.ptr, neg.len, -3.25));
+    const spaced = "\"my key\"";
+    const v = "v";
+    try std.testing.expectEqual(OK, sa_toml_set_string(doc, spaced.ptr, spaced.len, v.ptr, v.len));
+
+    var sp: ?[*]const u8 = null;
+    var sl: u64 = 0;
+    try std.testing.expectEqual(OK, sa_toml_stringify(doc, &sp, &sl));
+    const out = sp.?[0..@intCast(sl)];
+    try std.testing.expect(std.mem.indexOf(u8, out, "\"my key\"") != null);
+
+    const doc2 = sa_toml_parse(out.ptr, out.len);
+    try std.testing.expect(doc2 != 0);
+    defer _ = sa_toml_free(doc2);
+    try std.testing.expectEqual(OK, sa_toml_get_string(doc2, tricky.ptr, tricky.len, &sp, &sl));
+    try std.testing.expectEqualStrings(raw, sp.?[0..@intCast(sl)]);
+    var fv: f64 = 0;
+    try std.testing.expectEqual(OK, sa_toml_get_f64(doc2, half.ptr, half.len, &fv));
+    try std.testing.expectEqual(@as(f64, 0.5), fv);
+    var kind: u32 = 0;
+    try std.testing.expectEqual(OK, sa_toml_kind(doc2, neg.ptr, neg.len, &kind));
+    try std.testing.expectEqual(KIND_FLOAT, kind);
+    try std.testing.expectEqual(OK, sa_toml_get_string(doc2, spaced.ptr, spaced.len, &sp, &sl));
+    try std.testing.expectEqualStrings("v", sp.?[0..@intCast(sl)]);
 }
