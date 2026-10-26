@@ -1,0 +1,74 @@
+// ts_object.sa -- thin-handle object helpers for tsgosa mapping.
+//
+// Handle model (instance structs, as materialized by the tsgosa emitter):
+//   fields at static layout offsets; i32/bool fields are 4-byte slots,
+//   str/arr/inst fields are 8-byte pointer slots. This module never
+//   allocates instances: it only stores into a caller-owned target.
+// Ownership discipline: every handle parameter is borrowed (value copy);
+// the callee releases nothing and returns no new handle, so the caller
+// keeps its original ownership. The only store is the matched field slot.
+//
+// This is the first object-domain helper (no R-backport number): it was
+// designed for the tsgosa `Object.fromEntries` spread lowering in
+// `saLowerObjectLiteral` (internal/transpile/sa_class.go, spread arm):
+// a fromEntries spread assigns each pair value into the target field
+// whose name equals the pair key at runtime. The emitter builds the
+// per-site field-name and field-offset tables from the target layout
+// (layout offsets are site-specific codegen and stay in the emitter);
+// the reusable per-pair match-and-store loop lives here, so it is not
+// re-emitted at every spread site. String comparison reuses the existing
+// `@ts_str_equals` primitive; no new runtime externs are introduced.
+//
+// Dependency direction: this file imports `ts_string.sa` only (which
+// itself imports `ts_array.sa`). It must never be imported by
+// `ts_array.sa` or `ts_string.sa` (no cycles, no layering reversal).
+
+@import "ts_string.sa"
+
+// @ts_obj_set_field_by_name stores an i32 value into the target field
+// whose name equals the key string (pure except for that one store; no
+// allocation; all parameters borrowed, nothing released).
+//   target: instance handle to store into.
+//   kp/kl: key string expanded as (data ptr, byte length).
+//   v: i32 value word to store (bool fields store 0/1 the same way).
+//   names: thin-handle array of string handles, one per field, in
+//     target-layout field order.
+//   offsets: thin-handle array of i32 field offsets, parallel to names.
+//   n: field count (length of both tables).
+// Returns 1 when a field matched and was stored, 0 when no field name
+// matched (the caller drops unmatched pairs: they have no static slot).
+// Callers must only pass i32/bool fields in the tables: storing an i32
+// word into a str/arr/inst/f64 slot would corrupt it, so the emitter
+// refuses fromEntries spreads over other field kinds loudly instead.
+@ts_obj_set_field_by_name(target: ptr, kp: ptr, kl: u64, v: i32, names: ptr, offsets: ptr, n: i32) -> i32:
+L_OFS_ENTRY:
+    ndata = load names+0 as ptr
+    odata = load offsets+0 as ptr
+    i = 0
+    jmp L_OFS_TOP
+L_OFS_TOP:
+    c = slt i, n
+    br c -> L_OFS_BODY, L_OFS_MISS
+L_OFS_BODY:
+    noff = mul i, 4
+    naddr = add ndata, noff
+    nh = load naddr+0 as i32
+    np = load nh+0 as ptr
+    nl = load nh+8 as u64
+    eq = call @ts_str_equals(kp, kl, np, nl)
+    br eq -> L_OFS_HIT, L_OFS_NEXT
+L_OFS_HIT:
+    ooff = mul i, 4
+    oaddr = add odata, ooff
+    off = load oaddr+0 as i32
+    taddr = add target, off
+    store taddr+0, v as i32
+    one = 1
+    return one
+L_OFS_NEXT:
+    inext = add i, 1
+    i = inext
+    jmp L_OFS_TOP
+L_OFS_MISS:
+    zero = 0
+    return zero
