@@ -1,0 +1,21 @@
+// SA-facing contracts for base64 codecs (sa_std built-in, 2026-10-26).
+// All three symbols were already implemented and declared in
+// sa_std.h; only the .sai declarations were missing.
+// Two decode shapes exist and are NOT interchangeable:
+// - sa_b64dec_simd: raw bulk fast path into a caller buffer. Standard
+//   alphabet; stops at the first non-alphabet char (including '='),
+//   so it does NOT consume padding. The caller provides at least
+//   data_len/4*3 bytes of out and gets back the bytes written. Use
+//   for clean unpadded streams only.
+// - sa_deno_atob: full std.base64 decode (padding-aware) into an
+//   owned buffer handle; returns 0 on invalid input. Read the handle
+//   via sa_fmt_buffer_data/len and free it with sa_fmt_buffer_free.
+//   This is the faithful decode for data-URL payloads.
+// Encoding exists only in the handle shape: sa_deno_btoa writes the
+// standard padded encoding into an owned buffer handle (same
+// read/free path as atob).
+// NOTE: the product-invented name sa_base64_decode(ptr, len, out,
+// cap) does not exist in sa_std; rebind call sites to sa_deno_atob.
+@extern sa_b64dec_simd(&data: ptr, data_len: u64, &out: ptr) -> u64
+@extern sa_deno_btoa(&data: ptr, data_len: u64) -> u64
+@extern sa_deno_atob(&data: ptr, data_len: u64) -> u64

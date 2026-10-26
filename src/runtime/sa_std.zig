@@ -6996,6 +6996,26 @@ test "sa_b64dec_simd avx2 block invalid rewinds to scalar" {
     try std.testing.expectEqual(@as(u8, 65), out128[95]);
 }
 
+test "base64: sa_deno_btoa -> sa_deno_atob roundtrip via fmt buffer handles" {
+    const data = "hello, sa_std!";
+    const enc = sa_deno_btoa(data.ptr, data.len);
+    try std.testing.expect(enc != 0);
+    defer _ = sa_fmt_buffer_free(enc);
+    const enc_ptr = sa_fmt_buffer_data(enc) orelse return error.TestUnexpectedResult;
+    const enc_len = sa_fmt_buffer_len(enc);
+    try std.testing.expectEqualStrings("aGVsbG8sIHNhX3N0ZCE=", enc_ptr[0..@intCast(enc_len)]);
+
+    const dec = sa_deno_atob(enc_ptr, enc_len);
+    try std.testing.expect(dec != 0);
+    defer _ = sa_fmt_buffer_free(dec);
+    const dec_ptr = sa_fmt_buffer_data(dec) orelse return error.TestUnexpectedResult;
+    const dec_len = sa_fmt_buffer_len(dec);
+    try std.testing.expectEqualStrings(data, dec_ptr[0..@intCast(dec_len)]);
+
+    // Invalid input is an explicit 0 handle, never a partial decode.
+    try std.testing.expectEqual(@as(u64, 0), sa_deno_atob("!!!".ptr, 3));
+}
+
 // Bulk substring search for native peers (mirrors the sa_mfind_u8 JS
 // fused shim contract): returns the first index of needle in haystack,
 // or hay_len on miss (one-past-end sentinel, always representable).

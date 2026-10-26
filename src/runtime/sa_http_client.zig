@@ -974,6 +974,70 @@ pub export fn sa_http_client_resp_body_slice(resp: ?*anyopaque, out_body_ptr: ?*
     return @intFromEnum(AbiStatus.ok);
 }
 
+// One-shot synchronous GET (2026-10-26): composes the stateful v1
+// client (new -> req_new -> send -> body_slice) into a single call
+// for callers that only need a response body in a buffer. Status
+// codes mirror SA_STD_ERR_* (this file otherwise speaks AbiStatus):
+// 0 ok, 1 invalid argument (bad url/scheme or null out), 6 io
+// (transport or client failure), 9 truncated (body larger than cap:
+// out_len reports the full body length and nothing is copied — the
+// copyOut convention). Any completed HTTP exchange is a success
+// regardless of its status code; callers that need the status code
+// or headers use the stateful client.
+pub export fn sa_http_fetch_bytes(url_ptr: ?[*]const u8, url_len: u64, buf_ptr: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
+    const len_out = out_len orelse return 1;
+    len_out.* = 0;
+    const up = url_ptr orelse return 1;
+    if (url_len == 0 or url_len > 8192) return 1;
+    const url = up[0..@intCast(url_len)];
+    const use_tls: u8 = if (std.mem.startsWith(u8, url, "https://")) 1 else if (std.mem.startsWith(u8, url, "http://")) 0 else return 1;
+    var client: ?*anyopaque = null;
+    if (sa_http_client_new(use_tls, &client) != @intFromEnum(AbiStatus.ok)) return 6;
+    defer _ = sa_http_client_free(client);
+    var req: ?*anyopaque = null;
+    if (sa_http_client_req_new(client, 1, url.ptr, url.len, &req) != @intFromEnum(AbiStatus.ok)) return 6;
+    defer _ = sa_http_client_req_free(req);
+    var resp: ?*anyopaque = null;
+    if (sa_http_client_req_send(req, &resp) != @intFromEnum(AbiStatus.ok)) return 6;
+    defer _ = sa_http_client_resp_free(resp);
+    var body_ptr: ?[*]const u8 = null;
+    var body_len: u64 = 0;
+    if (sa_http_client_resp_body_slice(resp, &body_ptr, &body_len) != @intFromEnum(AbiStatus.ok)) return 6;
+    len_out.* = body_len;
+    if (body_len > cap) return 9;
+    if (body_len > 0) {
+        const bp = body_ptr orelse return 6;
+        const out = buf_ptr orelse return 1;
+        @memcpy(out[0..@intCast(body_len)], bp[0..@intCast(body_len)]);
+    }
+    return 0;
+}
+
+test "http fetch bytes: one-shot GET over loopback" {
+    const srv = try TestServer.start(httpEchoHandler);
+    defer srv.join();
+    var url_buf: [128]u8 = undefined;
+    const url = try std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/echo", .{srv.port});
+    var buf: [256]u8 = undefined;
+    var out_len: u64 = 0;
+    try testing.expectEqual(@as(i32, 0), sa_http_fetch_bytes(url.ptr, url.len, &buf, buf.len, &out_len));
+    try testing.expectEqualStrings("GET /echo ", buf[0..@intCast(out_len)]);
+}
+
+test "http fetch bytes: truncated body reports required length; bad scheme rejected" {
+    const srv = try TestServer.start(httpEchoHandler);
+    defer srv.join();
+    var url_buf: [128]u8 = undefined;
+    const url = try std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/echo", .{srv.port});
+    var small: [4]u8 = undefined;
+    var need: u64 = 0;
+    try testing.expectEqual(@as(i32, 9), sa_http_fetch_bytes(url.ptr, url.len, &small, small.len, &need));
+    try testing.expectEqual(@as(u64, 10), need);
+    var buf: [256]u8 = undefined;
+    var out_len: u64 = 0;
+    try testing.expectEqual(@as(i32, 1), sa_http_fetch_bytes("ftp://127.0.0.1/x".ptr, 17, &buf, buf.len, &out_len));
+}
+
 pub export fn sa_http_client_resp_body_ptr(resp: ?*anyopaque) ?[*]const u8 {
     const response = resp orelse return null;
     const value = @as(*HttpResponse, @ptrCast(@alignCast(response)));

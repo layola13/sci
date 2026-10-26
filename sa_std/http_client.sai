@@ -26,6 +26,14 @@
 @extern sa_http_client_req_free(req: ptr) -> u32
 @extern sa_http_client_free(client: ptr) -> u32
 
+// One-shot synchronous GET into a caller buffer (2026-10-26).
+// i32 statuses mirror SA_STD_ERR_*: 0 ok, 1 invalid (bad
+// url/scheme), 6 io/transport, 9 truncated (out_len then holds
+// the full body length; nothing is copied). Any completed HTTP
+// exchange is ok regardless of status code — use the stateful
+// client above when the status code or headers matter.
+@extern sa_http_fetch_bytes(&url: ptr, url_len: u64, &buf: ptr, cap: u64, &out_len: ptr) -> i32
+
 // Legacy blocking WebSocket ABI. New code should use the v2 surface below.
 @extern sa_http_client_websocket_connect(client: ptr, &url: ptr, url_len: u64, &out_ws: ptr) -> u32
 @extern sa_http_websocket_read(ws: ptr, max_len: u64, &out_opcode: ptr, &out_ptr: ptr, &out_len: ptr) -> u32
