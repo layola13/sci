@@ -1,0 +1,48 @@
+// SLA-facing named constants for the sa_std WebSocket surface:
+// frame opcodes and close status codes (RFC 6455).
+//
+// Why this file exists: the WS externs (sa_std/ws_client.sai,
+// sa_http_websocket_read/write in sa_std/http_client.sai) pass the
+// opcode as a bare u8 -- recv surfaces a peer close as "opcode 8
+// with an empty payload" per the ws_client.sai header -- and the
+// close status code travels as two payload bytes with no name
+// anywhere in sa_std. The runtime's own WebSocketOpcodeV2 enum
+// (src/runtime/sa_http_client.zig:3019-3026) uses the RFC values
+// below; this file publishes them, plus the RFC 6455 section
+// 7.4.1 close-code registry, for SLA. Pure declarations: no new
+// externs, no ABI change.
+//
+// Close codes 1004/1005/1006 are RESERVED for protocol-internal
+// use (1005 = no status received, 1006 = abnormal closure) and
+// must never be sent on the wire; they are published so a received
+// or synthesized value can be named when classifying a close.
+// The .NET WebSocketCloseStatus names differ for three codes:
+// EndpointUnavailable = 1001, InvalidMessageType = 1003,
+// InvalidPayloadData = 1007.
+
+@import "sa_std/ws_client.sai"
+
+// ---- frame opcodes ----
+const SA_WS_OPCODE_CONTINUATION: u32 = 0;
+const SA_WS_OPCODE_TEXT: u32 = 1;
+const SA_WS_OPCODE_BINARY: u32 = 2;
+const SA_WS_OPCODE_CLOSE: u32 = 8;
+const SA_WS_OPCODE_PING: u32 = 9;
+const SA_WS_OPCODE_PONG: u32 = 10;
+
+// ---- close status codes (RFC 6455 7.4.1) ----
+const SA_WS_CLOSE_NORMAL: u32 = 1000;
+const SA_WS_CLOSE_GOING_AWAY: u32 = 1001;
+const SA_WS_CLOSE_PROTOCOL_ERROR: u32 = 1002;
+const SA_WS_CLOSE_UNSUPPORTED_DATA: u32 = 1003;
+const SA_WS_CLOSE_RESERVED: u32 = 1004;
+const SA_WS_CLOSE_NO_STATUS: u32 = 1005;
+const SA_WS_CLOSE_ABNORMAL: u32 = 1006;
+const SA_WS_CLOSE_INVALID_PAYLOAD: u32 = 1007;
+const SA_WS_CLOSE_POLICY_VIOLATION: u32 = 1008;
+const SA_WS_CLOSE_MESSAGE_TOO_BIG: u32 = 1009;
+const SA_WS_CLOSE_MANDATORY_EXTENSION: u32 = 1010;
+const SA_WS_CLOSE_INTERNAL_ERROR: u32 = 1011;
+const SA_WS_CLOSE_SERVICE_RESTART: u32 = 1012;
+const SA_WS_CLOSE_TRY_AGAIN_LATER: u32 = 1013;
+const SA_WS_CLOSE_TLS_HANDSHAKE: u32 = 1015;

@@ -1,0 +1,38 @@
+// Regression test for the SLA-facing WebSocket constants in
+// sa_std/ws_client.sla. Literal lock only: no WS extern returns a
+// named value to compare against (the opcode travels as a bare u8
+// and close codes as payload bytes), so the published values are
+// pinned literally. They were verified against the runtime's
+// WebSocketOpcodeV2 enum (src/runtime/sa_http_client.zig:3019-3026)
+// and RFC 6455 section 7.4.1 when this file was written.
+//
+// On a tree without ws_client.sla this file cannot even compile.
+
+@import "sa_std/ws_client.sla"
+
+@test "ws opcode consts pin the RFC values"() {
+    if SA_WS_OPCODE_CONTINUATION == 0 { } else { panic(1701); };
+    if SA_WS_OPCODE_TEXT == 1 { } else { panic(1702); };
+    if SA_WS_OPCODE_BINARY == 2 { } else { panic(1703); };
+    if SA_WS_OPCODE_CLOSE == 8 { } else { panic(1704); };
+    if SA_WS_OPCODE_PING == 9 { } else { panic(1705); };
+    if SA_WS_OPCODE_PONG == 10 { } else { panic(1706); };
+};
+
+@test "ws close consts pin the RFC values"() {
+    if SA_WS_CLOSE_NORMAL == 1000 { } else { panic(1711); };
+    if SA_WS_CLOSE_GOING_AWAY == 1001 { } else { panic(1712); };
+    if SA_WS_CLOSE_PROTOCOL_ERROR == 1002 { } else { panic(1713); };
+    if SA_WS_CLOSE_UNSUPPORTED_DATA == 1003 { } else { panic(1714); };
+    if SA_WS_CLOSE_RESERVED == 1004 { } else { panic(1715); };
+    if SA_WS_CLOSE_NO_STATUS == 1005 { } else { panic(1716); };
+    if SA_WS_CLOSE_ABNORMAL == 1006 { } else { panic(1717); };
+    if SA_WS_CLOSE_INVALID_PAYLOAD == 1007 { } else { panic(1718); };
+    if SA_WS_CLOSE_POLICY_VIOLATION == 1008 { } else { panic(1719); };
+    if SA_WS_CLOSE_MESSAGE_TOO_BIG == 1009 { } else { panic(1720); };
+    if SA_WS_CLOSE_MANDATORY_EXTENSION == 1010 { } else { panic(1721); };
+    if SA_WS_CLOSE_INTERNAL_ERROR == 1011 { } else { panic(1722); };
+    if SA_WS_CLOSE_SERVICE_RESTART == 1012 { } else { panic(1723); };
+    if SA_WS_CLOSE_TRY_AGAIN_LATER == 1013 { } else { panic(1724); };
+    if SA_WS_CLOSE_TLS_HANDSHAKE == 1015 { } else { panic(1725); };
+};
