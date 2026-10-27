@@ -1,0 +1,289 @@
+// Behaviour tests for sa_std/sse.sla, the incremental
+// text/event-stream parser. Pure byte-level tests: no network, no
+// http handle. Every test feeds hand-built byte streams and asserts
+// on the dispatched events. On a tree without sse.sla this file
+// cannot compile (the import fails), which is what makes it a
+// regression test.
+//
+// Run from the sa_plugin_sla repo root with SA_PLUGIN_DEV=1 and
+// SA_STD_DIR pointed at this sci tree's sa_std:
+//   sa test <sci>/tests/sse_parser.sla
+
+@import "sa_std/sse.sla"
+
+// Build a Vec<u8> from a string literal's bytes.
+fn tb(text: ptr, text_len: u64) -> Vec<u8> {
+    let arr: [u8; 8192] = [0u8; 8192];
+    let dst: ptr = PTR_BYTE_ADD(&arr, 0);
+    PTR_COPY_BYTES(dst, text, text_len);
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < text_len {
+        out.push(arr[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn lit(text: ptr, text_len: u64) -> Vec<u8> {
+    return tb(text, text_len);
+}
+
+fn vec_range(v: &Vec<u8>, begin: u64, end: u64) -> Vec<u8> {
+    let sl: Slice<u8> = VEC_AS_SLICE(v);
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = begin;
+    while i < end {
+        let b: u8 = 0;
+        SLICE_GET(b, sl, i);
+        out.push(b);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn bytes_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
+    let n: u64 = len(a) as u64;
+    if n != (len(b) as u64) {
+        return false;
+    };
+    let sa: Slice<u8> = VEC_AS_SLICE(a);
+    let sb: Slice<u8> = VEC_AS_SLICE(b);
+    let i: u64 = 0;
+    while i < n {
+        let x: u8 = 0;
+        SLICE_GET(x, sa, i);
+        let y: u8 = 0;
+        SLICE_GET(y, sb, i);
+        if x != y {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+fn ev_data(p: &SseParser, index: u64) -> Vec<u8> {
+    let ev: SseEvent = sse_parser_event_at(p, index);
+    return ev.data;
+}
+
+fn ev_type(p: &SseParser, index: u64) -> Vec<u8> {
+    let ev: SseEvent = sse_parser_event_at(p, index);
+    return ev.event_type;
+}
+
+@test "single data event"() {
+    let p = sse_parser_new();
+    p = sse_parser_feed(p, lit(STR_PTR("data: hello\n\n"), STR_LEN("data: hello\n\n")));
+    if sse_parser_event_count(&p) != 1 { panic(101); };
+    let ev: SseEvent = sse_parser_event_at(&p, 0);
+    if bytes_eq(ev.data, lit(STR_PTR("hello"), STR_LEN("hello"))) == false { panic(102); };
+    if sse_event_is_message(&ev) == false { panic(103); };
+    if ev.has_id { panic(104); };
+    if ev.retry_ms != -1 { panic(105); };
+}
+
+@test "typed event with multiline data and id"() {
+    let p = sse_parser_new();
+    p = sse_parser_feed(p, lit(STR_PTR("event: greet\ndata: line1\ndata: line2\nid: 42\n\n"), STR_LEN("event: greet\ndata: line1\ndata: line2\nid: 42\n\n")));
+    if sse_parser_event_count(&p) != 1 { panic(111); };
+    let ev: SseEvent = sse_parser_event_at(&p, 0);
+    if bytes_eq(ev.event_type, lit(STR_PTR("greet"), STR_LEN("greet"))) == false { panic(112); };
+    if bytes_eq(ev.data, lit(STR_PTR("line1\nline2"), STR_LEN("line1\nline2"))) == false { panic(113); };
+    if ev.has_id == false { panic(114); };
+    if bytes_eq(ev.id, lit(STR_PTR("42"), STR_LEN("42"))) == false { panic(115); };
+    if sse_event_is_message(&ev) { panic(116); };
+}
+
+@test "byte by byte feeding matches whole feeding"() {
+    let stream = lit(STR_PTR("event: greet\ndata: line1\ndata: line2\nid: 42\n\n"), STR_LEN("event: greet\ndata: line1\ndata: line2\nid: 42\n\n"));
+    let n: u64 = len(stream) as u64;
+    let p = sse_parser_new();
+    let i: u64 = 0;
+    while i < n {
+        p = sse_parser_feed(p, vec_range(&stream, i, i + 1));
+        i = i + 1;
+    }
+    if sse_parser_event_count(&p) != 1 { panic(121); };
+    if bytes_eq(ev_data(&p, 0), lit(STR_PTR("line1\nline2"), STR_LEN("line1\nline2"))) == false { panic(122); };
+    if bytes_eq(ev_type(&p, 0), lit(STR_PTR("greet"), STR_LEN("greet"))) == false { panic(123); };
+}
+
+@test "every two chunk split matches whole feeding"() {
+    let stream = lit(STR_PTR("data: one\r\ndata: two\r\n\r\n"), STR_LEN("data: one\r\ndata: two\r\n\r\n"));
+    let n: u64 = len(stream) as u64;
+    let s: u64 = 0;
+    while s <= n {
+        let p = sse_parser_new();
+        p = sse_parser_feed(p, vec_range(&stream, 0, s));
+        p = sse_parser_feed(p, vec_range(&stream, s, n));
+        if sse_parser_event_count(&p) != 1 { panic(131); };
+        if bytes_eq(ev_data(&p, 0), lit(STR_PTR("one\ntwo"), STR_LEN("one\ntwo"))) == false { panic(132); };
+        s = s + 1;
+    }
+}
+
+@test "crlf cr and lf line endings"() {
+    let p = sse_parser_new();
+    p = sse_parser_feed(p, lit(STR_PTR("data: a\r\n\r\ndata: b\r\rdata: c\n\n"), STR_LEN("data: a\r\n\r\ndata: b\r\rdata: c\n\n")));
+    if sse_parser_event_count(&p) != 3 { panic(141); };
+    if bytes_eq(ev_data(&p, 0), lit(STR_PTR("a"), STR_LEN("a"))) == false { panic(142); };
+    if bytes_eq(ev_data(&p, 1), lit(STR_PTR("b"), STR_LEN("b"))) == false { panic(143); };
+    if bytes_eq(ev_data(&p, 2), lit(STR_PTR("c"), STR_LEN("c"))) == false { panic(144); };
+}
+
+@test "comments and unknown fields ignored"() {
+    let p = sse_parser_new();
+    p = sse_parser_feed(p, lit(STR_PTR(": a comment\nfoo: bar\nbarefield\ndata: x\n\n"), STR_LEN(": a comment\nfoo: bar\nbarefield\ndata: x\n\n")));
+    if sse_parser_event_count(&p) != 1 { panic(151); };
+    if bytes_eq(ev_data(&p, 0), lit(STR_PTR("x"), STR_LEN("x"))) == false { panic(152); };
+}
+
+@test "space stripping is exactly one"() {
+    let p = sse_parser_new();
+    p = sse_parser_feed(p, lit(STR_PTR("data:no-space\ndata: one-space\ndata:  two-spaces\n\n"), STR_LEN("data:no-space\ndata: one-space\ndata:  two-spaces\n\n")));
+    if sse_parser_event_count(&p) != 1 { panic(161); };
+    if bytes_eq(ev_data(&p, 0), lit(STR_PTR("no-space\none-space\n two-spaces"), STR_LEN("no-space\none-space\n two-spaces"))) == false { panic(162); };
+}
+
+@test "empty data does not dispatch and clears type"() {
+    let p = sse_parser_new();
+    p = sse_parser_feed(p, lit(STR_PTR("event: ping\n\ndata: real\n\n"), STR_LEN("event: ping\n\ndata: real\n\n")));
+    if sse_parser_event_count(&p) != 1 { panic(171); };
+    let ev: SseEvent = sse_parser_event_at(&p, 0);
+    if bytes_eq(ev.data, lit(STR_PTR("real"), STR_LEN("real"))) == false { panic(172); };
+    if sse_event_is_message(&ev) == false { panic(173); };
+}
+
+@test "retry field parsing"() {
+    let p = sse_parser_new();
+    p = sse_parser_feed(p, lit(STR_PTR("retry: 2500\ndata: x\n\n"), STR_LEN("retry: 2500\ndata: x\n\n")));
+    if sse_parser_event_count(&p) != 1 { panic(181); };
+    let ev: SseEvent = sse_parser_event_at(&p, 0);
+    if ev.retry_ms != 2500 { panic(182); };
+    if sse_parser_retry_ms(&p) != 2500 { panic(183); };
+    let q = sse_parser_new();
+    q = sse_parser_feed(q, lit(STR_PTR("retry: 12a\nretry: \ndata: y\n\n"), STR_LEN("retry: 12a\nretry: \ndata: y\n\n")));
+    if sse_parser_event_count(&q) != 1 { panic(184); };
+    let ev2: SseEvent = sse_parser_event_at(&q, 0);
+    if ev2.retry_ms != -1 { panic(185); };
+    if sse_parser_retry_ms(&q) != -1 { panic(186); };
+}
+
+@test "id containing nul is ignored"() {
+    let stream: Vec<u8> = Vec::new();
+    // "id: a<NUL>b\ndata: x\n\n" built byte by byte (a literal cannot
+    // carry the NUL through the test helpers).
+    let part1 = lit(STR_PTR("id: a"), STR_LEN("id: a"));
+    let sl1: Slice<u8> = VEC_AS_SLICE(part1);
+    let i: u64 = 0;
+    while i < 5 {
+        let b: u8 = 0;
+        SLICE_GET(b, sl1, i);
+        stream.push(b);
+        i = i + 1;
+    }
+    stream.push(0);
+    let part2 = lit(STR_PTR("b\ndata: x\n\n"), STR_LEN("b\ndata: x\n\n"));
+    let sl2: Slice<u8> = VEC_AS_SLICE(part2);
+    let j: u64 = 0;
+    while j < (len(part2) as u64) {
+        let b2: u8 = 0;
+        SLICE_GET(b2, sl2, j);
+        stream.push(b2);
+        j = j + 1;
+    }
+    let p = sse_parser_new();
+    p = sse_parser_feed(p, stream);
+    if sse_parser_event_count(&p) != 1 { panic(191); };
+    let ev: SseEvent = sse_parser_event_at(&p, 0);
+    if ev.has_id { panic(192); };
+    if bytes_eq(ev.data, lit(STR_PTR("x"), STR_LEN("x"))) == false { panic(193); };
+}
+
+@test "bom stripped even when split across chunks"() {
+    let p = sse_parser_new();
+    let c1: Vec<u8> = Vec::new();
+    c1.push(239);
+    p = sse_parser_feed(p, c1);
+    if sse_parser_event_count(&p) != 0 { panic(201); };
+    let c2: Vec<u8> = Vec::new();
+    c2.push(187);
+    c2.push(191);
+    let rest = lit(STR_PTR("data: x\n\n"), STR_LEN("data: x\n\n"));
+    let slr: Slice<u8> = VEC_AS_SLICE(rest);
+    let i: u64 = 0;
+    while i < 9 {
+        let b: u8 = 0;
+        SLICE_GET(b, slr, i);
+        c2.push(b);
+        i = i + 1;
+    }
+    p = sse_parser_feed(p, c2);
+    if sse_parser_event_count(&p) != 1 { panic(202); };
+    if bytes_eq(ev_data(&p, 0), lit(STR_PTR("x"), STR_LEN("x"))) == false { panic(203); };
+}
+
+@test "non bom leading bytes are data"() {
+    let stream: Vec<u8> = Vec::new();
+    stream.push(239);
+    stream.push(65);
+    stream.push(10);
+    let rest = lit(STR_PTR("data: y\n\n"), STR_LEN("data: y\n\n"));
+    let slr: Slice<u8> = VEC_AS_SLICE(rest);
+    let i: u64 = 0;
+    while i < 9 {
+        let b: u8 = 0;
+        SLICE_GET(b, slr, i);
+        stream.push(b);
+        i = i + 1;
+    }
+    let p = sse_parser_new();
+    p = sse_parser_feed(p, stream);
+    if sse_parser_event_count(&p) != 1 { panic(211); };
+    if bytes_eq(ev_data(&p, 0), lit(STR_PTR("y"), STR_LEN("y"))) == false { panic(212); };
+}
+
+@test "finish flushes pending line and event"() {
+    let p = sse_parser_new();
+    p = sse_parser_feed(p, lit(STR_PTR("data: tail"), STR_LEN("data: tail")));
+    if sse_parser_event_count(&p) != 0 { panic(221); };
+    p = sse_parser_finish(p);
+    if sse_parser_event_count(&p) != 1 { panic(222); };
+    if bytes_eq(ev_data(&p, 0), lit(STR_PTR("tail"), STR_LEN("tail"))) == false { panic(223); };
+    let q = sse_parser_new();
+    q = sse_parser_feed(q, lit(STR_PTR("data: t2\n"), STR_LEN("data: t2\n")));
+    if sse_parser_event_count(&q) != 0 { panic(224); };
+    q = sse_parser_finish(q);
+    if sse_parser_event_count(&q) != 1 { panic(225); };
+    if bytes_eq(ev_data(&q, 0), lit(STR_PTR("t2"), STR_LEN("t2"))) == false { panic(226); };
+}
+
+@test "held cr across chunks"() {
+    let p = sse_parser_new();
+    p = sse_parser_feed(p, lit(STR_PTR("data: a\r"), STR_LEN("data: a\r")));
+    if sse_parser_event_count(&p) != 0 { panic(231); };
+    p = sse_parser_feed(p, lit(STR_PTR("\n\n"), STR_LEN("\n\n")));
+    if sse_parser_event_count(&p) != 1 { panic(232); };
+    if bytes_eq(ev_data(&p, 0), lit(STR_PTR("a"), STR_LEN("a"))) == false { panic(233); };
+    // A CR followed by a non-LF byte terminates the line by itself.
+    let q = sse_parser_new();
+    q = sse_parser_feed(q, lit(STR_PTR("data: b\r"), STR_LEN("data: b\r")));
+    q = sse_parser_feed(q, lit(STR_PTR("data: c\n\n"), STR_LEN("data: c\n\n")));
+    if sse_parser_event_count(&q) != 1 { panic(234); };
+    if bytes_eq(ev_data(&q, 0), lit(STR_PTR("b\nc"), STR_LEN("b\nc"))) == false { panic(235); };
+}
+
+@test "last id persists across events"() {
+    let p = sse_parser_new();
+    p = sse_parser_feed(p, lit(STR_PTR("id: 7\ndata: one\n\ndata: two\n\n"), STR_LEN("id: 7\ndata: one\n\ndata: two\n\n")));
+    if sse_parser_event_count(&p) != 2 { panic(241); };
+    let e1: SseEvent = sse_parser_event_at(&p, 0);
+    let e2: SseEvent = sse_parser_event_at(&p, 1);
+    if e1.has_id == false { panic(242); };
+    if e2.has_id == false { panic(243); };
+    if bytes_eq(e2.id, lit(STR_PTR("7"), STR_LEN("7"))) == false { panic(244); };
+    if sse_parser_has_id(&p) == false { panic(245); };
+    if bytes_eq(sse_parser_last_id(&p), lit(STR_PTR("7"), STR_LEN("7"))) == false { panic(246); };
+}

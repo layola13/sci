@@ -1,0 +1,81 @@
+// Loopback composition test for sse_parser_feed_http_sse: the
+// parser fed from a live sa_http_client_sse_* stream served by
+// tests/sse_http_stub.py (HTTP 127.0.0.1:18099). Run via
+// tests/run_sse_http_loopback_tests.sh.
+
+@import "sa_std/sse.sla"
+@import "sa_std/string.sa"
+@import "sa_std/ptr.sa"
+
+fn tb(text: ptr, text_len: u64) -> Vec<u8> {
+    let arr: [u8; 4096] = [0u8; 4096];
+    let dst: ptr = PTR_BYTE_ADD(&arr, 0);
+    PTR_COPY_BYTES(dst, text, text_len);
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < text_len {
+        out.push(arr[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn bytes_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
+    let n: u64 = len(a) as u64;
+    if n != (len(b) as u64) {
+        return false;
+    };
+    let sa: Slice<u8> = VEC_AS_SLICE(a);
+    let sb: Slice<u8> = VEC_AS_SLICE(b);
+    let i: u64 = 0;
+    while i < n {
+        let x: u8 = 0;
+        SLICE_GET(x, sa, i);
+        let y: u8 = 0;
+        SLICE_GET(y, sb, i);
+        if x != y {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+@test "parser fed from http sse stream"() {
+    let url = tb(STR_PTR("http://127.0.0.1:18099/events"), STR_LEN("http://127.0.0.1:18099/events"));
+    let usl: Slice<u8> = VEC_AS_SLICE(url);
+    // Stage the URL through a stack array for the extern call.
+    let arr: [u8; 256] = [0u8; 256];
+    let i: u64 = 0;
+    while i < (len(url) as u64) {
+        let b: u8 = 0;
+        SLICE_GET(b, usl, i);
+        arr[i] = b;
+        i = i + 1;
+    }
+    let url_ptr: ptr = PTR_BYTE_ADD(&arr, 0);
+    let empty: [u8; 1] = [0u8; 1];
+    let empty_ptr: ptr = PTR_BYTE_ADD(&empty, 0);
+    let handle: ptr = PTR_NULL();
+    let st: u32 = sa_http_client_sse_post(url_ptr, len(url) as u64, empty_ptr, 0, empty_ptr, 0, &handle);
+    if st != 0 { panic(801); };
+    let p = sse_parser_new();
+    let done: bool = false;
+    let guard: u64 = 0;
+    while done == false && guard < 200 {
+        let feed = sse_parser_feed_http_sse(p, handle);
+        p = feed.parser;
+        if feed.status != 0 { panic(802); };
+        done = feed.done;
+        guard = guard + 1;
+    }
+    if done == false { panic(803); };
+    p = sse_parser_finish(p);
+    if sse_parser_event_count(&p) != 2 { panic(804); };
+    let e0: SseEvent = sse_parser_event_at(&p, 0);
+    if bytes_eq(e0.data, tb(STR_PTR("one"), STR_LEN("one"))) == false { panic(805); };
+    let e1: SseEvent = sse_parser_event_at(&p, 1);
+    if bytes_eq(e1.data, tb(STR_PTR("two"), STR_LEN("two"))) == false { panic(806); };
+    let fr: u32 = sa_http_client_sse_free(handle);
+    if fr != 0 { panic(807); };
+}

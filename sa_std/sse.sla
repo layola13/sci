@@ -1,0 +1,711 @@
+// sa_std/sse.sla -- a general incremental parser for text/event-stream
+// (Server-Sent Events), plus one explicit composition helper that feeds
+// it from the http_client SSE stream surface.
+//
+// Why this file exists: sa_std's HTTP client can consume SSE only
+// through the AI-turn-shaped helpers (sa_http_client_sse_turn*), and
+// the .NET std census (sala 06_stdlib/26) recorded a general-purpose
+// SSE parser as missing outright. This file is that parser: transport
+// free, byte oriented, incremental -- feed it arbitrary chunks and pull
+// completed events out. It does not change any managed http_client
+// behaviour; the composition helper at the bottom is opt-in.
+//
+// Parsing model (the WHATWG event-stream interpretation, stated
+// exactly where this surface pins behaviour down):
+//   - The stream is a sequence of lines. A line is terminated by CRLF,
+//     a lone LF, or a lone CR. A CR at the very end of a fed chunk is
+//     held back (it may be the first half of a CRLF split across
+//     chunks) until more bytes or sse_parser_finish arrive.
+//   - A single UTF-8 BOM (EF BB BF) at the very start of the stream is
+//     stripped, even when split across chunks. A BOM anywhere else is
+//     data.
+//   - A blank line dispatches the pending event. A line whose first
+//     byte is ':' is a comment and is ignored. Any other line is split
+//     at its first ':' into field and value; exactly one leading space
+//     is removed from the value. A line without ':' is a field name
+//     with an empty value.
+//   - Fields: "data" appends the value plus a '\n' to the data buffer;
+//     "event" replaces the event-type buffer; "id" replaces the last
+//     event id unless the value contains a NUL byte (then it is
+//     ignored); "retry" sets the reconnection time when the value is
+//     non-empty and all ASCII digits (otherwise ignored). Unknown
+//     fields are ignored.
+//   - Dispatch: if the data buffer is empty, no event is emitted (the
+//     type buffer is still cleared). Otherwise the emitted event's
+//     data is the buffer with its single trailing '\n' removed, its
+//     type is the type buffer (empty means the default "message"),
+//     its id is the last event id at dispatch time, and its retry_ms
+//     is the reconnection time in effect at dispatch time (-1 when no
+//     retry field has been seen yet).
+//   - sse_parser_finish defines the end-of-stream semantics of this
+//     surface: a held trailing CR counts as a line terminator, a
+//     pending unterminated line is processed as if terminated, and a
+//     pending event with a non-empty data buffer is then dispatched.
+//     Nothing is silently dropped at end of stream.
+//
+// Ownership / shape (sa_std house style):
+//   - The parser is threaded by value: feed and finish consume the
+//     parser and return it. Getters take it by reference.
+//   - Events are byte strings throughout (Vec<u8>); text decoding is
+//     the caller's business. Dispatched events accumulate in order;
+//     sse_parser_event_at copies one out by value as a read-only view
+//     (the same shape as reading a DnsRecord out of a DnsMessage):
+//     consume its fields, do not free them separately.
+//   - Errors: this parser has no failure modes of its own -- every
+//     byte sequence is a legal event stream. The only status in this
+//     file is the http composition helper's, which propagates the
+//     http_client externs' u32 status verbatim.
+
+@import "sa_std/string.sa"
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+@import "sa_std/ptr.sa"
+@import "sa_std/http_client.sai"
+
+struct SseEvent {
+    event_type: Vec<u8>,
+    data: Vec<u8>,
+    id: Vec<u8>,
+    has_id: bool,
+    retry_ms: i64,
+}
+
+struct SseParser {
+    pending: Vec<u8>,
+    data_buf: Vec<u8>,
+    type_buf: Vec<u8>,
+    last_id: Vec<u8>,
+    has_id: bool,
+    retry_ms: i64,
+    bom_pending: bool,
+    events: Vec<SseEvent>,
+}
+
+fn sse_parser_new() -> SseParser {
+    let pending: Vec<u8> = Vec::new();
+    let data_buf: Vec<u8> = Vec::new();
+    let type_buf: Vec<u8> = Vec::new();
+    let last_id: Vec<u8> = Vec::new();
+    let events: Vec<SseEvent> = Vec::new();
+    return SseParser {
+        pending: pending,
+        data_buf: data_buf,
+        type_buf: type_buf,
+        last_id: last_id,
+        has_id: false,
+        retry_ms: -1,
+        bom_pending: true,
+        events: events,
+    };
+}
+
+// ---- byte helpers over slices (the dns.sla idiom) ----
+
+fn sse_slice_len(sl: &Slice<u8>) -> u64 {
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    return n;
+}
+
+fn sse_slice_byte(sl: &Slice<u8>, off: u64) -> u8 {
+    let b: u8 = 0;
+    SLICE_GET(b, sl, off);
+    return b;
+}
+
+// Copy sl[begin..end] into a fresh Vec<u8>.
+fn sse_slice_copy(sl: &Slice<u8>, begin: u64, end: u64) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = begin;
+    while i < end {
+        out.push(sse_slice_byte(sl, i));
+        i = i + 1;
+    }
+    return out;
+}
+
+fn sse_bytes_equal(a: &Slice<u8>, b: &Slice<u8>) -> bool {
+    let n: u64 = sse_slice_len(a);
+    if n != sse_slice_len(b) {
+        return false;
+    };
+    let i: u64 = 0;
+    while i < n {
+        if sse_slice_byte(a, i) != sse_slice_byte(b, i) {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+// ASCII case-insensitive comparison of a byte slice against a stack
+// staged literal slice.
+fn sse_field_is(sl: &Slice<u8>, begin: u64, end: u64, name: &Slice<u8>) -> bool {
+    if end - begin != sse_slice_len(name) {
+        return false;
+    };
+    let i: u64 = 0;
+    let n: u64 = end - begin;
+    while i < n {
+        let x: u8 = sse_slice_byte(sl, begin + i);
+        let y: u8 = sse_slice_byte(name, i);
+        if x >= 65 && x <= 90 {
+            x = x + 32;
+        };
+        if y >= 65 && y <= 90 {
+            y = y + 32;
+        };
+        if x != y {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+// ---- event construction / dispatch ----
+
+// Emit the pending event into p.events if the data buffer is
+// non-empty; always clear the data and type buffers. All state moves
+// through locals because the buffers are replaced wholesale.
+fn sse_dispatch(p: SseParser) -> SseParser {
+    let pending: Vec<u8> = p.pending;
+    let data_buf: Vec<u8> = p.data_buf;
+    let type_buf: Vec<u8> = p.type_buf;
+    let last_id: Vec<u8> = p.last_id;
+    let has_id: bool = p.has_id;
+    let retry_ms: i64 = p.retry_ms;
+    let bom_pending: bool = p.bom_pending;
+    let events: Vec<SseEvent> = p.events;
+    if len(data_buf) > 0 {
+        // The data buffer ends with exactly one '\n' per appended
+        // line; the dispatched data drops that single trailing byte.
+        let dsl: Slice<u8> = VEC_AS_SLICE(data_buf);
+        let ev_data: Vec<u8> = sse_slice_copy(&dsl, 0, len(data_buf) - 1);
+        let tsl: Slice<u8> = VEC_AS_SLICE(type_buf);
+        let ev_type: Vec<u8> = sse_slice_copy(&tsl, 0, len(type_buf));
+        let isl: Slice<u8> = VEC_AS_SLICE(last_id);
+        let ev_id: Vec<u8> = sse_slice_copy(&isl, 0, len(last_id));
+        let ev: SseEvent = SseEvent {
+            event_type: ev_type,
+            data: ev_data,
+            id: ev_id,
+            has_id: has_id,
+            retry_ms: retry_ms,
+        };
+        events.push(ev);
+    };
+    let data_fresh: Vec<u8> = Vec::new();
+    let type_fresh: Vec<u8> = Vec::new();
+    return SseParser {
+        pending: pending,
+        data_buf: data_fresh,
+        type_buf: type_fresh,
+        last_id: last_id,
+        has_id: has_id,
+        retry_ms: retry_ms,
+        bom_pending: bom_pending,
+        events: events,
+    };
+}
+
+// Process one complete line (bytes sl[begin..end], terminator already
+// stripped) against the parser state.
+fn sse_process_line(p: SseParser, sl: &Slice<u8>, begin: u64, end: u64) -> SseParser {
+    if begin == end {
+        return sse_dispatch(p);
+    };
+    if sse_slice_byte(sl, begin) == 58 {
+        // ':' -- comment line, ignored.
+        return p;
+    };
+    // Split at the first ':'.
+    let colon: u64 = end;
+    let i: u64 = begin;
+    while i < end {
+        if sse_slice_byte(sl, i) == 58 {
+            colon = i;
+            i = end;
+        } else {
+            i = i + 1;
+        };
+    }
+    let field_end: u64 = colon;
+    let value_begin: u64 = end;
+    let value_end: u64 = end;
+    if colon < end {
+        value_begin = colon + 1;
+        if value_begin < end {
+            if sse_slice_byte(sl, value_begin) == 32 {
+                value_begin = value_begin + 1;
+            };
+        };
+        value_end = end;
+    };
+    // Field names for comparison, staged as byte vectors.
+    let name_data: Vec<u8> = Vec::new();
+    name_data.push(100);
+    name_data.push(97);
+    name_data.push(116);
+    name_data.push(97);
+    let name_event: Vec<u8> = Vec::new();
+    name_event.push(101);
+    name_event.push(118);
+    name_event.push(101);
+    name_event.push(110);
+    name_event.push(116);
+    let name_id: Vec<u8> = Vec::new();
+    name_id.push(105);
+    name_id.push(100);
+    let name_retry: Vec<u8> = Vec::new();
+    name_retry.push(114);
+    name_retry.push(101);
+    name_retry.push(116);
+    name_retry.push(114);
+    name_retry.push(121);
+    let dsl_name: Slice<u8> = VEC_AS_SLICE(name_data);
+    let esl_name: Slice<u8> = VEC_AS_SLICE(name_event);
+    let isl_name: Slice<u8> = VEC_AS_SLICE(name_id);
+    let rsl_name: Slice<u8> = VEC_AS_SLICE(name_retry);
+    if sse_field_is(sl, begin, field_end, &dsl_name) {
+        // data: append the value plus a '\n' to the data buffer.
+        let data_buf: Vec<u8> = p.data_buf;
+        let j: u64 = value_begin;
+        while j < value_end {
+            data_buf.push(sse_slice_byte(sl, j));
+            j = j + 1;
+        }
+        data_buf.push(10);
+        let pending: Vec<u8> = p.pending;
+        let type_buf: Vec<u8> = p.type_buf;
+        let last_id: Vec<u8> = p.last_id;
+        let events: Vec<SseEvent> = p.events;
+        return SseParser {
+            pending: pending,
+            data_buf: data_buf,
+            type_buf: type_buf,
+            last_id: last_id,
+            has_id: p.has_id,
+            retry_ms: p.retry_ms,
+            bom_pending: p.bom_pending,
+            events: events,
+        };
+    };
+    if sse_field_is(sl, begin, field_end, &esl_name) {
+        // event: replace the event-type buffer.
+        let type_buf: Vec<u8> = sse_slice_copy(sl, value_begin, value_end);
+        let pending: Vec<u8> = p.pending;
+        let data_buf: Vec<u8> = p.data_buf;
+        let last_id: Vec<u8> = p.last_id;
+        let events: Vec<SseEvent> = p.events;
+        return SseParser {
+            pending: pending,
+            data_buf: data_buf,
+            type_buf: type_buf,
+            last_id: last_id,
+            has_id: p.has_id,
+            retry_ms: p.retry_ms,
+            bom_pending: p.bom_pending,
+            events: events,
+        };
+    };
+    if sse_field_is(sl, begin, field_end, &isl_name) {
+        // id: replace the last event id, unless the value holds a NUL.
+        let has_nul: bool = false;
+        let j: u64 = value_begin;
+        while j < value_end {
+            if sse_slice_byte(sl, j) == 0 {
+                has_nul = true;
+            };
+            j = j + 1;
+        }
+        if has_nul {
+            return p;
+        };
+        let last_id: Vec<u8> = sse_slice_copy(sl, value_begin, value_end);
+        let pending: Vec<u8> = p.pending;
+        let data_buf: Vec<u8> = p.data_buf;
+        let type_buf: Vec<u8> = p.type_buf;
+        let events: Vec<SseEvent> = p.events;
+        return SseParser {
+            pending: pending,
+            data_buf: data_buf,
+            type_buf: type_buf,
+            last_id: last_id,
+            has_id: true,
+            retry_ms: p.retry_ms,
+            bom_pending: p.bom_pending,
+            events: events,
+        };
+    };
+    if sse_field_is(sl, begin, field_end, &rsl_name) {
+        // retry: all-digit non-empty values set the reconnection time.
+        if value_begin == value_end {
+            return p;
+        };
+        let all_digits: bool = true;
+        let acc: i64 = 0;
+        let j: u64 = value_begin;
+        while j < value_end {
+            let b: u8 = sse_slice_byte(sl, j);
+            if b < 48 || b > 57 {
+                all_digits = false;
+            } else {
+                if acc < 4611686018427387904 {
+                    acc = acc * 10 + ((b - 48) as i64);
+                };
+            };
+            j = j + 1;
+        }
+        if all_digits == false {
+            return p;
+        };
+        let pending: Vec<u8> = p.pending;
+        let data_buf: Vec<u8> = p.data_buf;
+        let type_buf: Vec<u8> = p.type_buf;
+        let last_id: Vec<u8> = p.last_id;
+        let events: Vec<SseEvent> = p.events;
+        return SseParser {
+            pending: pending,
+            data_buf: data_buf,
+            type_buf: type_buf,
+            last_id: last_id,
+            has_id: p.has_id,
+            retry_ms: acc,
+            bom_pending: p.bom_pending,
+            events: events,
+        };
+    };
+    // Unknown field: ignored.
+    return p;
+}
+
+// Rule the BOM in or out once enough leading bytes are available.
+// Returns (parser, decided): when decided is false the caller must
+// wait for more bytes before extracting lines.
+fn sse_settle_bom(p: SseParser) -> SseParser {
+    if p.bom_pending == false {
+        return p;
+    };
+    let pending: Vec<u8> = p.pending;
+    let n: u64 = len(pending);
+    let sl: Slice<u8> = VEC_AS_SLICE(pending);
+    let bom: [u8; 3] = [239u8, 187u8, 191u8];
+    let i: u64 = 0;
+    let mismatch: bool = false;
+    while i < n && i < 3 {
+        if sse_slice_byte(&sl, i) != bom[i] {
+            mismatch = true;
+        };
+        i = i + 1;
+    }
+    if mismatch {
+        // Not a BOM: the bytes are data. Keep pending as-is.
+        let data_buf: Vec<u8> = p.data_buf;
+        let type_buf: Vec<u8> = p.type_buf;
+        let last_id: Vec<u8> = p.last_id;
+        let events: Vec<SseEvent> = p.events;
+        return SseParser {
+            pending: pending,
+            data_buf: data_buf,
+            type_buf: type_buf,
+            last_id: last_id,
+            has_id: p.has_id,
+            retry_ms: p.retry_ms,
+            bom_pending: false,
+            events: events,
+        };
+    };
+    if n < 3 {
+        // A strict BOM prefix: undecidable until more bytes arrive.
+        // Park the bytes back in pending untouched.
+        let data_buf: Vec<u8> = p.data_buf;
+        let type_buf: Vec<u8> = p.type_buf;
+        let last_id: Vec<u8> = p.last_id;
+        let events: Vec<SseEvent> = p.events;
+        return SseParser {
+            pending: pending,
+            data_buf: data_buf,
+            type_buf: type_buf,
+            last_id: last_id,
+            has_id: p.has_id,
+            retry_ms: p.retry_ms,
+            bom_pending: true,
+            events: events,
+        };
+    };
+    // Full BOM: strip it.
+    let rest: Vec<u8> = sse_slice_copy(&sl, 3, n);
+    let data_buf: Vec<u8> = p.data_buf;
+    let type_buf: Vec<u8> = p.type_buf;
+    let last_id: Vec<u8> = p.last_id;
+    let events: Vec<SseEvent> = p.events;
+    return SseParser {
+        pending: rest,
+        data_buf: data_buf,
+        type_buf: type_buf,
+        last_id: last_id,
+        has_id: p.has_id,
+        retry_ms: p.retry_ms,
+        bom_pending: false,
+        events: events,
+    };
+}
+
+// Extract and process every complete line in p.pending, where
+// "complete" is decided with the chunk-boundary rule: a CR in the
+// last position is not yet a terminator (unless final is set, the
+// sse_parser_finish path). Consumes and rebuilds the parser.
+fn sse_extract_lines(p: SseParser, final: bool) -> SseParser {
+    let pending: Vec<u8> = p.pending;
+    let n: u64 = len(pending);
+    let sl: Slice<u8> = VEC_AS_SLICE(pending);
+    // Rebuild the parser around the working state; the pending bytes
+    // are re-staged from the remainder at the end.
+    let cur = SseParser {
+        pending: Vec::new(),
+        data_buf: p.data_buf,
+        type_buf: p.type_buf,
+        last_id: p.last_id,
+        has_id: p.has_id,
+        retry_ms: p.retry_ms,
+        bom_pending: p.bom_pending,
+        events: p.events,
+    };
+    let line_begin: u64 = 0;
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = sse_slice_byte(&sl, i);
+        if b == 10 {
+            cur = sse_process_line(cur, &sl, line_begin, i);
+            i = i + 1;
+            line_begin = i;
+        } else {
+            if b == 13 {
+                if i + 1 < n {
+                    cur = sse_process_line(cur, &sl, line_begin, i);
+                    if sse_slice_byte(&sl, i + 1) == 10 {
+                        i = i + 2;
+                    } else {
+                        i = i + 1;
+                    };
+                    line_begin = i;
+                } else {
+                    if final {
+                        cur = sse_process_line(cur, &sl, line_begin, i);
+                        i = i + 1;
+                        line_begin = i;
+                    } else {
+                        // Held trailing CR: stop; it and the partial
+                        // line stay in pending.
+                        i = n;
+                    };
+                };
+            } else {
+                i = i + 1;
+            };
+        };
+    }
+    if final && line_begin < n {
+        // One last unterminated line.
+        cur = sse_process_line(cur, &sl, line_begin, n);
+        line_begin = n;
+    };
+    let rest: Vec<u8> = sse_slice_copy(&sl, line_begin, n);
+    let out = SseParser {
+        pending: rest,
+        data_buf: cur.data_buf,
+        type_buf: cur.type_buf,
+        last_id: cur.last_id,
+        has_id: cur.has_id,
+        retry_ms: cur.retry_ms,
+        bom_pending: cur.bom_pending,
+        events: cur.events,
+    };
+    return out;
+}
+
+// Feed one chunk of the stream. Chunk boundaries are meaningless to
+// the result: feeding a stream byte by byte yields the same events
+// as feeding it whole (the test suite pins this).
+fn sse_parser_feed(p: SseParser, chunk: Vec<u8>) -> SseParser {
+    let pending: Vec<u8> = p.pending;
+    let csl: Slice<u8> = VEC_AS_SLICE(chunk);
+    let cn: u64 = len(chunk);
+    let i: u64 = 0;
+    while i < cn {
+        pending.push(sse_slice_byte(&csl, i));
+        i = i + 1;
+    }
+    let staged = SseParser {
+        pending: pending,
+        data_buf: p.data_buf,
+        type_buf: p.type_buf,
+        last_id: p.last_id,
+        has_id: p.has_id,
+        retry_ms: p.retry_ms,
+        bom_pending: p.bom_pending,
+        events: p.events,
+    };
+    let settled = sse_settle_bom(staged);
+    if settled.bom_pending {
+        // Only a BOM prefix so far: nothing to extract yet.
+        return settled;
+    };
+    return sse_extract_lines(settled, false);
+}
+
+// Signal end of stream and settle everything (see the header for the
+// exact semantics): held CR terminates its line, a pending
+// unterminated line is processed, and a pending non-empty event is
+// dispatched.
+fn sse_parser_finish(p: SseParser) -> SseParser {
+    let settled = sse_settle_bom(p);
+    // On finish an undecided BOM prefix (1-2 bytes) is data, not a
+    // BOM: force the decision off so the bytes are processed.
+    let forced = SseParser {
+        pending: settled.pending,
+        data_buf: settled.data_buf,
+        type_buf: settled.type_buf,
+        last_id: settled.last_id,
+        has_id: settled.has_id,
+        retry_ms: settled.retry_ms,
+        bom_pending: false,
+        events: settled.events,
+    };
+    let extracted = sse_extract_lines(forced, true);
+    return sse_dispatch(extracted);
+}
+
+// ---- read-only getters ----
+
+fn sse_parser_event_count(p: &SseParser) -> u64 {
+    return len(p.events) as u64;
+}
+
+// Copy the index-th dispatched event out as a read-only view (see the
+// header's ownership note). index must be < sse_parser_event_count.
+fn sse_parser_event_at(p: &SseParser, index: u64) -> SseEvent {
+    let sl: Slice<SseEvent> = VEC_AS_SLICE(p.events);
+    let ev: SseEvent = SseEvent {
+        event_type: Vec::new(),
+        data: Vec::new(),
+        id: Vec::new(),
+        has_id: false,
+        retry_ms: -1,
+    };
+    SLICE_GET(ev, sl, index);
+    return ev;
+}
+
+// The last event id seen so far (empty when none, or when the id was
+// set to the empty string -- sse_parser_has_id distinguishes).
+fn sse_parser_last_id(p: &SseParser) -> Vec<u8> {
+    let sl: Slice<u8> = VEC_AS_SLICE(p.last_id);
+    return sse_slice_copy(&sl, 0, len(p.last_id));
+}
+
+fn sse_parser_has_id(p: &SseParser) -> bool {
+    return p.has_id;
+}
+
+// The reconnection time currently in effect: the last valid retry
+// value, or -1 when no retry field has been seen.
+fn sse_parser_retry_ms(p: &SseParser) -> i64 {
+    return p.retry_ms;
+}
+
+// True when the event carries the default type: the type buffer was
+// empty at dispatch time, which the model reads as "message".
+fn sse_event_is_message(ev: &SseEvent) -> bool {
+    if len(ev.event_type) == 0 {
+        return true;
+    };
+    let sl: Slice<u8> = VEC_AS_SLICE(ev.event_type);
+    if sse_slice_len(&sl) != 7 {
+        return false;
+    };
+    let expect: Vec<u8> = Vec::new();
+    expect.push(109);
+    expect.push(101);
+    expect.push(115);
+    expect.push(115);
+    expect.push(97);
+    expect.push(103);
+    expect.push(101);
+    let esl: Slice<u8> = VEC_AS_SLICE(expect);
+    return sse_bytes_equal(&sl, &esl);
+}
+
+// ---- explicit composition with the http_client SSE stream ----
+
+struct SseHttpFeed {
+    parser: SseParser,
+    status: u32,
+    bytes_read: u64,
+    done: bool,
+    http_status: u16,
+}
+
+// Feed the parser from an open sa_http_client_sse_* stream handle:
+// polls once, reads one chunk of whatever is available (up to 8192
+// bytes) and feeds it. Callers loop until done is true; done means
+// the stream has finished AND this call read nothing further, so a
+// finished stream is always fully drained before done is reported
+// (a poll-finished call that still reads bytes reports done=false
+// and must be called again). status is the last extern's u32 status
+// verbatim -- 0 is the http surface's OK. When the stream finishes
+// with bytes still buffered by the parser, the caller decides
+// whether to sse_parser_finish: this helper never finishes the
+// parser implicitly.
+fn sse_parser_feed_http_sse(p: SseParser, handle: ptr) -> SseHttpFeed {
+    let done_flag: u64 = 0;
+    let poll_st: u32 = sa_http_client_sse_poll(handle, &done_flag);
+    let http_status: u16 = sa_http_client_sse_status(handle);
+    if poll_st != 0 {
+        return SseHttpFeed {
+            parser: p,
+            status: poll_st,
+            bytes_read: 0,
+            done: false,
+            http_status: http_status,
+        };
+    };
+    let buf: [u8; 8192] = [0u8; 8192];
+    let buf_ptr: ptr = PTR_BYTE_ADD(&buf, 0);
+    let got: u64 = 0;
+    let read_st: u32 = sa_http_client_sse_read(handle, buf_ptr, 8192, &got);
+    if read_st != 0 {
+        return SseHttpFeed {
+            parser: p,
+            status: read_st,
+            bytes_read: 0,
+            done: done_flag != 0,
+            http_status: http_status,
+        };
+    };
+    if got == 0 {
+        return SseHttpFeed {
+            parser: p,
+            status: 0,
+            bytes_read: 0,
+            done: done_flag != 0,
+            http_status: http_status,
+        };
+    };
+    let chunk: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < got {
+        chunk.push(buf[i]);
+        i = i + 1;
+    }
+    let fed = sse_parser_feed(p, chunk);
+    return SseHttpFeed {
+        parser: fed,
+        status: 0,
+        bytes_read: got,
+        done: false,
+        http_status: http_status,
+    };
+}
