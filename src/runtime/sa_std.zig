@@ -8283,6 +8283,32 @@ test "sa_json mutation is visible across handles; removed key detaches its handl
     try std.testing.expectEqual(SA_JSON_KIND_INVALID, sa_json_kind(outer));
 }
 
+test "sa_json_kind returns the named SA_JSON_KIND values for each document kind" {
+    // Locks the runtime kind values to the names published for
+    // consumers (sa_std/encoding/json.sal for SA, sa_std.h for C, and
+    // sa_std/encoding/json.sla for the SLA layer) so the layers cannot
+    // drift apart. 1e999 is a NUMBER_STRING: the parser cannot
+    // represent it as i64 or f64.
+    const cases = .{
+        .{ "null", SA_JSON_KIND_NULL },
+        .{ "true", SA_JSON_KIND_BOOL },
+        .{ "42", SA_JSON_KIND_INTEGER },
+        .{ "1.5", SA_JSON_KIND_FLOAT },
+        .{ "1e999", SA_JSON_KIND_NUMBER_STRING },
+        .{ "\"s\"", SA_JSON_KIND_STRING },
+        .{ "[1,2]", SA_JSON_KIND_ARRAY },
+        .{ "{\"a\":1}", SA_JSON_KIND_OBJECT },
+    };
+    inline for (cases) |case| {
+        const doc = sa_json_parse(case[0].ptr, @intCast(case[0].len));
+        try std.testing.expect(doc != 0);
+        defer _ = sa_json_free(doc);
+        try std.testing.expectEqual(case[1], sa_json_kind(doc));
+    }
+    // An unknown handle reports INVALID, not a document kind.
+    try std.testing.expectEqual(SA_JSON_KIND_INVALID, sa_json_kind(0));
+}
+
 pub export fn sa_json_scanner_new(out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;

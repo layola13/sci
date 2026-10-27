@@ -1,0 +1,80 @@
+// SLA-facing named constants for the values returned by sa_json_kind
+// (declared in sa_std/encoding/json.sai as `-> u32`).
+//
+// Why this file exists: the names have always existed at the other
+// layers -- sa_std/encoding/json.sal defines them for SA
+// (#def SA_JSON_KIND_*), src/runtime/sa_std.h defines them for C, and
+// the Zig runtime implements them (SA_JSON_KIND_* in
+// src/runtime/sa_std.zig and src/runtime/sa_std_windows.zig) -- but an
+// SLA consumer importing json.sai saw only the bare u32 and had to
+// hard-code the numbers (converted product code did exactly that, and
+// one converted file even invented its own incompatible numbering).
+// These consts are the SLA spelling of the same values. They are pure
+// declarations: no new externs, no ABI change.
+//
+// Values (verified line-by-line against both runtime implementations,
+// src/runtime/sa_std.zig:671-679 and src/runtime/sa_std_windows.zig:127-135,
+// where jsonKindOf/jsonKind map the value tags in this order):
+//   INVALID = 4294967295 (u32 max; sa_json_kind returns it when the
+//   handle is unknown or its node was detached by a removal)
+//   NULL = 0, BOOL = 1, INTEGER = 2, FLOAT = 3, NUMBER_STRING = 4,
+//   STRING = 5, ARRAY = 6, OBJECT = 7
+//
+// A NUMBER_STRING is a number literal the parser could not represent
+// as i64 or f64 (e.g. 1e999); its text stays available via
+// sa_json_string_ptr/len, like a STRING.
+
+@import "sa_std/encoding/json.sai"
+
+const SA_JSON_KIND_INVALID: u32 = 4294967295;
+const SA_JSON_KIND_NULL: u32 = 0;
+const SA_JSON_KIND_BOOL: u32 = 1;
+const SA_JSON_KIND_INTEGER: u32 = 2;
+const SA_JSON_KIND_FLOAT: u32 = 3;
+const SA_JSON_KIND_NUMBER_STRING: u32 = 4;
+const SA_JSON_KIND_STRING: u32 = 5;
+const SA_JSON_KIND_ARRAY: u32 = 6;
+const SA_JSON_KIND_OBJECT: u32 = 7;
+
+// Kind predicates: the common `sa_json_kind(node) == SA_JSON_KIND_*`
+// comparisons, named once here instead of per call site.
+
+fn sa_json_is_null(node: u64) -> bool {
+    return sa_json_kind(node) == SA_JSON_KIND_NULL;
+}
+
+fn sa_json_is_bool(node: u64) -> bool {
+    return sa_json_kind(node) == SA_JSON_KIND_BOOL;
+}
+
+fn sa_json_is_integer(node: u64) -> bool {
+    return sa_json_kind(node) == SA_JSON_KIND_INTEGER;
+}
+
+fn sa_json_is_float(node: u64) -> bool {
+    return sa_json_kind(node) == SA_JSON_KIND_FLOAT;
+}
+
+fn sa_json_is_number_string(node: u64) -> bool {
+    return sa_json_kind(node) == SA_JSON_KIND_NUMBER_STRING;
+}
+
+// True for every numeric node: INTEGER, FLOAT and NUMBER_STRING.
+fn sa_json_is_number(node: u64) -> bool {
+    let k: u32 = sa_json_kind(node);
+    if k == SA_JSON_KIND_INTEGER { return true; };
+    if k == SA_JSON_KIND_FLOAT { return true; };
+    return k == SA_JSON_KIND_NUMBER_STRING;
+}
+
+fn sa_json_is_string(node: u64) -> bool {
+    return sa_json_kind(node) == SA_JSON_KIND_STRING;
+}
+
+fn sa_json_is_array(node: u64) -> bool {
+    return sa_json_kind(node) == SA_JSON_KIND_ARRAY;
+}
+
+fn sa_json_is_object(node: u64) -> bool {
+    return sa_json_kind(node) == SA_JSON_KIND_OBJECT;
+}

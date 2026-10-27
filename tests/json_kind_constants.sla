@@ -1,0 +1,134 @@
+// Regression test for the SLA-facing SA_JSON_KIND_* constants in
+// sa_std/encoding/json.sla: each constant is checked against the value
+// sa_json_kind actually returns for a document of that kind.
+//
+// On a tree without json.sla this file cannot even compile (the
+// constants do not exist at the SLA layer), which is what makes it a
+// regression test for the constant face rather than for the runtime
+// (the runtime values are additionally locked by the Zig-side
+// sa-std-unit test "sa_json_kind returns the named SA_JSON_KIND values").
+
+@import "sa_std/encoding/json.sla"
+@import "sa_std/string.sa"
+
+@test "kind const for null document"() {
+    let doc: u64 = sa_json_parse(STR_PTR("null"), STR_LEN("null"));
+    if doc == 0 { panic(11); };
+    let k: u32 = sa_json_kind(doc);
+    let ok: bool = k == SA_JSON_KIND_NULL;
+    let st: i32 = sa_json_free(doc);
+    if ok { } else { panic(12); };
+};
+
+@test "kind const for bool document"() {
+    let doc: u64 = sa_json_parse(STR_PTR("true"), STR_LEN("true"));
+    if doc == 0 { panic(21); };
+    let k: u32 = sa_json_kind(doc);
+    let ok: bool = k == SA_JSON_KIND_BOOL;
+    let st: i32 = sa_json_free(doc);
+    if ok { } else { panic(22); };
+};
+
+@test "kind const for integer document"() {
+    let doc: u64 = sa_json_parse(STR_PTR("42"), STR_LEN("42"));
+    if doc == 0 { panic(31); };
+    let k: u32 = sa_json_kind(doc);
+    let ok: bool = k == SA_JSON_KIND_INTEGER;
+    let st: i32 = sa_json_free(doc);
+    if ok { } else { panic(32); };
+};
+
+@test "kind const for float document"() {
+    let doc: u64 = sa_json_parse(STR_PTR("1.5"), STR_LEN("1.5"));
+    if doc == 0 { panic(41); };
+    let k: u32 = sa_json_kind(doc);
+    let ok: bool = k == SA_JSON_KIND_FLOAT;
+    let st: i32 = sa_json_free(doc);
+    if ok { } else { panic(42); };
+};
+
+@test "kind const for number_string document"() {
+    let doc: u64 = sa_json_parse(STR_PTR("1e999"), STR_LEN("1e999"));
+    if doc == 0 { panic(51); };
+    let k: u32 = sa_json_kind(doc);
+    let ok: bool = k == SA_JSON_KIND_NUMBER_STRING;
+    let st: i32 = sa_json_free(doc);
+    if ok { } else { panic(52); };
+};
+
+@test "kind const for string document"() {
+    let doc: u64 = sa_json_parse(STR_PTR("\"s\""), STR_LEN("\"s\""));
+    if doc == 0 { panic(61); };
+    let k: u32 = sa_json_kind(doc);
+    let ok: bool = k == SA_JSON_KIND_STRING;
+    let st: i32 = sa_json_free(doc);
+    if ok { } else { panic(62); };
+};
+
+@test "kind const for array document"() {
+    let doc: u64 = sa_json_parse(STR_PTR("[1,2]"), STR_LEN("[1,2]"));
+    if doc == 0 { panic(71); };
+    let k: u32 = sa_json_kind(doc);
+    let ok: bool = k == SA_JSON_KIND_ARRAY;
+    let st: i32 = sa_json_free(doc);
+    if ok { } else { panic(72); };
+};
+
+@test "kind const for object document"() {
+    let doc: u64 = sa_json_parse(STR_PTR("{\"a\":1}"), STR_LEN("{\"a\":1}"));
+    if doc == 0 { panic(81); };
+    let k: u32 = sa_json_kind(doc);
+    let ok: bool = k == SA_JSON_KIND_OBJECT;
+    let st: i32 = sa_json_free(doc);
+    if ok { } else { panic(82); };
+};
+
+@test "kind const for invalid handle"() {
+    let k: u32 = sa_json_kind(0);
+    let ok: bool = k == SA_JSON_KIND_INVALID;
+    if ok { } else { panic(92); };
+};
+
+@test "kind predicates agree with sa_json_kind"() {
+    let doc: u64 = sa_json_parse(STR_PTR("{\"a\":[1,1.5,\"s\",null,true,1e999]}"), STR_LEN("{\"a\":[1,1.5,\"s\",null,true,1e999]}"));
+    if doc == 0 { panic(101); };
+    if sa_json_is_object(doc) { } else { panic(102); };
+    let arr: u64 = 0;
+    let gst: i32 = sa_json_object_get(doc, STR_PTR("a"), STR_LEN("a"), &arr);
+    if gst != 0 { panic(103); };
+    if sa_json_is_array(arr) { } else { panic(104); };
+    let e0: u64 = 0;
+    let s0: i32 = sa_json_array_get(arr, 0, &e0);
+    if s0 != 0 { panic(105); };
+    if sa_json_is_integer(e0) { } else { panic(106); };
+    if sa_json_is_number(e0) { } else { panic(107); };
+    let f0: i32 = sa_json_free(e0);
+    let e1: u64 = 0;
+    let s1: i32 = sa_json_array_get(arr, 1, &e1);
+    if s1 != 0 { panic(108); };
+    if sa_json_is_float(e1) { } else { panic(109); };
+    let f1: i32 = sa_json_free(e1);
+    let e2: u64 = 0;
+    let s2: i32 = sa_json_array_get(arr, 2, &e2);
+    if s2 != 0 { panic(110); };
+    if sa_json_is_string(e2) { } else { panic(111); };
+    let f2: i32 = sa_json_free(e2);
+    let e3: u64 = 0;
+    let s3: i32 = sa_json_array_get(arr, 3, &e3);
+    if s3 != 0 { panic(112); };
+    if sa_json_is_null(e3) { } else { panic(113); };
+    let f3: i32 = sa_json_free(e3);
+    let e4: u64 = 0;
+    let s4: i32 = sa_json_array_get(arr, 4, &e4);
+    if s4 != 0 { panic(114); };
+    if sa_json_is_bool(e4) { } else { panic(115); };
+    let f4: i32 = sa_json_free(e4);
+    let e5: u64 = 0;
+    let s5: i32 = sa_json_array_get(arr, 5, &e5);
+    if s5 != 0 { panic(116); };
+    if sa_json_is_number_string(e5) { } else { panic(117); };
+    if sa_json_is_number(e5) { } else { panic(118); };
+    let f5: i32 = sa_json_free(e5);
+    let fa: i32 = sa_json_free(arr);
+    let fd: i32 = sa_json_free(doc);
+};
