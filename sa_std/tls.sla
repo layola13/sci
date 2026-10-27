@@ -1,0 +1,49 @@
+// SLA-facing named constants for TLS cipher suites: the IANA
+// TLS Cipher Suite Registry code points (the same numbering as
+// .NET's TlsCipherSuite enum).
+//
+// Coverage, stated plainly (the census counted 337 TlsCipherSuite
+// members in .NET; publishing the whole registry is not the goal
+// here): this file names the suites the sa_std shaped TLS client
+// can actually offer, plus the QUIC stack's default suite set.
+// The intersection is mechanical:
+//  - TLS 1.3: the three suites in TLS13_SUITES shared by every
+//    fingerprint profile in src/runtime/sa_tls_shaped.zig:193,
+//    plus the two CCM suites -- TLS_AES_128_CCM_SHA256 is in the
+//    QUIC capabilities' DEFAULT_CIPHERS (src/runtime/sa_quic.zig)
+//    and TLS_AES_128_CCM_8_SHA256 is its registry sibling.
+//  - TLS <= 1.2: the union of the four profiles' cipher lists in
+//    sa_tls_shaped.zig (chrome/firefox/safari/edge shaped lists),
+//    16 suites.
+// Total: 21 suites. Anything beyond this set needs a census of
+// its own before it is published; do not add registry values here
+// on speculation. Pure declarations: no new externs, no ABI
+// change.
+//
+// Values: IANA code points, written decimal (= the .NET
+// TlsCipherSuite numeric values).
+
+// ---- TLS 1.3 suites ----
+const SA_TLS_CIPHER_SUITE_AES_128_GCM_SHA256: u32 = 4865;
+const SA_TLS_CIPHER_SUITE_AES_256_GCM_SHA384: u32 = 4866;
+const SA_TLS_CIPHER_SUITE_CHACHA20_POLY1305_SHA256: u32 = 4867;
+const SA_TLS_CIPHER_SUITE_AES_128_CCM_SHA256: u32 = 4868;
+const SA_TLS_CIPHER_SUITE_AES_128_CCM_8_SHA256: u32 = 4869;
+
+// ---- TLS <= 1.2 suites offered by the shaped client profiles ----
+const SA_TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: u32 = 49195;
+const SA_TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_GCM_SHA256: u32 = 49199;
+const SA_TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: u32 = 49196;
+const SA_TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384: u32 = 49200;
+const SA_TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: u32 = 52393;
+const SA_TLS_CIPHER_SUITE_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: u32 = 52392;
+const SA_TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256: u32 = 49187;
+const SA_TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256: u32 = 49191;
+const SA_TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA: u32 = 49161;
+const SA_TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA: u32 = 49171;
+const SA_TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA: u32 = 49162;
+const SA_TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA: u32 = 49172;
+const SA_TLS_CIPHER_SUITE_RSA_WITH_AES_128_GCM_SHA256: u32 = 156;
+const SA_TLS_CIPHER_SUITE_RSA_WITH_AES_256_GCM_SHA384: u32 = 157;
+const SA_TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA: u32 = 47;
+const SA_TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA: u32 = 53;

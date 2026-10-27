@@ -1,0 +1,37 @@
+// Regression test for the SLA-facing TLS cipher-suite constants
+// in sa_std/tls.sla. Literal lock only: no sa_std extern takes or
+// returns a suite code point today (the shaped client configures
+// suites by OpenSSL name string), so the published IANA values are
+// pinned literally. The offered-set provenance (sa_tls_shaped.zig
+// profiles + the QUIC DEFAULT_CIPHERS) is documented in tls.sla.
+//
+// On a tree without tls.sla this file cannot even compile.
+
+@import "sa_std/tls.sla"
+
+@test "tls 1.3 suite consts pin the IANA values"() {
+    if SA_TLS_CIPHER_SUITE_AES_128_GCM_SHA256 == 4865 { } else { panic(1901); };
+    if SA_TLS_CIPHER_SUITE_AES_256_GCM_SHA384 == 4866 { } else { panic(1902); };
+    if SA_TLS_CIPHER_SUITE_CHACHA20_POLY1305_SHA256 == 4867 { } else { panic(1903); };
+    if SA_TLS_CIPHER_SUITE_AES_128_CCM_SHA256 == 4868 { } else { panic(1904); };
+    if SA_TLS_CIPHER_SUITE_AES_128_CCM_8_SHA256 == 4869 { } else { panic(1905); };
+};
+
+@test "tls legacy suite consts pin the IANA values"() {
+    if SA_TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 == 49195 { } else { panic(1911); };
+    if SA_TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_GCM_SHA256 == 49199 { } else { panic(1912); };
+    if SA_TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 == 49196 { } else { panic(1913); };
+    if SA_TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384 == 49200 { } else { panic(1914); };
+    if SA_TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 == 52393 { } else { panic(1915); };
+    if SA_TLS_CIPHER_SUITE_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 == 52392 { } else { panic(1916); };
+    if SA_TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 == 49187 { } else { panic(1917); };
+    if SA_TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256 == 49191 { } else { panic(1918); };
+    if SA_TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA == 49161 { } else { panic(1919); };
+    if SA_TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA == 49171 { } else { panic(1920); };
+    if SA_TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA == 49162 { } else { panic(1921); };
+    if SA_TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA == 49172 { } else { panic(1922); };
+    if SA_TLS_CIPHER_SUITE_RSA_WITH_AES_128_GCM_SHA256 == 156 { } else { panic(1923); };
+    if SA_TLS_CIPHER_SUITE_RSA_WITH_AES_256_GCM_SHA384 == 157 { } else { panic(1924); };
+    if SA_TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA == 47 { } else { panic(1925); };
+    if SA_TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA == 53 { } else { panic(1926); };
+};
