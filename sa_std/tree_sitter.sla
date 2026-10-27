@@ -1,0 +1,22 @@
+// SLA-facing named constants for the sa_ts query error kinds:
+// the out_err_kind values of sa_ts_query_new (sa_std/tree_sitter.sai).
+//
+// Why this file exists: query_new reports a compile failure as
+// status 1 plus a bare u32 error kind through an out param; the
+// numbering lived only in the tree_sitter.sai header comment
+// ("TSQueryErrorType: 1 syntax, 2 node type, 3 field, 4 capture,
+// 5 structure, 6 language"). These consts are the SLA spelling of
+// the tree-sitter C TSQueryErrorType values (0 = none), verified
+// against that comment and the runtime's query constructor when
+// this file was written. Pure declarations: no new externs, no
+// ABI change.
+
+@import "sa_std/tree_sitter.sai"
+
+const SA_TS_QUERY_ERROR_NONE: u32 = 0;
+const SA_TS_QUERY_ERROR_SYNTAX: u32 = 1;
+const SA_TS_QUERY_ERROR_NODE_TYPE: u32 = 2;
+const SA_TS_QUERY_ERROR_FIELD: u32 = 3;
+const SA_TS_QUERY_ERROR_CAPTURE: u32 = 4;
+const SA_TS_QUERY_ERROR_STRUCTURE: u32 = 5;
+const SA_TS_QUERY_ERROR_LANGUAGE: u32 = 6;

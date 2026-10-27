@@ -1,0 +1,39 @@
+// Regression test for the SLA-facing tree-sitter query error kind
+// constants in sa_std/tree_sitter.sla.
+//
+//  - Literal: the seven TSQueryErrorType values are pinned.
+//  - Behavioral: an invalid language name makes sa_ts_query_new
+//    return status 1 with err_kind left at SA_TS_QUERY_ERROR_NONE.
+//    A grammar-backed SYNTAX assertion is NOT possible in this
+//    standalone test environment: a probe on 2026-10-27 showed
+//    query_new("typescript", "(((") returns status 8
+//    (SA_STD_ERR_UNSUPPORTED) here because the tree-sitter
+//    grammar libraries load through the plugin host, which a
+//    bare `sa test` binary does not provide. The SYNTAX value is
+//    therefore pinned literally (tree_sitter.sai header comment
+//    + the runtime's TSQueryErrorType mapping).
+//
+// On a tree without tree_sitter.sla this file cannot even compile.
+
+@import "sa_std/tree_sitter.sla"
+@import "sa_std/string.sa"
+
+@test "ts query error consts pin the published values"() {
+    if SA_TS_QUERY_ERROR_NONE == 0 { } else { panic(2201); };
+    if SA_TS_QUERY_ERROR_SYNTAX == 1 { } else { panic(2202); };
+    if SA_TS_QUERY_ERROR_NODE_TYPE == 2 { } else { panic(2203); };
+    if SA_TS_QUERY_ERROR_FIELD == 3 { } else { panic(2204); };
+    if SA_TS_QUERY_ERROR_CAPTURE == 4 { } else { panic(2205); };
+    if SA_TS_QUERY_ERROR_STRUCTURE == 5 { } else { panic(2206); };
+    if SA_TS_QUERY_ERROR_LANGUAGE == 6 { } else { panic(2207); };
+};
+
+@test "invalid language name leaves err kind at NONE"() {
+    let q: u64 = 0;
+    let off: u32 = 0;
+    let kind: u32 = 0;
+    let st: i32 = sa_ts_query_new(STR_PTR("BAD NAME"), STR_LEN("BAD NAME"), STR_PTR("(x)"), STR_LEN("(x)"), &q, &off, &kind);
+    if st == 1 { } else { panic(2211); };
+    if q == 0 { } else { panic(2212); };
+    if kind == SA_TS_QUERY_ERROR_NONE { } else { panic(2213); };
+};
