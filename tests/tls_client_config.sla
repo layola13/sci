@@ -1,0 +1,72 @@
+// Regression test for the TLS client configuration surface
+// (sa_std/tls_client.sa + tls_client.sai): config-object lifecycle, the
+// loudly-rejected malformed memory CA, the peer-certificate probe codes
+// on the std backend, shaped-profile pre-dial validation, and the
+// SA_TLS_SERVER_ERR_TLS_VERIFY constant (sa_std/tls_server.sal).
+//
+// No network is touched: every assertion is argument/lifecycle level.
+// The networked behavior (SNI override, CA pinning, session resumption,
+// start_tls, mTLS) is locked by the Zig-side sa-std-unit loopback tests
+// in src/runtime/sa_tls_{client,shaped,server}.zig.
+//
+// On a tree without the configuration surface this file cannot compile
+// (the externs and the constant do not exist), which is what makes it a
+// regression test. The shaped-profile assertion expects an OpenSSL-
+// capable host (-22 is returned after the backend availability check).
+
+@import "sa_std/tls_client.sa"
+@import "sa_std/tls_server.sa"
+@import "sa_std/string.sa"
+
+@test "config lifecycle and eager memory-CA validation"() {
+    let cfg: u64 = 0;
+    let st: i32 = sa_std_tls_client_config_new(&cfg);
+    if st != 0 { panic(11); };
+    if cfg == 0 { panic(12); };
+    let nm: i32 = sa_std_tls_client_config_set_server_name(cfg, STR_PTR("localhost"), STR_LEN("localhost"));
+    if nm != 0 { panic(13); };
+    let junk: i32 = sa_std_tls_client_config_add_ca_memory(cfg, STR_PTR("not a pem"), STR_LEN("not a pem"));
+    if junk != -22 { panic(14); };
+    let rel: i32 = sa_std_tls_client_config_add_ca_file(cfg, STR_PTR("relative/ca.pem"), STR_LEN("relative/ca.pem"));
+    if rel != -22 { panic(15); };
+    let ins: i32 = sa_std_tls_client_config_set_insecure_no_verification(cfg, 1);
+    if ins != 0 { panic(16); };
+    let ss: i32 = sa_std_tls_client_config_set_verify_self_signed(cfg, 0);
+    if ss != 0 { panic(17); };
+    let fr: i32 = sa_std_tls_client_config_free(cfg);
+    if fr != 0 { panic(18); };
+    let fr0: i32 = sa_std_tls_client_config_free(0);
+    if fr0 != 0 { panic(19); };
+};
+
+@test "config setters reject the null config"() {
+    let a: i32 = sa_std_tls_client_config_set_server_name(0, STR_PTR("x"), STR_LEN("x"));
+    if a != -22 { panic(21); };
+    let b: i32 = sa_std_tls_client_config_set_insecure_no_verification(0, 1);
+    if b != -22 { panic(22); };
+    let c: i32 = sa_std_tls_client_config_add_ca_memory(0, STR_PTR("x"), STR_LEN("x"));
+    if c != -22 { panic(23); };
+};
+
+@test "peer cert probe codes on the std backend"() {
+    let out: u64 = 0;
+    let bad: i32 = sa_std_tls_client_peer_cert_json(0, &out);
+    if bad != -22 { panic(31); };
+    let unsup: i32 = sa_std_tls_client_peer_cert_json(1, &out);
+    if unsup != -1 { panic(32); };
+    if out != 0 { panic(33); };
+};
+
+@test "shaped profile is validated before dialing"() {
+    let h: u64 = 0;
+    let st: i32 = sa_std_tls_shaped_connect(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"), 1, STR_PTR("{\"session\":\"!!!not-base64!!!\"}"), STR_LEN("{\"session\":\"!!!not-base64!!!\"}"), &h);
+    if st != -22 { panic(41); };
+    if h != 0 { panic(42); };
+};
+
+@test "tls verify constant face"() {
+    if SA_TLS_SERVER_ERR_TLS_VERIFY != -100 { panic(51); };
+    if SA_TLS_SERVER_OK != 0 { panic(52); };
+    if SA_TLS_SERVER_ERR_UNSUPPORTED != -1 { panic(53); };
+    if SA_TLS_SERVER_ERR_INVALID_ARGUMENT != -22 { panic(54); };
+};
