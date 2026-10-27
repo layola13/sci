@@ -78,3 +78,68 @@ fn sa_json_is_array(node: u64) -> bool {
 fn sa_json_is_object(node: u64) -> bool {
     return sa_json_kind(node) == SA_JSON_KIND_OBJECT;
 }
+
+// Token kinds: the u32 that sa_json_stream_next (json.sai) returns
+// directly and that sa_json_scanner_next writes into the kind field
+// (offset 0) of its out_token struct. The names exist at the other
+// layers -- sa_std/encoding/json.sal defines them for SA
+// (#def SA_JSON_TOKEN_*, json.sal:10-28), and the Zig runtime
+// implements them (SA_JSON_TOKEN_* in src/runtime/sa_std.zig:681-698,
+// mapped 1:1 from std.json.Token by tokenTypeOf,
+// sa_std.zig:1924-1945) -- this is their SLA spelling. Pure
+// declarations: no new externs, no ABI change.
+//
+//   INVALID = 4294967295 (u32 max; scanner_next pre-fills the token
+//   with it before doing any work, so a failed call leaves INVALID
+//   behind, and stream_next returns it for an unknown handle or a
+//   scanner error)
+//   OBJECT_BEGIN = 0, OBJECT_END = 1, ARRAY_BEGIN = 2, ARRAY_END = 3,
+//   TRUE = 4, FALSE = 5, NULL = 6, NUMBER = 7, PARTIAL_NUMBER = 8,
+//   STRING = 9, PARTIAL_STRING = 10,
+//   PARTIAL_STRING_ESCAPED_1 = 11, PARTIAL_STRING_ESCAPED_2 = 12,
+//   PARTIAL_STRING_ESCAPED_3 = 13, PARTIAL_STRING_ESCAPED_4 = 14,
+//   END_OF_DOCUMENT = 15, ALLOCATED_NUMBER = 16,
+//   ALLOCATED_STRING = 17
+//
+// PARTIAL_* tokens appear when a scanner is fed in chunks and a
+// token spans a chunk boundary; ALLOCATED_* is the completed form of
+// such a spanning number/string, whose text had to be allocated to
+// join the pieces.
+
+const SA_JSON_TOKEN_INVALID: u32 = 4294967295;
+const SA_JSON_TOKEN_OBJECT_BEGIN: u32 = 0;
+const SA_JSON_TOKEN_OBJECT_END: u32 = 1;
+const SA_JSON_TOKEN_ARRAY_BEGIN: u32 = 2;
+const SA_JSON_TOKEN_ARRAY_END: u32 = 3;
+const SA_JSON_TOKEN_TRUE: u32 = 4;
+const SA_JSON_TOKEN_FALSE: u32 = 5;
+const SA_JSON_TOKEN_NULL: u32 = 6;
+const SA_JSON_TOKEN_NUMBER: u32 = 7;
+const SA_JSON_TOKEN_PARTIAL_NUMBER: u32 = 8;
+const SA_JSON_TOKEN_STRING: u32 = 9;
+const SA_JSON_TOKEN_PARTIAL_STRING: u32 = 10;
+const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_1: u32 = 11;
+const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_2: u32 = 12;
+const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_3: u32 = 13;
+const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_4: u32 = 14;
+const SA_JSON_TOKEN_END_OF_DOCUMENT: u32 = 15;
+const SA_JSON_TOKEN_ALLOCATED_NUMBER: u32 = 16;
+const SA_JSON_TOKEN_ALLOCATED_STRING: u32 = 17;
+
+// Writer whitespace modes: the `whitespace` argument of
+// sa_json_writer_new (json.sai). The names exist for SA
+// (#def SA_JSON_WHITESPACE_*, json.sal:29-35) and in the Zig runtime
+// (src/runtime/sa_std.zig:700-706); the switch in sa_json_writer_new
+// (sa_std.zig:8468-8476) maps exactly these values and rejects any
+// other with SA_STD_ERR_INVALID_ARGUMENT. Pure declarations.
+//
+//   MINIFIED = 0, INDENT_1 = 1, INDENT_2 = 2, INDENT_3 = 3,
+//   INDENT_4 = 4, INDENT_8 = 5, INDENT_TAB = 6
+
+const SA_JSON_WHITESPACE_MINIFIED: u32 = 0;
+const SA_JSON_WHITESPACE_INDENT_1: u32 = 1;
+const SA_JSON_WHITESPACE_INDENT_2: u32 = 2;
+const SA_JSON_WHITESPACE_INDENT_3: u32 = 3;
+const SA_JSON_WHITESPACE_INDENT_4: u32 = 4;
+const SA_JSON_WHITESPACE_INDENT_8: u32 = 5;
+const SA_JSON_WHITESPACE_INDENT_TAB: u32 = 6;

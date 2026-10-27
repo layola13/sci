@@ -42,13 +42,22 @@
 @extern sa_json_scanner_new(&out_handle: ptr) -> i32
 @extern sa_json_scanner_feed(scanner: u64, &input: ptr, len: u64) -> i32
 @extern sa_json_scanner_end_input(scanner: u64) -> i32
+// The kind field (offset 0) of the out_token struct is one of the
+// SA_JSON_TOKEN_* values; SLA consumers get them as named consts
+// from sa_std/encoding/json.sla instead of hard-coding the numbers.
 @extern sa_json_scanner_next(scanner: u64, &out_token: ptr) -> i32
 @extern sa_json_scanner_free(^scanner: u64) -> i32
 @extern sa_json_stream_new(&json_bytes: ptr, len: u64) -> u64
+// The u32 returned here is one of the SA_JSON_TOKEN_* values (see
+// the note on sa_json_scanner_next above).
 @extern sa_json_stream_next(stream: u64) -> u32
 @extern sa_json_stream_get_slice_ptr(stream: u64) -> &ptr
 @extern sa_json_stream_get_slice_len(stream: u64) -> u64
 @extern sa_json_stream_free(^stream: u64) -> i32!
+// The whitespace argument is one of the SA_JSON_WHITESPACE_*
+// values; SLA consumers get them as named consts from
+// sa_std/encoding/json.sla. Any other value is rejected with
+// SA_STD_ERR_INVALID_ARGUMENT.
 @extern sa_json_writer_new(whitespace: u32, emit_null_optional_fields: u8, emit_strings_as_arrays: u8, escape_unicode: u8, emit_nonportable_numbers_as_strings: u8, &out_handle: ptr) -> i32
 @extern sa_json_writer_begin_object(writer: u64) -> i32
 @extern sa_json_writer_end_object(writer: u64) -> i32

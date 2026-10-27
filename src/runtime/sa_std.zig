@@ -8309,6 +8309,56 @@ test "sa_json_kind returns the named SA_JSON_KIND values for each document kind"
     try std.testing.expectEqual(SA_JSON_KIND_INVALID, sa_json_kind(0));
 }
 
+test "sa_json_stream_next and writer whitespace return the named SA_JSON_TOKEN / SA_JSON_WHITESPACE values" {
+    // Locks the stream token values and the writer whitespace
+    // values to the names published for consumers
+    // (sa_std/encoding/json.sal for SA, sa_std.h for C, and
+    // sa_std/encoding/json.sla for the SLA layer) so the layers
+    // cannot drift apart.
+    const input = "{\"a\":[1,true,false,null,\"s\"]}";
+    const stream = sa_json_stream_new(input.ptr, @intCast(input.len));
+    try std.testing.expect(stream != 0);
+    defer _ = sa_json_stream_free(stream);
+    const expected = .{
+        SA_JSON_TOKEN_OBJECT_BEGIN,
+        SA_JSON_TOKEN_STRING,
+        SA_JSON_TOKEN_ARRAY_BEGIN,
+        SA_JSON_TOKEN_NUMBER,
+        SA_JSON_TOKEN_TRUE,
+        SA_JSON_TOKEN_FALSE,
+        SA_JSON_TOKEN_NULL,
+        SA_JSON_TOKEN_STRING,
+        SA_JSON_TOKEN_ARRAY_END,
+        SA_JSON_TOKEN_OBJECT_END,
+        SA_JSON_TOKEN_END_OF_DOCUMENT,
+    };
+    inline for (expected) |want| {
+        try std.testing.expectEqual(want, sa_json_stream_next(stream));
+    }
+    // An unknown stream handle reports INVALID, not a token kind.
+    try std.testing.expectEqual(SA_JSON_TOKEN_INVALID, sa_json_stream_next(0));
+
+    // Every named whitespace mode is accepted; anything else is
+    // SA_STD_ERR_INVALID_ARGUMENT.
+    const modes = .{
+        SA_JSON_WHITESPACE_MINIFIED,
+        SA_JSON_WHITESPACE_INDENT_1,
+        SA_JSON_WHITESPACE_INDENT_2,
+        SA_JSON_WHITESPACE_INDENT_3,
+        SA_JSON_WHITESPACE_INDENT_4,
+        SA_JSON_WHITESPACE_INDENT_8,
+        SA_JSON_WHITESPACE_INDENT_TAB,
+    };
+    inline for (modes) |mode| {
+        var writer: u64 = 0;
+        try std.testing.expectEqual(SA_STD_OK, sa_json_writer_new(mode, 0, 0, 0, 0, &writer));
+        try std.testing.expect(writer != 0);
+        try std.testing.expectEqual(SA_STD_OK, sa_json_writer_free(writer));
+    }
+    var bad_writer: u64 = 0;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_json_writer_new(99, 0, 0, 0, 0, &bad_writer));
+}
+
 pub export fn sa_json_scanner_new(out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     handle_ptr.* = 0;

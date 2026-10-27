@@ -1,0 +1,110 @@
+// Regression test for the SLA-facing SA_JSON_TOKEN_* and
+// SA_JSON_WHITESPACE_* constants in sa_std/encoding/json.sla: each
+// constant is checked against the value the real externs produce --
+// sa_json_stream_next's return, the kind field sa_json_scanner_next
+// writes into its out_token struct, and sa_json_writer_new's
+// acceptance/rejection of the whitespace argument.
+//
+// On a tree without these constants in json.sla this file cannot
+// even compile (the constants do not exist at the SLA layer), which
+// is what makes it a regression test for the constant face rather
+// than for the runtime.
+
+@import "sa_std/encoding/json.sla"
+@import "sa_std/string.sa"
+@import "sa_std/ptr.sa"
+
+// The scanner token struct (SaJsonToken in src/runtime/sa_std.zig)
+// starts with kind: u32, little-endian on every supported target.
+fn tok_kind(b0: u8, b1: u8, b2: u8, b3: u8) -> u32 {
+    return (b0 as u32) + (b1 as u32) * 256 + (b2 as u32) * 65536 + (b3 as u32) * 16777216;
+}
+
+// One whitespace mode end to end: accepted by sa_json_writer_new
+// with a real handle, and the handle frees cleanly. Each call gets
+// its own `w`: writer_free consumes the handle (^writer in json.sai),
+// so a single variable cannot be recycled across modes.
+fn writer_mode_ok(mode: u32) -> bool {
+    let w: u64 = 0;
+    let st: i32 = sa_json_writer_new(mode, 0, 0, 0, 0, &w);
+    if st != 0 { return false; };
+    if w == 0 { return false; };
+    let f: i32 = sa_json_writer_free(w);
+    return f == 0;
+}
+
+@test "stream token sequence matches SA_JSON_TOKEN consts"() {
+    let s: u64 = sa_json_stream_new(STR_PTR("{\"a\":[1,true,false,null,\"s\"]}"), STR_LEN("{\"a\":[1,true,false,null,\"s\"]}"));
+    if s == 0 { panic(1101); };
+    if sa_json_stream_next(s) == SA_JSON_TOKEN_OBJECT_BEGIN { } else { panic(1102); };
+    if sa_json_stream_next(s) == SA_JSON_TOKEN_STRING { } else { panic(1103); };
+    if sa_json_stream_next(s) == SA_JSON_TOKEN_ARRAY_BEGIN { } else { panic(1104); };
+    if sa_json_stream_next(s) == SA_JSON_TOKEN_NUMBER { } else { panic(1105); };
+    if sa_json_stream_next(s) == SA_JSON_TOKEN_TRUE { } else { panic(1106); };
+    if sa_json_stream_next(s) == SA_JSON_TOKEN_FALSE { } else { panic(1107); };
+    if sa_json_stream_next(s) == SA_JSON_TOKEN_NULL { } else { panic(1108); };
+    if sa_json_stream_next(s) == SA_JSON_TOKEN_STRING { } else { panic(1109); };
+    if sa_json_stream_next(s) == SA_JSON_TOKEN_ARRAY_END { } else { panic(1110); };
+    if sa_json_stream_next(s) == SA_JSON_TOKEN_OBJECT_END { } else { panic(1111); };
+    if sa_json_stream_next(s) == SA_JSON_TOKEN_END_OF_DOCUMENT { } else { panic(1112); };
+    let f: i32 = sa_json_stream_free(s);
+};
+
+@test "stream next on unknown handle is SA_JSON_TOKEN_INVALID"() {
+    let k: u32 = sa_json_stream_next(0);
+    if k == SA_JSON_TOKEN_INVALID { } else { panic(1121); };
+};
+
+@test "scanner token sequence matches SA_JSON_TOKEN consts"() {
+    let sc: u64 = 0;
+    let st: i32 = sa_json_scanner_new(&sc);
+    if st != 0 { panic(1131); };
+    if sc == 0 { panic(1132); };
+    let fd: i32 = sa_json_scanner_feed(sc, STR_PTR("{\"a\":1}"), STR_LEN("{\"a\":1}"));
+    if fd != 0 { panic(1133); };
+    let ei: i32 = sa_json_scanner_end_input(sc);
+    if ei != 0 { panic(1134); };
+    let tok: [u8; 24] = [0u8; 24];
+    let tp = PTR_BYTE_ADD(&tok, 0);
+    let n1: i32 = sa_json_scanner_next(sc, tp);
+    if n1 != 0 { panic(1135); };
+    if tok_kind(tok[0], tok[1], tok[2], tok[3]) == SA_JSON_TOKEN_OBJECT_BEGIN { } else { panic(1136); };
+    let n2: i32 = sa_json_scanner_next(sc, tp);
+    if n2 != 0 { panic(1137); };
+    if tok_kind(tok[0], tok[1], tok[2], tok[3]) == SA_JSON_TOKEN_STRING { } else { panic(1138); };
+    let n3: i32 = sa_json_scanner_next(sc, tp);
+    if n3 != 0 { panic(1139); };
+    if tok_kind(tok[0], tok[1], tok[2], tok[3]) == SA_JSON_TOKEN_NUMBER { } else { panic(1140); };
+    let n4: i32 = sa_json_scanner_next(sc, tp);
+    if n4 != 0 { panic(1141); };
+    if tok_kind(tok[0], tok[1], tok[2], tok[3]) == SA_JSON_TOKEN_OBJECT_END { } else { panic(1142); };
+    let n5: i32 = sa_json_scanner_next(sc, tp);
+    if n5 != 0 { panic(1143); };
+    if tok_kind(tok[0], tok[1], tok[2], tok[3]) == SA_JSON_TOKEN_END_OF_DOCUMENT { } else { panic(1144); };
+    let f: i32 = sa_json_scanner_free(sc);
+};
+
+@test "scanner next on unknown handle leaves SA_JSON_TOKEN_INVALID"() {
+    let tok: [u8; 24] = [0u8; 24];
+    let tp = PTR_BYTE_ADD(&tok, 0);
+    let st: i32 = sa_json_scanner_next(0, tp);
+    if st != 0 { } else { panic(1151); };
+    if tok_kind(tok[0], tok[1], tok[2], tok[3]) == SA_JSON_TOKEN_INVALID { } else { panic(1152); };
+};
+
+@test "writer accepts every SA_JSON_WHITESPACE const"() {
+    if writer_mode_ok(SA_JSON_WHITESPACE_MINIFIED) { } else { panic(1161); };
+    if writer_mode_ok(SA_JSON_WHITESPACE_INDENT_1) { } else { panic(1162); };
+    if writer_mode_ok(SA_JSON_WHITESPACE_INDENT_2) { } else { panic(1163); };
+    if writer_mode_ok(SA_JSON_WHITESPACE_INDENT_3) { } else { panic(1164); };
+    if writer_mode_ok(SA_JSON_WHITESPACE_INDENT_4) { } else { panic(1165); };
+    if writer_mode_ok(SA_JSON_WHITESPACE_INDENT_8) { } else { panic(1166); };
+    if writer_mode_ok(SA_JSON_WHITESPACE_INDENT_TAB) { } else { panic(1167); };
+};
+
+@test "writer rejects a whitespace value with no SA_JSON_WHITESPACE const"() {
+    let w: u64 = 0;
+    let st: i32 = sa_json_writer_new(99, 0, 0, 0, 0, &w);
+    if st != 0 { } else { panic(1171); };
+    if w == 0 { } else { panic(1172); };
+};
