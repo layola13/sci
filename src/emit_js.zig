@@ -1103,6 +1103,12 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\let __sa_regexnext = 1;
         \\const __sa_regexmatches = new Map();
         \\let __sa_regexmatchnext = 1;
+        \\const __sa_regexlists = new Map();
+        \\let __sa_regexlistnext = 1;
+        \\const __sa_regexbufs = new Map();
+        \\let __sa_regexbufnext = 1;
+        \\const __sa_regexsplits = new Map();
+        \\let __sa_regexsplitnext = 1;
         \\const __sa_modstate = new Map();
         \\const __sa_jsonnodes = new Map();
         \\let __sa_jsonnext = 1;
@@ -1254,6 +1260,102 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\  const g = r.groups[i];
         \\  if (g[0] < 0 || g[1] < 0) return null;
         \\  return { rec: r, so: g[0], eo: g[1] };
+        \\}
+        \\function __sa_regex_collect(rec, s) {
+        \\  // JS global-exec loop mirroring regexCollectMatches in sa_std.zig:
+        \\  // after an empty match the search advances one position (native: one
+        \\  // byte; this JS model works on decoded strings, like sa_regex_match).
+        \\  const re = new RegExp(rec.re.source, rec.re.flags + "g");
+        \\  const out = [];
+        \\  let pos = 0;
+        \\  while (pos <= s.length) {
+        \\    re.lastIndex = pos;
+        \\    const m = re.exec(s);
+        \\    if (m === null || m.indices === undefined) break;
+        \\    const groups = m.indices.map((g) => ((g === undefined) ? [-1, -1] : [g[0], g[1]]));
+        \\    out.push(groups);
+        \\    const st = groups[0][0], en = groups[0][1];
+        \\    pos = (en === st) ? en + 1 : en;
+        \\  }
+        \\  return out;
+        \\}
+        \\function __sa_regex_group_text(text, groups, idx) {
+        \\  if (idx >= groups.length) return "";
+        \\  const g = groups[idx];
+        \\  if (g[0] < 0 || g[1] < 0) return "";
+        \\  return text.slice(g[0], g[1]);
+        \\}
+        \\function __sa_regex_expand(text, groups, repl) {
+        \\  // Port of regexAppendExpansion in sa_std.zig (JS template rules):
+        \\  // $$ literal $, $& whole match, $` before, $' after, $n/$nn groups
+        \\  // (non-participating expands to nothing, out-of-range stays literal,
+        \\  // $<name> stays literal).
+        \\  const total = groups.length - 1;
+        \\  let out = "";
+        \\  let i = 0;
+        \\  while (i < repl.length) {
+        \\    const c = repl[i];
+        \\    if (c !== "$" || i + 1 >= repl.length) { out += c; i += 1; continue; }
+        \\    const n = repl[i + 1];
+        \\    if (n === "$") { out += "$"; i += 2; }
+        \\    else if (n === "&") { out += __sa_regex_group_text(text, groups, 0); i += 2; }
+        \\    else if (n === "`") { out += text.slice(0, groups[0][0]); i += 2; }
+        \\    else if (n === "'") { out += text.slice(groups[0][1]); i += 2; }
+        \\    else if (n >= "1" && n <= "9") {
+        \\      const d1 = n.charCodeAt(0) - 48;
+        \\      let consumed = 0;
+        \\      if (i + 2 < repl.length && repl[i + 2] >= "0" && repl[i + 2] <= "9") {
+        \\        const nn = d1 * 10 + (repl[i + 2].charCodeAt(0) - 48);
+        \\        if (nn >= 1 && nn <= total) { out += __sa_regex_group_text(text, groups, nn); consumed = 3; }
+        \\      }
+        \\      if (consumed === 0 && d1 <= total) { out += __sa_regex_group_text(text, groups, d1); consumed = 2; }
+        \\      if (consumed === 0) { out += "$"; i += 1; } else { i += consumed; }
+        \\    }
+        \\    else { out += "$"; i += 1; }
+        \\  }
+        \\  return out;
+        \\}
+        \\function __sa_regex_split_pieces(rec, s, limit) {
+        \\  // Port of regexSplitHandle in sa_std.zig (JS String.split semantics;
+        \\  // limit caps the total piece count including inserted groups, and
+        \\  // limit == 0 means no limit -- a deliberate divergence from JS).
+        \\  const lim = (limit === 0) ? Infinity : limit;
+        \\  const pieces = [];
+        \\  const re = new RegExp(rec.re.source, rec.re.flags + "g");
+        \\  if (s.length === 0) {
+        \\    re.lastIndex = 0;
+        \\    if (re.exec(s) === null) pieces.push([0, 0]);
+        \\    return pieces;
+        \\  }
+        \\  let p = 0, q = 0, done = false;
+        \\  while (!done && q <= s.length) {
+        \\    re.lastIndex = q;
+        \\    const m = re.exec(s);
+        \\    if (m === null || m.indices === undefined) break;
+        \\    const groups = m.indices.map((g) => ((g === undefined) ? [-1, -1] : [g[0], g[1]]));
+        \\    const ms = groups[0][0], me = groups[0][1];
+        \\    if (me === p) { q = me + 1; continue; }
+        \\    pieces.push([p, ms]);
+        \\    if (pieces.length >= lim) { done = true; break; }
+        \\    for (let gi = 1; gi < groups.length; gi++) {
+        \\      pieces.push(groups[gi]);
+        \\      if (pieces.length >= lim) { done = true; break; }
+        \\    }
+        \\    if (done) break;
+        \\    p = me; q = p;
+        \\  }
+        \\  if (!done) pieces.push([p, s.length]);
+        \\  return pieces;
+        \\}
+        \\function __sa_json_clone(v) {
+        \\  // Deep copy for sa_json_*_set_node / *_push_node (native clones the
+        \\  // child into the target document arena; the stored value must not
+        \\  // alias the child document tree).
+        \\  if (v === null || typeof v !== "object") return v;
+        \\  if (Array.isArray(v)) return v.map((x) => __sa_json_clone(x));
+        \\  const o = {};
+        \\  for (const k of Object.keys(v)) o[k] = __sa_json_clone(v[k]);
+        \\  return o;
         \\}
         \\function __sa_json_kind_of(v) {
         \\  if (v === null) return 0;
@@ -3119,6 +3221,20 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_regex_group_count")) return true;
     if (std.mem.eql(u8, name, "sa_regex_free")) return true;
     if (std.mem.eql(u8, name, "sa_regex_match_free")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_match_all")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_match_list_count")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_match_list_at")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_match_list_free")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_replace")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_replace_all")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_buffer_data")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_buffer_len")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_buffer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_split")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_split_count")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_split_ptr")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_split_len")) return true;
+    if (std.mem.eql(u8, name, "sa_regex_split_free")) return true;
     if (std.mem.eql(u8, name, "sa_modstate_get_u64")) return true;
     if (std.mem.eql(u8, name, "sa_modstate_set_u64")) return true;
     if (std.mem.eql(u8, name, "sa_json_parse")) return true;
@@ -3135,6 +3251,19 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_json_as_bool")) return true;
     if (std.mem.eql(u8, name, "sa_json_free")) return true;
     if (std.mem.eql(u8, name, "sa_json_value_count")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_set_string")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_set_i64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_set_f64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_set_bool")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_set_null")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_set_node")) return true;
+    if (std.mem.eql(u8, name, "sa_json_object_remove")) return true;
+    if (std.mem.eql(u8, name, "sa_json_array_push_string")) return true;
+    if (std.mem.eql(u8, name, "sa_json_array_push_i64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_array_push_f64")) return true;
+    if (std.mem.eql(u8, name, "sa_json_array_push_bool")) return true;
+    if (std.mem.eql(u8, name, "sa_json_array_push_null")) return true;
+    if (std.mem.eql(u8, name, "sa_json_array_push_node")) return true;
     if (std.mem.eql(u8, name, "sa_json_writer_new")) return true;
     if (std.mem.eql(u8, name, "sa_json_writer_free")) return true;
     if (std.mem.eql(u8, name, "sa_json_writer_begin_object")) return true;
@@ -4638,6 +4767,226 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             );
             return;
         }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_match_all")) {
+            try writer.writeAll(
+                \\function sa_regex_match_all(regex, text, text_len) {
+                \\  const rec = __sa_regexes.get(__sa_num(regex));
+                \\  if (rec === undefined) return 0n;
+                \\  const bytes = __sa_mem_bytes(text, text_len);
+                \\  for (let i = 0; i < bytes.length; i++) if (bytes[i] === 0) return 0n;
+                \\  const s = new globalThis.TextDecoder().decode(bytes);
+                \\  const matches = __sa_regex_collect(rec, s);
+                \\  const p = __sa_alloc(bytes.length);
+                \\  __sa_u8.set(bytes, p);
+                \\  const h = __sa_regexlistnext++;
+                \\  __sa_regexlists.set(h, { base: p, len: bytes.length, matches: matches });
+                \\  return BigInt(h);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_match_list_count")) {
+            try writer.writeAll(
+                \\function sa_regex_match_list_count(list) {
+                \\  const lst = __sa_regexlists.get(__sa_num(list));
+                \\  if (lst === undefined) return 0n;
+                \\  return BigInt(lst.matches.length);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_match_list_at")) {
+            try writer.writeAll(
+                \\function sa_regex_match_list_at(list, index) {
+                \\  const lst = __sa_regexlists.get(__sa_num(list));
+                \\  if (lst === undefined) return 0n;
+                \\  const i = __sa_tou(index);
+                \\  if (!(i >= 0) || i >= lst.matches.length) return 0n;
+                \\  const bytes = __sa_mem_bytes(lst.base, lst.len);
+                \\  const p = __sa_alloc(bytes.length);
+                \\  __sa_u8.set(bytes, p);
+                \\  const groups = lst.matches[i].map((g) => [g[0], g[1]]);
+                \\  const h = __sa_regexmatchnext++;
+                \\  __sa_regexmatches.set(h, { base: p, len: bytes.length, groups: groups });
+                \\  return BigInt(h);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_match_list_free")) {
+            try writer.writeAll(
+                \\function sa_regex_match_list_free(list) {
+                \\  const lst = __sa_regexlists.get(__sa_num(list));
+                \\  if (lst !== undefined) { __sa_regexlists.delete(__sa_num(list)); __sa_free(lst.base); }
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_replace")) {
+            try writer.writeAll(
+                \\function sa_regex_replace(regex, text, text_len, replacement, replacement_len) {
+                \\  const rec = __sa_regexes.get(__sa_num(regex));
+                \\  if (rec === undefined) return 0n;
+                \\  const bytes = __sa_mem_bytes(text, text_len);
+                \\  for (let i = 0; i < bytes.length; i++) if (bytes[i] === 0) return 0n;
+                \\  const s = new globalThis.TextDecoder().decode(bytes);
+                \\  const repl = new globalThis.TextDecoder().decode(__sa_mem_bytes(replacement, replacement_len));
+                \\  const re = new RegExp(rec.re.source, rec.re.flags);
+                \\  const m = re.exec(s);
+                \\  let out = s;
+                \\  if (m !== null && m.indices !== undefined) {
+                \\    const groups = m.indices.map((g) => ((g === undefined) ? [-1, -1] : [g[0], g[1]]));
+                \\    out = s.slice(0, groups[0][0]) + __sa_regex_expand(s, groups, repl) + s.slice(groups[0][1]);
+                \\  }
+                \\  const ob = new globalThis.TextEncoder().encode(out);
+                \\  const p = __sa_alloc(ob.length);
+                \\  __sa_u8.set(ob, p);
+                \\  const h = __sa_regexbufnext++;
+                \\  __sa_regexbufs.set(h, { base: p, len: ob.length });
+                \\  return BigInt(h);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_replace_all")) {
+            try writer.writeAll(
+                \\function sa_regex_replace_all(regex, text, text_len, replacement, replacement_len) {
+                \\  const rec = __sa_regexes.get(__sa_num(regex));
+                \\  if (rec === undefined) return 0n;
+                \\  const bytes = __sa_mem_bytes(text, text_len);
+                \\  for (let i = 0; i < bytes.length; i++) if (bytes[i] === 0) return 0n;
+                \\  const s = new globalThis.TextDecoder().decode(bytes);
+                \\  const repl = new globalThis.TextDecoder().decode(__sa_mem_bytes(replacement, replacement_len));
+                \\  const matches = __sa_regex_collect(rec, s);
+                \\  let out = "";
+                \\  let last = 0;
+                \\  for (const groups of matches) {
+                \\    out += s.slice(last, groups[0][0]);
+                \\    out += __sa_regex_expand(s, groups, repl);
+                \\    last = groups[0][1];
+                \\  }
+                \\  out += s.slice(last);
+                \\  const ob = new globalThis.TextEncoder().encode(out);
+                \\  const p = __sa_alloc(ob.length);
+                \\  __sa_u8.set(ob, p);
+                \\  const h = __sa_regexbufnext++;
+                \\  __sa_regexbufs.set(h, { base: p, len: ob.length });
+                \\  return BigInt(h);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_buffer_data")) {
+            try writer.writeAll(
+                \\function sa_regex_buffer_data(buffer) {
+                \\  const b = __sa_regexbufs.get(__sa_num(buffer));
+                \\  if (b === undefined) return 0;
+                \\  return b.base;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_buffer_len")) {
+            try writer.writeAll(
+                \\function sa_regex_buffer_len(buffer) {
+                \\  const b = __sa_regexbufs.get(__sa_num(buffer));
+                \\  if (b === undefined) return 0n;
+                \\  return BigInt(b.len);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_buffer_free")) {
+            try writer.writeAll(
+                \\function sa_regex_buffer_free(buffer) {
+                \\  const b = __sa_regexbufs.get(__sa_num(buffer));
+                \\  if (b !== undefined) { __sa_regexbufs.delete(__sa_num(buffer)); __sa_free(b.base); }
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_split")) {
+            try writer.writeAll(
+                \\function sa_regex_split(regex, text, text_len, limit) {
+                \\  const rec = __sa_regexes.get(__sa_num(regex));
+                \\  if (rec === undefined) return 0n;
+                \\  const bytes = __sa_mem_bytes(text, text_len);
+                \\  for (let i = 0; i < bytes.length; i++) if (bytes[i] === 0) return 0n;
+                \\  const s = new globalThis.TextDecoder().decode(bytes);
+                \\  const pieces = __sa_regex_split_pieces(rec, s, __sa_tou(limit));
+                \\  const p = __sa_alloc(bytes.length);
+                \\  __sa_u8.set(bytes, p);
+                \\  const h = __sa_regexsplitnext++;
+                \\  __sa_regexsplits.set(h, { base: p, len: bytes.length, pieces: pieces });
+                \\  return BigInt(h);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_split_count")) {
+            try writer.writeAll(
+                \\function sa_regex_split_count(list) {
+                \\  const lst = __sa_regexsplits.get(__sa_num(list));
+                \\  if (lst === undefined) return 0n;
+                \\  return BigInt(lst.pieces.length);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_split_ptr")) {
+            try writer.writeAll(
+                \\function sa_regex_split_ptr(list, index) {
+                \\  const lst = __sa_regexsplits.get(__sa_num(list));
+                \\  if (lst === undefined) return 0;
+                \\  const i = __sa_tou(index);
+                \\  if (!(i >= 0) || i >= lst.pieces.length) return 0;
+                \\  const pc = lst.pieces[i];
+                \\  if (pc[0] < 0) return 0;
+                \\  return __sa_ptr_add(lst.base, pc[0]);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_split_len")) {
+            try writer.writeAll(
+                \\function sa_regex_split_len(list, index) {
+                \\  const lst = __sa_regexsplits.get(__sa_num(list));
+                \\  if (lst === undefined) return 0n;
+                \\  const i = __sa_tou(index);
+                \\  if (!(i >= 0) || i >= lst.pieces.length) return 0n;
+                \\  const pc = lst.pieces[i];
+                \\  if (pc[0] < 0 || pc[1] < 0) return 0n;
+                \\  return BigInt(pc[1] - pc[0]);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_regex_split_free")) {
+            try writer.writeAll(
+                \\function sa_regex_split_free(list) {
+                \\  const lst = __sa_regexsplits.get(__sa_num(list));
+                \\  if (lst !== undefined) { __sa_regexsplits.delete(__sa_num(list)); __sa_free(lst.base); }
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
         // Module-state slots (mirror modstate.sai over the thread-local
         // registry): opaque u64 cells keyed by FNV-1a-64, zero on first
         // touch. Single-threaded JS: a plain Map suffices.
@@ -4885,6 +5234,183 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\  if (Array.isArray(v)) { __sa_store_i64(out_count, v.length); return 0; }
                 \\  if (v !== null && typeof v === "object") { __sa_store_i64(out_count, Object.keys(v).length); return 0; }
                 \\  return 1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_set_string")) {
+            try writer.writeAll(
+                \\function sa_json_object_set_string(node, key_ptr, key_len, data_ptr, len) {
+                \\  const key = new globalThis.TextDecoder().decode(__sa_mem_bytes(key_ptr, key_len));
+                \\  if (key.length === 0) return 1;
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  v[key] = new globalThis.TextDecoder().decode(__sa_mem_bytes(data_ptr, len));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_set_i64")) {
+            try writer.writeAll(
+                \\function sa_json_object_set_i64(node, key_ptr, key_len, value) {
+                \\  const key = new globalThis.TextDecoder().decode(__sa_mem_bytes(key_ptr, key_len));
+                \\  if (key.length === 0) return 1;
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  v[key] = Number(BigInt.asIntN(64, BigInt(__sa_num(value))));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_set_f64")) {
+            try writer.writeAll(
+                \\function sa_json_object_set_f64(node, key_ptr, key_len, value) {
+                \\  const key = new globalThis.TextDecoder().decode(__sa_mem_bytes(key_ptr, key_len));
+                \\  if (key.length === 0) return 1;
+                \\  if (!Number.isFinite(+value)) return 1;
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  v[key] = +value;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_set_bool")) {
+            try writer.writeAll(
+                \\function sa_json_object_set_bool(node, key_ptr, key_len, value) {
+                \\  const key = new globalThis.TextDecoder().decode(__sa_mem_bytes(key_ptr, key_len));
+                \\  if (key.length === 0) return 1;
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  v[key] = __sa_num(value) !== 0;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_set_null")) {
+            try writer.writeAll(
+                \\function sa_json_object_set_null(node, key_ptr, key_len) {
+                \\  const key = new globalThis.TextDecoder().decode(__sa_mem_bytes(key_ptr, key_len));
+                \\  if (key.length === 0) return 1;
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  v[key] = null;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_set_node")) {
+            try writer.writeAll(
+                \\function sa_json_object_set_node(node, key_ptr, key_len, child) {
+                \\  const key = new globalThis.TextDecoder().decode(__sa_mem_bytes(key_ptr, key_len));
+                \\  if (key.length === 0) return 1;
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  const cv = __sa_jsonnodes.get(__sa_num(child));
+                \\  if (cv === undefined) return 2;
+                \\  v[key] = __sa_json_clone(cv);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_object_remove")) {
+            try writer.writeAll(
+                \\function sa_json_object_remove(node, key_ptr, key_len) {
+                \\  const key = new globalThis.TextDecoder().decode(__sa_mem_bytes(key_ptr, key_len));
+                \\  if (key.length === 0) return 1;
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || v === null || typeof v !== "object" || Array.isArray(v)) return 2;
+                \\  if (!Object.prototype.hasOwnProperty.call(v, key)) return 3;
+                \\  delete v[key];
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_array_push_string")) {
+            try writer.writeAll(
+                \\function sa_json_array_push_string(node, data_ptr, len) {
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || !Array.isArray(v)) return 2;
+                \\  v.push(new globalThis.TextDecoder().decode(__sa_mem_bytes(data_ptr, len)));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_array_push_i64")) {
+            try writer.writeAll(
+                \\function sa_json_array_push_i64(node, value) {
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || !Array.isArray(v)) return 2;
+                \\  v.push(Number(BigInt.asIntN(64, BigInt(__sa_num(value)))));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_array_push_f64")) {
+            try writer.writeAll(
+                \\function sa_json_array_push_f64(node, value) {
+                \\  if (!Number.isFinite(+value)) return 1;
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || !Array.isArray(v)) return 2;
+                \\  v.push(+value);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_array_push_bool")) {
+            try writer.writeAll(
+                \\function sa_json_array_push_bool(node, value) {
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || !Array.isArray(v)) return 2;
+                \\  v.push(__sa_num(value) !== 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_array_push_null")) {
+            try writer.writeAll(
+                \\function sa_json_array_push_null(node) {
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || !Array.isArray(v)) return 2;
+                \\  v.push(null);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_json_array_push_node")) {
+            try writer.writeAll(
+                \\function sa_json_array_push_node(node, child) {
+                \\  const v = __sa_jsonnodes.get(__sa_num(node));
+                \\  if (v === undefined || !Array.isArray(v)) return 2;
+                \\  const cv = __sa_jsonnodes.get(__sa_num(child));
+                \\  if (cv === undefined) return 2;
+                \\  v.push(__sa_json_clone(cv));
+                \\  return 0;
                 \\}
                 \\
             );
