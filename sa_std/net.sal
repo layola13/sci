@@ -50,8 +50,22 @@
 #def SaNetError_status = +12
 
 #def SA_NET_AF_UNSPEC = 0
-#def SA_NET_AF_IPV4 = 4
-#def SA_NET_AF_IPV6 = 6
+// SA_NET_ADDR_KIND_* are the sa_std-INTERNAL address-kind numbers:
+// the tag numbering of the concrete IpAddr layouts in net.sa (the
+// same numbering as NET_IP_ADDR_V4 = 4 / NET_IP_ADDR_V6 = 6 below).
+// They are NOT OS address families and must never be compared
+// against sa_net_addr_family results: that extern returns OS values
+// (SA_NET_AF_INET = 2 / SA_NET_AF_INET6 = 10, defined below, from
+// Linux AF_INET / AF_INET6). The pre-rename names SA_NET_AF_IPV4 /
+// SA_NET_AF_IPV6 invited exactly that mixup -- an AF_-prefixed name
+// carrying a non-OS value -- so they were renamed on 2026-10-27
+// (dual-definition trap, JEV ruling: rename the internal constants,
+// keep values, publish OS values on the public face). Values are
+// unchanged. SA_NET_AF_UNSPEC keeps its name because 0 is both the
+// internal kind and OS AF_UNSPEC, so the two numberings agree there
+// and no trap exists.
+#def SA_NET_ADDR_KIND_IPV4 = 4
+#def SA_NET_ADDR_KIND_IPV6 = 6
 
 #def SA_NET_SHUTDOWN_READ = 0
 #def SA_NET_SHUTDOWN_WRITE = 1
