@@ -2,7 +2,8 @@
 // (sa_std/tls_client.sa + tls_client.sai): config-object lifecycle, the
 // loudly-rejected malformed memory CA, the peer-certificate probe codes
 // on the std backend, shaped-profile pre-dial validation, and the
-// SA_TLS_SERVER_ERR_TLS_VERIFY constant (sa_std/tls_server.sal).
+// SA_TLS_SERVER_ERR_TLS_VERIFY constant (sa_std/tls_server.sla,
+// the SLA spelling of the tls_server.sal / runtime value).
 //
 // No network is touched: every assertion is argument/lifecycle level.
 // The networked behavior (SNI override, CA pinning, session resumption,
@@ -16,6 +17,7 @@
 
 @import "sa_std/tls_client.sa"
 @import "sa_std/tls_server.sa"
+@import "sa_std/tls_server.sla"
 @import "sa_std/string.sa"
 
 @test "config lifecycle and eager memory-CA validation"() {
