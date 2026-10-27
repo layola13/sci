@@ -1,0 +1,694 @@
+// Behavior tests for the SLA local network information surface
+// in sa_std/net_info.sla: interface records from /sys/class/net,
+// the getifaddrs address snapshot, and the /proc route tables,
+// cross-checked against the live host and against ip.sla.
+//
+// Environment contract (kept deliberately free of host-specific
+// names): any Linux host with a loopback interface. Nothing here
+// hard-codes an interface name like "eth0", a MAC, or an address
+// beyond 127.0.0.1 / ::1, which loopback guarantees. The default
+// gateway tests re-derive the expected answer from the raw /proc
+// files with test-local parsing and compare -- including the
+// "no default route" branch, which is the expected outcome for
+// IPv6 on most hosts.
+//
+// On a tree without net_info.sla / net_info.sai this file cannot
+// compile, which is what makes it a regression test for the
+// surface.
+
+@import "sa_std/net_info.sla"
+@import "sa_std/fs.sai"
+@import "sa_std/status.sla"
+@import "sa_std/string.sa"
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+@import "sa_std/ptr.sa"
+
+// ---- helpers ----
+
+fn tu8(sl: &Slice<u8>, off: u64) -> u8 {
+    let b: u8 = 0;
+    SLICE_GET(b, sl, off);
+    return b;
+}
+
+fn tname_eq(a: &Vec<u8>, b: &Vec<u8>) -> bool {
+    if len(a) != len(b) {
+        return false;
+    };
+    let sa: Slice<u8> = VEC_AS_SLICE(a);
+    let sb: Slice<u8> = VEC_AS_SLICE(b);
+    let i: u64 = 0;
+    while i < len(a) {
+        if tu8(&sa, i) != tu8(&sb, i) {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+fn tdup(a: &Vec<u8>) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    let sl: Slice<u8> = VEC_AS_SLICE(a);
+    let i: u64 = 0;
+    while i < len(a) {
+        out.push(tu8(&sl, i));
+        i = i + 1;
+    }
+    return out;
+}
+
+fn unwrap_ifaces(r: Result<Vec<NetInterface>, i32>, code: i32) -> Vec<NetInterface> {
+    match r {
+        Ok(v) => {
+            return v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+    return Vec::new();
+}
+
+fn unwrap_addrs(r: Result<Vec<NetIfaceAddr>, i32>, code: i32) -> Vec<NetIfaceAddr> {
+    match r {
+        Ok(v) => {
+            return v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+    return Vec::new();
+}
+
+fn unwrap_routes(r: Result<Vec<NetRoute>, i32>, code: i32) -> Vec<NetRoute> {
+    match r {
+        Ok(v) => {
+            return v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+    return Vec::new();
+}
+
+// Index of the first interface carrying the given flag bit, or
+// the list length when there is none.
+fn find_iface_with_flag(ifaces: &Vec<NetInterface>, flag: u32) -> u64 {
+    let sl: Slice<NetInterface> = VEC_AS_SLICE(ifaces);
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    let i: u64 = 0;
+    while i < n {
+        let iface: NetInterface = net_interface_empty();
+        SLICE_GET(iface, sl, i);
+        if (iface.flags & flag) != 0 {
+            return i;
+        };
+        i = i + 1;
+    }
+    return n;
+}
+
+fn iface_at(ifaces: &Vec<NetInterface>, index: u64) -> NetInterface {
+    let sl: Slice<NetInterface> = VEC_AS_SLICE(ifaces);
+    let iface: NetInterface = net_interface_empty();
+    SLICE_GET(iface, sl, index);
+    return iface;
+}
+
+fn name_known(ifaces: &Vec<NetInterface>, name: &Vec<u8>) -> bool {
+    let sl: Slice<NetInterface> = VEC_AS_SLICE(ifaces);
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    let i: u64 = 0;
+    while i < n {
+        let iface: NetInterface = net_interface_empty();
+        SLICE_GET(iface, sl, i);
+        if tname_eq(&iface.name, name) {
+            return true;
+        };
+        i = i + 1;
+    }
+    return false;
+}
+
+// Read a whole small file through the fs buffer surface
+// (test-local copy of the dns.sla helper shape).
+fn read_file_vec(path: ptr, path_len: u64, code: i32) -> Vec<u8> {
+    let handle: u64 = 0;
+    let st: i32 = sa_std_fs_read_file(path, path_len, 1048576, &handle);
+    if st != SA_STD_OK {
+        panic(code);
+    };
+    let data: ptr = sa_fs_read_buffer_data(handle);
+    let total: u64 = sa_fs_read_buffer_len(handle);
+    let out: Vec<u8> = Vec::new();
+    let chunk: [u8; 2048] = [0u8; 2048];
+    let off: u64 = 0;
+    while off < total {
+        let n: u64 = total - off;
+        if n > 2048 {
+            n = 2048;
+        };
+        let src: ptr = PTR_BYTE_ADD(data, off);
+        let dst: ptr = PTR_BYTE_ADD(&chunk, 0);
+        PTR_COPY_BYTES(dst, src, n);
+        let i: u64 = 0;
+        while i < n {
+            out.push(chunk[i]);
+            i = i + 1;
+        }
+        off = off + n;
+    }
+    let f_st: i32 = sa_fs_read_buffer_free(handle);
+    return out;
+}
+
+// Test-local hex digit (for the raw /proc cross-derivations).
+fn thex_val(b: u8) -> i32 {
+    if b >= 48 && b <= 57 {
+        return (b - 48) as i32;
+    };
+    if b >= 97 && b <= 102 {
+        return (b - 87) as i32;
+    };
+    if b >= 65 && b <= 70 {
+        return (b - 55) as i32;
+    };
+    return -1;
+}
+
+// ---- interface records ----
+
+@test "interfaces include loopback"() {
+    let ifaces: Vec<NetInterface> = unwrap_ifaces(net_interfaces(), 3101);
+    if len(ifaces) < 1 {
+        panic(3102);
+    };
+    let lo_idx: u64 = find_iface_with_flag(&ifaces, NET_IFACE_FLAG_LOOPBACK);
+    if lo_idx >= len(ifaces) {
+        panic(3103);
+    };
+    let lo: NetInterface = iface_at(&ifaces, lo_idx);
+    if lo.index < 1 {
+        panic(3104);
+    };
+    if lo.mtu < 1 {
+        panic(3105);
+    };
+    if lo.has_mac != true {
+        panic(3106);
+    };
+    if len(lo.name) < 1 || len(lo.name) > 15 {
+        panic(3107);
+    };
+    // Every interface on the host reports an index and an MTU.
+    let sl: Slice<NetInterface> = VEC_AS_SLICE(ifaces);
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    let i: u64 = 0;
+    while i < n {
+        let iface: NetInterface = net_interface_empty();
+        SLICE_GET(iface, sl, i);
+        if iface.index < 1 || iface.mtu < 1 {
+            panic(3108);
+        };
+        i = i + 1;
+    }
+}
+
+@test "interface flag predicates agree with raw flags"() {
+    let ifaces: Vec<NetInterface> = unwrap_ifaces(net_interfaces(), 3201);
+    let lo_idx: u64 = find_iface_with_flag(&ifaces, NET_IFACE_FLAG_LOOPBACK);
+    if lo_idx >= len(ifaces) {
+        panic(3202);
+    };
+    let lo: NetInterface = iface_at(&ifaces, lo_idx);
+    if net_iface_is_loopback(&lo) != true {
+        panic(3203);
+    };
+    if net_iface_is_up(&lo) != true {
+        panic(3204);
+    };
+    if net_iface_is_broadcast(&lo) {
+        panic(3205);
+    };
+    if net_iface_is_pointopoint(&lo) {
+        panic(3206);
+    };
+    let bc_idx: u64 = find_iface_with_flag(&ifaces, NET_IFACE_FLAG_BROADCAST);
+    if bc_idx < len(ifaces) {
+        let bc: NetInterface = iface_at(&ifaces, bc_idx);
+        if net_iface_is_broadcast(&bc) != true {
+            panic(3207);
+        };
+        if net_iface_is_loopback(&bc) {
+            panic(3208);
+        };
+    };
+}
+
+// ---- address snapshot ----
+
+@test "addresses include loopback 127.0.0.1 with prefix 8"() {
+    let ifaces: Vec<NetInterface> = unwrap_ifaces(net_interfaces(), 3301);
+    let lo_idx: u64 = find_iface_with_flag(&ifaces, NET_IFACE_FLAG_LOOPBACK);
+    if lo_idx >= len(ifaces) {
+        panic(3302);
+    };
+    let lo: NetInterface = iface_at(&ifaces, lo_idx);
+    let addrs: Vec<NetIfaceAddr> = unwrap_addrs(net_interface_addresses(), 3303);
+    if len(addrs) < 2 {
+        panic(3304);
+    };
+    let want: IpAddr = ip_addr_from_ipv4(2130706433);
+    let sl: Slice<NetIfaceAddr> = VEC_AS_SLICE(addrs);
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    let found: bool = false;
+    let i: u64 = 0;
+    while i < n {
+        let e: NetIfaceAddr = net_iface_addr_empty();
+        SLICE_GET(e, sl, i);
+        if ip_addr_eq(e.addr, want) {
+            found = true;
+            if e.prefix_len != 8 {
+                panic(3305);
+            };
+            if tname_eq(&e.name, &lo.name) != true {
+                panic(3306);
+            };
+        };
+        i = i + 1;
+    }
+    if found != true {
+        panic(3307);
+    };
+}
+
+@test "addresses are self consistent"() {
+    let ifaces: Vec<NetInterface> = unwrap_ifaces(net_interfaces(), 3401);
+    let addrs: Vec<NetIfaceAddr> = unwrap_addrs(net_interface_addresses(), 3402);
+    let sl: Slice<NetIfaceAddr> = VEC_AS_SLICE(addrs);
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    let i: u64 = 0;
+    while i < n {
+        let e: NetIfaceAddr = net_iface_addr_empty();
+        SLICE_GET(e, sl, i);
+        // Presentation text round-trips through the ip.sla parser.
+        let rt: Option<IpAddr> = ip_addr_parse(ip_addr_to_string(e.addr));
+        match rt {
+            Some(back) => {
+                if ip_addr_eq(back, e.addr) != true {
+                    panic(3403);
+                };
+            },
+            None => {
+                panic(3404);
+            },
+        };
+        // Prefix length within the family bound.
+        if e.addr.tag == 4 {
+            if e.prefix_len > 32 {
+                panic(3405);
+            };
+        } else {
+            if e.prefix_len > 128 {
+                panic(3406);
+            };
+        };
+        // The netmask and the prefix length agree (ip.sla algebra).
+        match ip_prefix_from_mask(e.addr, e.mask) {
+            Some(p) => {
+                if p.len != e.prefix_len {
+                    panic(3407);
+                };
+            },
+            None => {
+                panic(3408);
+            },
+        };
+        if net_addr_prefix(&e).len != e.prefix_len {
+            panic(3409);
+        };
+        // The interface a address hangs off exists in /sys.
+        if name_known(&ifaces, &e.name) != true {
+            panic(3410);
+        };
+        i = i + 1;
+    }
+}
+
+@test "addresses of loopback by name"() {
+    let ifaces: Vec<NetInterface> = unwrap_ifaces(net_interfaces(), 3501);
+    let lo_idx: u64 = find_iface_with_flag(&ifaces, NET_IFACE_FLAG_LOOPBACK);
+    if lo_idx >= len(ifaces) {
+        panic(3502);
+    };
+    let lo: NetInterface = iface_at(&ifaces, lo_idx);
+    let lo_name: Vec<u8> = tdup(&lo.name);
+    let addrs: Vec<NetIfaceAddr> = unwrap_addrs(net_interface_addresses_of(tdup(&lo.name)), 3503);
+    if len(addrs) < 1 {
+        panic(3504);
+    };
+    let want: IpAddr = ip_addr_from_ipv4(2130706433);
+    let sl: Slice<NetIfaceAddr> = VEC_AS_SLICE(addrs);
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    let found: bool = false;
+    let i: u64 = 0;
+    while i < n {
+        let e: NetIfaceAddr = net_iface_addr_empty();
+        SLICE_GET(e, sl, i);
+        if tname_eq(&e.name, &lo_name) != true {
+            panic(3505);
+        };
+        if ip_addr_eq(e.addr, want) {
+            found = true;
+        };
+        i = i + 1;
+    }
+    if found != true {
+        panic(3506);
+    };
+    // An unknown name yields an empty list, not an error.
+    let bogus: Vec<u8> = Vec::new();
+    bogus.push(120);
+    bogus.push(120);
+    bogus.push(120);
+    let none_addrs: Vec<NetIfaceAddr> = unwrap_addrs(net_interface_addresses_of(bogus), 3507);
+    if len(none_addrs) != 0 {
+        panic(3508);
+    };
+}
+
+// ---- routes ----
+
+// Test-local span parsers over raw /proc text.
+fn tparse_hex(sl: &Slice<u8>, start: u64, span: u64) -> u64 {
+    let v: u64 = 0;
+    let i: u64 = 0;
+    while i < span {
+        let d: i32 = thex_val(tu8(sl, start + i));
+        if d < 0 {
+            break;
+        };
+        v = v * 16 + (d as u64);
+        i = i + 1;
+    }
+    return v;
+}
+
+fn tparse_dec(sl: &Slice<u8>, start: u64, span: u64) -> u64 {
+    let v: u64 = 0;
+    let i: u64 = 0;
+    while i < span {
+        let b: u8 = tu8(sl, start + i);
+        if b < 48 || b > 57 {
+            break;
+        };
+        v = v * 10 + (b - 48) as u64;
+        i = i + 1;
+    }
+    return v;
+}
+
+fn tbswap32(v: u32) -> u32 {
+    let b0: u32 = (v >> 24) & 255;
+    let b1: u32 = (v >> 16) & 255;
+    let b2: u32 = (v >> 8) & 255;
+    let b3: u32 = v & 255;
+    return (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
+}
+
+fn token_all_zero(sl: &Slice<u8>, start: u64, span: u64) -> bool {
+    let i: u64 = 0;
+    while i < span {
+        if tu8(sl, start + i) != 48 {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+// Walk one line's fields in a single pass, recording the spans
+// of fields 1, 2, 4, 5, 6 into the caller's span locals via the
+// RawFields struct (start/len pairs, -1-style via found flags).
+struct RawFields {
+    s1: u64, l1: u64, f1: bool,
+    s2: u64, l2: u64, f2: bool,
+    s4: u64, l4: u64, f4: bool,
+    s5: u64, l5: u64, f5: bool,
+    s6: u64, l6: u64, f6: bool,
+    count: u64,
+}
+
+fn raw_fields(sl: &Slice<u8>, line_start: u64, line_len: u64) -> RawFields {
+    let out: RawFields = RawFields {
+        s1: 0, l1: 0, f1: false,
+        s2: 0, l2: 0, f2: false,
+        s4: 0, l4: 0, f4: false,
+        s5: 0, l5: 0, f5: false,
+        s6: 0, l6: 0, f6: false,
+        count: 0,
+    };
+    let end: u64 = line_start + line_len;
+    let pos: u64 = line_start;
+    let field: u64 = 0;
+    while pos < end {
+        let b: u8 = tu8(sl, pos);
+        if b == 32 || b == 9 {
+            pos = pos + 1;
+            continue;
+        };
+        let ts: u64 = pos;
+        while pos < end {
+            let c: u8 = tu8(sl, pos);
+            if c == 32 || c == 9 {
+                break;
+            };
+            pos = pos + 1;
+        }
+        if field == 1 {
+            out.s1 = ts;
+            out.l1 = pos - ts;
+            out.f1 = true;
+        };
+        if field == 2 {
+            out.s2 = ts;
+            out.l2 = pos - ts;
+            out.f2 = true;
+        };
+        if field == 4 {
+            out.s4 = ts;
+            out.l4 = pos - ts;
+            out.f4 = true;
+        };
+        if field == 5 {
+            out.s5 = ts;
+            out.l5 = pos - ts;
+            out.f5 = true;
+        };
+        if field == 6 {
+            out.s6 = ts;
+            out.l6 = pos - ts;
+            out.f6 = true;
+        };
+        field = field + 1;
+    }
+    out.count = field;
+    return out;
+}
+
+// Re-derive the IPv4 default gateway from raw /proc/net/route:
+// among lines whose destination field is 00000000, the gateway
+// (little-endian hex) of the lowest-metric line.
+struct RawGw4 {
+    found: bool,
+    gw: u32,
+    metric: u64,
+}
+
+fn raw_gateway_v4(content: &Vec<u8>) -> RawGw4 {
+    let out: RawGw4 = RawGw4 { found: false, gw: 0, metric: 0 };
+    let sl: Slice<u8> = VEC_AS_SLICE(content);
+    let n: u64 = len(content);
+    let pos: u64 = 0;
+    while pos < n {
+        let line_start: u64 = pos;
+        while pos < n {
+            if tu8(&sl, pos) == 10 {
+                break;
+            };
+            pos = pos + 1;
+        }
+        let line_len: u64 = pos - line_start;
+        if pos < n {
+            pos = pos + 1;
+        };
+        let f: RawFields = raw_fields(&sl, line_start, line_len);
+        if f.f1 && f.f2 && f.f6 {
+            if f.l1 == 8 && token_all_zero(&sl, f.s1, f.l1) {
+                let gw: u32 = tbswap32(tparse_hex(&sl, f.s2, f.l2) as u32);
+                let metric: u64 = tparse_dec(&sl, f.s6, f.l6);
+                if out.found != true || metric < out.metric {
+                    out.found = true;
+                    out.gw = gw;
+                    out.metric = metric;
+                };
+            };
+        };
+    }
+    return out;
+}
+
+// Re-derive the IPv6 default gateway from raw
+// /proc/net/ipv6_route: lines with destination all zero, prefix
+// length 00 and a non-zero next hop; lowest metric wins.
+struct RawGw6 {
+    found: bool,
+    gw: Ipv6Addr,
+    metric: u64,
+}
+
+fn raw_gateway_v6(content: &Vec<u8>) -> RawGw6 {
+    let out: RawGw6 = RawGw6 { found: false, gw: ipv6_from_segments(0, 0, 0, 0, 0, 0, 0, 0), metric: 0 };
+    let sl: Slice<u8> = VEC_AS_SLICE(content);
+    let n: u64 = len(content);
+    let pos: u64 = 0;
+    while pos < n {
+        let line_start: u64 = pos;
+        while pos < n {
+            if tu8(&sl, pos) == 10 {
+                break;
+            };
+            pos = pos + 1;
+        }
+        let line_len: u64 = pos - line_start;
+        if pos < n {
+            pos = pos + 1;
+        };
+        let f: RawFields = raw_fields(&sl, line_start, line_len);
+        if f.count >= 10 && f.f1 && f.f2 && f.f4 && f.f5 {
+            // Field 0 (destination) is not recorded by raw_fields;
+            // it starts at line_start with length 32 by the file
+            // format; field 1 (recorded) is its prefix length.
+            if token_all_zero(&sl, line_start, 32) && f.l1 == 2 && token_all_zero(&sl, f.s1, f.l1) {
+                if token_all_zero(&sl, f.s4, f.l4) != true {
+                    let metric: u64 = tparse_hex(&sl, f.s5, f.l5);
+                    if out.found != true || metric < out.metric {
+                        let segs: [u32; 8] = [0u32; 8];
+                        let s: u64 = 0;
+                        while s < 8 {
+                            segs[s] = tparse_hex(&sl, f.s4 + s * 4, 4) as u32;
+                            s = s + 1;
+                        }
+                        out.gw = ipv6_from_segments(segs[0], segs[1], segs[2], segs[3], segs[4], segs[5], segs[6], segs[7]);
+                        out.found = true;
+                        out.metric = metric;
+                    };
+                };
+            };
+        };
+    }
+    return out;
+}
+
+@test "routes v4 are consistent"() {
+    let ifaces: Vec<NetInterface> = unwrap_ifaces(net_interfaces(), 3601);
+    let routes: Vec<NetRoute> = unwrap_routes(net_routes_v4(), 3602);
+    if len(routes) < 1 {
+        panic(3603);
+    };
+    let sl: Slice<NetRoute> = VEC_AS_SLICE(routes);
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    let i: u64 = 0;
+    while i < n {
+        let r: NetRoute = net_route_empty();
+        SLICE_GET(r, sl, i);
+        // The kernel reports destinations pre-masked.
+        if ip_addr_eq(ip_prefix_network_addr(r.prefix), r.prefix.addr) != true {
+            panic(3604);
+        };
+        if r.prefix.len > 32 {
+            panic(3605);
+        };
+        if name_known(&ifaces, &r.iface) != true {
+            panic(3606);
+        };
+        i = i + 1;
+    }
+}
+
+@test "default gateway v4 matches proc"() {
+    let raw: Vec<u8> = read_file_vec(STR_PTR("/proc/net/route"), STR_LEN("/proc/net/route"), 3701);
+    let want: RawGw4 = raw_gateway_v4(&raw);
+    match net_default_gateway_v4() {
+        Ok(gw) => {
+            if want.found != true {
+                panic(3702);
+            };
+            if ip_addr_eq(gw, ip_addr_from_ipv4(want.gw)) != true {
+                panic(3703);
+            };
+        },
+        Err(e) => {
+            if want.found {
+                panic(3704);
+            };
+            if e != SA_STD_ERR_NOT_FOUND {
+                panic(3705);
+            };
+        },
+    };
+}
+
+@test "routes v6 consistent and gateway matches proc"() {
+    let ifaces: Vec<NetInterface> = unwrap_ifaces(net_interfaces(), 3801);
+    let routes: Vec<NetRoute> = unwrap_routes(net_routes_v6(), 3802);
+    let sl: Slice<NetRoute> = VEC_AS_SLICE(routes);
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    let i: u64 = 0;
+    while i < n {
+        let r: NetRoute = net_route_empty();
+        SLICE_GET(r, sl, i);
+        if r.prefix.len > 128 {
+            panic(3803);
+        };
+        if r.prefix.addr.tag != 6 {
+            panic(3804);
+        };
+        if name_known(&ifaces, &r.iface) != true {
+            panic(3805);
+        };
+        i = i + 1;
+    }
+    let raw: Vec<u8> = read_file_vec(STR_PTR("/proc/net/ipv6_route"), STR_LEN("/proc/net/ipv6_route"), 3806);
+    let want: RawGw6 = raw_gateway_v6(&raw);
+    match net_default_gateway_v6() {
+        Ok(gw) => {
+            if want.found != true {
+                panic(3807);
+            };
+            if ip_addr_eq(gw, ip_addr_from_ipv6(want.gw)) != true {
+                panic(3808);
+            };
+        },
+        Err(e) => {
+            if want.found {
+                panic(3809);
+            };
+            if e != SA_STD_ERR_NOT_FOUND {
+                panic(3810);
+            };
+        },
+    };
+}

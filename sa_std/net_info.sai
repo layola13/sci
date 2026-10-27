@@ -1,0 +1,47 @@
+// SA-facing contract for the local network information snapshot
+// extern backing sa_std/net_info.sla.
+//
+// Why this file exists: enumerating this host's own network
+// interfaces and addresses has exactly one portable POSIX source,
+// getifaddrs(3) -- /sys and /proc expose interface attributes and
+// IPv6 addresses, but there is no kernel text file that lists IPv4
+// addresses per interface. The runtime already walks getifaddrs for
+// the Deno compatibility surface (sa_deno_network_interfaces in
+// src/runtime/sa_std.zig); this extern is the sa_std-shaped version:
+// status-coded like the sa_std_fs_* family, returning the snapshot
+// as JSON in an owned byte buffer instead of Deno's stringly-typed
+// per-address objects.
+//
+// Contract:
+//   - Returns an SA_STD_* status code (sa_std/status.sla). On
+//     SA_STD_OK, out_handle receives an owned byte-buffer handle
+//     holding a UTF-8 JSON array; read it with
+//     sa_fs_read_buffer_data / sa_fs_read_buffer_len and release it
+//     with sa_fs_read_buffer_free (sa_std/fs.sai), exactly like the
+//     sa_std_fs_read_dir_json result.
+//   - Array element schema (one per interface address; interfaces
+//     with no AF_INET/AF_INET6 address do not appear -- attributes
+//     for ALL interfaces, addressed or not, come from
+//     net_interfaces() in net_info.sla via /sys/class/net):
+//       {"name": "eth0", "family": 2, "address": "172.28.0.12",
+//        "netmask": "255.255.0.0", "prefix_len": 16,
+//        "broadcast": "172.28.255.255", "scope_id": 0}
+//     family is the OS address family (AF_INET = 2, AF_INET6 = 10,
+//     the values sa_std/net.sla publishes as SA_NET_AF_*). address
+//     and netmask are inet_ntop presentation text. prefix_len is
+//     the netmask popcount. broadcast is the interface broadcast
+//     address when the kernel reports one (IFF_BROADCAST), else
+//     JSON null; the point-to-point peer address is NOT exposed by
+//     this snapshot. scope_id is the sockaddr_in6 scope id
+//     (0 for IPv4 and for global IPv6).
+//   - AF_PACKET entries are skipped: the MAC address is part of
+//     the /sys-based interface record in net_info.sla, not of the
+//     address snapshot.
+//
+// Platform scope: Linux (getifaddrs). The Windows runtime mirror
+// (src/runtime/sa_std_windows.zig) does not implement this symbol
+// yet -- same status as the sa_cookie_* family. This extern is
+// deliberately NOT declared in src/runtime/sa_std.h: it is an
+// SLA-first surface like the cookie/TOML faces, so the public C
+// header symbol counts audited by runtime-abi-check are unchanged.
+@extern sa_std_net_interface_addresses_json(&out_handle: ptr) -> i32

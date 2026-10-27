@@ -1,0 +1,1200 @@
+// sa_std/net_info.sla -- local network information for SLA: this
+// host's network interfaces, their addresses, and the kernel
+// route tables, in the value shapes of sa_std/ip.sla.
+//
+// Why this file exists: before it, sa_std could resolve names and
+// move traffic, but a program had no way to ask what THIS host is
+// -- no interface list, no local addresses, no default gateway.
+// Five of the cross-language census passes recorded in sala
+// (06_stdlib census pages for Android, Java, Go, Unreal, .NET)
+// list local network information as a gap family: Go's
+// net.Interfaces / InterfaceAddrs, Java's NetworkInterface /
+// InterfaceAddress, Android's ConnectivityManager link
+// properties. This file closes the portable core of it.
+//
+// Sources (Linux; chosen because each is directly verifiable
+// against the live system, and recorded here so the choice is
+// auditable):
+//   - Interface records: /sys/class/net/<name>/{ifindex,flags,
+//     mtu,address}, enumerated with sa_std_fs_read_dir_json.
+//     Kernel text files, parsed below.
+//   - Interface addresses: getifaddrs(3), via the single extern
+//     sa_std_net_interface_addresses_json (sa_std/net_info.sai).
+//     There is no kernel text file listing IPv4 addresses per
+//     interface, so this one piece cannot be pure SLA; the extern
+//     returns a JSON snapshot and this layer parses it with the
+//     sa_json document surface.
+//   - Routes: /proc/net/route (IPv4, little-endian hex fields)
+//     and /proc/net/ipv6_route (IPv6, network-order hex fields),
+//     parsed below. Default gateways are derived from the tables
+//     (lowest metric wins), never from a separate ioctl.
+//
+// Model choices (sa_std house style):
+//   - Errors are i32 status codes (SA_STD_* from status.sla),
+//     returned as Result<T, i32>. A missing default route is
+//     Err(SA_STD_ERR_NOT_FOUND), not a silent zero address.
+//   - Interface names are Vec<u8> byte strings, the same choice
+//     dns.sla makes for DNS names: kernel names are byte strings
+//     (IFNAMSIZ-bounded), and byte form is lossless. Compare with
+//     net_name_eq; convert with str_from_utf8 (str.sla) if a
+//     String is needed (via iter().collect<String>(), the
+//     ip.sla String-building idiom -- see ni_parse_ip_text for
+//     the str_from_utf8 representation caveat).
+//   - Addresses and masks ride as ip.sla values (IpAddr /
+//     IpPrefix), so the predicate and prefix algebra of ip.sla
+//     applies to them directly.
+//   - Flag predicates decode the Linux IFF_* bits that
+//     /sys/class/net/<name>/flags reports; the NET_IFACE_FLAG_*
+//     constants below pin the numbering.
+//
+// Platform scope: Linux. On a host without /sys/class/net or
+// /proc/net/route the readers return the fs status code (an
+// explicit error, never an empty list). The Windows runtime
+// mirror does not implement the addresses extern yet; see
+// net_info.sai.
+
+@import "sa_std/net_info.sai"
+@import "sa_std/fs.sai"
+@import "sa_std/encoding/json.sai"
+@import "sa_std/encoding/json.sla"
+@import "sa_std/status.sla"
+@import "sa_std/net.sla"
+@import "sa_std/ip.sla"
+@import "sa_std/string.sa"
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+@import "sa_std/ptr.sa"
+
+// Linux IFF_* flag bits, as reported by /sys/class/net/<name>/flags
+// and getifaddrs' ifa_flags.
+const NET_IFACE_FLAG_UP: u32 = 1;
+const NET_IFACE_FLAG_BROADCAST: u32 = 2;
+const NET_IFACE_FLAG_LOOPBACK: u32 = 8;
+const NET_IFACE_FLAG_POINTOPOINT: u32 = 16;
+const NET_IFACE_FLAG_RUNNING: u32 = 64;
+const NET_IFACE_FLAG_MULTICAST: u32 = 4096;
+
+// One network interface, from /sys/class/net. mac is the raw
+// 6-octet hardware address; has_mac is false when the address
+// file does not hold exactly six octets (e.g. tunnel devices with
+// other address lengths), in which case mac is all zero.
+struct NetInterface {
+    name: Vec<u8>,
+    index: u32,
+    flags: u32,
+    mtu: u32,
+    mac: [u8; 6],
+    has_mac: bool,
+}
+
+// One address bound to an interface, from the getifaddrs
+// snapshot. mask is the netmask as an address; prefix_len is its
+// popcount (net_prefix gives the IpPrefix form). broadcast is
+// meaningful only when has_broadcast is set.
+struct NetIfaceAddr {
+    name: Vec<u8>,
+    addr: IpAddr,
+    mask: IpAddr,
+    prefix_len: u32,
+    broadcast: IpAddr,
+    has_broadcast: bool,
+    scope_id: u32,
+}
+
+// One route table entry. prefix is the destination prefix
+// (addr stored masked, as the kernel reports it); gateway is
+// meaningful only when has_gateway is set (a directly connected
+// route has none). flags is the raw kernel flags field.
+struct NetRoute {
+    iface: Vec<u8>,
+    prefix: IpPrefix,
+    gateway: IpAddr,
+    has_gateway: bool,
+    metric: u32,
+    flags: u32,
+}
+
+// Empty records, for consumers that need a placeholder value
+// before a SLICE_GET (the dns_empty_record idiom; struct literals
+// for these types do not parse in consumer units).
+fn net_interface_empty() -> NetInterface {
+    return NetInterface {
+        name: Vec::new(),
+        index: 0,
+        flags: 0,
+        mtu: 0,
+        mac: [0u8; 6],
+        has_mac: false,
+    };
+}
+
+fn net_iface_addr_empty() -> NetIfaceAddr {
+    return NetIfaceAddr {
+        name: Vec::new(),
+        addr: ip_addr_from_ipv4(0),
+        mask: ip_addr_from_ipv4(0),
+        prefix_len: 0,
+        broadcast: ip_addr_from_ipv4(0),
+        has_broadcast: false,
+        scope_id: 0,
+    };
+}
+
+fn net_route_empty() -> NetRoute {
+    return NetRoute {
+        iface: Vec::new(),
+        prefix: ip_prefix_from(ip_addr_from_ipv4(0), 0),
+        gateway: ip_addr_from_ipv4(0),
+        has_gateway: false,
+        metric: 0,
+        flags: 0,
+    };
+}
+
+// ---- byte-slice helpers (dns.sla idiom) ----
+
+fn ni_slice_len(sl: &Slice<u8>) -> u64 {
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    return n;
+}
+
+fn ni_get_u8(sl: &Slice<u8>, off: u64) -> u8 {
+    let b: u8 = 0;
+    SLICE_GET(b, sl, off);
+    return b;
+}
+
+// Copy a raw (ptr, len) byte range into an owned Vec<u8>, in
+// chunks (the dns_read_small_file pattern).
+fn ni_vec_from_ptr(data: ptr, total: u64) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    let chunk: [u8; 2048] = [0u8; 2048];
+    let off: u64 = 0;
+    while off < total {
+        let n: u64 = total - off;
+        if n > 2048 {
+            n = 2048;
+        };
+        let src: ptr = PTR_BYTE_ADD(data, off);
+        let dst: ptr = PTR_BYTE_ADD(&chunk, 0);
+        PTR_COPY_BYTES(dst, src, n);
+        let i: u64 = 0;
+        while i < n {
+            out.push(chunk[i]);
+            i = i + 1;
+        }
+        off = off + n;
+    }
+    return out;
+}
+
+// Read a whole small file (<= 1 MiB) into a Vec<u8> through the fs
+// buffer surface. Same helper as dns.sla's, renamed for this file.
+fn ni_read_small_file(path: ptr, path_len: u64) -> Result<Vec<u8>, i32> {
+    let handle: u64 = 0;
+    let st: i32 = sa_std_fs_read_file(path, path_len, 1048576, &handle);
+    if st != SA_STD_OK {
+        return Err(st);
+    };
+    let data: ptr = sa_fs_read_buffer_data(handle);
+    let total: u64 = sa_fs_read_buffer_len(handle);
+    let out: Vec<u8> = ni_vec_from_ptr(data, total);
+    let f_st: i32 = sa_fs_read_buffer_free(handle);
+    return Ok(out);
+}
+
+// Byte-wise equality between a byte string and a (ptr, len) range.
+fn ni_bytes_eq_ptr(a: &Vec<u8>, b: ptr, b_len: u64) -> bool {
+    if len(a) != b_len {
+        return false;
+    };
+    let sl: Slice<u8> = VEC_AS_SLICE(a);
+    let i: u64 = 0;
+    while i < b_len {
+        let want: u8 = 0;
+        let src: ptr = PTR_BYTE_ADD(b, i);
+        PTR_COPY_BYTES(&want, src, 1);
+        if ni_get_u8(&sl, i) != want {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+// Byte-wise equality of two owned byte strings.
+fn net_name_eq(a: &Vec<u8>, b: &Vec<u8>) -> bool {
+    let la: u64 = len(a);
+    if la != len(b) {
+        return false;
+    };
+    let sa: Slice<u8> = VEC_AS_SLICE(a);
+    let sb: Slice<u8> = VEC_AS_SLICE(b);
+    let i: u64 = 0;
+    while i < la {
+        if ni_get_u8(&sa, i) != ni_get_u8(&sb, i) {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+// ---- number parsing over byte spans ----
+
+fn ni_hex_val(b: u8) -> i32 {
+    if b >= 48 && b <= 57 {
+        return (b - 48) as i32;
+    };
+    if b >= 97 && b <= 102 {
+        return (b - 87) as i32;
+    };
+    if b >= 65 && b <= 70 {
+        return (b - 55) as i32;
+    };
+    return -1;
+}
+
+// Parse a decimal number from a span; parsing stops at the first
+// non-digit. None when the span holds no digit at all.
+fn ni_parse_dec(sl: &Slice<u8>, start: u64, span: u64) -> Option<u64> {
+    let v: u64 = 0;
+    let seen: bool = false;
+    let i: u64 = 0;
+    while i < span {
+        let b: u8 = ni_get_u8(sl, start + i);
+        if b < 48 || b > 57 {
+            break;
+        };
+        v = v * 10 + (b - 48) as u64;
+        seen = true;
+        i = i + 1;
+    }
+    if seen != true {
+        return None;
+    };
+    return Some(v);
+}
+
+// Parse a hex number from a span (an optional 0x prefix is part
+// of the span scan: the prefix digits parse, then 'x' stops the
+// scan -- callers pass spans already past any prefix, except the
+// /sys flags file whose "0x" prefix ni_parse_sysfs_flags strips).
+fn ni_parse_hex(sl: &Slice<u8>, start: u64, span: u64) -> Option<u64> {
+    let v: u64 = 0;
+    let seen: bool = false;
+    let i: u64 = 0;
+    while i < span {
+        let d: i32 = ni_hex_val(ni_get_u8(sl, start + i));
+        if d < 0 {
+            break;
+        };
+        v = v * 16 + (d as u64);
+        seen = true;
+        i = i + 1;
+    }
+    if seen != true {
+        return None;
+    };
+    return Some(v);
+}
+
+fn ni_parse_sysfs_flags(sl: &Slice<u8>) -> Option<u64> {
+    let n: u64 = ni_slice_len(sl);
+    let start: u64 = 0;
+    if n >= 2 {
+        if ni_get_u8(sl, 0) == 48 && ni_get_u8(sl, 1) == 120 {
+            start = 2;
+        };
+    };
+    return ni_parse_hex(sl, start, n - start);
+}
+
+fn ni_byteswap32(v: u32) -> u32 {
+    let b0: u32 = (v >> 24) & 255;
+    let b1: u32 = (v >> 16) & 255;
+    let b2: u32 = (v >> 8) & 255;
+    let b3: u32 = v & 255;
+    return (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
+}
+
+fn ni_popcount32(v: u32) -> u32 {
+    let n: u32 = 0;
+    let i: u32 = 0;
+    while i < 32 {
+        if ((v >> i) & 1) != 0 {
+            n = n + 1;
+        };
+        i = i + 1;
+    }
+    return n;
+}
+
+// The all-zero IPv6 address, via the ip.sla constructor (struct
+// literals for ip.sla types do not parse in this unit's position;
+// constructor calls are the cross-unit idiom, cf. dns_empty_record).
+fn ni_ipv6_zero() -> Ipv6Addr {
+    return ipv6_from_segments(0, 0, 0, 0, 0, 0, 0, 0);
+}
+
+// Parse exactly 32 hex chars (network order) into an Ipv6Addr,
+// via the ip.sla segment constructor.
+fn ni_parse_hex128(sl: &Slice<u8>, start: u64) -> Option<Ipv6Addr> {
+    let segs: [u32; 8] = [0u32; 8];
+    let i: u64 = 0;
+    while i < 32 {
+        let d: i32 = ni_hex_val(ni_get_u8(sl, start + i));
+        if d < 0 {
+            return None;
+        };
+        let seg: u64 = i / 4;
+        segs[seg] = segs[seg] * 16 + (d as u32);
+        i = i + 1;
+    }
+    return Some(ipv6_from_segments(segs[0], segs[1], segs[2], segs[3], segs[4], segs[5], segs[6], segs[7]));
+}
+
+// Parse a "xx:xx:xx:xx:xx:xx" MAC address (the /sys address file
+// shape). Any other shape (wrong octet count, bad separators,
+// trailing garbage past a newline) is not a MAC for this surface.
+struct NiMac {
+    bytes: [u8; 6],
+    ok: bool,
+}
+
+fn ni_parse_mac(sl: &Slice<u8>) -> NiMac {
+    let out: NiMac = NiMac { bytes: [0u8; 6], ok: false };
+    let n: u64 = ni_slice_len(sl);
+    if n < 17 {
+        return out;
+    };
+    let vals: [u8; 6] = [0u8; 6];
+    let k: u64 = 0;
+    while k < 6 {
+        let p: u64 = k * 3;
+        let d0: i32 = ni_hex_val(ni_get_u8(sl, p));
+        let d1: i32 = ni_hex_val(ni_get_u8(sl, p + 1));
+        if d0 < 0 || d1 < 0 {
+            return out;
+        };
+        if k < 5 {
+            if ni_get_u8(sl, p + 2) != 58 {
+                return out;
+            };
+        };
+        vals[k] = ((d0 * 16) + d1) as u8;
+        k = k + 1;
+    }
+    out.bytes = vals;
+    out.ok = true;
+    return out;
+}
+
+// ---- token scanning for kernel text files ----
+
+// A field span inside a line: start/len relative to the content
+// slice, plus the position just past the token.
+struct NiToken {
+    start: u64,
+    len: u64,
+    next: u64,
+    found: bool,
+}
+
+fn ni_is_space(b: u8) -> bool {
+    return b == 32 || b == 9 || b == 10 || b == 13;
+}
+
+// Find the index-th whitespace-separated field of the line
+// occupying [line_start, line_start + line_len) in content.
+// Fields are runs of non-space bytes; separators are space/tab
+// (the line span itself excludes the newline).
+fn ni_field_at(content: &Slice<u8>, line_start: u64, line_len: u64, index: u64) -> NiToken {
+    let miss: NiToken = NiToken { start: 0, len: 0, next: line_start + line_len, found: false };
+    let end: u64 = line_start + line_len;
+    let pos: u64 = line_start;
+    let field: u64 = 0;
+    while pos < end {
+        let b: u8 = ni_get_u8(content, pos);
+        if ni_is_space(b) {
+            pos = pos + 1;
+            continue;
+        };
+        let tok_start: u64 = pos;
+        while pos < end {
+            if ni_is_space(ni_get_u8(content, pos)) {
+                break;
+            };
+            pos = pos + 1;
+        }
+        if field == index {
+            return NiToken { start: tok_start, len: pos - tok_start, next: pos, found: true };
+        };
+        field = field + 1;
+    }
+    return miss;
+}
+
+// Count the fields of a line.
+fn ni_field_count(content: &Slice<u8>, line_start: u64, line_len: u64) -> u64 {
+    let end: u64 = line_start + line_len;
+    let pos: u64 = line_start;
+    let field: u64 = 0;
+    while pos < end {
+        let b: u8 = ni_get_u8(content, pos);
+        if ni_is_space(b) {
+            pos = pos + 1;
+            continue;
+        };
+        while pos < end {
+            if ni_is_space(ni_get_u8(content, pos)) {
+                break;
+            };
+            pos = pos + 1;
+        }
+        field = field + 1;
+    }
+    return field;
+}
+
+// Compare a token span with a string literal's bytes.
+fn ni_token_eq_literal(content: &Slice<u8>, tok: NiToken, lit: ptr, lit_len: u64) -> bool {
+    if tok.found != true || tok.len != lit_len {
+        return false;
+    };
+    let i: u64 = 0;
+    while i < lit_len {
+        let want: u8 = 0;
+        let src: ptr = PTR_BYTE_ADD(lit, i);
+        PTR_COPY_BYTES(&want, src, 1);
+        if ni_get_u8(content, tok.start + i) != want {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+// Copy a token span into an owned Vec<u8>.
+fn ni_token_bytes(content: &Slice<u8>, tok: NiToken) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < tok.len {
+        out.push(ni_get_u8(content, tok.start + i));
+        i = i + 1;
+    }
+    return out;
+}
+
+// ---- interface records from /sys/class/net ----
+
+// Read one attribute file of one interface. base holds the
+// "/sys/class/net/<name>" prefix bytes already written at
+// base_len; the suffix ("/mtu" etc.) is appended per call.
+fn ni_read_iface_attr(base: ptr, base_len: u64, suffix: ptr, suffix_len: u64) -> Result<Vec<u8>, i32> {
+    let path: [u8; 288] = [0u8; 288];
+    let dst: ptr = PTR_BYTE_ADD(&path, 0);
+    PTR_COPY_BYTES(dst, base, base_len);
+    let dst2: ptr = PTR_BYTE_ADD(&path, base_len);
+    PTR_COPY_BYTES(dst2, suffix, suffix_len);
+    let path_ptr: ptr = PTR_BYTE_ADD(&path, 0);
+    return ni_read_small_file(path_ptr, base_len + suffix_len);
+}
+
+// Build the record for one interface from its /sys directory.
+fn ni_read_interface(name_ptr: ptr, name_len: u64, name: Vec<u8>) -> Result<NetInterface, i32> {
+    let base: [u8; 288] = [0u8; 288];
+    let pre: ptr = STR_PTR("/sys/class/net/");
+    let pre_len: u64 = STR_LEN("/sys/class/net/");
+    let bd: ptr = PTR_BYTE_ADD(&base, 0);
+    PTR_COPY_BYTES(bd, pre, pre_len);
+    let bd2: ptr = PTR_BYTE_ADD(&base, pre_len);
+    PTR_COPY_BYTES(bd2, name_ptr, name_len);
+    let base_len: u64 = pre_len + name_len;
+    let base_ptr: ptr = PTR_BYTE_ADD(&base, 0);
+
+    let index: u32 = 0;
+    let mtu: u32 = 0;
+    let flags: u32 = 0;
+    match ni_read_iface_attr(base_ptr, base_len, STR_PTR("/ifindex"), STR_LEN("/ifindex")) {
+        Ok(content) => {
+            let sl: Slice<u8> = VEC_AS_SLICE(content);
+            match ni_parse_dec(&sl, 0, ni_slice_len(&sl)) {
+                Some(v) => {
+                    index = v as u32;
+                },
+                None => {
+                    return Err(SA_STD_ERR_IO);
+                },
+            };
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    match ni_read_iface_attr(base_ptr, base_len, STR_PTR("/mtu"), STR_LEN("/mtu")) {
+        Ok(content) => {
+            let sl: Slice<u8> = VEC_AS_SLICE(content);
+            match ni_parse_dec(&sl, 0, ni_slice_len(&sl)) {
+                Some(v) => {
+                    mtu = v as u32;
+                },
+                None => {
+                    return Err(SA_STD_ERR_IO);
+                },
+            };
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    match ni_read_iface_attr(base_ptr, base_len, STR_PTR("/flags"), STR_LEN("/flags")) {
+        Ok(content) => {
+            let sl: Slice<u8> = VEC_AS_SLICE(content);
+            match ni_parse_sysfs_flags(&sl) {
+                Some(v) => {
+                    flags = v as u32;
+                },
+                None => {
+                    return Err(SA_STD_ERR_IO);
+                },
+            };
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    let mac: [u8; 6] = [0u8; 6];
+    let has_mac: bool = false;
+    match ni_read_iface_attr(base_ptr, base_len, STR_PTR("/address"), STR_LEN("/address")) {
+        Ok(content) => {
+            let sl: Slice<u8> = VEC_AS_SLICE(content);
+            let parsed: NiMac = ni_parse_mac(&sl);
+            if parsed.ok {
+                mac = parsed.bytes;
+                has_mac = true;
+            };
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    return Ok(NetInterface {
+        name: name,
+        index: index,
+        flags: flags,
+        mtu: mtu,
+        mac: mac,
+        has_mac: has_mac,
+    });
+}
+
+// List all network interfaces of this host, from /sys/class/net.
+// Order is the kernel directory order (not sorted). Entries whose
+// attribute files cannot be read or parsed fail the whole call
+// with the underlying status: a half-known interface list is
+// worse than an explicit error.
+fn net_interfaces() -> Result<Vec<NetInterface>, i32> {
+    let handle: u64 = 0;
+    let st: i32 = sa_std_fs_read_dir_json(STR_PTR("/sys/class/net"), STR_LEN("/sys/class/net"), 512, &handle);
+    if st != SA_STD_OK {
+        return Err(st);
+    };
+    let data: ptr = sa_fs_read_buffer_data(handle);
+    let total: u64 = sa_fs_read_buffer_len(handle);
+    let doc: u64 = sa_json_parse(data, total);
+    let f_st: i32 = sa_fs_read_buffer_free(handle);
+    if doc == 0 {
+        return Err(SA_STD_ERR_IO);
+    };
+    let entries: u64 = 0;
+    let g_st: i32 = sa_json_object_get(doc, STR_PTR("entries"), STR_LEN("entries"), &entries);
+    if g_st != SA_STD_OK {
+        let jf: i32 = sa_json_free(doc);
+        return Err(SA_STD_ERR_IO);
+    };
+    let count: u64 = 0;
+    let c_st: i32 = sa_json_value_count(entries, &count);
+    if c_st != SA_STD_OK {
+        let jf: i32 = sa_json_free(doc);
+        return Err(SA_STD_ERR_IO);
+    };
+    let out: Vec<NetInterface> = Vec::new();
+    let fail: i32 = 0;
+    let i: u64 = 0;
+    while i < count {
+        let ent: u64 = 0;
+        let a_st: i32 = sa_json_array_get(entries, i, &ent);
+        if a_st != SA_STD_OK {
+            fail = SA_STD_ERR_IO;
+            break;
+        };
+        let name_f: NiStrField = ni_json_string_field(ent, STR_PTR("name"), STR_LEN("name"));
+        if name_f.ok != true {
+            fail = SA_STD_ERR_IO;
+            break;
+        };
+        let name: Vec<u8> = ni_vec_from_ptr(name_f.p, name_f.l);
+        match ni_read_interface(name_f.p, name_f.l, name) {
+            Ok(iface) => {
+                out.push(iface);
+            },
+            Err(e) => {
+                fail = e;
+                break;
+            },
+        };
+        i = i + 1;
+    }
+    sa_json_free(doc);
+    if fail != 0 {
+        return Err(fail);
+    };
+    return Ok(out);
+}
+
+// ---- IFF flag predicates ----
+
+fn net_iface_is_up(iface: &NetInterface) -> bool {
+    return (iface.flags & NET_IFACE_FLAG_UP) != 0;
+}
+
+fn net_iface_is_running(iface: &NetInterface) -> bool {
+    return (iface.flags & NET_IFACE_FLAG_RUNNING) != 0;
+}
+
+fn net_iface_is_loopback(iface: &NetInterface) -> bool {
+    return (iface.flags & NET_IFACE_FLAG_LOOPBACK) != 0;
+}
+
+fn net_iface_is_broadcast(iface: &NetInterface) -> bool {
+    return (iface.flags & NET_IFACE_FLAG_BROADCAST) != 0;
+}
+
+fn net_iface_is_pointopoint(iface: &NetInterface) -> bool {
+    return (iface.flags & NET_IFACE_FLAG_POINTOPOINT) != 0;
+}
+
+fn net_iface_is_multicast(iface: &NetInterface) -> bool {
+    return (iface.flags & NET_IFACE_FLAG_MULTICAST) != 0;
+}
+
+// ---- interface addresses from the getifaddrs snapshot ----
+
+// Parse presentation text (a fresh byte copy) into an IpAddr via
+// the ip.sla value layer. The String is built with the
+// iter().collect<String>() idiom ip.sla itself uses for its
+// formatters -- NOT with str_from_utf8: a String produced by
+// STRING_BUF_FROM_UTF8_UNCHECKED (str.sla) is misread by STR_PTR,
+// which is what ip_addr_parse reads through, so such a String
+// parses as garbage and yields None even when len() is correct
+// (probe-verified on "127.0.0.1": len 9, parse None; the
+// collect-built String parses fine). Registered as a String
+// representation split in the std: str_from_utf8 output is not
+// interchangeable with format()/collect() output for STR_PTR
+// consumers.
+fn ni_parse_ip_text(text: Vec<u8>) -> Option<IpAddr> {
+    let out: String = format("");
+    let sl: Slice<u8> = VEC_AS_SLICE(text);
+    let n: u64 = ni_slice_len(&sl);
+    let i: u64 = 0;
+    while i < n {
+        let one: [u8; 1] = [ni_get_u8(&sl, i)];
+        let piece: String = one.iter().collect<String>();
+        out = format("{}{}", out, piece);
+        i = i + 1;
+    }
+    return ip_addr_parse(out);
+}
+
+// Extract one string field of a snapshot entry as a raw
+// (ptr, len) range into the parsed document.
+struct NiStrField {
+    p: ptr,
+    l: u64,
+    ok: bool,
+}
+
+fn ni_json_string_field(node: u64, key: ptr, key_len: u64) -> NiStrField {
+    let p: ptr = STR_PTR("");
+    let l: u64 = 0;
+    let st: i32 = sa_json_object_get_string(node, key, key_len, &p, &l);
+    if st != SA_STD_OK {
+        return NiStrField { p: p, l: 0, ok: false };
+    };
+    return NiStrField { p: p, l: l, ok: true };
+}
+
+fn ni_json_i64_field(node: u64, key: ptr, key_len: u64) -> Option<i64> {
+    let v: i64 = 0;
+    let st: i32 = sa_json_object_get_i64(node, key, key_len, &v);
+    if st != SA_STD_OK {
+        return None;
+    };
+    return Some(v);
+}
+
+// Parse one snapshot entry. err is an SA_STD_* status when the
+// entry is malformed (fatal to the whole snapshot: the runtime
+// produces this JSON, so a malformed entry is a runtime bug, not
+// data). skip marks an entry filtered out by name; its entry
+// field is then a dummy and must not be used.
+struct NiEntry {
+    entry: NetIfaceAddr,
+    skip: bool,
+    err: i32,
+}
+
+fn ni_entry_dummy() -> NetIfaceAddr {
+    return net_iface_addr_empty();
+}
+
+fn ni_parse_entry(ent: u64, filter: &Vec<u8>, filtered: bool) -> NiEntry {
+    let bad: NiEntry = NiEntry { entry: ni_entry_dummy(), skip: false, err: SA_STD_ERR_IO };
+    let name_f: NiStrField = ni_json_string_field(ent, STR_PTR("name"), STR_LEN("name"));
+    if name_f.ok != true {
+        return bad;
+    };
+    if filtered {
+        if ni_bytes_eq_ptr(filter, name_f.p, name_f.l) != true {
+            return NiEntry { entry: ni_entry_dummy(), skip: true, err: 0 };
+        };
+    };
+    let family: i64 = 0;
+    match ni_json_i64_field(ent, STR_PTR("family"), STR_LEN("family")) {
+        Some(v) => {
+            family = v;
+        },
+        None => {
+            return bad;
+        },
+    };
+    let addr_f: NiStrField = ni_json_string_field(ent, STR_PTR("address"), STR_LEN("address"));
+    if addr_f.ok != true {
+        return bad;
+    };
+    let addr: IpAddr = ip_addr_from_ipv4(0);
+    match ni_parse_ip_text(ni_vec_from_ptr(addr_f.p, addr_f.l)) {
+        Some(a) => {
+            addr = a;
+        },
+        None => {
+            return bad;
+        },
+    };
+    let mask: IpAddr = ip_addr_from_ipv4(0);
+    let mask_f: NiStrField = ni_json_string_field(ent, STR_PTR("netmask"), STR_LEN("netmask"));
+    if mask_f.ok {
+        match ni_parse_ip_text(ni_vec_from_ptr(mask_f.p, mask_f.l)) {
+            Some(m) => {
+                mask = m;
+            },
+            None => {
+                return bad;
+            },
+        };
+    };
+    let prefix_len: u32 = 0;
+    match ni_json_i64_field(ent, STR_PTR("prefix_len"), STR_LEN("prefix_len")) {
+        Some(v) => {
+            prefix_len = v as u32;
+        },
+        None => {
+            return bad;
+        },
+    };
+    let broadcast: IpAddr = ip_addr_from_ipv4(0);
+    let has_broadcast: bool = false;
+    let b_node: u64 = 0;
+    let b_st: i32 = sa_json_object_get(ent, STR_PTR("broadcast"), STR_LEN("broadcast"), &b_node);
+    if b_st == SA_STD_OK {
+        if sa_json_kind(b_node) == SA_JSON_KIND_STRING {
+            let bp: ptr = sa_json_string_ptr(b_node);
+            let bl: u64 = sa_json_string_len(b_node);
+            match ni_parse_ip_text(ni_vec_from_ptr(bp, bl)) {
+                Some(b) => {
+                    broadcast = b;
+                    has_broadcast = true;
+                },
+                None => {
+                    return bad;
+                },
+            };
+        };
+    };
+    let scope_id: u32 = 0;
+    match ni_json_i64_field(ent, STR_PTR("scope_id"), STR_LEN("scope_id")) {
+        Some(v) => {
+            scope_id = v as u32;
+        },
+        None => {
+            return bad;
+        },
+    };
+    return NiEntry {
+        entry: NetIfaceAddr {
+            name: ni_vec_from_ptr(name_f.p, name_f.l),
+            addr: addr,
+            mask: mask,
+            prefix_len: prefix_len,
+            broadcast: broadcast,
+            has_broadcast: has_broadcast,
+            scope_id: scope_id,
+        },
+        skip: false,
+        err: 0,
+    };
+}
+
+// Walk the snapshot. When filtered is set, only entries whose
+// name byte-matches filter are collected.
+fn ni_collect_addresses(filter: &Vec<u8>, filtered: bool) -> Result<Vec<NetIfaceAddr>, i32> {
+    let handle: u64 = 0;
+    let st: i32 = sa_std_net_interface_addresses_json(&handle);
+    if st != SA_STD_OK {
+        return Err(st);
+    };
+    let data: ptr = sa_fs_read_buffer_data(handle);
+    let total: u64 = sa_fs_read_buffer_len(handle);
+    let doc: u64 = sa_json_parse(data, total);
+    let f_st: i32 = sa_fs_read_buffer_free(handle);
+    if doc == 0 {
+        return Err(SA_STD_ERR_IO);
+    };
+    let count: u64 = 0;
+    let c_st: i32 = sa_json_value_count(doc, &count);
+    if c_st != SA_STD_OK {
+        sa_json_free(doc);
+        return Err(SA_STD_ERR_IO);
+    };
+    let out: Vec<NetIfaceAddr> = Vec::new();
+    let fail: i32 = 0;
+    let i: u64 = 0;
+    while i < count {
+        let ent: u64 = 0;
+        let a_st: i32 = sa_json_array_get(doc, i, &ent);
+        if a_st != SA_STD_OK {
+            fail = SA_STD_ERR_IO;
+            break;
+        };
+        let r: NiEntry = ni_parse_entry(ent, filter, filtered);
+        if r.err != 0 {
+            fail = r.err;
+            break;
+        };
+        if r.skip != true {
+            out.push(r.entry);
+        };
+        i = i + 1;
+    }
+    sa_json_free(doc);
+    if fail != 0 {
+        return Err(fail);
+    };
+    return Ok(out);
+}
+
+// All addresses bound to this host's interfaces (IPv4 and IPv6),
+// from the getifaddrs snapshot. Interfaces with no address do not
+// appear; see net_interfaces for the full interface list.
+fn net_interface_addresses() -> Result<Vec<NetIfaceAddr>, i32> {
+    let empty: Vec<u8> = Vec::new();
+    return ni_collect_addresses(&empty, false);
+}
+
+// The addresses of one named interface (empty list -- not an
+// error -- when the name has no addresses or does not exist).
+fn net_interface_addresses_of(name: Vec<u8>) -> Result<Vec<NetIfaceAddr>, i32> {
+    return ni_collect_addresses(&name, true);
+}
+
+// The IpPrefix form of an interface address.
+fn net_addr_prefix(entry: &NetIfaceAddr) -> IpPrefix {
+    return ip_prefix_from(entry.addr, entry.prefix_len);
+}
+
+// ---- route tables from /proc ----
+
+// Iterate content line by line. Each line span excludes the
+// newline; a final line without one still counts.
+struct NiLine {
+    start: u64,
+    len: u64,
+    next: u64,
+    found: bool,
+}
+
+fn ni_line_at(content: &Slice<u8>, pos: u64) -> NiLine {
+    let n: u64 = ni_slice_len(content);
+    if pos >= n {
+        return NiLine { start: pos, len: 0, next: pos, found: false };
+    };
+    let end: u64 = pos;
+    while end < n {
+        if ni_get_u8(content, end) == 10 {
+            break;
+        };
+        end = end + 1;
+    }
+    let next: u64 = end;
+    if next < n {
+        next = next + 1;
+    };
+    return NiLine { start: pos, len: end - pos, next: next, found: true };
+}
+
+// Parse one /proc/net/route line. Field layout (whitespace
+// separated): 0 iface, 1 destination, 2 gateway, 3 flags,
+// 4 refcnt, 5 use, 6 metric, 7 mask, then MTU/window/IRTT.
+// Destination, gateway and mask are little-endian hex u32s (the
+// kernel prints the in_addr word): 01001CAC is 172.28.0.1.
+// The header line and malformed lines yield None.
+fn ni_parse_route_v4_line(content: &Slice<u8>, line: NiLine) -> Option<NetRoute> {
+    if ni_field_count(content, line.start, line.len) < 8 {
+        return None;
+    };
+    let iface_tok: NiToken = ni_field_at(content, line.start, line.len, 0);
+    if ni_token_eq_literal(content, iface_tok, STR_PTR("Iface"), STR_LEN("Iface")) {
+        return None;
+    };
+    let dest_tok: NiToken = ni_field_at(content, line.start, line.len, 1);
+    let gw_tok: NiToken = ni_field_at(content, line.start, line.len, 2);
+    let flags_tok: NiToken = ni_field_at(content, line.start, line.len, 3);
+    let metric_tok: NiToken = ni_field_at(content, line.start, line.len, 6);
+    let mask_tok: NiToken = ni_field_at(content, line.start, line.len, 7);
+    let dest: u32 = 0;
+    let gw: u32 = 0;
+    let mask: u32 = 0;
+    let flags: u32 = 0;
+    let metric: u32 = 0;
+    match ni_parse_hex(content, dest_tok.start, dest_tok.len) {
+        Some(v) => {
+            dest = ni_byteswap32(v as u32);
+        },
+        None => {
+            return None;
+        },
+    };
+    match ni_parse_hex(content, gw_tok.start, gw_tok.len) {
+        Some(v) => {
+            gw = ni_byteswap32(v as u32);
+        },
+        None => {
+            return None;
+        },
+    };
+    match ni_parse_hex(content, mask_tok.start, mask_tok.len) {
+        Some(v) => {
+            mask = ni_byteswap32(v as u32);
+        },
+        None => {
+            return None;
+        },
+    };
+    match ni_parse_hex(content, flags_tok.start, flags_tok.len) {
+        Some(v) => {
+            flags = v as u32;
+        },
+        None => {
+            return None;
+        },
+    };
+    match ni_parse_dec(content, metric_tok.start, metric_tok.len) {
+        Some(v) => {
+            metric = v as u32;
+        },
+        None => {
+            return None;
+        },
+    };
+    return Some(NetRoute {
+        iface: ni_token_bytes(content, iface_tok),
+        prefix: ip_prefix_from(ip_addr_from_ipv4(dest), ni_popcount32(mask)),
+        gateway: ip_addr_from_ipv4(gw),
+        has_gateway: gw != 0,
+        metric: metric,
+        flags: flags,
+    });
+}
+
+// The IPv4 route table, from /proc/net/route.
+fn net_routes_v4() -> Result<Vec<NetRoute>, i32> {
+    match ni_read_small_file(STR_PTR("/proc/net/route"), STR_LEN("/proc/net/route")) {
+        Ok(content) => {
+            let sl: Slice<u8> = VEC_AS_SLICE(content);
+            let out: Vec<NetRoute> = Vec::new();
+            let pos: u64 = 0;
+            let line: NiLine = ni_line_at(&sl, pos);
+            while line.found {
+                match ni_parse_route_v4_line(&sl, line) {
+                    Some(route) => {
+                        out.push(route);
+                    },
+                    None => {
+                    },
+                };
+                pos = line.next;
+                line = ni_line_at(&sl, pos);
+            }
+            return Ok(out);
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+}
+
+// Parse one /proc/net/ipv6_route line. Field layout (space
+// separated, all hex): 0 destination (32), 1 destination prefix
+// len (2), 2 source (32), 3 source prefix len (2), 4 next hop
+// (32), 5 metric (8), 6 refcnt, 7 use, 8 flags (8), 9 iface name.
+// Addresses are network-order hex, unlike the IPv4 file.
+fn ni_parse_route_v6_line(content: &Slice<u8>, line: NiLine) -> Option<NetRoute> {
+    if ni_field_count(content, line.start, line.len) < 10 {
+        return None;
+    };
+    let dest_tok: NiToken = ni_field_at(content, line.start, line.len, 0);
+    let plen_tok: NiToken = ni_field_at(content, line.start, line.len, 1);
+    let gw_tok: NiToken = ni_field_at(content, line.start, line.len, 4);
+    let metric_tok: NiToken = ni_field_at(content, line.start, line.len, 5);
+    let flags_tok: NiToken = ni_field_at(content, line.start, line.len, 8);
+    let iface_tok: NiToken = ni_field_at(content, line.start, line.len, 9);
+    if dest_tok.len != 32 || gw_tok.len != 32 {
+        return None;
+    };
+    let dest: Ipv6Addr = ni_ipv6_zero();
+    let gw: Ipv6Addr = ni_ipv6_zero();
+    let plen: u32 = 0;
+    let metric: u32 = 0;
+    let flags: u32 = 0;
+    match ni_parse_hex128(content, dest_tok.start) {
+        Some(v) => {
+            dest = v;
+        },
+        None => {
+            return None;
+        },
+    };
+    match ni_parse_hex128(content, gw_tok.start) {
+        Some(v) => {
+            gw = v;
+        },
+        None => {
+            return None;
+        },
+    };
+    match ni_parse_hex(content, plen_tok.start, plen_tok.len) {
+        Some(v) => {
+            plen = v as u32;
+        },
+        None => {
+            return None;
+        },
+    };
+    match ni_parse_hex(content, metric_tok.start, metric_tok.len) {
+        Some(v) => {
+            metric = v as u32;
+        },
+        None => {
+            return None;
+        },
+    };
+    match ni_parse_hex(content, flags_tok.start, flags_tok.len) {
+        Some(v) => {
+            flags = v as u32;
+        },
+        None => {
+            return None;
+        },
+    };
+    return Some(NetRoute {
+        iface: ni_token_bytes(content, iface_tok),
+        prefix: ip_prefix_from(ip_addr_from_ipv6(dest), plen),
+        gateway: ip_addr_from_ipv6(gw),
+        has_gateway: ipv6_is_unspecified(gw) != true,
+        metric: metric,
+        flags: flags,
+    });
+}
+
+// The IPv6 route table, from /proc/net/ipv6_route.
+fn net_routes_v6() -> Result<Vec<NetRoute>, i32> {
+    match ni_read_small_file(STR_PTR("/proc/net/ipv6_route"), STR_LEN("/proc/net/ipv6_route")) {
+        Ok(content) => {
+            let sl: Slice<u8> = VEC_AS_SLICE(content);
+            let out: Vec<NetRoute> = Vec::new();
+            let pos: u64 = 0;
+            let line: NiLine = ni_line_at(&sl, pos);
+            while line.found {
+                match ni_parse_route_v6_line(&sl, line) {
+                    Some(route) => {
+                        out.push(route);
+                    },
+                    None => {
+                    },
+                };
+                pos = line.next;
+                line = ni_line_at(&sl, pos);
+            }
+            return Ok(out);
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+}
+
+// The default gateway: the gateway of the /0 route with the
+// lowest metric. Err(SA_STD_ERR_NOT_FOUND) when the table holds
+// no default route with a gateway -- an explicit answer, not a
+// zero address.
+fn ni_default_gateway(routes: &Vec<NetRoute>) -> Result<IpAddr, i32> {
+    let sl: Slice<NetRoute> = VEC_AS_SLICE(routes);
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    let found: bool = false;
+    let best_metric: u32 = 4294967295;
+    let best: IpAddr = ip_addr_from_ipv4(0);
+    let i: u64 = 0;
+    while i < n {
+        let route: NetRoute = net_route_empty();
+        SLICE_GET(route, sl, i);
+        if route.prefix.len == 0 && route.has_gateway {
+            if found != true || route.metric < best_metric {
+                found = true;
+                best_metric = route.metric;
+                best = route.gateway;
+            };
+        };
+        i = i + 1;
+    }
+    if found != true {
+        return Err(SA_STD_ERR_NOT_FOUND);
+    };
+    return Ok(best);
+}
+
+// The IPv4 default gateway (see ni_default_gateway).
+fn net_default_gateway_v4() -> Result<IpAddr, i32> {
+    match net_routes_v4() {
+        Ok(routes) => {
+            return ni_default_gateway(&routes);
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+}
+
+// The IPv6 default gateway (see ni_default_gateway).
+fn net_default_gateway_v6() -> Result<IpAddr, i32> {
+    match net_routes_v6() {
+        Ok(routes) => {
+            return ni_default_gateway(&routes);
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+}
