@@ -1,0 +1,1362 @@
+// Codec tests for sa_std/encoding/bitpack.sla: bit writer/reader
+// byte vectors in both orders, signed fields, stream errors,
+// LEB128 + zigzag vectors and error cases, fixed-point quantize
+// (including the NetQuantize grades), quantized fields packed in
+// a bit stream, and smallest-three unit vectors. Every byte
+// vector below was produced by an independent reference model of
+// the formats (per-bit loops, IEEE doubles), not by this
+// implementation. Each @test panics with a distinct code so a
+// failure names its assertion.
+
+@import "sa_std/encoding/bitpack.sla"
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+
+fn sl_len(sl: &Slice<u8>) -> u64 {
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    return n;
+}
+
+fn sl_byte(sl: &Slice<u8>, off: u64) -> u8 {
+    let b: u8 = 0;
+    SLICE_GET(b, sl, off);
+    return b;
+}
+
+fn expect_byte(sl: &Slice<u8>, off: u64, want: u8, code: i32) {
+    if sl_byte(sl, off) != want {
+        panic(code);
+    };
+}
+
+fn must_write(w: BitWriter, value: u64, bits: u32, code: i32) -> BitWriter {
+    let r = bit_writer_write_bits(w, value, bits);
+    let out: BitWriter = bit_writer_new_msb_first();
+    match r {
+        Ok(v) => {
+            out = v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+    return out;
+}
+
+fn must_write_signed(w: BitWriter, value: i64, bits: u32, code: i32) -> BitWriter {
+    let r = bit_writer_write_signed(w, value, bits);
+    let out: BitWriter = bit_writer_new_msb_first();
+    match r {
+        Ok(v) => {
+            out = v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+    return out;
+}
+
+fn must_read_u64_msb(sl: &Slice<u8>, pos: u64, bits: u32, code: i32) -> BitReadU64 {
+    let r = bit_read_u64_msb_first(sl, pos, bits);
+    match r {
+        Ok(v) => {
+            return v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+}
+
+fn must_read_u64_lsb(sl: &Slice<u8>, pos: u64, bits: u32, code: i32) -> BitReadU64 {
+    let r = bit_read_u64_lsb_first(sl, pos, bits);
+    match r {
+        Ok(v) => {
+            return v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+}
+
+fn must_read_i64_msb(sl: &Slice<u8>, pos: u64, bits: u32, code: i32) -> BitReadI64 {
+    let r = bit_read_i64_msb_first(sl, pos, bits);
+    match r {
+        Ok(v) => {
+            return v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+}
+
+fn must_read_i64_lsb(sl: &Slice<u8>, pos: u64, bits: u32, code: i32) -> BitReadI64 {
+    let r = bit_read_i64_lsb_first(sl, pos, bits);
+    match r {
+        Ok(v) => {
+            return v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+}
+
+fn u64_max() -> u64 {
+    return ((4294967295 as u64) << 32) | 4294967295;
+}
+
+fn i64_min() -> i64 {
+    return 0 - 9223372036854775807 - 1;
+}
+
+@test "bit writer msb first byte vectors"() {
+    let w: BitWriter = bit_writer_new_msb_first();
+    if bit_writer_order(&w) != BIT_ORDER_MSB_FIRST {
+        panic(1001);
+    };
+    w = must_write(w, 5, 3, 1002);
+    w = must_write(w, 18, 5, 1003);
+    if bit_writer_bit_len(&w) != 8 {
+        panic(1004);
+    };
+    let bytes: Vec<u8> = bit_writer_finish(w);
+    let sl: Slice<u8> = VEC_AS_SLICE(bytes);
+    if sl_len(&sl) != 1 {
+        panic(1005);
+    };
+    expect_byte(&sl, 0, 178, 1006);
+
+    let w2: BitWriter = bit_writer_new_msb_first();
+    w2 = must_write(w2, 511, 9, 1007);
+    w2 = must_write(w2, 0, 1, 1008);
+    if bit_writer_bit_len(&w2) != 10 {
+        panic(1009);
+    };
+    let bytes2: Vec<u8> = bit_writer_finish(w2);
+    let sl2: Slice<u8> = VEC_AS_SLICE(bytes2);
+    if sl_len(&sl2) != 2 {
+        panic(1010);
+    };
+    expect_byte(&sl2, 0, 255, 1011);
+    expect_byte(&sl2, 1, 128, 1012);
+
+    let w3: BitWriter = bit_writer_new_msb_first();
+    w3 = must_write(w3, 1, 1, 1013);
+    w3 = must_write(w3, 341, 9, 1014);
+    w3 = must_write(w3, 42, 6, 1015);
+    let bytes3: Vec<u8> = bit_writer_finish(w3);
+    let sl3: Slice<u8> = VEC_AS_SLICE(bytes3);
+    expect_byte(&sl3, 0, 213, 1016);
+    expect_byte(&sl3, 1, 106, 1017);
+
+    let w4: BitWriter = bit_writer_new_msb_first();
+    w4 = must_write(w4, 81985529216486895, 64, 1018);
+    let bytes4: Vec<u8> = bit_writer_finish(w4);
+    let sl4: Slice<u8> = VEC_AS_SLICE(bytes4);
+    if sl_len(&sl4) != 8 {
+        panic(1019);
+    };
+    expect_byte(&sl4, 0, 1, 1020);
+    expect_byte(&sl4, 1, 35, 1021);
+    expect_byte(&sl4, 2, 69, 1022);
+    expect_byte(&sl4, 3, 103, 1023);
+    expect_byte(&sl4, 4, 137, 1024);
+    expect_byte(&sl4, 5, 171, 1025);
+    expect_byte(&sl4, 6, 205, 1026);
+    expect_byte(&sl4, 7, 239, 1027);
+}
+
+@test "bit writer lsb first byte vectors"() {
+    let w: BitWriter = bit_writer_new_lsb_first();
+    if bit_writer_order(&w) != BIT_ORDER_LSB_FIRST {
+        panic(1101);
+    };
+    w = must_write(w, 5, 3, 1102);
+    w = must_write(w, 18, 5, 1103);
+    if bit_writer_bit_len(&w) != 8 {
+        panic(1104);
+    };
+    let bytes: Vec<u8> = bit_writer_finish(w);
+    let sl: Slice<u8> = VEC_AS_SLICE(bytes);
+    if sl_len(&sl) != 1 {
+        panic(1105);
+    };
+    expect_byte(&sl, 0, 149, 1106);
+
+    let w2: BitWriter = bit_writer_new_lsb_first();
+    w2 = must_write(w2, 511, 9, 1107);
+    w2 = must_write(w2, 0, 1, 1108);
+    let bytes2: Vec<u8> = bit_writer_finish(w2);
+    let sl2: Slice<u8> = VEC_AS_SLICE(bytes2);
+    expect_byte(&sl2, 0, 255, 1109);
+    expect_byte(&sl2, 1, 1, 1110);
+
+    let w3: BitWriter = bit_writer_new_lsb_first();
+    w3 = must_write(w3, 1, 1, 1111);
+    w3 = must_write(w3, 341, 9, 1112);
+    w3 = must_write(w3, 42, 6, 1113);
+    let bytes3: Vec<u8> = bit_writer_finish(w3);
+    let sl3: Slice<u8> = VEC_AS_SLICE(bytes3);
+    expect_byte(&sl3, 0, 171, 1114);
+    expect_byte(&sl3, 1, 170, 1115);
+
+    let w4: BitWriter = bit_writer_new_lsb_first();
+    w4 = must_write(w4, 81985529216486895, 64, 1116);
+    let bytes4: Vec<u8> = bit_writer_finish(w4);
+    let sl4: Slice<u8> = VEC_AS_SLICE(bytes4);
+    expect_byte(&sl4, 0, 239, 1117);
+    expect_byte(&sl4, 1, 205, 1118);
+    expect_byte(&sl4, 2, 171, 1119);
+    expect_byte(&sl4, 3, 137, 1120);
+    expect_byte(&sl4, 4, 103, 1121);
+    expect_byte(&sl4, 5, 69, 1122);
+    expect_byte(&sl4, 6, 35, 1123);
+    expect_byte(&sl4, 7, 1, 1124);
+}
+
+@test "bit reader round trip cross order align bool"() {
+    // Round trip a mixed-width field sequence in both orders.
+    let w: BitWriter = bit_writer_new_msb_first();
+    w = must_write(w, 5, 3, 1201);
+    w = must_write(w, 17, 5, 1202);
+    w = must_write(w, 291, 12, 1203);
+    w = must_write(w, 1, 1, 1204);
+    let bytes: Vec<u8> = bit_writer_finish(w);
+    let sl: Slice<u8> = VEC_AS_SLICE(bytes);
+    expect_byte(&sl, 0, 177, 1205);
+    expect_byte(&sl, 1, 18, 1206);
+    expect_byte(&sl, 2, 56, 1207);
+    if bit_reader_bit_len(&sl) != 24 {
+        panic(1208);
+    };
+    if bit_reader_remaining_bits(&sl, 0) != 24 {
+        panic(1209);
+    };
+    let r1 = must_read_u64_msb(&sl, 0, 3, 1210);
+    if r1.value != 5 || r1.next_bit_pos != 3 {
+        panic(1211);
+    };
+    let r2 = must_read_u64_msb(&sl, r1.next_bit_pos, 5, 1212);
+    if r2.value != 17 || r2.next_bit_pos != 8 {
+        panic(1213);
+    };
+    let r3 = must_read_u64_msb(&sl, r2.next_bit_pos, 12, 1214);
+    if r3.value != 291 || r3.next_bit_pos != 20 {
+        panic(1215);
+    };
+    let r4 = must_read_u64_msb(&sl, r3.next_bit_pos, 1, 1216);
+    if r4.value != 1 || r4.next_bit_pos != 21 {
+        panic(1217);
+    };
+    if bit_reader_remaining_bits(&sl, 21) != 3 {
+        panic(1218);
+    };
+    if bit_reader_remaining_bits(&sl, 100) != 0 {
+        panic(1219);
+    };
+
+    let wl: BitWriter = bit_writer_new_lsb_first();
+    wl = must_write(wl, 5, 3, 1220);
+    wl = must_write(wl, 17, 5, 1221);
+    wl = must_write(wl, 291, 12, 1222);
+    wl = must_write(wl, 1, 1, 1223);
+    let bytesl: Vec<u8> = bit_writer_finish(wl);
+    let sll: Slice<u8> = VEC_AS_SLICE(bytesl);
+    expect_byte(&sll, 0, 141, 1224);
+    expect_byte(&sll, 1, 35, 1225);
+    expect_byte(&sll, 2, 17, 1226);
+    let l1 = must_read_u64_lsb(&sll, 0, 3, 1227);
+    if l1.value != 5 {
+        panic(1228);
+    };
+    let l2 = must_read_u64_lsb(&sll, l1.next_bit_pos, 5, 1229);
+    if l2.value != 17 {
+        panic(1230);
+    };
+    let l3 = must_read_u64_lsb(&sll, l2.next_bit_pos, 12, 1231);
+    if l3.value != 291 {
+        panic(1232);
+    };
+    let l4 = must_read_u64_lsb(&sll, l3.next_bit_pos, 1, 1233);
+    if l4.value != 1 || l4.next_bit_pos != 21 {
+        panic(1234);
+    };
+
+    // Cross-order reads of one known byte pin the two orders
+    // against each other: 0xB2 read MSB-first is [5, 18],
+    // LSB-first is [2, 22].
+    let one: Vec<u8> = Vec::new();
+    one.push(178);
+    let slo: Slice<u8> = VEC_AS_SLICE(one);
+    let c1 = must_read_u64_msb(&slo, 0, 3, 1235);
+    let c2 = must_read_u64_msb(&slo, 3, 5, 1236);
+    if c1.value != 5 || c2.value != 18 {
+        panic(1237);
+    };
+    let c3 = must_read_u64_lsb(&slo, 0, 3, 1238);
+    let c4 = must_read_u64_lsb(&slo, 3, 5, 1239);
+    if c3.value != 2 || c4.value != 22 {
+        panic(1240);
+    };
+
+    // Align pads with zero bits and writing continues at the
+    // byte boundary.
+    let wa: BitWriter = bit_writer_new_msb_first();
+    wa = must_write(wa, 5, 3, 1241);
+    wa = bit_writer_align_to_byte(wa);
+    if bit_writer_bit_len(&wa) != 8 {
+        panic(1242);
+    };
+    wa = must_write(wa, 171, 8, 1243);
+    let bytesa: Vec<u8> = bit_writer_finish(wa);
+    let sla: Slice<u8> = VEC_AS_SLICE(bytesa);
+    expect_byte(&sla, 0, 160, 1244);
+    expect_byte(&sla, 1, 171, 1245);
+
+    let wb: BitWriter = bit_writer_new_lsb_first();
+    wb = must_write(wb, 5, 3, 1246);
+    wb = bit_writer_align_to_byte(wb);
+    wb = must_write(wb, 171, 8, 1247);
+    let bytesb: Vec<u8> = bit_writer_finish(wb);
+    let slb: Slice<u8> = VEC_AS_SLICE(bytesb);
+    expect_byte(&slb, 0, 5, 1248);
+    expect_byte(&slb, 1, 171, 1249);
+
+    // Bool fields are single bits.
+    let wbool: BitWriter = bit_writer_new_msb_first();
+    wbool = bit_writer_write_bool(wbool, true);
+    wbool = bit_writer_write_bool(wbool, false);
+    if bit_writer_bit_len(&wbool) != 2 {
+        panic(1250);
+    };
+    let bytesbool: Vec<u8> = bit_writer_finish(wbool);
+    let slbool: Slice<u8> = VEC_AS_SLICE(bytesbool);
+    expect_byte(&slbool, 0, 128, 1251);
+    let b1 = must_read_u64_msb(&slbool, 0, 1, 1252);
+    let b2 = must_read_u64_msb(&slbool, 1, 1, 1253);
+    if b1.value != 1 || b2.value != 0 {
+        panic(1254);
+    };
+
+    let wbooll: BitWriter = bit_writer_new_lsb_first();
+    wbooll = bit_writer_write_bool(wbooll, true);
+    wbooll = bit_writer_write_bool(wbooll, false);
+    let bytesbooll: Vec<u8> = bit_writer_finish(wbooll);
+    let slbooll: Slice<u8> = VEC_AS_SLICE(bytesbooll);
+    expect_byte(&slbooll, 0, 1, 1255);
+}
+
+@test "bit signed fields round trip and range"() {
+    let w: BitWriter = bit_writer_new_msb_first();
+    w = must_write_signed(w, -1, 4, 1301);
+    w = must_write_signed(w, -8, 4, 1302);
+    w = must_write_signed(w, 7, 4, 1303);
+    w = must_write_signed(w, 0, 4, 1304);
+    let bytes: Vec<u8> = bit_writer_finish(w);
+    let sl: Slice<u8> = VEC_AS_SLICE(bytes);
+    expect_byte(&sl, 0, 248, 1305);
+    expect_byte(&sl, 1, 112, 1306);
+    let s1 = must_read_i64_msb(&sl, 0, 4, 1307);
+    let s2 = must_read_i64_msb(&sl, 4, 4, 1308);
+    let s3 = must_read_i64_msb(&sl, 8, 4, 1309);
+    let s4 = must_read_i64_msb(&sl, 12, 4, 1310);
+    if s1.value != -1 || s2.value != -8 || s3.value != 7 || s4.value != 0 {
+        panic(1311);
+    };
+
+    let wl: BitWriter = bit_writer_new_lsb_first();
+    wl = must_write_signed(wl, -1, 4, 1312);
+    wl = must_write_signed(wl, -8, 4, 1313);
+    wl = must_write_signed(wl, 7, 4, 1314);
+    wl = must_write_signed(wl, 0, 4, 1315);
+    let bytesl: Vec<u8> = bit_writer_finish(wl);
+    let sll: Slice<u8> = VEC_AS_SLICE(bytesl);
+    expect_byte(&sll, 0, 143, 1316);
+    expect_byte(&sll, 1, 7, 1317);
+    let t1 = must_read_i64_lsb(&sll, 0, 4, 1318);
+    let t2 = must_read_i64_lsb(&sll, 4, 4, 1319);
+    let t3 = must_read_i64_lsb(&sll, 8, 4, 1320);
+    let t4 = must_read_i64_lsb(&sll, 12, 4, 1321);
+    if t1.value != -1 || t2.value != -8 || t3.value != 7 || t4.value != 0 {
+        panic(1322);
+    };
+
+    // A full-width signed field round-trips the i64 extremes.
+    let w64: BitWriter = bit_writer_new_msb_first();
+    w64 = must_write_signed(w64, i64_min(), 64, 1323);
+    let bytes64: Vec<u8> = bit_writer_finish(w64);
+    let sl64: Slice<u8> = VEC_AS_SLICE(bytes64);
+    if sl_len(&sl64) != 8 {
+        panic(1324);
+    };
+    expect_byte(&sl64, 0, 128, 1325);
+    expect_byte(&sl64, 7, 0, 1326);
+    let m1 = must_read_i64_msb(&sl64, 0, 64, 1327);
+    if m1.value != i64_min() {
+        panic(1328);
+    };
+
+    // Out-of-range signed writes are explicit errors.
+    let bad1 = bit_writer_write_signed(bit_writer_new_msb_first(), 8, 4);
+    match bad1 {
+        Ok(v) => {
+            panic(1329);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1330);
+            };
+        },
+    };
+    let bad2 = bit_writer_write_signed(bit_writer_new_msb_first(), -9, 4);
+    match bad2 {
+        Ok(v) => {
+            panic(1331);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1332);
+            };
+        },
+    };
+}
+
+@test "bit stream error cases"() {
+    let bad1 = bit_writer_write_bits(bit_writer_new_msb_first(), 1, 0);
+    match bad1 {
+        Ok(v) => {
+            panic(1401);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1402);
+            };
+        },
+    };
+    let bad2 = bit_writer_write_bits(bit_writer_new_lsb_first(), 1, 65);
+    match bad2 {
+        Ok(v) => {
+            panic(1403);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1404);
+            };
+        },
+    };
+
+    let one: Vec<u8> = Vec::new();
+    one.push(255);
+    let sl: Slice<u8> = VEC_AS_SLICE(one);
+    let bad3 = bit_read_u64_msb_first(&sl, 0, 0);
+    match bad3 {
+        Ok(v) => {
+            panic(1405);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1406);
+            };
+        },
+    };
+    // Reading past the end is TRUNCATED, not a wrap or a panic.
+    let bad4 = bit_read_u64_msb_first(&sl, 0, 9);
+    match bad4 {
+        Ok(v) => {
+            panic(1407);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_TRUNCATED {
+                panic(1408);
+            };
+        },
+    };
+    let ok8 = must_read_u64_msb(&sl, 0, 8, 1409);
+    if ok8.value != 255 || ok8.next_bit_pos != 8 {
+        panic(1410);
+    };
+    let bad5 = bit_read_u64_lsb_first(&sl, 8, 1);
+    match bad5 {
+        Ok(v) => {
+            panic(1411);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_TRUNCATED {
+                panic(1412);
+            };
+        },
+    };
+    let bad6 = bit_read_i64_msb_first(&sl, 100, 1);
+    match bad6 {
+        Ok(v) => {
+            panic(1413);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_TRUNCATED {
+                panic(1414);
+            };
+        },
+    };
+}
+
+fn must_varint_u64(sl: &Slice<u8>, pos: u64, code: i32) -> VarintReadU64 {
+    let r = bitpack_varint_read_u64(sl, pos);
+    match r {
+        Ok(v) => {
+            return v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+}
+
+fn must_varint_i64(sl: &Slice<u8>, pos: u64, code: i32) -> VarintReadI64 {
+    let r = bitpack_varint_read_i64(sl, pos);
+    match r {
+        Ok(v) => {
+            return v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+}
+
+@test "varint uleb128 vectors"() {
+    if bitpack_varint_u64_len(0) != 1 {
+        panic(1501);
+    };
+    if bitpack_varint_u64_len(127) != 1 {
+        panic(1502);
+    };
+    if bitpack_varint_u64_len(128) != 2 {
+        panic(1503);
+    };
+    if bitpack_varint_u64_len(300) != 2 {
+        panic(1504);
+    };
+    if bitpack_varint_u64_len(u64_max()) != 10 {
+        panic(1505);
+    };
+
+    let buf: Vec<u8> = Vec::new();
+    buf = bitpack_varint_write_u64(buf, 0);
+    buf = bitpack_varint_write_u64(buf, 1);
+    buf = bitpack_varint_write_u64(buf, 127);
+    buf = bitpack_varint_write_u64(buf, 128);
+    buf = bitpack_varint_write_u64(buf, 300);
+    buf = bitpack_varint_write_u64(buf, 16384);
+    buf = bitpack_varint_write_u64(buf, 4294967295);
+    buf = bitpack_varint_write_u64(buf, u64_max());
+    let sl: Slice<u8> = VEC_AS_SLICE(buf);
+    // Layout: 00 | 01 | 7F | 80 01 | AC 02 | 80 80 01 |
+    //         FF FF FF FF 0F | FF x9 01  (25 bytes total)
+    if sl_len(&sl) != 25 {
+        panic(1506);
+    };
+    expect_byte(&sl, 0, 0, 1507);
+    expect_byte(&sl, 1, 1, 1508);
+    expect_byte(&sl, 2, 127, 1509);
+    expect_byte(&sl, 3, 128, 1510);
+    expect_byte(&sl, 4, 1, 1511);
+    expect_byte(&sl, 5, 172, 1512);
+    expect_byte(&sl, 6, 2, 1513);
+    expect_byte(&sl, 7, 128, 1514);
+    expect_byte(&sl, 8, 128, 1515);
+    expect_byte(&sl, 9, 1, 1516);
+    expect_byte(&sl, 10, 255, 1517);
+    expect_byte(&sl, 14, 15, 1518);
+    expect_byte(&sl, 15, 255, 1519);
+    expect_byte(&sl, 23, 255, 1520);
+    expect_byte(&sl, 24, 1, 1521);
+
+    // Decode the same buffer back, threading offsets.
+    let d1 = must_varint_u64(&sl, 0, 1522);
+    if d1.value != 0 || d1.next_byte_pos != 1 {
+        panic(1523);
+    };
+    let d2 = must_varint_u64(&sl, d1.next_byte_pos, 1524);
+    if d2.value != 1 || d2.next_byte_pos != 2 {
+        panic(1525);
+    };
+    let d3 = must_varint_u64(&sl, d2.next_byte_pos, 1526);
+    if d3.value != 127 || d3.next_byte_pos != 3 {
+        panic(1527);
+    };
+    let d4 = must_varint_u64(&sl, d3.next_byte_pos, 1528);
+    if d4.value != 128 || d4.next_byte_pos != 5 {
+        panic(1529);
+    };
+    let d5 = must_varint_u64(&sl, d4.next_byte_pos, 1530);
+    if d5.value != 300 || d5.next_byte_pos != 7 {
+        panic(1531);
+    };
+    let d6 = must_varint_u64(&sl, d5.next_byte_pos, 1532);
+    if d6.value != 16384 || d6.next_byte_pos != 10 {
+        panic(1533);
+    };
+    let d7 = must_varint_u64(&sl, d6.next_byte_pos, 1534);
+    if d7.value != 4294967295 || d7.next_byte_pos != 15 {
+        panic(1535);
+    };
+    let d8 = must_varint_u64(&sl, d7.next_byte_pos, 1536);
+    if d8.value != u64_max() || d8.next_byte_pos != 25 {
+        panic(1537);
+    };
+}
+
+@test "varint sleb128 and zigzag vectors"() {
+    let buf: Vec<u8> = Vec::new();
+    buf = bitpack_varint_write_i64(buf, 0);
+    buf = bitpack_varint_write_i64(buf, -1);
+    buf = bitpack_varint_write_i64(buf, 1);
+    buf = bitpack_varint_write_i64(buf, -2);
+    buf = bitpack_varint_write_i64(buf, 63);
+    buf = bitpack_varint_write_i64(buf, 64);
+    buf = bitpack_varint_write_i64(buf, -64);
+    buf = bitpack_varint_write_i64(buf, -65);
+    buf = bitpack_varint_write_i64(buf, 127);
+    buf = bitpack_varint_write_i64(buf, -128);
+    buf = bitpack_varint_write_i64(buf, 9223372036854775807);
+    buf = bitpack_varint_write_i64(buf, i64_min());
+    let sl: Slice<u8> = VEC_AS_SLICE(buf);
+    // Layout: 00 | 7F | 01 | 7E | 3F | C0 00 | 40 | BF 7F |
+    //         FF 00 | 80 7F | FF x9 00 | 80 x9 7F  (34 bytes)
+    if sl_len(&sl) != 34 {
+        panic(1601);
+    };
+    expect_byte(&sl, 0, 0, 1602);
+    expect_byte(&sl, 1, 127, 1603);
+    expect_byte(&sl, 2, 1, 1604);
+    expect_byte(&sl, 3, 126, 1605);
+    expect_byte(&sl, 4, 63, 1606);
+    expect_byte(&sl, 5, 192, 1607);
+    expect_byte(&sl, 6, 0, 1608);
+    expect_byte(&sl, 7, 64, 1609);
+    expect_byte(&sl, 8, 191, 1610);
+    expect_byte(&sl, 9, 127, 1611);
+    expect_byte(&sl, 10, 255, 1612);
+    expect_byte(&sl, 11, 0, 1613);
+    expect_byte(&sl, 12, 128, 1614);
+    expect_byte(&sl, 13, 127, 1615);
+    expect_byte(&sl, 14, 255, 1616);
+    expect_byte(&sl, 22, 255, 1617);
+    expect_byte(&sl, 23, 0, 1618);
+    expect_byte(&sl, 24, 128, 1619);
+    expect_byte(&sl, 32, 128, 1620);
+    expect_byte(&sl, 33, 127, 1621);
+
+    let d1 = must_varint_i64(&sl, 0, 1622);
+    if d1.value != 0 || d1.next_byte_pos != 1 {
+        panic(1623);
+    };
+    let d2 = must_varint_i64(&sl, 1, 1624);
+    if d2.value != -1 || d2.next_byte_pos != 2 {
+        panic(1625);
+    };
+    let d3 = must_varint_i64(&sl, 4, 1626);
+    if d3.value != 63 || d3.next_byte_pos != 5 {
+        panic(1627);
+    };
+    let d4 = must_varint_i64(&sl, 5, 1628);
+    if d4.value != 64 || d4.next_byte_pos != 7 {
+        panic(1629);
+    };
+    let d5 = must_varint_i64(&sl, 7, 1630);
+    if d5.value != -64 || d5.next_byte_pos != 8 {
+        panic(1631);
+    };
+    let d6 = must_varint_i64(&sl, 8, 1632);
+    if d6.value != -65 || d6.next_byte_pos != 10 {
+        panic(1633);
+    };
+    let d7 = must_varint_i64(&sl, 14, 1634);
+    if d7.value != 9223372036854775807 || d7.next_byte_pos != 24 {
+        panic(1635);
+    };
+    let d8 = must_varint_i64(&sl, 24, 1636);
+    if d8.value != i64_min() || d8.next_byte_pos != 34 {
+        panic(1637);
+    };
+
+    if bitpack_zigzag_encode(0) != 0 {
+        panic(1638);
+    };
+    if bitpack_zigzag_encode(-1) != 1 {
+        panic(1639);
+    };
+    if bitpack_zigzag_encode(1) != 2 {
+        panic(1640);
+    };
+    if bitpack_zigzag_encode(-2) != 3 {
+        panic(1641);
+    };
+    if bitpack_zigzag_encode(9223372036854775807) != (u64_max() - 1) {
+        panic(1642);
+    };
+    if bitpack_zigzag_encode(i64_min()) != u64_max() {
+        panic(1643);
+    };
+    if bitpack_zigzag_decode(0) != 0 {
+        panic(1644);
+    };
+    if bitpack_zigzag_decode(1) != -1 {
+        panic(1645);
+    };
+    if bitpack_zigzag_decode(2) != 1 {
+        panic(1646);
+    };
+    if bitpack_zigzag_decode(3) != -2 {
+        panic(1647);
+    };
+    if bitpack_zigzag_decode(u64_max()) != i64_min() {
+        panic(1648);
+    };
+    if bitpack_zigzag_decode((u64_max() - 1)) != 9223372036854775807 {
+        panic(1649);
+    };
+}
+
+@test "varint error cases"() {
+    // Truncated: continuation bit set, buffer ends.
+    let t1: Vec<u8> = Vec::new();
+    t1.push(128);
+    let slt1: Slice<u8> = VEC_AS_SLICE(t1);
+    let bad1 = bitpack_varint_read_u64(&slt1, 0);
+    match bad1 {
+        Ok(v) => {
+            panic(1701);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_TRUNCATED {
+                panic(1702);
+            };
+        },
+    };
+    let bad2 = bitpack_varint_read_i64(&slt1, 0);
+    match bad2 {
+        Ok(v) => {
+            panic(1703);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_TRUNCATED {
+                panic(1704);
+            };
+        },
+    };
+    // Reading at the very end is truncated, not a crash.
+    let bad3 = bitpack_varint_read_u64(&slt1, 1);
+    match bad3 {
+        Ok(v) => {
+            panic(1705);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_TRUNCATED {
+                panic(1706);
+            };
+        },
+    };
+
+    // 10th byte with more than bit 0 set (unsigned) is overflow.
+    let ovf: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < 9 {
+        ovf.push(255);
+        i = i + 1;
+    }
+    ovf.push(2);
+    let slo: Slice<u8> = VEC_AS_SLICE(ovf);
+    let bad4 = bitpack_varint_read_u64(&slo, 0);
+    match bad4 {
+        Ok(v) => {
+            panic(1707);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1708);
+            };
+        },
+    };
+    // 10th byte with the continuation bit set is malformed.
+    let ovf2: Vec<u8> = Vec::new();
+    let j: u64 = 0;
+    while j < 10 {
+        ovf2.push(255);
+        j = j + 1;
+    }
+    let slo2: Slice<u8> = VEC_AS_SLICE(ovf2);
+    let bad5 = bitpack_varint_read_u64(&slo2, 0);
+    match bad5 {
+        Ok(v) => {
+            panic(1709);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1710);
+            };
+        },
+    };
+    // Signed: 10th byte must be exactly 0 or 127.
+    let bad6 = bitpack_varint_read_i64(&slo2, 0);
+    match bad6 {
+        Ok(v) => {
+            panic(1711);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1712);
+            };
+        },
+    };
+    let ovf3: Vec<u8> = Vec::new();
+    let k: u64 = 0;
+    while k < 9 {
+        ovf3.push(128);
+        k = k + 1;
+    }
+    ovf3.push(1);
+    let slo3: Slice<u8> = VEC_AS_SLICE(ovf3);
+    let bad7 = bitpack_varint_read_i64(&slo3, 0);
+    match bad7 {
+        Ok(v) => {
+            panic(1713);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1714);
+            };
+        },
+    };
+}
+
+fn must_i64_result(r: Result<i64, i32>, code: i32) -> i64 {
+    let out: i64 = 0;
+    match r {
+        Ok(v) => {
+            out = v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+    return out;
+}
+
+@test "quant fixed encode decode"() {
+    if must_i64_result(bitpack_quant_fixed_encode(1.5, 4.0, 8), 1801) != 6 {
+        panic(1802);
+    };
+    if bitpack_quant_fixed_decode(6, 4.0) != 1.5 {
+        panic(1803);
+    };
+    if must_i64_result(bitpack_quant_fixed_encode(-1.5, 4.0, 8), 1804) != -6 {
+        panic(1805);
+    };
+    if bitpack_quant_fixed_decode(-6, 4.0) != -1.5 {
+        panic(1806);
+    };
+    // Rounding rule pins: floor(x + 0.5), halves toward +inf.
+    if must_i64_result(bitpack_quant_fixed_encode(0.125, 4.0, 8), 1807) != 1 {
+        panic(1808);
+    };
+    if bitpack_quant_fixed_decode(1, 4.0) != 0.25 {
+        panic(1809);
+    };
+    if must_i64_result(bitpack_quant_fixed_encode(-0.125, 4.0, 8), 1810) != 0 {
+        panic(1811);
+    };
+    if must_i64_result(bitpack_quant_fixed_encode(1.75, 4.0, 8), 1812) != 7 {
+        panic(1813);
+    };
+    if must_i64_result(bitpack_quant_fixed_encode(-1.75, 4.0, 8), 1814) != -7 {
+        panic(1815);
+    };
+    if must_i64_result(bitpack_quant_fixed_encode(3.25, 8.0, 12), 1816) != 26 {
+        panic(1817);
+    };
+    if bitpack_quant_fixed_decode(26, 8.0) != 3.25 {
+        panic(1818);
+    };
+    // Exact range boundaries fit; one past them does not.
+    if must_i64_result(bitpack_quant_fixed_encode(7.0, 1.0, 4), 1819) != 7 {
+        panic(1820);
+    };
+    if must_i64_result(bitpack_quant_fixed_encode(-8.0, 1.0, 4), 1821) != -8 {
+        panic(1822);
+    };
+    let bad1 = bitpack_quant_fixed_encode(8.0, 1.0, 4);
+    match bad1 {
+        Ok(v) => {
+            panic(1823);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1824);
+            };
+        },
+    };
+    let bad2 = bitpack_quant_fixed_encode(100.0, 1.0, 4);
+    match bad2 {
+        Ok(v) => {
+            panic(1825);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1826);
+            };
+        },
+    };
+    let bad3 = bitpack_quant_fixed_encode(1.0, 1.0, 0);
+    match bad3 {
+        Ok(v) => {
+            panic(1827);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1828);
+            };
+        },
+    };
+    let bad4 = bitpack_quant_fixed_encode(1.0, 1.0, 64);
+    match bad4 {
+        Ok(v) => {
+            panic(1829);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1830);
+            };
+        },
+    };
+    let bad5 = bitpack_quant_fixed_encode(1.0, 0.0, 8);
+    match bad5 {
+        Ok(v) => {
+            panic(1831);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1832);
+            };
+        },
+    };
+    let bad6 = bitpack_quant_fixed_encode(1.0, -2.0, 8);
+    match bad6 {
+        Ok(v) => {
+            panic(1833);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1834);
+            };
+        },
+    };
+    let nan: f64 = sa_math_sqrt(0.0 - 1.0);
+    let bad7 = bitpack_quant_fixed_encode(nan, 1.0, 8);
+    match bad7 {
+        Ok(v) => {
+            panic(1835);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(1836);
+            };
+        },
+    };
+}
+
+@test "quant net grades"() {
+    if must_i64_result(bitpack_quant_net_encode(2.5), 1901) != 3 {
+        panic(1902);
+    };
+    if bitpack_quant_net_decode(3) != 3.0 {
+        panic(1903);
+    };
+    if must_i64_result(bitpack_quant_net_encode(-2.5), 1904) != -2 {
+        panic(1905);
+    };
+    if bitpack_quant_net_decode(-2) != -2.0 {
+        panic(1906);
+    };
+    if must_i64_result(bitpack_quant_net_encode(0.5), 1907) != 1 {
+        panic(1908);
+    };
+    if must_i64_result(bitpack_quant_net_encode(-0.5), 1909) != 0 {
+        panic(1910);
+    };
+    if must_i64_result(bitpack_quant_net10_encode(1.25), 1911) != 13 {
+        panic(1912);
+    };
+    if bitpack_quant_net10_decode(13) != 1.3 {
+        panic(1913);
+    };
+    if must_i64_result(bitpack_quant_net10_encode(-1.25), 1914) != -12 {
+        panic(1915);
+    };
+    if bitpack_quant_net10_decode(-12) != -1.2 {
+        panic(1916);
+    };
+    if must_i64_result(bitpack_quant_net10_encode(12.5), 1917) != 125 {
+        panic(1918);
+    };
+    if bitpack_quant_net10_decode(125) != 12.5 {
+        panic(1919);
+    };
+    if must_i64_result(bitpack_quant_net100_encode(0.125), 1920) != 13 {
+        panic(1921);
+    };
+    if bitpack_quant_net100_decode(13) != 0.13 {
+        panic(1922);
+    };
+    if must_i64_result(bitpack_quant_net100_encode(-0.125), 1923) != -12 {
+        panic(1924);
+    };
+    if bitpack_quant_net100_decode(-12) != -0.12 {
+        panic(1925);
+    };
+}
+
+fn must_write_quant_msb(w: BitWriter, value: f64, scale: f64, bits: u32, code: i32) -> BitWriter {
+    let r = bit_writer_write_quant_msb_first(w, value, scale, bits);
+    let out: BitWriter = bit_writer_new_msb_first();
+    match r {
+        Ok(v) => {
+            out = v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+    return out;
+}
+
+fn must_read_quant_msb(sl: &Slice<u8>, pos: u64, scale: f64, bits: u32, code: i32) -> BitReadF64 {
+    let r = bit_read_quant_msb_first(sl, pos, scale, bits);
+    match r {
+        Ok(v) => {
+            return v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+}
+
+@test "quant packed in bit stream"() {
+    let w: BitWriter = bit_writer_new_msb_first();
+    w = must_write_quant_msb(w, 1.5, 4.0, 8, 2001);
+    let bytes: Vec<u8> = bit_writer_finish(w);
+    let sl: Slice<u8> = VEC_AS_SLICE(bytes);
+    if sl_len(&sl) != 1 {
+        panic(2002);
+    };
+    expect_byte(&sl, 0, 6, 2003);
+    let q0 = must_read_quant_msb(&sl, 0, 4.0, 8, 2004);
+    if q0.value != 1.5 || q0.next_bit_pos != 8 {
+        panic(2005);
+    };
+
+    // Mixed stream: quant field, raw field, quant field.
+    let w2: BitWriter = bit_writer_new_msb_first();
+    w2 = must_write_quant_msb(w2, 1.5, 4.0, 8, 2006);
+    w2 = must_write(w2, 15, 4, 2007);
+    w2 = must_write_quant_msb(w2, -1.5, 4.0, 8, 2008);
+    if bit_writer_bit_len(&w2) != 20 {
+        panic(2009);
+    };
+    let bytes2: Vec<u8> = bit_writer_finish(w2);
+    let sl2: Slice<u8> = VEC_AS_SLICE(bytes2);
+    expect_byte(&sl2, 0, 6, 2010);
+    expect_byte(&sl2, 1, 255, 2011);
+    expect_byte(&sl2, 2, 160, 2012);
+    let m1 = must_read_quant_msb(&sl2, 0, 4.0, 8, 2013);
+    if m1.value != 1.5 {
+        panic(2014);
+    };
+    let m2 = must_read_u64_msb(&sl2, m1.next_bit_pos, 4, 2015);
+    if m2.value != 15 {
+        panic(2016);
+    };
+    let m3 = must_read_quant_msb(&sl2, m2.next_bit_pos, 4.0, 8, 2017);
+    if m3.value != -1.5 || m3.next_bit_pos != 20 {
+        panic(2018);
+    };
+
+    // Order-named writers reject the other order's writer.
+    let bad1 = bit_writer_write_quant_msb_first(bit_writer_new_lsb_first(), 1.5, 4.0, 8);
+    match bad1 {
+        Ok(v) => {
+            panic(2019);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(2020);
+            };
+        },
+    };
+    let bad2 = bit_writer_write_quant_lsb_first(bit_writer_new_msb_first(), 1.5, 4.0, 8);
+    match bad2 {
+        Ok(v) => {
+            panic(2021);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(2022);
+            };
+        },
+    };
+    // An out-of-range quantized write is an error, not a clamp.
+    let bad3 = bit_writer_write_quant_msb_first(bit_writer_new_msb_first(), 100.0, 1.0, 4);
+    match bad3 {
+        Ok(v) => {
+            panic(2023);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(2024);
+            };
+        },
+    };
+    // A bad scale on the read side is an error too.
+    let bad4 = bit_read_quant_msb_first(&sl2, 0, 0.0, 8);
+    match bad4 {
+        Ok(v) => {
+            panic(2025);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(2026);
+            };
+        },
+    };
+
+    // LSB mirror round-trips.
+    let wl: BitWriter = bit_writer_new_lsb_first();
+    let rl = bit_writer_write_quant_lsb_first(wl, 1.5, 4.0, 8);
+    let wl2: BitWriter = bit_writer_new_lsb_first();
+    match rl {
+        Ok(v) => {
+            wl2 = v;
+        },
+        Err(e) => {
+            panic(2027);
+        },
+    };
+    let bytesl: Vec<u8> = bit_writer_finish(wl2);
+    let sll: Slice<u8> = VEC_AS_SLICE(bytesl);
+    expect_byte(&sll, 0, 6, 2028);
+    let rq = bit_read_quant_lsb_first(&sll, 0, 4.0, 8);
+    match rq {
+        Ok(v) => {
+            if v.value != 1.5 || v.next_bit_pos != 8 {
+                panic(2029);
+            };
+        },
+        Err(e) => {
+            panic(2030);
+        },
+    };
+}
+
+fn must_write_vec3_msb(w: BitWriter, x: f64, y: f64, z: f64, cb: u32, code: i32) -> BitWriter {
+    let r = bit_writer_write_unit_vec3_msb_first(w, x, y, z, cb);
+    let out: BitWriter = bit_writer_new_msb_first();
+    match r {
+        Ok(v) => {
+            out = v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+    return out;
+}
+
+fn must_read_vec3_msb(sl: &Slice<u8>, pos: u64, cb: u32, code: i32) -> BitReadVec3 {
+    let r = bit_read_unit_vec3_msb_first(sl, pos, cb);
+    match r {
+        Ok(v) => {
+            return v;
+        },
+        Err(e) => {
+            panic(code);
+        },
+    };
+}
+
+fn expect_micro_in(value: f64, lo: i64, hi: i64, code: i32) {
+    let micro: i64 = (value * 1000000.0) as i64;
+    if micro < lo || micro > hi {
+        panic(code);
+    };
+}
+
+@test "unit vec3 smallest three msb"() {
+    let w: BitWriter = bit_writer_new_msb_first();
+    w = must_write_vec3_msb(w, 1.0, 0.0, 0.0, 10, 2101);
+    if bit_writer_bit_len(&w) != 23 {
+        panic(2102);
+    };
+    let bytes: Vec<u8> = bit_writer_finish(w);
+    let sl: Slice<u8> = VEC_AS_SLICE(bytes);
+    expect_byte(&sl, 0, 16, 2103);
+    expect_byte(&sl, 1, 4, 2104);
+    expect_byte(&sl, 2, 0, 2105);
+    let d = must_read_vec3_msb(&sl, 0, 10, 2106);
+    if d.next_bit_pos != 23 {
+        panic(2107);
+    };
+    expect_micro_in(d.x, 999998, 1000000, 2108);
+    expect_micro_in(d.y, 976, 979, 2109);
+    expect_micro_in(d.z, 976, 979, 2110);
+
+    let w2: BitWriter = bit_writer_new_msb_first();
+    w2 = must_write_vec3_msb(w2, 0.0, -1.0, 0.0, 10, 2111);
+    let bytes2: Vec<u8> = bit_writer_finish(w2);
+    let sl2: Slice<u8> = VEC_AS_SLICE(bytes2);
+    expect_byte(&sl2, 0, 112, 2112);
+    expect_byte(&sl2, 1, 4, 2113);
+    expect_byte(&sl2, 2, 0, 2114);
+    let d2 = must_read_vec3_msb(&sl2, 0, 10, 2115);
+    expect_micro_in(d2.x, 976, 979, 2116);
+    expect_micro_in(d2.y, -1000000, -999998, 2117);
+    expect_micro_in(d2.z, 976, 979, 2118);
+
+    let w3: BitWriter = bit_writer_new_msb_first();
+    w3 = must_write_vec3_msb(w3, 0.6, 0.8, 0.0, 10, 2119);
+    let bytes3: Vec<u8> = bit_writer_finish(w3);
+    let sl3: Slice<u8> = VEC_AS_SLICE(bytes3);
+    expect_byte(&sl3, 0, 89, 2120);
+    expect_byte(&sl3, 1, 148, 2121);
+    expect_byte(&sl3, 2, 0, 2122);
+    let d3 = must_read_vec3_msb(&sl3, 0, 10, 2123);
+    expect_micro_in(d3.x, 599215, 599221, 2124);
+    expect_micro_in(d3.y, 800582, 800588, 2125);
+    expect_micro_in(d3.z, 976, 979, 2126);
+
+    let w4: BitWriter = bit_writer_new_msb_first();
+    w4 = must_write_vec3_msb(w4, 0.0, 0.0, 1.0, 10, 2127);
+    let bytes4: Vec<u8> = bit_writer_finish(w4);
+    let sl4: Slice<u8> = VEC_AS_SLICE(bytes4);
+    expect_byte(&sl4, 0, 144, 2128);
+    let d4 = must_read_vec3_msb(&sl4, 0, 10, 2129);
+    expect_micro_in(d4.z, 999998, 1000000, 2130);
+
+    let w5: BitWriter = bit_writer_new_msb_first();
+    w5 = must_write_vec3_msb(w5, -0.2672612416124244, 0.5345224838248488, 0.8017837257372732, 10, 2131);
+    let bytes5: Vec<u8> = bit_writer_finish(w5);
+    let sl5: Slice<u8> = VEC_AS_SLICE(bytes5);
+    expect_byte(&sl5, 0, 139, 2132);
+    expect_byte(&sl5, 1, 190, 2133);
+    expect_byte(&sl5, 2, 34, 2134);
+    let d5 = must_read_vec3_msb(&sl5, 0, 10, 2135);
+    expect_micro_in(d5.x, -266868, -266856, 2136);
+    expect_micro_in(d5.y, 534696, 534708, 2137);
+    expect_micro_in(d5.z, 801791, 801803, 2138);
+
+    // The zero vector and bad component widths are errors.
+    let bad1 = bit_writer_write_unit_vec3_msb_first(bit_writer_new_msb_first(), 0.0, 0.0, 0.0, 10);
+    match bad1 {
+        Ok(v) => {
+            panic(2139);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(2140);
+            };
+        },
+    };
+    let bad2 = bit_writer_write_unit_vec3_msb_first(bit_writer_new_msb_first(), 1.0, 0.0, 0.0, 0);
+    match bad2 {
+        Ok(v) => {
+            panic(2141);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(2142);
+            };
+        },
+    };
+    let bad3 = bit_writer_write_unit_vec3_msb_first(bit_writer_new_msb_first(), 1.0, 0.0, 0.0, 33);
+    match bad3 {
+        Ok(v) => {
+            panic(2143);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(2144);
+            };
+        },
+    };
+}
+
+@test "unit vec3 smallest three lsb"() {
+    let w: BitWriter = bit_writer_new_lsb_first();
+    let r = bit_writer_write_unit_vec3_lsb_first(w, 0.6, 0.8, 0.0, 10);
+    let w2: BitWriter = bit_writer_new_lsb_first();
+    match r {
+        Ok(v) => {
+            w2 = v;
+        },
+        Err(e) => {
+            panic(2201);
+        },
+    };
+    if bit_writer_bit_len(&w2) != 23 {
+        panic(2202);
+    };
+    let bytes: Vec<u8> = bit_writer_finish(w2);
+    let sl: Slice<u8> = VEC_AS_SLICE(bytes);
+    expect_byte(&sl, 0, 145, 2203);
+    expect_byte(&sl, 1, 25, 2204);
+    expect_byte(&sl, 2, 64, 2205);
+    // Field-level reads pin the layout: axis=1, sign=0,
+    // stored components 818 and 512.
+    let f1 = must_read_u64_lsb(&sl, 0, 2, 2206);
+    if f1.value != 1 {
+        panic(2207);
+    };
+    let f2 = must_read_u64_lsb(&sl, 2, 1, 2208);
+    if f2.value != 0 {
+        panic(2209);
+    };
+    let f3 = must_read_u64_lsb(&sl, 3, 10, 2210);
+    if f3.value != 818 {
+        panic(2211);
+    };
+    let f4 = must_read_u64_lsb(&sl, 13, 10, 2212);
+    if f4.value != 512 {
+        panic(2213);
+    };
+    let rd = bit_read_unit_vec3_lsb_first(&sl, 0, 10);
+    match rd {
+        Ok(v) => {
+            if v.next_bit_pos != 23 {
+                panic(2214);
+            };
+            expect_micro_in(v.x, 599215, 599221, 2215);
+            expect_micro_in(v.y, 800582, 800588, 2216);
+            expect_micro_in(v.z, 976, 979, 2217);
+        },
+        Err(e) => {
+            panic(2218);
+        },
+    };
+    // The MSB-named packer rejects an LSB writer.
+    let bad1 = bit_writer_write_unit_vec3_msb_first(bit_writer_new_lsb_first(), 1.0, 0.0, 0.0, 10);
+    match bad1 {
+        Ok(v) => {
+            panic(2219);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT {
+                panic(2220);
+            };
+        },
+    };
+}

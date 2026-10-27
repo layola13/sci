@@ -1,0 +1,914 @@
+// SLA-facing bit-level packing + quantization codec layer for
+// sa_std.
+//
+// Why this file exists, and why it lives under encoding/: the
+// cross-language census batch (sala content/06_stdlib/
+// 23_unreal_net_census.html, serialization rows) found that
+// sa_std's network/encoding surface has ZERO bit-level read/write
+// symbols and no quantization codec face at all. Unreal's
+// replication stack is built on exactly these two primitives --
+// FBitWriter/FBitReader-style non-byte-aligned bit streams (Iris
+// "Net Bit Stream Reader", UNetConnection WriteBitsToSendBuffer)
+// and the NetQuantize family (FVector_NetQuantize/10/100 in
+// Engine/NetSerialization.h) -- and the census classified both
+// "directly corresponding": small, precisely definable, reusable
+// by any compact protocol codec, and independent of the game
+// object model. This file is that face: pure SLA on top of
+// integer/float primitives plus the sa_math_* externs; it adds no
+// externs and no ABI change.
+//
+// Formats defined here (this file is the spec; the tests pin every
+// claim against byte vectors produced by an independent reference
+// model):
+//
+// BIT STREAMS. A bit stream is a byte sequence plus a bit length.
+// Bit position p addresses byte p/8; the two orders differ in
+// which end of the byte a position starts from, and in the order
+// a multi-bit value's bits are emitted:
+//   MSB-first ("network bit order"): position p is bit 7-(p%8)
+//     of byte p/8; writing a value in n bits emits its bit n-1
+//     first, down to bit 0. Reading is the exact inverse.
+//   LSB-first: position p is bit (p%8) of byte p/8; writing
+//     emits bit 0 first, up to bit n-1. Reading is the inverse.
+// Signed fields are two's complement truncated to the field
+// width on write, sign-extended on read. Field widths are
+// 1..=64 bits. A BitWriter grows without bound (it owns a
+// Vec<u8>), so writes fail only on a bad width or a bad value;
+// reads fail with SA_STD_ERR_TRUNCATED when the field would run
+// past the end of the buffer. The final partial byte of a
+// finished stream is padded with zero bits. A failed write
+// consumes the writer (the Result carries no writer back), so
+// validate parameters before a long encode chain.
+//
+// VARINT. Unsigned and signed LEB128 (the DWARF / protobuf wire
+// format): 7 payload bits per byte, low groups first, high bit
+// set means another byte follows. A u64 needs at most 10 bytes;
+// a continuation bit on the 10th byte, payload bits above bit
+// 63, a non-canonical signed tail byte, or an 11th byte are
+// explicit errors, never silent truncation. Zigzag mapping
+// (protobuf sint) is provided as pure u64<->i64 transforms.
+//
+// QUANTIZATION. Fixed-point encode is round-half-up of
+// value*scale, i.e. floor(x + 0.5) -- the FMath::RoundToFloat
+// rule Unreal's NetQuantize uses; note the tie behaviour this
+// implies (exact halves round toward +infinity, so -2.5 -> -2
+// and -0.5 -> 0). The result is range-checked against the
+// signed field width: out-of-range is SA_STD_ERR_INVALID_ARGUMENT,
+// never a silent clamp or wrap. Decode is q / scale. The three
+// NetQuantize grades are the fixed scales 1, 10 and 100
+// (component rounding to integers / tenths / hundredths,
+// matching FVector_NetQuantize, FVector_NetQuantize10 and
+// FVector_NetQuantize100 semantics). The wire packing here is
+// this file's own fixed-width bit fields and LEB128; it is NOT
+// byte-compatible with Unreal's SerializeIntPacked replication
+// stream, which belongs to the NetDriver layer, not std.
+// Packed into a bit stream, a quantized scalar is a signed field
+// of caller-chosen width and scale (bit_writer_write_quant_*),
+// and a unit vector can be packed smallest-three style: 2 bits
+// for the axis of the largest-magnitude component, 1 sign bit
+// for that component (reconstructed as
+// +-sqrt(1 - a^2 - b^2)), and the other two components mapped
+// from [-1, 1] onto component_bits unsigned fields via
+// round((v*0.5 + 0.5) * (2^component_bits - 1)). The
+// per-component quantization step is 2/(2^component_bits - 1);
+// with 10-bit components the whole field is 23 bits and the
+// worst per-component error is about 2^-10. Inputs to the
+// unit-vector packer are expected to be unit length; stored
+// components saturate to the field range when they are not, and
+// the zero vector is rejected (it has no direction to pack).
+//
+// Error model: every fallible function returns Result<_, i32>
+// with SA_STD_ERR_INVALID_ARGUMENT for bad parameters (width 0
+// or over the cap, non-positive or NaN scale, NaN or
+// out-of-range values, malformed varints) and
+// SA_STD_ERR_TRUNCATED for reads that run out of input. Nothing
+// panics and nothing clamps silently, except the documented
+// saturation of the unit-vector stored components.
+//
+// Registered non-goals: FPackedNormal-style 8-bit tangent-frame
+// packing, quaternion packing, and UE SerializeIntPacked byte
+// compatibility (see above).
+//
+// Shapes in this file follow the measured SAB-path constraints
+// recorded in dns.sla / ip.sla: byte buffers are read via
+// VEC_AS_SLICE + SLICE_GET, the writer is threaded by value
+// (dns_put_bytes style) with its bit-append loop inlined (a
+// loop-carried handle moved through a user function call loses
+// its state on the loop back-edge), the reader is stateless over
+// a borrowed slice with an explicit bit position
+// (dns_read_name style), and the writer keeps its partial byte
+// in a plain field so completed bytes are only ever appended,
+// never rewritten in place (Vec index writes are unsupported on
+// the SAB path).
+
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+@import "sa_std/ptr.sa"
+@import "sa_std/status.sla"
+@import "sa_std/math.sai"
+
+const BIT_ORDER_MSB_FIRST: u64 = 0;
+const BIT_ORDER_LSB_FIRST: u64 = 1;
+
+struct BitWriter {
+    bytes: Vec<u8>,
+    pending: u8,
+    pending_bits: u64,
+    bit_len: u64,
+    order: u64,
+}
+
+struct BitReadU64 {
+    value: u64,
+    next_bit_pos: u64,
+}
+
+struct BitReadI64 {
+    value: i64,
+    next_bit_pos: u64,
+}
+
+struct BitReadF64 {
+    value: f64,
+    next_bit_pos: u64,
+}
+
+struct BitReadVec3 {
+    x: f64,
+    y: f64,
+    z: f64,
+    next_bit_pos: u64,
+}
+
+struct VarintReadU64 {
+    value: u64,
+    next_byte_pos: u64,
+}
+
+struct VarintReadI64 {
+    value: i64,
+    next_byte_pos: u64,
+}
+
+// ---- internal helpers ----
+
+fn bitpack_u64_max() -> u64 {
+    return ((4294967295 as u64) << 32) | 4294967295;
+}
+
+fn bitpack_mask(bits: u32) -> u64 {
+    if bits >= 64 {
+        return bitpack_u64_max();
+    };
+    return ((1 as u64) << bits) - 1;
+}
+
+// Signed range for a field of `bits` bits; callers guarantee
+// 1 <= bits <= 63 here (the 64-bit case needs no check).
+fn bitpack_signed_max(bits: u32) -> i64 {
+    return (((1 as u64) << (bits - 1)) - 1) as i64;
+}
+
+fn bitpack_signed_min(bits: u32) -> i64 {
+    return 0 - (((1 as u64) << (bits - 1)) as i64);
+}
+
+fn bitpack_slice_len(sl: &Slice<u8>) -> u64 {
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    return n;
+}
+
+fn bitpack_byte_at(sl: &Slice<u8>, off: u64) -> u8 {
+    let b: u8 = 0;
+    SLICE_GET(b, sl, off);
+    return b;
+}
+
+fn bitpack_f64_abs(x: f64) -> f64 {
+    if x < 0.0 {
+        return 0.0 - x;
+    };
+    return x;
+}
+
+// floor(x + 0.5) as i64 (round half up, the FMath::RoundToFloat
+// rule). NaN and magnitudes that cannot fit an i64 are explicit
+// errors, never an undefined cast.
+fn bitpack_round_half_up_i64(x: f64) -> Result<i64, i32> {
+    if x != x {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if x >= 9223372036854775808.0 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if x < 0.0 - 9223372036854775808.0 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let r: f64 = sa_math_floor(x + 0.5);
+    return Ok(r as i64);
+}
+
+// ---- bit writer ----
+
+fn bit_writer_new_msb_first() -> BitWriter {
+    return BitWriter {
+        bytes: Vec::new(),
+        pending: 0,
+        pending_bits: 0,
+        bit_len: 0,
+        order: BIT_ORDER_MSB_FIRST,
+    };
+}
+
+fn bit_writer_new_lsb_first() -> BitWriter {
+    return BitWriter {
+        bytes: Vec::new(),
+        pending: 0,
+        pending_bits: 0,
+        bit_len: 0,
+        order: BIT_ORDER_LSB_FIRST,
+    };
+}
+
+fn bit_writer_order(w: &BitWriter) -> u64 {
+    return w.order;
+}
+
+fn bit_writer_bit_len(w: &BitWriter) -> u64 {
+    return w.bit_len;
+}
+
+// The bit-append core: no validation, cannot fail. Kept
+// separate from bit_writer_write_bits so the loop below is fully
+// inlined into each public write (see the header note on
+// loop-carried handles).
+fn bitpack_write_bits_core(w: BitWriter, value: u64, bits: u32) -> BitWriter {
+    let out: BitWriter = w;
+    let v: u64 = value & bitpack_mask(bits);
+    let i: u32 = 0;
+    while i < bits {
+        let bit: u64 = 0;
+        if out.order == BIT_ORDER_MSB_FIRST {
+            bit = (v >> (bits - 1 - i)) & 1;
+            out.pending = (out.pending << 1) | (bit as u8);
+        } else {
+            bit = (v >> i) & 1;
+            out.pending = out.pending | ((bit as u8) << out.pending_bits);
+        };
+        out.pending_bits = out.pending_bits + 1;
+        out.bit_len = out.bit_len + 1;
+        if out.pending_bits == 8 {
+            out.bytes.push(out.pending);
+            out.pending = 0;
+            out.pending_bits = 0;
+        };
+        i = i + 1;
+    }
+    return out;
+}
+
+// Append `bits` low bits of value (higher bits are masked off).
+// Err(SA_STD_ERR_INVALID_ARGUMENT) for a width outside 1..=64.
+fn bit_writer_write_bits(w: BitWriter, value: u64, bits: u32) -> Result<BitWriter, i32> {
+    if bits == 0 || bits > 64 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    return Ok(bitpack_write_bits_core(w, value, bits));
+}
+
+// Append a signed value as a two's-complement field of `bits`
+// bits. The value must fit the signed range of the width.
+fn bit_writer_write_signed(w: BitWriter, value: i64, bits: u32) -> Result<BitWriter, i32> {
+    if bits == 0 || bits > 64 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if bits < 64 {
+        if value < bitpack_signed_min(bits) || value > bitpack_signed_max(bits) {
+            return Err(SA_STD_ERR_INVALID_ARGUMENT);
+        };
+    };
+    return Ok(bitpack_write_bits_core(w, (value as u64) & bitpack_mask(bits), bits));
+}
+
+// Append a single bit. Cannot fail; returns the writer directly.
+fn bit_writer_write_bool(w: BitWriter, value: bool) -> BitWriter {
+    let v: u64 = 0;
+    if value {
+        v = 1;
+    };
+    return bitpack_write_bits_core(w, v, 1);
+}
+
+// Pad the current partial byte with zero bits up to the next
+// byte boundary. After this call bit_len is a multiple of 8.
+fn bit_writer_align_to_byte(w: BitWriter) -> BitWriter {
+    let out: BitWriter = w;
+    if out.pending_bits > 0 {
+        if out.order == BIT_ORDER_MSB_FIRST {
+            out.bytes.push((out.pending << (8 - out.pending_bits)) as u8);
+        } else {
+            out.bytes.push(out.pending);
+        };
+        out.bit_len = out.bit_len + (8 - out.pending_bits);
+        out.pending = 0;
+        out.pending_bits = 0;
+    };
+    return out;
+}
+
+// Align (zero-padding the final partial byte) and return the
+// finished byte buffer.
+fn bit_writer_finish(w: BitWriter) -> Vec<u8> {
+    let out: BitWriter = bit_writer_align_to_byte(w);
+    return out.bytes;
+}
+
+// ---- bit reader (stateless, over a borrowed slice) ----
+
+// Total readable bits in the buffer.
+fn bit_reader_bit_len(sl: &Slice<u8>) -> u64 {
+    return bitpack_slice_len(sl) * 8;
+}
+
+// Bits left at bit_pos (0 when bit_pos is at or past the end).
+fn bit_reader_remaining_bits(sl: &Slice<u8>, bit_pos: u64) -> u64 {
+    let total: u64 = bit_reader_bit_len(sl);
+    if bit_pos >= total {
+        return 0;
+    };
+    return total - bit_pos;
+}
+
+fn bitpack_bit_at(sl: &Slice<u8>, bit_pos: u64, msb_first: bool) -> u64 {
+    let byte: u8 = bitpack_byte_at(sl, bit_pos / 8);
+    let within: u64 = bit_pos % 8;
+    if msb_first {
+        return ((byte >> (7 - within)) as u64) & 1;
+    };
+    return ((byte >> within) as u64) & 1;
+}
+
+fn bitpack_read_u64(sl: &Slice<u8>, bit_pos: u64, bits: u32, msb_first: bool) -> Result<BitReadU64, i32> {
+    if bits == 0 || bits > 64 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let total: u64 = bit_reader_bit_len(sl);
+    if bit_pos > total {
+        return Err(SA_STD_ERR_TRUNCATED);
+    };
+    if (bits as u64) > total - bit_pos {
+        return Err(SA_STD_ERR_TRUNCATED);
+    };
+    let value: u64 = 0;
+    let pos: u64 = bit_pos;
+    let i: u32 = 0;
+    while i < bits {
+        let bit: u64 = bitpack_bit_at(sl, pos, msb_first);
+        if msb_first {
+            value = (value << 1) | bit;
+        } else {
+            value = value | (bit << i);
+        };
+        pos = pos + 1;
+        i = i + 1;
+    }
+    return Ok(BitReadU64 {
+        value: value,
+        next_bit_pos: pos,
+    });
+}
+
+fn bit_read_u64_msb_first(sl: &Slice<u8>, bit_pos: u64, bits: u32) -> Result<BitReadU64, i32> {
+    return bitpack_read_u64(sl, bit_pos, bits, true);
+}
+
+fn bit_read_u64_lsb_first(sl: &Slice<u8>, bit_pos: u64, bits: u32) -> Result<BitReadU64, i32> {
+    return bitpack_read_u64(sl, bit_pos, bits, false);
+}
+
+fn bitpack_sign_extend(value: u64, bits: u32) -> i64 {
+    if bits >= 64 {
+        return value as i64;
+    };
+    let sign: u64 = (value >> (bits - 1)) & 1;
+    if sign == 1 {
+        let ext: u64 = bitpack_u64_max() << bits;
+        return (value | ext) as i64;
+    };
+    return value as i64;
+}
+
+fn bitpack_read_i64(sl: &Slice<u8>, bit_pos: u64, bits: u32, msb_first: bool) -> Result<BitReadI64, i32> {
+    let r = bitpack_read_u64(sl, bit_pos, bits, msb_first);
+    let out: Result<BitReadI64, i32> = Err(SA_STD_ERR_INVALID_ARGUMENT);
+    match r {
+        Ok(read) => {
+            out = Ok(BitReadI64 {
+                value: bitpack_sign_extend(read.value, bits),
+                next_bit_pos: read.next_bit_pos,
+            });
+        },
+        Err(e) => {
+            out = Err(e);
+        },
+    };
+    return out;
+}
+
+// Read a two's-complement field of `bits` bits, sign-extended.
+fn bit_read_i64_msb_first(sl: &Slice<u8>, bit_pos: u64, bits: u32) -> Result<BitReadI64, i32> {
+    return bitpack_read_i64(sl, bit_pos, bits, true);
+}
+
+fn bit_read_i64_lsb_first(sl: &Slice<u8>, bit_pos: u64, bits: u32) -> Result<BitReadI64, i32> {
+    return bitpack_read_i64(sl, bit_pos, bits, false);
+}
+
+// ---- varint (LEB128) + zigzag ----
+
+// Number of bytes value needs in unsigned LEB128 (1..=10).
+fn bitpack_varint_u64_len(value: u64) -> u64 {
+    let n: u64 = 1;
+    let v: u64 = value;
+    while v >= 128 {
+        v = v >> 7;
+        n = n + 1;
+    }
+    return n;
+}
+
+// Append value in unsigned LEB128. Takes and returns the buffer
+// (dns_put_bytes threading style); cannot fail.
+fn bitpack_varint_write_u64(out: Vec<u8>, value: u64) -> Vec<u8> {
+    let v: u64 = value;
+    let done: bool = false;
+    while !done {
+        let b: u8 = (v & 127) as u8;
+        v = v >> 7;
+        if v == 0 {
+            out.push(b);
+            done = true;
+        } else {
+            out.push(b | 128);
+        };
+    }
+    return out;
+}
+
+// Read an unsigned LEB128 value starting at byte_pos.
+// Err(SA_STD_ERR_TRUNCATED) when the buffer ends mid-varint;
+// Err(SA_STD_ERR_INVALID_ARGUMENT) for a continuation bit on
+// the 10th byte or payload bits above bit 63.
+fn bitpack_varint_read_u64(sl: &Slice<u8>, byte_pos: u64) -> Result<VarintReadU64, i32> {
+    let total: u64 = bitpack_slice_len(sl);
+    let value: u64 = 0;
+    let i: u64 = 0;
+    let done: bool = false;
+    let out: Result<VarintReadU64, i32> = Err(SA_STD_ERR_TRUNCATED);
+    while !done {
+        if byte_pos + i >= total {
+            out = Err(SA_STD_ERR_TRUNCATED);
+            done = true;
+        } else {
+            let b: u8 = bitpack_byte_at(sl, byte_pos + i);
+            if i == 9 {
+                if b > 1 {
+                    out = Err(SA_STD_ERR_INVALID_ARGUMENT);
+                    done = true;
+                } else {
+                    value = value | ((b as u64) << 63);
+                    out = Ok(VarintReadU64 {
+                        value: value,
+                        next_byte_pos: byte_pos + 10,
+                    });
+                    done = true;
+                };
+            } else {
+                value = value | (((b & 127) as u64) << (7 * i));
+                if (b & 128) == 0 {
+                    out = Ok(VarintReadU64 {
+                        value: value,
+                        next_byte_pos: byte_pos + i + 1,
+                    });
+                    done = true;
+                };
+            };
+            i = i + 1;
+        };
+    }
+    return out;
+}
+
+// Append value in signed LEB128. Takes and returns the buffer;
+// cannot fail.
+fn bitpack_varint_write_i64(out: Vec<u8>, value: i64) -> Vec<u8> {
+    let uv: u64 = value as u64;
+    let done: bool = false;
+    while !done {
+        let b: u64 = uv & 127;
+        let neg: bool = (uv >> 63) == 1;
+        uv = uv >> 7;
+        if neg {
+            uv = uv | (bitpack_u64_max() << 57);
+        };
+        let rest_zero: bool = uv == 0 && (b & 64) == 0;
+        let rest_ones: bool = uv == bitpack_u64_max() && (b & 64) != 0;
+        if rest_zero || rest_ones {
+            out.push(b as u8);
+            done = true;
+        } else {
+            out.push((b | 128) as u8);
+        };
+    }
+    return out;
+}
+
+// Read a signed LEB128 value starting at byte_pos. Strict: the
+// 10th byte may only be 0 (non-negative) or 127 (negative, with
+// all payload bits the sign extension of bit 63).
+fn bitpack_varint_read_i64(sl: &Slice<u8>, byte_pos: u64) -> Result<VarintReadI64, i32> {
+    let total: u64 = bitpack_slice_len(sl);
+    let acc: u64 = 0;
+    let shift: u64 = 0;
+    let i: u64 = 0;
+    let done: bool = false;
+    let out: Result<VarintReadI64, i32> = Err(SA_STD_ERR_TRUNCATED);
+    while !done {
+        if byte_pos + i >= total {
+            out = Err(SA_STD_ERR_TRUNCATED);
+            done = true;
+        } else {
+            let b: u8 = bitpack_byte_at(sl, byte_pos + i);
+            if i == 9 {
+                if b != 0 && b != 127 {
+                    out = Err(SA_STD_ERR_INVALID_ARGUMENT);
+                    done = true;
+                } else {
+                    if b == 127 {
+                        acc = acc | (bitpack_u64_max() << 63);
+                    };
+                    out = Ok(VarintReadI64 {
+                        value: acc as i64,
+                        next_byte_pos: byte_pos + 10,
+                    });
+                    done = true;
+                };
+            } else {
+                acc = acc | (((b & 127) as u64) << shift);
+                shift = shift + 7;
+                if (b & 128) == 0 {
+                    if (b & 64) != 0 {
+                        acc = acc | (bitpack_u64_max() << shift);
+                    };
+                    out = Ok(VarintReadI64 {
+                        value: acc as i64,
+                        next_byte_pos: byte_pos + i + 1,
+                    });
+                    done = true;
+                };
+            };
+            i = i + 1;
+        };
+    }
+    return out;
+}
+
+// Zigzag mapping (protobuf sint): 0, -1, 1, -2, 2 map to
+// 0, 1, 2, 3, 4, so small-magnitude values stay short in
+// unsigned LEB128.
+fn bitpack_zigzag_encode(value: i64) -> u64 {
+    let uv: u64 = value as u64;
+    let mask: u64 = 0;
+    if (uv >> 63) == 1 {
+        mask = bitpack_u64_max();
+    };
+    return (uv << 1) ^ mask;
+}
+
+fn bitpack_zigzag_decode(value: u64) -> i64 {
+    let mask: u64 = 0;
+    if (value & 1) == 1 {
+        mask = bitpack_u64_max();
+    };
+    return ((value >> 1) ^ mask) as i64;
+}
+
+// ---- quantization (fixed point, NetQuantize grades) ----
+
+// Encode value as a signed fixed-point integer:
+// round_half_up(value * scale), range-checked against the
+// signed range of `bits` bits (1..=63; a 64-bit field needs no
+// range reduction and can be written from an i64 directly).
+// Err(SA_STD_ERR_INVALID_ARGUMENT) for a bad width, a
+// non-positive or NaN scale, a NaN value, or a rounded result
+// outside the field range.
+fn bitpack_quant_fixed_encode(value: f64, scale: f64, bits: u32) -> Result<i64, i32> {
+    if bits == 0 || bits > 63 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if scale != scale || scale <= 0.0 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if value != value {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let qr = bitpack_round_half_up_i64(value * scale);
+    let out: Result<i64, i32> = Err(SA_STD_ERR_INVALID_ARGUMENT);
+    match qr {
+        Ok(q) => {
+            if q < bitpack_signed_min(bits) || q > bitpack_signed_max(bits) {
+                out = Err(SA_STD_ERR_INVALID_ARGUMENT);
+            } else {
+                out = Ok(q);
+            };
+        },
+        Err(e) => {
+            out = Err(e);
+        },
+    };
+    return out;
+}
+
+// Inverse of encode for a known-good scale: q / scale.
+fn bitpack_quant_fixed_decode(q: i64, scale: f64) -> f64 {
+    return (q as f64) / scale;
+}
+
+// NetQuantize grades: fixed scales 1 / 10 / 100, matching the
+// component rounding of FVector_NetQuantize /
+// FVector_NetQuantize10 / FVector_NetQuantize100.
+fn bitpack_quant_net_encode(value: f64) -> Result<i64, i32> {
+    return bitpack_quant_fixed_encode(value, 1.0, 63);
+}
+
+fn bitpack_quant_net10_encode(value: f64) -> Result<i64, i32> {
+    return bitpack_quant_fixed_encode(value, 10.0, 63);
+}
+
+fn bitpack_quant_net100_encode(value: f64) -> Result<i64, i32> {
+    return bitpack_quant_fixed_encode(value, 100.0, 63);
+}
+
+fn bitpack_quant_net_decode(q: i64) -> f64 {
+    return q as f64;
+}
+
+fn bitpack_quant_net10_decode(q: i64) -> f64 {
+    return (q as f64) / 10.0;
+}
+
+fn bitpack_quant_net100_decode(q: i64) -> f64 {
+    return (q as f64) / 100.0;
+}
+
+// ---- quantized values packed into a bit stream ----
+
+fn bitpack_write_quant(w: BitWriter, value: f64, scale: f64, bits: u32) -> Result<BitWriter, i32> {
+    let qr = bitpack_quant_fixed_encode(value, scale, bits);
+    let out: Result<BitWriter, i32> = Err(SA_STD_ERR_INVALID_ARGUMENT);
+    match qr {
+        Ok(q) => {
+            out = bit_writer_write_signed(w, q, bits);
+        },
+        Err(e) => {
+            out = Err(e);
+        },
+    };
+    return out;
+}
+
+// Write value as a signed fixed-point field (see
+// bitpack_quant_fixed_encode). The writer must be MSB-first;
+// the order-named functions exist so a stream's fields are all
+// written under one explicit convention.
+fn bit_writer_write_quant_msb_first(w: BitWriter, value: f64, scale: f64, bits: u32) -> Result<BitWriter, i32> {
+    if w.order != BIT_ORDER_MSB_FIRST {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    return bitpack_write_quant(w, value, scale, bits);
+}
+
+fn bit_writer_write_quant_lsb_first(w: BitWriter, value: f64, scale: f64, bits: u32) -> Result<BitWriter, i32> {
+    if w.order != BIT_ORDER_LSB_FIRST {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    return bitpack_write_quant(w, value, scale, bits);
+}
+
+fn bitpack_read_quant(sl: &Slice<u8>, bit_pos: u64, scale: f64, bits: u32, msb_first: bool) -> Result<BitReadF64, i32> {
+    if scale != scale || scale <= 0.0 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let rr = bitpack_read_i64(sl, bit_pos, bits, msb_first);
+    let out: Result<BitReadF64, i32> = Err(SA_STD_ERR_INVALID_ARGUMENT);
+    match rr {
+        Ok(read) => {
+            out = Ok(BitReadF64 {
+                value: bitpack_quant_fixed_decode(read.value, scale),
+                next_bit_pos: read.next_bit_pos,
+            });
+        },
+        Err(e) => {
+            out = Err(e);
+        },
+    };
+    return out;
+}
+
+fn bit_read_quant_msb_first(sl: &Slice<u8>, bit_pos: u64, scale: f64, bits: u32) -> Result<BitReadF64, i32> {
+    return bitpack_read_quant(sl, bit_pos, scale, bits, true);
+}
+
+fn bit_read_quant_lsb_first(sl: &Slice<u8>, bit_pos: u64, scale: f64, bits: u32) -> Result<BitReadF64, i32> {
+    return bitpack_read_quant(sl, bit_pos, scale, bits, false);
+}
+
+// ---- unit vectors, smallest-three packing ----
+
+// Map one stored component from [-1, 1] onto its unsigned field,
+// saturating outside the range (see the header note).
+fn bitpack_unit_component_encode(v: f64, component_bits: u32) -> u64 {
+    let c: f64 = v;
+    if c > 1.0 {
+        c = 1.0;
+    };
+    if c < -1.0 {
+        c = -1.0;
+    };
+    let max_enc: u64 = bitpack_mask(component_bits);
+    let scaled: f64 = (c * 0.5 + 0.5) * (max_enc as f64);
+    let r: f64 = sa_math_floor(scaled + 0.5);
+    return r as u64;
+}
+
+fn bitpack_unit_component_decode(enc: u64, component_bits: u32) -> f64 {
+    let max_enc: u64 = bitpack_mask(component_bits);
+    return (enc as f64) / (max_enc as f64) * 2.0 - 1.0;
+}
+
+fn bitpack_write_unit_vec3(w: BitWriter, x: f64, y: f64, z: f64, component_bits: u32) -> Result<BitWriter, i32> {
+    if component_bits == 0 || component_bits > 32 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if x != x || y != y || z != z {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if x == 0.0 && y == 0.0 && z == 0.0 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let ax: f64 = bitpack_f64_abs(x);
+    let ay: f64 = bitpack_f64_abs(y);
+    let az: f64 = bitpack_f64_abs(z);
+    // Axis of the largest-magnitude component; ties go to the
+    // lowest index (x beats y beats z), matching the read side's
+    // plain reconstruction.
+    let axis: u64 = 0;
+    let dropped: f64 = x;
+    let first: f64 = y;
+    let second: f64 = z;
+    if ay > ax && ay >= az {
+        axis = 1;
+        dropped = y;
+        first = x;
+        second = z;
+    } else {
+        if az > ax && az > ay {
+            axis = 2;
+            dropped = z;
+            first = x;
+            second = y;
+        };
+    };
+    let sign: u64 = 0;
+    if dropped < 0.0 {
+        sign = 1;
+    };
+    let e1: u64 = bitpack_unit_component_encode(first, component_bits);
+    let e2: u64 = bitpack_unit_component_encode(second, component_bits);
+    let out: BitWriter = bitpack_write_bits_core(w, axis, 2);
+    out = bitpack_write_bits_core(out, sign, 1);
+    out = bitpack_write_bits_core(out, e1, component_bits);
+    out = bitpack_write_bits_core(out, e2, component_bits);
+    return Ok(out);
+}
+
+// Pack a unit vector smallest-three style (2 + 1 +
+// 2*component_bits bits total). The writer must match the
+// named order.
+fn bit_writer_write_unit_vec3_msb_first(w: BitWriter, x: f64, y: f64, z: f64, component_bits: u32) -> Result<BitWriter, i32> {
+    if w.order != BIT_ORDER_MSB_FIRST {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    return bitpack_write_unit_vec3(w, x, y, z, component_bits);
+}
+
+fn bit_writer_write_unit_vec3_lsb_first(w: BitWriter, x: f64, y: f64, z: f64, component_bits: u32) -> Result<BitWriter, i32> {
+    if w.order != BIT_ORDER_LSB_FIRST {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    return bitpack_write_unit_vec3(w, x, y, z, component_bits);
+}
+
+fn bitpack_read_unit_vec3(sl: &Slice<u8>, bit_pos: u64, component_bits: u32, msb_first: bool) -> Result<BitReadVec3, i32> {
+    if component_bits == 0 || component_bits > 32 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let axis: u64 = 0;
+    let sign: u64 = 0;
+    let e1: u64 = 0;
+    let e2: u64 = 0;
+    let err: i32 = SA_STD_OK;
+    let pos: u64 = bit_pos;
+    let r1 = bitpack_read_u64(sl, pos, 2, msb_first);
+    match r1 {
+        Ok(rd) => {
+            axis = rd.value;
+            pos = rd.next_bit_pos;
+        },
+        Err(e) => {
+            err = e;
+        },
+    };
+    if err == SA_STD_OK {
+        let r2 = bitpack_read_u64(sl, pos, 1, msb_first);
+        match r2 {
+            Ok(rd) => {
+                sign = rd.value;
+                pos = rd.next_bit_pos;
+            },
+            Err(e) => {
+                err = e;
+            },
+        };
+    };
+    if err == SA_STD_OK {
+        let r3 = bitpack_read_u64(sl, pos, component_bits, msb_first);
+        match r3 {
+            Ok(rd) => {
+                e1 = rd.value;
+                pos = rd.next_bit_pos;
+            },
+            Err(e) => {
+                err = e;
+            },
+        };
+    };
+    if err == SA_STD_OK {
+        let r4 = bitpack_read_u64(sl, pos, component_bits, msb_first);
+        match r4 {
+            Ok(rd) => {
+                e2 = rd.value;
+                pos = rd.next_bit_pos;
+            },
+            Err(e) => {
+                err = e;
+            },
+        };
+    };
+    if err != SA_STD_OK {
+        return Err(err);
+    };
+    let a: f64 = bitpack_unit_component_decode(e1, component_bits);
+    let b: f64 = bitpack_unit_component_decode(e2, component_bits);
+    let rest: f64 = 1.0 - a * a - b * b;
+    let mag: f64 = 0.0;
+    if rest > 0.0 {
+        mag = sa_math_sqrt(rest);
+    };
+    if sign == 1 {
+        mag = 0.0 - mag;
+    };
+    let vx: f64 = 0.0;
+    let vy: f64 = 0.0;
+    let vz: f64 = 0.0;
+    if axis == 0 {
+        vx = mag;
+        vy = a;
+        vz = b;
+    } else {
+        if axis == 1 {
+            vx = a;
+            vy = mag;
+            vz = b;
+        } else {
+            vx = a;
+            vy = b;
+            vz = mag;
+        };
+    };
+    return Ok(BitReadVec3 {
+        x: vx,
+        y: vy,
+        z: vz,
+        next_bit_pos: pos,
+    });
+}
+
+fn bit_read_unit_vec3_msb_first(sl: &Slice<u8>, bit_pos: u64, component_bits: u32) -> Result<BitReadVec3, i32> {
+    return bitpack_read_unit_vec3(sl, bit_pos, component_bits, true);
+}
+
+fn bit_read_unit_vec3_lsb_first(sl: &Slice<u8>, bit_pos: u64, component_bits: u32) -> Result<BitReadVec3, i32> {
+    return bitpack_read_unit_vec3(sl, bit_pos, component_bits, false);
+}
