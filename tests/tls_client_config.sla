@@ -12,8 +12,9 @@
 //
 // On a tree without the configuration surface this file cannot compile
 // (the externs and the constant do not exist), which is what makes it a
-// regression test. The shaped-profile assertion expects an OpenSSL-
-// capable host (-22 is returned after the backend availability check).
+// regression test. The shaped-profile assertion first probes backend
+// availability: -22 where OpenSSL resolves in the test binary, -1 where
+// its loader cannot resolve the symbols (both prove pre-dial handling).
 
 @import "sa_std/tls_client.sa"
 @import "sa_std/tls_server.sa"
@@ -60,9 +61,18 @@
 };
 
 @test "shaped profile is validated before dialing"() {
+    // The connect checks backend availability before the profile: where
+    // OpenSSL resolves, a malformed session blob is a pre-dial -22; in a
+    // binary whose loader cannot resolve the OpenSSL symbols the same
+    // call is -1 (UNSUPPORTED). Both prove the profile was not silently
+    // ignored -- a dial would have produced 0 or -5 (port 1 refuses).
+    let sup: u32 = 0;
+    let ss: i32 = sa_std_tls_shaped_supported(&sup);
+    if ss != 0 { panic(40); };
+    let want: i32 = if sup == 1 { -22 } else { -1 };
     let h: u64 = 0;
     let st: i32 = sa_std_tls_shaped_connect(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"), 1, STR_PTR("{\"session\":\"!!!not-base64!!!\"}"), STR_LEN("{\"session\":\"!!!not-base64!!!\"}"), &h);
-    if st != -22 { panic(41); };
+    if st != want { panic(41); };
     if h != 0 { panic(42); };
 };
 
