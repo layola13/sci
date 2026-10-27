@@ -1,0 +1,960 @@
+// sa_std/smtp.sla -- an SMTP (RFC 5321) client for SLA, plus the
+// pure wire helpers it is built from: a streaming reply reader and
+// the DATA-phase dot-stuffing / CRLF normalisation.
+//
+// Why this file exists: the Go std census (sala 06_stdlib/22)
+// recorded the SMTP client package (27 entries) as a direct gap whose
+// dependencies -- a TCP stream, a line protocol, a TLS upgrade --
+// sa_std already had. The client here is pure SLA over the net.sai
+// TCP externs and the tls_client.sai configuration surface (AZ's
+// wave-1 TLS work); no new externs, no ABI change.
+//
+// What is delivered:
+//   - smtp_connect (plain) and smtp_connect_tls (implicit TLS, the
+//     port-465 shape) with greeting check and EHLO, falling back to
+//     HELO on a 5xx EHLO refusal, exactly as RFC 5321 4.1.1.1 allows.
+//   - AUTH PLAIN (initial-response form) and AUTH LOGIN, MAIL FROM,
+//     RCPT TO (250 or 251), DATA with dot-stuffing and CRLF
+//     normalisation, RSET, NOOP, QUIT.
+//   - EHLO extension probing (smtp_client_has_extension) over the
+//     stored EHLO reply, case-insensitive, tolerant of the legacy
+//     "KEYWORD=value" spelling.
+//   - Errors carry the reply code: every operation returns an
+//     SmtpStep whose status is 0 on the expected reply, a positive
+//     SA_STD_* code for a local/transport failure, or
+//     -(SA_SMTP_REPLY_STATUS_BASE + code) when the server answered
+//     with an unexpected reply code (smtp_status_reply_code inverts
+//     the encoding). The client's last_reply_code / last_reply_text
+//     always hold the most recent reply either way.
+//
+// What is NOT delivered, stated plainly: STARTTLS. The SMTP command
+// itself is trivial, but upgrading this client's plain connection
+// is impossible from SLA today for the same reason AZ's TLS wave
+// could only lock start_tls in Zig-side tests: sa_std_tls_client_
+// start_tls takes a host-owned raw fd, the net surface hands out
+// opaque registry handles for TCP streams, and no extern exposes a
+// stream's fd. Rather than ship a start_tls that cannot upgrade,
+// this surface offers smtp_connect_tls (implicit TLS) as the
+// encrypted path and registers the missing primitive here: a
+// sa_std_net_tcp_stream raw-fd accessor (or a start_tls that takes
+// a stream handle). When it lands, STARTTLS is a small addition:
+// send the command, expect 220, upgrade, re-EHLO.
+//
+// Model choices:
+//   - The client is threaded by value inside SmtpStep (the dns.sla
+//     Result threading, widened to carry the status alongside).
+//     smtp_client_close consumes the client and returns a status.
+//   - Reply text is bytes (Vec<u8>): the text portions of a reply's
+//     lines joined with '\n', codes and separators stripped.
+//   - The reply reader caps a single reply line at 8192 bytes and a
+//     reply's accumulated text at 65536 bytes; beyond that the reply
+//     is malformed (SA_STD_ERR_NET), never a silent truncation.
+//   - Plain connections get a 10 s read timeout; the tls_client
+//     surface has no timeout setter, so TLS reads block as long as
+//     the underlying client does.
+//   - Message bodies are bytes. smtp_dot_stuff defines the DATA
+//     payload exactly: every line ending (CRLF, lone LF, lone CR)
+//     normalises to CRLF, a line starting with '.' gains one extra
+//     '.', and the payload ends with CRLF (appended when missing).
+//     The terminating "." line is sent by smtp_client_data itself.
+
+@import "sa_std/string.sa"
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+@import "sa_std/ptr.sa"
+@import "sa_std/status.sla"
+@import "sa_std/net.sai"
+@import "sa_std/tls_client.sai"
+
+const SA_SMTP_PORT: u32 = 25;
+const SA_SMTP_PORT_SUBMISSION: u32 = 587;
+const SA_SMTP_PORT_SMTPS: u32 = 465;
+
+// Status returned for an unexpected server reply is
+// -(SA_SMTP_REPLY_STATUS_BASE + reply_code); see the header.
+const SA_SMTP_REPLY_STATUS_BASE: i32 = 1000;
+
+const SA_SMTP_MAX_LINE: u64 = 8192;
+const SA_SMTP_MAX_REPLY_TEXT: u64 = 65536;
+const SA_SMTP_MAX_HOST: u64 = 512;
+
+struct SmtpReply {
+    code: u32,
+    text: Vec<u8>,
+}
+
+struct SmtpReplyReader {
+    pending: Vec<u8>,
+    cur_code: u32,
+    cur_lines: u64,
+    cur_text: Vec<u8>,
+    failed: bool,
+}
+
+struct SmtpReplyRead {
+    reader: SmtpReplyReader,
+    ready: bool,
+    reply_code: u32,
+    reply_text: Vec<u8>,
+    status: i32,
+}
+
+struct SmtpClient {
+    handle: u64,
+    tls: bool,
+    open: bool,
+    reader: SmtpReplyReader,
+    extensions: Vec<u8>,
+    last_reply_code: u32,
+    last_reply_text: Vec<u8>,
+}
+
+struct SmtpStep {
+    client: SmtpClient,
+    status: i32,
+}
+
+// ---- status encoding helpers ----
+
+fn smtp_status_for_reply(code: u32) -> i32 {
+    return 0 - (SA_SMTP_REPLY_STATUS_BASE + (code as i32));
+}
+
+// The server reply code encoded in a step status, or 0 when the
+// status is not a reply rejection.
+fn smtp_status_reply_code(status: i32) -> u32 {
+    if status <= 0 - SA_SMTP_REPLY_STATUS_BASE {
+        return (0 - status - SA_SMTP_REPLY_STATUS_BASE) as u32;
+    };
+    return 0;
+}
+
+// ---- byte helpers (the dns.sla idiom) ----
+
+fn smtp_slice_len(sl: &Slice<u8>) -> u64 {
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    return n;
+}
+
+fn smtp_slice_byte(sl: &Slice<u8>, off: u64) -> u8 {
+    let b: u8 = 0;
+    SLICE_GET(b, sl, off);
+    return b;
+}
+
+// Append sl[begin..end] to dst. By-value threading throughout
+// this file: pushing into a &Vec parameter inside a loop is a
+// proven PhiStateConflict shape in the SAB referee, so the append
+// helpers consume and return the vector.
+fn smtp_push_slice(dst: Vec<u8>, sl: &Slice<u8>, begin: u64, end: u64) -> Vec<u8> {
+    let i: u64 = begin;
+    while i < end {
+        dst.push(smtp_slice_byte(sl, i));
+        i = i + 1;
+    }
+    return dst;
+}
+
+// Append a short literal (command verbs and punctuation; staged
+// through a stack array, so at most 1024 bytes).
+fn smtp_push_lit(dst: Vec<u8>, text: ptr, text_len: u64) -> Vec<u8> {
+    let arr: [u8; 1024] = [0u8; 1024];
+    let p: ptr = PTR_BYTE_ADD(&arr, 0);
+    PTR_COPY_BYTES(p, text, text_len);
+    let i: u64 = 0;
+    while i < text_len {
+        dst.push(arr[i]);
+        i = i + 1;
+    }
+    return dst;
+}
+
+fn smtp_text(text: ptr, text_len: u64) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    return smtp_push_lit(out, text, text_len);
+}
+
+// ---- base64 (RFC 4648, standard alphabet, padded) ----
+// Pure SLA: the only consumer is AUTH, whose payloads are small,
+// and a hand encoder avoids the buffer-handle staging of the
+// encoding/base64.sai handle shape. Locked by RFC 4648 vectors in
+// the test suite.
+
+fn smtp_base64_value(out: Vec<u8>, v: u8) -> Vec<u8> {
+    // v is a 6-bit value.
+    if v < 26 {
+        out.push(65 + v);
+    } else {
+        if v < 52 {
+            out.push(97 + (v - 26));
+        } else {
+            if v < 62 {
+                out.push(48 + (v - 52));
+            } else {
+                if v == 62 {
+                    out.push(43);
+                } else {
+                    out.push(47);
+                };
+            };
+        };
+    };
+    return out;
+}
+
+fn smtp_base64_encode(data: Vec<u8>) -> Vec<u8> {
+    let sl: Slice<u8> = VEC_AS_SLICE(data);
+    let n: u64 = len(data) as u64;
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < n {
+        let b0: u32 = smtp_slice_byte(&sl, i) as u32;
+        let has1: bool = i + 1 < n;
+        let has2: bool = i + 2 < n;
+        let b1: u32 = 0;
+        if has1 {
+            b1 = smtp_slice_byte(&sl, i + 1) as u32;
+        };
+        let b2: u32 = 0;
+        if has2 {
+            b2 = smtp_slice_byte(&sl, i + 2) as u32;
+        };
+        let triple: u32 = (b0 << 16) | (b1 << 8) | b2;
+        out = smtp_base64_value(out, ((triple >> 18) & 63) as u8);
+        out = smtp_base64_value(out, ((triple >> 12) & 63) as u8);
+        if has1 {
+            out = smtp_base64_value(out, ((triple >> 6) & 63) as u8);
+        } else {
+            out.push(61);
+        };
+        if has2 {
+            out = smtp_base64_value(out, (triple & 63) as u8);
+        } else {
+            out.push(61);
+        };
+        i = i + 3;
+    }
+    return out;
+}
+
+// ---- DATA payload preparation ----
+
+// Prepare a message body for the DATA phase: normalise every line
+// ending to CRLF, dot-stuff lines that start with '.', and make
+// sure the payload ends with CRLF. The "." terminator line is NOT
+// part of the result; smtp_client_data sends it after the payload.
+// An empty message maps to an empty payload.
+fn smtp_dot_stuff(message: Vec<u8>) -> Vec<u8> {
+    let sl: Slice<u8> = VEC_AS_SLICE(message);
+    let n: u64 = len(message) as u64;
+    let out: Vec<u8> = Vec::new();
+    let line_start: bool = true;
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = smtp_slice_byte(&sl, i);
+        if line_start {
+            if b == 46 {
+                out.push(46);
+            };
+        };
+        if b == 13 {
+            out.push(13);
+            out.push(10);
+            if i + 1 < n {
+                if smtp_slice_byte(&sl, i + 1) == 10 {
+                    i = i + 1;
+                };
+            };
+            line_start = true;
+        } else {
+            if b == 10 {
+                out.push(13);
+                out.push(10);
+                line_start = true;
+            } else {
+                out.push(b);
+                line_start = false;
+            };
+        };
+        i = i + 1;
+    }
+    if len(out) > 0 {
+        let osl: Slice<u8> = VEC_AS_SLICE(out);
+        let last: u8 = smtp_slice_byte(&osl, (len(out) as u64) - 1);
+        if last != 10 {
+            out.push(13);
+            out.push(10);
+        };
+    };
+    return out;
+}
+
+// ---- the reply reader (pure, streaming) ----
+
+fn smtp_reply_reader_new() -> SmtpReplyReader {
+    let pending: Vec<u8> = Vec::new();
+    let cur_text: Vec<u8> = Vec::new();
+    return SmtpReplyReader {
+        pending: pending,
+        cur_code: 0,
+        cur_lines: 0,
+        cur_text: cur_text,
+        failed: false,
+    };
+}
+
+fn smtp_reply_reader_feed(r: SmtpReplyReader, chunk: Vec<u8>) -> SmtpReplyReader {
+    let pending: Vec<u8> = r.pending;
+    let csl: Slice<u8> = VEC_AS_SLICE(chunk);
+    pending = smtp_push_slice(pending, &csl, 0, len(chunk) as u64);
+    return SmtpReplyReader {
+        pending: pending,
+        cur_code: r.cur_code,
+        cur_lines: r.cur_lines,
+        cur_text: r.cur_text,
+        failed: r.failed,
+    };
+}
+
+fn smtp_is_digit(b: u8) -> bool {
+    return b >= 48 && b <= 57;
+}
+
+// Try to complete one reply from the buffered bytes. See the file
+// header for the malformed-input rules.
+fn smtp_reply_reader_next(r: SmtpReplyReader) -> SmtpReplyRead {
+    let empty_text: Vec<u8> = Vec::new();
+    if r.failed {
+        return SmtpReplyRead {
+            reader: r,
+            ready: false,
+            reply_code: 0,
+            reply_text: empty_text,
+            status: SA_STD_ERR_NET,
+        };
+    };
+    let pending: Vec<u8> = r.pending;
+    let n: u64 = len(pending) as u64;
+    let sl: Slice<u8> = VEC_AS_SLICE(pending);
+    let cur_code: u32 = r.cur_code;
+    let cur_lines: u64 = r.cur_lines;
+    let cur_text: Vec<u8> = r.cur_text;
+    let line_begin: u64 = 0;
+    let i: u64 = 0;
+    let done: bool = false;
+    let failed: bool = false;
+    while i < n && done == false && failed == false {
+        if smtp_slice_byte(&sl, i) == 10 {
+            // One complete line: sl[line_begin..i], minus a CR.
+            let line_end: u64 = i;
+            if line_end > line_begin {
+                if smtp_slice_byte(&sl, line_end - 1) == 13 {
+                    line_end = line_end - 1;
+                };
+            };
+            let llen: u64 = line_end - line_begin;
+            if llen < 3 || llen > SA_SMTP_MAX_LINE {
+                failed = true;
+            } else {
+                let d0: u8 = smtp_slice_byte(&sl, line_begin);
+                let d1: u8 = smtp_slice_byte(&sl, line_begin + 1);
+                let d2: u8 = smtp_slice_byte(&sl, line_begin + 2);
+                if smtp_is_digit(d0) == false || smtp_is_digit(d1) == false || smtp_is_digit(d2) == false {
+                    failed = true;
+                } else {
+                    let code: u32 = ((d0 - 48) as u32) * 100 + ((d1 - 48) as u32) * 10 + ((d2 - 48) as u32);
+                    if cur_code == 0 {
+                        cur_code = code;
+                    } else {
+                        if code != cur_code {
+                            failed = true;
+                        };
+                    };
+                    if failed == false {
+                        let final_line: bool = true;
+                        let text_begin: u64 = line_end;
+                        if llen > 3 {
+                            let sep: u8 = smtp_slice_byte(&sl, line_begin + 3);
+                            if sep == 45 {
+                                final_line = false;
+                                text_begin = line_begin + 4;
+                            } else {
+                                if sep == 32 {
+                                    final_line = true;
+                                    text_begin = line_begin + 4;
+                                } else {
+                                    failed = true;
+                                };
+                            };
+                        };
+                        if failed == false {
+                            if cur_lines > 0 {
+                                cur_text.push(10);
+                            };
+                            cur_text = smtp_push_slice(cur_text, &sl, text_begin, line_end);
+                            cur_lines = cur_lines + 1;
+                            if (len(cur_text) as u64) > SA_SMTP_MAX_REPLY_TEXT {
+                                failed = true;
+                            };
+                            if final_line {
+                                done = true;
+                            };
+                        };
+                    };
+                };
+            };
+            i = i + 1;
+            line_begin = i;
+        } else {
+            i = i + 1;
+        };
+    }
+    if failed {
+        let reader = SmtpReplyReader {
+            pending: pending,
+            cur_code: cur_code,
+            cur_lines: cur_lines,
+            cur_text: cur_text,
+            failed: true,
+        };
+        let et: Vec<u8> = Vec::new();
+        return SmtpReplyRead {
+            reader: reader,
+            ready: false,
+            reply_code: 0,
+            reply_text: et,
+            status: SA_STD_ERR_NET,
+        };
+    };
+    // Compact pending to the unconsumed tail (a partial line).
+    let rest: Vec<u8> = Vec::new();
+    rest = smtp_push_slice(rest, &sl, line_begin, n);
+    if done {
+        let fresh_text: Vec<u8> = Vec::new();
+        let reader = SmtpReplyReader {
+            pending: rest,
+            cur_code: 0,
+            cur_lines: 0,
+            cur_text: fresh_text,
+            failed: false,
+        };
+        return SmtpReplyRead {
+            reader: reader,
+            ready: true,
+            reply_code: cur_code,
+            reply_text: cur_text,
+            status: SA_STD_OK,
+        };
+    };
+    let reader2 = SmtpReplyReader {
+        pending: rest,
+        cur_code: cur_code,
+        cur_lines: cur_lines,
+        cur_text: cur_text,
+        failed: false,
+    };
+    let et2: Vec<u8> = Vec::new();
+    return SmtpReplyRead {
+        reader: reader2,
+        ready: false,
+        reply_code: 0,
+        reply_text: et2,
+        status: SA_STD_OK,
+    };
+}
+
+// ---- transport (plain TCP stream or TLS client handle) ----
+
+struct SmtpReadChunk {
+    status: i32,
+    data: Vec<u8>,
+}
+
+fn smtp_transport_read_chunk(handle: u64, tls: bool) -> SmtpReadChunk {
+    let buf: [u8; 4096] = [0u8; 4096];
+    let buf_ptr: ptr = PTR_BYTE_ADD(&buf, 0);
+    let got: u64 = 0;
+    let st: i32 = 0;
+    if tls {
+        st = sa_std_tls_client_read(handle, buf_ptr, 4096, &got);
+    } else {
+        st = sa_std_net_tcp_stream_read(handle, buf_ptr, 4096, &got);
+    };
+    let data: Vec<u8> = Vec::new();
+    if st == SA_STD_OK {
+        let i: u64 = 0;
+        while i < got {
+            data.push(buf[i]);
+            i = i + 1;
+        }
+    };
+    return SmtpReadChunk {
+        status: st,
+        data: data,
+    };
+}
+
+// Write all of data, in stack-staged chunks, tolerating partial
+// writes.
+fn smtp_transport_write_all(handle: u64, tls: bool, data: Vec<u8>) -> i32 {
+    let sl: Slice<u8> = VEC_AS_SLICE(data);
+    let total: u64 = len(data) as u64;
+    let off: u64 = 0;
+    while off < total {
+        let chunk_len: u64 = total - off;
+        if chunk_len > 4096 {
+            chunk_len = 4096;
+        };
+        let buf: [u8; 4096] = [0u8; 4096];
+        let j: u64 = 0;
+        while j < chunk_len {
+            buf[j] = smtp_slice_byte(&sl, off + j);
+            j = j + 1;
+        }
+        let buf_ptr: ptr = PTR_BYTE_ADD(&buf, 0);
+        let written: u64 = 0;
+        let st: i32 = 0;
+        if tls {
+            st = sa_std_tls_client_write(handle, buf_ptr, chunk_len, &written);
+        } else {
+            st = sa_std_net_tcp_stream_write(handle, buf_ptr, chunk_len, &written);
+        };
+        if st != SA_STD_OK {
+            return st;
+        };
+        if written == 0 {
+            return SA_STD_ERR_NET;
+        };
+        off = off + written;
+    }
+    return SA_STD_OK;
+}
+
+fn smtp_transport_close(handle: u64, tls: bool) -> i32 {
+    if tls {
+        return sa_std_tls_client_close(handle);
+    };
+    return sa_net_tcp_stream_close(handle);
+}
+
+// ---- client plumbing ----
+
+fn smtp_empty_client() -> SmtpClient {
+    let reader = smtp_reply_reader_new();
+    let extensions: Vec<u8> = Vec::new();
+    let last_text: Vec<u8> = Vec::new();
+    return SmtpClient {
+        handle: 0,
+        tls: false,
+        open: false,
+        reader: reader,
+        extensions: extensions,
+        last_reply_code: 0,
+        last_reply_text: last_text,
+    };
+}
+
+fn smtp_step(client: SmtpClient, status: i32) -> SmtpStep {
+    return SmtpStep {
+        client: client,
+        status: status,
+    };
+}
+
+// Read until one full reply is buffered, updating last_reply_*.
+fn smtp_read_reply(c: SmtpClient) -> SmtpStep {
+    let guard: u64 = 0;
+    while guard < 1024 {
+        let rd = smtp_reply_reader_next(c.reader);
+        c.reader = rd.reader;
+        if rd.status != SA_STD_OK {
+            return smtp_step(c, rd.status);
+        };
+        if rd.ready {
+            c.last_reply_code = rd.reply_code;
+            c.last_reply_text = rd.reply_text;
+            return smtp_step(c, SA_STD_OK);
+        };
+        let chunk = smtp_transport_read_chunk(c.handle, c.tls);
+        if chunk.status != SA_STD_OK {
+            return smtp_step(c, chunk.status);
+        };
+        if len(chunk.data) == 0 {
+            // EOF before a complete reply.
+            return smtp_step(c, SA_STD_ERR_NET);
+        };
+        c.reader = smtp_reply_reader_feed(c.reader, chunk.data);
+        guard = guard + 1;
+    }
+    return smtp_step(c, SA_STD_ERR_NET);
+}
+
+// After a successful smtp_read_reply: 0 when the reply code is the
+// expected one, the reply-encoded status otherwise.
+fn smtp_checked(c: SmtpClient, want: u32) -> SmtpStep {
+    if c.last_reply_code == want {
+        return smtp_step(c, SA_STD_OK);
+    };
+    return smtp_step(c, smtp_status_for_reply(c.last_reply_code));
+}
+
+fn smtp_send_line(c: SmtpClient, line: Vec<u8>) -> SmtpStep {
+    let wire: Vec<u8> = line;
+    wire.push(13);
+    wire.push(10);
+    let st: i32 = smtp_transport_write_all(c.handle, c.tls, wire);
+    if st != SA_STD_OK {
+        return smtp_step(c, st);
+    };
+    return smtp_step(c, SA_STD_OK);
+}
+
+// Send one command line, read its reply, check the code.
+fn smtp_command(c: SmtpClient, line: Vec<u8>, want: u32) -> SmtpStep {
+    let sent = smtp_send_line(c, line);
+    if sent.status != SA_STD_OK {
+        return sent;
+    };
+    let rd = smtp_read_reply(sent.client);
+    if rd.status != SA_STD_OK {
+        return rd;
+    };
+    return smtp_checked(rd.client, want);
+}
+
+fn smtp_command_bytes(verb: ptr, verb_len: u64, arg: Vec<u8>) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    out = smtp_push_lit(out, verb, verb_len);
+    let sl: Slice<u8> = VEC_AS_SLICE(arg);
+    return smtp_push_slice(out, &sl, 0, len(arg) as u64);
+}
+
+// The EHLO extensions are the reply text after its first line.
+fn smtp_extensions_of(reply_text: Vec<u8>) -> Vec<u8> {
+    let sl: Slice<u8> = VEC_AS_SLICE(reply_text);
+    let n: u64 = len(reply_text) as u64;
+    let i: u64 = 0;
+    while i < n {
+        if smtp_slice_byte(&sl, i) == 10 {
+            let out: Vec<u8> = Vec::new();
+            return smtp_push_slice(out, &sl, i + 1, n);
+        };
+        i = i + 1;
+    }
+    let empty: Vec<u8> = Vec::new();
+    return empty;
+}
+
+// EHLO, with the RFC 5321 HELO fallback on a 5xx refusal. On
+// success the client's extensions are refreshed.
+fn smtp_greet(c: SmtpClient, local_name: Vec<u8>) -> SmtpStep {
+    let ehlo = smtp_command(c, smtp_command_bytes(STR_PTR("EHLO "), STR_LEN("EHLO "), local_name), 250);
+    if ehlo.status == SA_STD_OK {
+        let client: SmtpClient = ehlo.client;
+        // Copy the reply text before handing it to extensions_of:
+        // moving the field out would leave the client half-moved.
+        let lsl: Slice<u8> = VEC_AS_SLICE(client.last_reply_text);
+        let text_copy: Vec<u8> = Vec::new();
+        text_copy = smtp_push_slice(text_copy, &lsl, 0, len(client.last_reply_text) as u64);
+        client.extensions = smtp_extensions_of(text_copy);
+        return smtp_step(client, SA_STD_OK);
+    };
+    let code: u32 = smtp_status_reply_code(ehlo.status);
+    if code >= 500 && code < 600 {
+        let helo = smtp_command(ehlo.client, smtp_command_bytes(STR_PTR("HELO "), STR_LEN("HELO "), local_name), 250);
+        if helo.status == SA_STD_OK {
+            let client2: SmtpClient = helo.client;
+            let empty: Vec<u8> = Vec::new();
+            client2.extensions = empty;
+            return smtp_step(client2, SA_STD_OK);
+        };
+        return helo;
+    };
+    return ehlo;
+}
+
+// Stage a host byte string and open a plain TCP connection.
+fn smtp_dial_plain(host: Vec<u8>, port: u32) -> SmtpStep {
+    if (len(host) as u64) > SA_SMTP_MAX_HOST {
+        return smtp_step(smtp_empty_client(), SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let arr: [u8; 512] = [0u8; 512];
+    let hsl: Slice<u8> = VEC_AS_SLICE(host);
+    let hn: u64 = len(host) as u64;
+    let i: u64 = 0;
+    while i < hn {
+        arr[i] = smtp_slice_byte(&hsl, i);
+        i = i + 1;
+    }
+    let host_ptr: ptr = PTR_BYTE_ADD(&arr, 0);
+    let handle: u64 = 0;
+    let st: i32 = sa_std_net_tcp_connect(host_ptr, hn, port, &handle);
+    if st != SA_STD_OK {
+        return smtp_step(smtp_empty_client(), st);
+    };
+    let to_st: i32 = sa_std_net_tcp_stream_set_read_timeout(handle, 10000000000);
+    if to_st != SA_STD_OK {
+        let cl: i32 = sa_net_tcp_stream_close(handle);
+        return smtp_step(smtp_empty_client(), to_st);
+    };
+    let client = smtp_empty_client();
+    client.handle = handle;
+    client.tls = false;
+    client.open = true;
+    let greeting = smtp_read_reply(client);
+    if greeting.status != SA_STD_OK {
+        return greeting;
+    };
+    return smtp_checked(greeting.client, 220);
+}
+
+// ---- public surface ----
+
+// Connect over plain TCP, check the 220 greeting, and EHLO (with
+// HELO fallback). The returned step's client is ready for commands
+// whenever status is 0.
+fn smtp_connect(host: Vec<u8>, port: u32, local_name: Vec<u8>) -> SmtpStep {
+    let dialed = smtp_dial_plain(host, port);
+    if dialed.status != SA_STD_OK {
+        return dialed;
+    };
+    return smtp_greet(dialed.client, local_name);
+}
+
+// Connect with implicit TLS under a tls_client configuration object
+// (sa_std_tls_client_config_*; config 0 = the runtime default),
+// check the greeting, and EHLO. This is the supported encrypted
+// path until a stream-fd accessor makes STARTTLS possible (see the
+// file header).
+fn smtp_connect_tls(host: Vec<u8>, port: u32, config: u64, local_name: Vec<u8>) -> SmtpStep {
+    if (len(host) as u64) > SA_SMTP_MAX_HOST {
+        return smtp_step(smtp_empty_client(), SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let arr: [u8; 512] = [0u8; 512];
+    let hsl: Slice<u8> = VEC_AS_SLICE(host);
+    let hn: u64 = len(host) as u64;
+    let i: u64 = 0;
+    while i < hn {
+        arr[i] = smtp_slice_byte(&hsl, i);
+        i = i + 1;
+    }
+    let host_ptr: ptr = PTR_BYTE_ADD(&arr, 0);
+    let handle: u64 = 0;
+    let st: i32 = sa_std_tls_client_connect_config(host_ptr, hn, port, config, &handle);
+    if st != SA_STD_OK {
+        return smtp_step(smtp_empty_client(), st);
+    };
+    let client = smtp_empty_client();
+    client.handle = handle;
+    client.tls = true;
+    client.open = true;
+    let greeting = smtp_read_reply(client);
+    if greeting.status != SA_STD_OK {
+        return greeting;
+    };
+    let checked = smtp_checked(greeting.client, 220);
+    if checked.status != SA_STD_OK {
+        return checked;
+    };
+    return smtp_greet(checked.client, local_name);
+}
+
+// Re-issue EHLO (e.g. after a future STARTTLS upgrade) and refresh
+// the stored extension list.
+fn smtp_client_ehlo(c: SmtpClient, local_name: Vec<u8>) -> SmtpStep {
+    return smtp_greet(c, local_name);
+}
+
+// True when an EHLO extension list (the reply text after its
+// first line, lines joined with '\n') names the given extension:
+// case-insensitive; the name is the token before the first space
+// or '=' on any line.
+fn smtp_extensions_contain(extensions: &Vec<u8>, name: &Slice<u8>) -> bool {
+    let esl: Slice<u8> = VEC_AS_SLICE(extensions);
+    let en: u64 = len(extensions) as u64;
+    let name_len: u64 = smtp_slice_len(name);
+    let line_begin: u64 = 0;
+    let i: u64 = 0;
+    while i <= en {
+        let at_line_end: bool = false;
+        if i == en {
+            at_line_end = true;
+        } else {
+            if smtp_slice_byte(&esl, i) == 10 {
+                at_line_end = true;
+            };
+        };
+        if at_line_end {
+            // Token = esl[line_begin..tok_end], tok_end at the first
+            // space or '=' inside the line, else the line end.
+            let tok_end: u64 = i;
+            let j: u64 = line_begin;
+            let found_sep: bool = false;
+            while j < i && found_sep == false {
+                let b: u8 = smtp_slice_byte(&esl, j);
+                if b == 32 || b == 61 {
+                    tok_end = j;
+                    found_sep = true;
+                } else {
+                    j = j + 1;
+                };
+            }
+            if tok_end - line_begin == name_len {
+                let eq: bool = true;
+                let k: u64 = 0;
+                while k < name_len {
+                    let x: u8 = smtp_slice_byte(&esl, line_begin + k);
+                    let y: u8 = smtp_slice_byte(name, k);
+                    let xf: u8 = x;
+                    if xf >= 65 && xf <= 90 {
+                        xf = xf + 32;
+                    };
+                    let yf: u8 = y;
+                    if yf >= 65 && yf <= 90 {
+                        yf = yf + 32;
+                    };
+                    if xf != yf {
+                        eq = false;
+                    };
+                    k = k + 1;
+                }
+                if eq {
+                    return true;
+                };
+            };
+            line_begin = i + 1;
+        };
+        i = i + 1;
+    }
+    return false;
+}
+
+// True when the client's stored EHLO extensions name the given
+// extension (see smtp_extensions_contain).
+fn smtp_client_has_extension(c: &SmtpClient, name: &Slice<u8>) -> bool {
+    return smtp_extensions_contain(&c.extensions, name);
+}
+
+// AUTH PLAIN with the initial-response form: one line carrying
+// base64(authzid NUL user NUL password) with an empty authzid.
+// Expects 235.
+fn smtp_client_auth_plain(c: SmtpClient, user: Vec<u8>, pass: Vec<u8>) -> SmtpStep {
+    let payload: Vec<u8> = Vec::new();
+    payload.push(0);
+    let usl: Slice<u8> = VEC_AS_SLICE(user);
+    payload = smtp_push_slice(payload, &usl, 0, len(user) as u64);
+    payload.push(0);
+    let psl: Slice<u8> = VEC_AS_SLICE(pass);
+    payload = smtp_push_slice(payload, &psl, 0, len(pass) as u64);
+    let encoded = smtp_base64_encode(payload);
+    let line = smtp_command_bytes(STR_PTR("AUTH PLAIN "), STR_LEN("AUTH PLAIN "), encoded);
+    return smtp_command(c, line, 235);
+}
+
+// AUTH LOGIN: the two-step base64 exchange. The 334 prompt texts
+// are not interpreted (they are conventionally base64 "Username:" /
+// "Password:"). Expects 235 at the end.
+fn smtp_client_auth_login(c: SmtpClient, user: Vec<u8>, pass: Vec<u8>) -> SmtpStep {
+    let step1 = smtp_command(c, smtp_text(STR_PTR("AUTH LOGIN"), STR_LEN("AUTH LOGIN")), 334);
+    if step1.status != SA_STD_OK {
+        return step1;
+    };
+    let user_line = smtp_base64_encode(user);
+    let step2 = smtp_command(step1.client, user_line, 334);
+    if step2.status != SA_STD_OK {
+        return step2;
+    };
+    let pass_line = smtp_base64_encode(pass);
+    return smtp_command(step2.client, pass_line, 235);
+}
+
+// MAIL FROM:<reverse-path>. Expects 250.
+fn smtp_client_mail_from(c: SmtpClient, reverse_path: Vec<u8>) -> SmtpStep {
+    let inner: Vec<u8> = Vec::new();
+    inner = smtp_push_lit(inner, STR_PTR("<"), STR_LEN("<"));
+    let sl: Slice<u8> = VEC_AS_SLICE(reverse_path);
+    inner = smtp_push_slice(inner, &sl, 0, len(reverse_path) as u64);
+    inner = smtp_push_lit(inner, STR_PTR(">"), STR_LEN(">"));
+    let line = smtp_command_bytes(STR_PTR("MAIL FROM:"), STR_LEN("MAIL FROM:"), inner);
+    return smtp_command(c, line, 250);
+}
+
+// RCPT TO:<forward-path>. Expects 250 (or 251, "user not local,
+// will forward", which RFC 5321 treats as success for RCPT).
+fn smtp_client_rcpt_to(c: SmtpClient, forward_path: Vec<u8>) -> SmtpStep {
+    let inner: Vec<u8> = Vec::new();
+    inner = smtp_push_lit(inner, STR_PTR("<"), STR_LEN("<"));
+    let sl: Slice<u8> = VEC_AS_SLICE(forward_path);
+    inner = smtp_push_slice(inner, &sl, 0, len(forward_path) as u64);
+    inner = smtp_push_lit(inner, STR_PTR(">"), STR_LEN(">"));
+    let line = smtp_command_bytes(STR_PTR("RCPT TO:"), STR_LEN("RCPT TO:"), inner);
+    let sent = smtp_send_line(c, line);
+    if sent.status != SA_STD_OK {
+        return sent;
+    };
+    let rd = smtp_read_reply(sent.client);
+    if rd.status != SA_STD_OK {
+        return rd;
+    };
+    if rd.client.last_reply_code == 251 {
+        return smtp_step(rd.client, SA_STD_OK);
+    };
+    return smtp_checked(rd.client, 250);
+}
+
+// DATA: send the command (expect 354), then the dot-stuffed,
+// CRLF-normalised payload and the "." terminator (expect 250).
+fn smtp_client_data(c: SmtpClient, message: Vec<u8>) -> SmtpStep {
+    let step1 = smtp_command(c, smtp_text(STR_PTR("DATA"), STR_LEN("DATA")), 354);
+    if step1.status != SA_STD_OK {
+        return step1;
+    };
+    let payload = smtp_dot_stuff(message);
+    let wst: i32 = smtp_transport_write_all(step1.client.handle, step1.client.tls, payload);
+    if wst != SA_STD_OK {
+        return smtp_step(step1.client, wst);
+    };
+    let term = smtp_send_line(step1.client, smtp_text(STR_PTR("."), STR_LEN(".")));
+    if term.status != SA_STD_OK {
+        return term;
+    };
+    let rd = smtp_read_reply(term.client);
+    if rd.status != SA_STD_OK {
+        return rd;
+    };
+    return smtp_checked(rd.client, 250);
+}
+
+// RSET: abort the current mail transaction. Expects 250.
+fn smtp_client_rset(c: SmtpClient) -> SmtpStep {
+    return smtp_command(c, smtp_text(STR_PTR("RSET"), STR_LEN("RSET")), 250);
+}
+
+// NOOP: do nothing, successfully. Expects 250.
+fn smtp_client_noop(c: SmtpClient) -> SmtpStep {
+    return smtp_command(c, smtp_text(STR_PTR("NOOP"), STR_LEN("NOOP")), 250);
+}
+
+// QUIT: ask for 221, then close the transport regardless of the
+// outcome. The returned step reports the QUIT exchange's status;
+// the client is closed either way (open == false).
+fn smtp_client_quit(c: SmtpClient) -> SmtpStep {
+    let step = smtp_command(c, smtp_text(STR_PTR("QUIT"), STR_LEN("QUIT")), 221);
+    let client: SmtpClient = step.client;
+    if client.open {
+        let cl: i32 = smtp_transport_close(client.handle, client.tls);
+        client.open = false;
+        client.handle = 0;
+    };
+    return smtp_step(client, step.status);
+}
+
+// Close the transport without a QUIT exchange. Consumes the
+// client; closing an already-closed client is a no-op success.
+fn smtp_client_close(c: SmtpClient) -> i32 {
+    if c.open == false {
+        return SA_STD_OK;
+    };
+    return smtp_transport_close(c.handle, c.tls);
+}

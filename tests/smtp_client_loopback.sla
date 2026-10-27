@@ -1,0 +1,105 @@
+// Loopback client tests for sa_std/smtp.sla's live client, run
+// against the fixed-behaviour stub in tests/smtp_loopback_stub.py
+// (TCP 127.0.0.1:25256). Use tests/run_smtp_loopback_tests.sh, which
+// starts the stub, runs this file, verifies the DATA capture the
+// stub recorded, and stops the stub. No public network is involved.
+
+@import "sa_std/smtp.sla"
+@import "sa_std/string.sa"
+@import "sa_std/ptr.sa"
+
+fn tb(text: ptr, text_len: u64) -> Vec<u8> {
+    let arr: [u8; 4096] = [0u8; 4096];
+    let dst: ptr = PTR_BYTE_ADD(&arr, 0);
+    PTR_COPY_BYTES(dst, text, text_len);
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < text_len {
+        out.push(arr[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn name_slice(v: &Vec<u8>) -> Slice<u8> {
+    let sl: Slice<u8> = VEC_AS_SLICE(v);
+    return sl;
+}
+
+@test "full smtp session against stub"() {
+    let host = tb(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"));
+    let local = tb(STR_PTR("tester"), STR_LEN("tester"));
+    let step = smtp_connect(host, 25256, local);
+    if step.status != 0 { panic(701); };
+    let client: SmtpClient = step.client;
+    if client.open == false { panic(702); };
+    let auth_name = tb(STR_PTR("AUTH"), STR_LEN("AUTH"));
+    let auth_sl: Slice<u8> = name_slice(&auth_name);
+    if smtp_client_has_extension(&client, &auth_sl) == false { panic(703); };
+    let size_name = tb(STR_PTR("SIZE"), STR_LEN("SIZE"));
+    let size_sl: Slice<u8> = name_slice(&size_name);
+    if smtp_client_has_extension(&client, &size_sl) == false { panic(704); };
+    let tls_name = tb(STR_PTR("STARTTLS"), STR_LEN("STARTTLS"));
+    let tls_sl: Slice<u8> = name_slice(&tls_name);
+    if smtp_client_has_extension(&client, &tls_sl) { panic(705); };
+
+    // Failed AUTH PLAIN: the step status must carry the 535.
+    let user = tb(STR_PTR("alice"), STR_LEN("alice"));
+    let wrong = tb(STR_PTR("wrongpass"), STR_LEN("wrongpass"));
+    let bad = smtp_client_auth_plain(client, user, wrong);
+    if bad.status != -1535 { panic(706); };
+    if smtp_status_reply_code(bad.status) != 535 { panic(716); };
+    client = bad.client;
+
+    let user2 = tb(STR_PTR("alice"), STR_LEN("alice"));
+    let secret = tb(STR_PTR("secret"), STR_LEN("secret"));
+    let good = smtp_client_auth_plain(client, user2, secret);
+    if good.status != 0 { panic(707); };
+    client = good.client;
+
+    let user3 = tb(STR_PTR("alice"), STR_LEN("alice"));
+    let secret3 = tb(STR_PTR("secret"), STR_LEN("secret"));
+    let login = smtp_client_auth_login(client, user3, secret3);
+    if login.status != 0 { panic(708); };
+    client = login.client;
+
+    let from = tb(STR_PTR("alice@example.com"), STR_LEN("alice@example.com"));
+    let mail = smtp_client_mail_from(client, from);
+    if mail.status != 0 { panic(709); };
+    client = mail.client;
+
+    let to = tb(STR_PTR("bob@example.net"), STR_LEN("bob@example.net"));
+    let rcpt = smtp_client_rcpt_to(client, to);
+    if rcpt.status != 0 { panic(710); };
+    client = rcpt.client;
+
+    let message = tb(STR_PTR("Subject: hi\n\nBody line\n.dotted\nlast"), STR_LEN("Subject: hi\n\nBody line\n.dotted\nlast"));
+    let data = smtp_client_data(client, message);
+    if data.status != 0 { panic(711); };
+    client = data.client;
+
+    let rset = smtp_client_rset(client);
+    if rset.status != 0 { panic(712); };
+    client = rset.client;
+
+    let noop = smtp_client_noop(client);
+    if noop.status != 0 { panic(713); };
+    client = noop.client;
+
+    let quit = smtp_client_quit(client);
+    if quit.status != 0 { panic(714); };
+    if quit.client.open { panic(715); };
+}
+
+@test "helo fallback when ehlo is refused"() {
+    let host = tb(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"));
+    let local = tb(STR_PTR("heloonly"), STR_LEN("heloonly"));
+    let step = smtp_connect(host, 25256, local);
+    if step.status != 0 { panic(721); };
+    let client: SmtpClient = step.client;
+    let auth_name = tb(STR_PTR("AUTH"), STR_LEN("AUTH"));
+    let auth_sl: Slice<u8> = name_slice(&auth_name);
+    if smtp_client_has_extension(&client, &auth_sl) { panic(722); };
+    let quit = smtp_client_quit(client);
+    if quit.status != 0 { panic(723); };
+}

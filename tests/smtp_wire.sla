@@ -1,0 +1,255 @@
+// Wire-level tests for sa_std/smtp.sla: the streaming reply reader,
+// dot-stuffing / CRLF normalisation, the base64 encoder (RFC 4648
+// vectors), the reply-status encoding, and EHLO extension probing.
+// No sockets are opened here; the live client is locked separately
+// by tests/smtp_client_loopback.sla against a local stub. On a tree
+// without smtp.sla this file cannot compile, which is what makes it
+// a regression test.
+//
+// Run from the sa_plugin_sla repo root with SA_PLUGIN_DEV=1 and
+// SA_STD_DIR pointed at this sci tree's sa_std:
+//   sa test <sci>/tests/smtp_wire.sla
+
+@import "sa_std/smtp.sla"
+@import "sa_std/string.sa"
+@import "sa_std/ptr.sa"
+
+fn tb(text: ptr, text_len: u64) -> Vec<u8> {
+    let arr: [u8; 8192] = [0u8; 8192];
+    let dst: ptr = PTR_BYTE_ADD(&arr, 0);
+    PTR_COPY_BYTES(dst, text, text_len);
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < text_len {
+        out.push(arr[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn bytes_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
+    let n: u64 = len(a) as u64;
+    if n != (len(b) as u64) {
+        return false;
+    };
+    let sa: Slice<u8> = VEC_AS_SLICE(a);
+    let sb: Slice<u8> = VEC_AS_SLICE(b);
+    let i: u64 = 0;
+    while i < n {
+        let x: u8 = 0;
+        SLICE_GET(x, sa, i);
+        let y: u8 = 0;
+        SLICE_GET(y, sb, i);
+        if x != y {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+// Feed bytes into a reader one byte at a time.
+fn feed_bytewise(r: SmtpReplyReader, bytes: Vec<u8>) -> SmtpReplyReader {
+    let sl: Slice<u8> = VEC_AS_SLICE(bytes);
+    let n: u64 = len(bytes) as u64;
+    let i: u64 = 0;
+    while i < n {
+        let one: Vec<u8> = Vec::new();
+        let b: u8 = 0;
+        SLICE_GET(b, sl, i);
+        one.push(b);
+        r = smtp_reply_reader_feed(r, one);
+        i = i + 1;
+    }
+    return r;
+}
+
+@test "reader single line reply"() {
+    let r = smtp_reply_reader_new();
+    r = smtp_reply_reader_feed(r, tb(STR_PTR("250 OK\r\n"), STR_LEN("250 OK\r\n")));
+    let rd = smtp_reply_reader_next(r);
+    if rd.status != 0 { panic(401); };
+    if rd.ready == false { panic(402); };
+    if rd.reply_code != 250 { panic(403); };
+    if bytes_eq(rd.reply_text, tb(STR_PTR("OK"), STR_LEN("OK"))) == false { panic(404); };
+}
+
+@test "reader multiline reply"() {
+    let r = smtp_reply_reader_new();
+    r = smtp_reply_reader_feed(r, tb(STR_PTR("250-stub.example\r\n250-AUTH PLAIN\r\n250 SIZE 1024\r\n"), STR_LEN("250-stub.example\r\n250-AUTH PLAIN\r\n250 SIZE 1024\r\n")));
+    let rd = smtp_reply_reader_next(r);
+    if rd.ready == false { panic(411); };
+    if rd.reply_code != 250 { panic(412); };
+    if bytes_eq(rd.reply_text, tb(STR_PTR("stub.example\nAUTH PLAIN\nSIZE 1024"), STR_LEN("stub.example\nAUTH PLAIN\nSIZE 1024"))) == false { panic(413); };
+}
+
+@test "reader byte by byte feed"() {
+    let r = smtp_reply_reader_new();
+    r = feed_bytewise(r, tb(STR_PTR("220 ready\r\n"), STR_LEN("220 ready\r\n")));
+    let rd = smtp_reply_reader_next(r);
+    if rd.ready == false { panic(421); };
+    if rd.reply_code != 220 { panic(422); };
+    if bytes_eq(rd.reply_text, tb(STR_PTR("ready"), STR_LEN("ready"))) == false { panic(423); };
+}
+
+@test "reader two buffered replies"() {
+    let r = smtp_reply_reader_new();
+    r = smtp_reply_reader_feed(r, tb(STR_PTR("250 OK\r\n221 Bye\r\n"), STR_LEN("250 OK\r\n221 Bye\r\n")));
+    let rd1 = smtp_reply_reader_next(r);
+    if rd1.ready == false { panic(431); };
+    if rd1.reply_code != 250 { panic(432); };
+    let rd2 = smtp_reply_reader_next(rd1.reader);
+    if rd2.ready == false { panic(433); };
+    if rd2.reply_code != 221 { panic(434); };
+    if bytes_eq(rd2.reply_text, tb(STR_PTR("Bye"), STR_LEN("Bye"))) == false { panic(435); };
+    let rd3 = smtp_reply_reader_next(rd2.reader);
+    if rd3.ready { panic(436); };
+    if rd3.status != 0 { panic(437); };
+}
+
+@test "reader incomplete then completed"() {
+    let r = smtp_reply_reader_new();
+    r = smtp_reply_reader_feed(r, tb(STR_PTR("250-"), STR_LEN("250-")));
+    let rd0 = smtp_reply_reader_next(r);
+    if rd0.ready { panic(441); };
+    if rd0.status != 0 { panic(442); };
+    r = smtp_reply_reader_feed(rd0.reader, tb(STR_PTR("x\r\n250 done\r\n"), STR_LEN("x\r\n250 done\r\n")));
+    let rd = smtp_reply_reader_next(r);
+    if rd.ready == false { panic(443); };
+    if rd.reply_code != 250 { panic(444); };
+    if bytes_eq(rd.reply_text, tb(STR_PTR("x\ndone"), STR_LEN("x\ndone"))) == false { panic(445); };
+}
+
+@test "reader bare code reply"() {
+    let r = smtp_reply_reader_new();
+    r = smtp_reply_reader_feed(r, tb(STR_PTR("250\r\n"), STR_LEN("250\r\n")));
+    let rd = smtp_reply_reader_next(r);
+    if rd.ready == false { panic(451); };
+    if rd.reply_code != 250 { panic(452); };
+    if (len(rd.reply_text) as u64) != 0 { panic(453); };
+}
+
+@test "reader rejects malformed replies"() {
+    let r = smtp_reply_reader_new();
+    r = smtp_reply_reader_feed(r, tb(STR_PTR("2X0 bad\r\n"), STR_LEN("2X0 bad\r\n")));
+    let rd = smtp_reply_reader_next(r);
+    if rd.status != SA_STD_ERR_NET { panic(461); };
+    if rd.ready { panic(462); };
+    let r2 = smtp_reply_reader_new();
+    r2 = smtp_reply_reader_feed(r2, tb(STR_PTR("250-a\r\n251 b\r\n"), STR_LEN("250-a\r\n251 b\r\n")));
+    let rd2 = smtp_reply_reader_next(r2);
+    if rd2.status != SA_STD_ERR_NET { panic(463); };
+    // A bad separator is malformed too.
+    let r3 = smtp_reply_reader_new();
+    r3 = smtp_reply_reader_feed(r3, tb(STR_PTR("250xok\r\n"), STR_LEN("250xok\r\n")));
+    let rd3 = smtp_reply_reader_next(r3);
+    if rd3.status != SA_STD_ERR_NET { panic(464); };
+}
+
+@test "reader rejects overlong line"() {
+    let big: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < 9000 {
+        big.push(97);
+        i = i + 1;
+    }
+    big.push(13);
+    big.push(10);
+    let r = smtp_reply_reader_new();
+    r = smtp_reply_reader_feed(r, big);
+    let rd = smtp_reply_reader_next(r);
+    if rd.status != SA_STD_ERR_NET { panic(471); };
+}
+
+@test "dot stuff normalises lf and appends crlf"() {
+    let out = smtp_dot_stuff(tb(STR_PTR("line1\nline2\n"), STR_LEN("line1\nline2\n")));
+    if bytes_eq(out, tb(STR_PTR("line1\r\nline2\r\n"), STR_LEN("line1\r\nline2\r\n"))) == false { panic(501); };
+    let out2 = smtp_dot_stuff(tb(STR_PTR("a\rb"), STR_LEN("a\rb")));
+    if bytes_eq(out2, tb(STR_PTR("a\r\nb\r\n"), STR_LEN("a\r\nb\r\n"))) == false { panic(502); };
+    let out3 = smtp_dot_stuff(tb(STR_PTR("a\r\nb"), STR_LEN("a\r\nb")));
+    if bytes_eq(out3, tb(STR_PTR("a\r\nb\r\n"), STR_LEN("a\r\nb\r\n"))) == false { panic(503); };
+}
+
+@test "dot stuff doubles leading dots"() {
+    let out = smtp_dot_stuff(tb(STR_PTR(".dot\n..dots\nend"), STR_LEN(".dot\n..dots\nend")));
+    if bytes_eq(out, tb(STR_PTR("..dot\r\n...dots\r\nend\r\n"), STR_LEN("..dot\r\n...dots\r\nend\r\n"))) == false { panic(511); };
+    let out2 = smtp_dot_stuff(tb(STR_PTR(".\n"), STR_LEN(".\n")));
+    if bytes_eq(out2, tb(STR_PTR("..\r\n"), STR_LEN("..\r\n"))) == false { panic(512); };
+    // A dot that is not at a line start is left alone.
+    let out3 = smtp_dot_stuff(tb(STR_PTR("a.b\n"), STR_LEN("a.b\n")));
+    if bytes_eq(out3, tb(STR_PTR("a.b\r\n"), STR_LEN("a.b\r\n"))) == false { panic(513); };
+}
+
+@test "dot stuff empty message"() {
+    let empty: Vec<u8> = Vec::new();
+    let out = smtp_dot_stuff(empty);
+    if (len(out) as u64) != 0 { panic(521); };
+}
+
+@test "base64 rfc 4648 vectors"() {
+    if bytes_eq(smtp_base64_encode(tb(STR_PTR(""), STR_LEN(""))), tb(STR_PTR(""), STR_LEN(""))) == false { panic(531); };
+    if bytes_eq(smtp_base64_encode(tb(STR_PTR("f"), STR_LEN("f"))), tb(STR_PTR("Zg=="), STR_LEN("Zg=="))) == false { panic(532); };
+    if bytes_eq(smtp_base64_encode(tb(STR_PTR("fo"), STR_LEN("fo"))), tb(STR_PTR("Zm8="), STR_LEN("Zm8="))) == false { panic(533); };
+    if bytes_eq(smtp_base64_encode(tb(STR_PTR("foo"), STR_LEN("foo"))), tb(STR_PTR("Zm9v"), STR_LEN("Zm9v"))) == false { panic(534); };
+    if bytes_eq(smtp_base64_encode(tb(STR_PTR("foob"), STR_LEN("foob"))), tb(STR_PTR("Zm9vYg=="), STR_LEN("Zm9vYg=="))) == false { panic(535); };
+    if bytes_eq(smtp_base64_encode(tb(STR_PTR("fooba"), STR_LEN("fooba"))), tb(STR_PTR("Zm9vYmE="), STR_LEN("Zm9vYmE="))) == false { panic(536); };
+    if bytes_eq(smtp_base64_encode(tb(STR_PTR("foobar"), STR_LEN("foobar"))), tb(STR_PTR("Zm9vYmFy"), STR_LEN("Zm9vYmFy"))) == false { panic(537); };
+}
+
+@test "base64 auth plain payload shape"() {
+    // "\0alice\0secret" -> "AGFsaWNlAHNlY3JldA=="
+    let payload: Vec<u8> = Vec::new();
+    payload.push(0);
+    let u = tb(STR_PTR("alice"), STR_LEN("alice"));
+    let usl: Slice<u8> = VEC_AS_SLICE(u);
+    let i: u64 = 0;
+    while i < 5 {
+        let b: u8 = 0;
+        SLICE_GET(b, usl, i);
+        payload.push(b);
+        i = i + 1;
+    }
+    payload.push(0);
+    let p = tb(STR_PTR("secret"), STR_LEN("secret"));
+    let psl: Slice<u8> = VEC_AS_SLICE(p);
+    let j: u64 = 0;
+    while j < 6 {
+        let b2: u8 = 0;
+        SLICE_GET(b2, psl, j);
+        payload.push(b2);
+        j = j + 1;
+    }
+    let enc = smtp_base64_encode(payload);
+    if bytes_eq(enc, tb(STR_PTR("AGFsaWNlAHNlY3JldA=="), STR_LEN("AGFsaWNlAHNlY3JldA=="))) == false { panic(541); };
+}
+
+@test "status encoding round trip"() {
+    if smtp_status_for_reply(535) != -1535 { panic(551); };
+    if smtp_status_reply_code(-1535) != 535 { panic(552); };
+    if smtp_status_reply_code(0) != 0 { panic(553); };
+    if smtp_status_reply_code(SA_STD_ERR_NET) != 0 { panic(554); };
+    if smtp_status_reply_code(-999) != 0 { panic(555); };
+}
+
+@test "extension probing"() {
+    let ext = tb(STR_PTR("AUTH PLAIN LOGIN\nSIZE 409600\nAUTH=LOGIN\nXLOCAL"), STR_LEN("AUTH PLAIN LOGIN\nSIZE 409600\nAUTH=LOGIN\nXLOCAL"));
+    let name_auth = tb(STR_PTR("auth"), STR_LEN("auth"));
+    let asl: Slice<u8> = VEC_AS_SLICE(name_auth);
+    if smtp_extensions_contain(&ext, &asl) == false { panic(561); };
+    let name_size = tb(STR_PTR("SIZE"), STR_LEN("SIZE"));
+    let ssl: Slice<u8> = VEC_AS_SLICE(name_size);
+    if smtp_extensions_contain(&ext, &ssl) == false { panic(562); };
+    let name_tls = tb(STR_PTR("STARTTLS"), STR_LEN("STARTTLS"));
+    let tsl: Slice<u8> = VEC_AS_SLICE(name_tls);
+    if smtp_extensions_contain(&ext, &tsl) { panic(563); };
+    let name_x = tb(STR_PTR("XLOCAL"), STR_LEN("XLOCAL"));
+    let xsl: Slice<u8> = VEC_AS_SLICE(name_x);
+    if smtp_extensions_contain(&ext, &xsl) == false { panic(564); };
+    // "AUTH" must also match via the AUTH=LOGIN line on its own.
+    let ext2 = tb(STR_PTR("AUTH=PLAIN"), STR_LEN("AUTH=PLAIN"));
+    if smtp_extensions_contain(&ext2, &asl) == false { panic(565); };
+    // A name that is only a prefix of a token must not match.
+    let name_au = tb(STR_PTR("AU"), STR_LEN("AU"));
+    let ausl: Slice<u8> = VEC_AS_SLICE(name_au);
+    if smtp_extensions_contain(&ext, &ausl) { panic(566); };
+}
