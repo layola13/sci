@@ -31,3 +31,73 @@
 [MACRO] TLS_CLIENT_BUFFER_FREE %out_status, %buffer
     %out_status = call @sa_std_tls_client_buffer_free(^%buffer)
 [END_MACRO]
+
+// ---- configuration object ----
+
+[MACRO] TLS_CLIENT_CONFIG_NEW %out_status, %out_config
+    __tls_cli_cfg_%out_status = stack_alloc 8
+    %out_status = call @sa_std_tls_client_config_new(&__tls_cli_cfg_%out_status)
+    %out_config = load __tls_cli_cfg_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] TLS_CLIENT_CONFIG_FREE %out_status, %config
+    %out_status = call @sa_std_tls_client_config_free(%config)
+[END_MACRO]
+
+[MACRO] TLS_CLIENT_CONFIG_SET_SERVER_NAME %out_status, %config, %name, %name_len
+    %out_status = call @sa_std_tls_client_config_set_server_name(%config, &%name, %name_len)
+[END_MACRO]
+
+[MACRO] TLS_CLIENT_CONFIG_ADD_CA_FILE %out_status, %config, %path, %path_len
+    %out_status = call @sa_std_tls_client_config_add_ca_file(%config, &%path, %path_len)
+[END_MACRO]
+
+[MACRO] TLS_CLIENT_CONFIG_ADD_CA_MEMORY %out_status, %config, %pem, %pem_len
+    %out_status = call @sa_std_tls_client_config_add_ca_memory(%config, &%pem, %pem_len)
+[END_MACRO]
+
+[MACRO] TLS_CLIENT_CONFIG_SET_INSECURE_NO_VERIFICATION %out_status, %config, %enabled
+    %out_status = call @sa_std_tls_client_config_set_insecure_no_verification(%config, %enabled)
+[END_MACRO]
+
+[MACRO] TLS_CLIENT_CONFIG_SET_VERIFY_SELF_SIGNED %out_status, %config, %enabled
+    %out_status = call @sa_std_tls_client_config_set_verify_self_signed(%config, %enabled)
+[END_MACRO]
+
+[MACRO] TLS_CLIENT_CONNECT_CONFIG %out_status, %out_handle, %host, %host_len, %port, %config
+    __tls_cli_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_tls_client_connect_config(&%host, %host_len, %port, %config, &__tls_cli_handle_%out_status)
+    %out_handle = load __tls_cli_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] TLS_CLIENT_START_TLS %out_status, %out_handle, %fd, %host, %host_len, %config
+    __tls_cli_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_tls_client_start_tls(%fd, &%host, %host_len, %config, &__tls_cli_handle_%out_status)
+    %out_handle = load __tls_cli_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] TLS_CLIENT_PEER_CERT_JSON %out_status, %out_buffer, %handle
+    __tls_cli_cert_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_tls_client_peer_cert_json(%handle, &__tls_cli_cert_handle_%out_status)
+    %out_buffer = load __tls_cli_cert_handle_%out_status+0 as u64
+[END_MACRO]
+
+// ---- shaped client additions ----
+
+[MACRO] TLS_SHAPED_START_TLS %out_status, %out_handle, %fd, %host, %host_len, %profile, %profile_len
+    __tls_shaped_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_tls_shaped_start_tls(%fd, &%host, %host_len, &%profile, %profile_len, &__tls_shaped_handle_%out_status)
+    %out_handle = load __tls_shaped_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] TLS_SHAPED_SESSION_BLOB %out_status, %out_buffer, %handle
+    __tls_shaped_blob_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_tls_shaped_session_blob(%handle, &__tls_shaped_blob_handle_%out_status)
+    %out_buffer = load __tls_shaped_blob_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] TLS_SHAPED_PEER_CERT_CHAIN_JSON %out_status, %out_buffer, %handle
+    __tls_shaped_cert_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_tls_shaped_peer_cert_chain_json(%handle, &__tls_shaped_cert_handle_%out_status)
+    %out_buffer = load __tls_shaped_cert_handle_%out_status+0 as u64
+[END_MACRO]

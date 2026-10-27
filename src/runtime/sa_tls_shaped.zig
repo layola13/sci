@@ -21,11 +21,22 @@
 // computed from those captured bytes. negotiated_json reports the
 // negotiated version/cipher/ALPN from the live SSL object.
 //
-// Trust model matches sa_tls_client.zig: verification is always on
+// Trust model matches sa_tls_client.zig: verification is on by default
 // (system trust store via SSL_CTX_set_default_verify_paths, or the
-// profile's ca_file), hostname is checked (SSL_set1_host), and
-// SSL_get_verify_result must be X509_V_OK after the handshake. There is
-// deliberately no verification-disabled path.
+// profile's ca_file / ca_pem trust anchors), the hostname is checked
+// (SSL_set1_host), and SSL_get_verify_result must be X509_V_OK after the
+// handshake. The ONLY opt-out is the profile's explicitly named
+// `insecure_skip_verify` flag, which defaults to false and is never
+// implied by any other key.
+//
+// The profile additionally covers the general config surface the census
+// specs ask for (Java SSLParameters / Python SSLContext / .NET
+// SslClientAuthenticationOptions): `sni` and `verify_host` split the
+// server name from the dial host, `cert_file`/`key_file` present a client
+// certificate, and `session` (base64 DER) resumes a session previously
+// exported with sa_std_tls_shaped_session_blob. Decoded peer certificate
+// chains are exposed via sa_std_tls_shaped_peer_cert_chain_json, and
+// sa_std_tls_shaped_start_tls upgrades an existing plaintext fd.
 //
 // Status codes follow the sci convention: 0 = SA_STD_OK, negative =
 // error; certificate failures are SA_STD_ERR_TLS_VERIFY (-100), matching
@@ -52,6 +63,12 @@ const SslCtx = opaque {};
 const Ssl = opaque {};
 const SslMethod = opaque {};
 const SslCipher = opaque {};
+const Bio = opaque {};
+const X509 = opaque {};
+const X509Store = opaque {};
+const X509Name = opaque {};
+const SslStack = opaque {};
+const SslSession = opaque {};
 
 const MsgCallback = *const fn (write_p: c_int, version: c_int, content_type: c_int, buf: ?*const anyopaque, len: usize, ssl: ?*Ssl, arg: ?*anyopaque) callconv(.c) void;
 
@@ -86,6 +103,28 @@ const SslApi = struct {
     get_current_cipher: *const fn (?*const Ssl) callconv(.c) ?*const SslCipher,
     cipher_get_name: *const fn (?*const SslCipher) callconv(.c) [*:0]const u8,
     get_alpn_selected: *const fn (?*const Ssl, *?[*]const u8, *c_uint) callconv(.c) void,
+    bio_new_mem_buf: *const fn ([*]const u8, c_int) callconv(.c) ?*Bio,
+    bio_free: *const fn (?*Bio) callconv(.c) c_int,
+    pem_read_bio_x509: *const fn (?*Bio, ?*?*X509, ?*const anyopaque, ?*anyopaque) callconv(.c) ?*X509,
+    x509_store_add_cert: *const fn (?*X509Store, ?*X509) callconv(.c) c_int,
+    ctx_get_cert_store: *const fn (?*const SslCtx) callconv(.c) ?*X509Store,
+    x509_free: *const fn (?*X509) callconv(.c) void,
+    get_peer_cert_chain: *const fn (?*const Ssl) callconv(.c) ?*SslStack,
+    sk_num: *const fn (?*const SslStack) callconv(.c) c_int,
+    sk_value: *const fn (?*const SslStack, c_int) callconv(.c) ?*anyopaque,
+    i2d_x509: *const fn (?*X509, ?*?[*]u8) callconv(.c) c_int,
+    x509_get_subject_name: *const fn (?*const X509) callconv(.c) ?*X509Name,
+    x509_get_issuer_name: *const fn (?*const X509) callconv(.c) ?*X509Name,
+    x509_name_oneline: *const fn (?*const X509Name, ?[*]u8, c_int) callconv(.c) ?[*:0]u8,
+    get1_session: *const fn (?*const Ssl) callconv(.c) ?*SslSession,
+    set_session: *const fn (?*Ssl, ?*SslSession) callconv(.c) c_int,
+    d2i_session: *const fn (?*?*SslSession, *?[*]const u8, c_long) callconv(.c) ?*SslSession,
+    i2d_session: *const fn (?*SslSession, ?*?[*]u8) callconv(.c) c_int,
+    session_free: *const fn (?*SslSession) callconv(.c) void,
+    session_reused: *const fn (?*const Ssl) callconv(.c) c_int,
+    ctx_use_cert_chain_file: *const fn (?*SslCtx, [*:0]const u8) callconv(.c) c_int,
+    ctx_use_key_file: *const fn (?*SslCtx, [*:0]const u8, c_int) callconv(.c) c_int,
+    ctx_check_private_key: *const fn (?*const SslCtx) callconv(.c) c_int,
 };
 
 var ssl_api: ?SslApi = null;
@@ -150,7 +189,29 @@ fn loadSslApiNative() ?*SslApi {
         .get_version = l.lookup(*const fn (?*const Ssl) callconv(.c) [*:0]const u8, "SSL_get_version") orelse return null,
         .get_current_cipher = l.lookup(*const fn (?*const Ssl) callconv(.c) ?*const SslCipher, "SSL_get_current_cipher") orelse return null,
         .cipher_get_name = l.lookup(*const fn (?*const SslCipher) callconv(.c) [*:0]const u8, "SSL_CIPHER_get_name") orelse return null,
-        .get_alpn_selected = l.lookup(*const fn (?*const Ssl, *?[*]const u8, *c_uint) callconv(.c) void, "SSL_get_alpn_selected") orelse return null,
+        .get_alpn_selected = l.lookup(*const fn (?*const Ssl, *?[*]const u8, *c_uint) callconv(.c) void, "SSL_get0_alpn_selected") orelse return null,
+        .bio_new_mem_buf = l.lookup(*const fn ([*]const u8, c_int) callconv(.c) ?*Bio, "BIO_new_mem_buf") orelse return null,
+        .bio_free = l.lookup(*const fn (?*Bio) callconv(.c) c_int, "BIO_free") orelse return null,
+        .pem_read_bio_x509 = l.lookup(*const fn (?*Bio, ?*?*X509, ?*const anyopaque, ?*anyopaque) callconv(.c) ?*X509, "PEM_read_bio_X509") orelse return null,
+        .x509_store_add_cert = l.lookup(*const fn (?*X509Store, ?*X509) callconv(.c) c_int, "X509_STORE_add_cert") orelse return null,
+        .ctx_get_cert_store = l.lookup(*const fn (?*const SslCtx) callconv(.c) ?*X509Store, "SSL_CTX_get_cert_store") orelse return null,
+        .x509_free = l.lookup(*const fn (?*X509) callconv(.c) void, "X509_free") orelse return null,
+        .get_peer_cert_chain = l.lookup(*const fn (?*const Ssl) callconv(.c) ?*SslStack, "SSL_get_peer_cert_chain") orelse return null,
+        .sk_num = l.lookup(*const fn (?*const SslStack) callconv(.c) c_int, "OPENSSL_sk_num") orelse return null,
+        .sk_value = l.lookup(*const fn (?*const SslStack, c_int) callconv(.c) ?*anyopaque, "OPENSSL_sk_value") orelse return null,
+        .i2d_x509 = l.lookup(*const fn (?*X509, ?*?[*]u8) callconv(.c) c_int, "i2d_X509") orelse return null,
+        .x509_get_subject_name = l.lookup(*const fn (?*const X509) callconv(.c) ?*X509Name, "X509_get_subject_name") orelse return null,
+        .x509_get_issuer_name = l.lookup(*const fn (?*const X509) callconv(.c) ?*X509Name, "X509_get_issuer_name") orelse return null,
+        .x509_name_oneline = l.lookup(*const fn (?*const X509Name, ?[*]u8, c_int) callconv(.c) ?[*:0]u8, "X509_NAME_oneline") orelse return null,
+        .get1_session = l.lookup(*const fn (?*const Ssl) callconv(.c) ?*SslSession, "SSL_get1_session") orelse return null,
+        .set_session = l.lookup(*const fn (?*Ssl, ?*SslSession) callconv(.c) c_int, "SSL_set_session") orelse return null,
+        .d2i_session = l.lookup(*const fn (?*?*SslSession, *?[*]const u8, c_long) callconv(.c) ?*SslSession, "d2i_SSL_SESSION") orelse return null,
+        .i2d_session = l.lookup(*const fn (?*SslSession, ?*?[*]u8) callconv(.c) c_int, "i2d_SSL_SESSION") orelse return null,
+        .session_free = l.lookup(*const fn (?*SslSession) callconv(.c) void, "SSL_SESSION_free") orelse return null,
+        .session_reused = l.lookup(*const fn (?*const Ssl) callconv(.c) c_int, "SSL_session_reused") orelse return null,
+        .ctx_use_cert_chain_file = l.lookup(*const fn (?*SslCtx, [*:0]const u8) callconv(.c) c_int, "SSL_CTX_use_certificate_chain_file") orelse return null,
+        .ctx_use_key_file = l.lookup(*const fn (?*SslCtx, [*:0]const u8, c_int) callconv(.c) c_int, "SSL_CTX_use_PrivateKey_file") orelse return null,
+        .ctx_check_private_key = l.lookup(*const fn (?*const SslCtx) callconv(.c) c_int, "SSL_CTX_check_private_key") orelse return null,
     };
     ssl_api = api;
     return &ssl_api.?;
@@ -162,6 +223,7 @@ const SSL_CTRL_SET_TLSEXT_HOSTNAME: c_int = 55;
 const SSL_CTRL_SET_MIN_PROTO_VERSION: c_int = 123;
 const SSL_CTRL_SET_MAX_PROTO_VERSION: c_int = 124;
 const SSL_VERIFY_PEER: c_int = 0x01;
+const SSL_FILETYPE_PEM: c_int = 1;
 const SSL_ERROR_ZERO_RETURN: c_int = 6;
 
 // ---- profiles ---------------------------------------------------------------
@@ -176,6 +238,13 @@ const Profile = struct {
     min_version: ?[]const u8 = null,
     max_version: ?[]const u8 = null,
     ca_file: ?[]const u8 = null,
+    ca_pem: ?[]const u8 = null,
+    sni: ?[]const u8 = null,
+    verify_host: ?[]const u8 = null,
+    cert_file: ?[]const u8 = null,
+    key_file: ?[]const u8 = null,
+    insecure_skip_verify: bool = false,
+    session: ?[]const u8 = null,
     grease: bool = false,
 };
 
@@ -188,6 +257,13 @@ const Effective = struct {
     min_version: ?[]const u8 = null,
     max_version: ?[]const u8 = null,
     ca_file: ?[]const u8 = null,
+    ca_pem: ?[]const u8 = null,
+    sni: ?[]const u8 = null,
+    verify_host: ?[]const u8 = null,
+    cert_file: ?[]const u8 = null,
+    key_file: ?[]const u8 = null,
+    insecure_skip_verify: bool = false,
+    session_der: ?[]const u8 = null,
 };
 
 const TLS13_SUITES = "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256";
@@ -267,6 +343,30 @@ fn effectiveFromProfile(p: *const Profile) ResolveResult {
         eff.max_version = v;
     }
     if (p.ca_file) |v| eff.ca_file = v;
+    if (p.ca_pem) |v| eff.ca_pem = v;
+    if (eff.ca_file != null and eff.ca_pem != null) return .{ .err = SA_STD_ERR_INVALID_ARGUMENT };
+    if (p.sni) |v| {
+        if (v.len == 0) return .{ .err = SA_STD_ERR_INVALID_ARGUMENT };
+        eff.sni = v;
+    }
+    if (p.verify_host) |v| {
+        if (v.len == 0) return .{ .err = SA_STD_ERR_INVALID_ARGUMENT };
+        eff.verify_host = v;
+    }
+    if (p.cert_file) |v| eff.cert_file = v;
+    if (p.key_file) |v| eff.key_file = v;
+    if ((eff.cert_file == null) != (eff.key_file == null)) return .{ .err = SA_STD_ERR_INVALID_ARGUMENT };
+    eff.insecure_skip_verify = p.insecure_skip_verify;
+    if (p.session) |v| {
+        // The blob travels as base64 DER (from sa_std_tls_shaped_session_blob);
+        // decode once here so a malformed blob fails before any dial.
+        const dec = std.base64.standard.decoderWithIgnore(" \t\r\n");
+        const buf = std.heap.page_allocator.alloc(u8, v.len) catch return .{ .err = SA_STD_ERR_NO_MEMORY };
+        defer std.heap.page_allocator.free(buf);
+        const n = dec.decode(buf, v) catch return .{ .err = SA_STD_ERR_INVALID_ARGUMENT };
+        if (n == 0) return .{ .err = SA_STD_ERR_INVALID_ARGUMENT };
+        eff.session_der = std.heap.page_allocator.dupe(u8, buf[0..n]) catch return .{ .err = SA_STD_ERR_NO_MEMORY };
+    }
     return .{ .ok = eff };
 }
 
@@ -349,6 +449,7 @@ pub export fn sa_std_tls_shaped_connect(host_ptr: ?[*]const u8, host_len: u64, p
         }
     }
 
+    defer if (eff.session_der) |d| std.heap.page_allocator.free(d);
     const h = doConnect(api, host_slice, @intCast(port), &eff) catch |err| {
         return switch (err) {
             error.InvalidArgument => SA_STD_ERR_INVALID_ARGUMENT,
@@ -364,10 +465,32 @@ pub export fn sa_std_tls_shaped_connect(host_ptr: ?[*]const u8, host_len: u64, p
 
 const ConnectError = error{ InvalidArgument, OutOfMemory, TlsVerify, Unsupported, Io };
 
-fn doConnect(api: *SslApi, host_slice: []const u8, port: u16, eff: *const Effective) ConnectError!*ShapedHandle {
-    const alloc = std.heap.page_allocator;
+/// Load every certificate in a PEM blob into the ctx trust store. Returns
+/// false when the blob yields no usable certificate (loud failure at the
+/// call site, never a silent empty store).
+fn loadCaPemIntoStore(api: *SslApi, ctx: *SslCtx, pem: []const u8) bool {
+    const store = api.ctx_get_cert_store(ctx) orelse return false;
+    const bio = api.bio_new_mem_buf(pem.ptr, @intCast(@min(pem.len, @as(usize, @intCast(std.math.maxInt(c_int)))))) orelse return false;
+    defer _ = api.bio_free(bio);
+    var count: usize = 0;
+    while (true) {
+        const x = api.pem_read_bio_x509(bio, null, null, null) orelse break;
+        defer api.x509_free(x);
+        if (api.x509_store_add_cert(store, x) != 1) return false;
+        count += 1;
+    }
+    return count > 0;
+}
 
+fn doConnect(api: *SslApi, host_slice: []const u8, port: u16, eff: *const Effective) ConnectError!*ShapedHandle {
     const stream = dialHost(host_slice, port) catch return ConnectError.Io;
+    return doConnectOnStream(api, stream, host_slice, eff);
+}
+
+/// Handshake core shared by connect and start_tls: takes ownership of
+/// `stream` (the errdefer chain closes it on every failure path).
+fn doConnectOnStream(api: *SslApi, stream: std.Io.net.Stream, host_slice: []const u8, eff: *const Effective) ConnectError!*ShapedHandle {
+    const alloc = std.heap.page_allocator;
     errdefer stream.close(sio.io());
 
     const method = api.method_new() orelse return ConnectError.Unsupported;
@@ -395,6 +518,17 @@ fn doConnect(api: *SslApi, host_slice: []const u8, port: u16, eff: *const Effect
         defer alloc.free(z);
         if (api.ctx_set1_sigalgs_list(ctx, z.ptr) != 1) return ConnectError.InvalidArgument;
     }
+    // Client certificate presentation (mutual TLS): both files or neither
+    // (validated in effectiveFromProfile).
+    if (eff.cert_file) |cf| {
+        const cz = toZ(alloc, cf) orelse return ConnectError.OutOfMemory;
+        defer alloc.free(cz);
+        if (api.ctx_use_cert_chain_file(ctx, cz.ptr) != 1) return ConnectError.Io;
+        const kz = toZ(alloc, eff.key_file.?) orelse return ConnectError.OutOfMemory;
+        defer alloc.free(kz);
+        if (api.ctx_use_key_file(ctx, kz.ptr, SSL_FILETYPE_PEM) != 1) return ConnectError.Io;
+        if (api.ctx_check_private_key(ctx) != 1) return ConnectError.Io;
+    }
     if (eff.min_version) |v| {
         if (api.ctx_ctrl(ctx, SSL_CTRL_SET_MIN_PROTO_VERSION, versionConst(v).?, null) != 1) return ConnectError.InvalidArgument;
     }
@@ -402,24 +536,44 @@ fn doConnect(api: *SslApi, host_slice: []const u8, port: u16, eff: *const Effect
         if (api.ctx_ctrl(ctx, SSL_CTRL_SET_MAX_PROTO_VERSION, versionConst(v).?, null) != 1) return ConnectError.InvalidArgument;
     }
 
-    // Verification: always on. System store by default; ca_file replaces
-    // it with an explicit private CA (loopback tests, private PKI).
-    if (eff.ca_file) |v| {
+    // Verification modes. Default: on, system store. ca_file / ca_pem
+    // REPLACE the store with explicit private anchors (loopback tests,
+    // private PKI). insecure_skip_verify -- and only that explicitly named
+    // flag -- turns verification off entirely.
+    if (eff.insecure_skip_verify) {
+        api.ctx_set_verify(ctx, 0, null);
+    } else if (eff.ca_pem) |v| {
+        if (!loadCaPemIntoStore(api, ctx, v)) return ConnectError.InvalidArgument;
+        api.ctx_set_verify(ctx, SSL_VERIFY_PEER, null);
+    } else if (eff.ca_file) |v| {
         const z = toZ(alloc, v) orelse return ConnectError.OutOfMemory;
         defer alloc.free(z);
         if (api.ctx_load_verify_locations(ctx, z.ptr, null) != 1) return ConnectError.Io;
+        api.ctx_set_verify(ctx, SSL_VERIFY_PEER, null);
     } else {
         if (api.ctx_set_default_verify_paths(ctx) != 1) return ConnectError.Io;
+        api.ctx_set_verify(ctx, SSL_VERIFY_PEER, null);
     }
-    api.ctx_set_verify(ctx, SSL_VERIFY_PEER, null);
 
     const ssl = api.new(ctx) orelse return ConnectError.Io;
     errdefer api.free(ssl);
 
-    const host_z = toZ(alloc, host_slice) orelse return ConnectError.OutOfMemory;
-    defer alloc.free(host_z);
-    if (api.set1_host(ssl, host_z.ptr) != 1) return ConnectError.InvalidArgument;
-    _ = api.ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, 0, @ptrCast(@constCast(host_z.ptr)));
+    // SNI and the verification name split from the dial host when the
+    // profile asks (CDN / IP-direct connects): verify_host wins for the
+    // certificate check, then sni, then the dial host; SNI uses sni, then
+    // the dial host. In insecure mode there is no name check at all.
+    const verify_name: []const u8 = eff.verify_host orelse eff.sni orelse host_slice;
+    const sni_name: []const u8 = eff.sni orelse host_slice;
+    if (!eff.insecure_skip_verify) {
+        const vz = toZ(alloc, verify_name) orelse return ConnectError.OutOfMemory;
+        defer alloc.free(vz);
+        if (api.set1_host(ssl, vz.ptr) != 1) return ConnectError.InvalidArgument;
+    }
+    {
+        const sz = toZ(alloc, sni_name) orelse return ConnectError.OutOfMemory;
+        defer alloc.free(sz);
+        _ = api.ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, 0, @ptrCast(@constCast(sz.ptr)));
+    }
 
     if (eff.alpn.len > 0) {
         var wire: [512]u8 = undefined;
@@ -436,6 +590,16 @@ fn doConnect(api: *SslApi, host_slice: []const u8, port: u16, eff: *const Effect
     }
 
     if (api.set_fd(ssl, stream.socket.handle) != 1) return ConnectError.Io;
+
+    // Opportunistic session resumption: a malformed blob is a loud
+    // argument error; a server that declines to resume simply produces a
+    // full handshake (that is TLS semantics, not a verification change).
+    if (eff.session_der) |der| {
+        var p: ?[*]const u8 = der.ptr;
+        const sess = api.d2i_session(null, &p, @intCast(der.len)) orelse return ConnectError.InvalidArgument;
+        defer api.session_free(sess);
+        if (api.set_session(ssl, sess) != 1) return ConnectError.InvalidArgument;
+    }
 
     const host_owned = alloc.dupe(u8, host_slice) catch return ConnectError.OutOfMemory;
     errdefer alloc.free(host_owned);
@@ -454,10 +618,11 @@ fn doConnect(api: *SslApi, host_slice: []const u8, port: u16, eff: *const Effect
     api.set_msg_callback_arg(ssl, h);
 
     if (api.connect(ssl) != 1) {
+        if (eff.insecure_skip_verify) return ConnectError.Io;
         const vrc = api.get_verify_result(ssl);
         return if (vrc != 0) ConnectError.TlsVerify else ConnectError.Io;
     }
-    if (api.get_verify_result(ssl) != 0) return ConnectError.TlsVerify;
+    if (!eff.insecure_skip_verify and api.get_verify_result(ssl) != 0) return ConnectError.TlsVerify;
     return h;
 }
 
@@ -526,10 +691,256 @@ pub export fn sa_std_tls_shaped_negotiated_json(handle: u64, out_handle: ?*u64) 
     var alpn_len: c_uint = 0;
     api.get_alpn_selected(h.ssl, &alpn_data, &alpn_len);
     const alpn: []const u8 = if (alpn_data) |d| d[0..alpn_len] else "";
-    var buffer: [512]u8 = undefined;
-    const json = std.fmt.bufPrint(&buffer, "{{\"version\":\"{s}\",\"cipher\":\"{s}\",\"alpn\":\"{s}\"}}", .{ version, cipher, alpn }) catch return SA_STD_ERR_NO_MEMORY;
+    const reused: []const u8 = if (api.session_reused(h.ssl) != 0) "true" else "false";
+    var buffer: [640]u8 = undefined;
+    const json = std.fmt.bufPrint(&buffer, "{{\"version\":\"{s}\",\"cipher\":\"{s}\",\"alpn\":\"{s}\",\"session_reused\":{s}}}", .{ version, cipher, alpn, reused }) catch return SA_STD_ERR_NO_MEMORY;
     const owned = std.heap.page_allocator.dupe(u8, json) catch return SA_STD_ERR_NO_MEMORY;
     return registerString(owned, slot);
+}
+
+
+// ---- STARTTLS upgrade ---------------------------------------------------------
+
+/// Upgrade an existing plaintext TCP connection (raw fd) to TLS using a
+/// profile, returning a normal shaped handle. The fd's ownership transfers
+/// to this call: it is closed on failure and owned by the handle on
+/// success. `host` is not dialed -- it supplies the default SNI /
+/// verification name (the profile's sni / verify_host keys override).
+pub export fn sa_std_tls_shaped_start_tls(fd: i32, host_ptr: ?[*]const u8, host_len: u64, profile_ptr: ?[*]const u8, profile_len: u64, out_handle: ?*u64) i32 {
+    const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    slot.* = 0;
+    if (comptime builtin.os.tag == .windows) return SA_STD_ERR_UNSUPPORTED;
+    if (fd < 0) return SA_STD_ERR_INVALID_ARGUMENT;
+    const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
+    const host_n = u64ToUsize(host_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const host_slice = if (host_ptr) |p| p[0..host_n] else return SA_STD_ERR_INVALID_ARGUMENT;
+    if (host_slice.len == 0) return SA_STD_ERR_INVALID_ARGUMENT;
+    const profile_json: []const u8 = if (profile_ptr) |p| p[0..(u64ToUsize(profile_len) orelse return SA_STD_ERR_INVALID_ARGUMENT)] else "";
+
+    var parsed: ?std.json.Parsed(Profile) = null;
+    defer if (parsed) |*pp| pp.deinit();
+    var eff: Effective = .{};
+    if (profile_json.len != 0) {
+        parsed = std.json.parseFromSlice(Profile, std.heap.page_allocator, profile_json, .{ .ignore_unknown_fields = false }) catch {
+            return SA_STD_ERR_INVALID_ARGUMENT;
+        };
+        switch (effectiveFromProfile(&parsed.?.value)) {
+            .ok => |e| eff = e,
+            .err => |code| return code,
+        }
+    }
+    defer if (eff.session_der) |d| std.heap.page_allocator.free(d);
+
+    const addr = std.Io.net.IpAddress.parseIp4("0.0.0.0", 0) catch return SA_STD_ERR_IO;
+    const stream = std.Io.net.Stream{ .socket = .{ .handle = @intCast(fd), .address = addr } };
+    const h = doConnectOnStream(api, stream, host_slice, &eff) catch |err| {
+        return switch (err) {
+            error.InvalidArgument => SA_STD_ERR_INVALID_ARGUMENT,
+            error.OutOfMemory => SA_STD_ERR_NO_MEMORY,
+            error.TlsVerify => SA_STD_ERR_TLS_VERIFY,
+            error.Unsupported => SA_STD_ERR_UNSUPPORTED,
+            else => SA_STD_ERR_IO,
+        };
+    };
+    slot.* = @intFromPtr(h);
+    return SA_STD_OK;
+}
+
+// ---- session export -----------------------------------------------------------
+
+/// Serialize the connection's current session as base64 DER, suitable for
+/// the profile `session` key of a later connect. Returns
+/// SA_STD_ERR_UNSUPPORTED on TLS 1.3 connections whose session ticket has
+/// not arrived yet (there is no resumable session to export at that point;
+/// with TLS 1.2 a session is always available after the handshake).
+pub export fn sa_std_tls_shaped_session_blob(handle: u64, out_handle: ?*u64) i32 {
+    const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    slot.* = 0;
+    const h = handleFromU64(handle) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
+    const sess = api.get1_session(h.ssl) orelse return SA_STD_ERR_UNSUPPORTED;
+    defer api.session_free(sess);
+    const len = api.i2d_session(sess, null);
+    if (len <= 0) return SA_STD_ERR_UNSUPPORTED;
+    const alloc = std.heap.page_allocator;
+    const der = alloc.alloc(u8, @intCast(len)) catch return SA_STD_ERR_NO_MEMORY;
+    defer alloc.free(der);
+    var p: ?[*]u8 = der.ptr;
+    if (api.i2d_session(sess, &p) != len) return SA_STD_ERR_IO;
+    const enc = std.base64.standard.Encoder;
+    const b64 = alloc.alloc(u8, enc.calcSize(der.len)) catch return SA_STD_ERR_NO_MEMORY;
+    _ = enc.encode(b64, der);
+    return registerString(b64, slot);
+}
+
+// ---- peer certificate chain (decoded) ------------------------------------------
+
+fn appendJsonEscaped(list: *std.ArrayList(u8), alloc: std.mem.Allocator, s: []const u8) !void {
+    for (s) |ch| {
+        switch (ch) {
+            '"' => try list.appendSlice(alloc, "\\\""),
+            '\\' => try list.appendSlice(alloc, "\\\\"),
+            '\n' => try list.appendSlice(alloc, "\\n"),
+            '\r' => try list.appendSlice(alloc, "\\r"),
+            '\t' => try list.appendSlice(alloc, "\\t"),
+            0x00...0x08, 0x0b, 0x0c, 0x0e...0x1f => {
+                var tmp: [8]u8 = undefined;
+                const t = try std.fmt.bufPrint(&tmp, "\\u{x:0>4}", .{ch});
+                try list.appendSlice(alloc, t);
+            },
+            else => try list.append(alloc, ch),
+        }
+    }
+}
+
+fn appendHexUpper(list: *std.ArrayList(u8), alloc: std.mem.Allocator, bytes: []const u8, colon: bool) !void {
+    const digits = "0123456789ABCDEF";
+    for (bytes, 0..) |b, i| {
+        if (colon and i != 0) try list.append(alloc, ':');
+        try list.append(alloc, digits[b >> 4]);
+        try list.append(alloc, digits[b & 0x0f]);
+    }
+}
+
+/// Serial number (INTEGER content bytes, hex) from the certificate DER:
+/// outer SEQUENCE -> TBS SEQUENCE -> optional [0] version -> INTEGER.
+fn serialHex(alloc: std.mem.Allocator, der_bytes: []const u8) !?[]u8 {
+    const der = std.crypto.Certificate.der;
+    const outer = der.Element.parse(der_bytes, 0) catch return null;
+    const tbs = der.Element.parse(der_bytes, outer.slice.start) catch return null;
+    var idx = tbs.slice.start;
+    var el = der.Element.parse(der_bytes, idx) catch return null;
+    if (el.identifier.class == .context_specific and @intFromEnum(el.identifier.tag) == 0) {
+        idx = el.slice.end;
+        el = der.Element.parse(der_bytes, idx) catch return null;
+    }
+    if (el.identifier.class != .universal or @intFromEnum(el.identifier.tag) != 2) return null;
+    const bytes = der_bytes[el.slice.start..el.slice.end];
+    var out = try alloc.alloc(u8, bytes.len * 2);
+    errdefer alloc.free(out);
+    const digits = "0123456789ABCDEF";
+    for (bytes, 0..) |b, i| {
+        out[i * 2] = digits[b >> 4];
+        out[i * 2 + 1] = digits[b & 0x0f];
+    }
+    return out;
+}
+
+/// Collect dNSName / iPAddress entries from the parsed SAN extension.
+fn collectSans(parsed: *const std.crypto.Certificate.Parsed, dns: *std.ArrayList([]const u8), ips: *std.ArrayList([]const u8), alloc: std.mem.Allocator) !void {
+    const der = std.crypto.Certificate.der;
+    const san = parsed.subjectAltName();
+    if (san.len == 0) return;
+    const seq = der.Element.parse(san, 0) catch return;
+    var idx = seq.slice.start;
+    while (idx < seq.slice.end) {
+        const el = der.Element.parse(san, idx) catch break;
+        const content = san[el.slice.start..el.slice.end];
+        if (el.identifier.class == .context_specific and @intFromEnum(el.identifier.tag) == 2) {
+            try dns.append(alloc, content);
+        } else if (el.identifier.class == .context_specific and @intFromEnum(el.identifier.tag) == 7) {
+            try ips.append(alloc, content);
+        }
+        idx = el.slice.end;
+    }
+}
+
+/// JSON document for a peer chain: one entry per certificate, leaf first,
+/// with decoded subject/issuer (OpenSSL oneline form), common name, SAN
+/// dNSName/iPAddress lists, validity window (unix seconds), serial (hex)
+/// and the SHA-256 fingerprint (openssl colon-hex form). Certificates the
+/// std DER parser cannot decode are still listed (names + fingerprint)
+/// with "fields_parsed":false -- never silently dropped.
+fn buildPeerCertChainJson(api: *SslApi, ssl: *Ssl) ![]u8 {
+    const alloc = std.heap.page_allocator;
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(alloc);
+    try out.appendSlice(alloc, "{\"certificates\":[");
+    var first = true;
+    if (api.get_peer_cert_chain(ssl)) |chain| {
+        const n = api.sk_num(chain);
+        var i: c_int = 0;
+        while (i < n) : (i += 1) {
+            const raw = api.sk_value(chain, i) orelse continue;
+            const x: *X509 = @ptrCast(@alignCast(raw));
+            const dlen = api.i2d_x509(x, null);
+            if (dlen <= 0) continue;
+            const derbuf = try alloc.alloc(u8, @intCast(dlen));
+            defer alloc.free(derbuf);
+            var p: ?[*]u8 = derbuf.ptr;
+            if (api.i2d_x509(x, &p) != dlen) continue;
+
+            if (!first) try out.append(alloc, ',');
+            first = false;
+            try out.append(alloc, '{');
+            var name_buf: [1024]u8 = undefined;
+            try out.appendSlice(alloc, "\"subject\":\"");
+            if (api.x509_name_oneline(api.x509_get_subject_name(x), &name_buf, @intCast(name_buf.len))) |s| try appendJsonEscaped(&out, alloc, std.mem.span(s));
+            try out.appendSlice(alloc, "\",\"issuer\":\"");
+            if (api.x509_name_oneline(api.x509_get_issuer_name(x), &name_buf, @intCast(name_buf.len))) |s| try appendJsonEscaped(&out, alloc, std.mem.span(s));
+            try out.appendSlice(alloc, "\",\"sha256_fingerprint\":\"");
+            var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+            std.crypto.hash.sha2.Sha256.hash(derbuf, &digest, .{});
+            try appendHexUpper(&out, alloc, &digest, true);
+            try out.append(alloc, '"');
+
+            const cert = std.crypto.Certificate{ .buffer = derbuf, .index = 0 };
+            if (cert.parse()) |parsed| {
+                var dns: std.ArrayList([]const u8) = .empty;
+                defer dns.deinit(alloc);
+                var ips: std.ArrayList([]const u8) = .empty;
+                defer ips.deinit(alloc);
+                try collectSans(&parsed, &dns, &ips, alloc);
+                try out.appendSlice(alloc, ",\"common_name\":\"");
+                try appendJsonEscaped(&out, alloc, parsed.commonName());
+                try out.appendSlice(alloc, "\",\"san_dns\":[");
+                for (dns.items, 0..) |name, j| {
+                    if (j != 0) try out.append(alloc, ',');
+                    try out.append(alloc, '"');
+                    try appendJsonEscaped(&out, alloc, name);
+                    try out.append(alloc, '"');
+                }
+                try out.appendSlice(alloc, "],\"san_ip\":[");
+                for (ips.items, 0..) |ip, j| {
+                    if (j != 0) try out.append(alloc, ',');
+                    try out.append(alloc, '"');
+                    if (ip.len == 4) {
+                        var tmp: [24]u8 = undefined;
+                        const t = try std.fmt.bufPrint(&tmp, "{d}.{d}.{d}.{d}", .{ ip[0], ip[1], ip[2], ip[3] });
+                        try out.appendSlice(alloc, t);
+                    } else {
+                        try appendHexUpper(&out, alloc, ip, true);
+                    }
+                    try out.append(alloc, '"');
+                }
+                var num_buf: [64]u8 = undefined;
+                try out.appendSlice(alloc, "],\"not_before\":");
+                try out.appendSlice(alloc, try std.fmt.bufPrint(&num_buf, "{d}", .{parsed.validity.not_before}));
+                try out.appendSlice(alloc, ",\"not_after\":");
+                try out.appendSlice(alloc, try std.fmt.bufPrint(&num_buf, "{d}", .{parsed.validity.not_after}));
+                try out.appendSlice(alloc, ",\"serial_hex\":\"");
+                if (try serialHex(alloc, derbuf)) |sh| {
+                    defer alloc.free(sh);
+                    try out.appendSlice(alloc, sh);
+                }
+                try out.append(alloc, '"');
+            } else |_| {
+                try out.appendSlice(alloc, ",\"fields_parsed\":false");
+            }
+            try out.append(alloc, '}');
+        }
+    }
+    try out.appendSlice(alloc, "]}");
+    return out.toOwnedSlice(alloc);
+}
+
+pub export fn sa_std_tls_shaped_peer_cert_chain_json(handle: u64, out_handle: ?*u64) i32 {
+    const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    slot.* = 0;
+    const h = handleFromU64(handle) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
+    const json = buildPeerCertChainJson(api, h.ssl) catch return SA_STD_ERR_NO_MEMORY;
+    return registerString(json, slot);
 }
 
 // ---- buffer handle registry (same shape as sa_tls_client.zig) --------------
@@ -1166,4 +1577,367 @@ test "loopback: ciphersuite restriction, alpn selection, version cap, ja3 order 
         _ = sa_std_tls_shaped_close(handle);
         _ = try server.wait();
     }
+}
+
+// ---- profile configuration additions (loopback only) ---------------------------
+
+fn profileJson(allocator: std.mem.Allocator, value: anytype) ![]u8 {
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    defer out.deinit();
+    try std.json.Stringify.value(value, .{}, &out.writer);
+    return out.toOwnedSlice();
+}
+
+fn connectRetryProfile(host: []const u8, port: u16, profile: []const u8) i64 {
+    var handle: u64 = 0;
+    var attempt: usize = 0;
+    while (attempt < 100) : (attempt += 1) {
+        const rc = sa_std_tls_shaped_connect(host.ptr, host.len, port, profile.ptr, profile.len, &handle);
+        if (rc == SA_STD_OK) return @intCast(handle);
+        if (rc != SA_STD_ERR_IO) return rc;
+        std.Io.sleep(sio.io(), .fromMilliseconds(50), .awake) catch {};
+    }
+    return SA_STD_ERR_IO;
+}
+
+fn shapedEcho(handle: u64, msg: []const u8) !void {
+    // Only for peers that echo at the TLS level (our own tls_server test
+    // runner). s_server does NOT echo; see shapedServerRoundTrip.
+    var written: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_shaped_write(handle, msg.ptr, msg.len, &written));
+    try testing.expectEqual(@as(u64, msg.len), written);
+    var buf: [128]u8 = undefined;
+    var got: usize = 0;
+    while (got < msg.len) {
+        var n: u64 = 0;
+        try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_shaped_read(handle, buf[got..].ptr, buf.len - got, &n));
+        if (n == 0) break;
+        got += @intCast(n);
+    }
+    try testing.expectEqualStrings(msg, buf[0..got]);
+}
+
+/// s_server round trip, mirroring the pre-existing shaped tests: server
+/// stdin is sent to us over TLS; what we write shows up on server stdout.
+fn shapedServerRoundTrip(allocator: std.mem.Allocator, server: *sio.Child, handle: u64) !void {
+    const msg = "server-to-shaped\n";
+    try server.stdin.?.writeAll(msg);
+    var got: [64]u8 = undefined;
+    var total: usize = 0;
+    while (total < msg.len) {
+        var n: u64 = 0;
+        try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_shaped_read(handle, got[total..].ptr, got.len - total, &n));
+        if (n == 0) break;
+        total += @intCast(n);
+    }
+    try testing.expectEqualStrings(msg, got[0..total]);
+    var written: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_shaped_write(handle, "shaped-to-server".ptr, 16, &written));
+    try testing.expectEqual(@as(u64, 16), written);
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_shaped_close(handle));
+    const echoed = try server.stdout.?.readToEndAlloc(allocator, 64 * 1024);
+    defer allocator.free(echoed);
+    try testing.expect(std.mem.indexOf(u8, echoed, "shaped-to-server") != null);
+}
+
+test "profile validation: session blob and key conflicts are rejected before dialing" {
+    if (!sslAvailable()) return;
+    // Nothing listens on port 1; a profile error must surface as
+    // INVALID_ARGUMENT before any connection attempt (an IO error here
+    // would mean validation ran after dialing).
+    const bad_session = "{\"session\":\"!!!not-base64!!!\"}";
+    var h: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_tls_shaped_connect("127.0.0.1", 9, 1, bad_session.ptr, bad_session.len, &h));
+    const both_ca = "{\"ca_file\":\"/tmp/x.pem\",\"ca_pem\":\"y\"}";
+    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_tls_shaped_connect("127.0.0.1", 9, 1, both_ca.ptr, both_ca.len, &h));
+    const half_cert = "{\"cert_file\":\"/tmp/x.pem\"}";
+    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_tls_shaped_connect("127.0.0.1", 9, 1, half_cert.ptr, half_cert.len, &h));
+}
+
+test "loopback: ca_pem + sni override verifies by IP; wrong CA fails; insecure is explicit" {
+    if (!sslAvailable()) return;
+    const allocator = std.heap.page_allocator;
+    var setup = try testDirSetup(allocator);
+    defer setup.td.cleanup();
+    defer allocator.free(setup.dirpath);
+    defer allocator.free(setup.cert);
+    defer allocator.free(setup.key);
+    const pem = try sio.readFileAbsoluteAlloc(allocator, setup.cert, 1 << 20);
+    defer allocator.free(pem);
+
+    // A second, unrelated cert serves as the "wrong CA".
+    var td2 = testing.tmpDir(.{});
+    defer td2.cleanup();
+    const tdir2 = sio.Dir{ .inner = td2.dir };
+    const dirpath2 = try tdir2.realpathAlloc(allocator, ".");
+    defer allocator.free(dirpath2);
+    const other = try makeCert(allocator, dirpath2);
+    defer allocator.free(other.cert);
+    defer allocator.free(other.key);
+    const other_pem = try sio.readFileAbsoluteAlloc(allocator, other.cert, 1 << 20);
+    defer allocator.free(other_pem);
+
+    // (1) ca_pem pins trust, sni names the peer: dial by IP, verify as
+    // "localhost".
+    {
+        const profile = try profileJson(allocator, .{ .sni = "localhost", .ca_pem = pem });
+        defer allocator.free(profile);
+        const port = try freePort();
+        var server = try spawnServer(allocator, setup.cert, setup.key, port, &.{ "-naccept", "1" });
+        defer _ = server.kill() catch {};
+        const h = connectRetryProfile("127.0.0.1", port, profile);
+        try testing.expect(h > 0);
+        try shapedServerRoundTrip(allocator, &server, @intCast(h));
+        _ = server.wait() catch {};
+    }
+    // (2) Wrong CA in ca_pem: explicit verification failure, no fallback.
+    {
+        const profile = try profileJson(allocator, .{ .sni = "localhost", .ca_pem = other_pem });
+        defer allocator.free(profile);
+        const port = try freePort();
+        var server = try spawnServer(allocator, setup.cert, setup.key, port, &.{ "-naccept", "1" });
+        defer _ = server.kill() catch {};
+        try testing.expectEqual(@as(i64, SA_STD_ERR_TLS_VERIFY), connectRetryProfile("127.0.0.1", port, profile));
+        _ = server.wait() catch {};
+    }
+    // (3) Default profile (full verification, system store): the
+    // self-signed peer fails.
+    {
+        const port = try freePort();
+        var server = try spawnServer(allocator, setup.cert, setup.key, port, &.{ "-naccept", "1" });
+        defer _ = server.kill() catch {};
+        try testing.expectEqual(@as(i64, SA_STD_ERR_TLS_VERIFY), connectRetryProfile("127.0.0.1", port, "{}"));
+        _ = server.wait() catch {};
+    }
+    // (4) The explicitly named insecure switch connects.
+    {
+        const port = try freePort();
+        var server = try spawnServer(allocator, setup.cert, setup.key, port, &.{ "-naccept", "1" });
+        defer _ = server.kill() catch {};
+        const h = connectRetryProfile("127.0.0.1", port, "{\"insecure_skip_verify\":true}");
+        try testing.expect(h > 0);
+        _ = sa_std_tls_shaped_close(@intCast(h));
+        _ = server.wait() catch {};
+    }
+}
+
+test "loopback: peer_cert_chain_json fields match openssl x509 output" {
+    if (!sslAvailable()) return;
+    const allocator = std.heap.page_allocator;
+    var setup = try testDirSetup(allocator);
+    defer setup.td.cleanup();
+    defer allocator.free(setup.dirpath);
+    defer allocator.free(setup.cert);
+    defer allocator.free(setup.key);
+    const pem = try sio.readFileAbsoluteAlloc(allocator, setup.cert, 1 << 20);
+    defer allocator.free(pem);
+
+    const profile = try profileJson(allocator, .{ .ca_pem = pem });
+    defer allocator.free(profile);
+    const port = try freePort();
+    var server = try spawnServer(allocator, setup.cert, setup.key, port, &.{ "-naccept", "1" });
+    defer _ = server.kill() catch {};
+    const h = connectRetryProfile("localhost", port, profile);
+    try testing.expect(h > 0);
+    const handle: u64 = @intCast(h);
+
+    var jh: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_shaped_peer_cert_chain_json(handle, &jh));
+    defer _ = sa_std_tls_shaped_buffer_free(jh);
+    const jptr = sa_std_tls_shaped_buffer_data(jh) orelse return error.MissingData;
+    const jlen = sa_std_tls_shaped_buffer_len(jh);
+    const json = jptr[0..@intCast(jlen)];
+
+    try testing.expect(std.mem.indexOf(u8, json, "\"common_name\":\"localhost\"") != null);
+    try testing.expect(std.mem.indexOf(u8, json, "\"subject\":\"CN = localhost\"") != null);
+    try testing.expect(std.mem.indexOf(u8, json, "\"not_before\":") != null);
+    try testing.expect(std.mem.indexOf(u8, json, "\"not_after\":") != null);
+
+    // Cross-check serial + SHA-256 fingerprint against the openssl CLI.
+    const fp = try opensslX509Field(allocator, setup.cert, "-fingerprint");
+    defer allocator.free(fp);
+    try testing.expect(std.mem.indexOf(u8, json, fp) != null);
+    const serial = try opensslX509Field(allocator, setup.cert, "-serial");
+    defer allocator.free(serial);
+    // serial_hex is the bare hex; openssl prints it after '='.
+    try testing.expect(std.mem.indexOf(u8, json, serial) != null);
+    _ = sa_std_tls_shaped_close(handle);
+    _ = server.wait() catch {};
+}
+
+fn opensslX509Field(allocator: std.mem.Allocator, cert: []const u8, flag: []const u8) ![]u8 {
+    const args: []const []const u8 = if (std.mem.eql(u8, flag, "-fingerprint"))
+        &.{ "openssl", "x509", "-in", cert, "-noout", flag, "-sha256" }
+    else
+        &.{ "openssl", "x509", "-in", cert, "-noout", flag };
+    var child = sio.Child.init(args, allocator);
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Ignore;
+    try child.spawn();
+    const out = try child.stdout.?.readToEndAlloc(allocator, 64 * 1024);
+    defer allocator.free(out);
+    const term = try child.wait();
+    switch (term) {
+        .exited => |code| if (code != 0) return error.OpensslX509Failed,
+        else => return error.OpensslX509Failed,
+    }
+    const eq = std.mem.indexOfScalar(u8, out, '=') orelse return error.OpensslX509Failed;
+    return allocator.dupe(u8, std.mem.trim(u8, out[eq + 1 ..], " \t\r\n"));
+}
+
+test "loopback: TLS 1.2 session blob resumes (session_reused=true)" {
+    if (!sslAvailable()) return;
+    const allocator = std.heap.page_allocator;
+    var setup = try testDirSetup(allocator);
+    defer setup.td.cleanup();
+    defer allocator.free(setup.dirpath);
+    defer allocator.free(setup.cert);
+    defer allocator.free(setup.key);
+
+    const profile1 = try profileJson(allocator, .{ .max_version = "1.2", .ca_file = setup.cert });
+    defer allocator.free(profile1);
+    var blob: []u8 = undefined;
+    {
+        const port = try freePort();
+        var server = try spawnServer(allocator, setup.cert, setup.key, port, &.{ "-naccept", "1" });
+        defer _ = server.kill() catch {};
+        const h = connectRetryProfile("localhost", port, profile1);
+        try testing.expect(h > 0);
+        const handle: u64 = @intCast(h);
+        var bh: u64 = 0;
+        try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_shaped_session_blob(handle, &bh));
+        defer _ = sa_std_tls_shaped_buffer_free(bh);
+        const bptr = sa_std_tls_shaped_buffer_data(bh) orelse return error.MissingData;
+        const blen = sa_std_tls_shaped_buffer_len(bh);
+        try testing.expect(blen > 0);
+        blob = try allocator.dupe(u8, bptr[0..@intCast(blen)]);
+        _ = sa_std_tls_shaped_close(handle);
+        _ = server.wait() catch {};
+    }
+    defer allocator.free(blob);
+
+    const profile2 = try profileJson(allocator, .{ .max_version = "1.2", .ca_file = setup.cert, .session = blob });
+    defer allocator.free(profile2);
+    const port = try freePort();
+    var server = try spawnServer(allocator, setup.cert, setup.key, port, &.{ "-naccept", "1" });
+    defer _ = server.kill() catch {};
+    const h = connectRetryProfile("localhost", port, profile2);
+    try testing.expect(h > 0);
+    const handle: u64 = @intCast(h);
+    var nbuf: [256]u8 = undefined;
+    const negotiated = try negotiatedJson(handle, &nbuf);
+    try testing.expect(std.mem.indexOf(u8, negotiated, "\"session_reused\":true") != null);
+    _ = sa_std_tls_shaped_close(handle);
+    _ = server.wait() catch {};
+}
+
+test "start_tls: shaped upgrade after plaintext preamble" {
+    if (!sslAvailable()) return;
+    if (comptime builtin.os.tag == .windows) return;
+    const allocator = std.heap.page_allocator;
+    var setup = try testDirSetup(allocator);
+    defer setup.td.cleanup();
+    defer allocator.free(setup.dirpath);
+    defer allocator.free(setup.cert);
+    defer allocator.free(setup.key);
+    const pem = try sio.readFileAbsoluteAlloc(allocator, setup.cert, 1 << 20);
+    defer allocator.free(pem);
+
+    const srv = @import("sa_tls_server.zig");
+    var sup: u32 = 0;
+    _ = srv.sa_std_tls_server_supported(&sup);
+    if (sup == 0) return;
+    var ctx: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), srv.sa_std_tls_server_ctx_create(setup.cert.ptr, setup.cert.len, setup.key.ptr, setup.key.len, &ctx));
+    defer _ = srv.sa_std_tls_server_ctx_free(ctx);
+
+    const probe = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try probe.listen(sio.io(), .{ .reuse_address = true });
+    defer listener.deinit(sio.io());
+    const port = switch (listener.socket.address) {
+        .ip4 => |a| a.port,
+        .ip6 => |a| a.port,
+    };
+    const Arg = struct { ctx: u64, lst: *std.Io.net.Server, accept_rc: i32 = -999 };
+    var arg: Arg = .{ .ctx = ctx, .lst = &listener };
+    const Runner = struct {
+        fn run(a: *Arg) void {
+            const s = @import("sa_tls_server.zig");
+            var stream = a.lst.accept(sio.io()) catch return;
+            defer stream.close(sio.io());
+            var line_buf: [16]u8 = undefined;
+            var line_len: usize = 0;
+            while (line_len < line_buf.len) {
+                var b: [1]u8 = undefined;
+                const n = std.posix.read(stream.socket.handle, &b) catch return;
+                if (n == 0) return;
+                line_buf[line_len] = b[0];
+                line_len += 1;
+                if (b[0] == '\n') break;
+            }
+            if (!std.mem.eql(u8, line_buf[0..line_len], "STARTTLS\n")) return;
+            var ssl: u64 = 0;
+            a.accept_rc = s.sa_std_tls_server_accept(a.ctx, stream.socket.handle, &ssl);
+            if (a.accept_rc != 0) return;
+            var buf: [64]u8 = undefined;
+            var n: u64 = 0;
+            if (s.sa_std_tls_server_read(ssl, &buf, buf.len, &n) == 0) {
+                _ = s.sa_std_tls_server_write(ssl, &buf, n, &n);
+            }
+            _ = s.sa_std_tls_server_close(ssl);
+        }
+    };
+    var thread = try std.Thread.spawn(.{}, Runner.run, .{&arg});
+
+    const addr = try std.Io.net.IpAddress.parseIp4("127.0.0.1", port);
+    var plain = try addr.connect(sio.io(), .{ .mode = .stream });
+    var wb: [64]u8 = undefined;
+    var wr = plain.writer(sio.io(), &wb);
+    try wr.interface.writeAll("STARTTLS\n");
+    try wr.interface.flush();
+
+    const profile = try profileJson(allocator, .{ .ca_pem = pem });
+    defer allocator.free(profile);
+    const host = "localhost";
+    var handle: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_shaped_start_tls(plain.socket.handle, host.ptr, host.len, profile.ptr, profile.len, &handle));
+    try testing.expect(handle != 0);
+    try shapedEcho(handle, "shaped-starttls-echo");
+    _ = sa_std_tls_shaped_close(handle);
+    thread.join();
+    try testing.expectEqual(@as(i32, 0), arg.accept_rc);
+}
+
+test "loopback: client certificate (cert_file/key_file) satisfies a verifying server" {
+    if (!sslAvailable()) return;
+    const allocator = std.heap.page_allocator;
+    var setup = try testDirSetup(allocator);
+    defer setup.td.cleanup();
+    defer allocator.free(setup.dirpath);
+    defer allocator.free(setup.cert);
+    defer allocator.free(setup.key);
+    const pem = try sio.readFileAbsoluteAlloc(allocator, setup.cert, 1 << 20);
+    defer allocator.free(pem);
+
+    // Server demands a client cert chaining to the same self-signed cert
+    // used as its CA file; the client presents that very cert.
+    const port = try freePort();
+    var server = try spawnServer(allocator, setup.cert, setup.key, port, &.{ "-naccept", "1", "-Verify", "1", "-verify_return_error", "-CAfile", setup.cert });
+    defer _ = server.kill() catch {};
+    const profile = try profileJson(allocator, .{ .ca_pem = pem, .cert_file = setup.cert, .key_file = setup.key });
+    defer allocator.free(profile);
+    const h = connectRetryProfile("localhost", port, profile);
+    try testing.expect(h > 0);
+    _ = sa_std_tls_shaped_close(@intCast(h));
+    _ = server.wait() catch {};
+
+    // Without the client certificate the same server refuses us.
+    const port2 = try freePort();
+    var server2 = try spawnServer(allocator, setup.cert, setup.key, port2, &.{ "-naccept", "1", "-Verify", "1", "-verify_return_error", "-CAfile", setup.cert });
+    defer _ = server2.kill() catch {};
+    const profile2 = try profileJson(allocator, .{ .ca_pem = pem });
+    defer allocator.free(profile2);
+    const rc = connectRetryProfile("localhost", port2, profile2);
+    try testing.expect(rc < 0);
+    _ = server2.wait() catch {};
 }

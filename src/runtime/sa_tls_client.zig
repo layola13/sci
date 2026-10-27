@@ -18,6 +18,20 @@
 // singleton's byte storage and add_ca_file could otherwise reallocate it out
 // from under a live handshake.
 //
+// Configuration: sa_std_tls_client_connect is the fixed default profile
+// (system bundle, SNI + hostname check against the dial host). The config
+// object surface further down (sa_std_tls_client_config_*) adds the
+// per-connection knobs std.crypto.tls.Client can actually honor: a
+// server-name override (SNI + verification name, Python's server_hostname
+// semantics), extra CA anchors from files or memory PEM, an expected
+// self-signed peer mode, and an explicitly named no-verification switch.
+// std's Client has a fixed ClientHello -- no ALPN, no cipher-suite or
+// version selection, no session resumption -- so those knobs live on the
+// OpenSSL shaped client (sa_tls_shaped.zig), not here; nothing on this
+// surface silently accepts-and-ignores a setting. The peer certificate is
+// likewise not exposed here: std's Client discards it after the handshake
+// (see sa_std_tls_client_peer_cert_json).
+//
 // Status codes follow the sci convention: 0 = SA_STD_OK, negative = error.
 // Certificate verification failures get SA_STD_ERR_TLS_VERIFY (-100).
 //
@@ -53,6 +67,7 @@ const TlsClientHandle = struct {
     stream_writer: std.Io.net.Stream.Writer,
     client: std.crypto.tls.Client,
     bundle: std.crypto.Certificate.Bundle,
+    owns_bundle: bool = false,
     bundle_lock: std.Io.RwLock,
     sock_read_buf: [tls_buf_len]u8,
     sock_write_buf: [tls_buf_len]u8,
@@ -333,6 +348,7 @@ pub export fn sa_std_tls_client_close(handle: u64) i32 {
     h.client.writer.flush() catch {};
     h.stream_writer.interface.flush() catch {};
     h.stream.close(sio.io());
+    if (h.owns_bundle) h.bundle.deinit(std.heap.page_allocator);
     std.heap.page_allocator.free(h.host);
     std.heap.page_allocator.destroy(h);
     return SA_STD_OK;
@@ -345,6 +361,356 @@ pub export fn sa_std_tls_client_status_json(out_handle: ?*u64) i32 {
     const json = std.fmt.bufPrint(&buffer, "{{\"module\":\"tls_client\",\"backend\":\"std.crypto.tls\",\"supported\":true,\"protocolMachine\":true}}", .{}) catch return SA_STD_ERR_NO_MEMORY;
     const owned = std.heap.page_allocator.dupe(u8, json) catch return SA_STD_ERR_NO_MEMORY;
     return registerString(owned, slot);
+}
+
+
+// ---- per-connection configuration (config object) --------------------------
+//
+// An opaque u64 handle to a heap TlsClientConfig; cfg == 0 passed to
+// connect_config / start_tls selects the default configuration and behaves
+// exactly like sa_std_tls_client_connect. Ownership: config_new hands the
+// caller a handle released with config_free; connect_config / start_tls
+// only borrow the config for the duration of the call.
+//
+// Security semantics (no silent demotions anywhere):
+//  * Verification is ON by default against the OS trust store extended by
+//    the process-wide add_ca_file anchors and any per-config CA anchors.
+//  * The ONLY way to turn verification off is the explicitly named
+//    sa_std_tls_client_config_set_insecure_no_verification switch. It is
+//    never a default, and combining it with a server-name override or the
+//    self-signed mode is a loud INVALID_ARGUMENT (std's no_verification
+//    sends no SNI, so the combination cannot be honored honestly).
+//  * set_verify_self_signed is NOT a skip: the peer must present a
+//    well-formed, in-date, correctly self-signed certificate (std's
+//    `.self_signed` mode); chain building is skipped, cryptography is not.
+
+const TlsClientConfig = struct {
+    server_name: ?[]u8 = null,
+    ca_files: std.ArrayListUnmanaged([]u8) = .empty,
+    ca_pem: std.ArrayListUnmanaged(u8) = .empty,
+    insecure_no_verification: bool = false,
+    verify_self_signed: bool = false,
+};
+
+fn configFromU64(handle: u64) ?*TlsClientConfig {
+    if (handle == 0) return null;
+    const p: *TlsClientConfig = @ptrFromInt(@as(usize, @intCast(handle)));
+    return @alignCast(p);
+}
+
+pub export fn sa_std_tls_client_config_new(out_config: ?*u64) i32 {
+    const slot = out_config orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    slot.* = 0;
+    const cfg = std.heap.page_allocator.create(TlsClientConfig) catch return SA_STD_ERR_NO_MEMORY;
+    cfg.* = .{};
+    slot.* = @intFromPtr(cfg);
+    return SA_STD_OK;
+}
+
+pub export fn sa_std_tls_client_config_free(config: u64) i32 {
+    const cfg = configFromU64(config) orelse return SA_STD_OK;
+    if (cfg.server_name) |n| std.heap.page_allocator.free(n);
+    for (cfg.ca_files.items) |p| std.heap.page_allocator.free(p);
+    cfg.ca_files.deinit(std.heap.page_allocator);
+    cfg.ca_pem.deinit(std.heap.page_allocator);
+    std.heap.page_allocator.destroy(cfg);
+    return SA_STD_OK;
+}
+
+pub export fn sa_std_tls_client_config_set_server_name(config: u64, name_ptr: ?[*]const u8, name_len: u64) i32 {
+    const cfg = configFromU64(config) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const n = u64ToUsize(name_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    if (n == 0) {
+        if (cfg.server_name) |old| std.heap.page_allocator.free(old);
+        cfg.server_name = null;
+        return SA_STD_OK;
+    }
+    const name = if (name_ptr) |p| p[0..n] else return SA_STD_ERR_INVALID_ARGUMENT;
+    const owned = std.heap.page_allocator.dupe(u8, name) catch return SA_STD_ERR_NO_MEMORY;
+    if (cfg.server_name) |old| std.heap.page_allocator.free(old);
+    cfg.server_name = owned;
+    return SA_STD_OK;
+}
+
+pub export fn sa_std_tls_client_config_add_ca_file(config: u64, path_ptr: ?[*]const u8, path_len: u64) i32 {
+    const cfg = configFromU64(config) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const n = u64ToUsize(path_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const path = if (path_ptr) |p| p[0..n] else return SA_STD_ERR_INVALID_ARGUMENT;
+    if (path.len == 0) return SA_STD_ERR_INVALID_ARGUMENT;
+    // Same early contract check as the process-wide add_ca_file: the
+    // underlying bundle API asserts on relative paths.
+    if (!std.fs.path.isAbsolute(path)) return SA_STD_ERR_INVALID_ARGUMENT;
+    const owned = std.heap.page_allocator.dupe(u8, path) catch return SA_STD_ERR_NO_MEMORY;
+    cfg.ca_files.append(std.heap.page_allocator, owned) catch {
+        std.heap.page_allocator.free(owned);
+        return SA_STD_ERR_NO_MEMORY;
+    };
+    return SA_STD_OK;
+}
+
+/// Decode PEM certificates into a bundle, following the exact algorithm of
+/// std's own Bundle.addCertsFromFile (marker scan, base64 decode, parseCert
+/// per certificate) but sourced from memory. Certificates std would skip
+/// (unrecognized OID, expired) are skipped the same way; a decode failure
+/// aborts with an error.
+fn addCertsFromMemory(bundle: *std.crypto.Certificate.Bundle, pem: []const u8, now_sec: i64) !void {
+    const gpa = std.heap.page_allocator;
+    const decoder = std.base64.standard.decoderWithIgnore(" \t\r\n");
+    const begin_marker = "-----BEGIN CERTIFICATE-----";
+    const end_marker = "-----END CERTIFICATE-----";
+    var start_index: usize = 0;
+    while (std.mem.findPos(u8, pem, start_index, begin_marker)) |begin_start| {
+        const cert_start = begin_start + begin_marker.len;
+        const cert_end = std.mem.findPos(u8, pem, cert_start, end_marker) orelse return error.MissingEndCertificateMarker;
+        start_index = cert_end + end_marker.len;
+        const encoded = std.mem.trim(u8, pem[cert_start..cert_end], " \t\r\n");
+        // The decoded form is never longer than the encoded form.
+        const buf = try gpa.alloc(u8, encoded.len);
+        defer gpa.free(buf);
+        const decoded_len = decoder.decode(buf, encoded) catch return error.InvalidCertificatePem;
+        const decoded_start: u32 = @intCast(bundle.bytes.items.len);
+        try bundle.bytes.appendSlice(gpa, buf[0..decoded_len]);
+        bundle.parseCert(gpa, decoded_start, now_sec) catch |err| {
+            bundle.bytes.items.len = decoded_start;
+            return err;
+        };
+    }
+}
+
+pub export fn sa_std_tls_client_config_add_ca_memory(config: u64, pem_ptr: ?[*]const u8, pem_len: u64) i32 {
+    const cfg = configFromU64(config) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const n = u64ToUsize(pem_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const pem = if (pem_ptr) |p| p[0..n] else return SA_STD_ERR_INVALID_ARGUMENT;
+    if (pem.len == 0) return SA_STD_ERR_INVALID_ARGUMENT;
+    // Validate eagerly into a scratch bundle so malformed PEM fails HERE,
+    // loudly, instead of being silently dropped at connect time.
+    var scratch: std.crypto.Certificate.Bundle = .empty;
+    defer scratch.deinit(std.heap.page_allocator);
+    addCertsFromMemory(&scratch, pem, std.Io.Clock.real.now(sio.io()).toSeconds()) catch |err| {
+        return switch (err) {
+            error.OutOfMemory => SA_STD_ERR_NO_MEMORY,
+            else => SA_STD_ERR_INVALID_ARGUMENT,
+        };
+    };
+    if (scratch.bytes.items.len == 0) return SA_STD_ERR_INVALID_ARGUMENT; // no usable certificate in the PEM
+    cfg.ca_pem.appendSlice(std.heap.page_allocator, pem) catch return SA_STD_ERR_NO_MEMORY;
+    return SA_STD_OK;
+}
+
+/// THE explicitly named verification kill switch. enabled != 0 means the
+/// resulting connections perform NO certificate verification and NO hostname
+/// check (std `.no_verification` for both): anyone able to intercept the
+/// connection can impersonate the peer. It exists for controlled test rigs;
+/// it is never implied by any other setting.
+pub export fn sa_std_tls_client_config_set_insecure_no_verification(config: u64, enabled: u32) i32 {
+    const cfg = configFromU64(config) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    cfg.insecure_no_verification = enabled != 0;
+    return SA_STD_OK;
+}
+
+/// Expect a self-signed peer certificate: the certificate must still be
+/// well-formed, in date, and correctly self-signed; only CA chain building
+/// is skipped. Mutually exclusive with the insecure switch and with
+/// per-config CA anchors (both are rejected at connect time, not ignored).
+pub export fn sa_std_tls_client_config_set_verify_self_signed(config: u64, enabled: u32) i32 {
+    const cfg = configFromU64(config) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    cfg.verify_self_signed = enabled != 0;
+    return SA_STD_OK;
+}
+
+/// Runs the TLS handshake for an already-connected stream and fills `h`.
+/// On error the caller performs handle cleanup; a partially built bundle is
+/// released here (owns_bundle is reset so the caller never double-frees).
+fn performHandshake(h: *TlsClientHandle, verify_name: []const u8, cfg: ?*const TlsClientConfig) i32 {
+    const gpa = std.heap.page_allocator;
+    var entropy: [std.crypto.tls.Client.Options.entropy_len]u8 = undefined;
+    sio.io().random(&entropy);
+
+    if (cfg) |c| {
+        if (c.insecure_no_verification) {
+            if (c.verify_self_signed or c.server_name != null) return SA_STD_ERR_INVALID_ARGUMENT;
+            h.client = std.crypto.tls.Client.init(&h.stream_reader.interface, &h.stream_writer.interface, .{
+                .host = .no_verification,
+                .ca = .no_verification,
+                .read_buffer = &h.tls_read_buf,
+                .write_buffer = &h.tls_write_buf,
+                .entropy = &entropy,
+                .realtime_now = std.Io.Clock.real.now(sio.io()),
+                .allow_truncation_attacks = true,
+            }) catch |err| return mapTlsErr(err);
+            return SA_STD_OK;
+        }
+        if (c.verify_self_signed) {
+            if (c.ca_files.items.len != 0 or c.ca_pem.items.len != 0) return SA_STD_ERR_INVALID_ARGUMENT;
+            h.client = std.crypto.tls.Client.init(&h.stream_reader.interface, &h.stream_writer.interface, .{
+                .host = .{ .explicit = verify_name },
+                .ca = .self_signed,
+                .read_buffer = &h.tls_read_buf,
+                .write_buffer = &h.tls_write_buf,
+                .entropy = &entropy,
+                .realtime_now = std.Io.Clock.real.now(sio.io()),
+                .allow_truncation_attacks = true,
+            }) catch |err| return mapTlsErr(err);
+            return SA_STD_OK;
+        }
+        if (c.ca_files.items.len != 0 or c.ca_pem.items.len != 0) {
+            // Per-connection bundle: OS trust store + this config's anchors.
+            // Built outside the singleton mutex; the handle owns it and
+            // close() releases it (owns_bundle).
+            var b: std.crypto.Certificate.Bundle = .empty;
+            b.rescan(gpa, sio.io(), std.Io.Clock.real.now(sio.io())) catch |err| {
+                b.deinit(gpa);
+                return mapBundleErr(err);
+            };
+            const now = std.Io.Clock.real.now(sio.io());
+            for (c.ca_files.items) |path| {
+                b.addCertsFromFilePathAbsolute(gpa, sio.io(), now, path) catch |err| {
+                    b.deinit(gpa);
+                    return mapBundleErr(err);
+                };
+            }
+            if (c.ca_pem.items.len != 0) {
+                addCertsFromMemory(&b, c.ca_pem.items, std.Io.Clock.real.now(sio.io()).toSeconds()) catch |err| {
+                    b.deinit(gpa);
+                    return switch (err) {
+                        error.OutOfMemory => SA_STD_ERR_NO_MEMORY,
+                        else => SA_STD_ERR_INVALID_ARGUMENT,
+                    };
+                };
+            }
+            h.bundle = b;
+            h.owns_bundle = true;
+            h.client = std.crypto.tls.Client.init(&h.stream_reader.interface, &h.stream_writer.interface, .{
+                .host = .{ .explicit = verify_name },
+                .ca = .{ .bundle = .{
+                    .gpa = gpa,
+                    .io = sio.io(),
+                    .lock = &h.bundle_lock,
+                    .bundle = &h.bundle,
+                } },
+                .read_buffer = &h.tls_read_buf,
+                .write_buffer = &h.tls_write_buf,
+                .entropy = &entropy,
+                .realtime_now = std.Io.Clock.real.now(sio.io()),
+                .allow_truncation_attacks = true,
+            }) catch |err| {
+                h.bundle.deinit(gpa);
+                h.owns_bundle = false;
+                return mapTlsErr(err);
+            };
+            return SA_STD_OK;
+        }
+    }
+
+    // Default path: singleton bundle snapshot, handshake under the mutex
+    // (identical discipline to sa_std_tls_client_connect).
+    bundle_mutex.lockUncancelable(sio.io());
+    defer bundle_mutex.unlock(sio.io());
+    h.bundle = (ensureBundleLocked() catch |err| return mapBundleErr(err)).*;
+    h.client = std.crypto.tls.Client.init(&h.stream_reader.interface, &h.stream_writer.interface, .{
+        .host = .{ .explicit = verify_name },
+        .ca = .{ .bundle = .{
+            .gpa = gpa,
+            .io = sio.io(),
+            .lock = &h.bundle_lock,
+            .bundle = &h.bundle,
+        } },
+        .read_buffer = &h.tls_read_buf,
+        .write_buffer = &h.tls_write_buf,
+        .entropy = &entropy,
+        .realtime_now = std.Io.Clock.real.now(sio.io()),
+        .allow_truncation_attacks = true,
+    }) catch |err| return mapTlsErr(err);
+    return SA_STD_OK;
+}
+
+/// Shared body of connect_config / start_tls: takes ownership of `stream`
+/// (closes it on every failure path) and produces a connected handle.
+fn connectImpl(stream: std.Io.net.Stream, host_slice: []const u8, port: u32, cfg: ?*TlsClientConfig, slot: *u64) i32 {
+    const host_owned = std.heap.page_allocator.dupe(u8, host_slice) catch {
+        stream.close(sio.io());
+        return SA_STD_ERR_NO_MEMORY;
+    };
+    const h = std.heap.page_allocator.create(TlsClientHandle) catch {
+        std.heap.page_allocator.free(host_owned);
+        stream.close(sio.io());
+        return SA_STD_ERR_NO_MEMORY;
+    };
+    h.* = .{
+        .stream = stream,
+        .stream_reader = undefined,
+        .stream_writer = undefined,
+        .client = undefined,
+        .bundle = undefined,
+        .bundle_lock = .init,
+        .sock_read_buf = undefined,
+        .sock_write_buf = undefined,
+        .tls_read_buf = undefined,
+        .tls_write_buf = undefined,
+        .host = host_owned,
+        .port = port,
+    };
+    h.stream_reader = stream.reader(sio.io(), &h.sock_read_buf);
+    h.stream_writer = stream.writer(sio.io(), &h.sock_write_buf);
+    const verify_name: []const u8 = if (cfg) |c| (c.server_name orelse host_owned) else host_owned;
+    const rc = performHandshake(h, verify_name, cfg);
+    if (rc != SA_STD_OK) {
+        if (h.owns_bundle) h.bundle.deinit(std.heap.page_allocator);
+        std.heap.page_allocator.free(host_owned);
+        stream.close(sio.io());
+        std.heap.page_allocator.destroy(h);
+        return rc;
+    }
+    slot.* = @intFromPtr(h);
+    return SA_STD_OK;
+}
+
+pub export fn sa_std_tls_client_connect_config(host_ptr: ?[*]const u8, host_len: u64, port: u32, config: u64, out_handle: ?*u64) i32 {
+    const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    slot.* = 0;
+    const host_n = u64ToUsize(host_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const host_slice = if (host_ptr) |p| p[0..host_n] else return SA_STD_ERR_INVALID_ARGUMENT;
+    if (host_slice.len == 0) return SA_STD_ERR_INVALID_ARGUMENT;
+    if (port == 0 or port > 65535) return SA_STD_ERR_INVALID_ARGUMENT;
+    const cfg = if (config == 0) null else configFromU64(config);
+    if (config != 0 and cfg == null) return SA_STD_ERR_INVALID_ARGUMENT;
+    const stream = dialHost(host_slice, @intCast(port)) catch |err| return mapDialErr(err);
+    return connectImpl(stream, host_slice, port, cfg, slot);
+}
+
+/// STARTTLS upgrade: wraps an already-connected plaintext TCP stream (given
+/// by raw fd) in TLS and returns a normal tls_client handle. The fd's
+/// ownership transfers to this call: it is closed on failure and owned by
+/// the returned handle on success. `host` is NOT dialed -- it is the
+/// verification name (and SNI), typically paired with a config server-name
+/// override. POSIX only; on Windows the WSA handle model does not fit the
+/// i32 fd convention and this returns SA_STD_ERR_UNSUPPORTED.
+pub export fn sa_std_tls_client_start_tls(fd: i32, host_ptr: ?[*]const u8, host_len: u64, config: u64, out_handle: ?*u64) i32 {
+    const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    slot.* = 0;
+    if (comptime builtin.os.tag == .windows) return SA_STD_ERR_UNSUPPORTED;
+    if (fd < 0) return SA_STD_ERR_INVALID_ARGUMENT;
+    const host_n = u64ToUsize(host_len) orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    const host_slice = if (host_ptr) |p| p[0..host_n] else return SA_STD_ERR_INVALID_ARGUMENT;
+    if (host_slice.len == 0) return SA_STD_ERR_INVALID_ARGUMENT;
+    const cfg = if (config == 0) null else configFromU64(config);
+    if (config != 0 and cfg == null) return SA_STD_ERR_INVALID_ARGUMENT;
+    const addr = std.Io.net.IpAddress.parseIp4("0.0.0.0", 0) catch return SA_STD_ERR_IO;
+    const stream = std.Io.net.Stream{ .socket = .{ .handle = @intCast(fd), .address = addr } };
+    return connectImpl(stream, host_slice, 0, cfg, slot);
+}
+
+/// The peer certificate is NOT available on this backend: std.crypto.tls
+/// .Client verifies the chain during the handshake and then discards the
+/// certificate, so there is nothing truthful to report after the fact.
+/// This entry point exists so consumers can feature-probe one uniform
+/// name; it always returns SA_STD_ERR_UNSUPPORTED. Use the OpenSSL shaped
+/// client's sa_std_tls_shaped_peer_cert_chain_json for the decoded chain.
+pub export fn sa_std_tls_client_peer_cert_json(handle: u64, out_handle: ?*u64) i32 {
+    const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
+    slot.* = 0;
+    if (handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
+    return SA_STD_ERR_UNSUPPORTED;
 }
 
 // ---- buffer handle registry (same shape as sa_tls_server.zig) --------------
@@ -633,4 +999,283 @@ test "public internet: handshake with example.com:443 against the OS trust store
     }
     try testing.expect(total > 0);
     try testing.expect(std.mem.indexOf(u8, head[0..head_len], "HTTP/") != null);
+}
+
+// ---- configuration object surface (loopback only) -----------------------------
+
+fn spawnPlainServer(allocator: std.mem.Allocator, cert: []const u8, key: []const u8, port: u16) !sio.Child {
+    const accept_arg = try std.fmt.allocPrint(allocator, "127.0.0.1:{d}", .{port});
+    defer allocator.free(accept_arg);
+    const args = [_][]const u8{
+        "openssl", "s_server",
+        "-accept", accept_arg,
+        "-cert",   cert,
+        "-key",    key,
+        "-naccept", "1",
+        "-quiet",
+    };
+    var server = sio.Child.init(&args, allocator);
+    server.stdin_behavior = .Pipe;
+    server.stdout_behavior = .Pipe;
+    server.stderr_behavior = .Ignore;
+    try server.spawn();
+    return server;
+}
+
+fn freePort() !u16 {
+    const probe = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try probe.listen(sio.io(), .{ .reuse_address = true });
+    const port = switch (listener.socket.address) {
+        .ip4 => |a| a.port,
+        .ip6 => |a| a.port,
+    };
+    listener.deinit(sio.io());
+    return port;
+}
+
+fn connectConfigRetry(host: []const u8, port: u16, cfg: u64) i32 {
+    var handle: u64 = 0;
+    var attempt: usize = 0;
+    while (attempt < 100) : (attempt += 1) {
+        const rc = sa_std_tls_client_connect_config(host.ptr, host.len, port, cfg, &handle);
+        if (rc == SA_STD_OK) {
+            _ = sa_std_tls_client_close(handle);
+            return SA_STD_OK;
+        }
+        if (rc != SA_STD_ERR_IO) return rc;
+        std.Io.sleep(sio.io(), .fromMilliseconds(50), .awake) catch {};
+    }
+    return SA_STD_ERR_IO;
+}
+
+test "config object: lifecycle and argument validation without network" {
+    var cfg: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_new(&cfg));
+    try testing.expect(cfg != 0);
+    defer _ = sa_std_tls_client_config_free(cfg);
+
+    // Handle 0 is invalid for every setter.
+    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_tls_client_config_set_server_name(0, "x", 1));
+    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_tls_client_config_add_ca_memory(0, "x", 1));
+    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_tls_client_config_set_insecure_no_verification(0, 1));
+    // free(0) is a no-op success, matching close() conventions.
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_free(0));
+
+    // server_name set + clear.
+    const name = "example.internal";
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_set_server_name(cfg, name.ptr, name.len));
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_set_server_name(cfg, null, 0));
+
+    // Relative CA paths are rejected at set time (bundle API contract).
+    const rel = "certs/ca.pem";
+    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_tls_client_config_add_ca_file(cfg, rel.ptr, rel.len));
+
+    // Malformed memory CA fails at set time, not silently at connect time.
+    const junk = "this is not a pem file";
+    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_tls_client_config_add_ca_memory(cfg, junk.ptr, junk.len));
+
+    // peer_cert_json: the std backend cannot produce it -- explicit
+    // UNSUPPORTED probe result, INVALID for the null handle.
+    var out: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_tls_client_peer_cert_json(0, &out));
+    try testing.expectEqual(@as(i32, SA_STD_ERR_UNSUPPORTED), sa_std_tls_client_peer_cert_json(1, &out));
+}
+
+test "config object: memory CA + server_name override connects by IP; unpinned fails" {
+    const allocator = std.heap.page_allocator;
+    var td = testing.tmpDir(.{});
+    defer td.cleanup();
+    const tdir = sio.Dir{ .inner = td.dir };
+    const dirpath = try tdir.realpathAlloc(allocator, ".");
+    defer allocator.free(dirpath);
+    const paths = try makeSelfSignedCert(allocator, dirpath);
+    defer allocator.free(paths.cert);
+    defer allocator.free(paths.key);
+    const pem = try sio.readFileAbsoluteAlloc(allocator, paths.cert, 1 << 20);
+    defer allocator.free(pem);
+
+    // (1) Per-config memory CA is accepted eagerly.
+    var cfg: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_new(&cfg));
+    defer _ = sa_std_tls_client_config_free(cfg);
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_add_ca_memory(cfg, pem.ptr, pem.len));
+    const sni = "localhost";
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_set_server_name(cfg, sni.ptr, sni.len));
+
+    var port = try freePort();
+    var server = try spawnPlainServer(allocator, paths.cert, paths.key, port);
+    defer _ = server.kill() catch {};
+    // Dial by IP; the certificate names "localhost" only, so this succeeds
+    // solely because the config's server_name drives SNI + verification.
+    try testing.expectEqual(@as(i32, SA_STD_OK), connectConfigRetry("127.0.0.1", port, cfg));
+    _ = server.wait() catch {};
+
+    // (2) The CA-file variant of the same config also connects.
+    var cfg2: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_new(&cfg2));
+    defer _ = sa_std_tls_client_config_free(cfg2);
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_add_ca_file(cfg2, paths.cert.ptr, paths.cert.len));
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_set_server_name(cfg2, sni.ptr, sni.len));
+    port = try freePort();
+    var server2 = try spawnPlainServer(allocator, paths.cert, paths.key, port);
+    defer _ = server2.kill() catch {};
+    try testing.expectEqual(@as(i32, SA_STD_OK), connectConfigRetry("127.0.0.1", port, cfg2));
+    _ = server2.wait() catch {};
+
+    // (3) No pin at all: the self-signed peer must fail verification (-100),
+    // never silently connect.
+    port = try freePort();
+    var server3 = try spawnPlainServer(allocator, paths.cert, paths.key, port);
+    defer _ = server3.kill() catch {};
+    try testing.expectEqual(@as(i32, SA_STD_ERR_TLS_VERIFY), connectConfigRetry("localhost", port, 0));
+    _ = server3.wait() catch {};
+}
+
+test "config object: insecure switch and self-signed mode are separate, conflicts are loud" {
+    const allocator = std.heap.page_allocator;
+    var td = testing.tmpDir(.{});
+    defer td.cleanup();
+    const tdir = sio.Dir{ .inner = td.dir };
+    const dirpath = try tdir.realpathAlloc(allocator, ".");
+    defer allocator.free(dirpath);
+    const paths = try makeSelfSignedCert(allocator, dirpath);
+    defer allocator.free(paths.cert);
+    defer allocator.free(paths.key);
+
+    // Insecure switch alone: connects to the unpinned self-signed server.
+    var cfg: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_new(&cfg));
+    defer _ = sa_std_tls_client_config_free(cfg);
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_set_insecure_no_verification(cfg, 1));
+    var port = try freePort();
+    var server = try spawnPlainServer(allocator, paths.cert, paths.key, port);
+    defer _ = server.kill() catch {};
+    try testing.expectEqual(@as(i32, SA_STD_OK), connectConfigRetry("127.0.0.1", port, cfg));
+    _ = server.wait() catch {};
+
+    // Self-signed mode (NOT a bypass): also connects, by name.
+    var cfg2: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_new(&cfg2));
+    defer _ = sa_std_tls_client_config_free(cfg2);
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_set_verify_self_signed(cfg2, 1));
+    port = try freePort();
+    var server2 = try spawnPlainServer(allocator, paths.cert, paths.key, port);
+    defer _ = server2.kill() catch {};
+    try testing.expectEqual(@as(i32, SA_STD_OK), connectConfigRetry("localhost", port, cfg2));
+    _ = server2.wait() catch {};
+
+    // Insecure + server_name is a contradiction (no_verification sends no
+    // SNI): loud INVALID_ARGUMENT, not a silent ignore.
+    var cfg3: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_new(&cfg3));
+    defer _ = sa_std_tls_client_config_free(cfg3);
+    _ = sa_std_tls_client_config_set_insecure_no_verification(cfg3, 1);
+    const nm = "localhost";
+    _ = sa_std_tls_client_config_set_server_name(cfg3, nm.ptr, nm.len);
+    port = try freePort();
+    var server3 = try spawnPlainServer(allocator, paths.cert, paths.key, port);
+    defer _ = server3.kill() catch {};
+    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), connectConfigRetry("127.0.0.1", port, cfg3));
+    _ = server3.wait() catch {};
+}
+
+test "start_tls upgrades a plaintext connection after a STARTTLS preamble" {
+    if (comptime builtin.os.tag == .windows) return;
+    const allocator = std.heap.page_allocator;
+    var td = testing.tmpDir(.{});
+    defer td.cleanup();
+    const tdir = sio.Dir{ .inner = td.dir };
+    const dirpath = try tdir.realpathAlloc(allocator, ".");
+    defer allocator.free(dirpath);
+    const paths = try makeSelfSignedCert(allocator, dirpath);
+    defer allocator.free(paths.cert);
+    defer allocator.free(paths.key);
+    const pem = try sio.readFileAbsoluteAlloc(allocator, paths.cert, 1 << 20);
+    defer allocator.free(pem);
+
+    // Server side: our own OpenSSL tls_server ctx on a listener thread.
+    const srv = @import("sa_tls_server.zig");
+    var sup: u32 = 0;
+    _ = srv.sa_std_tls_server_supported(&sup);
+    if (sup == 0) return; // host cannot resolve OpenSSL symbols; nothing to prove against
+    var ctx: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), srv.sa_std_tls_server_ctx_create(paths.cert.ptr, paths.cert.len, paths.key.ptr, paths.key.len, &ctx));
+    defer _ = srv.sa_std_tls_server_ctx_free(ctx);
+
+    const probe = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try probe.listen(sio.io(), .{ .reuse_address = true });
+    defer listener.deinit(sio.io());
+    const port = switch (listener.socket.address) {
+        .ip4 => |a| a.port,
+        .ip6 => |a| a.port,
+    };
+
+    const Arg = struct { ctx: u64, lst: *std.Io.net.Server, accept_rc: i32 = -999 };
+    var arg: Arg = .{ .ctx = ctx, .lst = &listener };
+    const Runner = struct {
+        fn run(a: *Arg) void {
+            const tsrv = @import("sa_tls_server.zig");
+            var stream = a.lst.accept(sio.io()) catch return;
+            defer stream.close(sio.io());
+            // Plaintext preamble: read one line BYTE BY BYTE off the raw
+            // fd. A buffered reader could swallow ClientHello bytes that
+            // already arrived, starving the TLS handshake that follows.
+            var line_buf: [16]u8 = undefined;
+            var line_len: usize = 0;
+            while (line_len < line_buf.len) {
+                var b: [1]u8 = undefined;
+                const n = std.posix.read(stream.socket.handle, &b) catch return;
+                if (n == 0) return;
+                line_buf[line_len] = b[0];
+                line_len += 1;
+                if (b[0] == '\n') break;
+            }
+            if (!std.mem.eql(u8, line_buf[0..line_len], "STARTTLS\n")) return;
+            var ssl: u64 = 0;
+            a.accept_rc = tsrv.sa_std_tls_server_accept(a.ctx, stream.socket.handle, &ssl);
+            if (a.accept_rc != 0) return;
+            var buf: [64]u8 = undefined;
+            var n: u64 = 0;
+            if (tsrv.sa_std_tls_server_read(ssl, &buf, buf.len, &n) == 0) {
+                _ = tsrv.sa_std_tls_server_write(ssl, &buf, n, &n);
+            }
+            _ = tsrv.sa_std_tls_server_close(ssl);
+        }
+    };
+    var thread = try std.Thread.spawn(.{}, Runner.run, .{&arg});
+
+    // Client side: plain TCP, preamble, then upgrade in place.
+    const addr = try std.Io.net.IpAddress.parseIp4("127.0.0.1", port);
+    var plain = try addr.connect(sio.io(), .{ .mode = .stream });
+    var wb: [64]u8 = undefined;
+    var wr = plain.writer(sio.io(), &wb);
+    try wr.interface.writeAll("STARTTLS\n");
+    try wr.interface.flush();
+
+    var cfg: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_new(&cfg));
+    defer _ = sa_std_tls_client_config_free(cfg);
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_config_add_ca_memory(cfg, pem.ptr, pem.len));
+
+    const host = "localhost";
+    var handle: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_start_tls(plain.socket.handle, host.ptr, host.len, cfg, &handle));
+    try testing.expect(handle != 0);
+
+    const msg = "post-upgrade-ping";
+    var written: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_write(handle, msg.ptr, msg.len, &written));
+    try testing.expectEqual(@as(u64, msg.len), written);
+    var echo: [64]u8 = undefined;
+    var got: usize = 0;
+    while (got < msg.len) {
+        var n: u64 = 0;
+        try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_read(handle, echo[got..].ptr, echo.len - got, &n));
+        if (n == 0) break;
+        got += @intCast(n);
+    }
+    try testing.expectEqualStrings(msg, echo[0..got]);
+    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_close(handle));
+    thread.join();
+    try testing.expectEqual(@as(i32, 0), arg.accept_rc);
 }

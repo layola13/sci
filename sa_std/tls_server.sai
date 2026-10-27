@@ -21,6 +21,35 @@
 
 @extern sa_std_tls_server_status_json(&out_handle: ptr) -> i32
 
+// Create a ctx from in-memory PEM instead of files: the first
+// CERTIFICATE block is the server certificate, further CERTIFICATE blocks
+// become the chain; the key accepts the PEM labels PRIVATE KEY /
+// RSA PRIVATE KEY / EC PRIVATE KEY. Malformed input fails with -22.
+@extern sa_std_tls_server_ctx_create_memory(&cert_pem: ptr, cert_pem_len: u64, &key_pem: ptr, key_pem_len: u64, &out_ctx: ptr) -> i32
+
+// Set the ctx ALPN list (comma-separated, server preference order);
+// an empty list clears ALPN.
+@extern sa_std_tls_server_ctx_set_alpn(ctx: u64, &protos: ptr, protos_len: u64) -> i32
+
+// Require a verified client certificate (mutual TLS). ca_path is the
+// trust-anchor file for client certificates; an empty path uses the OS
+// default verify paths. Afterwards accept() fails with -100 unless the
+// client presented a certificate that verifies.
+@extern sa_std_tls_server_ctx_require_client_cert(ctx: u64, &ca_path: ptr, ca_path_len: u64) -> i32
+
+// Protocol version bounds: 0 = unbounded, 2 = TLS 1.2, 3 = TLS 1.3.
+@extern sa_std_tls_server_ctx_set_version_bounds(ctx: u64, min_version: u32, max_version: u32) -> i32
+
+// OpenSSL verify result of an accepted session (0 = X509_V_OK), as u32.
+@extern sa_std_tls_server_session_verify_result(ssl: u64, &out_code: ptr) -> i32
+
+// {"version","cipher","alpn"} of an accepted session (registered buffer).
+@extern sa_std_tls_server_negotiated_json(ssl: u64, &out_handle: ptr) -> i32
+
+// Decoded peer (client) certificate chain; same JSON shape as
+// sa_std_tls_shaped_peer_cert_chain_json (registered buffer).
+@extern sa_std_tls_server_peer_cert_chain_json(ssl: u64, &out_handle: ptr) -> i32
+
 // buffer handle accessors (sci convention)
 @extern sa_std_tls_server_buffer_data(buffer: u64) -> &ptr
 @extern sa_std_tls_server_buffer_len(buffer: u64) -> u64

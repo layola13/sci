@@ -5,7 +5,10 @@
 // the peer: the hostname is sent as SNI and checked against the peer
 // certificate, and the chain is verified against the process-wide CA bundle
 // (OS trust store, optionally extended with sa_std_tls_client_add_ca_file).
-// There is no verification-disabled mode.
+// The plain connect() has no verification-disabled mode; the config object
+// below carries ONE explicitly named opt-in
+// (sa_std_tls_client_config_set_insecure_no_verification) for callers that
+// truly need it -- it is never the default and never implied.
 //
 // Error codes: 0 = OK; negative = error (-1 unsupported, -5 I/O,
 // -12 out of memory, -22 invalid argument, -100 certificate verification
@@ -33,6 +36,49 @@
 
 @extern sa_std_tls_client_status_json(&out_handle: ptr) -> i32
 
+// ---- client configuration object (sa_tls_client.zig) ----
+// A config is an opaque u64 handle (0 == invalid); config 0 passed to
+// connect_config / start_tls means "the default configuration" (identical
+// to the plain connect: system CA bundle, SNI = dial host, full
+// verification). Settings are per-config, never process-global.
+//
+// server_name overrides BOTH the SNI sent and the name the peer
+// certificate is verified against (Python's server_hostname semantics);
+// pass an empty name to clear it back to the dial host.
+// add_ca_file / add_ca_memory EXTEND the system bundle for this config
+// only; add_ca_memory validates the PEM at set time and fails with -22
+// when it contains no usable certificate.
+// set_verify_self_signed accepts a self-signed peer certificate after the
+// std cryptographic checks (signature/format) -- it is NOT a verification
+// bypass. It is mutually exclusive with custom CA anchors and with the
+// insecure switch; conflicting combinations fail loudly with -22 at
+// connect time instead of being silently ignored.
+// set_insecure_no_verification is the ONLY way to skip verification on
+// this backend, and only when explicitly enabled (enabled != 0).
+
+@extern sa_std_tls_client_config_new(&out_config: ptr) -> i32
+@extern sa_std_tls_client_config_free(config: u64) -> i32
+@extern sa_std_tls_client_config_set_server_name(config: u64, &name: ptr, name_len: u64) -> i32
+@extern sa_std_tls_client_config_add_ca_file(config: u64, &path: ptr, path_len: u64) -> i32
+@extern sa_std_tls_client_config_add_ca_memory(config: u64, &pem: ptr, pem_len: u64) -> i32
+@extern sa_std_tls_client_config_set_insecure_no_verification(config: u64, enabled: u32) -> i32
+@extern sa_std_tls_client_config_set_verify_self_signed(config: u64, enabled: u32) -> i32
+
+@extern sa_std_tls_client_connect_config(&host: ptr, host_len: u64, port: u32, config: u64, &out_handle: ptr) -> i32
+
+// Upgrade an existing plaintext TCP connection (raw fd) to TLS -- the
+// STARTTLS building block. Ownership of the fd transfers to this call: it
+// is closed on failure and owned by the returned handle on success. The
+// host supplies the default SNI / verification name (config server_name
+// overrides). POSIX only; Windows returns -1 (UNSUPPORTED).
+@extern sa_std_tls_client_start_tls(fd: i32, &host: ptr, host_len: u64, config: u64, &out_handle: ptr) -> i32
+
+// Peer certificate on this backend: UNSUPPORTED by construction --
+// std.crypto.tls.Client does not retain the peer certificate after the
+// handshake, so there is nothing honest to return. Use the shaped client
+// (sa_std_tls_shaped_peer_cert_chain_json) when the certificate matters.
+@extern sa_std_tls_client_peer_cert_json(handle: u64, &out_handle: ptr) -> i32
+
 // buffer handle accessors (sci convention)
 @extern sa_std_tls_client_buffer_data(buffer: u64) -> &ptr
 @extern sa_std_tls_client_buffer_len(buffer: u64) -> u64
@@ -41,7 +87,16 @@
 // ---- shaped client (sa_tls_shaped.zig): profile-controlled ClientHello ----
 // Profile JSON keys: preset (chrome|firefox|safari|go|default), alpn[],
 // ciphersuites, ciphers, groups, sigalgs, min_version, max_version,
-// ca_file. Unknown keys are rejected; grease:true -> UNSUPPORTED.
+// ca_file, ca_pem, sni, verify_host, cert_file + key_file (client
+// certificate, both or neither), insecure_skip_verify (bool, default
+// false -- the ONLY verification bypass on this backend, explicit by
+// name), session (base64 DER session blob from
+// sa_std_tls_shaped_session_blob, for session resumption).
+// ca_file / ca_pem REPLACE the trust store for the connection (unlike the
+// plain client's additive CA); they are mutually exclusive (-22).
+// verify_host overrides the certificate name check only; sni overrides
+// the SNI sent and, absent verify_host, also the check name.
+// Unknown keys are rejected; grease:true -> UNSUPPORTED.
 // hello_ja3/ja4 are computed from the ClientHello bytes actually sent
 // (captured via an OpenSSL message callback), never estimated.
 
@@ -54,6 +109,25 @@
 @extern sa_std_tls_shaped_hello_ja3(handle: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_std_tls_shaped_hello_ja3_string(handle: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
 @extern sa_std_tls_shaped_hello_ja4(handle: u64, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+
+// Upgrade an existing plaintext TCP connection (raw fd) with a profile;
+// same fd-ownership rule as sa_std_tls_client_start_tls.
+@extern sa_std_tls_shaped_start_tls(fd: i32, &host: ptr, host_len: u64, &profile: ptr, profile_len: u64, &out_handle: ptr) -> i32
+
+// Export the connection's resumable session as base64 DER (feed it back
+// via the profile `session` key). negotiated_json reports
+// "session_reused":true when a supplied session was actually resumed.
+// On TLS 1.3 a session only exists after a post-handshake ticket has
+// arrived; before that this returns -1 (UNSUPPORTED) rather than a blob
+// that silently would not resume.
+@extern sa_std_tls_shaped_session_blob(handle: u64, &out_handle: ptr) -> i32
+
+// Decoded peer certificate chain as a registered-buffer JSON document:
+// {"certificates":[{"subject","issuer","common_name","san_dns":[...],
+// "san_ip":[...],"not_before","not_after","serial_hex",
+// "sha256_fingerprint"}]}, leaf first; subject/issuer use the OpenSSL
+// oneline form so they diff cleanly against `openssl x509` output.
+@extern sa_std_tls_shaped_peer_cert_chain_json(handle: u64, &out_handle: ptr) -> i32
 
 @extern sa_std_tls_shaped_buffer_data(buffer: u64) -> &ptr
 @extern sa_std_tls_shaped_buffer_len(buffer: u64) -> u64

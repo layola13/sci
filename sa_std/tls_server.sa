@@ -58,3 +58,39 @@
 [MACRO] TLS_SERVER_BUFFER_FREE %out_status, %buffer
     %out_status = call @sa_std_tls_server_buffer_free(^%buffer)
 [END_MACRO]
+
+[MACRO] TLS_SERVER_CTX_CREATE_MEMORY %out_status, %out_ctx, %cert_pem, %cert_pem_len, %key_pem, %key_pem_len
+    __tls_srv_ctx_%out_status = stack_alloc 8
+    %out_status = call @sa_std_tls_server_ctx_create_memory(&%cert_pem, %cert_pem_len, &%key_pem, %key_pem_len, &__tls_srv_ctx_%out_status)
+    %out_ctx = load __tls_srv_ctx_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] TLS_SERVER_CTX_SET_ALPN %out_status, %ctx, %protos, %protos_len
+    %out_status = call @sa_std_tls_server_ctx_set_alpn(%ctx, &%protos, %protos_len)
+[END_MACRO]
+
+[MACRO] TLS_SERVER_CTX_REQUIRE_CLIENT_CERT %out_status, %ctx, %ca_path, %ca_path_len
+    %out_status = call @sa_std_tls_server_ctx_require_client_cert(%ctx, &%ca_path, %ca_path_len)
+[END_MACRO]
+
+[MACRO] TLS_SERVER_CTX_SET_VERSION_BOUNDS %out_status, %ctx, %min_version, %max_version
+    %out_status = call @sa_std_tls_server_ctx_set_version_bounds(%ctx, %min_version, %max_version)
+[END_MACRO]
+
+[MACRO] TLS_SERVER_SESSION_VERIFY_RESULT %out_status, %out_code, %ssl
+    __tls_srv_verify_%out_status = stack_alloc 4
+    %out_status = call @sa_std_tls_server_session_verify_result(%ssl, &__tls_srv_verify_%out_status)
+    %out_code = load __tls_srv_verify_%out_status+0 as u32
+[END_MACRO]
+
+[MACRO] TLS_SERVER_NEGOTIATED_JSON %out_status, %out_buffer, %ssl
+    __tls_srv_neg_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_tls_server_negotiated_json(%ssl, &__tls_srv_neg_handle_%out_status)
+    %out_buffer = load __tls_srv_neg_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] TLS_SERVER_PEER_CERT_CHAIN_JSON %out_status, %out_buffer, %ssl
+    __tls_srv_cert_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_tls_server_peer_cert_chain_json(%ssl, &__tls_srv_cert_handle_%out_status)
+    %out_buffer = load __tls_srv_cert_handle_%out_status+0 as u64
+[END_MACRO]

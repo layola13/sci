@@ -10,6 +10,16 @@ const sio = @import("sio");
 // trick as sa_std.zig so every `pub export fn` is kept in the archive.
 comptime {
     _ = &@import("sa_tls_client.zig").sa_std_tls_client_supported;
+    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_new;
+    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_free;
+    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_set_server_name;
+    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_add_ca_file;
+    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_add_ca_memory;
+    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_set_insecure_no_verification;
+    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_set_verify_self_signed;
+    _ = &@import("sa_tls_client.zig").sa_std_tls_client_connect_config;
+    _ = &@import("sa_tls_client.zig").sa_std_tls_client_start_tls;
+    _ = &@import("sa_tls_client.zig").sa_std_tls_client_peer_cert_json;
     _ = &@import("sa_ws_client.zig").sa_std_ws_client_supported;
     _ = &@import("sa_thread_local.zig").sa_thread_local_supported;
 }
