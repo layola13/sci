@@ -1,0 +1,42 @@
+// Regression test for the SLA-facing SA_NET_UNIX_ADDR_* constants
+// in sa_std/net.sla (unix section).
+//
+//  - Literal: the three kind values are pinned (they mirror
+//    net.sal's SA-layer definitions).
+//  - Behavioral: an addr built with sa_std_net_unix_addr_from_
+//    abstract_name reports sa_net_unix_addr_kind ==
+//    SA_NET_UNIX_ADDR_ABSTRACT, and one built from a pathname
+//    reports SA_NET_UNIX_ADDR_PATHNAME -- the exact comparisons
+//    that previously needed bare literals.
+
+@import "sa_std/net.sla"
+@import "sa_std/net.sai"
+@import "sa_std/string.sa"
+
+@test "unix addr kind consts pin the published values"() {
+    if SA_NET_UNIX_ADDR_UNNAMED == 0 { } else { panic(2301); };
+    if SA_NET_UNIX_ADDR_PATHNAME == 1 { } else { panic(2302); };
+    if SA_NET_UNIX_ADDR_ABSTRACT == 2 { } else { panic(2303); };
+};
+
+@test "abstract addr reports SA_NET_UNIX_ADDR_ABSTRACT"() {
+    let addr: u64 = 0;
+    let st: i32 = sa_std_net_unix_addr_from_abstract_name(STR_PTR("bb2-kind-probe"), STR_LEN("bb2-kind-probe"), &addr);
+    if st == 0 { } else { panic(2311); };
+    if addr != 0 { } else { panic(2312); };
+    let kind: u32 = sa_net_unix_addr_kind(addr);
+    if kind == SA_NET_UNIX_ADDR_ABSTRACT { } else { panic(2313); };
+    let f_st: i32 = sa_net_addr_free(addr);
+    if f_st == 0 { } else { panic(2314); };
+};
+
+@test "pathname addr reports SA_NET_UNIX_ADDR_PATHNAME"() {
+    let addr: u64 = 0;
+    let st: i32 = sa_std_net_unix_addr_from_pathname(STR_PTR("/tmp/bb2-kind-probe.sock"), STR_LEN("/tmp/bb2-kind-probe.sock"), &addr);
+    if st == 0 { } else { panic(2321); };
+    if addr != 0 { } else { panic(2322); };
+    let kind: u32 = sa_net_unix_addr_kind(addr);
+    if kind == SA_NET_UNIX_ADDR_PATHNAME { } else { panic(2323); };
+    let f_st: i32 = sa_net_addr_free(addr);
+    if f_st == 0 { } else { panic(2324); };
+};

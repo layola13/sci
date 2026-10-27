@@ -27,3 +27,15 @@
 const SA_NET_AF_UNSPEC: u32 = 0;
 const SA_NET_AF_INET: u32 = 2;
 const SA_NET_AF_INET6: u32 = 10;
+
+// SLA-facing named constants for the sa_net_unix_addr_kind values
+// (sa_std/net.sai: sa_net_unix_addr_kind(addr) -> u32). The names
+// exist at the SA layer (sa_std/net.sal: SA_NET_UNIX_ADDR_UNNAMED
+// = 0 / SA_NET_UNIX_ADDR_PATHNAME = 1 / SA_NET_UNIX_ADDR_ABSTRACT
+// = 2) but, like the AF face above, were invisible to SLA
+// consumers, who hard-coded the numbers. Pure declarations.
+
+const SA_NET_UNIX_ADDR_UNNAMED: u32 = 0;
+const SA_NET_UNIX_ADDR_PATHNAME: u32 = 1;
+const SA_NET_UNIX_ADDR_ABSTRACT: u32 = 2;
+
