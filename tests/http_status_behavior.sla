@@ -1,0 +1,43 @@
+// Behavioral lock for the SA_HTTP_STATUS_* constants in
+// sa_std/http.sla: a real loopback HTTP exchange whose response
+// status is compared against the named constants.
+//
+// Requires a loopback stub on 127.0.0.1:18741 that answers 200 for
+// /ok and 404 for anything else (e.g. python3 -m http.server 18741
+// in a directory containing an empty file named "ok"). The stub is
+// a run-procedure dependency, not part of this file; the literal
+// and method locks live in tests/http_constants.sla and need no
+// stub.
+
+@import "sa_std/http.sla"
+@import "sa_std/string.sa"
+
+@test "loopback exchange status matches the named constants"() {
+    let client: u64 = 0;
+    let c_st: u32 = sa_http_client_new(0, &client);
+    if c_st == 0 { } else { panic(2501); };
+    if client != 0 { } else { panic(2502); };
+    let req: u64 = 0;
+    let r_st: u32 = sa_http_client_req_new(client, SA_HTTP_METHOD_GET, STR_PTR("http://127.0.0.1:18741/ok"), STR_LEN("http://127.0.0.1:18741/ok"), &req);
+    if r_st == 0 { } else { panic(2503); };
+    let resp: u64 = 0;
+    let s_st: u32 = sa_http_client_req_send(req, &resp);
+    if s_st == 0 { } else { panic(2504); };
+    if resp != 0 { } else { panic(2505); };
+    let status: u16 = sa_http_client_resp_status(resp);
+    if status == SA_HTTP_STATUS_OK { } else { panic(2506); };
+    let rf: u32 = sa_http_client_resp_free(resp);
+    if rf == 0 { } else { panic(2507); };
+    let req2: u64 = 0;
+    let r2_st: u32 = sa_http_client_req_new(client, SA_HTTP_METHOD_GET, STR_PTR("http://127.0.0.1:18741/missing"), STR_LEN("http://127.0.0.1:18741/missing"), &req2);
+    if r2_st == 0 { } else { panic(2508); };
+    let resp2: u64 = 0;
+    let s2_st: u32 = sa_http_client_req_send(req2, &resp2);
+    if s2_st == 0 { } else { panic(2509); };
+    let status2: u16 = sa_http_client_resp_status(resp2);
+    if status2 == SA_HTTP_STATUS_NOT_FOUND { } else { panic(2510); };
+    let rf2: u32 = sa_http_client_resp_free(resp2);
+    if rf2 == 0 { } else { panic(2511); };
+    let cf: u32 = sa_http_client_free(client);
+    if cf == 0 { } else { panic(2512); };
+};

@@ -1,0 +1,136 @@
+// SLA-facing named constants for the sa_std HTTP surface: status
+// codes and request-method codes. (Header names: see the block
+// comment below -- blocked on a compiler lowering gap, registered
+// rather than faked.)
+//
+// Why this file exists, and why it lives at the sa_std root: the
+// extern surfaces on both sides of an HTTP exchange hand these
+// values around as bare numbers and strings -- sa_http_client_resp_
+// status returns a u16 with no name attached, sa_http_client_req_new
+// takes the method as a bare u8 code, and headers are raw name
+// strings -- so SLA consumers hard-coded the numbers (and the
+// census found exactly that across converted code). No single
+// client/server module owns the vocabulary (the server surface
+// uses the same codes), so the SLA spelling lives at the root next
+// to status.sla / net.sla. These consts are pure declarations: no
+// new externs, no ABI change (the one runtime change in this batch
+// is the HttpMethod completion in src/runtime/sa_http_client.zig,
+// committed separately).
+//
+// Status values: the HTTP status codes themselves (RFC 9110 and
+// the IANA registry). The NAME LIST is the .NET HttpStatusCode
+// member list as extracted by the net census (sala
+// tools/dotnet_net_census/dotnet_surface.tsv, 67 members incl. the
+// alias members Ambiguous/MultipleChoices, Moved/MovedPermanently,
+// Found/Redirect, RedirectMethod/SeeOther, RedirectKeepVerb/
+// TemporaryRedirect, UnprocessableEntity/UnprocessableContent,
+// which share one code each). Values were cross-checked against
+// Python's http.HTTPStatus table when this file was written.
+//
+// Method values: sa-internal u8 codes of src/runtime/
+// sa_http_client.zig's HttpMethod enum. GET=1..DELETE=4 are the
+// original four; HEAD=5, PATCH=6, OPTIONS=7, TRACE=8, CONNECT=9
+// complete the set (same batch, runtime switch + methodFromCode
+// extended to match). These codes are NOT wire text; the wire
+// spelling is the usual uppercase method name.
+//
+// Header names are NOT published here, deliberately: an SLA
+// string constant declared in an imported unit does not survive
+// lowering today -- referencing one from a consumer unit traps
+// with UnknownRegister (1007) on the SAB path, and function
+// returns of bare literals fail the checker (literal type is
+// raw_ptr, not String/str); both forms were probe-verified on
+// 2026-10-27. Shipping the names as consts would hand consumers a
+// face that traps on first use. The census-extracted list (48
+// distinct wire names from .NET HttpRequestHeaders 33 +
+// HttpContentHeaders 11 + HttpResponseHeaders 20 properties,
+// minus the boolean-flag properties ConnectionClose /
+// ExpectContinue / TransferEncodingChunked, the unverified
+// "Protocol" row, and cross-list duplicates) is recorded in
+// tests/http_constants.sla's header comment, ready to become
+// consts the day cross-unit string constants lower correctly.
+// Until then, header names stay inline string literals at call
+// sites, as in all current sa_std code.
+
+@import "sa_std/http_client.sai"
+
+// ---- status codes (u32; resp_status returns u16, compare after widening) ----
+const SA_HTTP_STATUS_CONTINUE: u32 = 100;
+const SA_HTTP_STATUS_SWITCHING_PROTOCOLS: u32 = 101;
+const SA_HTTP_STATUS_PROCESSING: u32 = 102;
+const SA_HTTP_STATUS_EARLY_HINTS: u32 = 103;
+const SA_HTTP_STATUS_OK: u32 = 200;
+const SA_HTTP_STATUS_CREATED: u32 = 201;
+const SA_HTTP_STATUS_ACCEPTED: u32 = 202;
+const SA_HTTP_STATUS_NON_AUTHORITATIVE_INFORMATION: u32 = 203;
+const SA_HTTP_STATUS_NO_CONTENT: u32 = 204;
+const SA_HTTP_STATUS_RESET_CONTENT: u32 = 205;
+const SA_HTTP_STATUS_PARTIAL_CONTENT: u32 = 206;
+const SA_HTTP_STATUS_MULTI_STATUS: u32 = 207;
+const SA_HTTP_STATUS_ALREADY_REPORTED: u32 = 208;
+const SA_HTTP_STATUS_IM_USED: u32 = 226;
+const SA_HTTP_STATUS_AMBIGUOUS: u32 = 300;
+const SA_HTTP_STATUS_MULTIPLE_CHOICES: u32 = 300;
+const SA_HTTP_STATUS_MOVED: u32 = 301;
+const SA_HTTP_STATUS_MOVED_PERMANENTLY: u32 = 301;
+const SA_HTTP_STATUS_FOUND: u32 = 302;
+const SA_HTTP_STATUS_REDIRECT: u32 = 302;
+const SA_HTTP_STATUS_REDIRECT_METHOD: u32 = 303;
+const SA_HTTP_STATUS_SEE_OTHER: u32 = 303;
+const SA_HTTP_STATUS_NOT_MODIFIED: u32 = 304;
+const SA_HTTP_STATUS_USE_PROXY: u32 = 305;
+const SA_HTTP_STATUS_UNUSED: u32 = 306;
+const SA_HTTP_STATUS_REDIRECT_KEEP_VERB: u32 = 307;
+const SA_HTTP_STATUS_TEMPORARY_REDIRECT: u32 = 307;
+const SA_HTTP_STATUS_PERMANENT_REDIRECT: u32 = 308;
+const SA_HTTP_STATUS_BAD_REQUEST: u32 = 400;
+const SA_HTTP_STATUS_UNAUTHORIZED: u32 = 401;
+const SA_HTTP_STATUS_PAYMENT_REQUIRED: u32 = 402;
+const SA_HTTP_STATUS_FORBIDDEN: u32 = 403;
+const SA_HTTP_STATUS_NOT_FOUND: u32 = 404;
+const SA_HTTP_STATUS_METHOD_NOT_ALLOWED: u32 = 405;
+const SA_HTTP_STATUS_NOT_ACCEPTABLE: u32 = 406;
+const SA_HTTP_STATUS_PROXY_AUTHENTICATION_REQUIRED: u32 = 407;
+const SA_HTTP_STATUS_REQUEST_TIMEOUT: u32 = 408;
+const SA_HTTP_STATUS_CONFLICT: u32 = 409;
+const SA_HTTP_STATUS_GONE: u32 = 410;
+const SA_HTTP_STATUS_LENGTH_REQUIRED: u32 = 411;
+const SA_HTTP_STATUS_PRECONDITION_FAILED: u32 = 412;
+const SA_HTTP_STATUS_REQUEST_ENTITY_TOO_LARGE: u32 = 413;
+const SA_HTTP_STATUS_REQUEST_URI_TOO_LONG: u32 = 414;
+const SA_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE: u32 = 415;
+const SA_HTTP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE: u32 = 416;
+const SA_HTTP_STATUS_EXPECTATION_FAILED: u32 = 417;
+const SA_HTTP_STATUS_MISDIRECTED_REQUEST: u32 = 421;
+const SA_HTTP_STATUS_UNPROCESSABLE_ENTITY: u32 = 422;
+const SA_HTTP_STATUS_UNPROCESSABLE_CONTENT: u32 = 422;
+const SA_HTTP_STATUS_LOCKED: u32 = 423;
+const SA_HTTP_STATUS_FAILED_DEPENDENCY: u32 = 424;
+const SA_HTTP_STATUS_UPGRADE_REQUIRED: u32 = 426;
+const SA_HTTP_STATUS_PRECONDITION_REQUIRED: u32 = 428;
+const SA_HTTP_STATUS_TOO_MANY_REQUESTS: u32 = 429;
+const SA_HTTP_STATUS_REQUEST_HEADER_FIELDS_TOO_LARGE: u32 = 431;
+const SA_HTTP_STATUS_UNAVAILABLE_FOR_LEGAL_REASONS: u32 = 451;
+const SA_HTTP_STATUS_INTERNAL_SERVER_ERROR: u32 = 500;
+const SA_HTTP_STATUS_NOT_IMPLEMENTED: u32 = 501;
+const SA_HTTP_STATUS_BAD_GATEWAY: u32 = 502;
+const SA_HTTP_STATUS_SERVICE_UNAVAILABLE: u32 = 503;
+const SA_HTTP_STATUS_GATEWAY_TIMEOUT: u32 = 504;
+const SA_HTTP_STATUS_HTTP_VERSION_NOT_SUPPORTED: u32 = 505;
+const SA_HTTP_STATUS_VARIANT_ALSO_NEGOTIATES: u32 = 506;
+const SA_HTTP_STATUS_INSUFFICIENT_STORAGE: u32 = 507;
+const SA_HTTP_STATUS_LOOP_DETECTED: u32 = 508;
+const SA_HTTP_STATUS_NOT_EXTENDED: u32 = 510;
+const SA_HTTP_STATUS_NETWORK_AUTHENTICATION_REQUIRED: u32 = 511;
+
+// ---- method codes (u8 values of HttpMethod, widened to u32) ----
+const SA_HTTP_METHOD_GET: u32 = 1;
+const SA_HTTP_METHOD_POST: u32 = 2;
+const SA_HTTP_METHOD_PUT: u32 = 3;
+const SA_HTTP_METHOD_DELETE: u32 = 4;
+const SA_HTTP_METHOD_HEAD: u32 = 5;
+const SA_HTTP_METHOD_PATCH: u32 = 6;
+const SA_HTTP_METHOD_OPTIONS: u32 = 7;
+const SA_HTTP_METHOD_TRACE: u32 = 8;
+const SA_HTTP_METHOD_CONNECT: u32 = 9;
+

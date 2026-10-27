@@ -1,0 +1,145 @@
+// Regression test for the SLA-facing HTTP constants in
+// sa_std/http.sla: status codes and method codes.
+//
+// Header names are registered here, not tested, because they
+// cannot be published yet (see http.sla's block comment for the
+// probe evidence). The extracted 48 wire names, in full:
+//   Accept, Accept-Charset, Accept-Encoding, Accept-Language,
+//   Accept-Ranges, Age, Allow, Authorization, Cache-Control,
+//   Connection, Content-Disposition, Content-Encoding,
+//   Content-Language, Content-Length, Content-Location,
+//   Content-MD5, Content-Range, Content-Type, Date, ETag, Expect,
+//   Expires, From, Host, If-Match, If-Modified-Since,
+//   If-None-Match, If-Range, If-Unmodified-Since, Last-Modified,
+//   Location, Max-Forwards, Pragma, Proxy-Authenticate,
+//   Proxy-Authorization, Range, Referer, Retry-After, Server, TE,
+//   Trailer, Transfer-Encoding, Upgrade, User-Agent, Vary, Via,
+//   Warning, WWW-Authenticate.
+// (Referer is the historic wire spelling of the Referrer
+// property.)
+//
+// Locks, kept separate on purpose (precedent: status_constants):
+//  - Literal: every published value is pinned. Status values are
+//    the HTTP codes (name list = .NET HttpStatusCode members per
+//    the sala net census extraction, cross-checked against
+//    Python http.HTTPStatus); method values are the HttpMethod
+//    enum codes in src/runtime/sa_http_client.zig.
+//  - Behavioral (methods): sa_http_client_req_new_v2 accepts the
+//    completed method codes 5..9 and still rejects 0 / 99. This
+//    half only passes against a libsa_std.a built from the
+//    extended HttpMethod enum (same batch); on the pre-extension
+//    runtime codes 5..9 come back invalid, which is exactly the
+//    gap the extension closes.
+//
+// On a tree without http.sla this file cannot even compile, which
+// is what makes it a regression test for the constant face.
+
+@import "sa_std/http.sla"
+@import "sa_std/string.sa"
+
+@test "http status consts pin the published values"() {
+    if SA_HTTP_STATUS_CONTINUE == 100 { } else { panic(1501); };
+    if SA_HTTP_STATUS_SWITCHING_PROTOCOLS == 101 { } else { panic(1502); };
+    if SA_HTTP_STATUS_PROCESSING == 102 { } else { panic(1503); };
+    if SA_HTTP_STATUS_EARLY_HINTS == 103 { } else { panic(1504); };
+    if SA_HTTP_STATUS_OK == 200 { } else { panic(1505); };
+    if SA_HTTP_STATUS_CREATED == 201 { } else { panic(1506); };
+    if SA_HTTP_STATUS_ACCEPTED == 202 { } else { panic(1507); };
+    if SA_HTTP_STATUS_NON_AUTHORITATIVE_INFORMATION == 203 { } else { panic(1508); };
+    if SA_HTTP_STATUS_NO_CONTENT == 204 { } else { panic(1509); };
+    if SA_HTTP_STATUS_RESET_CONTENT == 205 { } else { panic(1510); };
+    if SA_HTTP_STATUS_PARTIAL_CONTENT == 206 { } else { panic(1511); };
+    if SA_HTTP_STATUS_MULTI_STATUS == 207 { } else { panic(1512); };
+    if SA_HTTP_STATUS_ALREADY_REPORTED == 208 { } else { panic(1513); };
+    if SA_HTTP_STATUS_IM_USED == 226 { } else { panic(1514); };
+    if SA_HTTP_STATUS_AMBIGUOUS == 300 { } else { panic(1515); };
+    if SA_HTTP_STATUS_MULTIPLE_CHOICES == 300 { } else { panic(1516); };
+    if SA_HTTP_STATUS_MOVED == 301 { } else { panic(1517); };
+    if SA_HTTP_STATUS_MOVED_PERMANENTLY == 301 { } else { panic(1518); };
+    if SA_HTTP_STATUS_FOUND == 302 { } else { panic(1519); };
+    if SA_HTTP_STATUS_REDIRECT == 302 { } else { panic(1520); };
+    if SA_HTTP_STATUS_REDIRECT_METHOD == 303 { } else { panic(1521); };
+    if SA_HTTP_STATUS_SEE_OTHER == 303 { } else { panic(1522); };
+    if SA_HTTP_STATUS_NOT_MODIFIED == 304 { } else { panic(1523); };
+    if SA_HTTP_STATUS_USE_PROXY == 305 { } else { panic(1524); };
+    if SA_HTTP_STATUS_UNUSED == 306 { } else { panic(1525); };
+    if SA_HTTP_STATUS_REDIRECT_KEEP_VERB == 307 { } else { panic(1526); };
+    if SA_HTTP_STATUS_TEMPORARY_REDIRECT == 307 { } else { panic(1527); };
+    if SA_HTTP_STATUS_PERMANENT_REDIRECT == 308 { } else { panic(1528); };
+    if SA_HTTP_STATUS_BAD_REQUEST == 400 { } else { panic(1529); };
+    if SA_HTTP_STATUS_UNAUTHORIZED == 401 { } else { panic(1530); };
+    if SA_HTTP_STATUS_PAYMENT_REQUIRED == 402 { } else { panic(1531); };
+    if SA_HTTP_STATUS_FORBIDDEN == 403 { } else { panic(1532); };
+    if SA_HTTP_STATUS_NOT_FOUND == 404 { } else { panic(1533); };
+    if SA_HTTP_STATUS_METHOD_NOT_ALLOWED == 405 { } else { panic(1534); };
+    if SA_HTTP_STATUS_NOT_ACCEPTABLE == 406 { } else { panic(1535); };
+    if SA_HTTP_STATUS_PROXY_AUTHENTICATION_REQUIRED == 407 { } else { panic(1536); };
+    if SA_HTTP_STATUS_REQUEST_TIMEOUT == 408 { } else { panic(1537); };
+    if SA_HTTP_STATUS_CONFLICT == 409 { } else { panic(1538); };
+    if SA_HTTP_STATUS_GONE == 410 { } else { panic(1539); };
+    if SA_HTTP_STATUS_LENGTH_REQUIRED == 411 { } else { panic(1540); };
+    if SA_HTTP_STATUS_PRECONDITION_FAILED == 412 { } else { panic(1541); };
+    if SA_HTTP_STATUS_REQUEST_ENTITY_TOO_LARGE == 413 { } else { panic(1542); };
+    if SA_HTTP_STATUS_REQUEST_URI_TOO_LONG == 414 { } else { panic(1543); };
+    if SA_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE == 415 { } else { panic(1544); };
+    if SA_HTTP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE == 416 { } else { panic(1545); };
+    if SA_HTTP_STATUS_EXPECTATION_FAILED == 417 { } else { panic(1546); };
+    if SA_HTTP_STATUS_MISDIRECTED_REQUEST == 421 { } else { panic(1547); };
+    if SA_HTTP_STATUS_UNPROCESSABLE_ENTITY == 422 { } else { panic(1548); };
+    if SA_HTTP_STATUS_UNPROCESSABLE_CONTENT == 422 { } else { panic(1549); };
+    if SA_HTTP_STATUS_LOCKED == 423 { } else { panic(1550); };
+    if SA_HTTP_STATUS_FAILED_DEPENDENCY == 424 { } else { panic(1551); };
+    if SA_HTTP_STATUS_UPGRADE_REQUIRED == 426 { } else { panic(1552); };
+    if SA_HTTP_STATUS_PRECONDITION_REQUIRED == 428 { } else { panic(1553); };
+    if SA_HTTP_STATUS_TOO_MANY_REQUESTS == 429 { } else { panic(1554); };
+    if SA_HTTP_STATUS_REQUEST_HEADER_FIELDS_TOO_LARGE == 431 { } else { panic(1555); };
+    if SA_HTTP_STATUS_UNAVAILABLE_FOR_LEGAL_REASONS == 451 { } else { panic(1556); };
+    if SA_HTTP_STATUS_INTERNAL_SERVER_ERROR == 500 { } else { panic(1557); };
+    if SA_HTTP_STATUS_NOT_IMPLEMENTED == 501 { } else { panic(1558); };
+    if SA_HTTP_STATUS_BAD_GATEWAY == 502 { } else { panic(1559); };
+    if SA_HTTP_STATUS_SERVICE_UNAVAILABLE == 503 { } else { panic(1560); };
+    if SA_HTTP_STATUS_GATEWAY_TIMEOUT == 504 { } else { panic(1561); };
+    if SA_HTTP_STATUS_HTTP_VERSION_NOT_SUPPORTED == 505 { } else { panic(1562); };
+    if SA_HTTP_STATUS_VARIANT_ALSO_NEGOTIATES == 506 { } else { panic(1563); };
+    if SA_HTTP_STATUS_INSUFFICIENT_STORAGE == 507 { } else { panic(1564); };
+    if SA_HTTP_STATUS_LOOP_DETECTED == 508 { } else { panic(1565); };
+    if SA_HTTP_STATUS_NOT_EXTENDED == 510 { } else { panic(1566); };
+    if SA_HTTP_STATUS_NETWORK_AUTHENTICATION_REQUIRED == 511 { } else { panic(1567); };
+};
+
+@test "http method consts pin the enum codes"() {
+    if SA_HTTP_METHOD_GET == 1 { } else { panic(1571); };
+    if SA_HTTP_METHOD_POST == 2 { } else { panic(1572); };
+    if SA_HTTP_METHOD_PUT == 3 { } else { panic(1573); };
+    if SA_HTTP_METHOD_DELETE == 4 { } else { panic(1574); };
+    if SA_HTTP_METHOD_HEAD == 5 { } else { panic(1575); };
+    if SA_HTTP_METHOD_PATCH == 6 { } else { panic(1576); };
+    if SA_HTTP_METHOD_OPTIONS == 7 { } else { panic(1577); };
+    if SA_HTTP_METHOD_TRACE == 8 { } else { panic(1578); };
+    if SA_HTTP_METHOD_CONNECT == 9 { } else { panic(1579); };
+};
+
+@test "req_new_v2 accepts completed method codes and rejects others"() {
+    let client: u64 = 0;
+    let c_st: u32 = sa_http_client_new_v2(0, STR_PTR(""), STR_LEN(""), &client);
+    if c_st == 0 { } else { panic(1631); };
+    if client != 0 { } else { panic(1632); };
+    let codes: [u32; 5] = [5, 6, 7, 8, 9];
+    let i: u32 = 0;
+    while i < 5 {
+        let req: u64 = 0;
+        let r_st: u32 = sa_http_client_req_new_v2(client, codes[i], STR_PTR("http://127.0.0.1/"), STR_LEN("http://127.0.0.1/"), &req);
+        if r_st == 0 { } else { panic(1633); };
+        if req != 0 { } else { panic(1634); };
+        let f_st: u32 = sa_http_client_req_free(req);
+        if f_st == 0 { } else { panic(1635); };
+        i = i + 1;
+    }
+    let bad_req: u64 = 0;
+    let b_st: u32 = sa_http_client_req_new_v2(client, 99, STR_PTR("http://127.0.0.1/"), STR_LEN("http://127.0.0.1/"), &bad_req);
+    if b_st != 0 { } else { panic(1636); };
+    let z_st: u32 = sa_http_client_req_new_v2(client, 0, STR_PTR("http://127.0.0.1/"), STR_LEN("http://127.0.0.1/"), &bad_req);
+    if z_st != 0 { } else { panic(1637); };
+    let cf_st: u32 = sa_http_client_free(client);
+    if cf_st == 0 { } else { panic(1638); };
+};
