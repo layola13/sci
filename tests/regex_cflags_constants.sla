@@ -1,0 +1,37 @@
+// Regression test for the SLA-facing regex cflags constants in
+// sa_std/text/regex.sla.
+//
+//  - Literal: the four glibc regcomp flag values are pinned.
+//  - Behavioral: the same pattern compiled with SA_REGEX_ICASE
+//    matches a differently-cased string while the flagless compile
+//    does not -- proof the named flag reaches regcomp as the
+//    caller intends.
+//
+// On a tree without text/regex.sla this file cannot even compile.
+
+@import "sa_std/text/regex.sla"
+@import "sa_std/string.sa"
+
+@test "regex cflag consts pin the glibc values"() {
+    if SA_REGEX_EXTENDED == 1 { } else { panic(2101); };
+    if SA_REGEX_ICASE == 2 { } else { panic(2102); };
+    if SA_REGEX_NEWLINE == 4 { } else { panic(2103); };
+    if SA_REGEX_NOSUB == 8 { } else { panic(2104); };
+};
+
+@test "icase flag changes match behavior"() {
+    let plain: u64 = sa_regex_compile(STR_PTR("hello"), STR_LEN("hello"), SA_REGEX_EXTENDED);
+    if plain != 0 { } else { panic(2111); };
+    let m0: u64 = sa_regex_match(plain, STR_PTR("HELLO"), STR_LEN("HELLO"));
+    if m0 == 0 { } else { panic(2112); };
+    let f0: i32 = sa_regex_free(plain);
+    if f0 == 0 { } else { panic(2113); };
+    let icase: u64 = sa_regex_compile(STR_PTR("hello"), STR_LEN("hello"), SA_REGEX_EXTENDED + SA_REGEX_ICASE);
+    if icase != 0 { } else { panic(2114); };
+    let m1: u64 = sa_regex_match(icase, STR_PTR("HELLO"), STR_LEN("HELLO"));
+    if m1 != 0 { } else { panic(2115); };
+    let mf: i32 = sa_regex_match_free(m1);
+    if mf == 0 { } else { panic(2116); };
+    let f1: i32 = sa_regex_free(icase);
+    if f1 == 0 { } else { panic(2117); };
+};
