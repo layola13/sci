@@ -1,0 +1,461 @@
+// Value-layer tests for sa_std/ip.sla: IPv4/IPv6 parse/format
+// round trips, predicate tables, address arithmetic, Prefix
+// semantics, summarize_range and collapse. Each @test panics
+// with a distinct code so a failure names its assertion group.
+
+@import "sa_std/ip.sla"
+
+fn expect_str(got: String, want: String, code: i32) {
+    if !str_eq(got, want) {
+        panic(code);
+    };
+}
+
+fn bits4(text: String, code: i32) -> u32 {
+    let r = ipv4_parse(text);
+    let out: u32 = 0;
+    match r {
+        Some(v) => {
+            out = v;
+        },
+        None => {
+            panic(code);
+        },
+    };
+    return out;
+}
+
+fn ip4(text: String, code: i32) -> IpAddr {
+    let r = ip_addr_parse(text);
+    let out: IpAddr = ip_addr_from_ipv4(0);
+    match r {
+        Some(v) => {
+            out = v;
+        },
+        None => {
+            panic(code);
+        },
+    };
+    return out;
+}
+
+fn addr6(text: String, code: i32) -> Ipv6Addr {
+    let r = ipv6_parse(text);
+    let out: Ipv6Addr = ipv6_from_segments(0, 0, 0, 0, 0, 0, 0, 0);
+    match r {
+        Some(v) => {
+            out = v;
+        },
+        None => {
+            panic(code);
+        },
+    };
+    return out;
+}
+
+fn must_prefix(text: String, code: i32) -> IpPrefix {
+    let r = ip_prefix_parse(text);
+    let out: IpPrefix = ip_prefix_from(ip_addr_from_ipv4(0), 0);
+    match r {
+        Some(v) => {
+            out = v;
+        },
+        None => {
+            panic(code);
+        },
+    };
+    return out;
+}
+
+@test "ipv4 parse format round trip"() {
+    let bits: u32 = bits4(format("1.2.3.4"), 1001);
+    if bits != 16909060 {
+        panic(1002);
+    };
+    expect_str(ipv4_to_string(bits), format("1.2.3.4"), 1003);
+    if bits4(format("0.0.0.0"), 1004) != 0 {
+        panic(1005);
+    };
+    if bits4(format("255.255.255.255"), 1006) != 4294967295 {
+        panic(1007);
+    };
+    let a: IpAddr = ip4(format("192.168.0.1"), 1008);
+    if a.tag != 4 {
+        panic(1009);
+    };
+    expect_str(ip_addr_to_string(a), format("192.168.0.1"), 1010);
+}
+
+@test "ipv4 parse rejects"() {
+    let r1 = ipv4_parse(format("01.2.3.4"));
+    match r1 {
+        Some(v) => {
+            panic(1101);
+        },
+        None => {},
+    };
+    let r2 = ipv4_parse(format("1.2.3.256"));
+    match r2 {
+        Some(v) => {
+            panic(1102);
+        },
+        None => {},
+    };
+    let r3 = ipv4_parse(format("1.2.3"));
+    match r3 {
+        Some(v) => {
+            panic(1103);
+        },
+        None => {},
+    };
+    let r4 = ipv4_parse(format("1.2.3.4.5"));
+    match r4 {
+        Some(v) => {
+            panic(1104);
+        },
+        None => {},
+    };
+    let r5 = ipv4_parse(format("1.2.3.x"));
+    match r5 {
+        Some(v) => {
+            panic(1105);
+        },
+        None => {},
+    };
+}
+
+@test "ipv6 parse format rfc5952"() {
+    let a: Ipv6Addr = addr6(format("2001:0db8:0000:0000:0000:ff00:0042:8329"), 1201);
+    expect_str(ipv6_to_string(a), format("2001:db8::ff00:42:8329"), 1202);
+    let lo_addr: Ipv6Addr = addr6(format("::1"), 1203);
+    expect_str(ipv6_to_string(lo_addr), format("::1"), 1204);
+    let any: Ipv6Addr = addr6(format("::"), 1205);
+    expect_str(ipv6_to_string(any), format("::"), 1206);
+    let single_zero: Ipv6Addr = addr6(format("2001:db8:0:1:1:1:1:1"), 1207);
+    expect_str(ipv6_to_string(single_zero), format("2001:db8:0:1:1:1:1:1"), 1208);
+    let tie: Ipv6Addr = addr6(format("2001:0:0:1:0:0:0:1"), 1209);
+    expect_str(ipv6_to_string(tie), format("2001:0:0:1::1"), 1210);
+    expect_str(ipv6_to_expanded_string(lo_addr), format("0000:0000:0000:0000:0000:0000:0000:0001"), 1211);
+    let full: Ipv6Addr = addr6(format("1:2:3:4:5:6:7:8"), 1212);
+    expect_str(ipv6_to_string(full), format("1:2:3:4:5:6:7:8"), 1213);
+    let embedded: Ipv6Addr = addr6(format("0:0:0:0:0:ffff:192.0.2.1"), 1214);
+    expect_str(ipv6_to_string(embedded), format("::ffff:192.0.2.1"), 1215);
+}
+
+@test "ipv6 parse rejects and mapped"() {
+    let r1 = ipv6_parse(format("1::2::3"));
+    match r1 {
+        Some(v) => {
+            panic(1301);
+        },
+        None => {},
+    };
+    let r2 = ipv6_parse(format("12345::"));
+    match r2 {
+        Some(v) => {
+            panic(1302);
+        },
+        None => {},
+    };
+    let mapped: IpAddr = ip4(format("::ffff:192.0.2.1"), 1303);
+    if !ip_addr_is_ipv4_mapped(mapped) {
+        panic(1304);
+    };
+    expect_str(ip_addr_to_string(mapped), format("::ffff:192.0.2.1"), 1305);
+    let un: IpAddr = ip_addr_unmap(mapped);
+    if un.tag != 4 || un.lo != 3221225985 {
+        panic(1306);
+    };
+    let back: IpAddr = ip_addr_to_ipv4_mapped(un);
+    if !ip_addr_eq(back, mapped) {
+        panic(1307);
+    };
+}
+
+@test "ipv4 predicates"() {
+    if !ipv4_is_loopback(bits4(format("127.0.0.1"), 1401)) {
+        panic(1402);
+    };
+    if !ipv4_is_private(bits4(format("10.0.0.1"), 1403)) {
+        panic(1404);
+    };
+    if !ipv4_is_private(bits4(format("172.16.5.4"), 1405)) {
+        panic(1406);
+    };
+    if ipv4_is_private(bits4(format("172.32.0.1"), 1407)) {
+        panic(1408);
+    };
+    if !ipv4_is_private(bits4(format("192.168.1.1"), 1409)) {
+        panic(1410);
+    };
+    if !ipv4_is_global(bits4(format("8.8.8.8"), 1411)) {
+        panic(1412);
+    };
+    if ipv4_is_global(bits4(format("192.0.2.1"), 1413)) {
+        panic(1414);
+    };
+    if !ipv4_is_link_local(bits4(format("169.254.0.1"), 1415)) {
+        panic(1416);
+    };
+    if !ipv4_is_multicast(bits4(format("224.0.0.1"), 1417)) {
+        panic(1418);
+    };
+    if !ipv4_is_broadcast(bits4(format("255.255.255.255"), 1419)) {
+        panic(1420);
+    };
+    if !ipv4_is_unspecified(bits4(format("0.0.0.0"), 1421)) {
+        panic(1422);
+    };
+    if !ipv4_is_shared(bits4(format("100.64.0.1"), 1423)) {
+        panic(1424);
+    };
+    if !ipv4_is_documentation(bits4(format("203.0.113.9"), 1425)) {
+        panic(1426);
+    };
+}
+
+@test "ipv6 predicates"() {
+    if !ipv6_is_loopback(ipv6_from_segments(0, 0, 0, 0, 0, 0, 0, 1)) {
+        panic(1501);
+    };
+    let ll: IpAddr = ip4(format("fe80::1"), 1502);
+    if !ip_addr_is_link_local(ll) {
+        panic(1503);
+    };
+    let ula: IpAddr = ip4(format("fd00::1"), 1504);
+    if !ip_addr_is_unique_local(ula) {
+        panic(1505);
+    };
+    let mc: IpAddr = ip4(format("ff02::1"), 1506);
+    if !ip_addr_is_multicast(mc) {
+        panic(1507);
+    };
+    if ipv6_multicast_scope(ip_addr_to_ipv6(mc)) != 2 {
+        panic(1508);
+    };
+    let doc: IpAddr = ip4(format("2001:db8::1"), 1509);
+    if !ip_addr_is_documentation(doc) {
+        panic(1510);
+    };
+    if ip_addr_is_global(doc) {
+        panic(1511);
+    };
+    let pub_addr: IpAddr = ip4(format("2606:4700:4700::1111"), 1512);
+    if !ip_addr_is_global(pub_addr) {
+        panic(1513);
+    };
+}
+
+@test "addr next prev compare"() {
+    let a: IpAddr = ip4(format("1.2.3.4"), 1601);
+    let nx = ip_addr_next(a);
+    let has_nx: bool = false;
+    let nx_v: IpAddr = ip_addr_from_ipv4(0);
+    match nx {
+        Some(v) => {
+            has_nx = true;
+            nx_v = v;
+        },
+        None => {},
+    };
+    if !has_nx {
+        panic(1602);
+    };
+    expect_str(ip_addr_to_string(nx_v), format("1.2.3.5"), 1603);
+    let zero: IpAddr = ip4(format("0.0.0.0"), 1604);
+    let pv = ip_addr_prev(zero);
+    match pv {
+        Some(v) => {
+            panic(1605);
+        },
+        None => {},
+    };
+    let max4: IpAddr = ip4(format("255.255.255.255"), 1606);
+    let nx2 = ip_addr_next(max4);
+    match nx2 {
+        Some(v) => {
+            panic(1607);
+        },
+        None => {},
+    };
+    let b: IpAddr = ip4(format("1.2.3.5"), 1608);
+    if ip_addr_compare(a, b) != -1 || ip_addr_compare(b, a) != 1 || ip_addr_compare(a, a) != 0 {
+        panic(1609);
+    };
+    let six: IpAddr = ip4(format("::1"), 1610);
+    if ip_addr_compare(a, six) != -1 {
+        panic(1611);
+    };
+    let v6n = ip_addr_next(six);
+    let has6: bool = false;
+    let v6n_v: IpAddr = ip_addr_from_ipv4(0);
+    match v6n {
+        Some(v) => {
+            has6 = true;
+            v6n_v = v;
+        },
+        None => {},
+    };
+    if !has6 {
+        panic(1612);
+    };
+    expect_str(ip_addr_to_string(v6n_v), format("::2"), 1613);
+}
+
+@test "prefix semantics v4"() {
+    let p: IpPrefix = must_prefix(format("192.168.1.77/24"), 1701);
+    if p.len != 24 {
+        panic(1702);
+    };
+    let masked: IpPrefix = ip_prefix_masked(p);
+    expect_str(ip_addr_to_string(masked.addr), format("192.168.1.0"), 1703);
+    expect_str(ip_prefix_to_string(masked), format("192.168.1.0/24"), 1704);
+    expect_str(ip_addr_to_string(ip_prefix_last_addr(p)), format("192.168.1.255"), 1705);
+    let inside: IpAddr = ip4(format("192.168.1.200"), 1706);
+    let outside: IpAddr = ip4(format("192.168.2.1"), 1707);
+    if !ip_prefix_contains_addr(p, inside) {
+        panic(1708);
+    };
+    if ip_prefix_contains_addr(p, outside) {
+        panic(1709);
+    };
+    let sub: IpPrefix = must_prefix(format("192.168.1.128/25"), 1710);
+    if !ip_prefix_contains_prefix(p, sub) {
+        panic(1711);
+    };
+    if ip_prefix_contains_prefix(sub, p) {
+        panic(1712);
+    };
+    if !ip_prefix_overlaps(sub, must_prefix(format("192.168.1.192/25"), 1713)) {
+        panic(1714);
+    };
+    let far: IpPrefix = must_prefix(format("10.0.0.0/8"), 1715);
+    if ip_prefix_overlaps(p, far) {
+        panic(1716);
+    };
+    let all: IpPrefix = must_prefix(format("0.0.0.0/0"), 1717);
+    if !ip_prefix_contains_addr(all, outside) {
+        panic(1718);
+    };
+}
+
+@test "prefix from mask and v6"() {
+    let addr: IpAddr = ip4(format("10.1.2.3"), 1801);
+    let mask: IpAddr = ip4(format("255.255.255.0"), 1802);
+    let pr = ip_prefix_from_mask(addr, mask);
+    let ok: bool = false;
+    let pv: IpPrefix = ip_prefix_from(addr, 0);
+    match pr {
+        Some(v) => {
+            ok = true;
+            pv = v;
+        },
+        None => {},
+    };
+    if !ok || pv.len != 24 {
+        panic(1803);
+    };
+    let bad_mask: IpAddr = ip4(format("255.0.255.0"), 1804);
+    let pr2 = ip_prefix_from_mask(addr, bad_mask);
+    match pr2 {
+        Some(v) => {
+            panic(1805);
+        },
+        None => {},
+    };
+    expect_str(ip_addr_to_string(ip_mask_from_prefix_len(4, 24)), format("255.255.255.0"), 1806);
+    let p6: IpPrefix = must_prefix(format("2001:db8::/32"), 1807);
+    let in6: IpAddr = ip4(format("2001:db8:ffff::1"), 1808);
+    if !ip_prefix_contains_addr(p6, in6) {
+        panic(1809);
+    };
+    expect_str(ip_prefix_to_string(ip_prefix_masked(must_prefix(format("2001:db8:abcd::1/32"), 1810))), format("2001:db8::/32"), 1811);
+    if !ip_prefix_is_valid(must_prefix(format("::/0"), 1812)) {
+        panic(1813);
+    };
+}
+
+@test "summarize range"() {
+    let first: IpAddr = ip4(format("192.168.0.0"), 1901);
+    let last: IpAddr = ip4(format("192.168.0.255"), 1902);
+    let out: IpPrefixList = ip_summarize_range(first, last);
+    if ip_prefix_list_len(&out) != 1 {
+        panic(1903);
+    };
+    expect_str(ip_prefix_to_string(ip_prefix_list_get(&out, 0)), format("192.168.0.0/24"), 1904);
+    let f2: IpAddr = ip4(format("10.0.0.1"), 1905);
+    let l2: IpAddr = ip4(format("10.0.0.6"), 1906);
+    let out2: IpPrefixList = ip_summarize_range(f2, l2);
+    if ip_prefix_list_len(&out2) != 4 {
+        panic(1907);
+    };
+    expect_str(ip_prefix_to_string(ip_prefix_list_get(&out2, 0)), format("10.0.0.1/32"), 1908);
+    expect_str(ip_prefix_to_string(ip_prefix_list_get(&out2, 1)), format("10.0.0.2/31"), 1909);
+    expect_str(ip_prefix_to_string(ip_prefix_list_get(&out2, 2)), format("10.0.0.4/31"), 1910);
+    expect_str(ip_prefix_to_string(ip_prefix_list_get(&out2, 3)), format("10.0.0.6/32"), 1911);
+}
+
+@test "collapse prefixes"() {
+    let list: IpPrefixList = ip_prefix_list_new();
+    ip_prefix_list_push(&list, must_prefix(format("10.0.0.128/25"), 2001));
+    ip_prefix_list_push(&list, must_prefix(format("10.0.0.0/25"), 2002));
+    ip_prefix_list_push(&list, must_prefix(format("10.0.0.0/25"), 2003));
+    let out: IpPrefixList = ip_prefixes_collapse(&list);
+    if ip_prefix_list_len(&out) != 1 {
+        panic(2004);
+    };
+    expect_str(ip_prefix_to_string(ip_prefix_list_get(&out, 0)), format("10.0.0.0/24"), 2005);
+    let list2: IpPrefixList = ip_prefix_list_new();
+    ip_prefix_list_push(&list2, must_prefix(format("10.1.0.0/16"), 2006));
+    ip_prefix_list_push(&list2, must_prefix(format("10.0.0.0/8"), 2007));
+    let out2: IpPrefixList = ip_prefixes_collapse(&list2);
+    if ip_prefix_list_len(&out2) != 1 {
+        panic(2008);
+    };
+    expect_str(ip_prefix_to_string(ip_prefix_list_get(&out2, 0)), format("10.0.0.0/8"), 2009);
+    let list3: IpPrefixList = ip_prefix_list_new();
+    ip_prefix_list_push(&list3, must_prefix(format("10.0.0.0/25"), 2010));
+    ip_prefix_list_push(&list3, must_prefix(format("10.0.0.128/25"), 2011));
+    ip_prefix_list_push(&list3, must_prefix(format("10.0.1.0/25"), 2012));
+    ip_prefix_list_push(&list3, must_prefix(format("10.0.1.128/25"), 2013));
+    let out3: IpPrefixList = ip_prefixes_collapse(&list3);
+    if ip_prefix_list_len(&out3) != 1 {
+        panic(2014);
+    };
+    expect_str(ip_prefix_to_string(ip_prefix_list_get(&out3, 0)), format("10.0.0.0/23"), 2015);
+}
+
+@test "octets round trip"() {
+    let a: IpAddr = ip4(format("1.2.3.4"), 2101);
+    let buf: [u8; 16] = ip_addr_to_octets(a);
+    if buf[0] != 1 || buf[1] != 2 || buf[2] != 3 || buf[3] != 4 || buf[4] != 0 {
+        panic(2102);
+    };
+    let back = ip_addr_from_octets(&buf, 4);
+    let ok: bool = false;
+    match back {
+        Some(v) => {
+            ok = ip_addr_eq(v, a);
+        },
+        None => {},
+    };
+    if !ok {
+        panic(2103);
+    };
+    let six: IpAddr = ip4(format("2001:db8::1"), 2104);
+    let buf2: [u8; 16] = ip_addr_to_octets(six);
+    if buf2[0] != 32 || buf2[1] != 1 || buf2[15] != 1 {
+        panic(2105);
+    };
+    let back2 = ip_addr_from_octets(&buf2, 16);
+    let ok2: bool = false;
+    match back2 {
+        Some(v) => {
+            ok2 = ip_addr_eq(v, six);
+        },
+        None => {},
+    };
+    if !ok2 {
+        panic(2106);
+    };
+}

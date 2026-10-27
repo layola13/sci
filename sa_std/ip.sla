@@ -1,0 +1,1633 @@
+// SLA-facing IP address / prefix value layer for sa_std.
+//
+// Why this file exists, and why it lives at the sa_std root: the SA
+// layer already carries a complete NetIpAddr value model -- net.sa
+// has NET_IPV4_*/NET_IPV6_*/NET_IP_ADDR_* macros for construction,
+// octet/bits conversion, text parse/format (via the sa_net_*_ascii
+// externs in net.sai) and the full classification predicate family --
+// but macros are statement-level expansions, so an SLA consumer has
+// no composable value surface: no fn it can call in an expression, no
+// prefix/CIDR type at all (a full-tree search finds no PREFIX/CIDR/
+// MASK value type in any layer), and no address arithmetic. The
+// cross-language census batch (sala tools/{go,python,dotnet}_net_
+// census) classified exactly this as the gap: predicates, mask ops,
+// Prefix semantics and summarize/collapse are "direct" -- the values
+// exist, the SLA face does not. This file is that face, in the shape
+// of time.sla / status.sla: root-level, next to net.sa, pure SLA on
+// top of primitive integer ops; it adds no externs and no ABI change.
+//
+// Value model:
+//   Ipv4Addr values are plain u32 bits, a<<24 | b<<16 | c<<8 | d --
+//   the same convention as NET_IPV4_TO_BITS, so values move between
+//   this layer and the SA macros without conversion.
+//   Ipv6Addr { hi, lo } is the 128-bit value, hi holding segments
+//   0..3 (first segment most significant) -- NET_IPV6_TO_BITS64.
+//   IpAddr { tag, hi, lo } unifies both: tag is IP_ADDR_TAG_V4 (4)
+//   or IP_ADDR_TAG_V6 (6) -- deliberately the same numbers as the
+//   NetIpAddr_tag payloads NET_IP_ADDR_V4 / NET_IP_ADDR_V6 in
+//   net.sal; a v4 IpAddr keeps hi = 0 and lo = zero-extended bits.
+//   IpPrefix { addr, len } is a CIDR prefix; addr is stored as
+//   given (host bits may be set, like Go's netip.ParsePrefix) and
+//   ip_prefix_masked produces the canonical network form.
+//
+// Predicate range tables are the IANA special-purpose registries,
+// mirroring the ranges the SA macros encode (NET_IPV4_IS_PRIVATE
+// etc.); the tests pin them address by address. is_global follows
+// the Rust std rule set (outside every enumerated special range);
+// the exact range list is written out at each predicate.
+//
+// Text parse is strict: dotted quads reject leading zeros and
+// out-of-range octets (Go/Python modern semantics); IPv6 text is
+// RFC 4291 with one "::" compression and an optional trailing
+// embedded quad; IPv6 format is RFC 5952 canonical (longest zero
+// run of length >= 2 compressed, lowercase hex, mixed notation for
+// IPv4-mapped addresses).
+
+@import "sa_std/string.sa"
+@import "sa_std/fmt.sai"
+@import "sa_std/string_format.sa"
+@import "sa_std/vec.sa"
+@import "sa_std/alloc/vec.sa"
+@import "sa_std/ptr.sa"
+
+const IP_ADDR_TAG_V4: u64 = 4;
+const IP_ADDR_TAG_V6: u64 = 6;
+
+@derive(copy)
+struct Ipv6Addr {
+    hi: u64,
+    lo: u64,
+}
+
+@derive(copy)
+struct IpAddr {
+    tag: u64,
+    hi: u64,
+    lo: u64,
+}
+
+@derive(copy)
+struct IpPrefix {
+    addr: IpAddr,
+    len: u32,
+}
+
+// String building in this layer uses exactly the byte-append
+// idiom the SLA SAB path supports end to end, always inlined
+// at the append site: a one-byte array collected into a
+// String, concatenated with format!. Three measured SAB-path
+// facts shape this: (1) a loop-carried String moved through
+// a user function call loses its state on the loop back-edge
+// (inline format! is fine), so there is no push_byte helper;
+// (2) bulk Vec<u8> -> String conversion via chunked collect
+// makes the SAB lowering analysis spin, so builders append
+// incrementally instead; (3) the SA-level STRING_BUF_*
+// macros do not link through the SAB direct path (their
+// @sa_vec_* callees are not declared in that graph). Vec
+// index writes are likewise unsupported there, which shapes
+// ip.sla's list API below.
+
+fn ip_u64_max() -> u64 {
+    return ((4294967295 as u64) << 32) | 4294967295;
+}
+
+fn ip_hex_val(b: u8) -> i32 {
+    if b >= 48 && b <= 57 {
+        return (b - 48) as i32;
+    };
+    if b >= 97 && b <= 102 {
+        return (b - 87) as i32;
+    };
+    if b >= 65 && b <= 70 {
+        return (b - 55) as i32;
+    };
+    return -1;
+}
+
+fn ip_hex_char(v: u64) -> u8 {
+    if v < 10 {
+        return 48 + (v as u8);
+    };
+    return 87 + (v as u8);
+}
+
+// Decimal digits of v, most significant first, left-aligned in a
+// 10-byte array (u32 needs at most 10). Pair with ip_dec_len.
+fn ip_dec_digits(v: u32) -> [u8; 10] {
+    let out: [u8; 10] = [0u8; 10];
+    let rev: [u8; 10] = [0u8; 10];
+    let x: u32 = v;
+    let n: u64 = 0;
+    if x == 0 {
+        out[0] = 48;
+        return out;
+    };
+    while x > 0 {
+        rev[n] = (48 + (x % 10)) as u8;
+        n = n + 1;
+        x = x / 10;
+    }
+    let i: u64 = 0;
+    while i < n {
+        out[i] = rev[n - 1 - i];
+        i = i + 1;
+    }
+    return out;
+}
+
+fn ip_dec_len(v: u32) -> u64 {
+    if v < 10 {
+        return 1;
+    };
+    if v < 100 {
+        return 2;
+    };
+    if v < 1000 {
+        return 3;
+    };
+    if v < 10000 {
+        return 4;
+    };
+    if v < 100000 {
+        return 5;
+    };
+    if v < 1000000 {
+        return 6;
+    };
+    if v < 10000000 {
+        return 7;
+    };
+    if v < 100000000 {
+        return 8;
+    };
+    if v < 1000000000 {
+        return 9;
+    };
+    return 10;
+}
+
+// 128-bit mask for a prefix length in [0,128]: the top `len` bits
+// set. Returned as (hi, lo).
+fn ip_mask128(len: u32) -> Ipv6Addr {
+    if len == 0 {
+        return Ipv6Addr { hi: 0, lo: 0 };
+    };
+    if len >= 128 {
+        return Ipv6Addr { hi: ip_u64_max(), lo: ip_u64_max() };
+    };
+    if len == 64 {
+        return Ipv6Addr { hi: ip_u64_max(), lo: 0 };
+    };
+    if len < 64 {
+        let hi: u64 = 0;
+        let i: u32 = 0;
+        while i < len {
+            hi = (hi << 1) | 1;
+            i = i + 1;
+        }
+        hi = hi << (64 - len);
+        return Ipv6Addr { hi: hi, lo: 0 };
+    };
+    let lo_len: u32 = len - 64;
+    let lo: u64 = 0;
+    let j: u32 = 0;
+    while j < lo_len {
+        lo = (lo << 1) | 1;
+        j = j + 1;
+    }
+    lo = lo << (64 - lo_len);
+    return Ipv6Addr { hi: ip_u64_max(), lo: lo };
+}
+
+fn ip_family_bits(tag: u64) -> u32 {
+    if tag == IP_ADDR_TAG_V4 {
+        return 32;
+    };
+    return 128;
+}
+
+// ----------------------------------------------------------------
+// IPv4: values are u32 bits (a<<24|b<<16|c<<8|d)
+// ----------------------------------------------------------------
+
+fn ipv4_from_octets(a: u32, b: u32, c: u32, d: u32) -> u32 {
+    return (a << 24) | (b << 16) | (c << 8) | d;
+}
+
+fn ipv4_octet(addr: u32, index: u32) -> u32 {
+    if index == 0 {
+        return (addr >> 24) & 255;
+    };
+    if index == 1 {
+        return (addr >> 16) & 255;
+    };
+    if index == 2 {
+        return (addr >> 8) & 255;
+    };
+    return addr & 255;
+}
+
+// Strict dotted-quad parse: four decimal octets 0..255, no leading
+// zeros (a lone "0" is fine), no other characters.
+fn ipv4_parse(text: String) -> Option<u32> {
+    let p: ptr = STR_PTR(text);
+    let n: u64 = len(text);
+    let result: u32 = 0;
+    let i: u64 = 0;
+    let part: u32 = 0;
+    while part < 4 {
+        if i >= n {
+            return None;
+        };
+        let first: u8 = PTR_BYTE_AT(p, i);
+        if first < 48 || first > 57 {
+            return None;
+        };
+        let value: u32 = 0;
+        let digits: u64 = 0;
+        while i < n {
+            let b: u8 = PTR_BYTE_AT(p, i);
+            if b < 48 || b > 57 {
+                break;
+            };
+            value = value * 10 + ((b - 48) as u32);
+            digits = digits + 1;
+            i = i + 1;
+            if digits > 3 {
+                return None;
+            };
+        }
+        if digits == 0 {
+            return None;
+        };
+        if digits > 1 && first == 48 {
+            return None;
+        };
+        if value > 255 {
+            return None;
+        };
+        result = (result << 8) | value;
+        part = part + 1;
+        if part < 4 {
+            if i >= n {
+                return None;
+            };
+            if PTR_BYTE_AT(p, i) != 46 {
+                return None;
+            };
+            i = i + 1;
+        };
+    }
+    if i != n {
+        return None;
+    };
+    return Some(result);
+}
+
+fn ipv4_to_string(addr: u32) -> String {
+    let out: String = format("");
+    let part: u32 = 0;
+    while part < 4 {
+        if part > 0 {
+            let pb_arr_0: [u8; 1] = [46];
+            let pb_str_0: String = pb_arr_0.iter().collect<String>();
+            out = format("{}{}", out, pb_str_0);
+        };
+        let octet: u32 = ipv4_octet(addr, part);
+        let digits: [u8; 10] = ip_dec_digits(octet);
+        let len: u64 = ip_dec_len(octet);
+        let i: u64 = 0;
+        while i < len {
+            let pb_arr_1: [u8; 1] = [digits[i]];
+            let pb_str_1: String = pb_arr_1.iter().collect<String>();
+            out = format("{}{}", out, pb_str_1);
+            i = i + 1;
+        }
+        part = part + 1;
+    }
+    return out;
+}
+
+fn ipv4_is_unspecified(addr: u32) -> bool {
+    return addr == 0;
+}
+
+fn ipv4_is_loopback(addr: u32) -> bool {
+    return ipv4_octet(addr, 0) == 127;
+}
+
+fn ipv4_is_private(addr: u32) -> bool {
+    let a: u32 = ipv4_octet(addr, 0);
+    let b: u32 = ipv4_octet(addr, 1);
+    if a == 10 {
+        return true;
+    };
+    if a == 172 && b >= 16 && b <= 31 {
+        return true;
+    };
+    if a == 192 && b == 168 {
+        return true;
+    };
+    return false;
+}
+
+// 100.64.0.0/10, shared address space (RFC 6598).
+fn ipv4_is_shared(addr: u32) -> bool {
+    let a: u32 = ipv4_octet(addr, 0);
+    let b: u32 = ipv4_octet(addr, 1);
+    return a == 100 && b >= 64 && b <= 127;
+}
+
+fn ipv4_is_link_local(addr: u32) -> bool {
+    return ipv4_octet(addr, 0) == 169 && ipv4_octet(addr, 1) == 254;
+}
+
+fn ipv4_is_multicast(addr: u32) -> bool {
+    let a: u32 = ipv4_octet(addr, 0);
+    return a >= 224 && a <= 239;
+}
+
+fn ipv4_is_broadcast(addr: u32) -> bool {
+    return addr == 4294967295;
+}
+
+// 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 (RFC 5737).
+fn ipv4_is_documentation(addr: u32) -> bool {
+    let a: u32 = ipv4_octet(addr, 0);
+    let b: u32 = ipv4_octet(addr, 1);
+    let c: u32 = ipv4_octet(addr, 2);
+    if a == 192 && b == 0 && c == 2 {
+        return true;
+    };
+    if a == 198 && b == 51 && c == 100 {
+        return true;
+    };
+    if a == 203 && b == 0 && c == 113 {
+        return true;
+    };
+    return false;
+}
+
+// 198.18.0.0/15 (RFC 2544).
+fn ipv4_is_benchmarking(addr: u32) -> bool {
+    let a: u32 = ipv4_octet(addr, 0);
+    let b: u32 = ipv4_octet(addr, 1);
+    return a == 198 && (b == 18 || b == 19);
+}
+
+// 240.0.0.0/4 excluding the broadcast address (Rust semantics).
+fn ipv4_is_reserved(addr: u32) -> bool {
+    return ipv4_octet(addr, 0) >= 240 && addr != 4294967295;
+}
+
+// Rust Ipv4Addr::is_global: outside unspecified / loopback /
+// private / shared / link-local / multicast / documentation /
+// benchmarking / reserved / broadcast, and outside the IETF
+// protocol-assignment blocks 0.0.0.0/8 and 192.0.0.0/24 (the latter
+// with the 192.0.0.9/32 and 192.0.0.10/32 exceptions, both global).
+fn ipv4_is_global(addr: u32) -> bool {
+    if ipv4_is_unspecified(addr) {
+        return false;
+    };
+    if ipv4_is_loopback(addr) {
+        return false;
+    };
+    if ipv4_is_private(addr) {
+        return false;
+    };
+    if ipv4_is_shared(addr) {
+        return false;
+    };
+    if ipv4_is_link_local(addr) {
+        return false;
+    };
+    if ipv4_is_multicast(addr) {
+        return false;
+    };
+    if ipv4_is_documentation(addr) {
+        return false;
+    };
+    if ipv4_is_benchmarking(addr) {
+        return false;
+    };
+    if ipv4_is_reserved(addr) {
+        return false;
+    };
+    if ipv4_is_broadcast(addr) {
+        return false;
+    };
+    if ipv4_octet(addr, 0) == 0 {
+        return false;
+    };
+    let a: u32 = ipv4_octet(addr, 0);
+    let b: u32 = ipv4_octet(addr, 1);
+    let c: u32 = ipv4_octet(addr, 2);
+    let d: u32 = ipv4_octet(addr, 3);
+    if a == 192 && b == 0 && c == 0 {
+        if d == 9 || d == 10 {
+            return true;
+        };
+        return false;
+    };
+    return true;
+}
+
+// Classful default mask (Go IP.DefaultMask): /8, /16, /24 for
+// classes A/B/C, 0 for class D/E (no default).
+fn ipv4_default_mask(addr: u32) -> u32 {
+    let a: u32 = ipv4_octet(addr, 0);
+    if a < 128 {
+        return 4278190080;
+    };
+    if a < 192 {
+        return 4294901760;
+    };
+    if a < 224 {
+        return 4294934528;
+    };
+    return 0;
+}
+
+fn ipv4_mask(addr: u32, mask: u32) -> u32 {
+    return addr & mask;
+}
+
+// ----------------------------------------------------------------
+// IPv6: Ipv6Addr { hi, lo }
+// ----------------------------------------------------------------
+
+fn ipv6_from_segments(s0: u32, s1: u32, s2: u32, s3: u32, s4: u32, s5: u32, s6: u32, s7: u32) -> Ipv6Addr {
+    let hi: u64 = ((s0 as u64) << 48) | ((s1 as u64) << 32) | ((s2 as u64) << 16) | (s3 as u64);
+    let lo: u64 = ((s4 as u64) << 48) | ((s5 as u64) << 32) | ((s6 as u64) << 16) | (s7 as u64);
+    return Ipv6Addr { hi: hi, lo: lo };
+}
+
+fn ipv6_segment(addr: Ipv6Addr, index: u32) -> u32 {
+    if index < 4 {
+        let shift: u32 = 48 - index * 16;
+        return ((addr.hi >> shift) & 65535) as u32;
+    };
+    let shift2: u32 = 48 - (index - 4) * 16;
+    return ((addr.lo >> shift2) & 65535) as u32;
+}
+
+fn ipv6_is_unspecified(addr: Ipv6Addr) -> bool {
+    return addr.hi == 0 && addr.lo == 0;
+}
+
+fn ipv6_is_loopback(addr: Ipv6Addr) -> bool {
+    return addr.hi == 0 && addr.lo == 1;
+}
+
+fn ipv6_is_multicast(addr: Ipv6Addr) -> bool {
+    return (addr.hi >> 56) == 255;
+}
+
+// Multicast scope: low nibble of the second byte (RFC 4291).
+fn ipv6_multicast_scope(addr: Ipv6Addr) -> u32 {
+    return ((addr.hi >> 48) & 15) as u32;
+}
+
+fn ipv6_is_unique_local(addr: Ipv6Addr) -> bool {
+    // fc00::/7: the top seven bits are 1111110.
+    return (addr.hi >> 57) == 126;
+}
+
+fn ipv6_is_unicast_link_local(addr: Ipv6Addr) -> bool {
+    // fe80::/10: the top ten bits are 1111111010.
+    return (addr.hi >> 54) == 1018;
+}
+
+fn ipv6_is_documentation(addr: Ipv6Addr) -> bool {
+    // 2001:db8::/32 (RFC 3849).
+    return ipv6_segment(addr, 0) == 8193 && ipv6_segment(addr, 1) == 3512;
+}
+
+fn ipv6_is_benchmarking(addr: Ipv6Addr) -> bool {
+    // 2001:2::/48 (RFC 5180): segments 2001, 0002, 0000.
+    return ipv6_segment(addr, 0) == 8193 && ipv6_segment(addr, 1) == 2 && ipv6_segment(addr, 2) == 0;
+}
+
+fn ipv6_is_ipv4_mapped(addr: Ipv6Addr) -> bool {
+    return addr.hi == 0 && (addr.lo >> 32) == 65535;
+}
+
+fn ipv6_to_ipv4(addr: Ipv6Addr) -> Option<u32> {
+    if ipv6_is_ipv4_mapped(addr) {
+        return Some((addr.lo & 4294967295) as u32);
+    };
+    return None;
+}
+
+fn ipv6_is_unicast(addr: Ipv6Addr) -> bool {
+    return !ipv6_is_multicast(addr) && !ipv6_is_unspecified(addr);
+}
+
+// Global = unicast and outside the enumerated special ranges:
+// unspecified, loopback, multicast, link-local, unique-local,
+// documentation, benchmarking, the discard prefix 100::/64
+// (RFC 6666), and the 2001::/23 IETF protocol-assignment block
+// (RFC 2928). Registered deviation: the block is treated as
+// non-global wholesale -- Rust's is_global carves a few
+// registry-global exceptions out of it (2001:3::/32 and others);
+// this layer does not reproduce the carve-outs.
+fn ipv6_is_global(addr: Ipv6Addr) -> bool {
+    if ipv6_is_unspecified(addr) {
+        return false;
+    };
+    if ipv6_is_loopback(addr) {
+        return false;
+    };
+    if ipv6_is_multicast(addr) {
+        return false;
+    };
+    if ipv6_is_unicast_link_local(addr) {
+        return false;
+    };
+    if ipv6_is_unique_local(addr) {
+        return false;
+    };
+    if ipv6_is_documentation(addr) {
+        return false;
+    };
+    if ipv6_is_benchmarking(addr) {
+        return false;
+    };
+    // 100::/64 discard-only (RFC 6666): segments 0100, 0000 and
+    // the rest of the top half zero.
+    if (addr.hi >> 32) == 16777216 {
+        return false;
+    };
+    // 2001::/23: first segment 2001, second below 0x0200.
+    if ipv6_segment(addr, 0) == 8193 && ipv6_segment(addr, 1) < 512 {
+        return false;
+    };
+    return true;
+}
+
+// RFC 4291 text parse with one "::" and an optional trailing
+// embedded dotted quad (which counts as two segments).
+fn ipv6_parse(text: String) -> Option<Ipv6Addr> {
+    let p: ptr = STR_PTR(text);
+    let n: u64 = len(text);
+    let head: [u32; 8] = [0u32; 8];
+    let head_len: u64 = 0;
+    let tail: [u32; 8] = [0u32; 8];
+    let tail_len: u64 = 0;
+    let in_tail: bool = false;
+    let saw_compress: bool = false;
+    let i: u64 = 0;
+    if n == 0 {
+        return None;
+    };
+    // A leading ':' must be the "::" opener.
+    if PTR_BYTE_AT(p, 0) == 58 {
+        if n < 2 || PTR_BYTE_AT(p, 1) != 58 {
+            return None;
+        };
+        saw_compress = true;
+        in_tail = true;
+        i = 2;
+        if i == n {
+            // "::" alone: all zeros.
+            return Some(Ipv6Addr { hi: 0, lo: 0 });
+        };
+    };
+    while i < n {
+        // One segment: 1..4 hex digits, or a dotted quad (tail only).
+        let seg_start: u64 = i;
+        let value: u32 = 0;
+        let digits: u64 = 0;
+        let is_quad: bool = false;
+        while i < n {
+            let b: u8 = PTR_BYTE_AT(p, i);
+            let hv: i32 = ip_hex_val(b);
+            if hv < 0 {
+                break;
+            };
+            value = value * 16 + (hv as u32);
+            digits = digits + 1;
+            i = i + 1;
+            if digits > 4 {
+                return None;
+            };
+        }
+        if digits == 0 {
+            return None;
+        };
+        // Embedded quad? A '.' after the digits starts one.
+        if i < n && PTR_BYTE_AT(p, i) == 46 {
+            is_quad = true;
+            // Reparse from seg_start as dotted quad.
+            let quad: u32 = 0;
+            let j: u64 = seg_start;
+            let part: u32 = 0;
+            while part < 4 {
+                if j >= n {
+                    return None;
+                };
+                let fb: u8 = PTR_BYTE_AT(p, j);
+                if fb < 48 || fb > 57 {
+                    return None;
+                };
+                let pv: u32 = 0;
+                let pd: u64 = 0;
+                while j < n {
+                    let bb: u8 = PTR_BYTE_AT(p, j);
+                    if bb < 48 || bb > 57 {
+                        break;
+                    };
+                    pv = pv * 10 + ((bb - 48) as u32);
+                    pd = pd + 1;
+                    j = j + 1;
+                    if pd > 3 {
+                        return None;
+                    };
+                }
+                if pd == 0 || pv > 255 {
+                    return None;
+                };
+                if pd > 1 && fb == 48 {
+                    return None;
+                };
+                quad = (quad << 8) | pv;
+                part = part + 1;
+                if part < 4 {
+                    if j >= n || PTR_BYTE_AT(p, j) != 46 {
+                        return None;
+                    };
+                    j = j + 1;
+                };
+            }
+            i = j;
+            // The quad occupies two segment slots.
+            if in_tail {
+                if tail_len + 2 > 8 {
+                    return None;
+                };
+                tail[tail_len] = (quad >> 16) & 65535;
+                tail[tail_len + 1] = quad & 65535;
+                tail_len = tail_len + 2;
+            } else {
+                if head_len + 2 > 8 {
+                    return None;
+                };
+                head[head_len] = (quad >> 16) & 65535;
+                head[head_len + 1] = quad & 65535;
+                head_len = head_len + 2;
+            };
+        } else {
+            if in_tail {
+                if tail_len + 1 > 8 {
+                    return None;
+                };
+                tail[tail_len] = value;
+                tail_len = tail_len + 1;
+            } else {
+                if head_len + 1 > 8 {
+                    return None;
+                };
+                head[head_len] = value;
+                head_len = head_len + 1;
+            };
+        };
+        if i >= n {
+            break;
+        };
+        if PTR_BYTE_AT(p, i) != 58 {
+            return None;
+        };
+        // ':' separator; "::" switches to the tail side once.
+        if i + 1 < n && PTR_BYTE_AT(p, i + 1) == 58 {
+            if saw_compress {
+                return None;
+            };
+            saw_compress = true;
+            in_tail = true;
+            i = i + 2;
+            if i == n {
+                break;
+            };
+        } else {
+            i = i + 1;
+            if i == n {
+                // Trailing single ':' is invalid.
+                return None;
+            };
+        };
+    }
+    let total: u64 = head_len + tail_len;
+    if saw_compress {
+        if total >= 8 {
+            return None;
+        };
+    } else {
+        if total != 8 {
+            return None;
+        };
+    };
+    let segs: [u32; 8] = [0u32; 8];
+    let k: u64 = 0;
+    while k < head_len {
+        segs[k] = head[k];
+        k = k + 1;
+    }
+    let zeros: u64 = 8 - total;
+    let m: u64 = 0;
+    while m < tail_len {
+        segs[head_len + zeros + m] = tail[m];
+        m = m + 1;
+    }
+    return Some(ipv6_from_segments(segs[0], segs[1], segs[2], segs[3], segs[4], segs[5], segs[6], segs[7]));
+}
+
+// RFC 5952 canonical text: lowercase, the longest run of two or
+// more zero segments becomes "::" (the first such run on ties), a
+// single zero segment is never compressed. IPv4-mapped addresses
+// use mixed notation.
+fn ipv6_to_string(addr: Ipv6Addr) -> String {
+    let out: String = format("");
+    if ipv6_is_ipv4_mapped(addr) {
+        let lo32: u32 = (addr.lo & 4294967295) as u32;
+        let prefix: String = format("::ffff:");
+        let pp: ptr = STR_PTR(prefix);
+        let pn: u64 = len(prefix);
+        let t: u64 = 0;
+        while t < pn {
+            let pb_arr_0: [u8; 1] = [PTR_BYTE_AT(pp, t)];
+            let pb_str_0: String = pb_arr_0.iter().collect<String>();
+            out = format("{}{}", out, pb_str_0);
+            t = t + 1;
+        }
+        let part: u32 = 0;
+        while part < 4 {
+            if part > 0 {
+                let pb_arr_1: [u8; 1] = [46];
+                let pb_str_1: String = pb_arr_1.iter().collect<String>();
+                out = format("{}{}", out, pb_str_1);
+            };
+            let octet: u32 = ipv4_octet(lo32, part);
+            let digits: [u8; 10] = ip_dec_digits(octet);
+            let dlen: u64 = ip_dec_len(octet);
+            let d: u64 = 0;
+            while d < dlen {
+                let pb_arr_2: [u8; 1] = [digits[d]];
+                let pb_str_2: String = pb_arr_2.iter().collect<String>();
+                out = format("{}{}", out, pb_str_2);
+                d = d + 1;
+            }
+            part = part + 1;
+        }
+        return out;
+    };
+    // Find the longest zero run (length >= 2), first on ties.
+    let best_start: i32 = -1;
+    let best_len: u32 = 0;
+    let run_start: u32 = 0;
+    let run_len: u32 = 0;
+    let idx: u32 = 0;
+    while idx < 8 {
+        if ipv6_segment(addr, idx) == 0 {
+            if run_len == 0 {
+                run_start = idx;
+            };
+            run_len = run_len + 1;
+            if run_len > best_len && run_len >= 2 {
+                best_len = run_len;
+                best_start = run_start as i32;
+            };
+        } else {
+            run_len = 0;
+        };
+        idx = idx + 1;
+    }
+    let i: u32 = 0;
+    let need_colon: bool = false;
+    while i < 8 {
+        if best_start >= 0 && i == (best_start as u32) {
+            // Emit "::" (one colon pair covers separators).
+            let pb_arr_3: [u8; 1] = [58];
+            let pb_str_3: String = pb_arr_3.iter().collect<String>();
+            out = format("{}{}", out, pb_str_3);
+            let pb_arr_4: [u8; 1] = [58];
+            let pb_str_4: String = pb_arr_4.iter().collect<String>();
+            out = format("{}{}", out, pb_str_4);
+            i = i + best_len;
+            need_colon = false;
+            if i >= 8 {
+                break;
+            };
+        };
+        if need_colon {
+            let pb_arr_5: [u8; 1] = [58];
+            let pb_str_5: String = pb_arr_5.iter().collect<String>();
+            out = format("{}{}", out, pb_str_5);
+        };
+        let seg: u32 = ipv6_segment(addr, i);
+        if seg == 0 {
+            let pb_arr_6: [u8; 1] = [48];
+            let pb_str_6: String = pb_arr_6.iter().collect<String>();
+            out = format("{}{}", out, pb_str_6);
+        } else {
+            // Nibbles, most significant nonzero first.
+            let started: bool = false;
+            let shift: u32 = 12;
+            while true {
+                let nib: u64 = ((seg >> shift) & 15) as u64;
+                if nib != 0 || started {
+                    let pb_arr_7: [u8; 1] = [ip_hex_char(nib)];
+                    let pb_str_7: String = pb_arr_7.iter().collect<String>();
+                    out = format("{}{}", out, pb_str_7);
+                    started = true;
+                };
+                if shift == 0 {
+                    break;
+                };
+                shift = shift - 4;
+            }
+        };
+        need_colon = true;
+        i = i + 1;
+    }
+    return out;
+}
+
+// All eight segments, zero-padded four-hex-digit form
+// (Go Addr.StringExpanded).
+fn ipv6_to_expanded_string(addr: Ipv6Addr) -> String {
+    let out: String = format("");
+    let i: u32 = 0;
+    while i < 8 {
+        if i > 0 {
+            let pb_arr_0: [u8; 1] = [58];
+            let pb_str_0: String = pb_arr_0.iter().collect<String>();
+            out = format("{}{}", out, pb_str_0);
+        };
+        let seg: u32 = ipv6_segment(addr, i);
+        let shift: u32 = 12;
+        while true {
+            let nib: u64 = ((seg >> shift) & 15) as u64;
+            let pb_arr_1: [u8; 1] = [ip_hex_char(nib)];
+            let pb_str_1: String = pb_arr_1.iter().collect<String>();
+            out = format("{}{}", out, pb_str_1);
+            if shift == 0 {
+                break;
+            };
+            shift = shift - 4;
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+// ----------------------------------------------------------------
+// Unified IpAddr { tag, hi, lo } and conversions
+// ----------------------------------------------------------------
+
+fn ip_addr_from_ipv4(bits: u32) -> IpAddr {
+    return IpAddr { tag: IP_ADDR_TAG_V4, hi: 0, lo: bits as u64 };
+}
+
+fn ip_addr_from_ipv6(addr: Ipv6Addr) -> IpAddr {
+    return IpAddr { tag: IP_ADDR_TAG_V6, hi: addr.hi, lo: addr.lo };
+}
+
+fn ip_addr_is_ipv4(addr: IpAddr) -> bool {
+    return addr.tag == IP_ADDR_TAG_V4;
+}
+
+fn ip_addr_is_ipv6(addr: IpAddr) -> bool {
+    return addr.tag == IP_ADDR_TAG_V6;
+}
+
+fn ip_addr_to_ipv4(addr: IpAddr) -> Option<u32> {
+    if addr.tag == IP_ADDR_TAG_V4 {
+        return Some((addr.lo & 4294967295) as u32);
+    };
+    return ipv6_to_ipv4(Ipv6Addr { hi: addr.hi, lo: addr.lo });
+}
+
+fn ip_addr_to_ipv6(addr: IpAddr) -> Ipv6Addr {
+    if addr.tag == IP_ADDR_TAG_V6 {
+        return Ipv6Addr { hi: addr.hi, lo: addr.lo };
+    };
+    // IPv4-compatible embedding in the low 32 bits (no mapping
+    // prefix); use ip_addr_to_ipv4_mapped for the ::ffff form.
+    return Ipv6Addr { hi: 0, lo: addr.lo };
+}
+
+fn ip_addr_to_ipv4_mapped(addr: IpAddr) -> IpAddr {
+    if addr.tag == IP_ADDR_TAG_V6 {
+        return addr;
+    };
+    // ::ffff:a.b.c.d -- lo is 0x0000ffff in its top half.
+    return IpAddr { tag: IP_ADDR_TAG_V6, hi: 0, lo: (65535 << 32) | (addr.lo & 4294967295) };
+}
+
+// If addr is an IPv4-mapped IPv6 address, the embedded IPv4
+// address; otherwise addr itself (Go Addr.Unmap).
+fn ip_addr_unmap(addr: IpAddr) -> IpAddr {
+    if addr.tag == IP_ADDR_TAG_V6 && addr.hi == 0 && (addr.lo >> 32) == 65535 {
+        return IpAddr { tag: IP_ADDR_TAG_V4, hi: 0, lo: addr.lo & 4294967295 };
+    };
+    return addr;
+}
+
+fn ip_addr_parse(text: String) -> Option<IpAddr> {
+    let p: ptr = STR_PTR(text);
+    let n: u64 = len(text);
+    let i: u64 = 0;
+    let is_v6: bool = false;
+    while i < n {
+        if PTR_BYTE_AT(p, i) == 58 {
+            is_v6 = true;
+            break;
+        };
+        i = i + 1;
+    }
+    if is_v6 {
+        let v6 = ipv6_parse(text);
+        match v6 {
+            Some(a) => {
+                return Some(ip_addr_from_ipv6(a));
+            },
+            None => {
+                return None;
+            },
+        };
+    } else {
+        let v4 = ipv4_parse(text);
+        match v4 {
+            Some(bits) => {
+                return Some(ip_addr_from_ipv4(bits));
+            },
+            None => {
+                return None;
+            },
+        };
+    };
+    return None;
+}
+
+fn ip_addr_to_string(addr: IpAddr) -> String {
+    if addr.tag == IP_ADDR_TAG_V4 {
+        return ipv4_to_string((addr.lo & 4294967295) as u32);
+    };
+    return ipv6_to_string(Ipv6Addr { hi: addr.hi, lo: addr.lo });
+}
+
+fn ip_addr_eq(a: IpAddr, b: IpAddr) -> bool {
+    return a.tag == b.tag && a.hi == b.hi && a.lo == b.lo;
+}
+
+// Ordering: IPv4 before IPv6 (Go netip Compare), then numeric.
+fn ip_addr_compare(a: IpAddr, b: IpAddr) -> i32 {
+    if a.tag != b.tag {
+        if a.tag == IP_ADDR_TAG_V4 {
+            return -1;
+        };
+        return 1;
+    };
+    if a.hi != b.hi {
+        if a.hi < b.hi {
+            return -1;
+        };
+        return 1;
+    };
+    if a.lo != b.lo {
+        if a.lo < b.lo {
+            return -1;
+        };
+        return 1;
+    };
+    return 0;
+}
+
+// Next address in the same family; None past the family maximum.
+fn ip_addr_next(addr: IpAddr) -> Option<IpAddr> {
+    if addr.tag == IP_ADDR_TAG_V4 {
+        if addr.lo >= 4294967295 {
+            return None;
+        };
+        return Some(IpAddr { tag: addr.tag, hi: 0, lo: addr.lo + 1 });
+    };
+    if addr.lo == ip_u64_max() {
+        if addr.hi == ip_u64_max() {
+            return None;
+        };
+        return Some(IpAddr { tag: addr.tag, hi: addr.hi + 1, lo: 0 });
+    };
+    return Some(IpAddr { tag: addr.tag, hi: addr.hi, lo: addr.lo + 1 });
+}
+
+fn ip_addr_prev(addr: IpAddr) -> Option<IpAddr> {
+    if addr.tag == IP_ADDR_TAG_V4 {
+        if addr.lo == 0 {
+            return None;
+        };
+        return Some(IpAddr { tag: addr.tag, hi: 0, lo: addr.lo - 1 });
+    };
+    if addr.lo == 0 {
+        if addr.hi == 0 {
+            return None;
+        };
+        return Some(IpAddr { tag: addr.tag, hi: addr.hi - 1, lo: ip_u64_max() });
+    };
+    return Some(IpAddr { tag: addr.tag, hi: addr.hi, lo: addr.lo - 1 });
+}
+
+fn ip_addr_is_unspecified(addr: IpAddr) -> bool {
+    return addr.hi == 0 && addr.lo == 0;
+}
+
+fn ip_addr_is_loopback(addr: IpAddr) -> bool {
+    if addr.tag == IP_ADDR_TAG_V4 {
+        return ipv4_is_loopback((addr.lo & 4294967295) as u32);
+    };
+    return ipv6_is_loopback(Ipv6Addr { hi: addr.hi, lo: addr.lo });
+}
+
+fn ip_addr_is_multicast(addr: IpAddr) -> bool {
+    if addr.tag == IP_ADDR_TAG_V4 {
+        return ipv4_is_multicast((addr.lo & 4294967295) as u32);
+    };
+    return ipv6_is_multicast(Ipv6Addr { hi: addr.hi, lo: addr.lo });
+}
+
+fn ip_addr_is_private(addr: IpAddr) -> bool {
+    if addr.tag == IP_ADDR_TAG_V4 {
+        return ipv4_is_private((addr.lo & 4294967295) as u32);
+    };
+    return ipv6_is_unique_local(Ipv6Addr { hi: addr.hi, lo: addr.lo });
+}
+
+fn ip_addr_is_link_local(addr: IpAddr) -> bool {
+    if addr.tag == IP_ADDR_TAG_V4 {
+        return ipv4_is_link_local((addr.lo & 4294967295) as u32);
+    };
+    return ipv6_is_unicast_link_local(Ipv6Addr { hi: addr.hi, lo: addr.lo });
+}
+
+fn ip_addr_is_global(addr: IpAddr) -> bool {
+    if addr.tag == IP_ADDR_TAG_V4 {
+        return ipv4_is_global((addr.lo & 4294967295) as u32);
+    };
+    return ipv6_is_global(Ipv6Addr { hi: addr.hi, lo: addr.lo });
+}
+
+fn ip_addr_is_documentation(addr: IpAddr) -> bool {
+    if addr.tag == IP_ADDR_TAG_V4 {
+        return ipv4_is_documentation((addr.lo & 4294967295) as u32);
+    };
+    return ipv6_is_documentation(Ipv6Addr { hi: addr.hi, lo: addr.lo });
+}
+
+fn ip_addr_is_ipv4_mapped(addr: IpAddr) -> bool {
+    if addr.tag != IP_ADDR_TAG_V6 {
+        return false;
+    };
+    return ipv6_is_ipv4_mapped(Ipv6Addr { hi: addr.hi, lo: addr.lo });
+}
+
+fn ip_addr_is_unique_local(addr: IpAddr) -> bool {
+    if addr.tag != IP_ADDR_TAG_V6 {
+        return false;
+    };
+    return ipv6_is_unique_local(Ipv6Addr { hi: addr.hi, lo: addr.lo });
+}
+
+// Octets in network order as a fixed 16-byte array: IPv4 uses
+// the first 4 bytes (the rest are zero), IPv6 all 16. Returned
+// by value because indexed writes through a borrowed array are
+// not available on the SAB path.
+fn ip_addr_to_octets(addr: IpAddr) -> [u8; 16] {
+    let buf: [u8; 16] = [0u8; 16];
+    if addr.tag == IP_ADDR_TAG_V4 {
+        let bits: u32 = (addr.lo & 4294967295) as u32;
+        buf[0] = ((bits >> 24) & 255) as u8;
+        buf[1] = ((bits >> 16) & 255) as u8;
+        buf[2] = ((bits >> 8) & 255) as u8;
+        buf[3] = (bits & 255) as u8;
+        return buf;
+    };
+    let i: u64 = 0;
+    while i < 8 {
+        let seg: u32 = ipv6_segment(Ipv6Addr { hi: addr.hi, lo: addr.lo }, i as u32);
+        buf[i * 2] = ((seg >> 8) & 255) as u8;
+        buf[i * 2 + 1] = (seg & 255) as u8;
+        i = i + 1;
+    }
+    return buf;
+}
+
+// Inverse of ip_addr_to_octets: count 4 reads an IPv4 address,
+// count 16 an IPv6 address; any other count is invalid.
+fn ip_addr_from_octets(buf: &[u8; 16], count: u64) -> Option<IpAddr> {
+    if count == 4 {
+        let bits: u32 = ((buf[0] as u32) << 24) | ((buf[1] as u32) << 16) | ((buf[2] as u32) << 8) | (buf[3] as u32);
+        return Some(ip_addr_from_ipv4(bits));
+    };
+    if count == 16 {
+        let hi: u64 = 0;
+        let lo: u64 = 0;
+        let i: u64 = 0;
+        while i < 8 {
+            let seg: u64 = ((buf[i * 2] as u64) << 8) | (buf[i * 2 + 1] as u64);
+            if i < 4 {
+                hi = (hi << 16) | seg;
+            } else {
+                lo = (lo << 16) | seg;
+            };
+            i = i + 1;
+        }
+        return Some(IpAddr { tag: IP_ADDR_TAG_V6, hi: hi, lo: lo });
+    };
+    return None;
+}
+
+// ----------------------------------------------------------------
+// IpPrefix { addr, len }
+// ----------------------------------------------------------------
+
+fn ip_prefix_from(addr: IpAddr, len: u32) -> IpPrefix {
+    return IpPrefix { addr: addr, len: len };
+}
+
+fn ip_prefix_is_valid(p: IpPrefix) -> bool {
+    return p.len <= ip_family_bits(p.addr.tag);
+}
+
+// The mask of this prefix as an address value (family-shaped:
+// for IPv4 the mask sits in the low 32 bits).
+fn ip_prefix_mask(p: IpPrefix) -> IpAddr {
+    let bits: u32 = ip_family_bits(p.addr.tag);
+    if p.len > bits {
+        return IpAddr { tag: p.addr.tag, hi: 0, lo: 0 };
+    };
+    if p.addr.tag == IP_ADDR_TAG_V4 {
+        if p.len == 0 {
+            return IpAddr { tag: p.addr.tag, hi: 0, lo: 0 };
+        };
+        let m32: u32 = 4294967295 << (32 - p.len);
+        return IpAddr { tag: p.addr.tag, hi: 0, lo: m32 as u64 };
+    };
+    let m2: Ipv6Addr = ip_mask128(p.len);
+    return IpAddr { tag: p.addr.tag, hi: m2.hi, lo: m2.lo };
+}
+
+fn ip_prefix_masked(p: IpPrefix) -> IpPrefix {
+    let mask: IpAddr = ip_prefix_mask(p);
+    let masked: IpAddr = IpAddr { tag: p.addr.tag, hi: p.addr.hi & mask.hi, lo: p.addr.lo & mask.lo };
+    return IpPrefix { addr: masked, len: p.len };
+}
+
+fn ip_prefix_network_addr(p: IpPrefix) -> IpAddr {
+    let m: IpPrefix = ip_prefix_masked(p);
+    return m.addr;
+}
+
+// Last address of the prefix (the broadcast address for IPv4).
+fn ip_prefix_last_addr(p: IpPrefix) -> IpAddr {
+    let mask: IpAddr = ip_prefix_mask(p);
+    let net: IpAddr = ip_prefix_network_addr(p);
+    if p.addr.tag == IP_ADDR_TAG_V4 {
+        return IpAddr { tag: p.addr.tag, hi: 0, lo: net.lo | (mask.lo ^ 4294967295) };
+    };
+    return IpAddr { tag: p.addr.tag, hi: net.hi | (mask.hi ^ ip_u64_max()), lo: net.lo | (mask.lo ^ ip_u64_max()) };
+}
+
+fn ip_prefix_contains_addr(p: IpPrefix, addr: IpAddr) -> bool {
+    if p.addr.tag != addr.tag {
+        return false;
+    };
+    if !ip_prefix_is_valid(p) {
+        return false;
+    };
+    let mask: IpAddr = ip_prefix_mask(p);
+    return (addr.hi & mask.hi) == (p.addr.hi & mask.hi) && (addr.lo & mask.lo) == (p.addr.lo & mask.lo);
+}
+
+fn ip_prefix_contains_prefix(p: IpPrefix, q: IpPrefix) -> bool {
+    if p.addr.tag != q.addr.tag {
+        return false;
+    };
+    if p.len > q.len {
+        return false;
+    };
+    return ip_prefix_contains_addr(p, q.addr);
+}
+
+fn ip_prefix_overlaps(p: IpPrefix, q: IpPrefix) -> bool {
+    if p.addr.tag != q.addr.tag {
+        return false;
+    };
+    if ip_prefix_contains_addr(p, q.addr) {
+        return true;
+    };
+    return ip_prefix_contains_addr(q, p.addr);
+}
+
+// Build a prefix from an address and a mask address (Go
+// IPNet{IP, Mask}): the mask must be contiguous ones then zeros.
+fn ip_prefix_from_mask(addr: IpAddr, mask: IpAddr) -> Option<IpPrefix> {
+    if addr.tag != mask.tag {
+        return None;
+    };
+    let bits: u32 = ip_family_bits(addr.tag);
+    let len: u32 = 0;
+    let seen_zero: bool = false;
+    let i: u32 = 0;
+    while i < bits {
+        let bit: u64 = 0;
+        if addr.tag == IP_ADDR_TAG_V4 {
+            bit = (mask.lo >> (31 - i)) & 1;
+        } else {
+            if i < 64 {
+                bit = (mask.hi >> (63 - i)) & 1;
+            } else {
+                bit = (mask.lo >> (127 - i)) & 1;
+            };
+        };
+        if bit == 1 {
+            if seen_zero {
+                return None;
+            };
+            len = len + 1;
+        } else {
+            seen_zero = true;
+        };
+        i = i + 1;
+    }
+    return Some(IpPrefix { addr: addr, len: len });
+}
+
+// The mask address for a family + prefix length (Go
+// CIDRMask / IPMask): for IPv4 the mask is the low-32 value.
+fn ip_mask_from_prefix_len(tag: u64, len: u32) -> IpAddr {
+    let p: IpPrefix = IpPrefix { addr: IpAddr { tag: tag, hi: 0, lo: 0 }, len: len };
+    return ip_prefix_mask(p);
+}
+
+fn ip_addr_masked_with(addr: IpAddr, mask: IpAddr) -> IpAddr {
+    return IpAddr { tag: addr.tag, hi: addr.hi & mask.hi, lo: addr.lo & mask.lo };
+}
+
+// "addr/len" parse: the address part keeps its host bits (Go
+// ParsePrefix); ip_prefix_masked canonicalizes. A bare address
+// without '/' is invalid.
+fn ip_prefix_parse(text: String) -> Option<IpPrefix> {
+    let p: ptr = STR_PTR(text);
+    let n: u64 = len(text);
+    let slash: i64 = -1;
+    let i: u64 = 0;
+    while i < n {
+        if PTR_BYTE_AT(p, i) == 47 {
+            slash = i as i64;
+            break;
+        };
+        i = i + 1;
+    }
+    if slash < 0 {
+        return None;
+    };
+    let addr_text: String = format("");
+    let a: u64 = 0;
+    while a < (slash as u64) {
+        let pb_arr_0: [u8; 1] = [PTR_BYTE_AT(p, a)];
+        let pb_str_0: String = pb_arr_0.iter().collect<String>();
+        addr_text = format("{}{}", addr_text, pb_str_0);
+        a = a + 1;
+    }
+    let addr = ip_addr_parse(addr_text);
+    let addr_val: IpAddr = IpAddr { tag: 0, hi: 0, lo: 0 };
+    match addr {
+        Some(v) => {
+            addr_val = v;
+        },
+        None => {
+            return None;
+        },
+    };
+    let len: u32 = 0;
+    let digits: u64 = 0;
+    let j: u64 = (slash as u64) + 1;
+    while j < n {
+        let b: u8 = PTR_BYTE_AT(p, j);
+        if b < 48 || b > 57 {
+            return None;
+        };
+        len = len * 10 + ((b - 48) as u32);
+        digits = digits + 1;
+        j = j + 1;
+        if digits > 3 {
+            return None;
+        };
+    }
+    if digits == 0 {
+        return None;
+    };
+    if len > ip_family_bits(addr_val.tag) {
+        return None;
+    };
+    return Some(IpPrefix { addr: addr_val, len: len });
+}
+
+fn ip_prefix_to_string(p: IpPrefix) -> String {
+    let out: String = format("");
+    let addr_text: String = ip_addr_to_string(p.addr);
+    let ap: ptr = STR_PTR(addr_text);
+    let an: u64 = len(addr_text);
+    let i: u64 = 0;
+    while i < an {
+        let pb_arr_0: [u8; 1] = [PTR_BYTE_AT(ap, i)];
+        let pb_str_0: String = pb_arr_0.iter().collect<String>();
+        out = format("{}{}", out, pb_str_0);
+        i = i + 1;
+    }
+    let pb_arr_1: [u8; 1] = [47];
+    let pb_str_1: String = pb_arr_1.iter().collect<String>();
+    out = format("{}{}", out, pb_str_1);
+    let digits: [u8; 10] = ip_dec_digits(p.len);
+    let dlen: u64 = ip_dec_len(p.len);
+    let d: u64 = 0;
+    while d < dlen {
+        let pb_arr_2: [u8; 1] = [digits[d]];
+        let pb_str_2: String = pb_arr_2.iter().collect<String>();
+        out = format("{}{}", out, pb_str_2);
+        d = d + 1;
+    }
+    return out;
+}
+
+// ----------------------------------------------------------------
+// IpPrefixList: a growable prefix collection (parallel u64 columns
+// -- the SAB direct backend cannot index a Vec of structs, so the
+// columns are kept primitive; see the header of url.sla's query
+// type for the same pattern) plus collapse / summarize.
+// ----------------------------------------------------------------
+
+struct IpPrefixList {
+    tags: Vec<u64>,
+    his: Vec<u64>,
+    los: Vec<u64>,
+    lens: Vec<u64>,
+}
+
+fn ip_prefix_list_new() -> IpPrefixList {
+    return IpPrefixList { tags: Vec::new(), his: Vec::new(), los: Vec::new(), lens: Vec::new() };
+}
+
+fn ip_prefix_list_len(list: &IpPrefixList) -> u64 {
+    return len(list.tags);
+}
+
+fn ip_prefix_list_push(list: &IpPrefixList, p: IpPrefix) {
+    list.tags.push(p.addr.tag);
+    list.his.push(p.addr.hi);
+    list.los.push(p.addr.lo);
+    list.lens.push(p.len as u64);
+}
+
+fn ip_prefix_list_get(list: &IpPrefixList, index: u64) -> IpPrefix {
+    let addr: IpAddr = IpAddr { tag: list.tags[index], hi: list.his[index], lo: list.los[index] };
+    return IpPrefix { addr: addr, len: list.lens[index] as u32 };
+}
+
+fn ip_prefix_list_pop(list: &IpPrefixList) -> IpPrefix {
+    let tag: u64 = 0;
+    let hi: u64 = 0;
+    let lo: u64 = 0;
+    let ln: u64 = 0;
+    match list.tags.pop() {
+        Some(v) => {
+            tag = v;
+        },
+        None => {},
+    };
+    match list.his.pop() {
+        Some(v) => {
+            hi = v;
+        },
+        None => {},
+    };
+    match list.los.pop() {
+        Some(v) => {
+            lo = v;
+        },
+        None => {},
+    };
+    match list.lens.pop() {
+        Some(v) => {
+            ln = v;
+        },
+        None => {},
+    };
+    return IpPrefix { addr: IpAddr { tag: tag, hi: hi, lo: lo }, len: ln as u32 };
+}
+
+// Canonical order: address compare first (family, then value),
+// then shorter (broader) prefixes before longer ones.
+fn ip_prefix_less(a: IpPrefix, b: IpPrefix) -> bool {
+    let c: i32 = ip_addr_compare(a.addr, b.addr);
+    if c != 0 {
+        return c < 0;
+    };
+    return a.len < b.len;
+}
+
+// The parent (one bit shorter) of a masked prefix.
+fn ip_prefix_parent(p: IpPrefix) -> IpPrefix {
+    let parent: IpPrefix = IpPrefix { addr: p.addr, len: p.len - 1 };
+    return ip_prefix_masked(parent);
+}
+
+// Sibling test: same family and length, distinct networks, one
+// shared parent.
+fn ip_prefix_are_siblings(a: IpPrefix, b: IpPrefix) -> bool {
+    if a.len == 0 || a.len != b.len {
+        return false;
+    };
+    if a.addr.tag != b.addr.tag {
+        return false;
+    };
+    if ip_addr_eq(a.addr, b.addr) {
+        return false;
+    };
+    let pa: IpPrefix = ip_prefix_parent(ip_prefix_masked(a));
+    let pb: IpPrefix = ip_prefix_parent(ip_prefix_masked(b));
+    return ip_addr_eq(pa.addr, pb.addr);
+}
+
+// A canonicalized, sorted copy of the list (every entry masked,
+// in ip_prefix_less order). The list API is functional -- it
+// returns new lists instead of mutating in place -- because the
+// SAB path offers no indexed Vec write or Vec field assignment
+// to mutate a borrowed list with; insertion below is built from
+// push and pop only. Cost is quadratic in the list length,
+// which suits route-set value work at this layer.
+fn ip_prefix_list_sorted(list: &IpPrefixList) -> IpPrefixList {
+    let out: IpPrefixList = ip_prefix_list_new();
+    let n: u64 = ip_prefix_list_len(list);
+    let i: u64 = 0;
+    while i < n {
+        let p: IpPrefix = ip_prefix_masked(ip_prefix_list_get(list, i));
+        // Insert p into out, holding the displaced tail in tmp.
+        let tmp: IpPrefixList = ip_prefix_list_new();
+        let placing: bool = true;
+        while placing && ip_prefix_list_len(&out) > 0 {
+            let top: IpPrefix = ip_prefix_list_get(&out, ip_prefix_list_len(&out) - 1);
+            if ip_prefix_less(p, top) {
+                ip_prefix_list_push(&tmp, ip_prefix_list_pop(&out));
+            } else {
+                placing = false;
+            };
+        }
+        ip_prefix_list_push(&out, p);
+        while ip_prefix_list_len(&tmp) > 0 {
+            ip_prefix_list_push(&out, ip_prefix_list_pop(&tmp));
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+// Collapse a prefix set to its minimal equivalent (Python
+// collapse_addresses; Go has no direct equivalent): duplicates
+// and contained prefixes are dropped and sibling pairs merge
+// into their parent until no merge applies. Pure: returns the
+// minimal set as a new sorted list; the input is untouched.
+// Families never merge or contain across.
+fn ip_prefixes_collapse(list: &IpPrefixList) -> IpPrefixList {
+    let sorted: IpPrefixList = ip_prefix_list_sorted(list);
+    let out: IpPrefixList = ip_prefix_list_new();
+    let have_cur: bool = false;
+    let cur: IpPrefix = IpPrefix { addr: IpAddr { tag: 0, hi: 0, lo: 0 }, len: 0 };
+    let n: u64 = ip_prefix_list_len(&sorted);
+    let i: u64 = 0;
+    while i < n {
+        let p: IpPrefix = ip_prefix_list_get(&sorted, i);
+        i = i + 1;
+        if !have_cur {
+            cur = p;
+            have_cur = true;
+            continue;
+        };
+        if ip_prefix_contains_prefix(cur, p) {
+            // p adds nothing.
+            continue;
+        };
+        if ip_prefix_contains_prefix(p, cur) {
+            cur = p;
+            continue;
+        };
+        if ip_prefix_are_siblings(cur, p) {
+            cur = ip_prefix_parent(cur);
+            // The widened cur may merge with, or be swallowed
+            // by, the finalized tail of out.
+            let settling: bool = true;
+            while settling && ip_prefix_list_len(&out) > 0 {
+                let top: IpPrefix = ip_prefix_list_get(&out, ip_prefix_list_len(&out) - 1);
+                if ip_prefix_contains_prefix(top, cur) {
+                    have_cur = false;
+                    settling = false;
+                } else {
+                    if ip_prefix_are_siblings(top, cur) {
+                        ip_prefix_list_pop(&out);
+                        cur = ip_prefix_parent(cur);
+                    } else {
+                        settling = false;
+                    };
+                };
+            }
+            continue;
+        };
+        ip_prefix_list_push(&out, cur);
+        cur = p;
+    }
+    if have_cur {
+        ip_prefix_list_push(&out, cur);
+    };
+    return out;
+}
+
+// Minimal prefix set covering the inclusive address range
+// [first, last] (Python summarize_address_range), as a new
+// list. Both addresses must share a family and first <= last;
+// otherwise the result is empty.
+fn ip_summarize_range(first: IpAddr, last: IpAddr) -> IpPrefixList {
+    let out: IpPrefixList = ip_prefix_list_new();
+    if first.tag != last.tag {
+        return out;
+    };
+    if ip_addr_compare(first, last) > 0 {
+        return out;
+    };
+    let bits: u32 = ip_family_bits(first.tag);
+    let cur: IpAddr = first;
+    while true {
+        // Largest block aligned at cur that does not pass last.
+        let len: u32 = bits;
+        // Alignment limit: trailing zero bits of cur (within the
+        // family width).
+        let align: u32 = 0;
+        if first.tag == IP_ADDR_TAG_V4 {
+            let v: u32 = (cur.lo & 4294967295) as u32;
+            if v == 0 {
+                align = 32;
+            } else {
+                let x: u32 = v;
+                while (x & 1) == 0 {
+                    align = align + 1;
+                    x = x >> 1;
+                }
+            };
+        } else {
+            if cur.hi == 0 && cur.lo == 0 {
+                align = 128;
+            } else {
+                if cur.lo != 0 {
+                    let x2: u64 = cur.lo;
+                    while (x2 & 1) == 0 {
+                        align = align + 1;
+                        x2 = x2 >> 1;
+                    }
+                } else {
+                    align = 64;
+                    let x3: u64 = cur.hi;
+                    while (x3 & 1) == 0 {
+                        align = align + 1;
+                        x3 = x3 >> 1;
+                    }
+                };
+            };
+        };
+        // Block size limit: remaining count is (last - cur + 1);
+        // the block may hold at most that many addresses. Shrink
+        // len until the block fits: block covers 2^(bits-len).
+        len = bits - align;
+        while len < bits {
+            let p: IpPrefix = IpPrefix { addr: cur, len: len };
+            let block_last: IpAddr = ip_prefix_last_addr(p);
+            if ip_addr_compare(block_last, last) <= 0 {
+                break;
+            };
+            len = len + 1;
+        }
+        let block: IpPrefix = IpPrefix { addr: cur, len: len };
+        ip_prefix_list_push(&out, block);
+        let next_after: IpAddr = ip_prefix_last_addr(block);
+        if ip_addr_compare(next_after, last) >= 0 {
+            break;
+        };
+        let nxt = ip_addr_next(next_after);
+        match nxt {
+            Some(v) => {
+                cur = v;
+            },
+            None => {
+                break;
+            },
+        };
+    }
+    return out;
+}
