@@ -1,0 +1,660 @@
+// Regression tests for the SLA DNS surface in sa_std/dns.sla:
+// wire codec (build/decode incl. compression pointers), the
+// resolv.conf parser, the /etc/services scanner and the reverse
+// name builder. Pure logic only -- the live UDP client is covered
+// by tests/dns_client_loopback.sla against tests/dns_loopback_stub.py.
+//
+// On a tree without dns.sla this file cannot compile, which is what
+// makes it a regression test for the surface.
+
+@import "sa_std/dns.sla"
+@import "sa_std/fs.sai"
+
+// ---- test helpers ----
+
+fn tb(text: ptr, text_len: u64) -> Vec<u8> {
+    let arr: [u8; 128] = [0u8; 128];
+    let dst: ptr = PTR_BYTE_ADD(&arr, 0);
+    PTR_COPY_BYTES(dst, text, text_len);
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < text_len {
+        out.push(arr[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn bytes_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
+    let n: u64 = len(a);
+    if n != len(b) {
+        return false;
+    };
+    let sa: Slice<u8> = VEC_AS_SLICE(a);
+    let sb: Slice<u8> = VEC_AS_SLICE(b);
+    let i: u64 = 0;
+    while i < n {
+        let x: u8 = 0;
+        SLICE_GET(x, sa, i);
+        let y: u8 = 0;
+        SLICE_GET(y, sb, i);
+        if x != y {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+fn rec_at(recs: Vec<DnsRecord>, idx: u64) -> DnsRecord {
+    let sl: Slice<DnsRecord> = VEC_AS_SLICE(recs);
+    let rec = dns_empty_record();
+    SLICE_GET(rec, sl, idx);
+    return rec;
+}
+
+fn put_name(out: Vec<u8>, name: Vec<u8>) -> Vec<u8> {
+    let sl: Slice<u8> = VEC_AS_SLICE(name);
+    match dns_encode_name(&sl) {
+        Ok(enc) => {
+            let es: Slice<u8> = VEC_AS_SLICE(enc);
+            let n: u64 = dns_slice_len(&es);
+            out = dns_put_bytes(out, &es, 0, n);
+            return out;
+        },
+        Err(e) => {
+            panic(9950);
+        },
+    };
+}
+
+fn put_ptr(out: &Vec<u8>, off: u64) {
+    out.push((0xc0 | ((off >> 8) & 0x3f)) as u8);
+    out.push((off & 0xff) as u8);
+}
+
+// ---- build_query / encode_name ----
+
+@test "build query wire bytes are exact"() {
+    let built = dns_build_query(0x1001, tb(STR_PTR("a.b"), STR_LEN("a.b")), SA_DNS_TYPE_A, SA_DNS_CLASS_IN, false);
+    match built {
+        Ok(wire) => {
+            let want: Vec<u8> = Vec::new();
+            let raw: [u8; 21] = [0x10, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x61, 0x01, 0x62, 0x00, 0x00, 0x01, 0x00, 0x01];
+            let i: u64 = 0;
+            while i < 21 {
+                want.push(raw[i]);
+                i = i + 1;
+            }
+            if bytes_eq(wire, want) != true { panic(2001); };
+        },
+        Err(e) => {
+            panic(2002);
+        },
+    };
+    let built_rd = dns_build_query(0x1001, tb(STR_PTR("a.b"), STR_LEN("a.b")), SA_DNS_TYPE_A, SA_DNS_CLASS_IN, true);
+    match built_rd {
+        Ok(wire2) => {
+            let sl: Slice<u8> = VEC_AS_SLICE(wire2);
+            let f: u8 = 0;
+            SLICE_GET(f, sl, 2);
+            if f != 0x01 { panic(2003); };
+        },
+        Err(e) => {
+            panic(2004);
+        },
+    };
+}
+
+@test "encode name rejects bad names"() {
+    // 64-byte label
+    let long_label: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < 64 {
+        long_label.push(97);
+        i = i + 1;
+    }
+    let sl1: Slice<u8> = VEC_AS_SLICE(long_label);
+    match dns_encode_name(&sl1) {
+        Ok(v) => { panic(2011); },
+        Err(e) => { if e != SA_STD_ERR_INVALID_ARGUMENT { panic(2016); }; },
+    };
+    // doubled dot
+    let bad = tb(STR_PTR("a..b"), STR_LEN("a..b"));
+    let sl2: Slice<u8> = VEC_AS_SLICE(bad);
+    match dns_encode_name(&sl2) {
+        Ok(v) => { panic(2012); },
+        Err(e) => { if e != SA_STD_ERR_INVALID_ARGUMENT { panic(2017); }; },
+    };
+    // leading dot
+    let bad3 = tb(STR_PTR(".a"), STR_LEN(".a"));
+    let sl3: Slice<u8> = VEC_AS_SLICE(bad3);
+    match dns_encode_name(&sl3) {
+        Ok(v) => { panic(2013); },
+        Err(e) => { if e != SA_STD_ERR_INVALID_ARGUMENT { panic(2018); }; },
+    };
+    // root name encodes as a single zero byte
+    let root: Vec<u8> = Vec::new();
+    let sl4: Slice<u8> = VEC_AS_SLICE(root);
+    match dns_encode_name(&sl4) {
+        Ok(out4) => { if len(out4) != 1 { panic(2015); }; },
+        Err(e) => { panic(2014); },
+    };
+}
+
+// ---- decode: A answers with compression ----
+
+fn fixture_a_response() -> Vec<u8> {
+    let w: Vec<u8> = Vec::new();
+    dns_put_u16(&w, 0x4242);
+    dns_put_u16(&w, 0x8180);
+    dns_put_u16(&w, 1);
+    dns_put_u16(&w, 2);
+    dns_put_u16(&w, 0);
+    dns_put_u16(&w, 0);
+    w = put_name(w, tb(STR_PTR("www.example.test"), STR_LEN("www.example.test")));
+    dns_put_u16(&w, SA_DNS_TYPE_A);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    // answer 1
+    put_ptr(&w, 12);
+    dns_put_u16(&w, SA_DNS_TYPE_A);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    dns_put_u32(&w, 300);
+    dns_put_u16(&w, 4);
+    w.push(93);
+    w.push(184);
+    w.push(216);
+    w.push(34);
+    // answer 2
+    put_ptr(&w, 12);
+    dns_put_u16(&w, SA_DNS_TYPE_A);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    dns_put_u32(&w, 300);
+    dns_put_u16(&w, 4);
+    w.push(93);
+    w.push(184);
+    w.push(216);
+    w.push(35);
+    return w;
+}
+
+@test "decode A response fields"() {
+    let decoded = dns_decode_message(fixture_a_response());
+    match decoded {
+        Ok(msg) => {
+            if msg.id != 0x4242 { panic(2101); };
+            if msg.is_response != true { panic(2102); };
+            if msg.rcode != 0 { panic(2103); };
+            if msg.recursion_desired != true { panic(2104); };
+            if msg.recursion_available != true { panic(2105); };
+            if len(msg.questions) != 1 { panic(2106); };
+            if len(msg.answers) != 2 { panic(2107); };
+            let a = dns_records_of_type(msg, 0, SA_DNS_TYPE_A);
+            if len(a) != 2 { panic(2108); };
+            let sla: Slice<DnsRecord> = VEC_AS_SLICE(a);
+            let r0 = dns_empty_record();
+            SLICE_GET(r0, sla, 0);
+            if r0.addr_v4 != 0x5db8d822 { panic(2109); };
+            if r0.ttl != 300 { panic(2110); };
+            if bytes_eq(r0.name, tb(STR_PTR("www.example.test"), STR_LEN("www.example.test"))) != true { panic(2111); };
+            let r1 = dns_empty_record();
+            SLICE_GET(r1, sla, 1);
+            if r1.addr_v4 != 0x5db8d823 { panic(2112); };
+        },
+        Err(e) => {
+            panic(2113);
+        },
+    };
+}
+
+// ---- decode: mixed record types in one message ----
+
+fn fixture_mixed_response() -> Vec<u8> {
+    let w: Vec<u8> = Vec::new();
+    dns_put_u16(&w, 0x4243);
+    dns_put_u16(&w, 0x8180);
+    dns_put_u16(&w, 1);
+    dns_put_u16(&w, 5);
+    dns_put_u16(&w, 0);
+    dns_put_u16(&w, 0);
+    w = put_name(w, tb(STR_PTR("example.test"), STR_LEN("example.test")));
+    dns_put_u16(&w, SA_DNS_TYPE_A);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    // AAAA
+    put_ptr(&w, 12);
+    dns_put_u16(&w, SA_DNS_TYPE_AAAA);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    dns_put_u32(&w, 300);
+    dns_put_u16(&w, 16);
+    let v6: [u8; 16] = [0x26, 0x06, 0x28, 0x00, 0x02, 0x20, 0x00, 0x01, 0x02, 0x48, 0x18, 0x93, 0x25, 0xc8, 0x19, 0x46];
+    let i: u64 = 0;
+    while i < 16 {
+        w.push(v6[i]);
+        i = i + 1;
+    }
+    // MX: preference 10, "mail" + ptr(12)
+    put_ptr(&w, 12);
+    dns_put_u16(&w, SA_DNS_TYPE_MX);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    dns_put_u32(&w, 300);
+    dns_put_u16(&w, 9);
+    dns_put_u16(&w, 10);
+    w.push(4);
+    w.push(109);
+    w.push(97);
+    w.push(105);
+    w.push(108);
+    put_ptr(&w, 12);
+    // TXT: ("v=spf1 -all", "hello")
+    put_ptr(&w, 12);
+    dns_put_u16(&w, SA_DNS_TYPE_TXT);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    dns_put_u32(&w, 300);
+    dns_put_u16(&w, 18);
+    w.push(11);
+    let t1 = tb(STR_PTR("v=spf1 -all"), STR_LEN("v=spf1 -all"));
+    let t1s: Slice<u8> = VEC_AS_SLICE(t1);
+    w = dns_put_bytes(w, &t1s, 0, 11);
+    w.push(5);
+    let t2 = tb(STR_PTR("hello"), STR_LEN("hello"));
+    let t2s: Slice<u8> = VEC_AS_SLICE(t2);
+    w = dns_put_bytes(w, &t2s, 0, 5);
+    // NS: "ns1" + ptr(12)
+    put_ptr(&w, 12);
+    dns_put_u16(&w, SA_DNS_TYPE_NS);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    dns_put_u32(&w, 300);
+    dns_put_u16(&w, 6);
+    w.push(3);
+    w.push(110);
+    w.push(115);
+    w.push(49);
+    put_ptr(&w, 12);
+    // SRV: 10 5 5060, "sip" + ptr(12)
+    put_ptr(&w, 12);
+    dns_put_u16(&w, SA_DNS_TYPE_SRV);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    dns_put_u32(&w, 300);
+    dns_put_u16(&w, 12);
+    dns_put_u16(&w, 10);
+    dns_put_u16(&w, 5);
+    dns_put_u16(&w, 5060);
+    w.push(3);
+    w.push(115);
+    w.push(105);
+    w.push(112);
+    put_ptr(&w, 12);
+    return w;
+}
+
+@test "decode mixed record types"() {
+    let decoded = dns_decode_message(fixture_mixed_response());
+    match decoded {
+        Ok(msg) => {
+            if len(msg.answers) != 5 { panic(2201); };
+            let aaaa = dns_records_of_type(msg, 0, SA_DNS_TYPE_AAAA);
+            if len(aaaa) != 1 { panic(2202); };
+            let r6 = rec_at(aaaa, 0);
+            if len(r6.addr_v6) != 16 { panic(2203); };
+            let v6s: Slice<u8> = VEC_AS_SLICE(r6.addr_v6);
+            let b0: u8 = 0;
+            SLICE_GET(b0, v6s, 0);
+            if b0 != 0x26 { panic(2204); };
+            let b15: u8 = 0;
+            SLICE_GET(b15, v6s, 15);
+            if b15 != 0x46 { panic(2205); };
+        },
+        Err(e) => {
+            panic(2206);
+        },
+    };
+    let decoded2 = dns_decode_message(fixture_mixed_response());
+    match decoded2 {
+        Ok(msg2) => {
+            let mx = dns_records_of_type(msg2, 0, SA_DNS_TYPE_MX);
+            let rm = rec_at(mx, 0);
+            if rm.preference != 10 { panic(2211); };
+            if bytes_eq(rm.target, tb(STR_PTR("mail.example.test"), STR_LEN("mail.example.test"))) != true { panic(2212); };
+        },
+        Err(e) => {
+            panic(2213);
+        },
+    };
+    let decoded3 = dns_decode_message(fixture_mixed_response());
+    match decoded3 {
+        Ok(msg3) => {
+            let txt = dns_records_of_type(msg3, 0, SA_DNS_TYPE_TXT);
+            let rt = rec_at(txt, 0);
+            if len(rt.text) != 2 { panic(2221); };
+            let tsl: Slice<Vec<u8>> = VEC_AS_SLICE(rt.text);
+            let s0: Vec<u8> = Vec::new();
+            SLICE_GET(s0, tsl, 0);
+            if bytes_eq(s0, tb(STR_PTR("v=spf1 -all"), STR_LEN("v=spf1 -all"))) != true { panic(2222); };
+            let s1: Vec<u8> = Vec::new();
+            SLICE_GET(s1, tsl, 1);
+            if bytes_eq(s1, tb(STR_PTR("hello"), STR_LEN("hello"))) != true { panic(2223); };
+        },
+        Err(e) => {
+            panic(2224);
+        },
+    };
+    let decoded4 = dns_decode_message(fixture_mixed_response());
+    match decoded4 {
+        Ok(msg4) => {
+            let ns = dns_records_of_type(msg4, 0, SA_DNS_TYPE_NS);
+            let rn = rec_at(ns, 0);
+            if bytes_eq(rn.target, tb(STR_PTR("ns1.example.test"), STR_LEN("ns1.example.test"))) != true { panic(2231); };
+        },
+        Err(e) => {
+            panic(2236);
+        },
+    };
+    let decoded5 = dns_decode_message(fixture_mixed_response());
+    match decoded5 {
+        Ok(msg5) => {
+            let srv = dns_records_of_type(msg5, 0, SA_DNS_TYPE_SRV);
+            let rs = rec_at(srv, 0);
+            if rs.priority != 10 { panic(2232); };
+            if rs.weight != 5 { panic(2233); };
+            if rs.port != 5060 { panic(2234); };
+            if bytes_eq(rs.target, tb(STR_PTR("sip.example.test"), STR_LEN("sip.example.test"))) != true { panic(2235); };
+        },
+        Err(e) => {
+            panic(2236);
+        },
+    };
+}
+
+// ---- decode: CNAME chain (pointer into another record's rdata) ----
+
+fn fixture_cname_chain() -> Vec<u8> {
+    let w: Vec<u8> = Vec::new();
+    dns_put_u16(&w, 0x4244);
+    dns_put_u16(&w, 0x8180);
+    dns_put_u16(&w, 1);
+    dns_put_u16(&w, 2);
+    dns_put_u16(&w, 0);
+    dns_put_u16(&w, 0);
+    w = put_name(w, tb(STR_PTR("alias.example.test"), STR_LEN("alias.example.test")));
+    dns_put_u16(&w, SA_DNS_TYPE_A);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    // question wire = 20 name bytes + 4; first answer at 12 + 24 = 36;
+    // its rdata (target name) starts at 36 + 2 (ptr name) + 10 = 48.
+    put_ptr(&w, 12);
+    dns_put_u16(&w, SA_DNS_TYPE_CNAME);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    dns_put_u32(&w, 300);
+    dns_put_u16(&w, 14);
+    w = put_name(w, tb(STR_PTR("example.test"), STR_LEN("example.test")));
+    put_ptr(&w, 48);
+    dns_put_u16(&w, SA_DNS_TYPE_A);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    dns_put_u32(&w, 300);
+    dns_put_u16(&w, 4);
+    w.push(93);
+    w.push(184);
+    w.push(216);
+    w.push(34);
+    return w;
+}
+
+@test "decode cname chain pointer"() {
+    let decoded = dns_decode_message(fixture_cname_chain());
+    match decoded {
+        Ok(msg) => {
+            if len(msg.answers) != 2 { panic(2301); };
+            let cn = dns_records_of_type(msg, 0, SA_DNS_TYPE_CNAME);
+            let rc = rec_at(cn, 0);
+            if bytes_eq(rc.target, tb(STR_PTR("example.test"), STR_LEN("example.test"))) != true { panic(2302); };
+        },
+        Err(e) => {
+            panic(2306);
+        },
+    };
+    let decoded2 = dns_decode_message(fixture_cname_chain());
+    match decoded2 {
+        Ok(msg2) => {
+            let slq: Slice<DnsRecord> = VEC_AS_SLICE(msg2.answers);
+            let ra = dns_empty_record();
+            SLICE_GET(ra, slq, 1);
+            if ra.record_type != SA_DNS_TYPE_A { panic(2303); };
+            if bytes_eq(ra.name, tb(STR_PTR("example.test"), STR_LEN("example.test"))) != true { panic(2304); };
+            if ra.addr_v4 != 0x5db8d822 { panic(2305); };
+        },
+        Err(e) => {
+            panic(2307);
+        },
+    };
+}
+
+// ---- decode: NXDOMAIN with SOA authority (raw fallback) ----
+
+@test "decode nxdomain soa raw"() {
+    let w: Vec<u8> = Vec::new();
+    dns_put_u16(&w, 0x4245);
+    dns_put_u16(&w, 0x8183);
+    dns_put_u16(&w, 1);
+    dns_put_u16(&w, 0);
+    dns_put_u16(&w, 1);
+    dns_put_u16(&w, 0);
+    w = put_name(w, tb(STR_PTR("missing.example.test"), STR_LEN("missing.example.test")));
+    dns_put_u16(&w, SA_DNS_TYPE_A);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    put_ptr(&w, 12);
+    dns_put_u16(&w, SA_DNS_TYPE_SOA);
+    dns_put_u16(&w, SA_DNS_CLASS_IN);
+    dns_put_u32(&w, 300);
+    // rdata: two names (18 + 25 bytes) + 20 fixed bytes = 63
+    dns_put_u16(&w, 63);
+    w = put_name(w, tb(STR_PTR("ns1.example.test"), STR_LEN("ns1.example.test")));
+    w = put_name(w, tb(STR_PTR("hostmaster.example.test"), STR_LEN("hostmaster.example.test")));
+    dns_put_u32(&w, 2024010101);
+    dns_put_u32(&w, 7200);
+    dns_put_u32(&w, 3600);
+    dns_put_u32(&w, 1209600);
+    dns_put_u32(&w, 300);
+    let decoded = dns_decode_message(w);
+    match decoded {
+        Ok(msg) => {
+            if msg.rcode != SA_DNS_RCODE_NONEXISTENT { panic(2401); };
+            if len(msg.answers) != 0 { panic(2402); };
+            if len(msg.authorities) != 1 { panic(2403); };
+            let auth = dns_records_of_type(msg, 1, SA_DNS_TYPE_SOA);
+            let ra = rec_at(auth, 0);
+            if len(ra.raw) != 63 { panic(2404); };
+        },
+        Err(e) => {
+            panic(2405);
+        },
+    };
+}
+
+// ---- decode: malformed wire data ----
+
+@test "decode rejects malformed messages"() {
+    // pointer loop: question name points at itself
+    let w1: Vec<u8> = Vec::new();
+    dns_put_u16(&w1, 0x4246);
+    dns_put_u16(&w1, 0x8180);
+    dns_put_u16(&w1, 1);
+    dns_put_u16(&w1, 0);
+    dns_put_u16(&w1, 0);
+    dns_put_u16(&w1, 0);
+    put_ptr(&w1, 12);
+    dns_put_u16(&w1, SA_DNS_TYPE_A);
+    dns_put_u16(&w1, SA_DNS_CLASS_IN);
+    let d1 = dns_decode_message(w1);
+    match d1 {
+        Ok(m) => {
+            panic(2501);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT { panic(2502); };
+        },
+    };
+    // truncated: header claims one answer, no bytes follow
+    let w2: Vec<u8> = Vec::new();
+    dns_put_u16(&w2, 0x4247);
+    dns_put_u16(&w2, 0x8180);
+    dns_put_u16(&w2, 0);
+    dns_put_u16(&w2, 1);
+    dns_put_u16(&w2, 0);
+    dns_put_u16(&w2, 0);
+    let d2 = dns_decode_message(w2);
+    match d2 {
+        Ok(m) => {
+            panic(2503);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_TRUNCATED { panic(2504); };
+        },
+    };
+    // reserved label bits (0x40)
+    let w3: Vec<u8> = Vec::new();
+    dns_put_u16(&w3, 0x4248);
+    dns_put_u16(&w3, 0x8180);
+    dns_put_u16(&w3, 1);
+    dns_put_u16(&w3, 0);
+    dns_put_u16(&w3, 0);
+    dns_put_u16(&w3, 0);
+    w3.push(0x40);
+    w3.push(97);
+    w3.push(0);
+    dns_put_u16(&w3, SA_DNS_TYPE_A);
+    dns_put_u16(&w3, SA_DNS_CLASS_IN);
+    let d3 = dns_decode_message(w3);
+    match d3 {
+        Ok(m) => {
+            panic(2505);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT { panic(2506); };
+        },
+    };
+    // short header
+    let w4: Vec<u8> = Vec::new();
+    w4.push(1);
+    w4.push(2);
+    let d4 = dns_decode_message(w4);
+    match d4 {
+        Ok(m) => {
+            panic(2507);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_TRUNCATED { panic(2508); };
+        },
+    };
+}
+
+// ---- resolv.conf parser ----
+
+@test "resolv conf server parsing"() {
+    let c1 = tb(STR_PTR("# generated\nnameserver 203.0.113.1\nnameserver 203.0.113.2\nsearch example.test\n"), STR_LEN("# generated\nnameserver 203.0.113.1\nnameserver 203.0.113.2\nsearch example.test\n"));
+    let s1: Slice<u8> = VEC_AS_SLICE(c1);
+    let r1 = dns_resolv_conf_server(&s1);
+    match r1 {
+        Ok(v) => {
+            if bytes_eq(v, tb(STR_PTR("203.0.113.1"), STR_LEN("203.0.113.1"))) != true { panic(3001); };
+        },
+        Err(e) => {
+            panic(3002);
+        },
+    };
+    let c2 = tb(STR_PTR("  nameserver\t198.51.100.7 # primary\n"), STR_LEN("  nameserver\t198.51.100.7 # primary\n"));
+    let s2: Slice<u8> = VEC_AS_SLICE(c2);
+    let r2 = dns_resolv_conf_server(&s2);
+    match r2 {
+        Ok(v2) => {
+            if bytes_eq(v2, tb(STR_PTR("198.51.100.7"), STR_LEN("198.51.100.7"))) != true { panic(3003); };
+        },
+        Err(e) => {
+            panic(3004);
+        },
+    };
+    let c3 = tb(STR_PTR("search example.test\noptions ndots:0\n"), STR_LEN("search example.test\noptions ndots:0\n"));
+    let s3: Slice<u8> = VEC_AS_SLICE(c3);
+    let r3 = dns_resolv_conf_server(&s3);
+    match r3 {
+        Ok(v3) => {
+            panic(3005);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_NOT_FOUND { panic(3006); };
+        },
+    };
+}
+
+// ---- /etc/services scanner ----
+
+fn services_fixture() -> Vec<u8> {
+    return tb(STR_PTR("# comment\nhttp 80/tcp www www-http # web\ndomain 53/tcp\ndomain 53/udp\nssh 22/tcp\n"), STR_LEN("# comment\nhttp 80/tcp www www-http # web\ndomain 53/tcp\ndomain 53/udp\nssh 22/tcp\n"));
+}
+
+fn scan(content: Vec<u8>, name: Vec<u8>, proto: Vec<u8>, port: u16, mode: u16) -> DnsServiceHit {
+    let cs: Slice<u8> = VEC_AS_SLICE(content);
+    let ns: Slice<u8> = VEC_AS_SLICE(name);
+    let ps: Slice<u8> = VEC_AS_SLICE(proto);
+    return dns_services_scan(&cs, &ns, &ps, port, mode);
+}
+
+@test "services scan by name and port"() {
+    let h1 = scan(services_fixture(), tb(STR_PTR("http"), STR_LEN("http")), tb(STR_PTR("tcp"), STR_LEN("tcp")), 0, 0);
+    if h1.status != SA_STD_OK { panic(3101); };
+    if h1.port != 80 { panic(3102); };
+    let h2 = scan(services_fixture(), tb(STR_PTR("www-http"), STR_LEN("www-http")), tb(STR_PTR("tcp"), STR_LEN("tcp")), 0, 0);
+    if h2.port != 80 { panic(3103); };
+    let h3 = scan(services_fixture(), tb(STR_PTR("domain"), STR_LEN("domain")), tb(STR_PTR("udp"), STR_LEN("udp")), 0, 0);
+    if h3.port != 53 { panic(3104); };
+    let any_proto: Vec<u8> = Vec::new();
+    let h4 = scan(services_fixture(), tb(STR_PTR("domain"), STR_LEN("domain")), any_proto, 0, 0);
+    if h4.port != 53 { panic(3105); };
+    let h5 = scan(services_fixture(), tb(STR_PTR("nosuch"), STR_LEN("nosuch")), tb(STR_PTR("tcp"), STR_LEN("tcp")), 0, 0);
+    if h5.status != SA_STD_ERR_NOT_FOUND { panic(3106); };
+    let h6 = scan(services_fixture(), tb(STR_PTR("http"), STR_LEN("http")), tb(STR_PTR("sctp"), STR_LEN("sctp")), 0, 0);
+    if h6.status != SA_STD_ERR_NOT_FOUND { panic(3107); };
+    let empty_name: Vec<u8> = Vec::new();
+    let h7 = scan(services_fixture(), empty_name, tb(STR_PTR("tcp"), STR_LEN("tcp")), 22, 1);
+    if h7.status != SA_STD_OK { panic(3108); };
+    if bytes_eq(h7.name, tb(STR_PTR("ssh"), STR_LEN("ssh"))) != true { panic(3109); };
+    let empty_name2: Vec<u8> = Vec::new();
+    let h8 = scan(services_fixture(), empty_name2, tb(STR_PTR("udp"), STR_LEN("udp")), 53, 1);
+    if bytes_eq(h8.name, tb(STR_PTR("domain"), STR_LEN("domain"))) != true { panic(3110); };
+    let empty_name3: Vec<u8> = Vec::new();
+    let any_proto2: Vec<u8> = Vec::new();
+    let h9 = scan(services_fixture(), empty_name3, any_proto2, 65000, 1);
+    if h9.status != SA_STD_ERR_NOT_FOUND { panic(3111); };
+}
+
+// ---- reverse name builder + small file read ----
+
+@test "reverse name v4"() {
+    if bytes_eq(dns_reverse_name_v4(0x5db8d822), tb(STR_PTR("34.216.184.93.in-addr.arpa"), STR_LEN("34.216.184.93.in-addr.arpa"))) != true { panic(3201); };
+    if bytes_eq(dns_reverse_name_v4(0x01010101), tb(STR_PTR("1.1.1.1.in-addr.arpa"), STR_LEN("1.1.1.1.in-addr.arpa"))) != true { panic(3202); };
+    if bytes_eq(dns_reverse_name_v4(0x0a000001), tb(STR_PTR("1.0.0.10.in-addr.arpa"), STR_LEN("1.0.0.10.in-addr.arpa"))) != true { panic(3203); };
+}
+
+@test "read small file round trip"() {
+    let path = "/tmp/dns_ax_fixture.txt";
+    let rm: i32 = sa_fs_remove_file(STR_PTR("/tmp/dns_ax_fixture.txt"), STR_LEN("/tmp/dns_ax_fixture.txt"));
+    let wst: i32 = sa_fs_write_file(STR_PTR("/tmp/dns_ax_fixture.txt"), STR_LEN("/tmp/dns_ax_fixture.txt"), STR_PTR("nameserver 192.0.2.1\n"), STR_LEN("nameserver 192.0.2.1\n"));
+    if wst != SA_STD_OK { panic(3301); };
+    let got = dns_read_small_file(STR_PTR("/tmp/dns_ax_fixture.txt"), STR_LEN("/tmp/dns_ax_fixture.txt"));
+    match got {
+        Ok(bytes) => {
+            if bytes_eq(bytes, tb(STR_PTR("nameserver 192.0.2.1\n"), STR_LEN("nameserver 192.0.2.1\n"))) != true { panic(3302); };
+        },
+        Err(e) => {
+            panic(3303);
+        },
+    };
+    let missing = dns_read_small_file(STR_PTR("/tmp/dns_ax_missing_9f3b.txt"), STR_LEN("/tmp/dns_ax_missing_9f3b.txt"));
+    match missing {
+        Ok(b) => {
+            panic(3304);
+        },
+        Err(e) => {
+            if e != SA_STD_ERR_NOT_FOUND { panic(3305); };
+        },
+    };
+    let rm2: i32 = sa_fs_remove_file(STR_PTR("/tmp/dns_ax_fixture.txt"), STR_LEN("/tmp/dns_ax_fixture.txt"));
+}

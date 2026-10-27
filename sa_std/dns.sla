@@ -1,0 +1,1076 @@
+// sa_std/dns.sla -- DNS record-type queries for SLA: the RFC 1035
+// wire codec (header / question / resource records, including name
+// compression pointers) plus a synchronous UDP query client and the
+// small resolver-adjacent lookups (default server from resolv.conf,
+// service name <-> port from /etc/services).
+//
+// Why this file exists: until now sa_std name resolution was only
+// the address-list form (sa_std_net_to_socket_addr_list, A/AAAA) and
+// one reverse lookup (sa_std_net_addr_reverse_lookup, PTR). There
+// was no way to ask a DNS server a typed question -- no MX, SRV,
+// TXT, NS or CNAME answers, no TTLs, no rcode. The cross-language
+// std censuses recorded in sala (06_stdlib census pages for Go,
+// Android, .NET, Python, iOS) all list record-type DNS queries as a
+// first-rank gap; this file closes the portable core of it.
+//
+// Model choices (sa_std house style):
+//   - Errors are i32 status codes (SA_STD_* from status.sla); a
+//     completed query returns its message even for NXDOMAIN etc. --
+//     the rcode is data (DnsMessage.rcode), not an error. Only
+//     local misuse, malformed wire data and transport failures are
+//     Err(status).
+//   - Names are presentation-form byte strings (Vec<u8>: labels
+//     joined with '.', no trailing dot, root = empty). DNS labels
+//     are arbitrary octets, so bytes are the lossless form; a label
+//     byte equal to '.' or '\' is copied through unescaped. Convert
+//     to String at the call site if the name is known text.
+//   - Byte-string arguments are taken by value (consumed), the
+//     usual SLA ownership rule for Vec inputs.
+//   - Record payloads are structured per type: A -> addr_v4 (host
+//     order u32, first octet in the top byte), AAAA -> addr_v6 (16
+//     raw bytes, network order), CNAME/NS/PTR -> target, MX ->
+//     preference + target, SRV -> priority/weight/port + target,
+//     TXT -> text (one Vec<u8> per character-string). Any other
+//     type's rdata is copied verbatim into raw.
+//   - Reading records out of a message: destructure the owned
+//     DnsMessage, turn a section Vec into a Slice
+//     (VEC_AS_SLICE) and SLICE_GET elements out of it, or use
+//     dns_records_of_type which filters while consuming a message.
+//
+// Client behaviour:
+//   - dns_query sends one UDP datagram from an ephemeral port and
+//     waits up to 5 s for the matching response (id + QR checked;
+//     unrelated datagrams are ignored while the wait lasts).
+//   - A truncated (TC) response is returned as-is with
+//     DnsMessage.truncation set; there is no TCP fallback in this
+//     surface yet.
+//   - dns_query_system resolves the server from /etc/resolv.conf
+//     (first nameserver). DoH / DoT are NOT implemented here -- they
+//     belong with the TLS configuration surface.
+//
+// getservbyname/getservbyport equivalents (net_service_* below) read
+// /etc/services at call time, the getservbyname semantics; there is
+// no built-in table, so a missing file is an explicit SA_STD error,
+// never a silent empty result.
+
+@import "sa_std/net.sai"
+@import "sa_std/fs.sai"
+@import "sa_std/time.sai"
+@import "sa_std/string.sa"
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+@import "sa_std/ptr.sa"
+@import "sa_std/status.sla"
+
+// Well-known DNS constants (RFC 1035 sections 3.2/4.1, RFC 3596).
+const SA_DNS_PORT: u16 = 53;
+const SA_DNS_CLASS_IN: u16 = 1;
+const SA_DNS_TYPE_A: u16 = 1;
+const SA_DNS_TYPE_NS: u16 = 2;
+const SA_DNS_TYPE_CNAME: u16 = 5;
+const SA_DNS_TYPE_SOA: u16 = 6;
+const SA_DNS_TYPE_PTR: u16 = 12;
+const SA_DNS_TYPE_MX: u16 = 15;
+const SA_DNS_TYPE_TXT: u16 = 16;
+const SA_DNS_TYPE_AAAA: u16 = 28;
+const SA_DNS_TYPE_SRV: u16 = 33;
+const SA_DNS_OPCODE_QUERY: u16 = 0;
+const SA_DNS_RCODE_NO_ERROR: u16 = 0;
+const SA_DNS_RCODE_FORMAT_ERROR: u16 = 1;
+const SA_DNS_RCODE_SERVER_FAILURE: u16 = 2;
+const SA_DNS_RCODE_NONEXISTENT: u16 = 3;
+const SA_DNS_RCODE_NOT_IMPLEMENTED: u16 = 4;
+const SA_DNS_RCODE_REFUSED: u16 = 5;
+
+struct DnsQuestion {
+    name: Vec<u8>,
+    qtype: u16,
+    qclass: u16,
+}
+
+struct DnsRecord {
+    name: Vec<u8>,
+    record_type: u16,
+    record_class: u16,
+    ttl: u32,
+    addr_v4: u32,
+    addr_v6: Vec<u8>,
+    target: Vec<u8>,
+    preference: u16,
+    priority: u16,
+    weight: u16,
+    port: u16,
+    text: Vec<Vec<u8>>,
+    raw: Vec<u8>,
+}
+
+struct DnsMessage {
+    id: u16,
+    rcode: u16,
+    opcode: u16,
+    is_response: bool,
+    authoritative_answer: bool,
+    truncation: bool,
+    recursion_desired: bool,
+    recursion_available: bool,
+    questions: Vec<DnsQuestion>,
+    answers: Vec<DnsRecord>,
+    authorities: Vec<DnsRecord>,
+    additionals: Vec<DnsRecord>,
+}
+
+fn dns_empty_record() -> DnsRecord {
+    let name: Vec<u8> = Vec::new();
+    let v6: Vec<u8> = Vec::new();
+    let target: Vec<u8> = Vec::new();
+    let text: Vec<Vec<u8>> = Vec::new();
+    let raw: Vec<u8> = Vec::new();
+    return DnsRecord {
+        name: name,
+        record_type: 0,
+        record_class: 0,
+        ttl: 0,
+        addr_v4: 0,
+        addr_v6: v6,
+        target: target,
+        preference: 0,
+        priority: 0,
+        weight: 0,
+        port: 0,
+        text: text,
+        raw: raw,
+    };
+}
+
+fn dns_empty_message() -> DnsMessage {
+    let q: Vec<DnsQuestion> = Vec::new();
+    let a: Vec<DnsRecord> = Vec::new();
+    let au: Vec<DnsRecord> = Vec::new();
+    let ad: Vec<DnsRecord> = Vec::new();
+    return DnsMessage {
+        id: 0,
+        rcode: 0,
+        opcode: 0,
+        is_response: false,
+        authoritative_answer: false,
+        truncation: false,
+        recursion_desired: false,
+        recursion_available: false,
+        questions: q,
+        answers: a,
+        authorities: au,
+        additionals: ad,
+    };
+}
+
+// ---- big-endian scalar IO over byte slices / vecs ----
+
+fn dns_slice_len(sl: &Slice<u8>) -> u64 {
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    return n;
+}
+
+fn dns_get_u8(sl: &Slice<u8>, off: u64) -> u8 {
+    let b: u8 = 0;
+    SLICE_GET(b, sl, off);
+    return b;
+}
+
+fn dns_get_u16(sl: &Slice<u8>, off: u64) -> u16 {
+    let hi: u8 = dns_get_u8(sl, off);
+    let lo: u8 = dns_get_u8(sl, off + 1);
+    return ((hi as u16) << 8) | (lo as u16);
+}
+
+fn dns_get_u32(sl: &Slice<u8>, off: u64) -> u32 {
+    let a: u8 = dns_get_u8(sl, off);
+    let b: u8 = dns_get_u8(sl, off + 1);
+    let c: u8 = dns_get_u8(sl, off + 2);
+    let d: u8 = dns_get_u8(sl, off + 3);
+    return ((a as u32) << 24) | ((b as u32) << 16) | ((c as u32) << 8) | (d as u32);
+}
+
+fn dns_put_u16(out: &Vec<u8>, v: u16) {
+    out.push(((v >> 8) & 0xff) as u8);
+    out.push((v & 0xff) as u8);
+}
+
+fn dns_put_u32(out: &Vec<u8>, v: u32) {
+    out.push(((v >> 24) & 0xff) as u8);
+    out.push(((v >> 16) & 0xff) as u8);
+    out.push(((v >> 8) & 0xff) as u8);
+    out.push((v & 0xff) as u8);
+}
+
+fn dns_put_bytes(out: Vec<u8>, sl: &Slice<u8>, start: u64, count: u64) -> Vec<u8> {
+    let i: u64 = 0;
+    while i < count {
+        let b: u8 = dns_get_u8(sl, start + i);
+        out.push(b);
+        i = i + 1;
+    }
+    return out;
+}
+
+// ---- name codec ----
+
+// Encode a presentation-form name into wire labels.
+// Err(SA_STD_ERR_INVALID_ARGUMENT) for a label over 63 bytes, an
+// empty label (leading/trailing/doubled dot), or a wire form over
+// 255 bytes.
+fn dns_encode_name(name: &Slice<u8>) -> Result<Vec<u8>, i32> {
+    let out: Vec<u8> = Vec::new();
+    let total: u64 = dns_slice_len(name);
+    if total == 0 {
+        out.push(0);
+        return Ok(out);
+    };
+    let wire_len: u64 = total + 2;
+    if wire_len > 255 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let label_start: u64 = 0;
+    let i: u64 = 0;
+    while i <= total {
+        let at_end: bool = i == total;
+        let at_dot: bool = false;
+        if at_end != true {
+            let b: u8 = dns_get_u8(name, i);
+            if b == 46 {
+                at_dot = true;
+            };
+        };
+        if at_end || at_dot {
+            let label_len: u64 = i - label_start;
+            if label_len == 0 || label_len > 63 {
+                return Err(SA_STD_ERR_INVALID_ARGUMENT);
+            };
+            out.push(label_len as u8);
+            out = dns_put_bytes(out, name, label_start, label_len);
+            label_start = i + 1;
+        };
+        i = i + 1;
+    }
+    out.push(0);
+    return Ok(out);
+}
+
+struct DnsNameRead {
+    name: Vec<u8>,
+    next: u64,
+    status: i32,
+}
+
+// Decode the wire name at `start` (compression pointers followed).
+// `next` is the offset just past the name at its original location
+// (past the first pointer, if one was taken). Presentation form:
+// labels joined with '.', root decodes to an empty Vec.
+fn dns_read_name(sl: &Slice<u8>, start: u64) -> DnsNameRead {
+    let name: Vec<u8> = Vec::new();
+    let msg_len: u64 = dns_slice_len(sl);
+    let cursor: u64 = start;
+    let next: u64 = 0;
+    let jumped: bool = false;
+    let jumps: u64 = 0;
+    let wrote_any: bool = false;
+    while true {
+        if cursor >= msg_len {
+            return DnsNameRead { name: name, next: next, status: SA_STD_ERR_TRUNCATED };
+        };
+        let tag: u8 = dns_get_u8(sl, cursor);
+        if tag == 0 {
+            if jumped != true {
+                next = cursor + 1;
+            };
+            return DnsNameRead { name: name, next: next, status: SA_STD_OK };
+        };
+        if (tag & 0xc0) == 0xc0 {
+            if cursor + 1 >= msg_len {
+                return DnsNameRead { name: name, next: next, status: SA_STD_ERR_TRUNCATED };
+            };
+            let lo: u8 = dns_get_u8(sl, cursor + 1);
+            let target: u64 = (((tag & 0x3f) as u64) << 8) | (lo as u64);
+            if jumped != true {
+                next = cursor + 2;
+                jumped = true;
+            };
+            jumps = jumps + 1;
+            if jumps > 128 {
+                return DnsNameRead { name: name, next: next, status: SA_STD_ERR_INVALID_ARGUMENT };
+            };
+            cursor = target;
+        } else {
+            if (tag & 0xc0) != 0 {
+                return DnsNameRead { name: name, next: next, status: SA_STD_ERR_INVALID_ARGUMENT };
+            };
+            let label_len: u64 = tag as u64;
+            if cursor + 1 + label_len > msg_len {
+                return DnsNameRead { name: name, next: next, status: SA_STD_ERR_TRUNCATED };
+            };
+            if len(name) + label_len + 1 > 255 {
+                return DnsNameRead { name: name, next: next, status: SA_STD_ERR_INVALID_ARGUMENT };
+            };
+            if wrote_any {
+                name.push(46);
+            };
+            name = dns_put_bytes(name, sl, cursor + 1, label_len);
+            wrote_any = true;
+            cursor = cursor + 1 + label_len;
+        };
+    }
+    return DnsNameRead { name: name, next: next, status: SA_STD_ERR_INVALID_ARGUMENT };
+}
+
+// ---- record / message decode ----
+
+struct DnsRecordRead {
+    record: DnsRecord,
+    next: u64,
+    status: i32,
+}
+
+fn dns_read_record(sl: &Slice<u8>, start: u64) -> DnsRecordRead {
+    let bad = DnsRecordRead { record: dns_empty_record(), next: start, status: SA_STD_OK };
+    let msg_len: u64 = dns_slice_len(sl);
+    let nr = dns_read_name(sl, start);
+    if nr.status != SA_STD_OK {
+        bad.status = nr.status;
+        return bad;
+    };
+    let off: u64 = nr.next;
+    if off + 10 > msg_len {
+        bad.status = SA_STD_ERR_TRUNCATED;
+        return bad;
+    };
+    let rtype: u16 = dns_get_u16(sl, off);
+    let rclass: u16 = dns_get_u16(sl, off + 2);
+    let ttl: u32 = dns_get_u32(sl, off + 4);
+    let rdlen: u64 = dns_get_u16(sl, off + 8) as u64;
+    let rdata: u64 = off + 10;
+    if rdata + rdlen > msg_len {
+        bad.status = SA_STD_ERR_TRUNCATED;
+        return bad;
+    };
+    let rec = dns_empty_record();
+    rec.name = nr.name;
+    rec.record_type = rtype;
+    rec.record_class = rclass;
+    rec.ttl = ttl;
+    if rtype == SA_DNS_TYPE_A {
+        if rdlen == 4 {
+            rec.addr_v4 = dns_get_u32(sl, rdata);
+        } else {
+            rec.raw = dns_put_bytes(rec.raw, sl, rdata, rdlen);
+        };
+    } else {
+        if rtype == SA_DNS_TYPE_AAAA {
+            if rdlen == 16 {
+                rec.addr_v6 = dns_put_bytes(rec.addr_v6, sl, rdata, rdlen);
+            } else {
+                rec.raw = dns_put_bytes(rec.raw, sl, rdata, rdlen);
+            };
+        } else {
+            if rtype == SA_DNS_TYPE_CNAME || rtype == SA_DNS_TYPE_NS || rtype == SA_DNS_TYPE_PTR {
+                let tr = dns_read_name(sl, rdata);
+                if tr.status != SA_STD_OK {
+                    bad.status = tr.status;
+                    return bad;
+                };
+                rec.target = tr.name;
+            } else {
+                if rtype == SA_DNS_TYPE_MX {
+                    if rdlen < 3 {
+                        bad.status = SA_STD_ERR_INVALID_ARGUMENT;
+                        return bad;
+                    };
+                    rec.preference = dns_get_u16(sl, rdata);
+                    let tr2 = dns_read_name(sl, rdata + 2);
+                    if tr2.status != SA_STD_OK {
+                        bad.status = tr2.status;
+                        return bad;
+                    };
+                    rec.target = tr2.name;
+                } else {
+                    if rtype == SA_DNS_TYPE_SRV {
+                        if rdlen < 7 {
+                            bad.status = SA_STD_ERR_INVALID_ARGUMENT;
+                            return bad;
+                        };
+                        rec.priority = dns_get_u16(sl, rdata);
+                        rec.weight = dns_get_u16(sl, rdata + 2);
+                        rec.port = dns_get_u16(sl, rdata + 4);
+                        let tr3 = dns_read_name(sl, rdata + 6);
+                        if tr3.status != SA_STD_OK {
+                            bad.status = tr3.status;
+                            return bad;
+                        };
+                        rec.target = tr3.name;
+                    } else {
+                        if rtype == SA_DNS_TYPE_TXT {
+                            let p: u64 = 0;
+                            while p < rdlen {
+                                let slen: u64 = dns_get_u8(sl, rdata + p) as u64;
+                                if p + 1 + slen > rdlen {
+                                    bad.status = SA_STD_ERR_INVALID_ARGUMENT;
+                                    return bad;
+                                };
+                                let part: Vec<u8> = Vec::new();
+                                part = dns_put_bytes(part, sl, rdata + p + 1, slen);
+                                rec.text.push(part);
+                                p = p + 1 + slen;
+                            }
+                        } else {
+                            rec.raw = dns_put_bytes(rec.raw, sl, rdata, rdlen);
+                        };
+                    };
+                };
+            };
+        };
+    };
+    return DnsRecordRead { record: rec, next: rdata + rdlen, status: SA_STD_OK };
+}
+
+struct DnsRecordsRead {
+    records: Vec<DnsRecord>,
+    next: u64,
+    status: i32,
+}
+
+fn dns_read_records(sl: &Slice<u8>, start: u64, count: u16) -> DnsRecordsRead {
+    let out: Vec<DnsRecord> = Vec::new();
+    let off: u64 = start;
+    let i: u16 = 0;
+    while i < count {
+        let rr = dns_read_record(sl, off);
+        if rr.status != SA_STD_OK {
+            return DnsRecordsRead { records: out, next: off, status: rr.status };
+        };
+        off = rr.next;
+        out.push(rr.record);
+        i = i + 1;
+    }
+    return DnsRecordsRead { records: out, next: off, status: SA_STD_OK };
+}
+
+// Decode a complete wire message. The byte Vec is consumed. Any
+// structural violation (truncation, bad label, pointer loop) is an
+// Err with the status the reader hit.
+fn dns_decode_message(bytes: Vec<u8>) -> Result<DnsMessage, i32> {
+    let sl: Slice<u8> = VEC_AS_SLICE(bytes);
+    if dns_slice_len(&sl) < 12 {
+        return Err(SA_STD_ERR_TRUNCATED);
+    };
+    let msg = dns_empty_message();
+    msg.id = dns_get_u16(&sl, 0);
+    let flags: u16 = dns_get_u16(&sl, 2);
+    msg.is_response = (flags & 0x8000) != 0;
+    msg.opcode = (flags >> 11) & 0x000f;
+    msg.authoritative_answer = (flags & 0x0400) != 0;
+    msg.truncation = (flags & 0x0200) != 0;
+    msg.recursion_desired = (flags & 0x0100) != 0;
+    msg.recursion_available = (flags & 0x0080) != 0;
+    msg.rcode = flags & 0x000f;
+    let qd: u16 = dns_get_u16(&sl, 4);
+    let an: u16 = dns_get_u16(&sl, 6);
+    let ns: u16 = dns_get_u16(&sl, 8);
+    let ar: u16 = dns_get_u16(&sl, 10);
+    let off: u64 = 12;
+    let qi: u16 = 0;
+    while qi < qd {
+        let nr = dns_read_name(&sl, off);
+        if nr.status != SA_STD_OK {
+            return Err(nr.status);
+        };
+        off = nr.next;
+        if off + 4 > dns_slice_len(&sl) {
+            return Err(SA_STD_ERR_TRUNCATED);
+        };
+        let q = DnsQuestion { name: nr.name, qtype: dns_get_u16(&sl, off), qclass: dns_get_u16(&sl, off + 2) };
+        off = off + 4;
+        msg.questions.push(q);
+        qi = qi + 1;
+    }
+    let r1 = dns_read_records(&sl, off, an);
+    if r1.status != SA_STD_OK {
+        return Err(r1.status);
+    };
+    msg.answers = r1.records;
+    off = r1.next;
+    let r2 = dns_read_records(&sl, off, ns);
+    if r2.status != SA_STD_OK {
+        return Err(r2.status);
+    };
+    msg.authorities = r2.records;
+    off = r2.next;
+    let r3 = dns_read_records(&sl, off, ar);
+    if r3.status != SA_STD_OK {
+        return Err(r3.status);
+    };
+    msg.additionals = r3.records;
+    return Ok(msg);
+}
+
+// ---- query construction ----
+
+// Build a one-question query message. Name and RD follow the model
+// notes at the top of this file.
+fn dns_build_query(id: u16, name: Vec<u8>, qtype: u16, qclass: u16, recursion_desired: bool) -> Result<Vec<u8>, i32> {
+    let out: Vec<u8> = Vec::new();
+    dns_put_u16(&out, id);
+    let flags: u16 = 0;
+    if recursion_desired {
+        flags = 0x0100;
+    };
+    dns_put_u16(&out, flags);
+    dns_put_u16(&out, 1);
+    dns_put_u16(&out, 0);
+    dns_put_u16(&out, 0);
+    dns_put_u16(&out, 0);
+    let name_slice: Slice<u8> = VEC_AS_SLICE(name);
+    match dns_encode_name(&name_slice) {
+        Ok(enc) => {
+            let enc_slice: Slice<u8> = VEC_AS_SLICE(enc);
+            let enc_len: u64 = dns_slice_len(&enc_slice);
+            out = dns_put_bytes(out, &enc_slice, 0, enc_len);
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    dns_put_u16(&out, qtype);
+    dns_put_u16(&out, qclass);
+    return Ok(out);
+}
+
+// Filter one message section by record type, consuming the message.
+// which: 0 = answers, 1 = authorities, 2 = additionals.
+fn dns_records_of_type(msg: DnsMessage, which: u16, record_type: u16) -> Vec<DnsRecord> {
+    let src: Vec<DnsRecord> = Vec::new();
+    if which == 0 {
+        src = msg.answers;
+    } else {
+        if which == 1 {
+            src = msg.authorities;
+        } else {
+            src = msg.additionals;
+        };
+    };
+    let out: Vec<DnsRecord> = Vec::new();
+    let sl: Slice<DnsRecord> = VEC_AS_SLICE(src);
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    let i: u64 = 0;
+    while i < n {
+        let rec = dns_empty_record();
+        SLICE_GET(rec, sl, i);
+        if rec.record_type == record_type {
+            out.push(rec);
+        };
+        i = i + 1;
+    }
+    return out;
+}
+
+// ---- synchronous UDP query client ----
+
+fn dns_next_query_id() -> u16 {
+    let ns: u64 = sa_time_instant_ns();
+    return ((ns >> 16) & 0xffff) as u16;
+}
+
+
+// Resolve a server host byte-string to its first socket address
+// handle through the address-list resolution surface. The host
+// bytes are staged through a stack array for the extern call.
+fn dns_resolve_first(server: Vec<u8>, server_port: u16) -> Result<u64, i32> {
+    let arr: [u8; 512] = [0u8; 512];
+    let n: u64 = len(server) as u64;
+    let sl: Slice<u8> = VEC_AS_SLICE(server);
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = 0;
+        SLICE_GET(b, sl, i);
+        arr[i] = b;
+        i = i + 1;
+    }
+    let p: ptr = PTR_BYTE_ADD(&arr, 0);
+    let addr: u64 = 0;
+    let st: i32 = sa_std_net_to_socket_addr_first(p, n, server_port as u32, &addr);
+    if st != SA_STD_OK {
+        return Err(st);
+    };
+    return Ok(addr);
+}
+
+// Send a built wire message on a connected UDP socket. The bytes
+// are staged through a stack array for the extern call.
+fn dns_send_wire(sock: u64, wire: Vec<u8>) -> i32 {
+    let arr: [u8; 512] = [0u8; 512];
+    let n: u64 = len(wire) as u64;
+    let sl: Slice<u8> = VEC_AS_SLICE(wire);
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = 0;
+        SLICE_GET(b, sl, i);
+        arr[i] = b;
+        i = i + 1;
+    }
+    let p: ptr = PTR_BYTE_ADD(&arr, 0);
+    let written: u64 = 0;
+    return sa_std_net_udp_send(sock, p, n, &written);
+}
+
+// Send one query to an explicit server and decode the response.
+// The server is a byte-string host (IP literal or a name the net
+// runtime resolves). Transport failures propagate the net extern's
+// own SA_STD status.
+//
+// Transport shape: the server is resolved ONCE through
+// sa_std_net_to_socket_addr_first (the same resolution surface as
+// the pre-existing address-list resolver) and the UDP socket is
+// CONNECTED to that address; the per-send string form
+// (sa_std_net_udp_send_to) is deliberately not used -- its per-call
+// name resolution rejects literal servers in environments where the
+// address-list resolver accepts them. A connected socket also makes
+// the kernel filter out datagrams from other peers; datagrams from
+// the server with a mismatched id or without the QR bit are ignored
+// while the wait lasts (8 receives at most, 5 s read timeout).
+// Buffers handed to the net externs are staged through stack arrays.
+fn dns_query(server: Vec<u8>, server_port: u16, name: Vec<u8>, qtype: u16, qclass: u16) -> Result<DnsMessage, i32> {
+    let id: u16 = dns_next_query_id();
+    let built = dns_build_query(id, name, qtype, qclass, true);
+    let wire: Vec<u8> = Vec::new();
+    match built {
+        Ok(w) => {
+            wire = w;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    if len(wire) > 512 || len(server) > 512 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let addr: u64 = 0;
+    match dns_resolve_first(server, server_port) {
+        Ok(a) => {
+            addr = a;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    let sock: u64 = 0;
+    let bind_st: i32 = sa_std_net_udp_bind(STR_PTR("0.0.0.0"), STR_LEN("0.0.0.0"), 0, &sock);
+    if bind_st != SA_STD_OK {
+        let f0: i32 = sa_net_addr_free(addr);
+        return Err(bind_st);
+    };
+    let conn_st: i32 = sa_std_net_udp_connect_addr(sock, addr);
+    let f1: i32 = sa_net_addr_free(addr);
+    if conn_st != SA_STD_OK {
+        let c1: i32 = sa_net_udp_close(sock);
+        return Err(conn_st);
+    };
+    let to_st: i32 = sa_std_net_udp_set_read_timeout(sock, 5000000000);
+    if to_st != SA_STD_OK {
+        let c2: i32 = sa_net_udp_close(sock);
+        return Err(to_st);
+    };
+    let send_st: i32 = dns_send_wire(sock, wire);
+    if send_st != SA_STD_OK {
+        let c3: i32 = sa_net_udp_close(sock);
+        return Err(send_st);
+    };
+    let result: Result<DnsMessage, i32> = Err(SA_STD_ERR_NET);
+    let attempts: u64 = 0;
+    while attempts < 8 {
+        let buf: [u8; 4096] = [0u8; 4096];
+        let buf_ptr: ptr = PTR_BYTE_ADD(&buf, 0);
+        let got: u64 = 0;
+        let recv_st: i32 = sa_std_net_udp_recv(sock, buf_ptr, 4096, &got);
+        if recv_st != SA_STD_OK {
+            result = Err(recv_st);
+            attempts = 8;
+        } else {
+            let resp: Vec<u8> = Vec::new();
+            let i: u64 = 0;
+            while i < got {
+                resp.push(buf[i]);
+                i = i + 1;
+            }
+            let decoded = dns_decode_message(resp);
+            match decoded {
+                Ok(m) => {
+                    if m.id == id && m.is_response {
+                        result = Ok(m);
+                        attempts = 8;
+                    };
+                },
+                Err(e) => {
+                    result = Err(e);
+                    attempts = 8;
+                },
+            };
+        };
+        attempts = attempts + 1;
+    }
+    let c4: i32 = sa_net_udp_close(sock);
+    return result;
+}
+
+// Query using the first nameserver from /etc/resolv.conf, port 53,
+// class IN.
+fn dns_query_system(name: Vec<u8>, qtype: u16) -> Result<DnsMessage, i32> {
+    let srv = dns_system_server();
+    match srv {
+        Ok(server) => {
+            return dns_query(server, SA_DNS_PORT, name, qtype, SA_DNS_CLASS_IN);
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+}
+
+// ---- resolv.conf ----
+
+fn dns_is_space(b: u8) -> bool {
+    return b == 32 || b == 9 || b == 13 || b == 10;
+}
+
+// Pure parser: first nameserver entry of resolv.conf content.
+// Returns the server text (SA_STD_ERR_NOT_FOUND when there is no
+// nameserver line).
+fn dns_resolv_conf_server(content: &Slice<u8>) -> Result<Vec<u8>, i32> {
+    let n: u64 = dns_slice_len(content);
+    let i: u64 = 0;
+    while i < n {
+        // isolate one line [i, line_end)
+        let line_end: u64 = i;
+        while line_end < n {
+            let b: u8 = dns_get_u8(content, line_end);
+            if b == 10 {
+                break;
+            };
+            line_end = line_end + 1;
+        }
+        // skip leading spaces, then read the first token
+        let p: u64 = i;
+        while p < line_end {
+            let b2: u8 = dns_get_u8(content, p);
+            if dns_is_space(b2) != true {
+                break;
+            };
+            p = p + 1;
+        }
+        let tok_end: u64 = p;
+        while tok_end < line_end {
+            let b3: u8 = dns_get_u8(content, tok_end);
+            if dns_is_space(b3) {
+                break;
+            };
+            tok_end = tok_end + 1;
+        }
+        // token == "nameserver" (10 bytes)?
+        if tok_end - p == 10 {
+            let kw: u64 = 0;
+            let matched: bool = true;
+            let expect: [u8; 10] = [110, 97, 109, 101, 115, 101, 114, 118, 101, 114];
+            while kw < 10 {
+                if dns_get_u8(content, p + kw) != expect[kw] {
+                    matched = false;
+                };
+                kw = kw + 1;
+            }
+            if matched {
+                // value token after the keyword
+                let v: u64 = tok_end;
+                while v < line_end {
+                    let b4: u8 = dns_get_u8(content, v);
+                    if dns_is_space(b4) != true {
+                        break;
+                    };
+                    v = v + 1;
+                }
+                let v_end: u64 = v;
+                while v_end < line_end {
+                    let b5: u8 = dns_get_u8(content, v_end);
+                    if dns_is_space(b5) || b5 == 35 || b5 == 59 {
+                        break;
+                    };
+                    v_end = v_end + 1;
+                }
+                if v_end > v {
+                    let out: Vec<u8> = Vec::new();
+                    out = dns_put_bytes(out, content, v, v_end - v);
+                    return Ok(out);
+                };
+            };
+        };
+        i = line_end + 1;
+    }
+    return Err(SA_STD_ERR_NOT_FOUND);
+}
+
+// Read /etc/resolv.conf and return its first nameserver.
+fn dns_system_server() -> Result<Vec<u8>, i32> {
+    let content = dns_read_small_file(STR_PTR("/etc/resolv.conf"), STR_LEN("/etc/resolv.conf"));
+    match content {
+        Ok(bytes) => {
+            let sl: Slice<u8> = VEC_AS_SLICE(bytes);
+            return dns_resolv_conf_server(&sl);
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+}
+
+// Read a whole small file (<= 1 MiB) into a Vec<u8> through the fs
+// buffer surface. Shared by resolv.conf and /etc/services.
+fn dns_read_small_file(path: ptr, path_len: u64) -> Result<Vec<u8>, i32> {
+    let handle: u64 = 0;
+    let st: i32 = sa_std_fs_read_file(path, path_len, 1048576, &handle);
+    if st != SA_STD_OK {
+        return Err(st);
+    };
+    let data: ptr = sa_fs_read_buffer_data(handle);
+    let total: u64 = sa_fs_read_buffer_len(handle);
+    let out: Vec<u8> = Vec::new();
+    let chunk: [u8; 2048] = [0u8; 2048];
+    let off: u64 = 0;
+    while off < total {
+        let n: u64 = total - off;
+        if n > 2048 {
+            n = 2048;
+        };
+        let src: ptr = PTR_BYTE_ADD(data, off);
+        let dst: ptr = PTR_BYTE_ADD(&chunk, 0);
+        PTR_COPY_BYTES(dst, src, n);
+        let i: u64 = 0;
+        while i < n {
+            out.push(chunk[i]);
+            i = i + 1;
+        }
+        off = off + n;
+    }
+    let f_st: i32 = sa_fs_read_buffer_free(handle);
+    return Ok(out);
+}
+
+// ---- /etc/services: getservbyname / getservbyport equivalents ----
+
+fn dns_token_eq(content: &Slice<u8>, start: u64, tok_len: u64, want: &Slice<u8>) -> bool {
+    if tok_len != dns_slice_len(want) {
+        return false;
+    };
+    let i: u64 = 0;
+    while i < tok_len {
+        if dns_get_u8(content, start + i) != dns_get_u8(want, i) {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+fn dns_parse_port(content: &Slice<u8>, start: u64, tok_len: u64) -> u64 {
+    let v: u64 = 0;
+    let i: u64 = 0;
+    while i < tok_len {
+        let b: u8 = dns_get_u8(content, start + i);
+        if b < 48 || b > 57 {
+            return 65536;
+        };
+        v = v * 10 + (b - 48) as u64;
+        i = i + 1;
+    }
+    return v;
+}
+
+// Scan services-file content. Mode 0: find port for (name, proto);
+// mode 1: find official name for (port, proto). proto may be empty
+// (any protocol). Results ride in DnsServiceHit.
+struct DnsServiceHit {
+    port: u16,
+    name: Vec<u8>,
+    status: i32,
+}
+
+fn dns_services_scan(content: &Slice<u8>, name: &Slice<u8>, proto: &Slice<u8>, port: u16, mode: u16) -> DnsServiceHit {
+    let miss_name: Vec<u8> = Vec::new();
+    let miss = DnsServiceHit { port: 0, name: miss_name, status: SA_STD_ERR_NOT_FOUND };
+    let n: u64 = dns_slice_len(content);
+    let i: u64 = 0;
+    while i < n {
+        let line_end: u64 = i;
+        while line_end < n {
+            let b: u8 = dns_get_u8(content, line_end);
+            if b == 10 {
+                break;
+            };
+            line_end = line_end + 1;
+        }
+        // tokens of this line: collect up to 16 (start,len) pairs in
+        // fixed arrays; '#' starts a comment.
+        let starts: [u64; 16] = [0u64; 16];
+        let lens: [u64; 16] = [0u64; 16];
+        let ntok: u64 = 0;
+        let p: u64 = i;
+        while p < line_end {
+            let c: u8 = dns_get_u8(content, p);
+            if c == 35 {
+                p = line_end;
+            } else {
+                if dns_is_space(c) {
+                    p = p + 1;
+                } else {
+                    let ts: u64 = p;
+                    while p < line_end {
+                        let c2: u8 = dns_get_u8(content, p);
+                        if dns_is_space(c2) || c2 == 35 {
+                            break;
+                        };
+                        p = p + 1;
+                    }
+                    if ntok < 16 {
+                        starts[ntok] = ts;
+                        lens[ntok] = p - ts;
+                        ntok = ntok + 1;
+                    };
+                };
+            };
+        }
+        if ntok >= 2 {
+            // token 1 is port/proto; split at '/'
+            let pp_start: u64 = starts[1];
+            let pp_len: u64 = lens[1];
+            let slash: u64 = pp_len;
+            let k: u64 = 0;
+            while k < pp_len {
+                if dns_get_u8(content, pp_start + k) == 47 {
+                    slash = k;
+                    break;
+                };
+                k = k + 1;
+            }
+            if slash < pp_len {
+                let entry_port: u64 = dns_parse_port(content, pp_start, slash);
+                if entry_port <= 65535 {
+                    let proto_ok: bool = dns_slice_len(proto) == 0;
+                    if proto_ok != true {
+                        let pstart: u64 = pp_start + slash + 1;
+                        let plen: u64 = pp_len - slash - 1;
+                        proto_ok = dns_token_eq(content, pstart, plen, proto);
+                    };
+                    if proto_ok {
+                        if mode == 1 {
+                            if entry_port == (port as u64) {
+                                let nm: Vec<u8> = Vec::new();
+                                nm = dns_put_bytes(nm, content, starts[0], lens[0]);
+                                return DnsServiceHit { port: port, name: nm, status: SA_STD_OK };
+                            };
+                        } else {
+                            // mode 0: official name or any alias matches
+                            let t: u64 = 0;
+                            let hit: bool = false;
+                            while t < ntok {
+                                if t != 1 {
+                                    if dns_token_eq(content, starts[t], lens[t], name) {
+                                        hit = true;
+                                    };
+                                };
+                                t = t + 1;
+                            }
+                            if hit {
+                                let nm2: Vec<u8> = Vec::new();
+                                return DnsServiceHit { port: entry_port as u16, name: nm2, status: SA_STD_OK };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        i = line_end + 1;
+    }
+    return miss;
+}
+
+// getservbyname equivalent: port for a service name (optionally for
+// one protocol; pass an empty proto Vec for any). Reads /etc/services.
+fn net_service_port_by_name(name: Vec<u8>, proto: Vec<u8>) -> Result<u16, i32> {
+    let content = dns_read_small_file(STR_PTR("/etc/services"), STR_LEN("/etc/services"));
+    match content {
+        Ok(bytes) => {
+            let sl: Slice<u8> = VEC_AS_SLICE(bytes);
+            let name_sl: Slice<u8> = VEC_AS_SLICE(name);
+            let proto_sl: Slice<u8> = VEC_AS_SLICE(proto);
+            let hit = dns_services_scan(&sl, &name_sl, &proto_sl, 0, 0);
+            if hit.status != SA_STD_OK {
+                return Err(hit.status);
+            };
+            return Ok(hit.port);
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+}
+
+// getservbyport equivalent: official service name for a port.
+fn net_service_name_by_port(port: u16, proto: Vec<u8>) -> Result<Vec<u8>, i32> {
+    let content = dns_read_small_file(STR_PTR("/etc/services"), STR_LEN("/etc/services"));
+    match content {
+        Ok(bytes) => {
+            let sl: Slice<u8> = VEC_AS_SLICE(bytes);
+            let empty_name: Vec<u8> = Vec::new();
+            let name_sl: Slice<u8> = VEC_AS_SLICE(empty_name);
+            let proto_sl: Slice<u8> = VEC_AS_SLICE(proto);
+            let hit = dns_services_scan(&sl, &name_sl, &proto_sl, port, 1);
+            if hit.status != SA_STD_OK {
+                return Err(hit.status);
+            };
+            return Ok(hit.name);
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+}
+
+// Build the in-addr.arpa name for an IPv4 address (host-order u32),
+// for PTR queries with dns_query / dns_query_system.
+fn dns_reverse_name_v4(addr_v4: u32) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    dns_put_dec(&out, (addr_v4 & 0xff) as u64);
+    out.push(46);
+    dns_put_dec(&out, ((addr_v4 >> 8) & 0xff) as u64);
+    out.push(46);
+    dns_put_dec(&out, ((addr_v4 >> 16) & 0xff) as u64);
+    out.push(46);
+    dns_put_dec(&out, ((addr_v4 >> 24) & 0xff) as u64);
+    let suffix: [u8; 13] = [46, 105, 110, 45, 97, 100, 100, 114, 46, 97, 114, 112, 97];
+    let i: u64 = 0;
+    while i < 13 {
+        out.push(suffix[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn dns_put_dec(out: &Vec<u8>, v: u64) {
+    if v >= 100 {
+        out.push((48 + v / 100) as u8);
+        out.push((48 + (v / 10) % 10) as u8);
+        out.push((48 + v % 10) as u8);
+    } else {
+        if v >= 10 {
+            out.push((48 + v / 10) as u8);
+            out.push((48 + v % 10) as u8);
+        } else {
+            out.push((48 + v) as u8);
+        };
+    };
+}
