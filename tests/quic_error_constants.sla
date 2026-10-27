@@ -1,0 +1,25 @@
+// Regression test for the SLA-facing QUIC error classification
+// constants in sa_std/quic.sla. Literal lock only, by design: no
+// sa_quic extern returns this classification today (see the scope
+// note in quic.sla), so the published values are pinned literally
+// against the .NET 10 QuicError declaration order recorded by the
+// net census extraction.
+//
+// On a tree without quic.sla this file cannot even compile.
+
+@import "sa_std/quic.sla"
+
+@test "quic error consts pin the classification values"() {
+    if SA_QUIC_ERROR_SUCCESS == 0 { } else { panic(1801); };
+    if SA_QUIC_ERROR_INTERNAL_ERROR == 1 { } else { panic(1802); };
+    if SA_QUIC_ERROR_CONNECTION_ABORTED == 2 { } else { panic(1803); };
+    if SA_QUIC_ERROR_STREAM_ABORTED == 3 { } else { panic(1804); };
+    if SA_QUIC_ERROR_CONNECTION_TIMEOUT == 4 { } else { panic(1805); };
+    if SA_QUIC_ERROR_CONNECTION_REFUSED == 5 { } else { panic(1806); };
+    if SA_QUIC_ERROR_VERSION_NEGOTIATION_ERROR == 6 { } else { panic(1807); };
+    if SA_QUIC_ERROR_CONNECTION_IDLE == 7 { } else { panic(1808); };
+    if SA_QUIC_ERROR_OPERATION_ABORTED == 8 { } else { panic(1809); };
+    if SA_QUIC_ERROR_ALPN_IN_USE == 9 { } else { panic(1810); };
+    if SA_QUIC_ERROR_TRANSPORT_ERROR == 10 { } else { panic(1811); };
+    if SA_QUIC_ERROR_CALLBACK_ERROR == 11 { } else { panic(1812); };
+};

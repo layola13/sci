@@ -1,0 +1,34 @@
+// SLA-facing named constants for the QUIC error classification:
+// the System.Net.Quic QuicError numbering (which mirrors the
+// MsQuic connection/stream abort classification).
+//
+// Scope, stated plainly: the sa_std QUIC externs (sa_std/quic.sai)
+// return SA_QUIC_* status codes (quic.sal: OK = 0, ERR_UNSUPPORTED
+// = -1, ERR_NO_MEMORY = -12, ERR_INVALID_ARGUMENT = -22) -- they do
+// NOT return this classification today. The net census quantified
+// the gap as ".NET names 12 QuicError values, sa names 3"; this
+// file closes the vocabulary half of that gap by publishing the 12
+// standard classification values for SLA consumers that classify
+// or report QUIC aborts (including interop with .NET/MsQuic
+// peers), and is the numbering a future runtime classification
+// mapping must use. It changes no runtime behavior. Pure
+// declarations: no new externs, no ABI change.
+//
+// Values: declaration order of System.Net.Quic.QuicError in the
+// .NET 10 reference source, as extracted by the net census (sala
+// tools/dotnet_net_census/dotnet_surface.tsv).
+
+@import "sa_std/quic.sai"
+
+const SA_QUIC_ERROR_SUCCESS: u32 = 0;
+const SA_QUIC_ERROR_INTERNAL_ERROR: u32 = 1;
+const SA_QUIC_ERROR_CONNECTION_ABORTED: u32 = 2;
+const SA_QUIC_ERROR_STREAM_ABORTED: u32 = 3;
+const SA_QUIC_ERROR_CONNECTION_TIMEOUT: u32 = 4;
+const SA_QUIC_ERROR_CONNECTION_REFUSED: u32 = 5;
+const SA_QUIC_ERROR_VERSION_NEGOTIATION_ERROR: u32 = 6;
+const SA_QUIC_ERROR_CONNECTION_IDLE: u32 = 7;
+const SA_QUIC_ERROR_OPERATION_ABORTED: u32 = 8;
+const SA_QUIC_ERROR_ALPN_IN_USE: u32 = 9;
+const SA_QUIC_ERROR_TRANSPORT_ERROR: u32 = 10;
+const SA_QUIC_ERROR_CALLBACK_ERROR: u32 = 11;
