@@ -14475,6 +14475,261 @@ pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_n
     return finish(SA_STD_OK);
 }
 
+// ---------------------------------------------------------------------------
+// Generic socket-option passthrough + datagram receive enhancements
+// (wave-2 fill). The passthrough is the Python net census's
+// highest-value single gap (one pair of functions covers every
+// option without a dedicated wrapper); udp_recv_msg / udp_recv_multi
+// are the Unreal net census datagram trio (pktinfo, packet
+// timestamp, RecvMulti); unix_datagram_peer_cred completes the
+// SO_PEERCRED face the Java census named (the stream form,
+// sa_std_net_unix_stream_peer_cred, already exists below).
+// ---------------------------------------------------------------------------
+
+pub export fn sa_std_net_socket_setsockopt(handle: u64, level: i32, optname: u32, value_ptr: ?[*]const u8, value_len: u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    const socket = ensureSocketHandle(handle) catch |err| return finishErr(err);
+    const value = constBytes(value_ptr, value_len) catch |err| return finishErr(err);
+    std.posix.setsockopt(socket.fd, level, optname, value) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_socket_getsockopt(handle: u64, level: i32, optname: u32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    len_ptr.* = 0;
+    const socket = ensureSocketHandle(handle) catch |err| return finishErr(err);
+    const buffer = mutBytes(out, out_cap) catch |err| return finishErr(err);
+    if (buffer.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var len: SockLenT = @as(SockLenT, @intCast(buffer.len));
+    const rc = std.os.linux.getsockopt(socket.fd, level, optname, buffer.ptr, &len);
+    const e = std.os.linux.errno(rc);
+    if (e != .SUCCESS) return finishErr(lxErr(e));
+    len_ptr.* = @as(u64, @intCast(len));
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_socket_setsockopt_int(handle: u64, level: i32, optname: u32, value: i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    const socket = ensureSocketHandle(handle) catch |err| return finishErr(err);
+    setSocketOptInt(socket.fd, level, optname, value) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+pub export fn sa_std_net_socket_getsockopt_int(handle: u64, level: i32, optname: u32, out_value: ?*i32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    const value_ptr = out_value orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    value_ptr.* = 0;
+    const socket = ensureSocketHandle(handle) catch |err| return finishErr(err);
+    value_ptr.* = getSocketOptInt(socket.fd, level, optname) catch |err| return finishErr(err);
+    return finish(SA_STD_OK);
+}
+
+// out_flags bits of sa_std_net_udp_recv_msg; mirrored as
+// SA_NET_RECV_MSG_* in sa_std/net.sla.
+const recv_msg_flag_pktinfo: u32 = 1;
+const recv_msg_flag_timestamp: u32 = 2;
+const recv_msg_flag_ctrunc: u32 = 4;
+const recv_msg_flag_trunc: u32 = 8;
+
+// Linux control-message numbers the parser keys on (asm-generic /
+// in.h values; net.sla pins the SLA-facing names). std.os.linux
+// does not name SO_TIMESTAMP, so the literal is spelled out here.
+const cmsg_level_ip: i32 = 0; // IPPROTO_IP
+const cmsg_level_ipv6: i32 = 41; // IPPROTO_IPV6
+const cmsg_level_socket: i32 = 1; // SOL_SOCKET
+const cmsg_type_ip_pktinfo: i32 = 8; // IP_PKTINFO
+const cmsg_type_ipv6_pktinfo: i32 = 50; // IPV6_PKTINFO
+const cmsg_type_timestamp: i32 = 29; // SO_TIMESTAMP
+
+fn cmsgAlign(len: usize) usize {
+    const mask: usize = @sizeOf(usize) - 1;
+    return (len + mask) & ~mask;
+}
+
+pub export fn sa_std_net_udp_recv_msg(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64, out_dest_addr: ?*u64, out_ifindex: ?*u32, out_timestamp_ns: ?*u64, out_flags: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    read_ptr.* = 0;
+    if (out_ifindex) |ptr| ptr.* = 0;
+    if (out_timestamp_ns) |ptr| ptr.* = 0;
+    if (out_flags) |ptr| ptr.* = 0;
+    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
+
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .udp_socket => |value| value,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+
+    var addr = NetAddress{};
+    var ziovec = std.posix.iovec{ .base = buffer.ptr, .len = buffer.len };
+    var control: [256]u8 align(8) = undefined;
+    var msg: MsghdrT = std.mem.zeroes(MsghdrT);
+    msg.name = @ptrCast(addr.sockAddrMut());
+    msg.namelen = @as(SockLenT, @intCast(@sizeOf(SockAddrStorageT)));
+    msg.iov = @ptrCast(&ziovec);
+    msg.iovlen = 1;
+    msg.control = @ptrCast(&control);
+    msg.controllen = control.len;
+
+    const read = portableRecvmsg(fd, &msg, 0) catch |err| return finishErr(err);
+    read_ptr.* = @as(u64, @intCast(read));
+    addr.len = msg.namelen;
+
+    if (out_addr) |ptr| {
+        var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
+        const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+            net_addr.deinit();
+            return finishErr(err);
+        };
+        ptr.* = handle;
+    }
+
+    var flags: u32 = 0;
+    if ((msg.flags & std.os.linux.MSG.CTRUNC) != 0) flags |= recv_msg_flag_ctrunc;
+    if ((msg.flags & std.os.linux.MSG.TRUNC) != 0) flags |= recv_msg_flag_trunc;
+
+    // Walk the control-message chain. Layout (Linux): cmsg_len u64,
+    // cmsg_level i32, cmsg_type i32, then the payload; each message
+    // is padded to usize alignment.
+    const ctrl = control[0..@as(usize, @intCast(msg.controllen))];
+    var off: usize = 0;
+    while (off + 16 <= ctrl.len) {
+        const cmsg_len = @as(usize, @intCast(std.mem.readInt(u64, ctrl[off..][0..8], .little)));
+        if (cmsg_len < 16 or off + cmsg_len > ctrl.len) break;
+        const level = std.mem.readInt(i32, ctrl[off + 8 ..][0..4], .little);
+        const ctype = std.mem.readInt(i32, ctrl[off + 12 ..][0..4], .little);
+        const data = ctrl[off + 16 .. off + cmsg_len];
+        if (level == cmsg_level_ip and ctype == cmsg_type_ip_pktinfo and data.len >= 12) {
+            // struct in_pktinfo { i32 ifindex; u32 spec_dst; u32 addr; }
+            // The destination the datagram was sent to is ipi_addr.
+            flags |= recv_msg_flag_pktinfo;
+            if (out_ifindex) |ptr| ptr.* = @as(u32, @bitCast(std.mem.readInt(i32, data[0..4], .little)));
+            if (out_dest_addr) |ptr| {
+                var local = NetAddress{};
+                var local_len: SockLenT = @sizeOf(SockAddrStorageT);
+                lxGetsockname(fd, local.sockAddrMut(), &local_len) catch |err| return finishErr(err);
+                var parts: [4]u8 = undefined;
+                @memcpy(&parts, data[8..12]);
+                const dest = NetAddress.initIp4(parts, local.getPort());
+                var net_addr = NetAddrHandle.init(std.heap.page_allocator, dest) catch |err| return finishErr(err);
+                const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+                    net_addr.deinit();
+                    return finishErr(err);
+                };
+                ptr.* = handle;
+            }
+        } else if (level == cmsg_level_ipv6 and ctype == cmsg_type_ipv6_pktinfo and data.len >= 20) {
+            // struct in6_pktinfo { u8 addr[16]; u32 ifindex; }
+            flags |= recv_msg_flag_pktinfo;
+            if (out_ifindex) |ptr| ptr.* = std.mem.readInt(u32, data[16..20], .little);
+            if (out_dest_addr) |ptr| {
+                var local = NetAddress{};
+                var local_len: SockLenT = @sizeOf(SockAddrStorageT);
+                lxGetsockname(fd, local.sockAddrMut(), &local_len) catch |err| return finishErr(err);
+                local.len = local_len;
+                var bytes: [16]u8 = undefined;
+                @memcpy(&bytes, data[0..16]);
+                const dest = NetAddress.initIp6(bytes, local.getPort(), 0, std.mem.readInt(u32, data[16..20], .little));
+                var net_addr = NetAddrHandle.init(std.heap.page_allocator, dest) catch |err| return finishErr(err);
+                const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+                    net_addr.deinit();
+                    return finishErr(err);
+                };
+                ptr.* = handle;
+            }
+        } else if (level == cmsg_level_socket and ctype == cmsg_type_timestamp and data.len >= 16) {
+            // struct timeval { i64 sec; i64 usec; }
+            flags |= recv_msg_flag_timestamp;
+            if (out_timestamp_ns) |ptr| {
+                const sec = std.mem.readInt(i64, data[0..8], .little);
+                const usec = std.mem.readInt(i64, data[8..16], .little);
+                if (sec >= 0 and usec >= 0) {
+                    const ns = @as(i128, sec) * std.time.ns_per_s + @as(i128, usec) * std.time.ns_per_us;
+                    ptr.* = @as(u64, @intCast(ns));
+                }
+            }
+        }
+        const step = cmsgAlign(cmsg_len);
+        if (step == 0) break;
+        off += step;
+    }
+    if (out_flags) |ptr| ptr.* = flags;
+    return finish(SA_STD_OK);
+}
+
+const recv_multi_max_msgs: usize = 64;
+
+pub export fn sa_std_net_udp_recv_multi(socket: u64, out: ?[*]u8, buf_cap: u64, slot_size: u64, max_msgs: u64, out_count: ?*u64, out_lens: ?[*]u64, out_addrs: ?[*]u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    const count_ptr = out_count orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    count_ptr.* = 0;
+    const lens = out_lens orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (max_msgs == 0 or max_msgs > recv_multi_max_msgs) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (slot_size == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const n = @as(usize, @intCast(max_msgs));
+    const slot = @as(usize, @intCast(slot_size));
+    const buffer = mutBytes(out, buf_cap) catch |err| return finishErr(err);
+    if (buffer.len < slot * n) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const fd = switch (resource.*) {
+        .udp_socket => |value| value,
+        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+    };
+
+    var vec: [recv_multi_max_msgs]std.os.linux.mmsghdr = undefined;
+    var iovs: [recv_multi_max_msgs]std.posix.iovec = undefined;
+    var addrs: [recv_multi_max_msgs]NetAddress = undefined;
+    for (0..n) |i| {
+        addrs[i] = NetAddress{};
+        iovs[i] = .{ .base = buffer.ptr + i * slot, .len = slot };
+        vec[i] = .{
+            .hdr = .{
+                .name = @ptrCast(addrs[i].sockAddrMut()),
+                .namelen = @as(SockLenT, @intCast(@sizeOf(SockAddrStorageT))),
+                .iov = @ptrCast(&iovs[i]),
+                .iovlen = 1,
+                .control = null,
+                .controllen = 0,
+                .flags = 0,
+            },
+            .len = 0,
+        };
+    }
+
+    const rc = std.os.linux.recvmmsg(fd, vec[0..n].ptr, @as(u32, @intCast(n)), @as(u32, std.os.linux.MSG.WAITFORONE), null);
+    const rc_signed: isize = @as(isize, @bitCast(rc));
+    if (rc_signed < 0) return finishErr(lxErr(std.os.linux.errno(rc)));
+    const received = @as(usize, @intCast(rc_signed));
+    count_ptr.* = @as(u64, @intCast(received));
+    for (0..received) |i| {
+        lens[i] = @as(u64, @intCast(vec[i].len));
+        if (out_addrs) |arr| {
+            arr[i] = 0;
+            addrs[i].len = vec[i].hdr.namelen;
+            var net_addr = NetAddrHandle.init(std.heap.page_allocator, addrs[i]) catch |err| return finishErr(err);
+            const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+                net_addr.deinit();
+                return finishErr(err);
+            };
+            arr[i] = handle;
+        }
+    }
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var handle: u64 = 0;
@@ -16460,6 +16715,24 @@ pub export fn sa_std_net_unix_stream_peer_cred(stream: u64, out_pid: ?*i32, out_
     return finish(SA_STD_OK);
 }
 
+pub export fn sa_std_net_unix_datagram_peer_cred(socket: u64, out_pid: ?*i32, out_uid: ?*u32, out_gid: ?*u32) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    const pid_ptr = out_pid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const uid_ptr = out_uid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const gid_ptr = out_gid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    pid_ptr.* = 0;
+    uid_ptr.* = 0;
+    gid_ptr.* = 0;
+    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
+    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
+    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
+    const cred = getUnixPeerCred(handle.fd) catch |err| return finishErr(err);
+    pid_ptr.* = cred.pid;
+    uid_ptr.* = cred.uid;
+    gid_ptr.* = cred.gid;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_unix_datagram_unbound(out_handle: ?*u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -17130,6 +17403,172 @@ test "socket helper round trip on raw udp socket" {
 
     const tv = try timevalFromNs(timeout_ns);
     try std.testing.expectEqual(@as(u64, 1_234_567_000), try nsFromTimeval(tv));
+}
+
+test "generic sockopt passthrough updates live udp handle" {
+    const host = "127.0.0.1";
+    var handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &handle));
+    defer _ = sa_std_close(handle);
+
+    // SOL_SOCKET (1) / SO_BROADCAST (6) through the int convenience form.
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_setsockopt_int(handle, 1, 6, 1));
+    var value: i32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_getsockopt_int(handle, 1, 6, &value));
+    try std.testing.expectEqual(@as(i32, 1), value);
+
+    // Byte form: SO_TYPE (3) reads back SOCK_DGRAM (2) as raw bytes.
+    var raw: [4]u8 = .{ 0, 0, 0, 0 };
+    var out_len: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_getsockopt(handle, 1, 3, &raw, raw.len, &out_len));
+    try std.testing.expectEqual(@as(u64, 4), out_len);
+    try std.testing.expectEqual(@as(i32, 2), std.mem.readInt(i32, &raw, .little));
+
+    // Byte-form write, cross-checked through the dedicated getter.
+    var on: [4]u8 = .{ 1, 0, 0, 0 };
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_setsockopt(handle, 1, 6, &on, on.len));
+    var dedicated: i32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_broadcast(handle, &dedicated));
+    try std.testing.expectEqual(@as(i32, 1), dedicated);
+
+    // A bad level and a non-socket handle both fail loudly.
+    try std.testing.expect(sa_std_net_socket_setsockopt_int(handle, 9999, 6, 1) != SA_STD_OK);
+    try std.testing.expect(sa_std_net_socket_setsockopt_int(0, 1, 6, 1) != SA_STD_OK);
+}
+
+test "udp recv_msg reports pktinfo and timestamp" {
+    const host = "127.0.0.1";
+    var receiver: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &receiver));
+    defer _ = sa_std_close(receiver);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_read_timeout(receiver, 5_000_000_000));
+    var local_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_local_addr(receiver, &local_handle));
+    defer _ = sa_std_close(local_handle);
+    const port = sa_net_addr_port(local_handle);
+    try std.testing.expect(port != 0);
+
+    // IPPROTO_IP (0) / IP_PKTINFO (8) and SOL_SOCKET (1) / SO_TIMESTAMP (29),
+    // enabled through the new passthrough itself.
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_setsockopt_int(receiver, 0, 8, 1));
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_setsockopt_int(receiver, 1, 29, 1));
+
+    var sender: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &sender));
+    defer _ = sa_std_close(sender);
+    var sender_local: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_local_addr(sender, &sender_local));
+    defer _ = sa_std_close(sender_local);
+    const sender_port = sa_net_addr_port(sender_local);
+
+    var dest_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_to_socket_addr_first(host.ptr, host.len, port, &dest_handle));
+    defer _ = sa_std_close(dest_handle);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_connect_addr(sender, dest_handle));
+    const payload = "hello";
+    var written: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_send(sender, payload.ptr, payload.len, &written));
+    try std.testing.expectEqual(@as(u64, payload.len), written);
+
+    var buf: [64]u8 = undefined;
+    var read: u64 = 0;
+    var src_addr: u64 = 0;
+    var dest_addr: u64 = 0;
+    var ifindex: u32 = 0;
+    var ts_ns: u64 = 0;
+    var flags: u32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_recv_msg(receiver, &buf, buf.len, &read, &src_addr, &dest_addr, &ifindex, &ts_ns, &flags));
+    defer _ = sa_std_close(src_addr);
+    defer _ = sa_std_close(dest_addr);
+    try std.testing.expectEqual(@as(u64, payload.len), read);
+    try std.testing.expectEqualStrings(payload, buf[0..read]);
+    try std.testing.expect((flags & recv_msg_flag_pktinfo) != 0);
+    try std.testing.expect((flags & recv_msg_flag_timestamp) != 0);
+    try std.testing.expect(ifindex != 0);
+    try std.testing.expect(ts_ns != 0);
+    try std.testing.expectEqual(sender_port, sa_net_addr_port(src_addr));
+    try std.testing.expectEqual(@as(u32, 2), sa_net_addr_family(dest_addr));
+    try std.testing.expectEqual(port, sa_net_addr_port(dest_addr));
+}
+
+test "udp recv_multi drains queued datagrams" {
+    const host = "127.0.0.1";
+    var receiver: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &receiver));
+    defer _ = sa_std_close(receiver);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_read_timeout(receiver, 5_000_000_000));
+    var local_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_local_addr(receiver, &local_handle));
+    defer _ = sa_std_close(local_handle);
+    const port = sa_net_addr_port(local_handle);
+
+    var sender: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &sender));
+    defer _ = sa_std_close(sender);
+    var sender_local: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_local_addr(sender, &sender_local));
+    defer _ = sa_std_close(sender_local);
+    const sender_port = sa_net_addr_port(sender_local);
+    var dest_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_to_socket_addr_first(host.ptr, host.len, port, &dest_handle));
+    defer _ = sa_std_close(dest_handle);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_connect_addr(sender, dest_handle));
+
+    const payloads = [3][]const u8{ "a", "bb", "ccc" };
+    for (payloads) |payload| {
+        var written: u64 = 0;
+        try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_send(sender, payload.ptr, payload.len, &written));
+        try std.testing.expectEqual(@as(u64, payload.len), written);
+    }
+
+    var buf: [128]u8 = undefined;
+    var lens: [8]u64 = undefined;
+    var addrs: [8]u64 = undefined;
+    var count: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_recv_multi(receiver, &buf, buf.len, 16, 8, &count, &lens, &addrs));
+    try std.testing.expectEqual(@as(u64, 3), count);
+    try std.testing.expectEqual(@as(u64, 1), lens[0]);
+    try std.testing.expectEqual(@as(u64, 2), lens[1]);
+    try std.testing.expectEqual(@as(u64, 3), lens[2]);
+    try std.testing.expectEqual(@as(u8, 'a'), buf[0]);
+    try std.testing.expectEqual(@as(u8, 'b'), buf[16]);
+    try std.testing.expectEqual(@as(u8, 'b'), buf[17]);
+    try std.testing.expectEqual(@as(u8, 'c'), buf[32]);
+    try std.testing.expectEqual(@as(u8, 'c'), buf[34]);
+    for (addrs[0..3]) |addr_handle| {
+        defer _ = sa_std_close(addr_handle);
+        try std.testing.expectEqual(sender_port, sa_net_addr_port(addr_handle));
+    }
+
+    // Argument discipline: an over-cap batch and a zero slot fail.
+    var count2: u64 = 0;
+    var lens2: [8]u64 = undefined;
+    try std.testing.expect(sa_std_net_udp_recv_multi(receiver, &buf, buf.len, 16, recv_multi_max_msgs + 1, &count2, &lens2, null) != SA_STD_OK);
+    try std.testing.expect(sa_std_net_udp_recv_multi(receiver, &buf, buf.len, 0, 8, &count2, &lens2, null) != SA_STD_OK);
+}
+
+test "unix datagram peer cred matches own process" {
+    var left: u64 = 0;
+    var right: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_datagram_pair(&left, &right));
+    defer _ = sa_std_close(left);
+    defer _ = sa_std_close(right);
+    var pid: i32 = 0;
+    var uid: u32 = 0;
+    var gid: u32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_datagram_peer_cred(left, &pid, &uid, &gid));
+    try std.testing.expectEqual(std.os.linux.getpid(), pid);
+    try std.testing.expectEqual(std.os.linux.getuid(), uid);
+    try std.testing.expectEqual(std.os.linux.getgid(), gid);
+
+    // An unconnected datagram socket has no peer: the kernel
+    // answers SO_PEERCRED with the zero credential (pid 0), which
+    // is the documented no-peer sentinel, not an error.
+    var lone: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_datagram_unbound(&lone));
+    defer _ = sa_std_close(lone);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_datagram_peer_cred(lone, &pid, &uid, &gid));
+    try std.testing.expectEqual(@as(i32, 0), pid);
 }
 
 test "exported tcp and udp socket setters update live handles" {

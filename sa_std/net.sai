@@ -173,6 +173,68 @@
 @extern sa_std_net_udp_join_multicast_v6(socket: u64, &multi_host: ptr, multi_host_len: u64, interface_index: u32) -> i32
 @extern sa_std_net_udp_leave_multicast_v6(socket: u64, &multi_host: ptr, multi_host_len: u64, interface_index: u32) -> i32
 
+// Generic socket-option passthrough (wave-2 fill; the Python net
+// census ranked it the highest-value single gap: one pair of
+// functions covers every option that has no dedicated wrapper
+// above). level/optname are the raw OS numbers -- the SLA-facing
+// named subset lives in sa_std/net.sla (SA_NET_SOCKOPT_LEVEL_*,
+// SA_NET_SO_*, SA_NET_TCP_*, SA_NET_IP_*, SA_NET_IPV6_*). The handle
+// may be any socket handle (tcp stream, tcp listener, udp socket;
+// unix datagram sockets are udp-kind handles). The byte form passes
+// the option value through verbatim, so struct-valued options
+// (linger, mreq, timeval) are the caller's layout responsibility.
+// getsockopt reports in out_len the byte count the kernel returned
+// (at most out_cap); size the buffer for the option's full value.
+@extern sa_std_net_socket_setsockopt(handle: u64, level: i32, optname: u32, &value: ptr, value_len: u64) -> i32
+@extern sa_std_net_socket_getsockopt(handle: u64, level: i32, optname: u32, &out: ptr, out_cap: u64, &out_len: ptr) -> i32
+@extern sa_std_net_socket_setsockopt_int(handle: u64, level: i32, optname: u32, value: i32) -> i32
+@extern sa_std_net_socket_getsockopt_int(handle: u64, level: i32, optname: u32, &out_value: ptr) -> i32
+
+// Datagram receive with per-packet info (wave-2 fill; the Unreal
+// net census datagram trio: pktinfo + packet timestamp, RecvMulti
+// below). One recvmsg reports, alongside the sender address
+// (out_addr, an owned NetAddr handle like udp_recv_from's):
+//   - the destination address the datagram was sent to, from the
+//     IP_PKTINFO / IPV6_PKTINFO control message (out_dest_addr, an
+//     owned NetAddr handle whose port is this socket's local port),
+//   - the receiving interface index (out_ifindex),
+//   - the kernel receive timestamp from SO_TIMESTAMP, as UTC epoch
+//     nanoseconds (out_timestamp_ns).
+// out_flags is a bitmask of SA_NET_RECV_MSG_* (net.sla): PKTINFO
+// when a pktinfo control message arrived, TIMESTAMP when a
+// timestamp control message arrived, CTRUNC / TRUNC mirroring the
+// recvmsg MSG_CTRUNC / MSG_TRUNC bits. The caller enables delivery
+// first (IP_PKTINFO or IPV6_RECVPKTINFO, SO_TIMESTAMP) through the
+// passthrough above; without it the info outs stay zero and the
+// flags stay clear -- absence is data, never an error. Any out
+// pointer except out_read may be omitted. Linux only: other
+// platforms return SA_STD_ERR_UNSUPPORTED.
+@extern sa_std_net_udp_recv_msg(socket: u64, &buf: ptr, cap: u64, &out_read: ptr, &out_addr: ptr, &out_dest_addr: ptr, &out_ifindex: ptr, &out_timestamp_ns: ptr, &out_flags: ptr) -> i32
+
+// Batch datagram receive (recvmmsg; the third datagram-trio item).
+// The receive buffer is max_msgs fixed-size slots of slot_size
+// bytes laid end to end (buf_cap must cover slot_size * max_msgs).
+// The call waits for the first datagram (bounded by the socket's
+// read timeout / blocking mode, MSG_WAITFORONE semantics), then
+// drains every datagram already queued, up to max_msgs. out_count
+// receives the number of datagrams read; out_lens (max_msgs u64
+// slots, required) receives each datagram's length in order;
+// out_addrs (max_msgs u64 slots, optional) receives one owned
+// NetAddr sender handle per datagram. max_msgs is capped at 64.
+// A datagram longer than slot_size is truncated to its slot and
+// its out_lens entry reports the truncated length. Linux only:
+// other platforms return SA_STD_ERR_UNSUPPORTED.
+@extern sa_std_net_udp_recv_multi(socket: u64, &buf: ptr, buf_cap: u64, slot_size: u64, max_msgs: u64, &out_count: ptr, &out_lens: ptr, &out_addrs: ptr) -> i32
+
+// Peer credentials for a connected unix datagram socket
+// (SO_PEERCRED; the stream form is sa_std_net_unix_stream_peer_cred
+// above -- the Java net census named this face). Meaningful for a
+// connected socket (e.g. from sa_std_net_unix_datagram_pair, or
+// after sa_std_net_unix_datagram_connect); for an unconnected
+// datagram socket the kernel answers with the zero credential
+// (pid 0), which is the no-peer sentinel, not an error.
+@extern sa_std_net_unix_datagram_peer_cred(socket: u64, &out_pid: ptr, &out_uid: ptr, &out_gid: ptr) -> i32
+
 @extern sa_net_tcp_connect(&host: ptr, host_len: u64, port: u32) -> u64!
 @extern sa_net_tcp_stream_read(stream: u64, &buf: ptr, cap: u64) -> u64!
 @extern sa_net_tcp_stream_peek(stream: u64, &buf: ptr, cap: u64) -> i32

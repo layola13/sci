@@ -108,3 +108,28 @@ const SA_NET_IPV6_MULTICAST_LOOP: u32 = 19;
 const SA_NET_IPV6_ADD_MEMBERSHIP: u32 = 20;
 const SA_NET_IPV6_DROP_MEMBERSHIP: u32 = 21;
 const SA_NET_IPV6_V6ONLY: u32 = 26;
+
+// Wave-2 completion of the set above (same provenance: the build
+// host's <asm-generic/socket.h> and <linux/in6.h>): the options the
+// generic passthrough and the datagram receive surface
+// (sa_std_net_socket_* / sa_std_net_udp_recv_msg in net.sai, landed
+// with the passthrough) need named. SO_PASSCRED gates SCM_CREDENTIALS
+// delivery on unix sockets; SO_TIMESTAMP gates the receive-timestamp
+// control message sa_std_net_udp_recv_msg parses; for IPv6 the
+// receive-side switch is IPV6_RECVPKTINFO while the control message
+// itself is typed IPV6_PKTINFO (the IPPROTO_IP pair is one number:
+// SA_NET_IP_PKTINFO above serves both roles).
+const SA_NET_SO_PASSCRED: u32 = 16;
+const SA_NET_SO_TIMESTAMP: u32 = 29;
+const SA_NET_IPV6_RECVPKTINFO: u32 = 49;
+const SA_NET_IPV6_PKTINFO: u32 = 50;
+
+// out_flags bits of sa_std_net_udp_recv_msg (net.sai): which
+// per-packet info a receive actually carried, and whether the
+// kernel truncated the control data (CTRUNC) or the datagram
+// itself (TRUNC). These are sa_std's own bit assignments, not OS
+// numbers.
+const SA_NET_RECV_MSG_PKTINFO: u32 = 1;
+const SA_NET_RECV_MSG_TIMESTAMP: u32 = 2;
+const SA_NET_RECV_MSG_CTRUNC: u32 = 4;
+const SA_NET_RECV_MSG_TRUNC: u32 = 8;

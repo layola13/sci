@@ -1,0 +1,238 @@
+// Behavioral tests for the wave-2 socket surface in sa_std/net.sai:
+// the generic setsockopt/getsockopt passthrough
+// (sa_std_net_socket_*), datagram receive with per-packet info
+// (sa_std_net_udp_recv_msg: pktinfo + SO_TIMESTAMP), batch
+// datagram receive (sa_std_net_udp_recv_multi, recvmmsg) and unix
+// datagram peer credentials (sa_std_net_unix_datagram_peer_cred).
+// All traffic is loopback (127.0.0.1 UDP + unix socketpair); no
+// external network is involved.
+//
+// The send path deliberately uses resolve-once + connect + send
+// (sa_std_net_to_socket_addr_first / udp_connect_addr / udp_send):
+// udp_send_to's per-call resolution is a registered defect (it
+// rejects the literal "127.0.0.1" on this host), and it is not the
+// surface under test here.
+
+@import "sa_std/net.sai"
+@import "sa_std/net.sla"
+@import "sa_std/process.sai"
+@import "sa_std/status.sla"
+@import "sa_std/string.sa"
+@import "sa_std/ptr.sa"
+
+fn bind_loopback_udp() -> u64 {
+    let sock: u64 = 0;
+    let st: i32 = sa_std_net_udp_bind(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"), 0, &sock);
+    if st != SA_STD_OK { panic(2501); };
+    let tst: i32 = sa_std_net_udp_set_read_timeout(sock, 5000000000);
+    if tst != SA_STD_OK { panic(2502); };
+    return sock;
+}
+
+fn local_port(sock: u64) -> u32 {
+    let addr: u64 = 0;
+    let st: i32 = sa_std_net_udp_local_addr(sock, &addr);
+    if st != SA_STD_OK { panic(2503); };
+    let port: u32 = sa_net_addr_port(addr);
+    let fst: i32 = sa_net_addr_free(addr);
+    if fst != SA_STD_OK { panic(2504); };
+    return port;
+}
+
+fn send_payload(sender: u64, port: u32, bytes: ptr, len: u64) {
+    let addr: u64 = 0;
+    let st: i32 = sa_std_net_to_socket_addr_first(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"), port, &addr);
+    if st != SA_STD_OK { panic(2505); };
+    let cst: i32 = sa_std_net_udp_connect_addr(sender, addr);
+    if cst != SA_STD_OK { panic(2506); };
+    let fst: i32 = sa_net_addr_free(addr);
+    if fst != SA_STD_OK { panic(2507); };
+    let written: u64 = 0;
+    let wst: i32 = sa_std_net_udp_send(sender, bytes, len, &written);
+    if wst != SA_STD_OK { panic(2508); };
+    if written != len { panic(2509); };
+}
+
+@test "wave2 sockopt consts pin the Linux values"() {
+    if SA_NET_SO_PASSCRED == 16 { } else { panic(2511); };
+    if SA_NET_SO_TIMESTAMP == 29 { } else { panic(2512); };
+    if SA_NET_IPV6_RECVPKTINFO == 49 { } else { panic(2513); };
+    if SA_NET_IPV6_PKTINFO == 50 { } else { panic(2514); };
+    if SA_NET_RECV_MSG_PKTINFO == 1 { } else { panic(2515); };
+    if SA_NET_RECV_MSG_TIMESTAMP == 2 { } else { panic(2516); };
+    if SA_NET_RECV_MSG_CTRUNC == 4 { } else { panic(2517); };
+    if SA_NET_RECV_MSG_TRUNC == 8 { } else { panic(2518); };
+};
+
+@test "sockopt passthrough int round trip"() {
+    let sock: u64 = bind_loopback_udp();
+    let st: i32 = sa_std_net_socket_setsockopt_int(sock, SA_NET_SOCKOPT_LEVEL_SOCKET, SA_NET_SO_BROADCAST, 1);
+    if st != SA_STD_OK { panic(2521); };
+    let value: i32 = 0;
+    let gst: i32 = sa_std_net_socket_getsockopt_int(sock, SA_NET_SOCKOPT_LEVEL_SOCKET, SA_NET_SO_BROADCAST, &value);
+    if gst != SA_STD_OK { panic(2522); };
+    if value != 1 { panic(2523); };
+    // Cross-check the passthrough against the dedicated TTL face:
+    // what setsockopt_int writes, udp_ttl must read back.
+    let tst: i32 = sa_std_net_socket_setsockopt_int(sock, SA_NET_SOCKOPT_LEVEL_IP, SA_NET_IP_TTL, 99);
+    if tst != SA_STD_OK { panic(2524); };
+    let ttl: u32 = 0;
+    let dst: i32 = sa_std_net_udp_ttl(sock, &ttl);
+    if dst != SA_STD_OK { panic(2525); };
+    if ttl != 99 { panic(2526); };
+    // A bad level must fail loudly, never silently succeed.
+    let bst: i32 = sa_std_net_socket_setsockopt_int(sock, 9999, SA_NET_SO_BROADCAST, 1);
+    if bst == SA_STD_OK { panic(2527); };
+};
+
+@test "sockopt passthrough bytes form"() {
+    let sock: u64 = bind_loopback_udp();
+    // SO_TYPE of a UDP socket is SOCK_DGRAM (2), read as raw bytes.
+    let buf: [u8; 4] = [0u8; 4];
+    let out_len: u64 = 0;
+    let buf_p: ptr = PTR_BYTE_ADD(&buf, 0);
+    let st: i32 = sa_std_net_socket_getsockopt(sock, SA_NET_SOCKOPT_LEVEL_SOCKET, SA_NET_SO_TYPE, buf_p, 4, &out_len);
+    if st != SA_STD_OK { panic(2531); };
+    if out_len != 4 { panic(2532); };
+    if buf[0] != 2 { panic(2533); };
+    if buf[1] != 0 { panic(2534); };
+    if buf[2] != 0 { panic(2535); };
+    if buf[3] != 0 { panic(2536); };
+    // Byte-form write of an i32 value, read back via the dedicated
+    // broadcast getter.
+    let wbuf: [u8; 4] = [1u8, 0u8, 0u8, 0u8];
+    let wbuf_p: ptr = PTR_BYTE_ADD(&wbuf, 0);
+    let wst: i32 = sa_std_net_socket_setsockopt(sock, SA_NET_SOCKOPT_LEVEL_SOCKET, SA_NET_SO_BROADCAST, wbuf_p, 4);
+    if wst != SA_STD_OK { panic(2537); };
+    let enabled: i32 = 0;
+    let dst: i32 = sa_std_net_udp_broadcast(sock, &enabled);
+    if dst != SA_STD_OK { panic(2538); };
+    if enabled != 1 { panic(2539); };
+};
+
+@test "udp recv msg pktinfo and timestamp"() {
+    let receiver: u64 = bind_loopback_udp();
+    let port: u32 = local_port(receiver);
+    let pst: i32 = sa_std_net_socket_setsockopt_int(receiver, SA_NET_SOCKOPT_LEVEL_IP, SA_NET_IP_PKTINFO, 1);
+    if pst != SA_STD_OK { panic(2541); };
+    let tst: i32 = sa_std_net_socket_setsockopt_int(receiver, SA_NET_SOCKOPT_LEVEL_SOCKET, SA_NET_SO_TIMESTAMP, 1);
+    if tst != SA_STD_OK { panic(2542); };
+    let sender: u64 = bind_loopback_udp();
+    let sport: u32 = local_port(sender);
+    let payload: [u8; 5] = [104u8, 101u8, 108u8, 108u8, 111u8];
+    let payload_p: ptr = PTR_BYTE_ADD(&payload, 0);
+    send_payload(sender, port, payload_p, 5);
+
+    let buf: [u8; 64] = [0u8; 64];
+    let read: u64 = 0;
+    let src_addr: u64 = 0;
+    let dest_addr: u64 = 0;
+    let ifindex: u32 = 0;
+    let ts_ns: u64 = 0;
+    let flags: u32 = 0;
+    let buf_p: ptr = PTR_BYTE_ADD(&buf, 0);
+    let st: i32 = sa_std_net_udp_recv_msg(receiver, buf_p, 64, &read, &src_addr, &dest_addr, &ifindex, &ts_ns, &flags);
+    if st != SA_STD_OK { panic(2543); };
+    if read != 5 { panic(2544); };
+    if buf[0] != 104 { panic(2545); };
+    if buf[4] != 111 { panic(2546); };
+    if (flags & SA_NET_RECV_MSG_PKTINFO) == 0 { panic(2547); };
+    if (flags & SA_NET_RECV_MSG_TIMESTAMP) == 0 { panic(2548); };
+    if ifindex == 0 { panic(2549); };
+    if ts_ns == 0 { panic(2550); };
+    // Sender address is the sender socket's loopback address.
+    if sa_net_addr_family(src_addr) != SA_NET_AF_INET { panic(2551); };
+    if sa_net_addr_port(src_addr) != sport { panic(2552); };
+    // Destination address is this socket's own loopback address:
+    // the packet was sent to 127.0.0.1:<receiver port>.
+    if sa_net_addr_family(dest_addr) != SA_NET_AF_INET { panic(2553); };
+    if sa_net_addr_port(dest_addr) != port { panic(2554); };
+    // Format is "127.0.0.1:<port>"; the host part must be the
+    // loopback literal (the port was already checked above).
+    let fbuf: [u8; 64] = [0u8; 64];
+    let flen: u64 = 0;
+    let fbuf_p: ptr = PTR_BYTE_ADD(&fbuf, 0);
+    let ast: i32 = sa_std_net_addr_format(dest_addr, fbuf_p, 64, &flen);
+    if ast != SA_STD_OK { panic(2555); };
+    if flen <= 9 { panic(2556); };
+    let hb: [u8; 9] = [49u8, 50u8, 55u8, 46u8, 48u8, 46u8, 48u8, 46u8, 49u8];
+    let i: u64 = 0;
+    while i < 9 {
+        if fbuf[i] != hb[i] { panic(2559); };
+        i = i + 1;
+    }
+    let f1: i32 = sa_net_addr_free(src_addr);
+    if f1 != SA_STD_OK { panic(2557); };
+    let f2: i32 = sa_net_addr_free(dest_addr);
+    if f2 != SA_STD_OK { panic(2558); };
+};
+
+@test "udp recv multi batch"() {
+    let receiver: u64 = bind_loopback_udp();
+    let port: u32 = local_port(receiver);
+    let sender: u64 = bind_loopback_udp();
+    let sport: u32 = local_port(sender);
+    let p1: [u8; 1] = [97u8];
+    let p2: [u8; 2] = [98u8, 98u8];
+    let p3: [u8; 3] = [99u8, 99u8, 99u8];
+    let p1_p: ptr = PTR_BYTE_ADD(&p1, 0);
+    let p2_p: ptr = PTR_BYTE_ADD(&p2, 0);
+    let p3_p: ptr = PTR_BYTE_ADD(&p3, 0);
+    send_payload(sender, port, p1_p, 1);
+    send_payload(sender, port, p2_p, 2);
+    send_payload(sender, port, p3_p, 3);
+
+    let buf: [u8; 128] = [0u8; 128];
+    let lens: [u64; 8] = [0u64; 8];
+    let addrs: [u64; 8] = [0u64; 8];
+    let count: u64 = 0;
+    let buf_p: ptr = PTR_BYTE_ADD(&buf, 0);
+    let lens_p: ptr = PTR_BYTE_ADD(&lens, 0);
+    let addrs_p: ptr = PTR_BYTE_ADD(&addrs, 0);
+    let st: i32 = sa_std_net_udp_recv_multi(receiver, buf_p, 128, 16, 8, &count, lens_p, addrs_p);
+    if st != SA_STD_OK { panic(2561); };
+    if count != 3 { panic(2562); };
+    if lens[0] != 1 { panic(2563); };
+    if lens[1] != 2 { panic(2564); };
+    if lens[2] != 3 { panic(2565); };
+    // Slots are 16 bytes apart: payloads land at 0, 16, 32.
+    if buf[0] != 97 { panic(2566); };
+    if buf[16] != 98 { panic(2567); };
+    if buf[17] != 98 { panic(2568); };
+    if buf[32] != 99 { panic(2569); };
+    if buf[34] != 99 { panic(2570); };
+    let i: u64 = 0;
+    while i < 3 {
+        if sa_net_addr_port(addrs[i]) != sport { panic(2571); };
+        let fst: i32 = sa_net_addr_free(addrs[i]);
+        if fst != SA_STD_OK { panic(2572); };
+        i = i + 1;
+    }
+};
+
+@test "unix datagram peer cred"() {
+    let left: u64 = 0;
+    let right: u64 = 0;
+    let st: i32 = sa_std_net_unix_datagram_pair(&left, &right);
+    if st != SA_STD_OK { panic(2581); };
+    let pid: i32 = 0;
+    let uid: u32 = 0;
+    let gid: u32 = 0;
+    let cst: i32 = sa_std_net_unix_datagram_peer_cred(left, &pid, &uid, &gid);
+    if cst != SA_STD_OK { panic(2582); };
+    if pid == 0 { panic(2583); };
+    if (pid as u32) != sa_std_process_id() { panic(2584); };
+    if uid != sa_std_process_user_id() { panic(2585); };
+    // An unconnected datagram socket has no peer: the kernel
+    // answers SO_PEERCRED with the zero credential (pid 0), the
+    // documented no-peer sentinel, not an error.
+    let lone: u64 = 0;
+    let ust: i32 = sa_std_net_unix_datagram_unbound(&lone);
+    if ust != SA_STD_OK { panic(2586); };
+    let pid2: i32 = 0;
+    let uid2: u32 = 0;
+    let gid2: u32 = 0;
+    let est: i32 = sa_std_net_unix_datagram_peer_cred(lone, &pid2, &uid2, &gid2);
+    if est != SA_STD_OK { panic(2587); };
+    if pid2 != 0 { panic(2588); };
+};
