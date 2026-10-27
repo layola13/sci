@@ -1,0 +1,64 @@
+// Regression test for the SLA-facing socket-option constants in
+// sa_std/net.sla (sockopt section). Literal lock only: sa_std has
+// no setsockopt passthrough yet (it is a registered wave-2 item),
+// so there is no extern behavior to compare against; the Linux
+// values are pinned literally. Provenance: the build host's
+// <asm-generic/socket.h>, <linux/tcp.h>, <linux/in.h>,
+// <linux/in6.h>, <netinet/in.h>, cross-checked with the host
+// Python socket module's SO_* values when this file was written.
+
+@import "sa_std/net.sla"
+
+@test "sockopt level consts pin the Linux values"() {
+    if SA_NET_SOCKOPT_LEVEL_IP == 0 { } else { panic(2401); };
+    if SA_NET_SOCKOPT_LEVEL_SOCKET == 1 { } else { panic(2402); };
+    if SA_NET_SOCKOPT_LEVEL_TCP == 6 { } else { panic(2403); };
+    if SA_NET_SOCKOPT_LEVEL_UDP == 17 { } else { panic(2404); };
+    if SA_NET_SOCKOPT_LEVEL_IPV6 == 41 { } else { panic(2405); };
+};
+
+@test "so consts pin the Linux values"() {
+    if SA_NET_SO_DEBUG == 1 { } else { panic(2411); };
+    if SA_NET_SO_REUSEADDR == 2 { } else { panic(2412); };
+    if SA_NET_SO_TYPE == 3 { } else { panic(2413); };
+    if SA_NET_SO_ERROR == 4 { } else { panic(2414); };
+    if SA_NET_SO_DONTROUTE == 5 { } else { panic(2415); };
+    if SA_NET_SO_BROADCAST == 6 { } else { panic(2416); };
+    if SA_NET_SO_SNDBUF == 7 { } else { panic(2417); };
+    if SA_NET_SO_RCVBUF == 8 { } else { panic(2418); };
+    if SA_NET_SO_KEEPALIVE == 9 { } else { panic(2419); };
+    if SA_NET_SO_OOBINLINE == 10 { } else { panic(2420); };
+    if SA_NET_SO_LINGER == 13 { } else { panic(2421); };
+    if SA_NET_SO_REUSEPORT == 15 { } else { panic(2422); };
+    if SA_NET_SO_PEERCRED == 17 { } else { panic(2423); };
+    if SA_NET_SO_RCVLOWAT == 18 { } else { panic(2424); };
+    if SA_NET_SO_SNDLOWAT == 19 { } else { panic(2425); };
+    if SA_NET_SO_RCVTIMEO == 20 { } else { panic(2426); };
+    if SA_NET_SO_SNDTIMEO == 21 { } else { panic(2427); };
+    if SA_NET_SO_ACCEPTCONN == 30 { } else { panic(2428); };
+};
+
+@test "tcp and ip sockopt consts pin the Linux values"() {
+    if SA_NET_TCP_NODELAY == 1 { } else { panic(2431); };
+    if SA_NET_TCP_MAXSEG == 2 { } else { panic(2432); };
+    if SA_NET_TCP_CORK == 3 { } else { panic(2433); };
+    if SA_NET_TCP_KEEPIDLE == 4 { } else { panic(2434); };
+    if SA_NET_TCP_KEEPINTVL == 5 { } else { panic(2435); };
+    if SA_NET_TCP_KEEPCNT == 6 { } else { panic(2436); };
+    if SA_NET_TCP_FASTOPEN == 23 { } else { panic(2437); };
+    if SA_NET_IP_TOS == 1 { } else { panic(2441); };
+    if SA_NET_IP_TTL == 2 { } else { panic(2442); };
+    if SA_NET_IP_HDRINCL == 3 { } else { panic(2443); };
+    if SA_NET_IP_PKTINFO == 8 { } else { panic(2444); };
+    if SA_NET_IP_MULTICAST_IF == 32 { } else { panic(2445); };
+    if SA_NET_IP_MULTICAST_TTL == 33 { } else { panic(2446); };
+    if SA_NET_IP_MULTICAST_LOOP == 34 { } else { panic(2447); };
+    if SA_NET_IP_ADD_MEMBERSHIP == 35 { } else { panic(2448); };
+    if SA_NET_IP_DROP_MEMBERSHIP == 36 { } else { panic(2449); };
+    if SA_NET_IPV6_MULTICAST_IF == 17 { } else { panic(2451); };
+    if SA_NET_IPV6_MULTICAST_HOPS == 18 { } else { panic(2452); };
+    if SA_NET_IPV6_MULTICAST_LOOP == 19 { } else { panic(2453); };
+    if SA_NET_IPV6_ADD_MEMBERSHIP == 20 { } else { panic(2454); };
+    if SA_NET_IPV6_DROP_MEMBERSHIP == 21 { } else { panic(2455); };
+    if SA_NET_IPV6_V6ONLY == 26 { } else { panic(2456); };
+};

@@ -39,3 +39,72 @@ const SA_NET_UNIX_ADDR_UNNAMED: u32 = 0;
 const SA_NET_UNIX_ADDR_PATHNAME: u32 = 1;
 const SA_NET_UNIX_ADDR_ABSTRACT: u32 = 2;
 
+// SLA-facing named constants for socket option levels and names:
+// the Linux setsockopt(2) numbering, published ahead of the
+// generic setsockopt/getsockopt passthrough (registered as the
+// highest-value single gap by the Python net census) so the
+// passthrough, when it lands, takes named values whose numbering
+// is already pinned. This is a core subset, not the full
+// SocketOptionName surface (.NET names 50): SOL_SOCKET basics,
+// SO_PEERCRED (named by the Java census for unix peer credentials),
+// TCP keepalive/Nagle/fast-open, IP multicast/TTL/pktinfo, IPv6
+// multicast/V6ONLY. Values verified against the build host's
+// <asm-generic/socket.h>, <linux/tcp.h>, <linux/in.h>,
+// <linux/in6.h> and <netinet/in.h> when this file was written;
+// they are the asm-generic (x86_64) Linux values. Pure
+// declarations: no new externs, no ABI change.
+
+// levels (IPPROTO_* / SOL_SOCKET)
+const SA_NET_SOCKOPT_LEVEL_IP: u32 = 0;
+const SA_NET_SOCKOPT_LEVEL_SOCKET: u32 = 1;
+const SA_NET_SOCKOPT_LEVEL_TCP: u32 = 6;
+const SA_NET_SOCKOPT_LEVEL_UDP: u32 = 17;
+const SA_NET_SOCKOPT_LEVEL_IPV6: u32 = 41;
+
+// SOL_SOCKET options
+const SA_NET_SO_DEBUG: u32 = 1;
+const SA_NET_SO_REUSEADDR: u32 = 2;
+const SA_NET_SO_TYPE: u32 = 3;
+const SA_NET_SO_ERROR: u32 = 4;
+const SA_NET_SO_DONTROUTE: u32 = 5;
+const SA_NET_SO_BROADCAST: u32 = 6;
+const SA_NET_SO_SNDBUF: u32 = 7;
+const SA_NET_SO_RCVBUF: u32 = 8;
+const SA_NET_SO_KEEPALIVE: u32 = 9;
+const SA_NET_SO_OOBINLINE: u32 = 10;
+const SA_NET_SO_LINGER: u32 = 13;
+const SA_NET_SO_REUSEPORT: u32 = 15;
+const SA_NET_SO_PEERCRED: u32 = 17;
+const SA_NET_SO_RCVLOWAT: u32 = 18;
+const SA_NET_SO_SNDLOWAT: u32 = 19;
+const SA_NET_SO_RCVTIMEO: u32 = 20;
+const SA_NET_SO_SNDTIMEO: u32 = 21;
+const SA_NET_SO_ACCEPTCONN: u32 = 30;
+
+// IPPROTO_TCP options
+const SA_NET_TCP_NODELAY: u32 = 1;
+const SA_NET_TCP_MAXSEG: u32 = 2;
+const SA_NET_TCP_CORK: u32 = 3;
+const SA_NET_TCP_KEEPIDLE: u32 = 4;
+const SA_NET_TCP_KEEPINTVL: u32 = 5;
+const SA_NET_TCP_KEEPCNT: u32 = 6;
+const SA_NET_TCP_FASTOPEN: u32 = 23;
+
+// IPPROTO_IP options
+const SA_NET_IP_TOS: u32 = 1;
+const SA_NET_IP_TTL: u32 = 2;
+const SA_NET_IP_HDRINCL: u32 = 3;
+const SA_NET_IP_PKTINFO: u32 = 8;
+const SA_NET_IP_MULTICAST_IF: u32 = 32;
+const SA_NET_IP_MULTICAST_TTL: u32 = 33;
+const SA_NET_IP_MULTICAST_LOOP: u32 = 34;
+const SA_NET_IP_ADD_MEMBERSHIP: u32 = 35;
+const SA_NET_IP_DROP_MEMBERSHIP: u32 = 36;
+
+// IPPROTO_IPV6 options
+const SA_NET_IPV6_MULTICAST_IF: u32 = 17;
+const SA_NET_IPV6_MULTICAST_HOPS: u32 = 18;
+const SA_NET_IPV6_MULTICAST_LOOP: u32 = 19;
+const SA_NET_IPV6_ADD_MEMBERSHIP: u32 = 20;
+const SA_NET_IPV6_DROP_MEMBERSHIP: u32 = 21;
+const SA_NET_IPV6_V6ONLY: u32 = 26;
