@@ -1,0 +1,279 @@
+// Behaviour tests for sa_std/icmp.sla, the ICMP wire codec.
+// Pure byte-level tests: checksum vectors from RFC 1071, echo
+// build/parse round trips, checksum rejection, IPv4-wrapped reply
+// parsing, and echo-session bookkeeping. No raw socket is opened
+// (sa_std has no raw-socket primitive; the codec is what this file
+// locks). On a tree without icmp.sla this file cannot compile,
+// which is what makes it a regression test.
+//
+// Run from the sa_plugin_sla repo root with SA_PLUGIN_DEV=1 and
+// SA_STD_DIR pointed at this sci tree's sa_std:
+//   sa test <sci>/tests/icmp_codec.sla
+
+@import "sa_std/icmp.sla"
+@import "sa_std/string.sa"
+@import "sa_std/ptr.sa"
+
+fn tb(text: ptr, text_len: u64) -> Vec<u8> {
+    let arr: [u8; 4096] = [0u8; 4096];
+    let dst: ptr = PTR_BYTE_ADD(&arr, 0);
+    PTR_COPY_BYTES(dst, text, text_len);
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < text_len {
+        out.push(arr[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn bytes_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
+    let n: u64 = len(a) as u64;
+    if n != (len(b) as u64) {
+        return false;
+    };
+    let sa: Slice<u8> = VEC_AS_SLICE(a);
+    let sb: Slice<u8> = VEC_AS_SLICE(b);
+    let i: u64 = 0;
+    while i < n {
+        let x: u8 = 0;
+        SLICE_GET(x, sa, i);
+        let y: u8 = 0;
+        SLICE_GET(y, sb, i);
+        if x != y {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+fn byte_at(v: &Vec<u8>, index: u64) -> u8 {
+    let sl: Slice<u8> = VEC_AS_SLICE(v);
+    let b: u8 = 0;
+    SLICE_GET(b, sl, index);
+    return b;
+}
+
+// Wrap an ICMP packet in a minimal IPv4 header (checksum left zero:
+// the parser treats the header as framing).
+fn wrap_ipv4(icmp_packet: Vec<u8>, ihl_words: u64, protocol: u8) -> Vec<u8> {
+    let inner_len: u64 = len(icmp_packet) as u64;
+    let header_len: u64 = ihl_words * 4;
+    let total: u64 = header_len + inner_len;
+    let out: Vec<u8> = Vec::new();
+    out.push(64 + (ihl_words as u8));
+    out.push(0);
+    out.push(((total >> 8) & 255) as u8);
+    out.push((total & 255) as u8);
+    out.push(0);
+    out.push(1);
+    out.push(0);
+    out.push(0);
+    out.push(64);
+    out.push(protocol);
+    out.push(0);
+    out.push(0);
+    out.push(127);
+    out.push(0);
+    out.push(0);
+    out.push(1);
+    out.push(127);
+    out.push(0);
+    out.push(0);
+    out.push(1);
+    let w: u64 = 5;
+    while w < ihl_words {
+        out.push(1);
+        out.push(1);
+        out.push(1);
+        out.push(0);
+        w = w + 1;
+    }
+    let sl: Slice<u8> = VEC_AS_SLICE(icmp_packet);
+    let i: u64 = 0;
+    while i < inner_len {
+        let b: u8 = 0;
+        SLICE_GET(b, sl, i);
+        out.push(b);
+        i = i + 1;
+    }
+    return out;
+}
+
+@test "checksum rfc 1071 worked example"() {
+    let data: Vec<u8> = Vec::new();
+    data.push(0);
+    data.push(1);
+    data.push(242);
+    data.push(3);
+    data.push(244);
+    data.push(245);
+    data.push(246);
+    data.push(247);
+    let sl: Slice<u8> = VEC_AS_SLICE(data);
+    let sum: u16 = icmp_checksum_bytes(&sl);
+    if sum != 8717 { panic(301); };
+}
+
+@test "checksum odd length and empty"() {
+    let one: Vec<u8> = Vec::new();
+    one.push(1);
+    let sl1: Slice<u8> = VEC_AS_SLICE(one);
+    if icmp_checksum_bytes(&sl1) != 65279 { panic(311); };
+    let empty: Vec<u8> = Vec::new();
+    let sl0: Slice<u8> = VEC_AS_SLICE(empty);
+    if icmp_checksum_bytes(&sl0) != 65535 { panic(312); };
+}
+
+@test "build echo request layout"() {
+    let pkt = icmp_build_echo_request(4660, 1, tb(STR_PTR("ab"), STR_LEN("ab")));
+    if (len(pkt) as u64) != 10 { panic(321); };
+    if byte_at(&pkt, 0) != 8 { panic(322); };
+    if byte_at(&pkt, 1) != 0 { panic(323); };
+    if byte_at(&pkt, 4) != 18 { panic(324); };
+    if byte_at(&pkt, 5) != 52 { panic(325); };
+    if byte_at(&pkt, 6) != 0 { panic(326); };
+    if byte_at(&pkt, 7) != 1 { panic(327); };
+    if byte_at(&pkt, 8) != 97 { panic(328); };
+    if byte_at(&pkt, 9) != 98 { panic(329); };
+    if icmp_checksum_vec(&pkt) != 0 { panic(330); };
+}
+
+@test "parse echo request round trip"() {
+    let pkt = icmp_build_echo_request(4660, 7, tb(STR_PTR("payload"), STR_LEN("payload")));
+    let r = icmp_parse_message(pkt);
+    match r {
+        Ok(m) => {
+            if m.message_type != 8 { panic(331); };
+            if m.code != 0 { panic(332); };
+            if m.identifier != 4660 { panic(333); };
+            if m.sequence != 7 { panic(334); };
+            if bytes_eq(m.payload, tb(STR_PTR("payload"), STR_LEN("payload"))) == false { panic(335); };
+        },
+        Err(e) => { panic(336); },
+    };
+}
+
+@test "parse rejects corrupted checksum"() {
+    let pkt = icmp_build_echo_request(1, 1, tb(STR_PTR("zz"), STR_LEN("zz")));
+    let bad: Vec<u8> = Vec::new();
+    let sl: Slice<u8> = VEC_AS_SLICE(pkt);
+    let n: u64 = len(pkt) as u64;
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = 0;
+        SLICE_GET(b, sl, i);
+        if i == 8 {
+            bad.push(65);
+        } else {
+            bad.push(b);
+        };
+        i = i + 1;
+    }
+    let r = icmp_parse_message(bad);
+    match r {
+        Ok(m) => { panic(341); },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT { panic(342); };
+        },
+    };
+}
+
+@test "parse rejects truncated packet"() {
+    let short: Vec<u8> = Vec::new();
+    short.push(8);
+    short.push(0);
+    short.push(0);
+    short.push(0);
+    short.push(0);
+    let r = icmp_parse_message(short);
+    match r {
+        Ok(m) => { panic(351); },
+        Err(e) => {
+            if e != SA_STD_ERR_TRUNCATED { panic(352); };
+        },
+    };
+}
+
+@test "ipv4 wrapped echo reply parses"() {
+    let reply = icmp_build_echo_reply(8738, 3, tb(STR_PTR("pong"), STR_LEN("pong")));
+    let wrapped = wrap_ipv4(reply, 5, 1);
+    let r = icmp_parse_ipv4_packet(wrapped);
+    match r {
+        Ok(m) => {
+            if m.message_type != 0 { panic(361); };
+            if m.identifier != 8738 { panic(362); };
+            if m.sequence != 3 { panic(363); };
+            if bytes_eq(m.payload, tb(STR_PTR("pong"), STR_LEN("pong"))) == false { panic(364); };
+        },
+        Err(e) => { panic(365); },
+    };
+}
+
+@test "ipv4 wrapped reply with options parses"() {
+    let reply = icmp_build_echo_reply(8738, 4, tb(STR_PTR("pong"), STR_LEN("pong")));
+    let wrapped = wrap_ipv4(reply, 6, 1);
+    let r = icmp_parse_ipv4_packet(wrapped);
+    match r {
+        Ok(m) => {
+            if m.sequence != 4 { panic(371); };
+        },
+        Err(e) => { panic(372); },
+    };
+}
+
+@test "ipv4 rejects non icmp protocol and bad version"() {
+    let reply = icmp_build_echo_reply(1, 1, tb(STR_PTR("x"), STR_LEN("x")));
+    let tcp_wrapped = wrap_ipv4(reply, 5, 6);
+    let r = icmp_parse_ipv4_packet(tcp_wrapped);
+    match r {
+        Ok(m) => { panic(381); },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT { panic(382); };
+        },
+    };
+    let reply2 = icmp_build_echo_reply(1, 1, tb(STR_PTR("x"), STR_LEN("x")));
+    let v6 = wrap_ipv4(reply2, 5, 1);
+    // Corrupt the version nibble to 6.
+    let bad: Vec<u8> = Vec::new();
+    let sl: Slice<u8> = VEC_AS_SLICE(v6);
+    let n: u64 = len(v6) as u64;
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = 0;
+        SLICE_GET(b, sl, i);
+        if i == 0 {
+            bad.push(101);
+        } else {
+            bad.push(b);
+        };
+        i = i + 1;
+    }
+    let r2 = icmp_parse_ipv4_packet(bad);
+    match r2 {
+        Ok(m) => { panic(383); },
+        Err(e) => {
+            if e != SA_STD_ERR_INVALID_ARGUMENT { panic(384); };
+        },
+    };
+}
+
+@test "session sequences and reply matching"() {
+    let s = icmp_echo_session_new(8738);
+    let r1 = icmp_echo_session_build_request(s, tb(STR_PTR("a"), STR_LEN("a")));
+    if r1.sequence != 1 { panic(391); };
+    let r2 = icmp_echo_session_build_request(r1.session, tb(STR_PTR("b"), STR_LEN("b")));
+    if r2.sequence != 2 { panic(392); };
+    let reply = icmp_build_echo_reply(8738, 1, tb(STR_PTR("a"), STR_LEN("a")));
+    let pr = icmp_parse_message(reply);
+    match pr {
+        Ok(m) => {
+            if icmp_echo_reply_matches(&m, 8738, 1) == false { panic(393); };
+            if icmp_echo_reply_matches(&m, 8738, 2) { panic(394); };
+            if icmp_echo_reply_matches(&m, 9999, 1) { panic(395); };
+            if icmp_echo_session_matches(&r2.session, &m) == false { panic(396); };
+        },
+        Err(e) => { panic(397); },
+    };
+}

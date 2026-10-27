@@ -1,0 +1,307 @@
+// sa_std/icmp.sla -- the ICMP (RFC 792) wire codec for SLA: the
+// internet checksum, echo request/reply construction, message
+// parsing (bare and IPv4-wrapped), and the pure bookkeeping of an
+// echo session (identifier/sequence assignment and reply matching).
+//
+// Why this file exists, and where its boundary is: the .NET std
+// census (sala 06_stdlib/26) recorded the ICMP Ping surface as
+// entirely absent from sa_std. The packet half of that surface is
+// delivered here. The transport half -- actually exchanging packets
+// and measuring the round-trip time -- is NOT, and the reason is a
+// missing primitive, stated plainly: sa_std has no raw-socket
+// creation surface at all. The complete net extern inventory
+// (sa_std/net.sai, netx.sai) offers TCP streams, UDP sockets, unix
+// sockets and from-raw-fd wrappers that adopt a host-owned fd; there
+// is no socket() creation extern for SOCK_RAW / IPPROTO_ICMP (nor
+// for the SOCK_DGRAM ping-socket form), and no way to obtain such an
+// fd from SLA. Until a raw-socket extern lands (it belongs with the
+// generic socket surface), there is deliberately no icmp_ping()
+// here: a function that cannot send would be a fake face. What an
+// exchange needs once that extern exists is exactly: build a
+// request with icmp_echo_session_build_request, send it, parse the
+// reply with icmp_parse_ipv4_packet (raw sockets deliver the full
+// IPv4 packet), match it with icmp_echo_reply_matches, and take the
+// RTT from the caller's own send/receive timestamps (sa_std time
+// surface). Privilege note for that future transport: raw ICMP
+// sockets need root or CAP_NET_RAW on Linux; the ping-socket form
+// needs the net.ipv4.ping_group_range sysctl to admit the group.
+//
+// Model choices (sa_std house style):
+//   - Errors are i32 status codes (SA_STD_* from status.sla):
+//     a packet shorter than the ICMP header, or an IPv4 packet too
+//     short for its declared header, is SA_STD_ERR_TRUNCATED; a
+//     checksum mismatch, a non-IPv4 version nibble, an IHL below 5,
+//     or a non-ICMP protocol byte is SA_STD_ERR_INVALID_ARGUMENT.
+//     The IPv4 header checksum is NOT verified (receiving stacks
+//     have already validated it on the path that delivers raw
+//     packets; this parser treats the header as framing only).
+//   - The checksum is verified on every parse: a received packet
+//     whose ICMP checksum does not sum to zero is malformed wire
+//     data and is rejected, never surfaced with a warning flag.
+//   - Byte strings are Vec<u8>, consumed by value as usual.
+//   - IcmpMessage.payload is everything after the 8-byte ICMP
+//     header: the echo payload for echo types, the trailing bytes
+//     (for destination-unreachable / time-exceeded, the head of the
+//     offending packet) for the rest. header_rest is the raw u32 in
+//     bytes 4..8 for non-echo types (unused / next-hop MTU / the
+//     RFC 4884 length word, uninterpreted here); identifier and
+//     sequence read the same bytes for echo types.
+
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+@import "sa_std/ptr.sa"
+@import "sa_std/status.sla"
+
+const SA_ICMP_TYPE_ECHO_REPLY: u8 = 0;
+const SA_ICMP_TYPE_DESTINATION_UNREACHABLE: u8 = 3;
+const SA_ICMP_TYPE_ECHO_REQUEST: u8 = 8;
+const SA_ICMP_TYPE_TIME_EXCEEDED: u8 = 11;
+const SA_ICMP_ECHO_HEADER_LEN: u64 = 8;
+
+struct IcmpMessage {
+    message_type: u8,
+    code: u8,
+    checksum: u16,
+    header_rest: u32,
+    identifier: u16,
+    sequence: u16,
+    payload: Vec<u8>,
+}
+
+struct IcmpEchoSession {
+    identifier: u16,
+    next_sequence: u16,
+}
+
+struct IcmpEchoRequest {
+    session: IcmpEchoSession,
+    sequence: u16,
+    packet: Vec<u8>,
+}
+
+// ---- byte helpers over slices (the dns.sla idiom) ----
+
+fn icmp_slice_len(sl: &Slice<u8>) -> u64 {
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    return n;
+}
+
+fn icmp_slice_byte(sl: &Slice<u8>, off: u64) -> u8 {
+    let b: u8 = 0;
+    SLICE_GET(b, sl, off);
+    return b;
+}
+
+fn icmp_slice_copy(sl: &Slice<u8>, begin: u64, end: u64) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = begin;
+    while i < end {
+        out.push(icmp_slice_byte(sl, i));
+        i = i + 1;
+    }
+    return out;
+}
+
+// The RFC 1071 internet checksum over a byte slice: the one's
+// complement of the one's-complement sum of the 16-bit big-endian
+// words, a trailing odd byte padded with a zero low byte. A buffer
+// whose embedded checksum is correct sums to 0 under this function.
+fn icmp_checksum_bytes(sl: &Slice<u8>) -> u16 {
+    let n: u64 = icmp_slice_len(sl);
+    let sum: u64 = 0;
+    let i: u64 = 0;
+    while i + 1 < n {
+        let word: u64 = ((icmp_slice_byte(sl, i) as u64) << 8) | (icmp_slice_byte(sl, i + 1) as u64);
+        sum = sum + word;
+        i = i + 2;
+    }
+    if i < n {
+        sum = sum + ((icmp_slice_byte(sl, i) as u64) << 8);
+    };
+    while (sum >> 16) != 0 {
+        sum = (sum & 65535) + (sum >> 16);
+    }
+    return ((sum ^ 65535) & 65535) as u16;
+}
+
+// Checksum convenience for a whole vector (read-only borrow).
+fn icmp_checksum_vec(data: &Vec<u8>) -> u16 {
+    let sl: Slice<u8> = VEC_AS_SLICE(data);
+    return icmp_checksum_bytes(&sl);
+}
+
+// ---- construction ----
+
+fn icmp_build_echo(echo_type: u8, identifier: u16, sequence: u16, payload: Vec<u8>) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    out.push(echo_type);
+    out.push(0);
+    out.push(0);
+    out.push(0);
+    out.push(((identifier >> 8) & 255) as u8);
+    out.push((identifier & 255) as u8);
+    out.push(((sequence >> 8) & 255) as u8);
+    out.push((sequence & 255) as u8);
+    let psl: Slice<u8> = VEC_AS_SLICE(payload);
+    let pn: u64 = len(payload) as u64;
+    let i: u64 = 0;
+    while i < pn {
+        out.push(icmp_slice_byte(&psl, i));
+        i = i + 1;
+    }
+    let sum: u16 = icmp_checksum_vec(&out);
+    // Patch the checksum into bytes 2..4 by rebuilding the head:
+    // Vec has no by-index store in this surface, so restage.
+    let staged: Vec<u8> = Vec::new();
+    let osl: Slice<u8> = VEC_AS_SLICE(out);
+    let on: u64 = len(out) as u64;
+    let j: u64 = 0;
+    while j < on {
+        if j == 2 {
+            staged.push(((sum >> 8) & 255) as u8);
+        } else {
+            if j == 3 {
+                staged.push((sum & 255) as u8);
+            } else {
+                staged.push(icmp_slice_byte(&osl, j));
+            };
+        };
+        j = j + 1;
+    }
+    return staged;
+}
+
+// Build an ICMP echo request (type 8, the "ping" packet) with the
+// checksum filled in.
+fn icmp_build_echo_request(identifier: u16, sequence: u16, payload: Vec<u8>) -> Vec<u8> {
+    return icmp_build_echo(SA_ICMP_TYPE_ECHO_REQUEST, identifier, sequence, payload);
+}
+
+// Build an ICMP echo reply (type 0). Exists so correspondents and
+// tests can produce well-formed replies without a second stack.
+fn icmp_build_echo_reply(identifier: u16, sequence: u16, payload: Vec<u8>) -> Vec<u8> {
+    return icmp_build_echo(SA_ICMP_TYPE_ECHO_REPLY, identifier, sequence, payload);
+}
+
+// ---- parsing ----
+
+// Parse one ICMP message. The checksum must verify (see the header).
+fn icmp_parse_message(packet: Vec<u8>) -> Result<IcmpMessage, i32> {
+    let n: u64 = len(packet) as u64;
+    if n < SA_ICMP_ECHO_HEADER_LEN {
+        return Err(SA_STD_ERR_TRUNCATED);
+    };
+    if icmp_checksum_vec(&packet) != 0 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let sl: Slice<u8> = VEC_AS_SLICE(packet);
+    let header_rest: u32 = ((icmp_slice_byte(&sl, 4) as u32) << 24) | ((icmp_slice_byte(&sl, 5) as u32) << 16) | ((icmp_slice_byte(&sl, 6) as u32) << 8) | (icmp_slice_byte(&sl, 7) as u32);
+    let identifier: u16 = ((icmp_slice_byte(&sl, 4) as u16) << 8) | (icmp_slice_byte(&sl, 5) as u16);
+    let sequence: u16 = ((icmp_slice_byte(&sl, 6) as u16) << 8) | (icmp_slice_byte(&sl, 7) as u16);
+    let checksum: u16 = ((icmp_slice_byte(&sl, 2) as u16) << 8) | (icmp_slice_byte(&sl, 3) as u16);
+    let payload: Vec<u8> = icmp_slice_copy(&sl, SA_ICMP_ECHO_HEADER_LEN, n);
+    let msg: IcmpMessage = IcmpMessage {
+        message_type: icmp_slice_byte(&sl, 0),
+        code: icmp_slice_byte(&sl, 1),
+        checksum: checksum,
+        header_rest: header_rest,
+        identifier: identifier,
+        sequence: sequence,
+        payload: payload,
+    };
+    return Ok(msg);
+}
+
+// Parse an ICMP message delivered inside a full IPv4 packet (the
+// raw-socket delivery shape): validates the version nibble, the IHL
+// and the protocol byte, honours the IPv4 total-length field when
+// it is present and smaller than the buffer, then delegates to
+// icmp_parse_message. The IPv4 header checksum is not verified
+// (see the header).
+fn icmp_parse_ipv4_packet(packet: Vec<u8>) -> Result<IcmpMessage, i32> {
+    let n: u64 = len(packet) as u64;
+    if n < 20 {
+        return Err(SA_STD_ERR_TRUNCATED);
+    };
+    let sl: Slice<u8> = VEC_AS_SLICE(packet);
+    let first: u8 = icmp_slice_byte(&sl, 0);
+    if (first >> 4) != 4 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let ihl: u64 = ((first & 15) as u64) * 4;
+    if ihl < 20 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if n < ihl + SA_ICMP_ECHO_HEADER_LEN {
+        return Err(SA_STD_ERR_TRUNCATED);
+    };
+    if icmp_slice_byte(&sl, 9) != 1 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let total_len: u64 = ((icmp_slice_byte(&sl, 2) as u64) << 8) | (icmp_slice_byte(&sl, 3) as u64);
+    if total_len != 0 {
+        if total_len < ihl + SA_ICMP_ECHO_HEADER_LEN {
+            return Err(SA_STD_ERR_INVALID_ARGUMENT);
+        };
+    };
+    let end: u64 = n;
+    if total_len >= ihl + SA_ICMP_ECHO_HEADER_LEN {
+        if total_len < n {
+            end = total_len;
+        };
+    };
+    let inner: Vec<u8> = icmp_slice_copy(&sl, ihl, end);
+    return icmp_parse_message(inner);
+}
+
+// ---- echo session bookkeeping ----
+
+// A session is the pure state of a ping conversation: the echo
+// identifier that replies must carry, and the next sequence number
+// to send. Sequences start at 1 and wrap through the u16 space.
+fn icmp_echo_session_new(identifier: u16) -> IcmpEchoSession {
+    return IcmpEchoSession {
+        identifier: identifier,
+        next_sequence: 1,
+    };
+}
+
+// Build the next echo request for the session and advance it. The
+// returned struct carries the advanced session, the sequence that
+// was used, and the wire packet.
+fn icmp_echo_session_build_request(session: IcmpEchoSession, payload: Vec<u8>) -> IcmpEchoRequest {
+    let sequence: u16 = session.next_sequence;
+    let packet: Vec<u8> = icmp_build_echo_request(session.identifier, sequence, payload);
+    let advanced = IcmpEchoSession {
+        identifier: session.identifier,
+        next_sequence: (((sequence as u32) + 1) & 65535) as u16,
+    };
+    return IcmpEchoRequest {
+        session: advanced,
+        sequence: sequence,
+        packet: packet,
+    };
+}
+
+// True when msg is the echo reply for (identifier, sequence): the
+// check an exchange loop applies to every parsed packet, since a
+// raw socket also delivers other hosts' ICMP traffic.
+fn icmp_echo_reply_matches(msg: &IcmpMessage, identifier: u16, sequence: u16) -> bool {
+    if msg.message_type != SA_ICMP_TYPE_ECHO_REPLY {
+        return false;
+    };
+    if msg.identifier != identifier {
+        return false;
+    };
+    return msg.sequence == sequence;
+}
+
+// True when msg is an echo reply belonging to this session (any
+// sequence) -- the cheap filter before the exact match above.
+fn icmp_echo_session_matches(session: &IcmpEchoSession, msg: &IcmpMessage) -> bool {
+    if msg.message_type != SA_ICMP_TYPE_ECHO_REPLY {
+        return false;
+    };
+    return msg.identifier == session.identifier;
+}
