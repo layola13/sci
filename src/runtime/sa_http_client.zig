@@ -180,6 +180,11 @@ pub const HttpMethod = enum(u8) {
     post = 2,
     put = 3,
     delete = 4,
+    head = 5,
+    patch = 6,
+    options = 7,
+    trace = 8,
+    connect = 9,
 };
 
 pub const HttpClientConfig = struct {
@@ -286,6 +291,11 @@ pub const HttpRequest = struct {
                 .post => .POST,
                 .put => .PUT,
                 .delete => .DELETE,
+                .head => .HEAD,
+                .patch => .PATCH,
+                .options => .OPTIONS,
+                .trace => .TRACE,
+                .connect => .CONNECT,
             },
             .url = try client.allocator.dupe(u8, cfg.url),
             .headers = std.array_list.Managed(std.http.Header).init(client.allocator),
@@ -2556,6 +2566,11 @@ fn methodFromCode(method: u8) ?HttpMethod {
         2 => .post,
         3 => .put,
         4 => .delete,
+        5 => .head,
+        6 => .patch,
+        7 => .options,
+        8 => .trace,
+        9 => .connect,
         else => null,
     };
 }
