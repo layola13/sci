@@ -1,0 +1,69 @@
+// Regression test for the SLA-facing SA_NET_AF_* address-family
+// constants in sa_std/net.sla, and for the dual-numbering lock
+// between OS address families and sa_std-internal address kinds.
+//
+// Two kinds of lock, kept separate on purpose (same split as
+// tests/status_constants.sla):
+//  - Behavioral: a loopback TCP listener's local address is a real
+//    owned NetAddr, and sa_net_addr_family on it must return the
+//    named OS constants (2 for 127.0.0.1, 10 for ::1) -- this is
+//    the exact comparison the old net.sal SA_NET_AF_IPV4 = 4 /
+//    SA_NET_AF_IPV6 = 6 would have silently failed.
+//  - Literal: the published values are pinned literally. They were
+//    verified against sa_std/net.sal (SA_NET_AF_INET = 2,
+//    SA_NET_AF_INET6 = 10) and src/runtime/sa_std.zig's
+//    sa_net_addr_family unit expectations when this file was
+//    written; if anyone edits net.sla's table, this test fails.
+//
+// The internal kind constants themselves (SA_NET_ADDR_KIND_IPV4 =
+// 4 / IPV6 = 6 in net.sal) are SA-layer #defs and are pinned at
+// that layer by tests/unit_framework/std_net_addr_kind_constants.sa.
+//
+// On a tree without net.sla this file cannot even compile, which
+// is what makes it a regression test for the constant face.
+
+@import "sa_std/net.sla"
+@import "sa_std/net.sai"
+@import "sa_std/string.sa"
+
+@test "af consts pin the OS values"() {
+    if SA_NET_AF_UNSPEC == 0 { } else { panic(1401); };
+    if SA_NET_AF_INET == 2 { } else { panic(1402); };
+    if SA_NET_AF_INET6 == 10 { } else { panic(1403); };
+};
+
+@test "addr family of a v4 listener local addr is SA_NET_AF_INET"() {
+    let listener: u64 = 0;
+    let bound_port: u32 = 0;
+    let st: i32 = sa_std_net_tcp_listen(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"), 0, &listener, &bound_port);
+    if st == 0 { } else { panic(1411); };
+    if listener != 0 { } else { panic(1412); };
+    let addr: u64 = 0;
+    let a_st: i32 = sa_std_net_tcp_listener_local_addr(listener, &addr);
+    if a_st == 0 { } else { panic(1413); };
+    if addr != 0 { } else { panic(1414); };
+    let fam: u32 = sa_net_addr_family(addr);
+    if fam == SA_NET_AF_INET { } else { panic(1415); };
+    let f_st: i32 = sa_net_addr_free(addr);
+    if f_st == 0 { } else { panic(1416); };
+    let c_st: i32 = sa_net_tcp_listener_close(listener);
+    if c_st == 0 { } else { panic(1417); };
+};
+
+@test "addr family of a v6 listener local addr is SA_NET_AF_INET6"() {
+    let listener: u64 = 0;
+    let bound_port: u32 = 0;
+    let st: i32 = sa_std_net_tcp_listen(STR_PTR("::1"), STR_LEN("::1"), 0, &listener, &bound_port);
+    if st == 0 { } else { panic(1421); };
+    if listener != 0 { } else { panic(1422); };
+    let addr: u64 = 0;
+    let a_st: i32 = sa_std_net_tcp_listener_local_addr(listener, &addr);
+    if a_st == 0 { } else { panic(1423); };
+    if addr != 0 { } else { panic(1424); };
+    let fam: u32 = sa_net_addr_family(addr);
+    if fam == SA_NET_AF_INET6 { } else { panic(1425); };
+    let f_st: i32 = sa_net_addr_free(addr);
+    if f_st == 0 { } else { panic(1426); };
+    let c_st: i32 = sa_net_tcp_listener_close(listener);
+    if c_st == 0 { } else { panic(1427); };
+};

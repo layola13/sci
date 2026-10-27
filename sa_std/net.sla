@@ -1,0 +1,29 @@
+// SLA-facing named constants for the sa_std.net address families:
+// the values sa_net_addr_family (sa_std/net.sai) returns for an
+// owned NetAddr, and the values the net.sa address macros produce.
+//
+// Why this file exists, and why it lives at the sa_std root: the
+// names have always existed at the SA layer -- sa_std/net.sal
+// defines SA_NET_AF_UNSPEC / SA_NET_AF_INET / SA_NET_AF_INET6 and
+// the .sa macros and unit-framework tests compare against them --
+// but an SLA consumer importing net.sai saw only the bare u32 and
+// had to hard-code 2 / 10. Worse, net.sal used to publish look-alike
+// SA_NET_AF_IPV4 = 4 / SA_NET_AF_IPV6 = 6 next to them: those were
+// sa_std-internal address-KIND numbers (the concrete IpAddr layout
+// tags, cf. NET_IP_ADDR_V4 / NET_IP_ADDR_V6 in net.sal), not address
+// families at all, and comparing one against a sa_net_addr_family
+// result silently never matches. The internal pair was renamed
+// SA_NET_ADDR_KIND_IPV4 / SA_NET_ADDR_KIND_IPV6 on 2026-10-27
+// (dual-definition trap resolution), and this file publishes the
+// family face for SLA. These consts are pure declarations: no new
+// externs, no ABI change.
+//
+// Values: the runtime stores and returns these exact numbers on
+// every platform (src/runtime/sa_std.zig sa_net_addr_family and
+// its sa_std_windows.zig mirror return the stored family field;
+// the Linux unit tests pin 2 for an IPv4 peer). They equal the
+// Linux AF_* values: AF_UNSPEC = 0, AF_INET = 2, AF_INET6 = 10.
+
+const SA_NET_AF_UNSPEC: u32 = 0;
+const SA_NET_AF_INET: u32 = 2;
+const SA_NET_AF_INET6: u32 = 10;

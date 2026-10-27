@@ -1,0 +1,63 @@
+@import "sa_std/net.sa"
+
+// Regression lock for the AddressFamily dual-definition trap
+// resolution (2026-10-27). sa_std has two numberings that must
+// never be confused:
+//   - OS address families: SA_NET_AF_INET = 2 / SA_NET_AF_INET6 =
+//     10 -- what sa_net_addr_family returns and what the
+//     NET_IP_ADDR_FAMILY macro below produces from a typed IpAddr.
+//   - sa_std-internal address kinds: SA_NET_ADDR_KIND_IPV4 = 4 /
+//     SA_NET_ADDR_KIND_IPV6 = 6 -- the concrete IpAddr layout tag
+//     numbering (renamed from the misleading SA_NET_AF_IPV4 /
+//     SA_NET_AF_IPV6, whose AF_ prefix invited comparison against
+//     family results).
+// This test pins both numberings literally and proves on concrete
+// loopback addresses that FAMILY yields the OS numbering, never
+// the kind numbering. If anyone "harmonizes" the kind values to
+// 2 / 10, or the family values to 4 / 6, this test fails.
+
+@test "sa_std net addr kind constants stay distinct from OS families"():
+L_ENTRY:
+    kind4_ok = eq SA_NET_ADDR_KIND_IPV4, 4
+    kind6_ok = eq SA_NET_ADDR_KIND_IPV6, 6
+    kind4_ne_family = ne SA_NET_ADDR_KIND_IPV4, SA_NET_AF_INET
+    kind6_ne_family = ne SA_NET_ADDR_KIND_IPV6, SA_NET_AF_INET6
+    kind4_ne_family6 = ne SA_NET_ADDR_KIND_IPV4, SA_NET_AF_INET6
+    kind6_ne_family4 = ne SA_NET_ADDR_KIND_IPV6, SA_NET_AF_INET
+    inet_ok = eq SA_NET_AF_INET, 2
+    inet6_ok = eq SA_NET_AF_INET6, 10
+    unspec_ok = eq SA_NET_AF_UNSPEC, 0
+
+    v4 = stack_alloc NetIpv4Addr_SIZE
+    EXPAND NET_IPV4_NEW v4, 127, 0, 0, 1
+    ip4 = stack_alloc NetIpAddr_SIZE
+    EXPAND NET_IP_ADDR_V4_NEW ip4, v4
+    EXPAND NET_IP_ADDR_FAMILY fam4, ip4
+    fam4_ok = eq fam4, SA_NET_AF_INET
+    fam4_ne_kind = ne fam4, SA_NET_ADDR_KIND_IPV4
+
+    v6 = stack_alloc NetIpv6Addr_SIZE
+    EXPAND NET_IPV6_NEW v6, 0, 0, 0, 0, 0, 0, 0, 1
+    ip6 = stack_alloc NetIpAddr_SIZE
+    EXPAND NET_IP_ADDR_V6_NEW ip6, v6
+    EXPAND NET_IP_ADDR_FAMILY fam6, ip6
+    fam6_ok = eq fam6, SA_NET_AF_INET6
+    fam6_ne_kind = ne fam6, SA_NET_ADDR_KIND_IPV6
+
+    ok1 = and kind4_ok, kind6_ok
+    ok2 = and ok1, kind4_ne_family
+    ok3 = and ok2, kind6_ne_family
+    ok4 = and ok3, kind4_ne_family6
+    ok5 = and ok4, kind6_ne_family4
+    ok6 = and ok5, inet_ok
+    ok7 = and ok6, inet6_ok
+    ok8 = and ok7, unspec_ok
+    ok9 = and ok8, fam4_ok
+    ok10 = and ok9, fam4_ne_kind
+    ok11 = and ok10, fam6_ok
+    ok = and ok11, fam6_ne_kind
+    br ok -> L_PASS, L_FAIL
+L_FAIL:
+    panic(10101)
+L_PASS:
+    return 0
