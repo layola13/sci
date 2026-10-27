@@ -1,0 +1,18 @@
+// SLA-facing named constants for the sa_std compression format
+// codes: the `format` argument of sa_std_compress_encode /
+// sa_std_compress_decode (sa_std/compress.sai).
+//
+// Why this file exists: the format numbering lived only in the
+// compress.sai header comment ("Formats: 1 = gzip, 2 = zlib
+// (HTTP deflate), 3 = raw deflate, 4 = brotli"), so SLA callers
+// hard-coded the numbers. These consts are the SLA spelling of
+// the same values, verified against src/runtime/sa_compress.zig's
+// format dispatch when this file was written. Pure declarations:
+// no new externs, no ABI change.
+
+@import "sa_std/compress.sai"
+
+const SA_COMPRESS_FORMAT_GZIP: u32 = 1;
+const SA_COMPRESS_FORMAT_ZLIB: u32 = 2;
+const SA_COMPRESS_FORMAT_RAW_DEFLATE: u32 = 3;
+const SA_COMPRESS_FORMAT_BROTLI: u32 = 4;

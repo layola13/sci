@@ -1,0 +1,49 @@
+// Regression test for the SLA-facing compression format constants
+// in sa_std/compress.sla.
+//
+//  - Literal: the four format codes are pinned.
+//  - Behavioral: a gzip encode/decode round-trip driven by the
+//    named constant must return the original bytes -- this is the
+//    exact call shape that previously needed the bare literal 1.
+//
+// On a tree without compress.sla this file cannot even compile.
+
+@import "sa_std/compress.sla"
+@import "sa_std/string.sa"
+@import "sa_std/ptr.sa"
+
+@test "compress format consts pin the published values"() {
+    if SA_COMPRESS_FORMAT_GZIP == 1 { } else { panic(2001); };
+    if SA_COMPRESS_FORMAT_ZLIB == 2 { } else { panic(2002); };
+    if SA_COMPRESS_FORMAT_RAW_DEFLATE == 3 { } else { panic(2003); };
+    if SA_COMPRESS_FORMAT_BROTLI == 4 { } else { panic(2004); };
+};
+
+@test "gzip round-trip via the named format constant"() {
+    let enc: u64 = 0;
+    let e_st: i32 = sa_std_compress_encode(SA_COMPRESS_FORMAT_GZIP, STR_PTR("hello sa_std"), STR_LEN("hello sa_std"), &enc);
+    if e_st == 0 { } else { panic(2011); };
+    if enc != 0 { } else { panic(2012); };
+    let enc_len: u64 = sa_std_compress_buffer_len(enc);
+    if enc_len > 0 { } else { panic(2013); };
+    let enc_ptr: ptr = sa_std_compress_buffer_data(enc);
+    let dec: u64 = 0;
+    let d_st: i32 = sa_std_compress_decode(SA_COMPRESS_FORMAT_GZIP, enc_ptr, enc_len, &dec);
+    if d_st == 0 { } else { panic(2014); };
+    if dec != 0 { } else { panic(2015); };
+    let dec_len: u64 = sa_std_compress_buffer_len(dec);
+    if dec_len == STR_LEN("hello sa_std") { } else { panic(2016); };
+    let dec_ptr: ptr = sa_std_compress_buffer_data(dec);
+    let src_ptr: ptr = STR_PTR("hello sa_std");
+    let bi: u64 = 0;
+    while bi < dec_len {
+        let got: u8 = PTR_READ_U8(PTR_BYTE_ADD(dec_ptr, bi));
+        let want: u8 = PTR_READ_U8(PTR_BYTE_ADD(src_ptr, bi));
+        if got == want { } else { panic(2017); };
+        bi = bi + 1;
+    }
+    let f1: i32 = sa_std_compress_buffer_free(dec);
+    if f1 == 0 { } else { panic(2018); };
+    let f2: i32 = sa_std_compress_buffer_free(enc);
+    if f2 == 0 { } else { panic(2019); };
+};
