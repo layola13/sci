@@ -21,6 +21,11 @@
 @extern sa_toml_parse(&toml_bytes: ptr, len: u64) -> u64
 @extern sa_toml_free(^doc: u64) -> i32
 @extern sa_toml_last_error(&out_ptr: ptr, &out_len: ptr) -> i32
+// The u32 written to out_kind is one of the SA_TOML_KIND_* values;
+// SLA consumers get them as named consts (plus sa_toml_is_*
+// predicates) from sa_std/encoding/toml.sla instead of hard-coding
+// the numbers. A failed lookup leaves SA_TOML_KIND_UNDEFINED (0)
+// behind; the empty path resolves to the root table.
 @extern sa_toml_kind(doc: u64, &path: ptr, path_len: u64, &out_kind: ptr) -> i32
 @extern sa_toml_get_string(doc: u64, &path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> i32
 @extern sa_toml_get_datetime(doc: u64, &path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> i32

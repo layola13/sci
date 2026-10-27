@@ -1,0 +1,65 @@
+// SLA-facing named constants for the kind values that sa_toml_kind
+// (declared in sa_std/encoding/toml.sai) writes into its &out_kind
+// parameter.
+//
+// Why this file exists: unlike the JSON kind values, these names
+// existed at NO layer before this file -- not in a .sal, not in
+// sa_std.h -- only as the internal KIND_* constants of the TOML
+// implementation (src/runtime/sa_toml.zig:31-37). An SLA consumer
+// importing toml.sai saw only the bare u32 out-param and had to
+// hard-code the numbers. These consts are the public SLA spelling.
+// They are pure declarations: no new externs, no ABI change.
+//
+// Values (verified line-by-line against the implementation:
+// KIND_* at src/runtime/sa_toml.zig:31-37, and sa_toml_kind itself
+// at sa_toml.zig:804-817):
+//   UNDEFINED = 0 (no value: sa_toml_kind pre-fills out_kind with
+//   0, so a failed lookup -- status SA_STD_ERR_NOT_FOUND -- leaves
+//   UNDEFINED behind; the empty path resolves to the root table,
+//   kind TABLE)
+//   STRING = 1, INTEGER = 2, FLOAT = 3, BOOL = 4, DATETIME = 5,
+//   ARRAY = 6, TABLE = 7
+//
+// Datetimes are preserved as raw text with their own kind so nothing
+// is silently coerced into a string or a number (see the module doc
+// in src/runtime/sa_toml.zig).
+
+@import "sa_std/encoding/toml.sai"
+
+const SA_TOML_KIND_UNDEFINED: u32 = 0;
+const SA_TOML_KIND_STRING: u32 = 1;
+const SA_TOML_KIND_INTEGER: u32 = 2;
+const SA_TOML_KIND_FLOAT: u32 = 3;
+const SA_TOML_KIND_BOOL: u32 = 4;
+const SA_TOML_KIND_DATETIME: u32 = 5;
+const SA_TOML_KIND_ARRAY: u32 = 6;
+const SA_TOML_KIND_TABLE: u32 = 7;
+
+// Kind predicates, in the shape of the sa_json_is_* helpers in
+// encoding/json.sla: read the kind at `path` in document `doc` and
+// compare. A failed lookup (missing path, bad handle) reads as
+// false for every predicate -- callers that must distinguish
+// "missing" from "wrong kind" should call sa_toml_kind directly and
+// check its status. Only the three shapes with real call-site demand
+// are given; the rest compare against the consts directly.
+
+fn sa_toml_is_string(doc: u64, path_ptr: ptr, path_len: u64) -> bool {
+    let kind: u32 = 0;
+    let st: i32 = sa_toml_kind(doc, path_ptr, path_len, &kind);
+    if st != 0 { return false; };
+    return kind == SA_TOML_KIND_STRING;
+}
+
+fn sa_toml_is_array(doc: u64, path_ptr: ptr, path_len: u64) -> bool {
+    let kind: u32 = 0;
+    let st: i32 = sa_toml_kind(doc, path_ptr, path_len, &kind);
+    if st != 0 { return false; };
+    return kind == SA_TOML_KIND_ARRAY;
+}
+
+fn sa_toml_is_table(doc: u64, path_ptr: ptr, path_len: u64) -> bool {
+    let kind: u32 = 0;
+    let st: i32 = sa_toml_kind(doc, path_ptr, path_len, &kind);
+    if st != 0 { return false; };
+    return kind == SA_TOML_KIND_TABLE;
+}
