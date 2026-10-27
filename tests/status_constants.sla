@@ -1,0 +1,101 @@
+// Regression test for the SLA-facing SA_STD_* status constants in
+// sa_std/status.sla.
+//
+// Two kinds of lock, kept separate on purpose:
+//  - Behavioral: wherever an extern can be made to produce a code
+//    deterministically, the test triggers it and compares against
+//    the named constant (OK, INVALID_ARGUMENT, INVALID_HANDLE,
+//    NOT_FOUND, TRUNCATED, ALREADY_EXISTS).
+//  - Literal: the remaining codes (ACCESS, NO_MEMORY, IO, NET,
+//    UNSUPPORTED, PERMISSION_DENIED, UNKNOWN) have no deterministic
+//    trigger from an SLA test -- they need fault injection, a
+//    non-root process, or the runtime policy engine -- so their
+//    published values are pinned literally. The values were verified
+//    against src/runtime/sa_std.h:13-25 and src/runtime/sa_std.zig:
+//    566-574, 617-620 when this file was written; if anyone edits
+//    status.sla's table, this test fails.
+//
+// On a tree without status.sla this file cannot even compile, which
+// is what makes it a regression test for the constant face.
+
+@import "sa_std/status.sla"
+@import "sa_std/encoding/json.sla"
+@import "sa_std/encoding/toml.sla"
+@import "sa_std/fs.sai"
+@import "sa_std/globals.sai"
+@import "sa_std/string.sa"
+@import "sa_std/ptr.sa"
+
+@test "status consts pin the published values"() {
+    if SA_STD_OK == 0 { } else { panic(1301); };
+    if SA_STD_ERR_INVALID_ARGUMENT == 1 { } else { panic(1302); };
+    if SA_STD_ERR_INVALID_HANDLE == 2 { } else { panic(1303); };
+    if SA_STD_ERR_NOT_FOUND == 3 { } else { panic(1304); };
+    if SA_STD_ERR_ACCESS == 4 { } else { panic(1305); };
+    if SA_STD_ERR_NO_MEMORY == 5 { } else { panic(1306); };
+    if SA_STD_ERR_IO == 6 { } else { panic(1307); };
+    if SA_STD_ERR_NET == 7 { } else { panic(1308); };
+    if SA_STD_ERR_UNSUPPORTED == 8 { } else { panic(1309); };
+    if SA_STD_ERR_TRUNCATED == 9 { } else { panic(1310); };
+    if SA_STD_ERR_PERMISSION_DENIED == 10 { } else { panic(1311); };
+    if SA_STD_ERR_ALREADY_EXISTS == 11 { } else { panic(1312); };
+    if SA_STD_ERR_UNKNOWN == 127 { } else { panic(1313); };
+};
+
+@test "ok and invalid argument come back as the named consts"() {
+    let w_ok: u64 = 0;
+    let ok_st: i32 = sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 0, 0, 0, 0, &w_ok);
+    if ok_st == SA_STD_OK { } else { panic(1321); };
+    let f: i32 = sa_json_writer_free(w_ok);
+    if f == SA_STD_OK { } else { panic(1322); };
+    let w_bad: u64 = 0;
+    let bad_st: i32 = sa_json_writer_new(99, 0, 0, 0, 0, &w_bad);
+    if bad_st == SA_STD_ERR_INVALID_ARGUMENT { } else { panic(1323); };
+};
+
+@test "invalid handle comes back as the named const"() {
+    let k: u32 = 0;
+    let st: i32 = sa_toml_kind(0, STR_PTR("x"), STR_LEN("x"), &k);
+    if st == SA_STD_ERR_INVALID_HANDLE { } else { panic(1331); };
+};
+
+@test "not found comes back as the named const"() {
+    let v: u64 = 0;
+    let g_st: i32 = sa_global_u64_get(STR_PTR("aj2.unset.u64"), STR_LEN("aj2.unset.u64"), &v);
+    if g_st == SA_STD_ERR_NOT_FOUND { } else { panic(1341); };
+    let n: u64 = 0;
+    let f_st: i32 = sa_std_fs_len(STR_PTR("/tmp/aj2_missing_9f3b.txt"), STR_LEN("/tmp/aj2_missing_9f3b.txt"), &n);
+    if f_st == SA_STD_ERR_NOT_FOUND { } else { panic(1342); };
+};
+
+@test "truncated comes back as the named const and reports the needed length"() {
+    let s_st: i32 = sa_global_bytes_set(STR_PTR("aj2.blob"), STR_LEN("aj2.blob"), STR_PTR("abcdefgh"), STR_LEN("abcdefgh"));
+    if s_st == SA_STD_OK { } else { panic(1351); };
+    let buf: [u8; 16] = [0u8; 16];
+    let bp = PTR_BYTE_ADD(&buf, 0);
+    let need: u64 = 0;
+    let g_st: i32 = sa_global_bytes_get(STR_PTR("aj2.blob"), STR_LEN("aj2.blob"), bp, 2, &need);
+    if g_st == SA_STD_ERR_TRUNCATED { } else { panic(1352); };
+    if need == 8 { } else { panic(1353); };
+    let ok_st: i32 = sa_global_bytes_get(STR_PTR("aj2.blob"), STR_LEN("aj2.blob"), bp, 16, &need);
+    if ok_st == SA_STD_OK { } else { panic(1354); };
+    if need == 8 { } else { panic(1355); };
+    if buf[0] == 97 && buf[7] == 104 { } else { panic(1356); };
+};
+
+@test "already exists comes back as the named const"() {
+    let rm0: i32 = sa_fs_remove_file(STR_PTR("/tmp/aj2_status_probe.txt"), STR_LEN("/tmp/aj2_status_probe.txt"));
+    let rm1: i32 = sa_fs_remove_file(STR_PTR("/tmp/aj2_status_fresh.txt"), STR_LEN("/tmp/aj2_status_fresh.txt"));
+    let w_st: i32 = sa_fs_write_file(STR_PTR("/tmp/aj2_status_probe.txt"), STR_LEN("/tmp/aj2_status_probe.txt"), STR_PTR("x"), STR_LEN("x"));
+    if w_st == SA_STD_OK { } else { panic(1361); };
+    let h: u64 = 0;
+    let dup_st: i32 = sa_std_fs_open_create_excl(STR_PTR("/tmp/aj2_status_probe.txt"), STR_LEN("/tmp/aj2_status_probe.txt"), &h);
+    if dup_st == SA_STD_ERR_ALREADY_EXISTS { } else { panic(1362); };
+    let ok_st: i32 = sa_std_fs_open_create_excl(STR_PTR("/tmp/aj2_status_fresh.txt"), STR_LEN("/tmp/aj2_status_fresh.txt"), &h);
+    if ok_st == SA_STD_OK { } else { panic(1363); };
+    if h != 0 { } else { panic(1364); };
+    let c_st: i32 = sa_fs_file_close(h);
+    if c_st == SA_STD_OK { } else { panic(1365); };
+    let rm2: i32 = sa_fs_remove_file(STR_PTR("/tmp/aj2_status_probe.txt"), STR_LEN("/tmp/aj2_status_probe.txt"));
+    let rm3: i32 = sa_fs_remove_file(STR_PTR("/tmp/aj2_status_fresh.txt"), STR_LEN("/tmp/aj2_status_fresh.txt"));
+};

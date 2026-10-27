@@ -1,0 +1,49 @@
+// SLA-facing named constants for the sa_std status codes: the i32
+// that nearly every sa_std extern returns (0 = success, anything
+// else is one of the SA_STD_ERR_* values below).
+//
+// Why this file exists, and why it lives at the sa_std root: the
+// names have always existed at the other layers --
+// src/runtime/sa_std.h defines them for C (sa_std.h:13-25) and the
+// Zig runtime implements them (SA_STD_* in src/runtime/sa_std.zig:
+// 566-574, 617-620; src/runtime/sa_std_windows.zig mirrors them) --
+// but an SLA consumer importing any .sai saw only the bare i32 and
+// had to hard-code the numbers (converted product code did exactly
+// that, e.g. comparing fs results against a literal 3). No single
+// domain owns these codes -- they are returned by externs declared
+// across every .sai in sa_std -- so the SLA spelling lives here, at
+// the root next to the other cross-cutting SLA files (async.sla,
+// timer.sla, str.sla), not inside one domain's folder. These consts
+// are pure declarations: no new externs, no ABI change.
+//
+// Values (verified line-by-line against both sources named above):
+//   SA_STD_OK = 0
+//   SA_STD_ERR_INVALID_ARGUMENT = 1
+//   SA_STD_ERR_INVALID_HANDLE = 2
+//   SA_STD_ERR_NOT_FOUND = 3
+//   SA_STD_ERR_ACCESS = 4
+//   SA_STD_ERR_NO_MEMORY = 5
+//   SA_STD_ERR_IO = 6
+//   SA_STD_ERR_NET = 7
+//   SA_STD_ERR_UNSUPPORTED = 8
+//   SA_STD_ERR_TRUNCATED = 9
+//   SA_STD_ERR_PERMISSION_DENIED = 10 (the 16_policy denial status;
+//   in sa_std.h this one appears only as a comment -- the define
+//   itself is Zig-side, sa_std.zig:618)
+//   SA_STD_ERR_ALREADY_EXISTS = 11
+//   SA_STD_ERR_UNKNOWN = 127 (the fallback: an OS/runtime error with
+//   no more specific mapping)
+
+const SA_STD_OK: i32 = 0;
+const SA_STD_ERR_INVALID_ARGUMENT: i32 = 1;
+const SA_STD_ERR_INVALID_HANDLE: i32 = 2;
+const SA_STD_ERR_NOT_FOUND: i32 = 3;
+const SA_STD_ERR_ACCESS: i32 = 4;
+const SA_STD_ERR_NO_MEMORY: i32 = 5;
+const SA_STD_ERR_IO: i32 = 6;
+const SA_STD_ERR_NET: i32 = 7;
+const SA_STD_ERR_UNSUPPORTED: i32 = 8;
+const SA_STD_ERR_TRUNCATED: i32 = 9;
+const SA_STD_ERR_PERMISSION_DENIED: i32 = 10;
+const SA_STD_ERR_ALREADY_EXISTS: i32 = 11;
+const SA_STD_ERR_UNKNOWN: i32 = 127;
