@@ -1,0 +1,157 @@
+// Behavioral tests for the SLA-facing HTTP cookie surface
+// (sa_std/http_cookie.sla constants + sa_std/http_cookie.sai
+// externs, implemented by src/runtime/sa_cookie.zig).
+//
+// The assertions exercise the RFC 6265 semantics end to end at
+// the SLA layer: value parsing with the RFC example cookie,
+// strict rejection, the jar storage model (domain rejection,
+// path scoping, send ordering, deletion by an expired store),
+// and a Netscape save/load round trip. The exhaustive tables
+// (date grammar, match rules, file bytes) are covered by the Zig
+// unit tests inside src/runtime/sa_cookie.zig; this file is the
+// regression lock for the SLA-visible behavior.
+//
+// On a tree without http_cookie.sai/sla this file cannot even
+// compile, which is part of what makes it a regression test.
+
+@import "sa_std/http_cookie.sla"
+@import "sa_std/status.sla"
+@import "sa_std/string.sa"
+@import "sa_std/string.sai"
+@import "sa_std/ptr.sa"
+
+@test "cookie consts pin the published values"() {
+    if SA_COOKIE_SAMESITE_UNSPECIFIED == 0 { } else { panic(1401); };
+    if SA_COOKIE_SAMESITE_LAX == 1 { } else { panic(1402); };
+    if SA_COOKIE_SAMESITE_STRICT == 2 { } else { panic(1403); };
+    if SA_COOKIE_SAMESITE_NONE == 3 { } else { panic(1404); };
+    if SA_COOKIE_JAR_POLICY_ACCEPT_ALL == 0 { } else { panic(1405); };
+    if SA_COOKIE_JAR_POLICY_ACCEPT_NONE == 1 { } else { panic(1406); };
+    if SA_COOKIE_JAR_POLICY_HOST_ONLY == 2 { } else { panic(1407); };
+    if SA_COOKIE_STORE_STORED == 0 { } else { panic(1408); };
+    if SA_COOKIE_STORE_REPLACED == 1 { } else { panic(1409); };
+    if SA_COOKIE_STORE_DELETED == 2 { } else { panic(1410); };
+    if SA_COOKIE_STORE_IGNORED_EXPIRED == 3 { } else { panic(1411); };
+    if SA_COOKIE_STORE_REJECTED == 4 { } else { panic(1412); };
+};
+
+@test "parse the RFC example cookie and read every field back"() {
+    let h: u64 = sa_cookie_parse_set_cookie(STR_PTR("SID=31d4d96e407aad42; Domain=example.com; Path=/; Expires=Sun, 06 Nov 1994 08:49:37 GMT; Secure; HttpOnly; SameSite=Strict"), STR_LEN("SID=31d4d96e407aad42; Domain=example.com; Path=/; Expires=Sun, 06 Nov 1994 08:49:37 GMT; Secure; HttpOnly; SameSite=Strict"));
+    if h == 0 { panic(1421); };
+    let op: ptr = PTR_NULL();
+    let ol: u64 = 0;
+    let s1: i32 = sa_cookie_name(h, &op, &ol);
+    if s1 != SA_STD_OK { panic(1422); };
+    if ol == STR_LEN("SID") { } else { panic(1423); };
+    let w1: i32 = sa_string_starts_with(op, ol, STR_PTR("SID"), STR_LEN("SID"));
+    if w1 == 1 { } else { panic(1424); };
+    let s2: i32 = sa_cookie_value(h, &op, &ol);
+    if s2 != SA_STD_OK { panic(1425); };
+    if ol == STR_LEN("31d4d96e407aad42") { } else { panic(1426); };
+    let w2: i32 = sa_string_starts_with(op, ol, STR_PTR("31d4d96e407aad42"), STR_LEN("31d4d96e407aad42"));
+    if w2 == 1 { } else { panic(1427); };
+    let s3: i32 = sa_cookie_domain(h, &op, &ol);
+    if s3 != SA_STD_OK { panic(1428); };
+    if ol == STR_LEN("example.com") { } else { panic(1429); };
+    let w3: i32 = sa_string_starts_with(op, ol, STR_PTR("example.com"), STR_LEN("example.com"));
+    if w3 == 1 { } else { panic(1430); };
+    let ts: i64 = 0;
+    let s4: i32 = sa_cookie_expires(h, &ts);
+    if s4 != SA_STD_OK { panic(1431); };
+    if ts == 784111777 { } else { panic(1432); };
+    let sec: i32 = 0;
+    let hon: i32 = 0;
+    let par: i32 = 0;
+    let s5: i32 = sa_cookie_flags(h, &sec, &hon, &par);
+    if s5 != SA_STD_OK { panic(1433); };
+    if sec == 1 { } else { panic(1434); };
+    if hon == 1 { } else { panic(1435); };
+    if par == 0 { } else { panic(1436); };
+    let mode: u32 = 0;
+    let s6: i32 = sa_cookie_same_site(h, &mode);
+    if s6 != SA_STD_OK { panic(1437); };
+    if mode == SA_COOKIE_SAMESITE_STRICT { } else { panic(1438); };
+    let s7: i32 = sa_cookie_serialize_pair(h, &op, &ol);
+    if s7 != SA_STD_OK { panic(1439); };
+    if ol == STR_LEN("SID=31d4d96e407aad42") { } else { panic(1440); };
+    let f: i32 = sa_cookie_free(h);
+    if f != SA_STD_OK { panic(1441); };
+};
+
+@test "malformed Set-Cookie values fail explicitly"() {
+    let h: u64 = sa_cookie_parse_set_cookie(STR_PTR("noequalsign"), STR_LEN("noequalsign"));
+    if h == 0 { } else { panic(1451); };
+    let op: ptr = PTR_NULL();
+    let ol: u64 = 0;
+    let st: i32 = sa_cookie_last_error(&op, &ol);
+    if st == SA_STD_OK { } else { panic(1452); };
+    if ol == 0 { panic(1453); };
+    let bad: u64 = sa_cookie_parse_set_cookie(STR_PTR("a=va,lue"), STR_LEN("a=va,lue"));
+    if bad == 0 { } else { panic(1454); };
+};
+
+@test "jar store, scoping, ordering, rejection, deletion"() {
+    let jar: u64 = sa_cookie_jar_new();
+    if jar == 0 { panic(1461); };
+    let res: u32 = 0;
+    let st1: i32 = sa_cookie_jar_store(jar, STR_PTR("https://example.com/app/page"), STR_LEN("https://example.com/app/page"), STR_PTR("sess=xyz; Path=/app; Max-Age=500"), STR_LEN("sess=xyz; Path=/app; Max-Age=500"), 1000, &res);
+    if st1 != SA_STD_OK { panic(1462); };
+    if res == SA_COOKIE_STORE_STORED { } else { panic(1463); };
+    let st2: i32 = sa_cookie_jar_store(jar, STR_PTR("https://example.com/"), STR_LEN("https://example.com/"), STR_PTR("root=1; Path=/"), STR_LEN("root=1; Path=/"), 1000, &res);
+    if st2 != SA_STD_OK { panic(1464); };
+    if res == SA_COOKIE_STORE_STORED { } else { panic(1465); };
+    let op: ptr = PTR_NULL();
+    let ol: u64 = 0;
+    let h1: i32 = sa_cookie_jar_header(jar, STR_PTR("https://example.com/app/other"), STR_LEN("https://example.com/app/other"), 1100, &op, &ol);
+    if h1 != SA_STD_OK { panic(1466); };
+    if ol == STR_LEN("sess=xyz; root=1") { } else { panic(1467); };
+    let w1: i32 = sa_string_starts_with(op, ol, STR_PTR("sess=xyz; root=1"), STR_LEN("sess=xyz; root=1"));
+    if w1 == 1 { } else { panic(1468); };
+    let h2: i32 = sa_cookie_jar_header(jar, STR_PTR("https://example.com/other"), STR_LEN("https://example.com/other"), 1100, &op, &ol);
+    if h2 != SA_STD_OK { panic(1469); };
+    if ol == STR_LEN("root=1") { } else { panic(1470); };
+    let st3: i32 = sa_cookie_jar_store(jar, STR_PTR("https://example.com/"), STR_LEN("https://example.com/"), STR_PTR("bad=1; Domain=other.com"), STR_LEN("bad=1; Domain=other.com"), 1100, &res);
+    if st3 != SA_STD_OK { panic(1471); };
+    if res == SA_COOKIE_STORE_REJECTED { } else { panic(1472); };
+    let st4: i32 = sa_cookie_jar_store(jar, STR_PTR("https://example.com/app/page"), STR_LEN("https://example.com/app/page"), STR_PTR("sess=; Path=/app; Max-Age=0"), STR_LEN("sess=; Path=/app; Max-Age=0"), 1200, &res);
+    if st4 != SA_STD_OK { panic(1473); };
+    if res == SA_COOKIE_STORE_DELETED { } else { panic(1474); };
+    let h3: i32 = sa_cookie_jar_header(jar, STR_PTR("https://example.com/app/other"), STR_LEN("https://example.com/app/other"), 1200, &op, &ol);
+    if h3 != SA_STD_OK { panic(1475); };
+    if ol == STR_LEN("root=1") { } else { panic(1476); };
+    let h4: i32 = sa_cookie_jar_header(jar, STR_PTR("https://unrelated.example/"), STR_LEN("https://unrelated.example/"), 1200, &op, &ol);
+    if h4 == SA_STD_ERR_NOT_FOUND { } else { panic(1477); };
+    let f: i32 = sa_cookie_jar_free(jar);
+    if f != SA_STD_OK { panic(1478); };
+};
+
+@test "netscape save and load round trip"() {
+    let jar: u64 = sa_cookie_jar_new();
+    if jar == 0 { panic(1481); };
+    let res: u32 = 0;
+    let st1: i32 = sa_cookie_jar_store(jar, STR_PTR("http://example.com/"), STR_LEN("http://example.com/"), STR_PTR("a=1; Domain=example.com; Max-Age=100000"), STR_LEN("a=1; Domain=example.com; Max-Age=100000"), 1000, &res);
+    if st1 != SA_STD_OK { panic(1482); };
+    let st2: i32 = sa_cookie_jar_store(jar, STR_PTR("http://sub.example.com/"), STR_LEN("http://sub.example.com/"), STR_PTR("b=2"), STR_LEN("b=2"), 1000, &res);
+    if st2 != SA_STD_OK { panic(1483); };
+    let sv: i32 = sa_cookie_jar_save(jar, STR_PTR("/tmp/http_cookie_sla_test.txt"), STR_LEN("/tmp/http_cookie_sla_test.txt"));
+    if sv != SA_STD_OK { panic(1484); };
+    let jar2: u64 = sa_cookie_jar_new();
+    if jar2 == 0 { panic(1485); };
+    let loaded: u64 = 0;
+    let ld: i32 = sa_cookie_jar_load(jar2, STR_PTR("/tmp/http_cookie_sla_test.txt"), STR_LEN("/tmp/http_cookie_sla_test.txt"), &loaded);
+    if ld != SA_STD_OK { panic(1486); };
+    if loaded == 2 { } else { panic(1487); };
+    let cnt: u64 = 0;
+    let cs: i32 = sa_cookie_jar_count(jar2, &cnt);
+    if cs != SA_STD_OK { panic(1488); };
+    if cnt == 2 { } else { panic(1489); };
+    let op: ptr = PTR_NULL();
+    let ol: u64 = 0;
+    let h1: i32 = sa_cookie_jar_header(jar2, STR_PTR("http://sub.example.com/"), STR_LEN("http://sub.example.com/"), 2000, &op, &ol);
+    if h1 != SA_STD_OK { panic(1490); };
+    if ol == STR_LEN("a=1; b=2") { } else { panic(1491); };
+    let w1: i32 = sa_string_starts_with(op, ol, STR_PTR("a=1; b=2"), STR_LEN("a=1; b=2"));
+    if w1 == 1 { } else { panic(1492); };
+    let f1: i32 = sa_cookie_jar_free(jar);
+    let f2: i32 = sa_cookie_jar_free(jar2);
+};

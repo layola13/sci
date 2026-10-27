@@ -1,0 +1,153 @@
+// SA-facing contracts for the sa_std HTTP cookie surface
+// (src/runtime/sa_cookie.zig): RFC 6265 value layer, storage-model
+// jar, and Netscape cookie-file persistence. This surface is the
+// census gap found independently by six census lines (Java
+// HttpCookie/CookieManager, Go net/http Cookie + cookiejar,
+// Python http.cookies/http.cookiejar, Android, iOS, .NET): before
+// this file, sa_std had zero cookie symbols at any layer.
+//
+// Handles are opaque OWNED U64s (0 = invalid), mirroring the
+// JSON/TOML document surfaces. Two handle kinds exist -- a single
+// cookie and a jar -- and each has its own free function; the
+// kinds are not interchangeable. Status returns use the shared
+// SA_STD_* codes (sa_std/status.sla): 0 ok, 1 invalid argument,
+// 2 invalid handle, 3 not found, 5 no memory, 6 io. Strings read
+// through &out_ptr/&out_len are owned by the handle they came from
+// and are invalidated by the next mutation or serialization of
+// that same handle. Times are unix seconds.
+//
+// Strictness contract (explicit rejection, no silent swallowing):
+// a Set-Cookie string whose name-value pair has no '=', an empty
+// or non-token name, or a value outside the RFC 6265 cookie-octet
+// set fails parsing outright (handle 0, detail in
+// sa_cookie_last_error). Individual attributes that fail to parse
+// (bad date, non-numeric Max-Age, unknown SameSite token, Path not
+// starting with '/', Domain with illegal bytes) are ignored per
+// RFC 6265 section 5.2, as are unknown attributes (including the
+// obsolete RFC 2965 Comment/Version/Port/Discard).
+//
+// ---- value layer ----
+// sa_cookie_parse_set_cookie parses one Set-Cookie header value.
+// The parsed cookie carries the raw attributes: Expires as an
+// absolute time (sa_cookie_expires) and Max-Age as raw seconds
+// (sa_cookie_max_age); the jar resolves the two when storing.
+// sa_cookie_expires / sa_cookie_max_age report NOT_FOUND when the
+// attribute is absent (a session cookie has neither).
+@extern sa_cookie_parse_set_cookie(&bytes: ptr, len: u64) -> u64
+@extern sa_cookie_last_error(&out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_cookie_free(^handle: u64) -> i32
+@extern sa_cookie_new(&name: ptr, name_len: u64, &value: ptr, value_len: u64) -> u64
+@extern sa_cookie_name(handle: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_cookie_value(handle: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+// Domain is stored normalized: lowercased, one leading '.' removed;
+// NOT_FOUND until a Domain attribute / setter provides one.
+@extern sa_cookie_domain(handle: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_cookie_path(handle: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_cookie_expires(handle: u64, &out_unix: ptr) -> i32
+@extern sa_cookie_max_age(handle: u64, &out_secs: ptr) -> i32
+@extern sa_cookie_flags(handle: u64, &out_secure: ptr, &out_http_only: ptr, &out_partitioned: ptr) -> i32
+// SameSite mode out value: one of SA_COOKIE_SAMESITE_*
+// (sa_std/http_cookie.sla).
+@extern sa_cookie_same_site(handle: u64, &out_mode: ptr) -> i32
+// 1 when the cookie is bound to its exact origin host (only jar
+// entries and jar copies carry this; parsed/built cookies read 0).
+@extern sa_cookie_is_host_only(handle: u64, &out_flag: ptr) -> i32
+// Setters validate like the parser (domain bytes, path must start
+// with '/'); invalid input is SA_STD_ERR_INVALID_ARGUMENT and
+// leaves the cookie unchanged.
+@extern sa_cookie_set_domain(handle: u64, &bytes: ptr, len: u64) -> i32
+@extern sa_cookie_set_path(handle: u64, &bytes: ptr, len: u64) -> i32
+@extern sa_cookie_set_expires(handle: u64, unix: i64) -> i32
+@extern sa_cookie_set_max_age(handle: u64, secs: i64) -> i32
+@extern sa_cookie_clear_expiry(handle: u64) -> i32
+@extern sa_cookie_set_secure(handle: u64, on: i32) -> i32
+@extern sa_cookie_set_http_only(handle: u64, on: i32) -> i32
+@extern sa_cookie_set_partitioned(handle: u64, on: i32) -> i32
+@extern sa_cookie_set_same_site(handle: u64, mode: u32) -> i32
+// Set-Cookie serialization (attributes in canonical order:
+// Domain, Path, Expires, Max-Age, Secure, HttpOnly, SameSite,
+// Partitioned) and the bare "name=value" pair form used in Cookie
+// request headers.
+@extern sa_cookie_serialize(handle: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_cookie_serialize_pair(handle: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+// Expiry of a bare value can only be judged from its absolute
+// Expires attribute (Max-Age is relative to receipt, which only a
+// jar knows): out_flag is 1 iff expires <= now.
+@extern sa_cookie_is_expired(handle: u64, now: i64, &out_flag: ptr) -> i32
+// Pure RFC 6265 matching primitives, exposed for policy code and
+// tests: domain_match is section 5.1.3 (an optional leading '.' on
+// the domain is stripped; IP-literal hosts match exactly only),
+// path_match is section 5.1.4.
+@extern sa_cookie_domain_match(&domain: ptr, domain_len: u64, &host: ptr, host_len: u64, &out_flag: ptr) -> i32
+@extern sa_cookie_path_match(&cookie_path: ptr, cookie_path_len: u64, &request_path: ptr, request_path_len: u64, &out_flag: ptr) -> i32
+// Cookie request header ("a=1; b=2"): pair_count validates the
+// whole header; pair_at re-reads one pair as a value cookie.
+@extern sa_cookie_header_pair_count(&bytes: ptr, len: u64, &out_count: ptr) -> i32
+@extern sa_cookie_header_pair_at(&bytes: ptr, len: u64, index: u64) -> u64
+
+// ---- jar layer ----
+// The jar implements the RFC 6265 storage model: domain-match on
+// store (a Domain attribute that does not match the request host
+// is rejected), host-only cookies without a Domain attribute,
+// default-path derivation, Max-Age precedence over Expires,
+// replacement by (name, domain, path) preserving the original
+// creation order, lazy eviction of expired cookies, and send
+// ordering (longer path first, earlier creation first). Secure
+// cookies are only stored from -- and sent to -- potentially
+// trustworthy origins (https/wss, or loopback/localhost). There is
+// NO public-suffix list in sa_std: cookies for public suffixes are
+// accepted (Go cookiejar with a nil PublicSuffixList behaves the
+// same). Jar operations take an explicit `now` (unix seconds) so
+// behavior is deterministic; the two hooks at the bottom are the
+// only clock readers.
+@extern sa_cookie_jar_new() -> u64
+@extern sa_cookie_jar_free(^jar: u64) -> i32
+// Acceptance policy, one of SA_COOKIE_JAR_POLICY_*: ACCEPT_ALL
+// (default, RFC rules only), ACCEPT_NONE (store always rejects),
+// HOST_ONLY (a Domain attribute never widens a cookie beyond its
+// origin host -- Java CookiePolicy.ACCEPT_ORIGINAL_SERVER).
+@extern sa_cookie_jar_set_policy(jar: u64, policy: u32) -> i32
+@extern sa_cookie_jar_policy(jar: u64, &out_policy: ptr) -> i32
+// Store one Set-Cookie value received from a response for `url`.
+// Status is the call-level outcome (bad url / bad cookie / bad
+// handle); the per-cookie outcome lands in out_result as one of
+// SA_COOKIE_STORE_* (STORED / REPLACED / DELETED by an expired
+// store / IGNORED_EXPIRED / REJECTED by policy, domain mismatch,
+// or the secure-origin rule).
+@extern sa_cookie_jar_store(jar: u64, &url: ptr, url_len: u64, &set_cookie: ptr, set_cookie_len: u64, now: i64, &out_result: ptr) -> i32
+// Build the Cookie header value for a request to `url`;
+// SA_STD_ERR_NOT_FOUND (and an empty out string) when nothing
+// matches -- the header is then omitted, per HTTP practice.
+@extern sa_cookie_jar_header(jar: u64, &url: ptr, url_len: u64, now: i64, &out_ptr: ptr, &out_len: ptr) -> i32
+// Stored entries in creation order. Expired entries are evicted
+// lazily (by header/store calls carrying a `now`, or explicitly by
+// sa_cookie_jar_evict_expired), so count/at may briefly include
+// an expired entry no header call has swept yet.
+@extern sa_cookie_jar_count(jar: u64, &out_count: ptr) -> i32
+// Copy of the entry at `index` as a value cookie (caller frees).
+// The copy carries the absolute expiry the jar resolved; the raw
+// Max-Age attribute does not survive the copy.
+@extern sa_cookie_jar_at(jar: u64, index: u64) -> u64
+@extern sa_cookie_jar_clear(jar: u64) -> i32
+@extern sa_cookie_jar_evict_expired(jar: u64, now: i64, &out_removed: ptr) -> i32
+// Netscape cookie file persistence (the Mozilla format of
+// Python's http.cookiejar and curl): one line per cookie,
+// tab-separated domain/flag/path/secure/expires/name/value, with
+// the #HttpOnly_ prefix convention for HttpOnly cookies and 0 as
+// the expiry of session cookies. Load is strict and atomic: a
+// malformed data line fails the whole load with
+// SA_STD_ERR_INVALID_ARGUMENT (line detail in
+// sa_cookie_last_error) and leaves the jar untouched; comment and
+// blank lines are skipped. Loaded cookies bypass the acceptance
+// policy -- the file is trusted local state.
+@extern sa_cookie_jar_save(jar: u64, &path: ptr, path_len: u64) -> i32
+@extern sa_cookie_jar_load(jar: u64, &path: ptr, path_len: u64, &out_loaded: ptr) -> i32
+// ---- http_client hooks (explicit calls, std level only) ----
+// These two functions are the entire http_client integration:
+// a client calls store_response with each Set-Cookie value of a
+// response and request_header before sending a request. They read
+// the wall clock; the managed http_client runtime does NOT call
+// them by itself -- automatic handling waits on the client handler
+// model, which is a separate architecture decision.
+@extern sa_cookie_jar_request_header(jar: u64, &url: ptr, url_len: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_cookie_jar_store_response(jar: u64, &url: ptr, url_len: u64, &set_cookie: ptr, set_cookie_len: u64) -> i32

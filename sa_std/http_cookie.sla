@@ -1,0 +1,39 @@
+// SLA-facing named constants for the HTTP cookie surface
+// (externs in sa_std/http_cookie.sai, implementation in
+// src/runtime/sa_cookie.zig).
+//
+// Why this file exists: the SameSite modes, jar acceptance
+// policies, and store outcome codes cross the SA boundary as bare
+// u32s -- an SLA consumer importing http_cookie.sai would have to
+// hard-code the numbers. These consts are the public SLA spelling.
+// They are pure declarations: no new externs, no ABI change.
+//
+// Values (verified against the implementation:
+//   SAMESITE_* at src/runtime/sa_cookie.zig -- UNSPECIFIED = 0
+//   (attribute absent), LAX = 1, STRICT = 2, NONE = 3.
+//   POLICY_* -- ACCEPT_ALL = 0 (the default: RFC 6265 rules
+//   only), ACCEPT_NONE = 1 (every store is rejected),
+//   HOST_ONLY = 2 (a Domain attribute never widens a cookie
+//   beyond its origin host).
+//   STORE_* (the out_result of sa_cookie_jar_store) --
+//   STORED = 0, REPLACED = 1, DELETED = 2 (an expired store
+//   removed an existing cookie), IGNORED_EXPIRED = 3 (an expired
+//   store with nothing to remove), REJECTED = 4 (policy, domain
+//   mismatch, or the secure-origin rule).
+
+@import "sa_std/http_cookie.sai"
+
+const SA_COOKIE_SAMESITE_UNSPECIFIED: u32 = 0;
+const SA_COOKIE_SAMESITE_LAX: u32 = 1;
+const SA_COOKIE_SAMESITE_STRICT: u32 = 2;
+const SA_COOKIE_SAMESITE_NONE: u32 = 3;
+
+const SA_COOKIE_JAR_POLICY_ACCEPT_ALL: u32 = 0;
+const SA_COOKIE_JAR_POLICY_ACCEPT_NONE: u32 = 1;
+const SA_COOKIE_JAR_POLICY_HOST_ONLY: u32 = 2;
+
+const SA_COOKIE_STORE_STORED: u32 = 0;
+const SA_COOKIE_STORE_REPLACED: u32 = 1;
+const SA_COOKIE_STORE_DELETED: u32 = 2;
+const SA_COOKIE_STORE_IGNORED_EXPIRED: u32 = 3;
+const SA_COOKIE_STORE_REJECTED: u32 = 4;
