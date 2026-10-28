@@ -1,0 +1,173 @@
+@import "sa_std/io/print.sai"
+
+@extern ee_new() -> blob_handle
+#npm_bind ee_new "node:events#EventEmitter:ctor"
+
+@extern ee_on(self: blob_handle, &ev: ptr, ev_len: u64, cb: blob_handle) -> blob_handle
+#npm_bind ee_on "@handle#on:method"
+
+@extern ee_emit(self: blob_handle, &ev: ptr, ev_len: u64, arg: f64) -> i32
+#npm_bind ee_emit "@handle#emit:method"
+
+@extern sa_js_make_callback(fn: u64) -> blob_handle
+@extern sa_js_callback_poll(fn_out: ptr, argc_out: ptr, args_out: ptr) -> i64
+@extern sa_js_value_release(handle: blob_handle) -> i32
+
+@const CB_VT = vtable { invoke = @cb_double }
+@const EV = utf8:"tick"
+@const OUT = utf8:"968\n"
+
+@cb_double(x: f64) -> f64:
+L_ENTRY:
+    r = fadd x, x
+    !x
+    return r
+
+// 968 - JS-to-SA callbacks (queue-drain): an SA function is wrapped
+// into a JS closure handle and registered with emitter.on("tick").
+// emit() only enqueues events; the SA program polls the queue and
+// dispatches in its own flow via call_indirect. Two emits with args
+// 7 and 8 must dispatch cb_double to 14 and 16 (sum 30), the queue
+// is empty before the first emit and after both dispatches.
+@main() -> i32:
+L_ENTRY:
+    e = call @ee_new()
+    vt = &CB_VT
+    fp0 = load vt+0 as u64
+    cb = call @sa_js_make_callback(fp0)
+    e2 = call @ee_on(e, &EV, 4, cb)
+    fn_slot = stack_alloc 8
+    argc_slot = stack_alloc 8
+    args_slot = stack_alloc 64
+    store fn_slot+0, 0 as i64
+    store argc_slot+0, 0 as i64
+    p0 = call @sa_js_callback_poll(fn_slot, argc_slot, args_slot)
+    seven_i = 7 as i32
+    seven = sitofp seven_i as f64
+    em1 = call @ee_emit(e, &EV, 4, seven)
+    p1 = call @sa_js_callback_poll(fn_slot, argc_slot, args_slot)
+    fp1 = load fn_slot+0 as ptr
+    argc1 = load argc_slot+0 as i64
+    arg1 = load args_slot+0 as f64
+    v1 = call_indirect fp1(arg1)
+    eight_i = 8 as i32
+    eight = sitofp eight_i as f64
+    em2 = call @ee_emit(e, &EV, 4, eight)
+    p2 = call @sa_js_callback_poll(fn_slot, argc_slot, args_slot)
+    fp2 = load fn_slot+0 as ptr
+    argc2 = load argc_slot+0 as i64
+    arg2 = load args_slot+0 as f64
+    v2 = call_indirect fp2(arg2)
+    p3 = call @sa_js_callback_poll(fn_slot, argc_slot, args_slot)
+    sum = fadd v1, v2
+    thirty_i = 30 as i32
+    thirty = sitofp thirty_i as f64
+    one64 = 1 as i64
+    zero64 = 0 as i64
+    one32 = 1 as i32
+    ok_p0 = eq p0, zero64
+    ok_e1 = eq em1, one32
+    ok_p1 = eq p1, one64
+    ok_fp1 = eq fp1, fp0
+    ok_ac1 = eq argc1, one64
+    ok_a1 = fcmp_eq arg1, seven
+    ok_e2 = eq em2, one32
+    ok_p2 = eq p2, one64
+    ok_fp2 = eq fp2, fp0
+    ok_ac2 = eq argc2, one64
+    ok_a2 = fcmp_eq arg2, eight
+    ok_sum = fcmp_eq sum, thirty
+    ok_p3 = eq p3, zero64
+    r1 = call @sa_js_value_release(e)
+    r2 = call @sa_js_value_release(e2)
+    r3 = call @sa_js_value_release(cb)
+    z = 0 as i32
+    ok_r1 = eq r1, z
+    ok_r2 = eq r2, z
+    ok_r3 = eq r3, z
+    a1 = and ok_p0, ok_e1
+    a2 = and a1, ok_p1
+    a3 = and a2, ok_fp1
+    a4 = and a3, ok_ac1
+    a5 = and a4, ok_a1
+    a6 = and a5, ok_e2
+    a7 = and a6, ok_p2
+    a8 = and a7, ok_fp2
+    a9 = and a8, ok_ac2
+    a10 = and a9, ok_a2
+    a11 = and a10, ok_sum
+    a12 = and a11, ok_p3
+    a13 = and a12, ok_r1
+    a14 = and a13, ok_r2
+    all = and a14, ok_r3
+    !e
+    !vt
+    !fp0
+    !cb
+    !e2
+    !p0
+    !seven_i
+    !seven
+    !em1
+    !p1
+    !fp1
+    !argc1
+    !arg1
+    !v1
+    !eight_i
+    !eight
+    !em2
+    !p2
+    !fp2
+    !argc2
+    !arg2
+    !v2
+    !p3
+    !sum
+    !thirty_i
+    !thirty
+    !one64
+    !zero64
+    !one32
+    !ok_p0
+    !ok_e1
+    !ok_p1
+    !ok_fp1
+    !ok_ac1
+    !ok_a1
+    !ok_e2
+    !ok_p2
+    !ok_fp2
+    !ok_ac2
+    !ok_a2
+    !ok_sum
+    !ok_p3
+    !r1
+    !r2
+    !r3
+    !z
+    !ok_r1
+    !ok_r2
+    !ok_r3
+    !a1
+    !a2
+    !a3
+    !a4
+    !a5
+    !a6
+    !a7
+    !a8
+    !a9
+    !a10
+    !a11
+    !a12
+    !a13
+    !a14
+    br all -> L_OK, L_ERR
+L_OK:
+    !all
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !all
+    return 1

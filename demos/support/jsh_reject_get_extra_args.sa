@@ -1,0 +1,10 @@
+@import "sa_std/io/print.sai"
+
+@extern bad_get(self: blob_handle, extra: i32) -> i32
+#npm_bind bad_get "@handle#length:get"
+
+// Negative probe (build must reject): a :get binding takes the
+// self handle and no further parameters.
+@main() -> i32:
+L_ENTRY:
+    return 0

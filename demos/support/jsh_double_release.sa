@@ -1,0 +1,18 @@
+@import "sa_std/io/print.sai"
+
+@extern ee_new() -> blob_handle
+#npm_bind ee_new "node:events#EventEmitter:ctor"
+
+@extern sa_js_value_release(handle: blob_handle) -> i32
+
+// Negative probe: releasing the same handle twice must trap with
+// "stale or released handle" on the second release.
+@main() -> i32:
+L_ENTRY:
+    e = call @ee_new()
+    r1 = call @sa_js_value_release(e)
+    r2 = call @sa_js_value_release(e)
+    !e
+    !r1
+    !r2
+    return 0

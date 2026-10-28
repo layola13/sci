@@ -1,0 +1,39 @@
+@import "sa_std/io/print.sai"
+
+@extern ee_new() -> blob_handle
+#npm_bind ee_new "node:events#EventEmitter:ctor"
+
+@extern ee_max_listeners(self: blob_handle) -> i32
+#npm_bind ee_max_listeners "@handle#getMaxListeners:method"
+
+@extern sa_js_value_release(handle: blob_handle) -> i32
+
+@const OUT = utf8:"965\n"
+
+// 965 - npm handle ctor + method: `new EventEmitter()` through a
+// :ctor binding returns a blob_handle; a :method binding calls
+// getMaxListeners() on it (Node default is 10); the handle is then
+// released explicitly through the runtime builtin.
+@main() -> i32:
+L_ENTRY:
+    e = call @ee_new()
+    m = call @ee_max_listeners(e)
+    want = 10 as i32
+    ok = eq m, want
+    rel = call @sa_js_value_release(e)
+    ok_rel = eq rel, 0
+    all = and ok, ok_rel
+    !e
+    !m
+    !want
+    !rel
+    !ok
+    !ok_rel
+    br all -> L_OK, L_ERR
+L_OK:
+    !all
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !all
+    return 1

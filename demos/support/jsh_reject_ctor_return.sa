@@ -1,0 +1,10 @@
+@import "sa_std/io/print.sai"
+
+@extern bad_ctor(x: f64) -> i32
+#npm_bind bad_ctor "node:events#EventEmitter:ctor"
+
+// Negative probe (build must reject): a :ctor binding must return
+// a blob_handle.
+@main() -> i32:
+L_ENTRY:
+    return 0

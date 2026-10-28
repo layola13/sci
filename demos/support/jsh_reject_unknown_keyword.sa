@@ -1,0 +1,10 @@
+@import "sa_std/io/print.sai"
+
+@extern bad_kw() -> u64
+#npm_bind bad_kw "node:os#totalmem:wrongkw"
+
+// Negative probe (build must reject): unknown #npm_bind shape
+// keywords are rejected at build time.
+@main() -> i32:
+L_ENTRY:
+    return 0

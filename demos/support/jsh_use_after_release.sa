@@ -1,0 +1,22 @@
+@import "sa_std/io/print.sai"
+
+@extern ee_new() -> blob_handle
+#npm_bind ee_new "node:events#EventEmitter:ctor"
+
+@extern ee_max_listeners(self: blob_handle) -> i32
+#npm_bind ee_max_listeners "@handle#getMaxListeners:method"
+
+@extern sa_js_value_release(handle: blob_handle) -> i32
+
+// Negative probe: using a handle after release must trap with
+// "stale or released handle" (generation mismatch), never silently
+// alias whatever value later recycles the slot.
+@main() -> i32:
+L_ENTRY:
+    e = call @ee_new()
+    rel = call @sa_js_value_release(e)
+    m = call @ee_max_listeners(e)
+    !e
+    !rel
+    !m
+    return 0

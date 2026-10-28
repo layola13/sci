@@ -230,13 +230,62 @@ const FuncTask = struct {
 /// - `"spec#ns.member"`  namespace import: `import * as alias_ns`
 ///   and calls lower to `alias_ns.member(...)`. Exactly one dot level;
 ///   deeper paths are rejected (bind a narrower export instead).
+///   WARNING: the first segment is only a label — the member is
+///   resolved on the MODULE namespace object, not on a named export.
+///   `"three#MathUtils.clamp"` therefore calls
+///   `<three namespace>.clamp`, NOT `MathUtils.clamp` (BU d.ts2sai
+///   evidence: builds RC=0, throws TypeError at runtime). Members of
+///   named export objects are NOT expressible in this form; use a
+///   named import of the member's owner or generated glue instead.
+///
+/// Handle shapes (JS value handles; see DESIGN.md of the js-handle line):
+/// colon-separated shape keywords may follow the target segment:
+/// - `"spec#Name:ctor"`: construct with `new`, return the object as a
+///   blob_handle into the runtime handle table. Namespace targets
+///   (`"spec#ns.Name:ctor"`) are REJECTED at build time: with the
+///   namespace semantics above, `new alias.Name` would construct a
+///   member of the module namespace while the spelling suggests a
+///   class nested in a named export — the same silent mis-shape as
+///   the call form. Bind the class by its top-level named export.
+/// - `"@handle#name:method"`: first extern param is a blob_handle
+///   self; calls `self.name(...)`. No import is emitted. The spec is
+///   the reserved marker `@handle` (the flattener's npm_bind line
+///   parser rejects a truly empty spec before emit_js ever runs).
+/// - `"@handle#name:get"`: first extern param is a blob_handle
+///   self; reads the property `self.name` (no further params).
+/// - `:bytes` / `:f32view` modifiers (combinable with any shape): the
+///   extern's adjacent (ptr, len) pairs marshal as zero-copy Uint8Array /
+///   Float32Array views over linear memory instead of UTF8 strings.
+/// String returns are signature-driven (orthogonal to shape): an extern
+/// whose params end with (ptr, integer, ptr) and that returns an integer
+/// is a string-out binding — the JS string is written back into linear
+/// memory per the (out_ptr, out_cap, &out_len) convention.
+const NpmShape = enum { call, ctor, method, get };
+const NpmBytesView = enum { none, u8, f32 };
+
 const NpmImport = struct {
     spec: []const u8,
     export_name: []const u8,
     member: ?[]const u8,
     alias: []const u8,
     extern_name: []const u8,
+    shape: NpmShape = .call,
+    bytes_view: NpmBytesView = .none,
 };
+
+/// Whether an npm-bound extern with this signature uses the string-out
+/// marshaling path: params end with (out_ptr: ptr, out_cap: integer,
+/// out_len: ptr) and the return is an integer status. Ctor bindings are
+/// excluded (they return handles). Shared by the wrapper emitter and by
+/// the runtime-chunk gate so the two never disagree.
+fn npmStrOut(fsig: sig.FunctionSig, shape: NpmShape) bool {
+    if (shape == .ctor) return false;
+    const params = fsig.params;
+    if (params.len < 3) return false;
+    const n = params.len;
+    return params[n - 3].ty == .ptr and isNpmIntType(params[n - 2].ty) and
+        params[n - 1].ty == .ptr and isNpmIntType(fsig.return_ty);
+}
 
 fn collectNpmImports(
     allocator: std.mem.Allocator,
@@ -251,20 +300,70 @@ fn collectNpmImports(
         const fsig = verified.function_sigs[task.fsig_index];
         const binding = npm_binds.get(fsig.name) orelse continue;
         const hash = std.mem.lastIndexOfScalar(u8, binding, '#') orelse return JsEmitError.UnsupportedNpmBinding;
-        if (hash == 0 or hash + 1 >= binding.len) return JsEmitError.UnsupportedNpmBinding;
+        if (hash + 1 >= binding.len) return JsEmitError.UnsupportedNpmBinding;
         const spec = binding[0..hash];
-        const export_name = binding[hash + 1 ..];
+        const rest = binding[hash + 1 ..];
+        // Shape keywords: colon-separated suffixes after the target
+        // segment (`"three#Vector3:ctor"`, `"#length:method"`,
+        // `"spec#fn:bytes"`). Unknown/duplicated/conflicting keywords
+        // are rejected at build time.
+        var shape: NpmShape = .call;
+        var bytes_view: NpmBytesView = .none;
+        var target = rest;
+        if (std.mem.indexOfScalar(u8, rest, ':')) |colon| {
+            target = rest[0..colon];
+            var seen_shape = false;
+            var kw_it = std.mem.splitScalar(u8, rest[colon + 1 ..], ':');
+            while (kw_it.next()) |kw| {
+                if (kw.len == 0) return JsEmitError.UnsupportedNpmBinding;
+                if (std.mem.eql(u8, kw, "ctor") or std.mem.eql(u8, kw, "method") or std.mem.eql(u8, kw, "get")) {
+                    if (seen_shape) return JsEmitError.UnsupportedNpmBinding;
+                    seen_shape = true;
+                    shape = if (std.mem.eql(u8, kw, "ctor")) .ctor else if (std.mem.eql(u8, kw, "method")) .method else .get;
+                } else if (std.mem.eql(u8, kw, "bytes")) {
+                    if (bytes_view != .none) return JsEmitError.UnsupportedNpmBinding;
+                    bytes_view = .u8;
+                } else if (std.mem.eql(u8, kw, "f32view")) {
+                    if (bytes_view != .none) return JsEmitError.UnsupportedNpmBinding;
+                    bytes_view = .f32;
+                } else {
+                    return JsEmitError.UnsupportedNpmBinding;
+                }
+            }
+        }
+        // Method/get bindings name a member on a handle value: nothing
+        // is imported, and the target is a single identifier. The spec
+        // must be the reserved marker "@handle" — a truly empty spec
+        // ("#name:method") is rejected earlier by the flattener's
+        // npm_bind line parser (shared layer, out of this line's edit
+        // domain), so the marker keeps the grammar inside emit_js.
+        if (shape == .method or shape == .get) {
+            if (!std.mem.eql(u8, spec, "@handle")) return JsEmitError.UnsupportedNpmBinding;
+            if (!isNpmExportIdent(target)) return JsEmitError.UnsupportedNpmBinding;
+        } else if (spec.len == 0 or std.mem.eql(u8, spec, "@handle")) {
+            return JsEmitError.UnsupportedNpmBinding;
+        }
+        const export_name = target;
         // Namespace form `"spec#ns.member"`: split one dot level; both
         // sides must be plain JS identifiers (deeper paths rejected).
         var member: ?[]const u8 = null;
         var export_id = export_name;
-        if (std.mem.indexOfScalar(u8, export_name, '.')) |dot| {
+        if (shape == .method or shape == .get) {
+            // Single-identifier target already validated above.
+        } else if (std.mem.indexOfScalar(u8, export_name, '.')) |dot| {
             if (dot == 0 or dot + 1 >= export_name.len) return JsEmitError.UnsupportedNpmBinding;
             if (std.mem.indexOfScalarPos(u8, export_name, dot + 1, '.') != null) return JsEmitError.UnsupportedNpmBinding;
             const ns = export_name[0..dot];
             member = export_name[dot + 1 ..];
             if (!isNpmExportIdent(ns) or !isNpmExportIdent(member.?)) return JsEmitError.UnsupportedNpmBinding;
             export_id = ns;
+            // Ctor over a namespace target is rejected: the emitted
+            // `new alias.member(...)` would construct a member of the
+            // module namespace object, while the spelling reads as a
+            // class nested inside a named export — a silent mis-shape
+            // (BU evidence on the call form: "three#MathUtils.clamp").
+            // Bind the class by its top-level named export instead.
+            if (shape == .ctor) return JsEmitError.UnsupportedNpmBinding;
         } else if (!isNpmExportIdent(export_name)) {
             return JsEmitError.UnsupportedNpmBinding;
         }
@@ -286,6 +385,8 @@ fn collectNpmImports(
             .member = member,
             .alias = alias,
             .extern_name = fsig.name,
+            .shape = shape,
+            .bytes_view = bytes_view,
         });
     }
     return out.toOwnedSlice();
@@ -324,21 +425,49 @@ fn isNpmNumericType(ty: sig.PrimType) bool {
     };
 }
 
-/// Emits the JS wrapper for one npm-bound extern: numeric params via
-/// `__sa_num`, adjacent (ptr, integer-length) params as one UTF8 string,
-/// lone ptr params as raw addresses. String/binary/object results are
-/// rejected at build time (MVP boundary, see NpmImport).
+/// Emits the JS wrapper for one npm-bound extern. Marshaling:
+/// - numeric params via `__sa_num`, adjacent (ptr, integer-length)
+///   params as one UTF8 string (or a zero-copy TypedArray view under
+///   the `:bytes` / `:f32view` modifiers), lone ptr params as raw
+///   addresses, blob_handle params decoded through the handle table.
+/// - ctor shape constructs with `new` and returns a fresh handle;
+///   method/get shapes take the first param as the handle self.
+/// - a trailing (out_ptr, out_cap, out_len) param trio plus an integer
+///   return selects the string-out path (see npmStrOut).
+/// - returns: numeric (checked), ptr (raw number), blob_handle (result
+///   registered in the handle table), or void (result discarded; a
+///   Promise result traps in every path — bindings are synchronous).
+/// Anything outside these shapes is rejected at build time with
+/// UnsupportedNpmBinding so mis-marshals fail loudly instead of
+/// corrupting linear memory at runtime.
 fn emitNpmWrapper(
     writer: anytype,
     fsig: sig.FunctionSig,
     npm_item: NpmImport,
     js_opt: JsEmitOptions,
 ) !void {
-    if (fsig.return_ty == .void or fsig.return_ty == .blob_handle or fsig.return_ty == .v128) {
-        return JsEmitError.UnsupportedNpmBinding;
+    const shape = npm_item.shape;
+    const str_out = npmStrOut(fsig, shape);
+    const arg_params = if (str_out) fsig.params[0 .. fsig.params.len - 3] else fsig.params;
+    // Return-shape validation (build time).
+    switch (shape) {
+        .ctor => {
+            if (fsig.return_ty != .blob_handle) return JsEmitError.UnsupportedNpmBinding;
+        },
+        .call, .method, .get => {
+            if (str_out) {
+                // npmStrOut already required an integer status return.
+            } else if (fsig.return_ty == .void or fsig.return_ty == .blob_handle or fsig.return_ty == .ptr) {
+                // Discarded result / handle registration / raw address.
+            } else if (!isNpmNumericType(fsig.return_ty)) {
+                return JsEmitError.UnsupportedNpmBinding;
+            }
+        },
     }
-    if (!isNpmNumericType(fsig.return_ty) and fsig.return_ty != .ptr) {
-        return JsEmitError.UnsupportedNpmBinding;
+    // Self-handle validation for method/get (build time).
+    if (shape == .method or shape == .get) {
+        if (arg_params.len == 0 or arg_params[0].ty != .blob_handle) return JsEmitError.UnsupportedNpmBinding;
+        if (shape == .get and arg_params.len != 1) return JsEmitError.UnsupportedNpmBinding;
     }
     if (js_opt.format == .esm) try writer.writeAll("export function ") else try writer.writeAll("function ");
     try jsFuncName(writer, fsig.name);
@@ -348,24 +477,49 @@ fn emitNpmWrapper(
         try jsIdent(writer, p.name);
     }
     try writer.writeAll(") {\n");
-    var idx: usize = 0;
+    if (shape == .method or shape == .get) {
+        try writer.writeAll("  const __sa_js_self = __sa_jsh_get(");
+        try jsIdent(writer, arg_params[0].name);
+        try writer.writeAll(");\n");
+    }
+    var idx: usize = if (shape == .method or shape == .get) 1 else 0;
     try writer.writeAll("  const __sa_npm_args = [];\n");
-    while (idx < fsig.params.len) : (idx += 1) {
-        const p = fsig.params[idx];
-        if (p.ty == .ptr and idx + 1 < fsig.params.len and isNpmIntType(fsig.params[idx + 1].ty)) {
-            const len_p = fsig.params[idx + 1];
-            try writer.writeAll("  __sa_npm_args.push(new globalThis.TextDecoder().decode(__sa_u8.slice(");
+    while (idx < arg_params.len) : (idx += 1) {
+        const p = arg_params[idx];
+        if (p.ty == .ptr and idx + 1 < arg_params.len and isNpmIntType(arg_params[idx + 1].ty)) {
+            const len_p = arg_params[idx + 1];
+            switch (npm_item.bytes_view) {
+                .u8 => try writer.writeAll("  __sa_npm_args.push(__sa_jsh_u8view("),
+                .f32 => try writer.writeAll("  __sa_npm_args.push(__sa_jsh_f32view("),
+                .none => try writer.writeAll("  __sa_npm_args.push(new globalThis.TextDecoder().decode(__sa_u8.slice("),
+            }
             try writer.writeAll("__sa_addr(");
             try jsIdent(writer, p.name);
-            try writer.writeAll("), __sa_addr(");
-            try jsIdent(writer, p.name);
-            try writer.writeAll(") + __sa_num(");
+            if (npm_item.bytes_view == .none) {
+                try writer.writeAll("), __sa_addr(");
+                try jsIdent(writer, p.name);
+                try writer.writeAll(") + __sa_num(");
+            } else {
+                try writer.writeAll("), ");
+            }
             try jsIdent(writer, len_p.name);
-            try writer.writeAll("))));\n");
+            // Close out the marshaling call: string path nests
+            // push(decode(slice(addr, addr + num))) (4 parens), view
+            // path nests push(view(addr, len)) (2 parens; addr's own
+            // paren was closed inline above).
+            if (npm_item.bytes_view == .none) {
+                try writer.writeAll("))));\n");
+            } else {
+                try writer.writeAll("));\n");
+            }
             idx += 1;
             continue;
         }
-        if (p.ty == .ptr) {
+        if (p.ty == .blob_handle) {
+            try writer.writeAll("  __sa_npm_args.push(__sa_jsh_get(");
+            try jsIdent(writer, p.name);
+            try writer.writeAll("));\n");
+        } else if (p.ty == .ptr) {
             try writer.writeAll("  __sa_npm_args.push(__sa_addr(");
             try jsIdent(writer, p.name);
             try writer.writeAll("));\n");
@@ -378,12 +532,66 @@ fn emitNpmWrapper(
         }
     }
     try writer.writeAll("  const __sa_npm_r = ");
-    try writer.writeAll(npm_item.alias);
-    if (npm_item.member) |member| {
-        try writer.writeAll(".");
-        try writer.writeAll(member);
+    switch (shape) {
+        .call => {
+            try writer.writeAll(npm_item.alias);
+            if (npm_item.member) |member| {
+                try writer.writeAll(".");
+                try writer.writeAll(member);
+            }
+            try writer.writeAll("(...__sa_npm_args);\n");
+        },
+        .ctor => {
+            try writer.writeAll("new ");
+            try writer.writeAll(npm_item.alias);
+            if (npm_item.member) |member| {
+                try writer.writeAll(".");
+                try writer.writeAll(member);
+            }
+            try writer.writeAll("(...__sa_npm_args);\n");
+        },
+        .method => {
+            try writer.writeAll("__sa_js_self.");
+            try writer.writeAll(npm_item.export_name);
+            try writer.writeAll("(...__sa_npm_args);\n");
+        },
+        .get => {
+            try writer.writeAll("__sa_js_self.");
+            try writer.writeAll(npm_item.export_name);
+            try writer.writeAll(";\n");
+        },
     }
-    try writer.writeAll("(...__sa_npm_args);\n");
+    if (str_out) {
+        const n = fsig.params.len;
+        try writer.writeAll("  return __sa_jsh_str_out(__sa_npm_r, ");
+        try jsIdent(writer, fsig.params[n - 3].name);
+        try writer.writeAll(", ");
+        try jsIdent(writer, fsig.params[n - 2].name);
+        try writer.writeAll(", ");
+        try jsIdent(writer, fsig.params[n - 1].name);
+        try writer.writeAll(");\n}\n");
+        return;
+    }
+    switch (shape) {
+        .ctor => {
+            try writer.writeAll("  return __sa_jsh_new(__sa_npm_r);\n}\n");
+            return;
+        },
+        .call, .method, .get => {},
+    }
+    if (fsig.return_ty == .blob_handle) {
+        try writer.writeAll("  if (__sa_npm_r !== null && (typeof __sa_npm_r === \"object\" || typeof __sa_npm_r === \"function\") && typeof __sa_npm_r.then === \"function\") __sa_trap(\"npm extern returned a Promise: ");
+        try jsFuncName(writer, fsig.name);
+        try writer.writeAll("\");\n");
+        try writer.writeAll("  return __sa_jsh_new(__sa_npm_r);\n}\n");
+        return;
+    }
+    if (fsig.return_ty == .void) {
+        try writer.writeAll("  if (__sa_npm_r !== null && (typeof __sa_npm_r === \"object\" || typeof __sa_npm_r === \"function\") && typeof __sa_npm_r.then === \"function\") __sa_trap(\"npm extern returned a Promise: ");
+        try jsFuncName(writer, fsig.name);
+        try writer.writeAll("\");\n}\n");
+        return;
+    }
     try writer.writeAll("  if (typeof __sa_npm_r !== \"number\" && typeof __sa_npm_r !== \"bigint\" && typeof __sa_npm_r !== \"boolean\") __sa_trap(\"npm extern returned non-numeric: ");
     try jsFuncName(writer, fsig.name);
     try writer.writeAll("\");\n");
@@ -627,6 +835,7 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
             // Named imports, one statement per specifier.
             for (npm_imports, 0..) |item, idx| {
                 if (item.member != null) continue;
+                if (item.shape == .method or item.shape == .get) continue; // handle shapes import nothing
                 var done = false;
                 for (npm_imports[0..idx]) |prev| {
                     if (prev.member == null and std.mem.eql(u8, prev.spec, item.spec)) {
@@ -655,6 +864,7 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         } else {
             for (npm_imports) |item| {
                 if (item.member != null) continue;
+                if (item.shape == .method or item.shape == .get) continue; // handle shapes import nothing
                 try writer.print("const {{ {s}: {s} }} = require(\"{s}\");\n", .{ item.export_name, item.alias, item.spec });
             }
             for (npm_imports) |item| {
@@ -2467,7 +2677,21 @@ fn promoNarrowBits(ty: sig.PrimType) ?struct { bits: u8, signed: bool } {
 fn promoMentionSlot(symbols: anytype, fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) ?u32 {
     switch (op) {
         .reg, .symbol => return provSlotOf(fsig, use_global, op),
-        .text, .native_text => |t| return provTextSlot(symbols, fsig, use_global, t),
+        .text, .native_text => |t| {
+            if (provTextSlot(symbols, fsig, use_global, t)) |s| return s;
+            // Composite text operands (a call's argument list rendered
+            // as one string) hide slot mentions from the whole-text
+            // lookup. Scan identifier tokens so an escaped slot still
+            // disqualifies promotion: a callee may write through the
+            // slot's address (extern out-params do exactly that), and a
+            // promoted slot would keep serving the stale init value.
+            // Conservative: a false hit only loses the optimization.
+            var it = std.mem.tokenizeAny(u8, t, " \t\r\n,()[]{}:;\"'`");
+            while (it.next()) |tok| {
+                if (provTextSlot(symbols, fsig, use_global, tok)) |s| return s;
+            }
+            return null;
+        },
         else => return null,
     }
 }
@@ -2528,6 +2752,16 @@ fn collectPromotableSlots(allocator: std.mem.Allocator, verified: anytype, fsig:
             else => {
                 for (ops) |op| {
                     if (promoMentionSlot(verified.symbols, fsig, use_global, op)) |s| try bad.put(s, {});
+                }
+                // Call instructions carry their arguments in raw_text,
+                // not in operands, so the operand scan above never sees
+                // them. Scan the text as well: a slot passed to a callee
+                // that writes through its address (extern out-params)
+                // must not be promoted, or later loads would serve the
+                // stale promoted init value instead of memory.
+                var tit = std.mem.tokenizeAny(u8, base.raw_text, " \t\r\n,()[]{}:;\"'`@=");
+                while (tit.next()) |tok| {
+                    if (provTextSlot(verified.symbols, fsig, use_global, tok)) |s| try bad.put(s, {});
                 }
             },
         }
@@ -3053,6 +3287,110 @@ fn isAllocatorShim(name: []const u8) bool {
         std.mem.eql(u8, name, "dlopen") or
         std.mem.eql(u8, name, "dlsym");
 }
+
+/// Whether `name` is a JS value-handle runtime builtin: externs the JS
+/// target implements by name (handle release, callback creation, the
+/// callback queue pump). They are runtime services, not npm bindings;
+/// declaring one pulls in the handle runtime chunk (gate below).
+fn isJsHandleBuiltin(name: []const u8) bool {
+    return std.mem.eql(u8, name, "sa_js_value_release") or
+        std.mem.eql(u8, name, "sa_js_make_callback") or
+        std.mem.eql(u8, name, "sa_js_callback_poll");
+}
+
+// JS value-handle runtime chunk: the handle table behind the npm
+// ctor/method/get binding shapes, string-out writeback, zero-copy
+// TypedArray views, and the queue-drain callback pump (the JS closure
+// only enqueues; SA dispatches in its own flow via sa_js_callback_poll).
+// Emitted once per program that uses any of those (gate below).
+// Handle encoding: gen * 2^32 + (index + 1), returned as BigInt; 0 is
+// never a valid handle. Release bumps the slot generation, so a stale
+// handle traps instead of silently aliasing a recycled slot's value.
+const jshandle_runtime_js =
+    \\// ---- SA JS value handles (npm ctor/method/get bindings + callbacks) ----
+    \\const SA_JS_STR_TOO_LONG = 1;
+    \\const __sa_jsh_slots = [];
+    \\const __sa_jsh_free = [];
+    \\const __sa_jsh_EMPTY = {};
+    \\function __sa_jsh_new(v) {
+    \\  if (v === undefined) __sa_trap("js handle: cannot register undefined as a handle");
+    \\  let idx;
+    \\  if (__sa_jsh_free.length) idx = __sa_jsh_free.pop();
+    \\  else { idx = __sa_jsh_slots.length; __sa_jsh_slots.push({ v: __sa_jsh_EMPTY, gen: 1 }); }
+    \\  __sa_jsh_slots[idx].v = v;
+    \\  return BigInt(__sa_jsh_slots[idx].gen * 4294967296 + (idx + 1));
+    \\}
+    \\function __sa_jsh_decode(h, what) {
+    \\  const n = (typeof h === "bigint") ? Number(h) : __sa_num(h);
+    \\  if (!Number.isSafeInteger(n) || n <= 0) __sa_trap("js handle: invalid handle (" + what + ")");
+    \\  const idx = (n % 4294967296) - 1;
+    \\  const gen = Math.floor(n / 4294967296);
+    \\  if (idx < 0 || idx >= __sa_jsh_slots.length) __sa_trap("js handle: handle out of range (" + what + ")");
+    \\  const slot = __sa_jsh_slots[idx];
+    \\  if (slot.v === __sa_jsh_EMPTY || slot.gen !== gen) __sa_trap("js handle: stale or released handle (" + what + ")");
+    \\  return idx;
+    \\}
+    \\function __sa_jsh_get(h) { return __sa_jsh_slots[__sa_jsh_decode(h, "use")].v; }
+    \\function __sa_jsh_release(h) {
+    \\  const idx = __sa_jsh_decode(h, "release");
+    \\  const slot = __sa_jsh_slots[idx];
+    \\  slot.v = __sa_jsh_EMPTY;
+    \\  slot.gen += 1;
+    \\  __sa_jsh_free.push(idx);
+    \\  return 0;
+    \\}
+    \\function __sa_jsh_str_out(v, out_ptr, out_cap, out_len_ptr) {
+    \\  if (typeof v !== "string") __sa_trap("npm extern returned non-string for a string out-param binding");
+    \\  const bytes = new globalThis.TextEncoder().encode(v);
+    \\  __sa_view.setBigUint64(__sa_addr(out_len_ptr), BigInt(bytes.length), true);
+    \\  if (bytes.length > __sa_num(out_cap)) return SA_JS_STR_TOO_LONG;
+    \\  __sa_u8.set(bytes, __sa_addr(out_ptr));
+    \\  return 0;
+    \\}
+    \\function __sa_jsh_u8view(ptr, len) {
+    \\  const a = __sa_addr(ptr), n = __sa_num(len);
+    \\  if (!(n >= 0) || a < 0 || a + n > __sa_u8.length) __sa_trap("js bytes view out of bounds");
+    \\  return new Uint8Array(__sa_memory, a, n);
+    \\}
+    \\function __sa_jsh_f32view(ptr, len) {
+    \\  const a = __sa_addr(ptr), n = __sa_num(len);
+    \\  if (!(n >= 0) || (n % 4) !== 0 || (a % 4) !== 0 || a + n > __sa_u8.length) __sa_trap("js f32 view out of bounds or unaligned");
+    \\  return new Float32Array(__sa_memory, a, n / 4);
+    \\}
+    \\const __sa_jsh_cb_queue = [];
+    \\function __sa_jsh_make_callback(fn) {
+    \\  const idx = __sa_fnval(fn);
+    \\  if (idx < 0) __sa_trap("sa_js_make_callback: argument is not an SA function pointer");
+    \\  const closure = (...args) => {
+    \\    const nums = [];
+    \\    for (const a of args) {
+    \\      if (typeof a === "number") nums.push(a);
+    \\      else if (typeof a === "bigint") nums.push(Number(a));
+    \\      else if (typeof a === "boolean") nums.push(a ? 1 : 0);
+    \\      else __sa_trap("js callback: non-numeric argument from JS");
+    \\    }
+    \\    __sa_jsh_cb_queue.push({ fn: idx, args: nums });
+    \\    return undefined;
+    \\  };
+    \\  return __sa_jsh_new(closure);
+    \\}
+    \\function __sa_jsh_cb_poll(fn_out, argc_out, args_out) {
+    \\  const ev = __sa_jsh_cb_queue.shift();
+    \\  if (!ev) return 0;
+    \\  __sa_view.setBigUint64(__sa_addr(fn_out), __sa_fnptr(ev.fn), true);
+    \\  __sa_view.setBigUint64(__sa_addr(argc_out), BigInt(ev.args.length), true);
+    \\  const base = __sa_addr(args_out);
+    \\  for (let i = 0; i < ev.args.length; i++) __sa_view.setFloat64(base + i * 8, ev.args[i], true);
+    \\  return 1;
+    \\}
+    \\try {
+    \\  const __sa_jsh_p = globalThis.process;
+    \\  if (__sa_jsh_p && typeof __sa_jsh_p.on === "function") __sa_jsh_p.on("exit", () => {
+    \\    if (__sa_jsh_cb_queue.length) { try { __sa_jsh_p.stderr.write("[sa-js] exit with " + __sa_jsh_cb_queue.length + " undrained callback event(s)\n"); } catch (e) {} }
+    \\  });
+    \\} catch (e) {}
+    \\
+;
 
 /// Every extern name with a built-in host lowering in the emitter (as
 /// opposed to a trap stub). A same-module `@export` never shadows these.
@@ -11374,6 +11712,34 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             );
             return;
         }
+        // JS value-handle runtime builtins (see isJsHandleBuiltin).
+        if (std.mem.eql(u8, fsig.name, "sa_js_value_release")) {
+            try writer.writeAll(
+                \\function sa_js_value_release(handle) {
+                \\  return __sa_jsh_release(handle);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_js_make_callback")) {
+            try writer.writeAll(
+                \\function sa_js_make_callback(fn) {
+                \\  return __sa_jsh_make_callback(fn);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_js_callback_poll")) {
+            try writer.writeAll(
+                \\function sa_js_callback_poll(fn_out, argc_out, args_out) {
+                \\  return BigInt(__sa_jsh_cb_poll(fn_out, argc_out, args_out));
+                \\}
+                \\
+            );
+            return;
+        }
         try writer.writeAll("function ");
         try jsFuncName(writer, fsig.name);
         try writer.writeAll("() { __sa_trap(\"extern not linked: ");
@@ -11434,6 +11800,15 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
 }
 
 pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, js_opt: JsEmitOptions, npm_binds: *const std.StringHashMap([]const u8)) ![]u8 {
+    // Error-context globals are per-build: they point into the current
+    // build's verified module. Reset them at entry — a build that fails
+    // before any function emission (e.g. in collectNpmImports) would
+    // otherwise leave the cli error path printing a dangling slice
+    // retained from a previous in-process build (observed as a
+    // segfault in the js-matrix rejects test, which runs many builds
+    // in one process).
+    last_js_inst = "";
+    last_js_func = "";
     var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
     const writer = &out.writer;
@@ -11471,6 +11846,38 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
             try writer.writeAll("\n");
             break;
         }
+    }
+    // Emit the value-handle runtime chunk once when the program uses a
+    // handle binding shape (ctor/method/get), a bytes-view modifier, a
+    // string-out npm binding, or a handle runtime builtin.
+    var need_handle_runtime = false;
+    for (tasks) |task| {
+        if (task.kind != .extern_decl) continue;
+        const fsig = verified.function_sigs[task.fsig_index];
+        if (isJsHandleBuiltin(fsig.name)) {
+            need_handle_runtime = true;
+            break;
+        }
+    }
+    if (!need_handle_runtime) {
+        outer: for (npm_imports) |item| {
+            if (item.shape != .call or item.bytes_view != .none) {
+                need_handle_runtime = true;
+                break;
+            }
+            for (tasks) |task| {
+                if (task.kind != .extern_decl) continue;
+                const fsig = verified.function_sigs[task.fsig_index];
+                if (std.mem.eql(u8, fsig.name, item.extern_name) and npmStrOut(fsig, item.shape)) {
+                    need_handle_runtime = true;
+                    break :outer;
+                }
+            }
+        }
+    }
+    if (need_handle_runtime) {
+        try writer.writeAll(jshandle_runtime_js);
+        try writer.writeAll("\n");
     }
 
     try writer.print("// source: {s}\n", .{source_path});

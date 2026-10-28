@@ -1,0 +1,10 @@
+@import "sa_std/io/print.sai"
+
+@extern bad_method(self: i64) -> i32
+#npm_bind bad_method "@handle#getMaxListeners:method"
+
+// Negative probe (build must reject): a :method binding's first
+// parameter must be a blob_handle self.
+@main() -> i32:
+L_ENTRY:
+    return 0

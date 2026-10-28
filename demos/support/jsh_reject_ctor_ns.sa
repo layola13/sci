@@ -1,0 +1,16 @@
+@import "sa_std/io/print.sai"
+
+// Negative probe (build must reject): a ctor binding over a namespace
+// target ("spec#ns.Class:ctor") is refused at build time — the emitted
+// form would construct a member of the module namespace object while
+// the spelling reads as a class nested in a named export (the silent
+// mis-shape BU measured on the call form, "three#MathUtils.clamp").
+
+@extern bad_ctor() -> blob_handle
+#npm_bind bad_ctor "node:os#ns.Thing:ctor"
+
+@main() -> i32:
+L_ENTRY:
+    h = call @bad_ctor()
+    !h
+    return 0

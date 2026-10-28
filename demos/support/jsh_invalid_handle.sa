@@ -1,0 +1,17 @@
+@import "sa_std/io/print.sai"
+
+@extern ee_max_listeners(self: blob_handle) -> i32
+#npm_bind ee_max_listeners "@handle#getMaxListeners:method"
+
+// Negative probe: a fabricated handle integer (never issued by the
+// runtime table) must trap instead of dereferencing arbitrary JS
+// values.
+@main() -> i32:
+L_ENTRY:
+    slot = stack_alloc 8
+    store slot+0, 424242 as i64
+    bad = load slot+0 as blob_handle
+    m = call @ee_max_listeners(bad)
+    !bad
+    !m
+    return 0

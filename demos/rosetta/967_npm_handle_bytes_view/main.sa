@@ -1,0 +1,66 @@
+@import "sa_std/io/print.sai"
+
+@extern hash_new(&alg: ptr, alg_len: u64) -> blob_handle
+#npm_bind hash_new "node:crypto#createHash"
+
+@extern hash_update(self: blob_handle, &data: ptr, data_len: u64) -> blob_handle
+#npm_bind hash_update "@handle#update:method:bytes"
+
+@extern hash_digest(self: blob_handle) -> blob_handle
+#npm_bind hash_digest "@handle#digest:method"
+
+@extern buf_length(self: blob_handle) -> i32
+#npm_bind buf_length "@handle#length:get"
+
+@extern sa_js_value_release(handle: blob_handle) -> i32
+
+@const ALG = utf8:"sha256"
+@const DATA = utf8:"abc"
+@const OUT = utf8:"967\n"
+
+// 967 - npm handle bytes view: createHash("sha256") returns a handle;
+// update() receives the (ptr, len) pair as a zero-copy Uint8Array
+// view over linear memory (:bytes) and returns the same object as a
+// fresh handle; digest() returns a Buffer handle whose `length`
+// property is 32 (a SHA-256 digest).
+@main() -> i32:
+L_ENTRY:
+    h = call @hash_new(&ALG, 6)
+    h2 = call @hash_update(h, &DATA, 3)
+    d = call @hash_digest(h2)
+    n = call @buf_length(d)
+    want = 32 as i32
+    ok = eq n, want
+    r1 = call @sa_js_value_release(h)
+    r2 = call @sa_js_value_release(h2)
+    r3 = call @sa_js_value_release(d)
+    z = 0 as i32
+    ok1 = eq r1, z
+    ok2 = eq r2, z
+    ok3 = eq r3, z
+    a1 = and ok, ok1
+    a2 = and a1, ok2
+    all = and a2, ok3
+    !h
+    !h2
+    !d
+    !n
+    !want
+    !ok
+    !r1
+    !r2
+    !r3
+    !z
+    !ok1
+    !ok2
+    !ok3
+    !a1
+    !a2
+    br all -> L_OK, L_ERR
+L_OK:
+    !all
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !all
+    return 1

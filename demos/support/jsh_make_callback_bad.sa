@@ -1,0 +1,15 @@
+@import "sa_std/io/print.sai"
+
+@extern sa_js_make_callback(fn: u64) -> blob_handle
+
+// Negative probe: wrapping a null pointer as a callback must trap
+// with "not an SA function pointer".
+@main() -> i32:
+L_ENTRY:
+    slot = stack_alloc 8
+    store slot+0, 0 as i64
+    zp = load slot+0 as u64
+    cb = call @sa_js_make_callback(zp)
+    !zp
+    !cb
+    return 0

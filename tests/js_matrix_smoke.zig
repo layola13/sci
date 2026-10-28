@@ -627,6 +627,10 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/499_npm_util_isequal/main.sa", "499\n");
     try assertJsMatrixStdout("demos/rosetta/500_npm_ns_isabs/main.sa", "500\n");
     try assertJsMatrixStdout("demos/rosetta/501_npm_ns_isequal/main.sa", "501\n");
+    try assertJsMatrixStdout("demos/rosetta/965_npm_handle_ctor_method/main.sa", "965\n");
+    try assertJsMatrixStdout("demos/rosetta/966_npm_handle_string_out/main.sa", "966\n");
+    try assertJsMatrixStdout("demos/rosetta/967_npm_handle_bytes_view/main.sa", "967\n");
+    try assertJsMatrixStdout("demos/rosetta/968_npm_handle_callback/main.sa", "968\n");
     try assertJsMatrixStdout("demos/rosetta/503_macro_fadd_emit/main.sa", "503\n");
     try assertJsMatrixStdout("demos/rosetta/504_macro_fdiv_const/main.sa", "504\n");
     try assertJsMatrixStdout("demos/rosetta/505_macro_chain_float/main.sa", "505\n");
@@ -1128,6 +1132,12 @@ test "js backend rejects intentional-fail demos like the native backend" {
     try assertJsBuildRejects("demos/rosetta/227_mod_shadowing_prevention/main.sa");
     try assertJsBuildRejects("demos/rosetta/243_contract_sig_mismatch_link/main.sa");
     try assertJsBuildRejects("demos/rosetta/502_bare_crossdir_import_reject/main.sa");
+    // JS value-handle binding misuse must be rejected at build time.
+    try assertJsBuildRejects("demos/support/jsh_reject_method_nonhandle.sa");
+    try assertJsBuildRejects("demos/support/jsh_reject_ctor_return.sa");
+    try assertJsBuildRejects("demos/support/jsh_reject_unknown_keyword.sa");
+    try assertJsBuildRejects("demos/support/jsh_reject_get_extra_args.sa");
+    try assertJsBuildRejects("demos/support/jsh_reject_ctor_ns.sa");
 }
 
 fn assertJsRuntimeTrap(path: []const u8, expected_stderr_substr: []const u8) !void {
@@ -1183,4 +1193,9 @@ fn assertJsRuntimeTrap(path: []const u8, expected_stderr_substr: []const u8) !vo
 test "js backend runtime traps surface through node with diagnostics" {
     try assertJsRuntimeTrap("demos/support/panic_code.sa", "[sa-panic] code=99");
     try assertJsRuntimeTrap("demos/support/panic_msg_probe.sa", "panic_msg");
+    // JS value-handle misuse must trap loudly at runtime.
+    try assertJsRuntimeTrap("demos/support/jsh_use_after_release.sa", "stale or released handle");
+    try assertJsRuntimeTrap("demos/support/jsh_double_release.sa", "stale or released handle");
+    try assertJsRuntimeTrap("demos/support/jsh_invalid_handle.sa", "js handle: handle out of range");
+    try assertJsRuntimeTrap("demos/support/jsh_make_callback_bad.sa", "not an SA function pointer");
 }

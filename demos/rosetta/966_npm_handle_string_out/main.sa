@@ -1,0 +1,65 @@
+@import "sa_std/io/print.sai"
+
+@extern os_user_info() -> blob_handle
+#npm_bind os_user_info "node:os#userInfo"
+
+@extern ui_username(self: blob_handle, buf: ptr, cap: u64, len_ptr: ptr) -> i32
+#npm_bind ui_username "@handle#username:get"
+
+@extern sa_js_value_release(handle: blob_handle) -> i32
+
+@const OUT = utf8:"966\n"
+
+// 966 - npm handle property get with string-out marshaling: the
+// `username` property of the os.userInfo() object is written back
+// into linear memory under the (out_ptr, out_cap, &out_len)
+// convention. A zero-capacity call must report status 1
+// (SA_JS_STR_TOO_LONG) with the real length in the out slot and no
+// bytes written; a full-capacity call returns 0 and the same length.
+@main() -> i32:
+L_ENTRY:
+    h = call @os_user_info()
+    buf = stack_alloc 64
+    len_slot = stack_alloc 8
+    st_small = call @ui_username(h, buf, 0, len_slot)
+    n_small = load len_slot+0 as u64
+    st_big = call @ui_username(h, buf, 64, len_slot)
+    n_big = load len_slot+0 as u64
+    rel = call @sa_js_value_release(h)
+    one = 1 as i32
+    zero = 0 as i32
+    ok_small = eq st_small, one
+    ok_big = eq st_big, zero
+    ok_rel = eq rel, 0
+    min_n = 1 as u64
+    ok_len = uge n_big, min_n
+    ok_same = eq n_small, n_big
+    a1 = and ok_small, ok_big
+    a2 = and a1, ok_rel
+    a3 = and a2, ok_len
+    all = and a3, ok_same
+    !h
+    !st_small
+    !n_small
+    !st_big
+    !n_big
+    !rel
+    !one
+    !zero
+    !ok_small
+    !ok_big
+    !ok_rel
+    !min_n
+    !ok_len
+    !ok_same
+    !a1
+    !a2
+    !a3
+    br all -> L_OK, L_ERR
+L_OK:
+    !all
+    call @sa_print_bytes(&OUT, 4)
+    return 0
+L_ERR:
+    !all
+    return 1
