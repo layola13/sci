@@ -677,8 +677,10 @@ L_GROW_DONE:
     !new_len
     return vec
 
+@extern sa_mem_free(^ptr: ptr) -> void
+
 @export sa_vec_free(^vec: ptr) -> void:
     inner_ptr = take vec+Vec_ptr
-    !inner_ptr
-    !vec
+    call @sa_mem_free(^inner_ptr)
+    call @sa_mem_free(^vec)
     return

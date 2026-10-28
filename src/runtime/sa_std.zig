@@ -16689,6 +16689,15 @@ pub export fn sa_fmt_buffer_free(handle: u64) i32 {
     return sa_std_close(handle);
 }
 
+/// Raw free for SA `alloc` blocks (the native emitter lowers `alloc` to
+/// libc malloc). SA-level code that must release a heap block through a
+/// real call -- e.g. sa_vec_free, whose `!` releases the emitter may
+/// lower to bookkeeping only -- goes through this export instead.
+pub export fn sa_mem_free(ptr: ?*anyopaque) void {
+    if (comptime is_wasm) return;
+    if (ptr) |p| std.c.free(p);
+}
+
 pub export fn sa_print_bytes(msg: ?[*]const u8, len: u64) void {
     _ = sa_std_print(msg, len);
 }

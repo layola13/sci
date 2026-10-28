@@ -16,3 +16,4 @@
 @extern sa_fmt_buffer_len(buffer: u64) -> u64
 @extern sa_fmt_buffer_write_to(buffer: u64, writer: u64) -> i32
 @extern sa_fmt_buffer_free(^buffer: u64) -> i32
+@extern sa_mem_free(^ptr: ptr) -> void

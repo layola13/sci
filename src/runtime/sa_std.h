@@ -830,6 +830,7 @@ uint8_t *sa_fmt_buffer_data(uint64_t buffer);
 uint64_t sa_fmt_buffer_len(uint64_t buffer);
 int32_t sa_fmt_buffer_write_to(uint64_t buffer, uint64_t writer);
 int32_t sa_fmt_buffer_free(uint64_t buffer);
+void sa_mem_free(void *ptr);
 uint64_t sa_string_concat(const uint8_t *left, uint64_t left_len, const uint8_t *right, uint64_t right_len);
 uint64_t sa_string_from_char_code(int32_t code);
 int32_t sa_string_index_of(const uint8_t *hay_ptr, uint64_t hay_len, const uint8_t *ndl_ptr, uint64_t ndl_len, uint64_t from);
