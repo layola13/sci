@@ -30,3 +30,111 @@
 @extern sa_hmac_sha1_hex(&key: ptr, key_len: u64, &msg: ptr, msg_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
 @extern sa_crypto_random_bytes(&out: ptr, len: u64) -> i32
 @extern sa_deno_random_uuid() -> u64
+
+// Crypto suite (STD batch 4, 2026-10-28): raw-byte digests, raw
+// HMAC, KDFs, AES-GCM, Ed25519, ECDSA P-256. RSA, the DER key /
+// certificate readers and PEM live in the second half of this
+// contract below (implemented by src/runtime/sa_crypto_asym.zig);
+// everything else is implemented by src/runtime/sa_crypto.zig over
+// Zig std.crypto. Motivation: the sub2api / new-api census found
+// only hex-shaped HMAC and no raw digest, AEAD or asymmetric data
+// surface in sa_std at all.
+//
+// Shared conventions: status i32, 0 = SA_STD_OK. Fixed-size
+// outputs are written in full (sizes in each signature's comment).
+// Variable-size outputs take (out, cap, out_len): out_len is set
+// to the needed size first and status 9 (truncated) is returned
+// when cap is too small. A null pointer is accepted only with a
+// zero length (empty input). Signature verification returns OK
+// with out_valid = 0 on a mere mismatch; malformed inputs are
+// status 1 (invalid argument).
+
+// Raw digests; out is exactly 16 / 20 / 32 / 48 / 64 bytes.
+@extern sa_md5(&data: ptr, data_len: u64, &out: ptr) -> i32
+@extern sa_sha1(&data: ptr, data_len: u64, &out: ptr) -> i32
+@extern sa_sha256(&data: ptr, data_len: u64, &out: ptr) -> i32
+@extern sa_sha384(&data: ptr, data_len: u64, &out: ptr) -> i32
+@extern sa_sha512(&data: ptr, data_len: u64, &out: ptr) -> i32
+
+// HMAC in raw-byte form (the *_hex forms above are unchanged);
+// out is exactly 20 / 32 / 64 bytes.
+@extern sa_hmac_sha1(&key: ptr, key_len: u64, &msg: ptr, msg_len: u64, &out: ptr) -> i32
+@extern sa_hmac_sha256(&key: ptr, key_len: u64, &msg: ptr, msg_len: u64, &out: ptr) -> i32
+@extern sa_hmac_sha512(&key: ptr, key_len: u64, &msg: ptr, msg_len: u64, &out: ptr) -> i32
+
+// PBKDF2-HMAC-SHA256 (RFC 2898; SCRAM / password storage) writing
+// exactly out_len bytes; iterations must be >= 1. HKDF-SHA256
+// (RFC 5869) writing exactly out_len bytes (<= 255*32).
+@extern sa_pbkdf2_hmac_sha256(&pw: ptr, pw_len: u64, &salt: ptr, salt_len: u64, iterations: u32, &out: ptr, out_len: u64) -> i32
+@extern sa_hkdf_sha256(&salt: ptr, salt_len: u64, &ikm: ptr, ikm_len: u64, &info: ptr, info_len: u64, &out: ptr, out_len: u64) -> i32
+
+// Constant-time equality over the byte contents (lengths are not
+// treated as secret): out_equal is 1 iff lengths and bytes match.
+@extern sa_crypto_timing_safe_equal(&a: ptr, a_len: u64, &b: ptr, b_len: u64, &out_equal: ptr) -> i32
+
+// AES-GCM AEAD with 16- or 32-byte keys and a 12-byte nonce. The
+// encryption output is ciphertext || 16-byte tag (out_len =
+// pt_len + 16); decryption expects that layout and returns
+// status 4 (access) on a tag mismatch -- an explicit
+// authentication failure, never a silent success.
+@extern sa_aes_gcm_encrypt(&key: ptr, key_len: u64, &nonce: ptr, &aad: ptr, aad_len: u64, &pt: ptr, pt_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_aes_gcm_decrypt(&key: ptr, key_len: u64, &nonce: ptr, &aad: ptr, aad_len: u64, &ct: ptr, ct_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+
+// Ed25519 in seed form: seed is 32 bytes, public key 32 bytes,
+// signature 64 bytes. DER import forms are with the RSA block.
+@extern sa_ed25519_public_key(&seed: ptr, &out_pk: ptr) -> i32
+@extern sa_ed25519_sign(&seed: ptr, &msg: ptr, msg_len: u64, &out_sig: ptr) -> i32
+@extern sa_ed25519_verify(&pk: ptr, &msg: ptr, msg_len: u64, &sig: ptr, &out_valid: ptr) -> i32
+
+// ECDSA over NIST P-256 with SHA-256: public key is the raw
+// x || y (64 bytes), private key the 32-byte scalar, signature
+// the raw r || s (64 bytes). verify hashes the message with
+// SHA-256; verify_prehashed takes the 32-byte digest directly.
+@extern sa_ecdsa_p256_verify(&pk: ptr, &msg: ptr, msg_len: u64, &sig: ptr, &out_valid: ptr) -> i32
+@extern sa_ecdsa_p256_verify_prehashed(&pk: ptr, &digest: ptr, &sig: ptr, &out_valid: ptr) -> i32
+@extern sa_ecdsa_p256_sign(&priv: ptr, &msg: ptr, msg_len: u64, &out_sig: ptr) -> i32
+
+// DER key import (implemented by src/runtime/sa_crypto_asym.zig):
+// extract the raw key material from SPKI / PKCS#8 documents, and
+// convert ECDSA signatures between the DER form (JOSE-unfriendly,
+// used by TLS / WebAuthn) and the raw r || s form above. Compressed
+// EC points in SPKI are accepted and returned uncompressed.
+@extern sa_ed25519_public_key_from_spki(&der: ptr, der_len: u64, &out_pk: ptr) -> i32
+@extern sa_ed25519_seed_from_pkcs8(&der: ptr, der_len: u64, &out_seed: ptr) -> i32
+@extern sa_ecdsa_p256_public_key_from_spki(&der: ptr, der_len: u64, &out_xy: ptr) -> i32
+@extern sa_ecdsa_signature_der_to_raw(&der: ptr, der_len: u64, &out_raw: ptr) -> i32
+@extern sa_ecdsa_signature_raw_to_der(&raw: ptr, &out: ptr, cap: u64, &out_len: ptr) -> i32
+
+// RSA (schoolbook modexp over std.math.big.int; no CRT, modulus
+// up to 4096 bits). Keys cross as DER: public accepts SPKI or bare
+// PKCS#1, private accepts PKCS#8 or bare PKCS#1 (auto-detected).
+// hash_alg selects the DigestInfo: 0 = SHA-256, 1 = SHA-384,
+// 2 = SHA-512, and digest_len must match the selection.
+// sa_rsa_jwk_to_spki builds an SPKI document from the base64url
+// JWK modulus / exponent (the OIDC JWKS import path).
+// sa_rsa_oaep_sha256_decrypt is RSAES-OAEP with SHA-256 /
+// MGF1-SHA256 and an optional label (empty = default); every
+// decryption failure returns status 4 so callers cannot build a
+// padding oracle out of distinct errors.
+@extern sa_rsa_pkcs1_verify(&key_der: ptr, key_len: u64, hash_alg: u32, &digest: ptr, digest_len: u64, &sig: ptr, sig_len: u64, &out_valid: ptr) -> i32
+@extern sa_rsa_pkcs1_sign(&key_der: ptr, key_len: u64, hash_alg: u32, &digest: ptr, digest_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_rsa_jwk_to_spki(&n_b64: ptr, n_len: u64, &e_b64: ptr, e_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_rsa_oaep_sha256_decrypt(&key_der: ptr, key_len: u64, &label: ptr, label_len: u64, &ct: ptr, ct_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+
+// PEM: decodes the first block whose label matches (e.g.
+// "PUBLIC KEY", "PRIVATE KEY", "CERTIFICATE"); RFC 1421 header
+// lines inside the block are skipped. Status 3 when no block
+// carries the label.
+@extern sa_pem_decode(&pem: ptr, pem_len: u64, &label: ptr, label_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+
+// x509 minimal reader over a DER certificate (no chain building
+// or validation -- this extracts fields for OIDC / display use):
+// the SPKI document, the subject Name (DER), the first CN value
+// (status 3 when absent), the raw public key bytes with an
+// algorithm code (1 RSA, 2 EC, 3 Ed25519, 4 RSA-PSS), and the
+// validity window as unix seconds.
+@extern sa_x509_spki(&cert: ptr, cert_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_x509_subject(&cert: ptr, cert_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_x509_subject_cn(&cert: ptr, cert_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_x509_public_key(&cert: ptr, cert_len: u64, &out: ptr, cap: u64, &out_len: ptr, &out_algo: ptr) -> i32
+@extern sa_x509_validity(&cert: ptr, cert_len: u64, &out_not_before: ptr, &out_not_after: ptr) -> i32

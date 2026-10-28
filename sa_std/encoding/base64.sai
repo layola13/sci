@@ -19,3 +19,13 @@
 @extern sa_b64dec_simd(&data: ptr, data_len: u64, &out: ptr) -> u64
 @extern sa_deno_btoa(&data: ptr, data_len: u64) -> u64
 @extern sa_deno_atob(&data: ptr, data_len: u64) -> u64
+
+// base64url (RFC 4648 section 5) in caller-buffer form, added with
+// the STD batch-4 crypto suite (implemented in
+// src/runtime/sa_crypto.zig): the wire form is UNPADDED (the JWT /
+// JWK spelling); the decoder also tolerates trailing '=' padding.
+// Status model matches crypto.sai: 0 ok, out_len is set to the
+// needed size first, 9 (truncated) when cap is too small, 1
+// (invalid) on non-alphabet input.
+@extern sa_base64url_encode(&data: ptr, data_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_base64url_decode(&data: ptr, data_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32

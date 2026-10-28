@@ -934,6 +934,46 @@ int32_t sa_keyring_get(const uint8_t *key, uint64_t key_len, uint8_t *out, uint6
 int32_t sa_keyring_remove(const uint8_t *key, uint64_t key_len);
 int32_t sa_keyring_set(const uint8_t *collection, uint64_t collection_len, const uint8_t *key, uint64_t key_len, const uint8_t *secret, uint64_t secret_len);
 
+/* Crypto suite (STD batch 4): raw digests, raw HMAC, KDFs, constant-time
+   equality, base64url, AES-GCM, Ed25519, ECDSA P-256. Fixed-size outputs
+   are written in full; see sa_std/crypto.sai for the exact contracts. */
+int32_t sa_md5(const uint8_t *data, uint64_t data_len, uint8_t *out);
+int32_t sa_sha1(const uint8_t *data, uint64_t data_len, uint8_t *out);
+int32_t sa_sha256(const uint8_t *data, uint64_t data_len, uint8_t *out);
+int32_t sa_sha384(const uint8_t *data, uint64_t data_len, uint8_t *out);
+int32_t sa_sha512(const uint8_t *data, uint64_t data_len, uint8_t *out);
+int32_t sa_hmac_sha1(const uint8_t *key, uint64_t key_len, const uint8_t *msg, uint64_t msg_len, uint8_t *out);
+int32_t sa_hmac_sha256(const uint8_t *key, uint64_t key_len, const uint8_t *msg, uint64_t msg_len, uint8_t *out);
+int32_t sa_hmac_sha512(const uint8_t *key, uint64_t key_len, const uint8_t *msg, uint64_t msg_len, uint8_t *out);
+int32_t sa_pbkdf2_hmac_sha256(const uint8_t *pw, uint64_t pw_len, const uint8_t *salt, uint64_t salt_len, uint32_t iterations, uint8_t *out, uint64_t out_len);
+int32_t sa_hkdf_sha256(const uint8_t *salt, uint64_t salt_len, const uint8_t *ikm, uint64_t ikm_len, const uint8_t *info, uint64_t info_len, uint8_t *out, uint64_t out_len);
+int32_t sa_crypto_timing_safe_equal(const uint8_t *a, uint64_t a_len, const uint8_t *b, uint64_t b_len, uint32_t *out_equal);
+int32_t sa_base64url_encode(const uint8_t *data, uint64_t data_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_base64url_decode(const uint8_t *data, uint64_t data_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_aes_gcm_encrypt(const uint8_t *key, uint64_t key_len, const uint8_t *nonce, const uint8_t *aad, uint64_t aad_len, const uint8_t *pt, uint64_t pt_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_aes_gcm_decrypt(const uint8_t *key, uint64_t key_len, const uint8_t *nonce, const uint8_t *aad, uint64_t aad_len, const uint8_t *ct, uint64_t ct_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_ed25519_public_key(const uint8_t *seed, uint8_t *out_pk);
+int32_t sa_ed25519_sign(const uint8_t *seed, const uint8_t *msg, uint64_t msg_len, uint8_t *out_sig);
+int32_t sa_ed25519_verify(const uint8_t *pk, const uint8_t *msg, uint64_t msg_len, const uint8_t *sig, uint32_t *out_valid);
+int32_t sa_ecdsa_p256_verify(const uint8_t *pk, const uint8_t *msg, uint64_t msg_len, const uint8_t *sig, uint32_t *out_valid);
+int32_t sa_ecdsa_p256_verify_prehashed(const uint8_t *pk, const uint8_t *digest, const uint8_t *sig, uint32_t *out_valid);
+int32_t sa_ecdsa_p256_sign(const uint8_t *priv, const uint8_t *msg, uint64_t msg_len, uint8_t *out_sig);
+int32_t sa_ed25519_public_key_from_spki(const uint8_t *der, uint64_t der_len, uint8_t *out_pk);
+int32_t sa_ed25519_seed_from_pkcs8(const uint8_t *der, uint64_t der_len, uint8_t *out_seed);
+int32_t sa_ecdsa_p256_public_key_from_spki(const uint8_t *der, uint64_t der_len, uint8_t *out_xy);
+int32_t sa_ecdsa_signature_der_to_raw(const uint8_t *der, uint64_t der_len, uint8_t *out_raw);
+int32_t sa_ecdsa_signature_raw_to_der(const uint8_t *raw, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_rsa_pkcs1_verify(const uint8_t *key_der, uint64_t key_len, uint32_t hash_alg, const uint8_t *digest, uint64_t digest_len, const uint8_t *sig, uint64_t sig_len, uint32_t *out_valid);
+int32_t sa_rsa_pkcs1_sign(const uint8_t *key_der, uint64_t key_len, uint32_t hash_alg, const uint8_t *digest, uint64_t digest_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_rsa_jwk_to_spki(const uint8_t *n_b64, uint64_t n_len, const uint8_t *e_b64, uint64_t e_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_rsa_oaep_sha256_decrypt(const uint8_t *key_der, uint64_t key_len, const uint8_t *label, uint64_t label_len, const uint8_t *ct, uint64_t ct_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_pem_decode(const uint8_t *pem, uint64_t pem_len, const uint8_t *label, uint64_t label_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_x509_spki(const uint8_t *cert, uint64_t cert_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_x509_subject(const uint8_t *cert, uint64_t cert_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_x509_subject_cn(const uint8_t *cert, uint64_t cert_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_x509_public_key(const uint8_t *cert, uint64_t cert_len, uint8_t *out, uint64_t cap, uint64_t *out_len, uint32_t *out_algo);
+int32_t sa_x509_validity(const uint8_t *cert, uint64_t cert_len, int64_t *out_not_before, int64_t *out_not_after);
+
 /* DTLS. */
 const uint8_t *sa_std_dtls_buffer_data(uint64_t buffer);
 int32_t sa_std_dtls_buffer_free(uint64_t buffer);
