@@ -302,11 +302,24 @@ fn resolveValueToC(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use
 }
 
 fn memPrimType(base: inst.Instruction) sig.PrimType {
-    // operands[3] for load/store is usually .ty tag; fall back to u8/i64.
+    // Atomic kinds carry their value type in atomic_value_ty (mirrors
+    // emit_llvm_llvmc.atomicValueType and emit_js.memPrimType).
+    if (base.kind == .atomic_load or base.kind == .atomic_store or
+        base.kind == .atomic_rmw or base.kind == .cmpxchg)
+    {
+        if (base.atomic_value_ty) |tag| return tagToPrim(tag);
+        return .i64;
+    }
+    // operands[3] for load/store is usually .ty tag. The untyped fallback
+    // must match the reference widths (interp.zig): an untyped `take`
+    // loads a pointer, an untyped load/store moves a full i64 word. The
+    // previous u8 fallback truncated untyped pointer takes to the low
+    // byte (e.g. `take vec+Vec_ptr` in sa_vec_push read back 8 instead
+    // of the buffer address, corrupting every Vec grow copy).
     for (base.operands) |op| {
         if (op == .ty) return tagToPrim(op.ty);
     }
-    return .u8;
+    return if (base.kind == .take) .ptr else .i64;
 }
 
 fn memLoadFn(ty: sig.PrimType) []const u8 {
@@ -494,6 +507,16 @@ fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype
         },
         .assign, .assume_safe, .assume_borrow => {
             const dst = slotOfOp(fsig, use_global, base.operands[0]) orelse return;
+            // A typed assignment (`dst = src as T`, the form SLA's
+            // casts take) leaves the register holding a T value.
+            if (base.kind == .assign) {
+                if (castTargetType(base)) |tgt| {
+                    if (packWidth(tgt)) |w| {
+                        widths.put(dst, w) catch return;
+                        return;
+                    }
+                }
+            }
             const srcw = widthOfOperand(widths, fsig, use_global, base.operands[1]);
             if (srcw) |w| {
                 widths.put(dst, w) catch return;
@@ -513,7 +536,29 @@ fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype
                 }
             }
         },
-        .raw_cast => widthRemoveSlot(widths, slotOfOp(fsig, use_global, base.operands[0])),
+        .raw_cast => {
+            // After a cast the register holds a value of the TARGET
+            // type (the cast converts at materialization in the
+            // reference's typed-register model), so record the target
+            // width; without a parseable target, propagate the source
+            // width (bit-pattern-preserving domains) rather than
+            // dropping it, so downstream typed consumers still see a
+            // domain. Dropping it made every post-cast store a blind
+            // bit copy of whatever the source held.
+            if (slotOfOp(fsig, use_global, base.operands[0])) |dst| {
+                if (castTargetType(base)) |tgt| {
+                    if (packWidth(tgt)) |w| {
+                        widths.put(dst, w) catch return;
+                    } else {
+                        widthRemoveSlot(widths, dst);
+                    }
+                } else if (widthOfOperand(widths, fsig, use_global, base.operands[1])) |w| {
+                    widths.put(dst, w) catch return;
+                } else {
+                    widthRemoveSlot(widths, dst);
+                }
+            }
+        },
         .call, .call_indirect => {
             var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
                 widths.clearRetainingCapacity();
@@ -682,6 +727,39 @@ fn emitCvtExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glo
     try writer.print("sa_cvt_{s}_{s}(", .{ opname, sfx });
     try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, src_op);
     try writer.writeAll(")");
+}
+
+/// The target type of a `dst = src as T` cast, recovered from the
+/// instruction's raw text (the instruction itself carries only
+/// dst/src; the type survives in the text form). Null when the text
+/// has no parseable `as T` tail.
+fn castTargetType(base: inst.Instruction) ?sig.PrimType {
+    const text = std.mem.trim(u8, base.raw_text, " \t\r\n");
+    const idx = std.mem.lastIndexOf(u8, text, " as ") orelse return null;
+    var tail = std.mem.trim(u8, text[idx + 4 ..], " \t\r\n");
+    if (tail.len == 0) return null;
+    if (std.mem.indexOfAny(u8, tail, " \t\r\n")) |end| tail = tail[0..end];
+    return sig.parsePrimType(tail) catch null;
+}
+
+/// Conversion opcode for a raw_cast from a source of width code
+/// `src_code` to target type `tgt`, or null when the cast is a pure
+/// bit copy in this backend's register model (same domain and width).
+fn castOpcode(src_code: u32, tgt: sig.PrimType) ?inst.OpKind {
+    const tgt_code = packWidth(tgt) orelse return null;
+    const src_float = widthIsFloat(src_code);
+    const tgt_float = widthIsFloat(tgt_code);
+    const src_bits = widthBits(src_code);
+    const tgt_bits = widthBits(tgt_code);
+    if (src_float and tgt_float) {
+        if (src_bits == tgt_bits) return null;
+        return if (tgt_bits == 32) .fptrunc else .fpext;
+    }
+    if (src_float) return .fptosi;
+    if (tgt_float) return if (widthIsSigned(src_code)) .sitofp else .uitofp;
+    if (tgt_bits < src_bits) return .trunc;
+    if (tgt_bits > src_bits) return if (widthIsSigned(src_code)) .sext else .zext;
+    return null;
 }
 
 /// Float-domain decision for binary float ops: .f32 uses the 32-bit
@@ -3195,6 +3273,21 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         str_trim_ascii_start_index,
         str_trim_ascii_end_len,
         parse_float,
+        math_floor,
+        math_ceil,
+        math_sqrt,
+        math_sin,
+        math_cos,
+        math_pow,
+        math_random,
+        env_get,
+        env_has,
+        env_set_var,
+        env_remove_var,
+        env_buffer_data,
+        env_buffer_len,
+        env_buffer_free,
+        deno_btoa_handle,
         regex_compile,
         regex_match,
         regex_group_ptr,
@@ -3495,6 +3588,36 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b11, .tag = .str_trim_ascii_end_len }
     else if (std.mem.eql(u8, name, "sa_parse_float"))
         .{ .voids = all_void ^ 0b11, .tag = .parse_float }
+    else if (std.mem.eql(u8, name, "sa_math_floor"))
+        .{ .voids = all_void ^ 0b1, .tag = .math_floor }
+    else if (std.mem.eql(u8, name, "sa_math_ceil"))
+        .{ .voids = all_void ^ 0b1, .tag = .math_ceil }
+    else if (std.mem.eql(u8, name, "sa_math_sqrt"))
+        .{ .voids = all_void ^ 0b1, .tag = .math_sqrt }
+    else if (std.mem.eql(u8, name, "sa_math_sin"))
+        .{ .voids = all_void ^ 0b1, .tag = .math_sin }
+    else if (std.mem.eql(u8, name, "sa_math_cos"))
+        .{ .voids = all_void ^ 0b1, .tag = .math_cos }
+    else if (std.mem.eql(u8, name, "sa_math_pow"))
+        .{ .voids = all_void ^ 0b11, .tag = .math_pow }
+    else if (std.mem.eql(u8, name, "sa_math_random"))
+        .{ .voids = all_void, .tag = .math_random }
+    else if (std.mem.eql(u8, name, "sa_env_get"))
+        .{ .voids = all_void ^ 0b11, .tag = .env_get }
+    else if (std.mem.eql(u8, name, "sa_env_has"))
+        .{ .voids = all_void ^ 0b11, .tag = .env_has }
+    else if (std.mem.eql(u8, name, "sa_env_set_var"))
+        .{ .voids = all_void ^ 0b1111, .tag = .env_set_var }
+    else if (std.mem.eql(u8, name, "sa_env_remove_var"))
+        .{ .voids = all_void ^ 0b11, .tag = .env_remove_var }
+    else if (std.mem.eql(u8, name, "sa_env_buffer_data"))
+        .{ .voids = all_void ^ 0b1, .tag = .env_buffer_data }
+    else if (std.mem.eql(u8, name, "sa_env_buffer_len"))
+        .{ .voids = all_void ^ 0b1, .tag = .env_buffer_len }
+    else if (std.mem.eql(u8, name, "sa_env_buffer_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .env_buffer_free }
+    else if (std.mem.eql(u8, name, "sa_deno_btoa"))
+        .{ .voids = all_void ^ 0b11, .tag = .deno_btoa_handle }
     else if (std.mem.eql(u8, name, "sa_regex_compile"))
         .{ .voids = all_void ^ 0b111, .tag = .regex_compile }
     else if (std.mem.eql(u8, name, "sa_regex_match"))
@@ -4524,6 +4647,67 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
             try writer.writeAll(" if ((t.u & (sa_u64)0x7FF0000000000000ULL) == (sa_u64)0x7FF0000000000000ULL)");
             try writer.writeAll(" t.u = neg ? (sa_u64)0xFFF0000000000000ULL : (sa_u64)0x7FF0000000000000ULL; }");
             try writer.writeAll(" if (neg) t.v = -t.v; return t.u; } } } }\n");
+        },
+        .math_floor => {
+            // libm floor over the f64 bit pattern (mirrors sa_math_floor).
+            try writer.writeAll(" { union { sa_u64 u; double v; } t; t.u = a0; t.v = floor(t.v); return t.u; } }\n");
+        },
+        .math_ceil => {
+            try writer.writeAll(" { union { sa_u64 u; double v; } t; t.u = a0; t.v = ceil(t.v); return t.u; } }\n");
+        },
+        .math_sqrt => {
+            // C sqrt of a negative is NaN, matching Zig @sqrt.
+            try writer.writeAll(" { union { sa_u64 u; double v; } t; t.u = a0; t.v = sqrt(t.v); return t.u; } }\n");
+        },
+        .math_sin => {
+            try writer.writeAll(" { union { sa_u64 u; double v; } t; t.u = a0; t.v = sin(t.v); return t.u; } }\n");
+        },
+        .math_cos => {
+            try writer.writeAll(" { union { sa_u64 u; double v; } t; t.u = a0; t.v = cos(t.v); return t.u; } }\n");
+        },
+        .math_pow => {
+            try writer.writeAll(" { union { sa_u64 u; double v; } x; union { sa_u64 u; double v; } y; x.u = a0; y.u = a1; x.v = pow(x.v, y.v); return x.u; } }\n");
+        },
+        .math_random => {
+            // Native sa_math_random is crypto-random in [0, 1), so exact
+            // values can never match across backends; the binding keeps
+            // the same 53-bit draw shape with a deterministic LCG state,
+            // per this backend's determinism rule for staged bindings.
+            try writer.writeAll(" { static sa_u64 st = (sa_u64)0x9E3779B97F4A7C15ULL; st = st * (sa_u64)6364136223846793005ULL + (sa_u64)1442695040888963407ULL; union { sa_u64 u; double v; } t; t.v = (double)(st >> 11) * (1.0 / 9007199254740992.0); return t.u; } }\n");
+        },
+        .env_get => {
+            // Real host environment via libc (the native binding reads
+            // the same process env); the value is copied into an owned
+            // buffer of kind 4, the env-buffer registry kind.
+            try writer.writeAll(" { if (a1 > 4096) return 0; char kb[4097]; uint32_t s = sa_checked_addr(a0, (size_t)a1); sa_u64 i; for (i = 0; i < a1; i++) kb[i] = (char)sa_mem[s + i]; kb[a1] = 0; const char *v = getenv(kb); if (v == 0) return 0; size_t n = strlen(v); sa_u64 p = sa_alloc(n == 0 ? 1 : (sa_u64)n); uint32_t d = sa_checked_addr(p, n == 0 ? 1 : n); size_t j; for (j = 0; j < n; j++) sa_mem[d + j] = (uint8_t)v[j]; return sa_owned_new(p, (sa_u64)n, 4); } }\n");
+        },
+        .env_has => {
+            // Status semantics mirror the native binding: 0 = present,
+            // 3 = SA_STD_ERR_NOT_FOUND.
+            try writer.writeAll(" { if (a1 > 4096) return 1; char kb[4097]; uint32_t s = sa_checked_addr(a0, (size_t)a1); sa_u64 i; for (i = 0; i < a1; i++) kb[i] = (char)sa_mem[s + i]; kb[a1] = 0; return getenv(kb) != 0 ? 0 : 3; } }\n");
+        },
+        .env_set_var => {
+            try writer.writeAll(" { if (a1 > 4096 || a3 > 1048576) return 1; char kb[4097]; char *vb = (char *)malloc(a3 + 1); if (vb == 0) return 6; uint32_t s = sa_checked_addr(a0, (size_t)a1); uint32_t t = sa_checked_addr(a2, (size_t)a3); sa_u64 i; for (i = 0; i < a1; i++) kb[i] = (char)sa_mem[s + i]; kb[a1] = 0; for (i = 0; i < a3; i++) { if (sa_mem[t + i] == 0) { free(vb); return 1; } vb[i] = (char)sa_mem[t + i]; } vb[a3] = 0; int rc = setenv(kb, vb, 1); free(vb); return rc == 0 ? 0 : 6; } }\n");
+        },
+        .env_remove_var => {
+            try writer.writeAll(" { if (a1 > 4096) return 1; char kb[4097]; uint32_t s = sa_checked_addr(a0, (size_t)a1); sa_u64 i; for (i = 0; i < a1; i++) kb[i] = (char)sa_mem[s + i]; kb[a1] = 0; return unsetenv(kb) == 0 ? 0 : 6; } }\n");
+        },
+        .env_buffer_data => {
+            try writer.writeAll(" { sa_owned_buf_t *o = sa_owned_find(a0); if (o == 0 || o->kind != 4) return 0; return o->ptr; } }\n");
+        },
+        .env_buffer_len => {
+            try writer.writeAll(" { sa_owned_buf_t *o = sa_owned_find(a0); if (o == 0 || o->kind != 4) return 0; return o->len; } }\n");
+        },
+        .env_buffer_free => {
+            try writer.writeAll(" { sa_owned_drop(a0); return 0; } }\n");
+        },
+        .deno_btoa_handle => {
+            // Standard-alphabet base64 with padding, matching the
+            // native encoder; the result is an fmt buffer (kind 1),
+            // consumed via sa_fmt_buffer_data/len/free as natively.
+            // (The .deno_btoa tag below is the unrelated out-param
+            // shape used by sa_deno_plugin_btoa.)
+            try writer.writeAll(" { static const char T[65] = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"; uint32_t s = sa_checked_addr(a0, (size_t)a1); sa_u64 out_len = 4 * ((a1 + 2) / 3); sa_u64 p = sa_alloc(out_len == 0 ? 1 : out_len); uint32_t d = sa_checked_addr(p, out_len == 0 ? 1 : (size_t)out_len); sa_u64 i = 0, j = 0; while (i + 3 <= a1) { uint32_t v = ((uint32_t)sa_mem[s + i] << 16) | ((uint32_t)sa_mem[s + i + 1] << 8) | (uint32_t)sa_mem[s + i + 2]; sa_mem[d + j++] = (uint8_t)T[(v >> 18) & 63]; sa_mem[d + j++] = (uint8_t)T[(v >> 12) & 63]; sa_mem[d + j++] = (uint8_t)T[(v >> 6) & 63]; sa_mem[d + j++] = (uint8_t)T[v & 63]; i += 3; } if (a1 - i == 1) { uint32_t v = ((uint32_t)sa_mem[s + i] << 16); sa_mem[d + j++] = (uint8_t)T[(v >> 18) & 63]; sa_mem[d + j++] = (uint8_t)T[(v >> 12) & 63]; sa_mem[d + j++] = 61; sa_mem[d + j++] = 61; } else if (a1 - i == 2) { uint32_t v = ((uint32_t)sa_mem[s + i] << 16) | ((uint32_t)sa_mem[s + i + 1] << 8); sa_mem[d + j++] = (uint8_t)T[(v >> 18) & 63]; sa_mem[d + j++] = (uint8_t)T[(v >> 12) & 63]; sa_mem[d + j++] = (uint8_t)T[(v >> 6) & 63]; sa_mem[d + j++] = 61; } return sa_owned_new(p, out_len, 1); } }\n");
         },
         .regex_compile => {
             // POSIX regcomp over a NUL-terminated guest copy; the
@@ -6321,6 +6505,8 @@ fn writePreamble(
         \\#include <stdio.h>
         \\#include <stdlib.h>
         \\#include <errno.h>
+        \\#include <math.h>
+        \\#include <string.h>
         \\typedef uint64_t sa_u64;
         \\typedef int64_t sa_i64;
         \\typedef uint32_t sa_u32;
@@ -6753,6 +6939,94 @@ fn opCanTrap(opcode: inst.OpKind) bool {
     };
 }
 
+/// Store-value coercion, mirroring interp.zig's store coercion: the
+/// stored value is converted to the store's declared type at the
+/// consumption point. SLA lowers `r as i64` to a raw_cast bit copy in
+/// every backend and relies on this coercion — without it an f64
+/// payload stored into an i64 slot lands as raw float bits (bitpack
+/// quantize stored the f64 bits of 6.0 into a Result<i64> payload and
+/// the value read back as a huge integer, not 6). Only float<->int
+/// and f32<->f64 conversions are observable; same-domain stores and
+/// pointer stores stay bit copies, as in the reference.
+fn emitStoreValue(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, widths: *const WidthMap, op: inst.Operand, ty: sig.PrimType) !void {
+    const code = widthOfOperand(widths, fsig, use_global, op);
+    const src_float = if (code) |c| widthIsFloat(c) else false;
+    const src_bits: u8 = if (code) |c| widthBits(c) else 64;
+    const src_signed = if (code) |c| widthIsSigned(c) else false;
+    const tgt_float = ty == .f32 or ty == .f64;
+    if (src_float and !tgt_float and ty != .ptr and ty != .blob_handle and ty != .void) {
+        // float -> int: convert at 64-bit width; narrower stores
+        // truncate the converted value, matching the reference
+        // (coerce to the target type, then store its low bytes).
+        const sfx: []const u8 = switch (ty) {
+            .i1, .i8, .i16, .i32, .i64 => "i64",
+            else => "u64",
+        };
+        try writer.print("sa_cvt_fptosi_{s}(", .{sfx});
+        if (src_bits == 32) try writer.writeAll("sa_f32_to_f64(");
+        try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, op);
+        if (src_bits == 32) try writer.writeAll(")");
+        try writer.writeAll(")");
+        return;
+    }
+    if (!src_float and tgt_float and code != null) {
+        const opname: []const u8 = if (src_signed) "sitofp" else "uitofp";
+        const sfx: []const u8 = if (ty == .f32) "f32" else "f64";
+        try writer.print("sa_cvt_{s}_{s}(", .{ opname, sfx });
+        try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, op);
+        try writer.writeAll(")");
+        return;
+    }
+    if (src_float and tgt_float and code != null and ((src_bits == 32) != (ty == .f32))) {
+        try writer.writeAll(if (ty == .f32) "sa_cvt_fptrunc_f32(" else "sa_cvt_fpext_f64(");
+        try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, op);
+        try writer.writeAll(")");
+        return;
+    }
+    try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, op);
+}
+
+/// Copy-or-cast emission for assign/raw_cast: a typed assignment
+/// (`dst = src as T`, the form SLA's casts take after the flattener
+/// drops the type annotation into the raw text) is a real conversion
+/// in the reference's typed-register model — the value is converted
+/// when materialized into the target-typed register (SLA's
+/// `r as i64` over an f64 lowers to this form, and typed consumers
+/// downstream read the converted integer; bitpack's quantize stored
+/// the result into a Result payload and read back raw f64 bits
+/// instead of 6 when this was a blind copy). This backend's
+/// registers are untyped u64 slots, so the conversion is emitted
+/// here; only same-domain casts stay bit copies.
+fn emitCopyOrCast(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, widths: *WidthMap, dead: *const std.AutoHashMap(u32, void)) !void {
+    const slot = try dstSlot(fsig, use_global, base.operands[0]);
+    if (dead.get(slot) != null) {
+        try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
+        return;
+    }
+    var cvt_op: ?inst.OpKind = null;
+    var cvt_tgt: ?sig.PrimType = null;
+    if (castTargetType(base)) |tgt| {
+        if (widthOfOperand(widths, fsig, use_global, base.operands[1])) |code| {
+            cvt_op = castOpcode(code, tgt);
+            cvt_tgt = tgt;
+        }
+    }
+    if (cvt_op) |opcode| {
+        try writer.print("  r{d} = ", .{slot});
+        try emitCvtExpr(writer, symbols, fsig, use_global, const_addrs, fn_idx, opcode, cvt_tgt.?, base.operands[1], widths);
+        try writer.writeAll(";\n");
+        return;
+    }
+    try writer.print("  r{d} = (", .{slot});
+    switch (base.operands[1]) {
+        .reg, .symbol, .func, .label, .imm_i64, .imm_int, .imm_u64, .imm_float, .text, .native_text => {
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
+        },
+        else => return CEmitError.InvalidOperand,
+    }
+    try writer.writeAll(");\n");
+}
+
 fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, widths: *WidthMap, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32, dead: *const std.AutoHashMap(u32, void)) !void {
     last_c_inst = base.raw_text;
     last_c_func = fsig.name;
@@ -6961,7 +7235,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
                 try writer.print("  {s}(", .{store_fn});
                 try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
                 try writer.writeAll(", ");
-                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                try emitStoreValue(writer, symbols, fsig, use_global, const_addrs, fn_idx, widths, base.operands[2], ty);
                 try writer.writeAll(");\n");
             } else {
                 try writer.print("  {s}(sa_ptr_add(", .{store_fn});
@@ -6969,7 +7243,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
                 try writer.writeAll(", ");
                 try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[1]);
                 try writer.writeAll("), ");
-                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[2]);
+                try emitStoreValue(writer, symbols, fsig, use_global, const_addrs, fn_idx, widths, base.operands[2], ty);
                 try writer.writeAll(");\n");
             }
         },
@@ -7125,7 +7399,10 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
         .fence => {
             try writer.writeAll("  /* fence: no-op on C backend */\n");
         },
-        .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => {
+        .assign, .raw_cast => {
+            try emitCopyOrCast(writer, symbols, fsig, use_global, const_addrs, fn_idx, base, widths, dead);
+        },
+        .borrow, .assume_safe, .assume_borrow => {
             const slot = try dstSlot(fsig, use_global, base.operands[0]);
             if (dead.get(slot) != null) {
                 try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
@@ -8046,6 +8323,27 @@ test "c ident sanitizes names" {
     var fbs = std.Io.Writer.fixed(&buf);
     try cIdent(&fbs, "hello-world.foo");
     try std.testing.expectEqualStrings("hello_world_foo", fbs.buffered());
+}
+
+test "c memPrimType untyped fallbacks match reference widths" {
+    // Regression lock: the untyped fallback used to be u8, which
+    // truncated untyped pointer takes (sa_vec_push's `take vec+Vec_ptr`)
+    // to the pointer's low byte and corrupted every Vec grow copy on
+    // the C backend. Reference widths are interp.zig's: take -> ptr,
+    // load/store -> i64, atomics -> atomic_value_ty else i64.
+    const take = inst.makeInstruction(.take, 0, 0, null, "");
+    try std.testing.expectEqual(sig.PrimType.ptr, memPrimType(take));
+    const load = inst.makeInstruction(.load, 0, 0, null, "");
+    try std.testing.expectEqual(sig.PrimType.i64, memPrimType(load));
+    const store = inst.makeInstruction(.store, 0, 0, null, "");
+    try std.testing.expectEqual(sig.PrimType.i64, memPrimType(store));
+    var atomic = inst.makeInstruction(.atomic_load, 0, 0, null, "");
+    try std.testing.expectEqual(sig.PrimType.i64, memPrimType(atomic));
+    atomic.atomic_value_ty = @intFromEnum(sig.PrimType.u8);
+    try std.testing.expectEqual(sig.PrimType.u8, memPrimType(atomic));
+    var typed = inst.makeInstruction(.load, 0, 0, null, "");
+    typed.operands[3] = .{ .ty = @intFromEnum(sig.PrimType.u16) };
+    try std.testing.expectEqual(sig.PrimType.u16, memPrimType(typed));
 }
 
 /// True iff every param a0..aN in a rendered binding body occurs at
