@@ -1,0 +1,149 @@
+// SLA-level behavior tests for sa_std/http_proxy.sla (proxy surface).
+//
+// Pure-function coverage: proxy URL parsing/validation, accessors,
+// Proxy-Authorization construction, NO_PROXY matching (Go x/net/httpproxy
+// semantics), the per-target decision function, and the environment
+// convention layer (HTTP_PROXY/HTTPS_PROXY/NO_PROXY + lowercase forms,
+// CGI REQUEST_METHOD guard). Network behavior (CONNECT / SOCKS5 /
+// end-to-end dial) lives in tests/http_proxy_loopback.sla.
+
+@import "sa_std/http_proxy.sla"
+@import "sa_std/status.sla"
+@import "sa_std/string.sa"
+
+// ---------------------------------------------------------------------
+// NO_PROXY matching (Go x/net/httpproxy semantics).
+// ---------------------------------------------------------------------
+
+fn np(no_proxy: String, host: String, port: u32) -> bool {
+    return http_proxy_no_proxy_matches(no_proxy, host, port);
+}
+
+@test "no_proxy empty and star"() {
+    if np(format(""), format("example.com"), 80) { panic(4001); };
+    if !np(format("*"), format("example.com"), 80) { panic(4002); };
+    if !np(format("*"), format("anything.invalid"), 65535) { panic(4003); };
+};
+
+@test "no_proxy plain domain matches self and subdomains"() {
+    if !np(format("example.com"), format("example.com"), 80) { panic(4011); };
+    if !np(format("example.com"), format("www.example.com"), 80) { panic(4012); };
+    if !np(format("example.com"), format("a.b.example.com"), 443) { panic(4013); };
+    if np(format("example.com"), format("notexample.com"), 80) { panic(4014); };
+    if np(format("example.com"), format("example.com.evil.org"), 80) { panic(4015); };
+    if np(format("example.com"), format("example.org"), 80) { panic(4016); };
+};
+
+@test "no_proxy leading dot matches subdomains only"() {
+    if np(format(".example.com"), format("example.com"), 80) { panic(4021); };
+    if !np(format(".example.com"), format("www.example.com"), 80) { panic(4022); };
+    if !np(format("*.example.com"), format("www.example.com"), 80) { panic(4023); };
+    if np(format("*.example.com"), format("example.com"), 80) { panic(4024); };
+};
+
+@test "no_proxy is case-insensitive and trims entries"() {
+    if !np(format("EXAMPLE.com"), format("WWW.Example.COM"), 80) { panic(4031); };
+    if !np(format("  a.com ,  example.com "), format("example.com"), 80) { panic(4032); };
+    if !np(format("a.com,example.com"), format("a.com"), 80) { panic(4033); };
+    if np(format("a.com,example.com"), format("b.com"), 80) { panic(4034); };
+};
+
+@test "no_proxy port-qualified entries"() {
+    if !np(format("example.com:8080"), format("example.com"), 8080) { panic(4041); };
+    if np(format("example.com:8080"), format("example.com"), 9090) { panic(4042); };
+    if !np(format("example.com:8080"), format("www.example.com"), 8080) { panic(4043); };
+    if np(format("[::1]:8080"), format("other.com"), 8080) { panic(4044); };
+    if !np(format("[::1]:8080"), format("::1"), 8080) { panic(4045); };
+};
+
+@test "no_proxy ip and cidr entries"() {
+    if !np(format("192.0.2.7"), format("192.0.2.7"), 80) { panic(4051); };
+    if np(format("192.0.2.7"), format("192.0.2.8"), 80) { panic(4052); };
+    if !np(format("10.0.0.0/8"), format("10.1.2.3"), 80) { panic(4053); };
+    if np(format("10.0.0.0/8"), format("11.0.0.1"), 80) { panic(4054); };
+    if np(format("10.0.0.0/8"), format("example.com"), 80) { panic(4055); };
+    if !np(format("2001:db8::/32"), format("2001:db8::1"), 443) { panic(4056); };
+    if np(format("2001:db8::/32"), format("2001:db9::1"), 443) { panic(4057); };
+    if !np(format("127.0.0.1"), format("127.0.0.1"), 8080) { panic(4058); };
+};
+
+// ---------------------------------------------------------------------
+// Decision function.
+// ---------------------------------------------------------------------
+
+fn decide(proxy_v: String, np_v: String, target: String, code: u32) -> ProxyDecision {
+    let r = http_proxy_decide(proxy_v, np_v, target);
+    match r {
+        Ok(d) => {
+            return d;
+        },
+        Err(c) => {
+            panic(code);
+        },
+    };
+}
+
+@test "decide no proxy configured"() {
+    let d: ProxyDecision = decide(format(""), format(""), format("http://example.com/"), 5001);
+    if http_proxy_decision_use_proxy(&d) { panic(5002); };
+    if http_proxy_decision_reason(&d) != SA_HTTP_PROXY_DECISION_NO_PROXY_CONFIGURED { panic(5003); };
+};
+
+@test "decide via proxy"() {
+    let d: ProxyDecision = decide(format("http://proxy.local:3128"), format(""), format("http://example.com/"), 5011);
+    if !http_proxy_decision_use_proxy(&d) { panic(5012); };
+    if http_proxy_decision_reason(&d) != SA_HTTP_PROXY_DECISION_VIA_PROXY { panic(5013); };
+    if http_proxy_kind(&d.proxy) != SA_HTTP_PROXY_KIND_HTTP { panic(5014); };
+    if http_proxy_port(&d.proxy) != 3128 { panic(5015); };
+};
+
+@test "decide bypassed by no_proxy"() {
+    let d: ProxyDecision = decide(format("http://proxy.local:3128"), format("example.com"), format("http://www.example.com/"), 5021);
+    if http_proxy_decision_use_proxy(&d) { panic(5022); };
+    if http_proxy_decision_reason(&d) != SA_HTTP_PROXY_DECISION_BYPASSED_NO_PROXY { panic(5023); };
+    let d2: ProxyDecision = decide(format("http://proxy.local:3128"), format("*"), format("https://example.com/"), 5024);
+    if http_proxy_decision_reason(&d2) != SA_HTTP_PROXY_DECISION_BYPASSED_NO_PROXY { panic(5025); };
+};
+
+@test "decide bypassed loopback"() {
+    let d: ProxyDecision = decide(format("http://proxy.local:3128"), format(""), format("http://127.0.0.1:9000/"), 5031);
+    if http_proxy_decision_reason(&d) != SA_HTTP_PROXY_DECISION_BYPASSED_LOOPBACK { panic(5032); };
+    let d2: ProxyDecision = decide(format("http://proxy.local:3128"), format(""), format("http://localhost:9000/"), 5033);
+    if http_proxy_decision_reason(&d2) != SA_HTTP_PROXY_DECISION_BYPASSED_LOOPBACK { panic(5034); };
+    let d3: ProxyDecision = decide(format("http://proxy.local:3128"), format(""), format("http://[::1]:9000/"), 5035);
+    if http_proxy_decision_reason(&d3) != SA_HTTP_PROXY_DECISION_BYPASSED_LOOPBACK { panic(5036); };
+    let d4: ProxyDecision = decide(format("http://proxy.local:3128"), format(""), format("http://10.0.0.5/"), 5037);
+    if http_proxy_decision_reason(&d4) != SA_HTTP_PROXY_DECISION_VIA_PROXY { panic(5038); };
+};
+
+@test "decide target port participates in no_proxy"() {
+    let d: ProxyDecision = decide(format("http://proxy.local:3128"), format("example.com:8443"), format("https://example.com/"), 5041);
+    if http_proxy_decision_reason(&d) != SA_HTTP_PROXY_DECISION_VIA_PROXY { panic(5042); };
+    let d2: ProxyDecision = decide(format("http://proxy.local:3128"), format("example.com:8443"), format("https://example.com:8443/"), 5043);
+    if http_proxy_decision_reason(&d2) != SA_HTTP_PROXY_DECISION_BYPASSED_NO_PROXY { panic(5044); };
+};
+
+@test "decide rejects bad inputs"() {
+    let r = http_proxy_decide(format("::bad"), format(""), format("http://example.com/"));
+    match r {
+        Ok(d) => { panic(5051); },
+        Err(c) => {
+            if c != SA_STD_ERR_INVALID_ARGUMENT { panic(5052); };
+        },
+    };
+    let r2 = http_proxy_decide(format("http://proxy.local"), format(""), format("ftp://example.com/"));
+    match r2 {
+        Ok(d) => { panic(5053); },
+        Err(c) => {
+            if c != SA_STD_ERR_UNSUPPORTED { panic(5054); };
+        },
+    };
+    let r3 = http_proxy_decide(format("http://proxy.local"), format(""), format("not a url"));
+    match r3 {
+        Ok(d) => { panic(5055); },
+        Err(c) => {
+            if c != SA_STD_ERR_INVALID_ARGUMENT { panic(5056); };
+        },
+    };
+};
+

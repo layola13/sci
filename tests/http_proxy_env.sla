@@ -1,0 +1,149 @@
+// SLA-level behavior tests for sa_std/http_proxy.sla (proxy surface).
+//
+// Pure-function coverage: proxy URL parsing/validation, accessors,
+// Proxy-Authorization construction, NO_PROXY matching (Go x/net/httpproxy
+// semantics), the per-target decision function, and the environment
+// convention layer (HTTP_PROXY/HTTPS_PROXY/NO_PROXY + lowercase forms,
+// CGI REQUEST_METHOD guard). Network behavior (CONNECT / SOCKS5 /
+// end-to-end dial) lives in tests/http_proxy_loopback.sla.
+
+@import "sa_std/http_proxy.sla"
+@import "sa_std/status.sla"
+@import "sa_std/string.sa"
+
+fn must_parse(url: String) -> ProxyUrl {
+    let r = http_proxy_parse(url);
+    match r {
+        Ok(p) => {
+            return p;
+        },
+        Err(code) => {
+            panic(9901);
+        },
+    };
+}
+
+fn expect_parse_err(url: String, want: i32, code: u32) {
+    let r = http_proxy_parse(url);
+    match r {
+        Ok(p) => {
+            panic(code);
+        },
+        Err(got) => {
+            if got != want {
+                panic(code + 500);
+            };
+        },
+    };
+}
+
+fn expect_str(got: String, want: String, code: u32) {
+    if !str_eq(got, want) {
+        panic(code);
+    };
+}
+
+fn expect_auth(url: String, want: String, code: u32) {
+    let p: ProxyUrl = must_parse(proxy_range_str(STR_PTR(url), 0, len(url)));
+    let has_u: bool = http_proxy_has_user(&p);
+    let has_p: bool = http_proxy_has_password(&p);
+    let u: String = http_proxy_user(p);
+    let r = http_proxy_parse(proxy_range_str(STR_PTR(url), 0, len(url)));
+    match r {
+        Ok(p2) => {
+            let pw: String = http_proxy_password(p2);
+            expect_str(http_proxy_basic_auth_value(u, pw, has_p), want, code);
+        },
+        Err(c) => {
+            panic(code + 900);
+        },
+    };
+    if !has_u {
+        panic(code + 901);
+    };
+}
+
+// ---------------------------------------------------------------------
+// Environment convention layer.
+// ---------------------------------------------------------------------
+
+fn env_set(name: String, value: String) {
+    let st: i32 = sa_env_set_var(STR_PTR(name), len(name), STR_PTR(value), len(value));
+}
+
+fn env_unset(name: String) {
+    let st: i32 = sa_env_remove_var(STR_PTR(name), len(name));
+}
+
+fn clear_proxy_env() {
+    env_unset(format("HTTP_PROXY"));
+    env_unset(format("http_proxy"));
+    env_unset(format("HTTPS_PROXY"));
+    env_unset(format("https_proxy"));
+    env_unset(format("NO_PROXY"));
+    env_unset(format("no_proxy"));
+    env_unset(format("REQUEST_METHOD"));
+}
+
+@test "env proxy value precedence"() {
+    clear_proxy_env();
+    expect_str(http_proxy_env_proxy_value(SA_HTTP_PROXY_KIND_HTTP), format(""), 6001);
+    env_set(format("http_proxy"), format("http://lower.local:1001"));
+    expect_str(http_proxy_env_proxy_value(SA_HTTP_PROXY_KIND_HTTP), format("http://lower.local:1001"), 6002);
+    env_set(format("HTTP_PROXY"), format("http://upper.local:1002"));
+    expect_str(http_proxy_env_proxy_value(SA_HTTP_PROXY_KIND_HTTP), format("http://upper.local:1002"), 6003);
+    env_set(format("HTTPS_PROXY"), format("http://secure.local:1003"));
+    expect_str(http_proxy_env_proxy_value(SA_HTTP_PROXY_KIND_HTTPS), format("http://secure.local:1003"), 6004);
+    expect_str(http_proxy_env_proxy_value(SA_HTTP_PROXY_KIND_SOCKS5), format(""), 6005);
+    clear_proxy_env();
+};
+
+@test "env cgi guard skips uppercase http_proxy"() {
+    clear_proxy_env();
+    env_set(format("HTTP_PROXY"), format("http://upper.local:1002"));
+    env_set(format("http_proxy"), format("http://lower.local:1001"));
+    env_set(format("REQUEST_METHOD"), format("GET"));
+    expect_str(http_proxy_env_proxy_value(SA_HTTP_PROXY_KIND_HTTP), format("http://lower.local:1001"), 6011);
+    env_unset(format("http_proxy"));
+    expect_str(http_proxy_env_proxy_value(SA_HTTP_PROXY_KIND_HTTP), format(""), 6012);
+    clear_proxy_env();
+};
+
+@test "env no_proxy value precedence"() {
+    clear_proxy_env();
+    expect_str(http_proxy_env_no_proxy_value(), format(""), 6021);
+    env_set(format("no_proxy"), format("lower.com"));
+    expect_str(http_proxy_env_no_proxy_value(), format("lower.com"), 6022);
+    env_set(format("NO_PROXY"), format("upper.com"));
+    expect_str(http_proxy_env_no_proxy_value(), format("upper.com"), 6023);
+    clear_proxy_env();
+};
+
+@test "for_url reads the environment end to end"() {
+    clear_proxy_env();
+    env_set(format("HTTP_PROXY"), format("http://proxy.local:3128"));
+    env_set(format("NO_PROXY"), format("internal.example.com"));
+    let r = http_proxy_for_url(format("http://www.example.com/"));
+    match r {
+        Ok(d) => {
+            if !http_proxy_decision_use_proxy(&d) { panic(6031); };
+            if http_proxy_port(&d.proxy) != 3128 { panic(6032); };
+        },
+        Err(c) => { panic(6033); },
+    };
+    let r2 = http_proxy_for_url(format("http://api.internal.example.com/"));
+    match r2 {
+        Ok(d) => {
+            if http_proxy_decision_reason(&d) != SA_HTTP_PROXY_DECISION_BYPASSED_NO_PROXY { panic(6034); };
+        },
+        Err(c) => { panic(6035); },
+    };
+    let r3 = http_proxy_for_url(format("https://www.example.com/"));
+    match r3 {
+        Ok(d) => {
+            if http_proxy_decision_use_proxy(&d) { panic(6036); };
+        },
+        Err(c) => { panic(6037); },
+    };
+    clear_proxy_env();
+};

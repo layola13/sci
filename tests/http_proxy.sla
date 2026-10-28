@@ -1,0 +1,196 @@
+// SLA-level behavior tests for sa_std/http_proxy.sla (proxy surface).
+//
+// Pure-function coverage: proxy URL parsing/validation, accessors,
+// Proxy-Authorization construction, NO_PROXY matching (Go x/net/httpproxy
+// semantics), the per-target decision function, and the environment
+// convention layer (HTTP_PROXY/HTTPS_PROXY/NO_PROXY + lowercase forms,
+// CGI REQUEST_METHOD guard). Network behavior (CONNECT / SOCKS5 /
+// end-to-end dial) lives in tests/http_proxy_loopback.sla.
+
+@import "sa_std/http_proxy.sla"
+@import "sa_std/status.sla"
+@import "sa_std/string.sa"
+
+fn must_parse(url: String) -> ProxyUrl {
+    let r = http_proxy_parse(url);
+    match r {
+        Ok(p) => {
+            return p;
+        },
+        Err(code) => {
+            panic(9901);
+        },
+    };
+}
+
+fn expect_parse_err(url: String, want: i32, code: u32) {
+    let r = http_proxy_parse(url);
+    match r {
+        Ok(p) => {
+            panic(code);
+        },
+        Err(got) => {
+            if got != want {
+                panic(code + 500);
+            };
+        },
+    };
+}
+
+fn expect_str(got: String, want: String, code: u32) {
+    if !str_eq(got, want) {
+        panic(code);
+    };
+}
+
+fn expect_auth(url: String, want: String, code: u32) {
+    let p: ProxyUrl = must_parse(proxy_range_str(STR_PTR(url), 0, len(url)));
+    let has_u: bool = http_proxy_has_user(&p);
+    let has_p: bool = http_proxy_has_password(&p);
+    let u: String = http_proxy_user(p);
+    let r = http_proxy_parse(proxy_range_str(STR_PTR(url), 0, len(url)));
+    match r {
+        Ok(p2) => {
+            let pw: String = http_proxy_password(p2);
+            expect_str(http_proxy_basic_auth_value(u, pw, has_p), want, code);
+        },
+        Err(c) => {
+            panic(code + 900);
+        },
+    };
+    if !has_u {
+        panic(code + 901);
+    };
+}
+
+// ---------------------------------------------------------------------
+// Parsing: kinds, default ports, explicit ports.
+// ---------------------------------------------------------------------
+
+@test "proxy parse kinds and default ports"() {
+    let p: ProxyUrl = must_parse(format("http://proxy.local"));
+    if http_proxy_kind(&p) != SA_HTTP_PROXY_KIND_HTTP { panic(1001); };
+    if http_proxy_port(&p) != 80 { panic(1002); };
+    let p2: ProxyUrl = must_parse(format("https://proxy.local"));
+    if http_proxy_kind(&p2) != SA_HTTP_PROXY_KIND_HTTPS { panic(1003); };
+    if http_proxy_port(&p2) != 443 { panic(1004); };
+    let p3: ProxyUrl = must_parse(format("socks5://proxy.local"));
+    if http_proxy_kind(&p3) != SA_HTTP_PROXY_KIND_SOCKS5 { panic(1005); };
+    if http_proxy_port(&p3) != 1080 { panic(1006); };
+};
+
+@test "proxy parse explicit and empty ports"() {
+    let p: ProxyUrl = must_parse(format("http://proxy.local:3128"));
+    if http_proxy_port(&p) != 3128 { panic(1011); };
+    let p2: ProxyUrl = must_parse(format("http://proxy.local:"));
+    if http_proxy_port(&p2) != 80 { panic(1012); };
+    let p3: ProxyUrl = must_parse(format("https://proxy.local:8443/"));
+    if http_proxy_port(&p3) != 8443 { panic(1013); };
+    let p4: ProxyUrl = must_parse(format("http://proxy.local:65535"));
+    if http_proxy_port(&p4) != 65535 { panic(1014); };
+};
+
+@test "proxy parse scheme is case-insensitive"() {
+    let p: ProxyUrl = must_parse(format("HTTP://proxy.local:3128"));
+    if http_proxy_kind(&p) != SA_HTTP_PROXY_KIND_HTTP { panic(1021); };
+    let p2: ProxyUrl = must_parse(format("SoCkS5://proxy.local"));
+    if http_proxy_kind(&p2) != SA_HTTP_PROXY_KIND_SOCKS5 { panic(1022); };
+};
+
+@test "proxy parse tolerates root path query and fragment"() {
+    let p: ProxyUrl = must_parse(format("http://proxy.local:3128/"));
+    if http_proxy_port(&p) != 3128 { panic(1031); };
+    let p2: ProxyUrl = must_parse(format("http://proxy.local/?x=1"));
+    if http_proxy_port(&p2) != 80 { panic(1032); };
+    let p3: ProxyUrl = must_parse(format("http://proxy.local#frag"));
+    if http_proxy_port(&p3) != 80 { panic(1033); };
+};
+
+// ---------------------------------------------------------------------
+// Parsing: rejections (all SA_STD_ERR_INVALID_ARGUMENT).
+// ---------------------------------------------------------------------
+
+@test "proxy parse rejects malformed urls"() {
+    expect_parse_err(format(""), SA_STD_ERR_INVALID_ARGUMENT, 1101);
+    expect_parse_err(format("proxy.local:3128"), SA_STD_ERR_INVALID_ARGUMENT, 1102);
+    expect_parse_err(format("ftp://proxy.local"), SA_STD_ERR_INVALID_ARGUMENT, 1103);
+    expect_parse_err(format("socks5h://proxy.local"), SA_STD_ERR_INVALID_ARGUMENT, 1104);
+    expect_parse_err(format("http:/proxy.local"), SA_STD_ERR_INVALID_ARGUMENT, 1105);
+    expect_parse_err(format("http://"), SA_STD_ERR_INVALID_ARGUMENT, 1106);
+    expect_parse_err(format("http://:3128"), SA_STD_ERR_INVALID_ARGUMENT, 1107);
+    expect_parse_err(format("http://proxy.local:0"), SA_STD_ERR_INVALID_ARGUMENT, 1108);
+    expect_parse_err(format("http://proxy.local:65536"), SA_STD_ERR_INVALID_ARGUMENT, 1109);
+    expect_parse_err(format("http://proxy.local:abc"), SA_STD_ERR_INVALID_ARGUMENT, 1110);
+    expect_parse_err(format("http://proxy.local:3128/path"), SA_STD_ERR_INVALID_ARGUMENT, 1111);
+    expect_parse_err(format("http://user%zz@proxy.local"), SA_STD_ERR_INVALID_ARGUMENT, 1112);
+    expect_parse_err(format("http://user%@proxy.local"), SA_STD_ERR_INVALID_ARGUMENT, 1113);
+    expect_parse_err(format("http://[::1"), SA_STD_ERR_INVALID_ARGUMENT, 1114);
+    expect_parse_err(format("http://proxy local/"), SA_STD_ERR_INVALID_ARGUMENT, 1115);
+};
+
+// ---------------------------------------------------------------------
+// Accessors: host / user / password / authority.
+// ---------------------------------------------------------------------
+
+@test "proxy host accessor"() {
+    let p: ProxyUrl = must_parse(format("http://proxy.local:3128"));
+    expect_str(http_proxy_host(p), format("proxy.local"), 2001);
+    let p2: ProxyUrl = must_parse(format("http://192.0.2.7:8080"));
+    expect_str(http_proxy_host(p2), format("192.0.2.7"), 2002);
+    let p3: ProxyUrl = must_parse(format("http://[2001:db8::5]:3128"));
+    expect_str(http_proxy_host(p3), format("2001:db8::5"), 2003);
+};
+
+@test "proxy userinfo accessors"() {
+    let p: ProxyUrl = must_parse(format("http://alice@proxy.local"));
+    if !http_proxy_has_user(&p) { panic(2011); };
+    if http_proxy_has_password(&p) { panic(2012); };
+    expect_str(http_proxy_user(p), format("alice"), 2013);
+    let p2: ProxyUrl = must_parse(format("http://alice:secret@proxy.local"));
+    if !http_proxy_has_password(&p2) { panic(2014); };
+    expect_str(http_proxy_password(p2), format("secret"), 2015);
+    let p3: ProxyUrl = must_parse(format("http://alice:@proxy.local"));
+    if !http_proxy_has_password(&p3) { panic(2016); };
+    expect_str(http_proxy_password(p3), format(""), 2017);
+    let p4: ProxyUrl = must_parse(format("http://proxy.local"));
+    if http_proxy_has_user(&p4) { panic(2018); };
+    expect_str(http_proxy_user(p4), format(""), 2019);
+};
+
+@test "proxy userinfo percent decoding"() {
+    let p: ProxyUrl = must_parse(format("http://al%40ce:p%3Ass%25@proxy.local"));
+    expect_str(http_proxy_user(p), format("al@ce"), 2021);
+    let p2: ProxyUrl = must_parse(format("http://al%40ce:p%3Ass%25@proxy.local"));
+    expect_str(http_proxy_password(p2), format("p:ss%"), 2022);
+    let p3: ProxyUrl = must_parse(format("http://a+b@proxy.local"));
+    expect_str(http_proxy_user(p3), format("a+b"), 2023);
+};
+
+@test "proxy authority accessor"() {
+    let p: ProxyUrl = must_parse(format("http://proxy.local"));
+    expect_str(http_proxy_authority(p), format("proxy.local:80"), 2031);
+    let p2: ProxyUrl = must_parse(format("https://proxy.local:8443"));
+    expect_str(http_proxy_authority(p2), format("proxy.local:8443"), 2032);
+    let p3: ProxyUrl = must_parse(format("http://[2001:db8::5]:3128"));
+    expect_str(http_proxy_authority(p3), format("[2001:db8::5]:3128"), 2033);
+    let p4: ProxyUrl = must_parse(format("socks5://127.0.0.1"));
+    expect_str(http_proxy_authority(p4), format("127.0.0.1:1080"), 2034);
+};
+
+@test "proxy target authority builder"() {
+    expect_str(http_proxy_target_authority(format("example.com"), 443), format("example.com:443"), 2041);
+    expect_str(http_proxy_target_authority(format("::1"), 80), format("[::1]:80"), 2042);
+    expect_str(http_proxy_target_authority(format("127.0.0.1"), 8080), format("127.0.0.1:8080"), 2043);
+};
+
+// ---------------------------------------------------------------------
+// Proxy-Authorization values.
+// ---------------------------------------------------------------------
+
+@test "proxy basic auth values"() {
+    expect_auth(format("http://user:pass@proxy.local"), format("Basic dXNlcjpwYXNz"), 3001);
+    expect_auth(format("http://user@proxy.local"), format("Basic dXNlcg=="), 3002);
+    expect_auth(format("http://user:@proxy.local"), format("Basic dXNlcjo="), 3003);
+    expect_auth(format("http://u%40x:p%3Ay@proxy.local"), format("Basic dUB4OnA6eQ=="), 3004);
+};
+
