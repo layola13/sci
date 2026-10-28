@@ -1,0 +1,12 @@
+// ts_host.sai -- extern declaration for JS host presence probing.
+//
+// @sa_host_is_bun returns 1 if the current execution host is Bun, else 0.
+// Native contract (JEV js_shim_native_zero, lazy const-slot design probe):
+// SA native execution runs under the sa interpreter/LLVM with no JS host
+// global, so "is Bun" is definitionally false there and the native
+// implementation returns 0 always -- this is the contract, not a
+// placeholder. The JS target gets a shim in emit_js.zig returning
+// typeof Bun !== "undefined" ? 1 : 0. Env-sniffing was JEV-rejected:
+// Bun sets no distinctive environment variable by default, so a
+// getenv-based probe would be evidence-free.
+@extern sa_host_is_bun() -> i32

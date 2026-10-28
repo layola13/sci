@@ -1,0 +1,28 @@
+@import "ts_host.sai"
+
+// ts_host.sa -- SA wrapper for JS host presence probing.
+//
+// Written for the lazy const-slot design (JEV js_shim_native_zero, probe
+// 2026-10-28), following the normalize precedent exactly (sci main
+// 28fd2ceb: sa_std/ts_unicode.sai + ts_unicode.sa): no prior tsgosa Go
+// function to port from -- this is the SA side of the new extern, built
+// ON the extern, not a table. The tsgosa emitter does NOT wire this
+// helper in v1 (seed_source folded_only_refuse_otherwise forbids probe
+// fallback); the wrapper exists now so generated code will depend on
+// the ts_ wrapper, never on the raw extern (no-inline-SA rule), when a
+// future scope call wires it.
+//
+// No handle model: @ts_host_is_bun returns a scalar i32 (1 = Bun host,
+// 0 = otherwise), allocates nothing, and transfers no ownership.
+// Ownership/purity: the wrapper borrows nothing, returns no handle, and
+// performs no I/O, no reads/writes of caller state, no globals. It is
+// a pure host-identity query: native always 0 (contract, see .sai),
+// JS target typeof-Bun check (see emit_js.zig shim).
+
+// @ts_host_is_bun reports whether the current execution host is Bun.
+// 1 = Bun, 0 = any other host (including SA native execution, where
+// the answer is definitionally 0 -- see the .sai header).
+@ts_host_is_bun() -> i32:
+L_TH_ENTRY:
+    r = call @sa_host_is_bun()
+    return r

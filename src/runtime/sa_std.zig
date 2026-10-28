@@ -9574,6 +9574,18 @@ pub export fn sa_unicode_normalize(text: ?[*]const u8, text_len: u64, form: i32,
     return written;
 }
 
+// Host presence probing (lazy const-slot design, Phase 0; JEV js_shim_native_zero).
+// SA native execution runs under the sa interpreter/LLVM with no JS host
+// global, so "is Bun" is definitionally false there. Returning 0 always is
+// the contract, not a placeholder. The JS target gets a shim in emit_js.zig
+// returning typeof Bun !== "undefined" ? 1 : 0. Env-sniffing was
+// JEV-rejected (Bun sets no distinctive environment variable by default).
+// The SA interpreter cannot run externs (UnsupportedExtern); this function
+// executes under build-exe (LLVM), like sa_unicode_normalize above.
+pub export fn sa_host_is_bun() i32 {
+    return 0;
+}
+
 test "unicode: normalize NFC/NFD/NFKC/NFKD vectors (JS oracle)" {
     const Case = struct { input: []const u8, form: i32, expected: []const u8 };
     const cases = [_]Case{

@@ -4718,6 +4718,7 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_regex_match_free")) return true;
     if (std.mem.eql(u8, name, "sa_regex_match_all")) return true;
     if (std.mem.eql(u8, name, "sa_unicode_normalize")) return true;
+    if (std.mem.eql(u8, name, "sa_host_is_bun")) return true;
     if (std.mem.eql(u8, name, "sa_regex_match_list_count")) return true;
     if (std.mem.eql(u8, name, "sa_regex_match_list_at")) return true;
     if (std.mem.eql(u8, name, "sa_regex_match_list_free")) return true;
@@ -6578,6 +6579,15 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\  if (enc.length > __sa_num(out_cap)) return BigInt(enc.length);
                 \\  __sa_u8.set(enc, __sa_addr(out));
                 \\  return BigInt(enc.length);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_host_is_bun")) {
+            try writer.writeAll(
+                \\function sa_host_is_bun() {
+                \\  return typeof Bun !== "undefined" ? 1 : 0;
                 \\}
                 \\
             );
