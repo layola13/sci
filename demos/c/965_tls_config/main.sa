@@ -1,0 +1,68 @@
+@import "sa_std/io/print.sai"
+@import "sa_std/tls_client.sai"
+
+@const NOT_PEM = utf8:"not a pem"
+@const OK_MSG = utf8:"TLS_OK\n"
+@const ERR_MSG = utf8:"TLS_BAD\n"
+
+@main() -> i32:
+L_ENTRY:
+    cfg_slot = stack_alloc 8
+    st = call @sa_std_tls_client_config_new(&cfg_slot)
+    st_ok = eq st, 0
+    br st_ok -> L_HAVE, L_E1
+
+L_HAVE:
+    !st_ok
+    !st
+    cfg = load cfg_slot+0 as u64
+    cfg_ok = ne cfg, 0
+    br cfg_ok -> L_PEM, L_E2
+
+L_PEM:
+    !cfg_ok
+    st2 = call @sa_std_tls_client_config_add_ca_memory(cfg, &NOT_PEM, 9)
+    want = sub 0, 22
+    pem_ok = eq st2, want
+    br pem_ok -> L_FREE, L_E3
+
+L_FREE:
+    !pem_ok
+    !want
+    !st2
+    st3 = call @sa_std_tls_client_config_free(cfg)
+    !cfg
+    free_ok = eq st3, 0
+    br free_ok -> L_OK, L_E4
+
+L_OK:
+    !free_ok
+    !st3
+    call @sa_print_bytes(&OK_MSG, 7)
+    return 0
+
+L_E1:
+    !st_ok
+    !st
+    call @sa_print_bytes(&ERR_MSG, 8)
+    return 1
+
+L_E2:
+    !cfg_ok
+    !cfg
+    call @sa_print_bytes(&ERR_MSG, 8)
+    return 1
+
+L_E3:
+    !pem_ok
+    !want
+    !st2
+    !cfg
+    call @sa_print_bytes(&ERR_MSG, 8)
+    return 1
+
+L_E4:
+    !free_ok
+    !st3
+    call @sa_print_bytes(&ERR_MSG, 8)
+    return 1

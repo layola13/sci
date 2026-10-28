@@ -1,0 +1,84 @@
+@import "sa_std/io/print.sai"
+@import "sa_std/net.sai"
+@import "sa_std/process.sai"
+
+@const HOST = utf8:"127.0.0.1"
+@const OK_MSG = utf8:"SOCKOPT_OK\n"
+@const ERR_MSG = utf8:"SOCKOPT_BAD\n"
+
+@main() -> i32:
+L_ENTRY:
+    sock_slot = stack_alloc 8
+    st = call @sa_std_net_udp_bind(&HOST, 9, 0, &sock_slot)
+    st_ok = eq st, 0
+    br st_ok -> L_HAVE, L_E1
+
+L_HAVE:
+    !st_ok
+    !st
+    sock = load sock_slot+0 as u64
+    sock_ok = ne sock, 0
+    br sock_ok -> L_SET, L_E2
+
+L_SET:
+    !sock_ok
+    st2 = call @sa_std_net_socket_setsockopt_int(sock, 1, 6, 1)
+    set_ok = eq st2, 0
+    br set_ok -> L_GET, L_E3
+
+L_GET:
+    !set_ok
+    !st2
+    val_slot = stack_alloc 4
+    st3 = call @sa_std_net_socket_getsockopt_int(sock, 1, 6, &val_slot)
+    val = load val_slot+0 as i32
+    !st3
+    val_ok = eq val, 1
+    br val_ok -> L_PID, L_E4
+
+L_PID:
+    !val_ok
+    !val
+    pid = call @sa_std_process_id()
+    pid_ok = ne pid, 0
+    br pid_ok -> L_OK, L_E5
+
+L_OK:
+    !pid_ok
+    !pid
+    !sock
+    call @sa_print_bytes(&OK_MSG, 11)
+    return 0
+
+L_E1:
+    !st_ok
+    !st
+    call @sa_print_bytes(&ERR_MSG, 12)
+    return 1
+
+L_E2:
+    !sock_ok
+    !sock
+    call @sa_print_bytes(&ERR_MSG, 12)
+    return 1
+
+L_E3:
+    !set_ok
+    !st2
+    !sock
+    call @sa_print_bytes(&ERR_MSG, 12)
+    return 1
+
+L_E4:
+    !val_ok
+    !val
+    !sock
+    call @sa_print_bytes(&ERR_MSG, 12)
+    return 1
+
+L_E5:
+    !pid_ok
+    !pid
+    !sock
+    call @sa_print_bytes(&ERR_MSG, 12)
+    return 1

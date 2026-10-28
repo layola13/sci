@@ -1,0 +1,90 @@
+@import "sa_std/io/print.sai"
+@import "sa_std/http_cookie.sai"
+
+@const URL = utf8:"http://example.com/"
+@const SET_COOKIE = utf8:"SID=abc; Path=/"
+@const OK_MSG = utf8:"COOKIE_OK\n"
+@const ERR_MSG = utf8:"COOKIE_BAD\n"
+
+@main() -> i32:
+L_ENTRY:
+    jar = call @sa_cookie_jar_new()
+    jar_ok = ne jar, 0
+    br jar_ok -> L_STORE, L_E1
+
+L_STORE:
+    !jar_ok
+    result_slot = stack_alloc 4
+    st = call @sa_cookie_jar_store(jar, &URL, 19, &SET_COOKIE, 15, 1700000000, &result_slot)
+    st_ok = eq st, 0
+    br st_ok -> L_COUNT, L_E2
+
+L_COUNT:
+    !st_ok
+    !st
+    res = load result_slot+0 as u32
+    res_ok = eq res, 0
+    br res_ok -> L_COUNT2, L_E3
+
+L_COUNT2:
+    !res_ok
+    !res
+    count_slot = stack_alloc 8
+    st2 = call @sa_cookie_jar_count(jar, &count_slot)
+    cnt = load count_slot+0 as u64
+    !st2
+    cnt_ok = eq cnt, 1
+    br cnt_ok -> L_HEADER, L_E4
+
+L_HEADER:
+    !cnt_ok
+    !cnt
+    ptr_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    st3 = call @sa_cookie_jar_header(jar, &URL, 19, 1700000000, &ptr_slot, &len_slot)
+    hlen = load len_slot+0 as u64
+    !st3
+    h_ok = ugt hlen, 0
+    br h_ok -> L_OK, L_E5
+
+L_OK:
+    !h_ok
+    !hlen
+    st4 = call @sa_cookie_jar_free(^jar)
+    !st4
+    call @sa_print_bytes(&OK_MSG, 10)
+    return 0
+
+L_E1:
+    !jar_ok
+    !jar
+    call @sa_print_bytes(&ERR_MSG, 11)
+    return 1
+
+L_E2:
+    !st_ok
+    !st
+    !jar
+    call @sa_print_bytes(&ERR_MSG, 11)
+    return 1
+
+L_E3:
+    !res_ok
+    !res
+    !jar
+    call @sa_print_bytes(&ERR_MSG, 11)
+    return 1
+
+L_E4:
+    !cnt_ok
+    !cnt
+    !jar
+    call @sa_print_bytes(&ERR_MSG, 11)
+    return 1
+
+L_E5:
+    !h_ok
+    !hlen
+    !jar
+    call @sa_print_bytes(&ERR_MSG, 11)
+    return 1

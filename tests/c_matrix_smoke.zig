@@ -123,9 +123,111 @@ fn assertCMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     demo_ended = true;
 }
 
+/// Stdlink variant of assertCMatrixStdout for demos whose bindings
+/// forward to libsa_std.a (the cookie / TLS-config / sockopt C
+/// bindings). Linking the archive with the host cc fails on this
+/// toolchain: the archive's unity object references compiler-rt
+/// helpers (notably __cmptf2) that the host libgcc does not export,
+/// so — exactly as in the sa2c probe harness — the demo is compiled
+/// and linked with `zig cc`, which bundles compiler-rt. If no zig
+/// executable is found the demo is skipped, mirroring the plain-cc
+/// probe's skip behavior.
+fn assertCMatrixStdoutStdlink(path: []const u8, expected_stdout: []const u8) !void {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!cMatrixShardSelected()) {
+        std.debug.print("[c-matrix] SKIP  demo={s} reason=shard\n", .{path});
+        return;
+    }
+    const zig_exe: []const u8 = blk: {
+        const candidates = [_][]const u8{ "zig", "/opt/zig17/zig", "/usr/local/bin/zig", "/opt/zig/zig" };
+        for (candidates) |cand| {
+            const probe = sio.Child.run(.{
+                .allocator = std.testing.allocator,
+                .argv = &.{ cand, "version" },
+            }) catch continue;
+            defer std.testing.allocator.free(probe.stdout);
+            defer std.testing.allocator.free(probe.stderr);
+            switch (probe.term) {
+                .exited => |code| if (code == 0) break :blk cand,
+                else => {},
+            }
+        }
+        return error.SkipZigTest;
+    };
+
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
+    defer std.testing.allocator.free(source_path);
+
+    std.debug.print("[c-matrix] START demo={s} (stdlink)\n", .{path});
+    const demo_start = sio.nanoTimestamp();
+    var demo_ended = false;
+    defer {
+        if (!demo_ended) {
+            std.debug.print("[c-matrix] ABORT demo={s} elapsed={}ms\n", .{ path, elapsedMs(demo_start) });
+        }
+    }
+
+    const parent = std.fs.path.dirname(path) orelse ".";
+    const tag = std.fs.path.basename(parent);
+    const stem = "main";
+    const c_name = try std.fmt.allocPrint(std.testing.allocator, "{s}_{s}.c", .{ tag, stem });
+    defer std.testing.allocator.free(c_name);
+    const exe_name = try std.fmt.allocPrint(std.testing.allocator, "{s}_{s}_c", .{ tag, stem });
+    defer std.testing.allocator.free(exe_name);
+
+    const build_c_argv = [_][]const u8{ "sa", "build-c", source_path, "-o", c_name, "--project-root", repo_root };
+    const build_c_code = saasm.cli.execute(std.testing.allocator, build_c_argv[0..]) catch |err| {
+        std.debug.print("build-c errored: {s}: {s}\n", .{ path, @errorName(err) });
+        return err;
+    };
+    if (build_c_code != 0) std.debug.print("build-c failed: {s}\n", .{path});
+    try std.testing.expectEqual(@as(u8, 0), build_c_code);
+
+    const archive_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/artifacts/sa_std/libsa_std.a", .{repo_root});
+    defer std.testing.allocator.free(archive_path);
+    const cc_argv = [_][]const u8{ zig_exe, "cc", "-DSA_GAS_LIMIT=100000000", c_name, archive_path, "-o", exe_name, "-lm", "-lpthread", "-ldl" };
+    const cc_res = try sio.Child.run(.{ .allocator = std.testing.allocator, .argv = cc_argv[0..] });
+    defer std.testing.allocator.free(cc_res.stdout);
+    defer std.testing.allocator.free(cc_res.stderr);
+    switch (cc_res.term) {
+        .exited => |code| {
+            if (code != 0) std.debug.print("zig cc failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, cc_res.stdout, cc_res.stderr });
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    const exe_path = try std.fmt.allocPrint(std.testing.allocator, "./{s}", .{exe_name});
+    defer std.testing.allocator.free(exe_path);
+    const c_result = try sio.Child.run(.{ .allocator = std.testing.allocator, .argv = &.{exe_path} });
+    defer std.testing.allocator.free(c_result.stdout);
+    defer std.testing.allocator.free(c_result.stderr);
+    switch (c_result.term) {
+        .exited => |code| {
+            if (code != 0 or !std.mem.eql(u8, c_result.stdout, expected_stdout) or c_result.stderr.len != 0) {
+                std.debug.print("c demo failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, c_result.stdout, c_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings(expected_stdout, c_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), c_result.stderr.len);
+
+    std.debug.print("[c-matrix] END   demo={s} elapsed={}ms\n", .{ path, elapsedMs(demo_start) });
+    demo_ended = true;
+}
+
 test "c backend rosetta demos match expected output under cc" {
     try assertCMatrixStdout("demos/c/01_hello_world/main.sa", "hello, saasm\n");
     try assertCMatrixStdout("demos/c/02_cast_float_to_int/main.sa", "CAST_OK\n");
+    try assertCMatrixStdoutStdlink("demos/c/964_cookie_jar/main.sa", "COOKIE_OK\n");
+    try assertCMatrixStdoutStdlink("demos/c/965_tls_config/main.sa", "TLS_OK\n");
+    try assertCMatrixStdoutStdlink("demos/c/966_sockopt_loopback/main.sa", "SOCKOPT_OK\n");
     try assertCMatrixStdout("demos/rosetta/02_mutability/main.sa", "20\n");
     try assertCMatrixStdout("demos/rosetta/03_if_else/main.sa", "20\n");
     try assertCMatrixStdout("demos/rosetta/04_loop/main.sa", "[0,0,0,0]\n");
