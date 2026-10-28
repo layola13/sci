@@ -80,6 +80,13 @@ pub fn argvForExe(
                 try argv.items.append(lib);
             }
         }
+        if (std.mem.indexOf(u8, triple, "linux") != null) {
+            // sa_unicode_normalize (ICU) needs icuuc + icudata on Linux.
+            for ([_][]const u8{ "icuuc", "icudata" }) |lib| {
+                try argv.items.append("-l");
+                try argv.items.append(lib);
+            }
+        }
     }
     if (debug) {
         try argv.items.append("-g");
@@ -98,6 +105,11 @@ pub fn argvForExe(
         // The Windows bootstrap runtime's Winsock-backed UDP/TCP slices use these system libraries.
         try argv.items.append("-lws2_32");
         try argv.items.append("-liphlpapi");
+    }
+    if (builtin.os.tag == .linux) {
+        // sa_unicode_normalize (ICU) needs icuuc + icudata on Linux.
+        try argv.items.append("-licuuc");
+        try argv.items.append("-licudata");
     }
     for (extra_inputs) |input| {
         try argv.items.append(input);
@@ -396,6 +408,13 @@ pub fn argvForShared(
                 try argv.items.append(lib);
             }
         }
+        if (std.mem.indexOf(u8, triple, "linux") != null) {
+            // sa_unicode_normalize (ICU) needs icuuc + icudata on Linux.
+            for ([_][]const u8{ "icuuc", "icudata" }) |lib| {
+                try argv.items.append("-l");
+                try argv.items.append(lib);
+            }
+        }
     }
     if (debug) {
         try argv.items.append("-g");
@@ -416,6 +435,11 @@ pub fn argvForShared(
     if (builtin.os.tag == .windows) {
         try argv.items.append("-lws2_32");
         try argv.items.append("-liphlpapi");
+    }
+    if (builtin.os.tag == .linux) {
+        // sa_unicode_normalize (ICU) needs icuuc + icudata on Linux.
+        try argv.items.append("-licuuc");
+        try argv.items.append("-licudata");
     }
     if (export_control.soname_arg) |arg| {
         try argv.items.append(arg);

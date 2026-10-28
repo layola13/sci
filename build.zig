@@ -141,6 +141,11 @@ pub fn build(b: *std.Build) void {
     sa_std_static_module.addImport("sa_ws_stream", sa_ws_stream_module);
     addHostThreadShimToModule(b, sa_std_static_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_std_static_module);
+    if (target.result.os.tag == .linux) {
+        // Unicode normalization (ICU) for sa_unicode_normalize.
+        sa_std_static_module.linkSystemLibrary("icuuc", .{});
+        sa_std_static_module.linkSystemLibrary("icudata", .{});
+    }
     const sa_std_static = b.addLibrary(.{
         .name = "sa_std",
         .root_module = sa_std_static_module,
@@ -161,6 +166,11 @@ pub fn build(b: *std.Build) void {
     sa_std_shared_module.addImport("sa_ws_stream", sa_ws_stream_module);
     addHostThreadShimToModule(b, sa_std_shared_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_std_shared_module);
+    if (target.result.os.tag == .linux) {
+        // Unicode normalization (ICU) for sa_unicode_normalize.
+        sa_std_shared_module.linkSystemLibrary("icuuc", .{});
+        sa_std_shared_module.linkSystemLibrary("icudata", .{});
+    }
     const sa_std_shared = b.addLibrary(.{
         .name = "sa_std",
         .root_module = sa_std_shared_module,
@@ -655,6 +665,11 @@ pub fn build(b: *std.Build) void {
     // compiling it directly must link them (like the sa_std lib modules).
     addHostThreadShimToModule(b, sa_std_unit_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_std_unit_module);
+    if (target.result.os.tag == .linux) {
+        // Unicode normalization (ICU) for sa_unicode_normalize.
+        sa_std_unit_module.linkSystemLibrary("icuuc", .{});
+        sa_std_unit_module.linkSystemLibrary("icudata", .{});
+    }
     const sa_std_unit = b.addTest(.{
         .root_module = sa_std_unit_module,
     });

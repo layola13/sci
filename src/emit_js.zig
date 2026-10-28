@@ -4717,6 +4717,7 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_regex_free")) return true;
     if (std.mem.eql(u8, name, "sa_regex_match_free")) return true;
     if (std.mem.eql(u8, name, "sa_regex_match_all")) return true;
+    if (std.mem.eql(u8, name, "sa_unicode_normalize")) return true;
     if (std.mem.eql(u8, name, "sa_regex_match_list_count")) return true;
     if (std.mem.eql(u8, name, "sa_regex_match_list_at")) return true;
     if (std.mem.eql(u8, name, "sa_regex_match_list_free")) return true;
@@ -6558,6 +6559,25 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\  const h = __sa_regexlistnext++;
                 \\  __sa_regexlists.set(h, { base: p, len: bytes.length, matches: matches });
                 \\  return BigInt(h);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_unicode_normalize")) {
+            try writer.writeAll(
+                \\function sa_unicode_normalize(text, text_len, form, out, out_cap) {
+                \\  const bytes = __sa_mem_bytes(text, text_len);
+                \\  const s = new globalThis.TextDecoder().decode(bytes);
+                \\  const forms = ["NFC", "NFD", "NFKC", "NFKD"];
+                \\  const f = __sa_num(form);
+                \\  if (f < 0 || f > 3) throw new globalThis.RangeError("Invalid normalization form");
+                \\  const norm = s.normalize(forms[f]);
+                \\  const enc = new globalThis.TextEncoder().encode(norm);
+                \\  if (__sa_num(out_cap) === 0) return BigInt(enc.length);
+                \\  if (enc.length > __sa_num(out_cap)) return BigInt(enc.length);
+                \\  __sa_u8.set(enc, __sa_addr(out));
+                \\  return BigInt(enc.length);
                 \\}
                 \\
             );

@@ -9477,6 +9477,153 @@ pub export fn sa_regex_split_free(list: u64) Fallible(i32) {
     return ok(i32, 0);
 }
 
+// ---------------------------------------------------------------------------
+// Unicode normalization (ICU unorm2) for tsgosa String.prototype.normalize.
+// Form codes (JEV i32_code): 0 = NFC, 1 = NFD, 2 = NFKC, 3 = NFKD.
+// Two-pass length protocol (JEV two_pass_len): call with out_cap == 0 to
+// query the needed UTF-8 byte length (nothing written); call again with a
+// buffer of at least that size to fill it. If the buffer is too small, the
+// function writes nothing and returns the needed length. Invalid form codes
+// and invalid UTF-8 input panic (JEV runtime_panic: the SA shape closest to
+// JS RangeError). Embedded NUL bytes are fine (all lengths explicit).
+// ICU error contract (U_FAILURE semantics): codes > 0 are failures, codes
+// <= 0 are success -- negative codes are WARNINGS, not failures. In
+// particular U_STRING_NOT_TERMINATED_WARNING (-124) is set when the
+// destination is exactly full (content correct, no room for the NUL
+// terminator). Every check below is therefore err > 0, never err != 0;
+// treating -124 as failure would panic on every exact-fit call (e.g.
+// all-ASCII input, or the SA wrapper filling an exactly-sized buffer).
+// ICU 74 symbol versioning: the C headers rename these entry points with
+// a _74 suffix (U_ICU_VERSION_SUFFIX); Zig extern declarations must use
+// the real suffixed symbol. Bumping the ICU major requires renaming
+// the seven declarations below.
+// NOTE: the SA interpreter cannot run externs (UnsupportedExtern); this
+// function executes under build-exe (LLVM) and is unit-tested directly.
+// The JS target gets a shim in emit_js.zig (JEV js_shim).
+extern fn unorm2_getNFCInstance_74(err: *c_int) ?*anyopaque;
+extern fn unorm2_getNFDInstance_74(err: *c_int) ?*anyopaque;
+extern fn unorm2_getNFKCInstance_74(err: *c_int) ?*anyopaque;
+extern fn unorm2_getNFKDInstance_74(err: *c_int) ?*anyopaque;
+extern fn unorm2_normalize_74(norm2: ?*anyopaque, src: [*]const u16, src_len: c_int, dest: [*]u16, dest_cap: c_int, err: *c_int) c_int;
+extern fn u_strFromUTF8_74(dest: [*]u16, dest_cap: c_int, dest_len: ?*c_int, src: [*]const u8, src_len: c_int, err: *c_int) ?[*]u16;
+extern fn u_strToUTF8_74(dest: ?[*]u8, dest_cap: c_int, dest_len: ?*c_int, src: [*]const u16, src_len: c_int, err: *c_int) ?[*]u8;
+
+const icu_err_overflow: c_int = 15;
+
+fn unicodeNormalizerForForm(form: i32) ?*anyopaque {
+    var err: c_int = 0;
+    const inst = switch (form) {
+        0 => unorm2_getNFCInstance_74(&err),
+        1 => unorm2_getNFDInstance_74(&err),
+        2 => unorm2_getNFKCInstance_74(&err),
+        3 => unorm2_getNFKDInstance_74(&err),
+        else => @panic("sa_unicode_normalize: invalid form code"),
+    };
+    if (err > 0 or inst == null) @panic("sa_unicode_normalize: ICU instance failed");
+    return inst;
+}
+
+pub export fn sa_unicode_normalize(text: ?[*]const u8, text_len: u64, form: i32, out: ?[*]u8, out_cap: u64) i64 {
+    if (text_len == 0) return 0;
+    if (text_len > 0x7fffffff) @panic("sa_unicode_normalize: input too long");
+    const input = constBytes(text, text_len) catch @panic("sa_unicode_normalize: null input");
+    const norm = unicodeNormalizerForForm(form);
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // UTF-8 -> UTF-16. UTF-16 units never exceed UTF-8 bytes (1-byte char
+    // -> 1 unit; 4-byte char -> 2 units), so text_len units always suffice.
+    const utf16_cap: c_int = @intCast(text_len);
+    const utf16 = alloc.alloc(u16, text_len) catch @panic("sa_unicode_normalize: alloc failed");
+    var utf16_len: c_int = 0;
+    var err: c_int = 0;
+    _ = u_strFromUTF8_74(utf16.ptr, utf16_cap, &utf16_len, input.ptr, utf16_cap, &err);
+    if (err > 0) @panic("sa_unicode_normalize: invalid UTF-8 input");
+
+    // Normalize in UTF-16. Decomposition can expand, so grow on overflow
+    // (unorm2_normalize_74 returns the needed length on overflow).
+    var norm_cap: usize = @as(usize, @intCast(utf16_len)) * 2;
+    if (norm_cap < 16) norm_cap = 16;
+    var norm_buf = alloc.alloc(u16, norm_cap) catch @panic("sa_unicode_normalize: alloc failed");
+    err = 0;
+    var norm_len = unorm2_normalize_74(norm, utf16.ptr, utf16_len, norm_buf.ptr, @intCast(norm_cap), &err);
+    if (err == icu_err_overflow) {
+        if (norm_len <= 0) @panic("sa_unicode_normalize: ICU normalize failed");
+        norm_cap = @intCast(norm_len);
+        norm_buf = alloc.alloc(u16, norm_cap) catch @panic("sa_unicode_normalize: alloc failed");
+        err = 0;
+        norm_len = unorm2_normalize_74(norm, utf16.ptr, utf16_len, norm_buf.ptr, @intCast(norm_cap), &err);
+        if (err != 0) @panic("sa_unicode_normalize: ICU normalize failed");
+    } else if (err > 0) {
+        @panic("sa_unicode_normalize: ICU normalize failed");
+    }
+
+    // Measure the UTF-8 length (destCapacity 0 query), then fill or report.
+    var utf8_len: c_int = 0;
+    err = 0;
+    _ = u_strToUTF8_74(null, 0, &utf8_len, norm_buf.ptr, norm_len, &err);
+    if (err > 0 and err != icu_err_overflow) @panic("sa_unicode_normalize: ICU UTF-8 measure failed");
+    if (out_cap == 0 or out == null) return utf8_len;
+    if (@as(u64, @intCast(utf8_len)) > out_cap) return utf8_len;
+    var written: c_int = 0;
+    err = 0;
+    _ = u_strToUTF8_74(out.?, @intCast(out_cap), &written, norm_buf.ptr, norm_len, &err);
+    if (err > 0) @panic("sa_unicode_normalize: ICU UTF-8 convert failed");
+    return written;
+}
+
+test "unicode: normalize NFC/NFD/NFKC/NFKD vectors (JS oracle)" {
+    const Case = struct { input: []const u8, form: i32, expected: []const u8 };
+    const cases = [_]Case{
+        .{ .input = "e\u{301}", .form = 0, .expected = "\u{e9}" },
+        .{ .input = "e\u{301}", .form = 1, .expected = "e\u{301}" },
+        .{ .input = "\u{e9}", .form = 1, .expected = "e\u{301}" },
+        .{ .input = "\u{fb01}", .form = 3, .expected = "fi" },
+        .{ .input = "\u{fb01}", .form = 2, .expected = "fi" },
+        .{ .input = "\u{fb01}", .form = 0, .expected = "\u{fb01}" },
+        .{ .input = "\u{b2}", .form = 3, .expected = "2" },
+        .{ .input = "\u{b2}", .form = 0, .expected = "\u{b2}" },
+        .{ .input = "\u{1100}\u{1161}", .form = 0, .expected = "\u{ac00}" },
+        .{ .input = "\u{ac00}", .form = 1, .expected = "\u{1100}\u{1161}" },
+        .{ .input = "\u{c5}", .form = 1, .expected = "A\u{30a}" },
+        .{ .input = "\u{2126}", .form = 0, .expected = "\u{3a9}" },
+        .{ .input = "", .form = 0, .expected = "" },
+        .{ .input = "hello", .form = 3, .expected = "hello" },
+        .{ .input = "caf\u{e9}", .form = 1, .expected = "cafe\u{301}" },
+    };
+    for (cases) |c| {
+        const n = sa_unicode_normalize(c.input.ptr, c.input.len, c.form, null, 0);
+        try std.testing.expectEqual(@as(i64, @intCast(c.expected.len)), n);
+        var buf: [256]u8 = undefined;
+        const m = sa_unicode_normalize(c.input.ptr, c.input.len, c.form, &buf, buf.len);
+        try std.testing.expectEqual(@as(i64, @intCast(c.expected.len)), m);
+        try std.testing.expectEqualStrings(c.expected, buf[0..@intCast(m)]);
+    }
+}
+
+test "unicode: exact-fit buffers succeed (terminator warning is not failure)" {
+    // Input exact fit: "hello" is 5 UTF-8 bytes -> 5 UTF-16 units in a
+    // 5-unit buffer (ICU sets -124, content correct). Fill exact fit: a
+    // 5-byte output buffer for a 5-byte result (same warning, must succeed).
+    const input = "hello";
+    const n = sa_unicode_normalize(input.ptr, input.len, 0, null, 0);
+    try std.testing.expectEqual(@as(i64, 5), n);
+    var buf: [5]u8 = undefined;
+    const m = sa_unicode_normalize(input.ptr, input.len, 0, &buf, buf.len);
+    try std.testing.expectEqual(@as(i64, 5), m);
+    try std.testing.expectEqualStrings("hello", buf[0..@intCast(m)]);
+}
+
+test "unicode: small output buffer reports needed length without writing" {
+    const input = "e\u{301}";
+    var buf: [1]u8 = .{0xAA};
+    const n = sa_unicode_normalize(input.ptr, input.len, 0, &buf, buf.len);
+    try std.testing.expectEqual(@as(i64, 2), n);
+    try std.testing.expectEqual(@as(u8, 0xAA), buf[0]);
+}
+
 test "regex: replace expands group references" {
     const pat: []const u8 = "([a-z]+)@([a-z]+)";
     const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);

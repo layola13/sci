@@ -3,6 +3,15 @@ const builtin = @import("builtin");
 const build_options = @import("build_options");
 const sio = @import("sio");
 
+// Static demos link libsa_std.a, which carries no link dependencies, so
+// demos add the ICU libraries the Unicode runtime (sa_unicode_normalize)
+// needs on Linux themselves. Empty elsewhere; other platforms arrange ICU
+// differently and must not gain a bogus -licuuc flag.
+const icu_demo_link_args: [if (builtin.os.tag == .linux) 2 else 0][]const u8 = if (builtin.os.tag == .linux)
+    .{ "-licuuc", "-licudata" }
+else
+    .{};
+
 fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
     defer file.close(std.testing.io);
@@ -259,7 +268,7 @@ test "sa_std udp loopback and address accessors are usable from C" {
         "-lc",
         "-o",
         "sa_std_udp_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -373,6 +382,7 @@ test "sa_std udp multicast helpers and scope id are usable from C" {
         "-o",
         "sa_std_udp_multicast_demo",
     });
+    try build_demo_argv.appendSlice(&icu_demo_link_args);
     if (udpMulticastV6JoinPermitted()) try build_demo_argv.append("-DSA_MCAST_V6=1");
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv.items);
     defer std.testing.allocator.free(build_demo_result.stdout);
@@ -474,7 +484,7 @@ test "sa_std udp connected send and recv are usable from C" {
         "-lc",
         "-o",
         "sa_std_udp_connected_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -553,7 +563,7 @@ test "sa_std static library exposes a usable C ABI" {
         "-lc",
         "-o",
         "sa_std_c_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -648,7 +658,7 @@ test "sa_std tcp stream peek does not consume bytes" {
         "-lc",
         "-o",
         "sa_std_tcp_peek_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -784,7 +794,7 @@ test "sa_std fmt and process exports are usable from C" {
         "-lc",
         "-o",
         "sa_std_fmtdemo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -881,7 +891,7 @@ test "sa_std process bidi spawn round-trips stdin to stdout from C" {
         "-lc",
         "-o",
         "sa_std_bididemo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -950,7 +960,7 @@ test "sa_std detached pthread export runs without join" {
         "-lc",
         "-o",
         "sa_std_pthread_detached_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -1129,7 +1139,7 @@ test "sa_std json exports are usable from C" {
         "-lc",
         "-o",
         "sa_std_json_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -1229,7 +1239,7 @@ test "sa_std json streaming scanner and writer are usable from C" {
         "-lc",
         "-o",
         "sa_std_json_stream_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -1315,7 +1325,7 @@ test "sa_std regex compile match and group access are usable from C" {
         "-lc",
         "-o",
         "sa_std_regex_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -1406,7 +1416,7 @@ test "sa_std json streaming handle exposes stable slices from C" {
         "-lc",
         "-o",
         "sa_std_json_stream_direct_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -1502,7 +1512,7 @@ test "sa_std time exports are usable from C" {
         "-lc",
         "-o",
         "sa_std_time_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -1615,7 +1625,7 @@ test "sa_std Deno facade runtime helpers are usable from C" {
         "-lc",
         "-o",
         "sa_std_deno_facade_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);

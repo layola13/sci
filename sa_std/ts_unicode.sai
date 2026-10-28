@@ -1,0 +1,13 @@
+// ts_unicode.sai -- extern declaration for Unicode normalization (ICU-backed).
+//
+// Form codes (JEV i32_code): 0 = NFC, 1 = NFD, 2 = NFKC, 3 = NFKD.
+// Two-pass length protocol (JEV two_pass_len):
+//   call with out_cap = 0  -> returns the needed UTF-8 byte length (no write;
+//                              out_ptr is a dummy, never touched).
+//   call with out_cap = n  -> if needed <= n, writes exactly needed bytes and
+//                              returns the written length; if needed > n,
+//                              writes nothing and returns the needed length.
+// Invalid form codes and invalid UTF-8 input panic in the runtime (JEV
+// runtime_panic: the SA shape closest to JS RangeError). Embedded NUL bytes
+// are fine (all lengths explicit, never NUL-terminated assumptions).
+@extern sa_unicode_normalize(&text: ptr, text_len: u64, form: i32, &out: ptr, out_cap: u64) -> i64

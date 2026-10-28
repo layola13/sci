@@ -1,5 +1,15 @@
 const std = @import("std");
 const sio = @import("sio");
+const builtin = @import("builtin");
+
+// Static demos link libsa_std.a, which carries no link dependencies, so
+// demos add the ICU libraries the Unicode runtime (sa_unicode_normalize)
+// needs on Linux themselves. Empty elsewhere; other platforms arrange ICU
+// differently and must not gain a bogus -licuuc flag.
+const icu_demo_link_args: [if (builtin.os.tag == .linux) 2 else 0][]const u8 = if (builtin.os.tag == .linux)
+    .{ "-licuuc", "-licudata" }
+else
+    .{};
 
 fn writeSource(dir: std.Io.Dir, path: []const u8, source: []const u8) !void {
     var file = try dir.createFile(std.testing.io, path, .{ .truncate = true });
@@ -188,7 +198,7 @@ test "sa_term raw mode and winsize are usable from C" {
         "-lc",
         "-o",
         "sa_term_raw_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
@@ -283,7 +293,7 @@ test "sa_term epoll and process streaming are usable from C" {
         "-lc",
         "-o",
         "sa_term_stream_demo",
-    };
+    } ++ icu_demo_link_args;
     const build_demo_result = try runCommand(std.testing.allocator, build_demo_argv[0..]);
     defer std.testing.allocator.free(build_demo_result.stdout);
     defer std.testing.allocator.free(build_demo_result.stderr);
