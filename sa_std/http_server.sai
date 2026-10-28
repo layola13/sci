@@ -55,6 +55,23 @@
 // body it is handed, and the header bag rejects a caller-set
 // content-length, so HEAD had no correct shape before this).
 @extern sa_http_server_resp_send_head_v2(resp: ptr, content_length: u64, timeout_ms: u32) -> u32
+// Raw request target (path + "?" + query, exactly as received)
+// and its query component alone (bytes after the first "?"; a
+// target without "?" yields ok with out_len 0). req_get_path
+// keeps returning the path only. Returned slices are borrowed
+// from the request until req_free.
+@extern sa_http_server_req_get_target_v2(req: ptr, &out_target: ptr, &out_len: ptr) -> u32
+@extern sa_http_server_req_get_query_v2(req: ptr, &out_query: ptr, &out_len: ptr) -> u32
+// File-body send: frames the head with content-length = count
+// and streams count bytes of an already-open file (borrowed OS
+// descriptor, e.g. from sa_std_fd_as_raw on an fs handle; never
+// closed here) to the client with sendfile(2). out_sent always
+// receives the file bytes written. Returns the v2 network
+// statuses plus 8 = unsupported (platform has no sendfile;
+// nothing was sent). A short send is io_error with
+// out_sent < count, never success; there is no buffered
+// fallback in this shape.
+@extern sa_http_server_resp_send_file_v2(resp: ptr, file_fd: i64, offset: u64, count: u64, timeout_ms: u32, &out_sent: ptr) -> u32
 // Peer (remote) address of a v2 request as text + port (access-log
 // remote field / per-request ACL). out receives the address text
 // (dotted quad for IPv4; IPv6 in full uncompressed groups);

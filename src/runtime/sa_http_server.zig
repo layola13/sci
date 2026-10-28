@@ -1185,6 +1185,62 @@ pub const HttpResponse = struct {
         self.request.response_done = true;
     }
 
+    /// File-body response (static serving): the head is framed
+    /// with content-length = count, then the file bytes move
+    /// kernel-side via sendfile(2) -- no userspace copy, no
+    /// whole-file buffer. Returns the number of file bytes
+    /// actually sent: it equals count on success; a short count
+    /// means the file ended early (it shrank after the caller
+    /// measured it), which the caller must treat as a failed
+    /// response, never as a completed one. response_done is set
+    /// only when the full count is on the wire, so a short or
+    /// failed send closes the connection instead of recycling a
+    /// stream whose framing is broken. Linux only: other
+    /// platforms return error.Unsupported BEFORE any byte is
+    /// written, so the caller can still send an explicit error
+    /// response. There is deliberately no buffered fallback here.
+    pub fn sendFile(self: *HttpResponse, in_fd: std.posix.fd_t, offset: u64, count: u64) !u64 {
+        if (self.sent) return error.ResponseAlreadySent;
+        if (comptime builtin.cpu.arch.isWasm() or builtin.os.tag != .linux) return error.Unsupported;
+        var head: std.Io.Writer.Allocating = .init(self.allocator);
+        defer head.deinit();
+        const writer = &head.writer;
+        try writer.print("HTTP/1.1 {d} {s}\r\ncontent-length: {d}\r\n", .{ self.status, statusText(self.status), count });
+        try self.headers.write(writer);
+        if (self.request.keep_alive) {
+            try writer.writeAll("connection: keep-alive\r\n\r\n");
+        } else {
+            try writer.writeAll("connection: close\r\n\r\n");
+        }
+        try streamWriteAll(self.request.stream(), head.written());
+        self.sent = true;
+        const out_fd = self.request.stream().socket.handle;
+        var next_offset: u64 = offset;
+        var sent_total: u64 = 0;
+        while (sent_total < count) {
+            const remaining = count - sent_total;
+            const chunk: usize = @intCast(@min(remaining, @as(u64, 0x7ffff000)));
+            var off: i64 = @intCast(next_offset);
+            const rc = std.os.linux.sendfile(out_fd, in_fd, &off, chunk);
+            const e = std.os.linux.errno(rc);
+            if (e != .SUCCESS) {
+                return switch (e) {
+                    .AGAIN => error.WouldBlock,
+                    .PIPE => error.BrokenPipe,
+                    .INVAL, .BADF, .NOTSOCK => error.InvalidArgument,
+                    else => error.SendFileFailed,
+                };
+            }
+            if (rc == 0) break; // EOF: short send, reported via the return value.
+            sent_total += rc;
+            next_offset = @intCast(off);
+        }
+        if (sent_total == count) {
+            self.request.response_done = true;
+        }
+        return sent_total;
+    }
+
     pub fn deinit(self: *HttpResponse) void {
         self.headers.deinit();
         self.allocator.destroy(self);
@@ -2183,6 +2239,70 @@ pub export fn sa_http_server_resp_send_head_v2(resp: ?*anyopaque, content_length
     return networkStatus(.ok);
 }
 
+// Raw request target of a v2 request, exactly as it arrived on
+// the request line (path + "?" + query, absolute-form untouched).
+// req_get_path strips the query; this getter exists so proxies
+// and loggers can see the whole target. The returned slice is
+// borrowed from the request and stays valid until req_free.
+pub export fn sa_http_server_req_get_target_v2(req: ?*anyopaque, out_target_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
+    const target_slot = out_target_ptr orelse return networkStatus(.invalid);
+    const len_slot = out_len orelse return networkStatus(.invalid);
+    const req_ptr = req orelse return networkStatus(.invalid);
+    const request = @as(*HttpRequest, @ptrCast(@alignCast(req_ptr)));
+    target_slot.* = request.target.ptr;
+    len_slot.* = request.target.len;
+    return networkStatus(.ok);
+}
+
+// Query component of a v2 request's target: the bytes after the
+// first "?", without the "?" itself. A target with no "?" returns
+// ok with a zero length (no query is a normal case, not an
+// error); the out pointer then addresses the end of the target.
+pub export fn sa_http_server_req_get_query_v2(req: ?*anyopaque, out_query_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
+    const query_slot = out_query_ptr orelse return networkStatus(.invalid);
+    const len_slot = out_len orelse return networkStatus(.invalid);
+    const req_ptr = req orelse return networkStatus(.invalid);
+    const request = @as(*HttpRequest, @ptrCast(@alignCast(req_ptr)));
+    const target = request.target;
+    if (std.mem.indexOfScalar(u8, target, '?')) |idx| {
+        const query = target[idx + 1 ..];
+        query_slot.* = query.ptr;
+        len_slot.* = query.len;
+    } else {
+        query_slot.* = target.ptr + target.len;
+        len_slot.* = 0;
+    }
+    return networkStatus(.ok);
+}
+
+// File-body send (G3'): frames the response head with
+// content-length = count and streams the file body with
+// sendfile(2) -- the static-serving shape resp_send_v2 cannot
+// express (it would need the whole file in memory). file_fd is a
+// borrowed OS descriptor for an already-open readable file (see
+// sa_std_fs_file_fd); it is NOT closed here. out_sent always
+// receives the number of file bytes written, including on
+// failure. Status values are the v2 network statuses, plus one
+// extension: 8 = unsupported (the platform has no sendfile;
+// NOTHING was sent, so the caller may still answer with an
+// explicit error response). There is no buffered fallback: a
+// short send (the file shrank after being measured) is reported
+// as io_error with out_sent < count, never as success.
+pub export fn sa_http_server_resp_send_file_v2(resp: ?*anyopaque, file_fd: i64, offset: u64, count: u64, timeout_ms: u32, out_sent: ?*u64) u32 {
+    const sent_slot = out_sent orelse return networkStatus(.invalid);
+    sent_slot.* = 0;
+    const resp_ptr = resp orelse return networkStatus(.invalid);
+    if (file_fd < 0 or file_fd > std.math.maxInt(std.posix.fd_t)) return networkStatus(.invalid);
+    if (comptime builtin.cpu.arch.isWasm() or builtin.os.tag != .linux) return 8;
+    const response = @as(*HttpResponse, @ptrCast(@alignCast(resp_ptr)));
+    const poll_status = pollStream(response.request.stream().socket.handle, std.posix.POLL.OUT, timeout_ms, null);
+    if (poll_status != .ok) return networkStatus(poll_status);
+    const sent = response.sendFile(@intCast(file_fd), offset, count) catch |err| return networkStatus(statusFromError(err));
+    sent_slot.* = sent;
+    if (sent != count) return networkStatus(.io_error);
+    return networkStatus(.ok);
+}
+
 // Peer (remote) address of a v2 request, as text + port: the access
 // log's remote field and per-request ACLs both need exactly this.
 // The address text goes to out[0..out_len): dotted quad for IPv4;
@@ -2450,4 +2570,113 @@ test "v2 send_head carries declared content-length without body; peer addr is th
     try std.testing.expectEqual(@as(i32, 0), ready);
 
     _ = sa_http_server_req_free_v2(request);
+}
+
+test "v2 req_get_target/req_get_query expose the raw target and query (G4)" {
+    if (comptime builtin.os.tag != .linux) return error.SkipZigTest;
+    var server_slot: ?*anyopaque = null;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_new_v2(&server_slot));
+    const server = server_slot orelse return error.TestUnexpectedResult;
+    defer _ = sa_http_server_free_v2(server);
+    const host = "127.0.0.1";
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_start_v2(server, host.ptr, host.len, 18234));
+    const address = try std.Io.net.IpAddress.parse("127.0.0.1", 18234);
+
+    // Request WITH a query string: target is verbatim, query is
+    // the bytes after the first '?', path stays query-free.
+    var client = try address.connect(sio.io(), .{ .mode = .stream });
+    try streamWriteAll(client, "GET /api/echo?x=1&y=%32 HTTP/1.1\r\nhost: x\r\n\r\n");
+    var req_slot: ?*anyopaque = null;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_accept_v2(server, 5000, &req_slot));
+    const request = req_slot orelse return error.TestUnexpectedResult;
+    var t_ptr: ?[*]const u8 = null;
+    var t_len: u64 = 0;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_req_get_target_v2(request, &t_ptr, &t_len));
+    try std.testing.expectEqualStrings("/api/echo?x=1&y=%32", t_ptr.?[0..t_len]);
+    var q_ptr: ?[*]const u8 = null;
+    var q_len: u64 = 0;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_req_get_query_v2(request, &q_ptr, &q_len));
+    try std.testing.expectEqualStrings("x=1&y=%32", q_ptr.?[0..q_len]);
+    var p_ptr: ?[*]const u8 = null;
+    var p_len: u64 = 0;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_req_get_path(request, &p_ptr, &p_len));
+    try std.testing.expectEqualStrings("/api/echo", p_ptr.?[0..p_len]);
+    var resp_slot: ?*anyopaque = null;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_resp_new_v2(request, 200, &resp_slot));
+    const resp = resp_slot orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_resp_send_head_v2(resp, 0, 5000));
+    _ = sa_http_server_resp_free_v2(resp);
+    _ = sa_http_server_req_free_v2(request);
+    client.close(sio.io());
+
+    // Request WITHOUT a query string: ok status, zero length.
+    var client2 = try address.connect(sio.io(), .{ .mode = .stream });
+    defer client2.close(sio.io());
+    try streamWriteAll(client2, "GET /plain HTTP/1.1\r\nhost: x\r\n\r\n");
+    var req2_slot: ?*anyopaque = null;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_accept_v2(server, 5000, &req2_slot));
+    const request2 = req2_slot orelse return error.TestUnexpectedResult;
+    defer _ = sa_http_server_req_free_v2(request2);
+    var q2_ptr: ?[*]const u8 = null;
+    var q2_len: u64 = 99;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_req_get_query_v2(request2, &q2_ptr, &q2_len));
+    try std.testing.expectEqual(@as(u64, 0), q2_len);
+    var t2_ptr: ?[*]const u8 = null;
+    var t2_len: u64 = 0;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_req_get_target_v2(request2, &t2_ptr, &t2_len));
+    try std.testing.expectEqualStrings("/plain", t2_ptr.?[0..t2_len]);
+    var resp2_slot: ?*anyopaque = null;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_resp_new_v2(request2, 200, &resp2_slot));
+    const resp2 = resp2_slot orelse return error.TestUnexpectedResult;
+    defer _ = sa_http_server_resp_free_v2(resp2);
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_resp_send_head_v2(resp2, 0, 5000));
+}
+
+test "v2 resp_send_file streams the file body kernel-side (G3')" {
+    if (comptime builtin.os.tag != .linux) return error.SkipZigTest;
+    const content = "sendfile-body-0123456789";
+    const fd = std.c.open("/tmp/sa_sendfile_test_body.txt", .{ .ACCMODE = .RDWR, .CREAT = true, .TRUNC = true }, @as(std.c.mode_t, 0o644));
+    if (fd < 0) return error.TestUnexpectedResult;
+    defer _ = std.c.close(fd);
+    if (std.c.write(fd, content.ptr, content.len) != @as(isize, @intCast(content.len))) return error.TestUnexpectedResult;
+
+    var server_slot: ?*anyopaque = null;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_new_v2(&server_slot));
+    const server = server_slot orelse return error.TestUnexpectedResult;
+    defer _ = sa_http_server_free_v2(server);
+    const host = "127.0.0.1";
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_start_v2(server, host.ptr, host.len, 18235));
+    const address = try std.Io.net.IpAddress.parse("127.0.0.1", 18235);
+    var client = try address.connect(sio.io(), .{ .mode = .stream });
+    defer client.close(sio.io());
+    try streamWriteAll(client, "GET /body.txt HTTP/1.1\r\nhost: x\r\n\r\n");
+
+    var req_slot: ?*anyopaque = null;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_accept_v2(server, 5000, &req_slot));
+    const request = req_slot orelse return error.TestUnexpectedResult;
+    defer _ = sa_http_server_req_free_v2(request);
+    var resp_slot: ?*anyopaque = null;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_resp_new_v2(request, 200, &resp_slot));
+    const resp = resp_slot orelse return error.TestUnexpectedResult;
+    defer _ = sa_http_server_resp_free_v2(resp);
+    var sent: u64 = 0;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_resp_send_file_v2(resp, @intCast(fd), 0, content.len, 5000, &sent));
+    try std.testing.expectEqual(@as(u64, content.len), sent);
+
+    // The client receives the framed head (content-length =
+    // count) followed by exactly the file bytes.
+    var rbuf: [1024]u8 = undefined;
+    var total: usize = 0;
+    while (total < rbuf.len) {
+        const rc = std.c.read(client.socket.handle, @ptrCast(rbuf[total..].ptr), rbuf.len - total);
+        if (rc <= 0) break;
+        total += @intCast(rc);
+        if (std.mem.indexOf(u8, rbuf[0..total], "\r\n\r\n")) |hend| {
+            if (total >= hend + 4 + content.len) break;
+        }
+    }
+    const got = rbuf[0..total];
+    const hend = std.mem.indexOf(u8, got, "\r\n\r\n") orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOf(u8, got[0..hend], "content-length: 24") != null);
+    try std.testing.expectEqualStrings(content, got[hend + 4 ..][0..content.len]);
 }
