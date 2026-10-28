@@ -7649,7 +7649,7 @@ fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_pat
             try ensureParentDir(out_path);
             const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
             const size_bits = sizeBitsForTriple(compile_options.target_triple);
-            emit_js.emitJsToFile(allocator, owned.verified, source_path, size_bits, .{ .format = js_format, .debug_comments = debug }, &owned.flat.def_dict.npm_binds, out_path) catch |err| {
+            emit_js.emitJsToFile(allocator, owned.verified, source_path, size_bits, .{ .format = js_format, .debug_comments = debug, .dce = compile_options.dce }, &owned.flat.def_dict.npm_binds, out_path) catch |err| {
                 try stderr.print("error: JS backend emit failed: {s}", .{@errorName(err)});
                 if (emit_js.last_js_func.len != 0) try stderr.print(" in {s}", .{emit_js.last_js_func});
                 if (emit_js.last_js_inst.len != 0) try stderr.print(": {s}", .{std.mem.trim(u8, emit_js.last_js_inst, " \t\r\n")});

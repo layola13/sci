@@ -29,6 +29,13 @@ pub const JsEmitOptions = struct {
     format: JsFormat = .esm,
     mem_pages: u32 = 256, // 256 * 64KiB = 16MiB initial
     debug_comments: bool = true,
+    /// Extern trap-stub dead-code elimination, threaded in from
+    /// CompileOptions.dce by `sa build-js --dce`: .no keeps every
+    /// unbound extern's trap stub (the pre-DCE behavior, kept for
+    /// debugging); .std/.full drop stubs for externs that no emitted
+    /// code references. The struct default is .full so existing
+    /// callers keep the current (trimming) behavior unchanged.
+    dce: emit_options.DceMode = .full,
 };
 
 /// JS reserved words (strict-mode ESM): suffixed with `$` when emitted.
@@ -12090,12 +12097,16 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         if (std.mem.eql(u8, fsig.name, "main")) has_main = true;
     }
     var stub_emitted = std.StringHashMap(void).init(allocator);
-    // dce=full for extern stubs (see collectReferencedJsNames): an
-    // unbound extern that no emitted code references is not emitted at
-    // all. Referenced unbound externs keep their trap stub verbatim;
-    // bound externs (npm wrappers above, emitter shim bodies below)
-    // are unaffected.
-    var referenced_js_names = try collectReferencedJsNames(allocator, verified, tasks, fn_names.items);
+    // Extern-stub DCE (see collectReferencedJsNames): under
+    // .std/.full an unbound extern that no emitted code references is
+    // not emitted at all. Referenced unbound externs keep their trap
+    // stub verbatim; bound externs (npm wrappers above, emitter shim
+    // bodies below) are unaffected. Under .no every stub is emitted
+    // (pre-DCE behavior) and the census is skipped entirely.
+    var referenced_js_names: std.StringHashMap(void) = if (js_opt.dce != .no)
+        try collectReferencedJsNames(allocator, verified, tasks, fn_names.items)
+    else
+        std.StringHashMap(void).init(allocator);
     defer {
         var kit = referenced_js_names.keyIterator();
         while (kit.next()) |k| allocator.free(k.*);
@@ -12116,6 +12127,12 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         }
         if (emitted.contains(fsig.name) or stub_emitted.contains(fsig.name)) continue;
         try stub_emitted.put(fsig.name, {});
+        if (js_opt.dce == .no) {
+            // --dce no: emit the stub (or emitter shim body) directly,
+            // byte-identical to the pre-DCE emitter.
+            try emitOneFunction(writer, allocator, verified, task, &const_addrs, &fn_idx, js_opt, &retbase);
+            continue;
+        }
         // Emit into a scratch buffer first: if the product is the trap
         // stub of an unreferenced extern, drop it (dce=full); anything
         // else (a referenced trap stub, or an emitter shim body) is

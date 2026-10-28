@@ -1276,3 +1276,92 @@ test "js backend dce: unreferenced extern trap stubs are not emitted" {
     }
     try std.testing.expect(std.mem.indexOf(u8, js_result.stderr, "extern not linked: dce_used") != null);
 }
+
+/// Remove every occurrence of `needle` from `haystack`, returning an
+/// owned slice. Test helper for the --dce byte-identity assertion.
+fn removeSubstringAlloc(allocator: std.mem.Allocator, haystack: []const u8, needle: []const u8) ![]u8 {
+    const count = std.mem.count(u8, haystack, needle);
+    if (count == 0) return allocator.dupe(u8, haystack);
+    const out = try allocator.alloc(u8, haystack.len);
+    errdefer allocator.free(out);
+    const n = std.mem.replace(u8, haystack, needle, "", out);
+    if (n != count) return error.TestUnexpectedResult;
+    return allocator.realloc(out, haystack.len - n * needle.len);
+}
+
+test "js backend dce: --dce no keeps unreferenced extern trap stubs" {
+    // `--dce no` is the pre-DCE behavior kept for debugging: every
+    // unbound extern materializes its trap stub, referenced or not.
+    // The default output (stub DCE on) must be exactly the --dce no
+    // output minus the two dropped stub lines, byte-for-byte, so the
+    // modes can never drift apart in any other byte.
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const source =
+        \\@extern dce_used(x: i32) -> i32
+        \\@extern dce_unused_a(x: i32) -> i32
+        \\@extern dce_unused_b(x: i32) -> i32
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    r = call @dce_used(41)
+        \\    return r
+    ;
+    {
+        const f = try tmp.dir.createFile(std.testing.io, "dce_unit.sa", .{ .truncate = true });
+        defer f.close(std.testing.io);
+        var wbuf: [1024]u8 = undefined;
+        var fw = f.writer(std.testing.io, &wbuf);
+        try fw.interface.writeAll(source);
+        try fw.interface.flush();
+    }
+
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    defer original_cwd.setAsCwd() catch {};
+
+    const read_out = struct {
+        fn read(allocator: std.mem.Allocator, dir: std.Io.Dir, name: []const u8) ![]u8 {
+            const file = try dir.openFile(std.testing.io, name, .{});
+            defer file.close(std.testing.io);
+            var rbuf: [8192]u8 = undefined;
+            var reader = file.reader(std.testing.io, &rbuf);
+            return reader.interface.allocRemaining(allocator, .limited(1 << 24));
+        }
+    }.read;
+
+    // Default build: current behavior (stub DCE on).
+    const def_argv = [_][]const u8{ "sa", "build-js", "dce_unit.sa", "-o", "dce_def.mjs", "--project-root", repo_root };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, def_argv[0..]));
+    const def_bytes = try read_out(std.testing.allocator, tmp.dir, "dce_def.mjs");
+    defer std.testing.allocator.free(def_bytes);
+
+    // --dce no build: every stub retained.
+    const no_argv = [_][]const u8{ "sa", "build-js", "dce_unit.sa", "-o", "dce_no.mjs", "--dce", "no", "--project-root", repo_root };
+    try std.testing.expectEqual(@as(u8, 0), try saasm.cli.execute(std.testing.allocator, no_argv[0..]));
+    const no_bytes = try read_out(std.testing.allocator, tmp.dir, "dce_no.mjs");
+    defer std.testing.allocator.free(no_bytes);
+
+    const stub_a = "function dce_unused_a() { __sa_trap(\"extern not linked: dce_unused_a\"); }";
+    const stub_b = "function dce_unused_b() { __sa_trap(\"extern not linked: dce_unused_b\"); }";
+    // --dce no keeps both unreferenced stubs; the default drops them.
+    try std.testing.expect(std.mem.indexOf(u8, no_bytes, stub_a) != null);
+    try std.testing.expect(std.mem.indexOf(u8, no_bytes, stub_b) != null);
+    try std.testing.expect(std.mem.indexOf(u8, def_bytes, "dce_unused_a") == null);
+    try std.testing.expect(std.mem.indexOf(u8, def_bytes, "dce_unused_b") == null);
+
+    // Removing exactly the two stub lines from the --dce no output
+    // reproduces the default output byte-for-byte.
+    const strip_a = try removeSubstringAlloc(std.testing.allocator, no_bytes, stub_a ++ "\n");
+    defer std.testing.allocator.free(strip_a);
+    const stripped = try removeSubstringAlloc(std.testing.allocator, strip_a, stub_b ++ "\n");
+    defer std.testing.allocator.free(stripped);
+    try std.testing.expectEqualStrings(def_bytes, stripped);
+}
