@@ -766,10 +766,13 @@ fn httpRequestExecOnce(req: *HttpRequest) !*HttpResponse {
     // std.http.Client (see HttpClient.init -> initDefaultProxies); the manual
     // tunnel path was removed.
     var redirect_buf: [16 * 1024]u8 = undefined;
+    const parts = try splitStdHeaders(req.allocator, req.headers.items);
+    defer req.allocator.free(parts.extra);
     var request = try req.client.client.request(req.method, uri, .{
         .keep_alive = false,
         .redirect_behavior = .unhandled,
-        .extra_headers = req.headers.items,
+        .headers = parts.headers,
+        .extra_headers = parts.extra,
     });
     defer request.deinit();
     if (req.body) |body| {
@@ -790,16 +793,23 @@ fn httpRequestExecOnce(req: *HttpRequest) !*HttpResponse {
     }
     var body = std.array_list.Managed(u8).init(req.allocator);
     errdefer body.deinit();
-    var transfer_buf: [8192]u8 = undefined;
-    var body_reader = response.reader(&transfer_buf);
-    var read_buf: [8192]u8 = undefined;
-    var total: usize = 0;
-    while (true) {
-        const n = try body_reader.readSliceShort(&read_buf);
-        if (n == 0) break;
-        total += n;
-        if (total > 16 * 1024 * 1024) return error.StreamTooLong;
-        try body.appendSlice(read_buf[0..n]);
+    // D6 (same defect as executeRequestV2): skip the read loop
+    // when the response has no body by definition (HEAD/TRACE);
+    // Response.reader() would hand out the shared read-only
+    // Io.Reader.ending singleton and readSliceShort's seek
+    // write through it segfaults in zig-cc/LLD-linked binaries.
+    if (req.method.responseHasBody()) {
+        var transfer_buf: [8192]u8 = undefined;
+        var body_reader = response.reader(&transfer_buf);
+        var read_buf: [8192]u8 = undefined;
+        var total: usize = 0;
+        while (true) {
+            const n = try body_reader.readSliceShort(&read_buf);
+            if (n == 0) break;
+            total += n;
+            if (total > 16 * 1024 * 1024) return error.StreamTooLong;
+            try body.appendSlice(read_buf[0..n]);
+        }
     }
     return try makeStatusResponse(req.allocator, mapStatus(response.head.status), headers, try body.toOwnedSlice());
 }
@@ -2572,6 +2582,47 @@ fn validHeaderValue(value: []const u8) bool {
     return std.mem.indexOfAny(u8, value, "\r\n\x00") == null;
 }
 
+/// std.http.Client reserves dedicated request slots for a few
+/// standard headers and emits its own default for each slot
+/// BEFORE any extra_headers (see emitOverridableHeader in
+/// std/http/Client.zig). A caller-supplied header with one of
+/// those names passed as an extra header is therefore shadowed
+/// on the wire -- registered gap G5: req_add_header("user-agent")
+/// never beat std's "zig/<ver> (std.http)" default, and an echo
+/// upstream reports the std value, not the caller's. Route
+/// caller values for the slotted names into the slots (last one
+/// wins, matching header-set semantics) and keep everything else
+/// in extra_headers.
+const StdHeaderParts = struct {
+    headers: std.http.Client.Request.Headers = .{},
+    extra: []std.http.Header,
+};
+
+fn splitStdHeaders(allocator: std.mem.Allocator, headers: []const std.http.Header) !StdHeaderParts {
+    var extra = std.array_list.Managed(std.http.Header).init(allocator);
+    errdefer extra.deinit();
+    var parts = StdHeaderParts{ .extra = &.{} };
+    for (headers) |header| {
+        if (std.ascii.eqlIgnoreCase(header.name, "host")) {
+            parts.headers.host = .{ .override = header.value };
+        } else if (std.ascii.eqlIgnoreCase(header.name, "authorization")) {
+            parts.headers.authorization = .{ .override = header.value };
+        } else if (std.ascii.eqlIgnoreCase(header.name, "user-agent")) {
+            parts.headers.user_agent = .{ .override = header.value };
+        } else if (std.ascii.eqlIgnoreCase(header.name, "connection")) {
+            parts.headers.connection = .{ .override = header.value };
+        } else if (std.ascii.eqlIgnoreCase(header.name, "accept-encoding")) {
+            parts.headers.accept_encoding = .{ .override = header.value };
+        } else if (std.ascii.eqlIgnoreCase(header.name, "content-type")) {
+            parts.headers.content_type = .{ .override = header.value };
+        } else {
+            try extra.append(header);
+        }
+    }
+    parts.extra = try extra.toOwnedSlice();
+    return parts;
+}
+
 fn methodFromCode(method: u8) ?HttpMethod {
     return switch (method) {
         1 => .get,
@@ -2809,10 +2860,13 @@ fn executeRequestV2(request: *HttpRequest, tracker: ?*V2AsyncOp) V2Error!*HttpRe
     // NOTE(Zig 0.17): proxy CONNECT tunnels are handled natively by
     // std.http.Client now; the manual-tunnel path was removed.
     var redirect_buffer: [16 * 1024]u8 = undefined;
+    const parts = splitStdHeaders(request.allocator, request.headers.items) catch return error.Io;
+    defer request.allocator.free(parts.extra);
     var http_request = request.client.client.request(request.method, uri, .{
         .keep_alive = false,
         .redirect_behavior = .unhandled,
-        .extra_headers = request.headers.items,
+        .headers = parts.headers,
+        .extra_headers = parts.extra,
     }) catch |err| return mapHttpError(err, deadline, tracker);
     defer http_request.deinit();
 
@@ -2833,16 +2887,28 @@ fn executeRequestV2(request: *HttpRequest, tracker: ?*V2AsyncOp) V2Error!*HttpRe
 
     var body = std.array_list.Managed(u8).init(request.allocator);
     errdefer body.deinit();
-    var transfer_buffer: [8192]u8 = undefined;
-    var response_reader = response.reader(&transfer_buffer);
-    var read_buffer: [8192]u8 = undefined;
-    while (true) {
-        checkRequestState(deadline, tracker) catch |err| return err;
-        const read_len = response_reader.readSliceShort(&read_buffer) catch |err| return mapHttpError(err, deadline, tracker);
-        if (read_len == 0) break;
-        const next_len = std.math.add(u64, @intCast(body.items.len), @intCast(read_len)) catch return error.TooLarge;
-        if (next_len > request.max_response_bytes) return error.TooLarge;
-        body.appendSlice(read_buffer[0..read_len]) catch return error.Io;
+    // D6: for a request method whose response has no body by
+    // definition (HEAD), std's Response.reader() returns the
+    // shared Io.Reader.ending singleton -- a @constCast pointer
+    // to a const global that lands in .data.rel.ro and is mapped
+    // read-only after relocation in zig-cc/LLD-linked binaries
+    // (exactly how SA binaries are linked). readSliceShort
+    // writes the reader's seek field through that pointer and
+    // segfaults. The body is empty by definition, so the read
+    // loop must be skipped entirely for such responses; never
+    // touch the ending reader.
+    if (request.method.responseHasBody()) {
+        var transfer_buffer: [8192]u8 = undefined;
+        var response_reader = response.reader(&transfer_buffer);
+        var read_buffer: [8192]u8 = undefined;
+        while (true) {
+            checkRequestState(deadline, tracker) catch |err| return err;
+            const read_len = response_reader.readSliceShort(&read_buffer) catch |err| return mapHttpError(err, deadline, tracker);
+            if (read_len == 0) break;
+            const next_len = std.math.add(u64, @intCast(body.items.len), @intCast(read_len)) catch return error.TooLarge;
+            if (next_len > request.max_response_bytes) return error.TooLarge;
+            body.appendSlice(read_buffer[0..read_len]) catch return error.Io;
+        }
     }
 
     const out = request.allocator.create(HttpResponse) catch return error.Io;
@@ -3939,6 +4005,155 @@ test "http client v2: POST echo over loopback" {
     try testing.expectEqualStrings("POST /v2 v2-body", out_body.?[0..out_len]);
 }
 
+fn httpHeadHandler(fd: i32) void {
+    var buf: [8192]u8 = undefined;
+    _ = readRequest(fd, &buf);
+    // HEAD semantics (RFC 9110): the response carries the headers the
+    // equivalent GET would have produced -- including its
+    // Content-Length -- and NO body bytes, and the connection stays
+    // open (no Connection: close). A client that waits for the
+    // declared 22 body bytes blocks until the server gives up and
+    // closes, which the sleep makes observable.
+    const h = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 22\r\n\r\n";
+    sockWriteAll(fd, h);
+    sio.io().sleep(.fromMilliseconds(3000), .awake) catch {};
+}
+
+test "http client v2: HEAD against keep-alive upstream returns empty body promptly (D6)" {
+    const srv = try TestServer.start(httpHeadHandler);
+    defer srv.join();
+    var url_buf: [128]u8 = undefined;
+    const url = try std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/hello", .{srv.port});
+    var client: ?*anyopaque = null;
+    try testing.expectEqual(@as(u32, 0), sa_http_client_new_v2(0, null, 0, &client));
+    defer _ = sa_http_client_free(client);
+    var req: ?*anyopaque = null;
+    try testing.expectEqual(@as(u32, 0), sa_http_client_req_new_v2(client, 5, url.ptr, url.len, &req));
+    defer _ = sa_http_client_req_free(req);
+    try testing.expectEqual(@as(u32, 0), sa_http_client_req_set_timeout_v2(req, 4000));
+    const t0 = sio.nanoTimestamp();
+    var resp: ?*anyopaque = null;
+    try testing.expectEqual(@as(u32, 0), sa_http_client_req_send_v2(req, &resp));
+    const elapsed_ms = @divTrunc(sio.nanoTimestamp() - t0, std.time.ns_per_ms);
+    // The handler holds the keep-alive connection open for 3 s
+    // after sending the head; a correct HEAD client returns at
+    // once with an empty body instead of waiting for the
+    // declared Content-Length bytes (which never arrive). (In
+    // SA-linked binaries the pre-fix code segfaulted outright:
+    // see the D6 note in executeRequestV2.)
+    try testing.expect(elapsed_ms < 2500);
+    defer _ = sa_http_client_resp_free(resp);
+    try testing.expectEqual(@as(u16, 200), sa_http_client_resp_status(resp));
+    try testing.expectEqual(@as(u64, 0), sa_http_client_resp_body_len(resp));
+    var hv: ?[*]const u8 = null;
+    var hv_len: u64 = 0;
+    try testing.expectEqual(@as(u32, 0), sa_http_client_resp_get_header(resp, "content-length".ptr, "content-length".len, &hv, &hv_len));
+    try testing.expectEqualStrings("22", hv.?[0..hv_len]);
+}
+
+test "http client v1: HEAD against keep-alive upstream returns empty body promptly (D6)" {
+    const srv = try TestServer.start(httpHeadHandler);
+    defer srv.join();
+    var url_buf: [128]u8 = undefined;
+    const url = try std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/hello", .{srv.port});
+    var client: ?*anyopaque = null;
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_new(0, &client));
+    defer _ = sa_http_client_free(client);
+    var req: ?*anyopaque = null;
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_req_new(client, 5, url.ptr, url.len, &req));
+    defer _ = sa_http_client_req_free(req);
+    const t0 = sio.nanoTimestamp();
+    var resp: ?*anyopaque = null;
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_req_send(req, &resp));
+    const elapsed_ms = @divTrunc(sio.nanoTimestamp() - t0, std.time.ns_per_ms);
+    try testing.expect(elapsed_ms < 2500);
+    defer _ = sa_http_client_resp_free(resp);
+    try testing.expectEqual(@as(u16, 200), sa_http_client_resp_status(resp));
+    try testing.expectEqual(@as(u64, 0), sa_http_client_resp_body_len(resp));
+}
+
+fn httpUserAgentEchoHandler(fd: i32) void {
+    var buf: [8192]u8 = undefined;
+    const req = readRequest(fd, &buf);
+    const ua = findRawHeader(req, "user-agent") orelse "<none>";
+    var hdr: [512]u8 = undefined;
+    const h = std.fmt.bufPrint(&hdr, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {d}\r\n\r\n", .{ua.len}) catch return;
+    sockWriteAll(fd, h);
+    sockWriteAll(fd, ua);
+}
+
+test "http client v2: add_header user-agent reaches the wire (G5)" {
+    const srv = try TestServer.start(httpUserAgentEchoHandler);
+    defer srv.join();
+    var url_buf: [128]u8 = undefined;
+    const url = try std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/ua", .{srv.port});
+    var client: ?*anyopaque = null;
+    try testing.expectEqual(@as(u32, 0), sa_http_client_new_v2(0, null, 0, &client));
+    defer _ = sa_http_client_free(client);
+    var req: ?*anyopaque = null;
+    try testing.expectEqual(@as(u32, 0), sa_http_client_req_new_v2(client, 1, url.ptr, url.len, &req));
+    defer _ = sa_http_client_req_free(req);
+    const ua = "probe-ua/1.0";
+    try testing.expectEqual(@as(u32, 0), sa_http_client_req_add_header_v2(req, "user-agent".ptr, "user-agent".len, ua.ptr, ua.len));
+    var resp: ?*anyopaque = null;
+    try testing.expectEqual(@as(u32, 0), sa_http_client_req_send_v2(req, &resp));
+    defer _ = sa_http_client_resp_free(resp);
+    try testing.expectEqual(@as(u16, 200), sa_http_client_resp_status(resp));
+    var out_body: ?[*]const u8 = null;
+    var out_len: u64 = 0;
+    try testing.expectEqual(@as(u32, 0), sa_http_client_resp_body_slice(resp, &out_body, &out_len));
+    // Wire-level: the upstream echoes the user-agent it actually
+    // received; pre-fix this was std's own default ("zig/..."),
+    // never the value set via add_header.
+    try testing.expectEqualStrings("probe-ua/1.0", out_body.?[0..out_len]);
+}
+
+test "http client v1: add_header user-agent reaches the wire (G5)" {
+    const srv = try TestServer.start(httpUserAgentEchoHandler);
+    defer srv.join();
+    var url_buf: [128]u8 = undefined;
+    const url = try std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/ua", .{srv.port});
+    var client: ?*anyopaque = null;
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_new(0, &client));
+    defer _ = sa_http_client_free(client);
+    var req: ?*anyopaque = null;
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_req_new(client, 1, url.ptr, url.len, &req));
+    defer _ = sa_http_client_req_free(req);
+    const ua = "probe-ua/1.0";
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_req_add_header(req, "user-agent".ptr, "user-agent".len, ua.ptr, ua.len));
+    var resp: ?*anyopaque = null;
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_req_send(req, &resp));
+    defer _ = sa_http_client_resp_free(resp);
+    try testing.expectEqual(@as(u16, 200), sa_http_client_resp_status(resp));
+    var out_body: ?[*]const u8 = null;
+    var out_len: u64 = 0;
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_resp_body_slice(resp, &out_body, &out_len));
+    try testing.expectEqualStrings("probe-ua/1.0", out_body.?[0..out_len]);
+}
+
+test "http client v2: unset user-agent keeps the std default (G5)" {
+    const srv = try TestServer.start(httpUserAgentEchoHandler);
+    defer srv.join();
+    var url_buf: [128]u8 = undefined;
+    const url = try std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/ua", .{srv.port});
+    var client: ?*anyopaque = null;
+    try testing.expectEqual(@as(u32, 0), sa_http_client_new_v2(0, null, 0, &client));
+    defer _ = sa_http_client_free(client);
+    var req: ?*anyopaque = null;
+    try testing.expectEqual(@as(u32, 0), sa_http_client_req_new_v2(client, 1, url.ptr, url.len, &req));
+    defer _ = sa_http_client_req_free(req);
+    var resp: ?*anyopaque = null;
+    try testing.expectEqual(@as(u32, 0), sa_http_client_req_send_v2(req, &resp));
+    defer _ = sa_http_client_resp_free(resp);
+    var out_body: ?[*]const u8 = null;
+    var out_len: u64 = 0;
+    try testing.expectEqual(@as(u32, 0), sa_http_client_resp_body_slice(resp, &out_body, &out_len));
+    // Documents the default that used to shadow add_header:
+    // without an explicit user-agent the wire still carries
+    // std.http's own ("zig/<version> (std.http)").
+    try testing.expect(std.mem.startsWith(u8, out_body.?[0..out_len], "zig/"));
+}
+
 fn wsEchoHandler(fd: i32) void {
     var buf: [8192]u8 = undefined;
     const req = readRequest(fd, &buf);
@@ -4061,4 +4276,5 @@ test "sse post: streamed events over loopback" {
     try testing.expect(std.mem.indexOf(u8, acc[0..total], "data: one") != null);
     try testing.expect(std.mem.indexOf(u8, acc[0..total], "data: two") != null);
 }
+
 
