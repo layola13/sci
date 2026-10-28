@@ -594,6 +594,10 @@ comptime {
     _ = &@import("sa_quic.zig").sa_std_quic_client_connect;
     _ = &@import("sa_quic.zig").sa_std_http3_session_bind;
     _ = &@import("sa_thread_local.zig").sa_thread_local_supported;
+    _ = &@import("sa_pg.zig").sa_pg_connect;
+    _ = &@import("sa_pg.zig").sa_pg_exec;
+    _ = &@import("sa_pg.zig").sa_pg_prepare;
+    _ = &@import("sa_pg.zig").sa_pg_execute;
     if (builtin.os.tag == .linux) {
         _ = &@import("sa_net_uring.zig").sa_netx_init;
     }

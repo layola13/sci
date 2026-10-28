@@ -1,0 +1,6 @@
+// SLA import surface for the built-in PostgreSQL client.
+// The wire protocol, authentication (trust / cleartext / md5 /
+// SCRAM-SHA-256) and result storage live in the sa_std runtime
+// (sci src/runtime/sa_pg.zig); this file is the import surface,
+// mirroring the plugin_sqlite.sla precedent.
+@import "sa_std/postgres.sai"

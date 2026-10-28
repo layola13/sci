@@ -22,6 +22,9 @@ extern "C" {
 #define SA_STD_ERR_TRUNCATED 9
 /* 10 is SA_STD_ERR_PERMISSION_DENIED (runtime policy; Zig-side define). */
 #define SA_STD_ERR_ALREADY_EXISTS 11
+/* 12 is the PostgreSQL server-error status: the server answered an
+ * ErrorResponse; see sa_pg_last_sqlstate / sa_pg_last_error. */
+#define SA_STD_ERR_PG_SERVER 12
 #define SA_STD_ERR_UNKNOWN 127
 
 #define SA_STD_STDIN 1ull
@@ -1414,6 +1417,38 @@ int32_t sa_std_ws_client_send_binary(uint64_t handle, const uint8_t *buf, uint64
 int32_t sa_std_ws_client_send_text(uint64_t handle, const uint8_t *buf, uint64_t len);
 int32_t sa_std_ws_client_status_json(uint64_t *out_handle);
 int32_t sa_std_ws_client_supported(uint32_t *out_supported);
+
+/* PostgreSQL wire-protocol v3 client (src/runtime/sa_pg.zig).
+ * Synchronous, caller-serialized per connection; see sa_std/postgres.sai
+ * for the status model (12 = SA_STD_ERR_PG_SERVER) and semantics. */
+int32_t sa_pg_connect(const uint8_t *host, uint64_t host_len, uint32_t port, const uint8_t *user, uint64_t user_len, const uint8_t *password, uint64_t password_len, const uint8_t *database, uint64_t database_len, uint32_t timeout_ms, uint32_t ssl_mode, uint64_t *out_handle);
+int32_t sa_pg_close(uint64_t handle);
+int32_t sa_pg_server_version(uint64_t handle, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_pg_txn_status(uint64_t handle, uint32_t *out_status);
+int32_t sa_pg_last_sqlstate(uint64_t handle, uint8_t *out);
+int32_t sa_pg_last_error(uint64_t handle, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_pg_last_error_detail(uint64_t handle, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_pg_exec(uint64_t handle, const uint8_t *sql, uint64_t sql_len);
+int32_t sa_pg_prepare(uint64_t handle, const uint8_t *sql, uint64_t sql_len, uint64_t *out_stmt);
+int32_t sa_pg_stmt_param_count(uint64_t stmt, uint64_t *out_count);
+int32_t sa_pg_stmt_free(uint64_t stmt);
+int32_t sa_pg_bind_null(uint64_t stmt, uint32_t index);
+int32_t sa_pg_bind_text(uint64_t stmt, uint32_t index, const uint8_t *value, uint64_t value_len);
+int32_t sa_pg_bind_i64(uint64_t stmt, uint32_t index, int64_t value);
+int32_t sa_pg_bind_f64(uint64_t stmt, uint32_t index, double value);
+int32_t sa_pg_bind_bool(uint64_t stmt, uint32_t index, uint32_t value);
+int32_t sa_pg_execute(uint64_t handle, uint64_t stmt);
+int32_t sa_pg_result_rows(uint64_t handle, uint64_t *out_rows);
+int32_t sa_pg_result_cols(uint64_t handle, uint64_t *out_cols);
+int32_t sa_pg_col_name(uint64_t handle, uint64_t col, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_pg_col_type_oid(uint64_t handle, uint64_t col, uint32_t *out_oid);
+int32_t sa_pg_cell_is_null(uint64_t handle, uint64_t row, uint64_t col, uint32_t *out_is_null);
+int32_t sa_pg_cell_len(uint64_t handle, uint64_t row, uint64_t col, uint64_t *out_len);
+int32_t sa_pg_cell_copy(uint64_t handle, uint64_t row, uint64_t col, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_pg_cell_i64(uint64_t handle, uint64_t row, uint64_t col, int64_t *out_value);
+int32_t sa_pg_cell_f64(uint64_t handle, uint64_t row, uint64_t col, double *out_value);
+int32_t sa_pg_cell_bool(uint64_t handle, uint64_t row, uint64_t col, uint32_t *out_value);
+int32_t sa_pg_rows_affected(uint64_t handle, uint64_t *out_count);
 
 #ifdef __cplusplus
 }
