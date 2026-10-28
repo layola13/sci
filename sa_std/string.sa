@@ -8,6 +8,7 @@
 @import "fmt.sai"
 @import "hash.sa"
 @import "string_format.sa"
+@extern sa_mem_free(^ptr: ptr) -> void
 
 [MACRO] STR_LEN %out_len, %slice_reg
     EXPAND SLICE_GET_LEN %out_len, %slice_reg
@@ -229,7 +230,7 @@ L_STR_FROM_UTF8_DONE_%out_ok:
     __string_buf_drop_ptr_%string_reg = take %string_reg+Vec_ptr
     store %string_reg+Vec_cap, 0 as u64
     store %string_reg+Vec_len, 0 as u64
-    !__string_buf_drop_ptr_%string_reg
+    call @sa_mem_free(^__string_buf_drop_ptr_%string_reg)
 [END_MACRO]
 
 [MACRO] STRING_BUF_LEN %out_len, %string_reg

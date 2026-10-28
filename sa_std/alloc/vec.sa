@@ -128,7 +128,7 @@ L_RESERVE_COPY:
     !copy_bytes
     !new_bytes_ok
     !new_bytes
-    !old_buf
+    call @sa_mem_free(^old_buf)
     ^new_buf
     !has_room
     !needed
@@ -313,7 +313,7 @@ L_EXTEND_COPY_OLD:
     !copy_old_bytes
     !new_bytes_ok
     !new_bytes
-    !old_buf
+    call @sa_mem_free(^old_buf)
 
 L_COPY:
     dst_buf = load vec+Vec_ptr as ptr
@@ -601,7 +601,7 @@ L_SHRINK_COPY:
     !copy_bytes
     !shrink_new_bytes_ok
     !new_bytes
-    !old_buf
+    call @sa_mem_free(^old_buf)
     ^new_buf
     !target_zero
     !needs_shrink
