@@ -1,0 +1,63 @@
+// SLA-facing named constants for the kind values that sa_yaml_kind
+// (declared in sa_std/encoding/yaml.sai) writes into its &out_kind
+// parameter.
+//
+// Why this file exists: as with TOML before it, these names existed
+// at NO layer before this file -- only as the internal KIND_*
+// constants of the YAML implementation (src/runtime/sa_yaml.zig).
+// An SLA consumer importing yaml.sai saw only the bare u32 out-param
+// and had to hard-code the numbers. These consts are the public SLA
+// spelling. They are pure declarations: no new externs, no ABI
+// change.
+//
+// Values (verified against the implementation's KIND_* constants):
+//   UNDEFINED = 0 (no value: sa_yaml_kind pre-fills out_kind with
+//   0, so a failed lookup -- status SA_STD_ERR_NOT_FOUND -- leaves
+//   UNDEFINED behind; the empty path resolves to the document root)
+//   NULL = 1, BOOL = 2, INTEGER = 3, FLOAT = 4, STRING = 5,
+//   ARRAY = 6, TABLE = 7
+//
+// YAML kinds deliberately add NULL, which TOML lacks: a bare
+// "key:" line is a null value in YAML, and callers must be able to
+// distinguish "present and null" from "absent" (status) and from
+// "present and empty string" (kind STRING).
+
+@import "sa_std/encoding/yaml.sai"
+
+const SA_YAML_KIND_UNDEFINED: u32 = 0;
+const SA_YAML_KIND_NULL: u32 = 1;
+const SA_YAML_KIND_BOOL: u32 = 2;
+const SA_YAML_KIND_INTEGER: u32 = 3;
+const SA_YAML_KIND_FLOAT: u32 = 4;
+const SA_YAML_KIND_STRING: u32 = 5;
+const SA_YAML_KIND_ARRAY: u32 = 6;
+const SA_YAML_KIND_TABLE: u32 = 7;
+
+// Kind predicates, in the shape of the sa_toml_is_* helpers in
+// encoding/toml.sla: read the kind at `path` in document `doc` and
+// compare. A failed lookup (missing path, bad handle) reads as
+// false for every predicate -- callers that must distinguish
+// "missing" from "wrong kind" should call sa_yaml_kind directly and
+// check its status. Only the three shapes with real call-site demand
+// are given; the rest compare against the consts directly.
+
+fn sa_yaml_is_string(doc: u64, path_ptr: ptr, path_len: u64) -> bool {
+    let kind: u32 = 0;
+    let st: i32 = sa_yaml_kind(doc, path_ptr, path_len, &kind);
+    if st != 0 { return false; };
+    return kind == SA_YAML_KIND_STRING;
+}
+
+fn sa_yaml_is_array(doc: u64, path_ptr: ptr, path_len: u64) -> bool {
+    let kind: u32 = 0;
+    let st: i32 = sa_yaml_kind(doc, path_ptr, path_len, &kind);
+    if st != 0 { return false; };
+    return kind == SA_YAML_KIND_ARRAY;
+}
+
+fn sa_yaml_is_table(doc: u64, path_ptr: ptr, path_len: u64) -> bool {
+    let kind: u32 = 0;
+    let st: i32 = sa_yaml_kind(doc, path_ptr, path_len, &kind);
+    if st != 0 { return false; };
+    return kind == SA_YAML_KIND_TABLE;
+}

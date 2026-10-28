@@ -939,6 +939,39 @@ int32_t sa_toml_stringify(uint64_t doc, const uint8_t **out_ptr, uint64_t *out_l
 int32_t sa_toml_table_key_at(uint64_t doc, const uint8_t *path, uint64_t path_len, uint64_t index, const uint8_t **out_ptr, uint64_t *out_len);
 int32_t sa_toml_table_len(uint64_t doc, const uint8_t *path, uint64_t path_len, uint64_t *out_len);
 
+/* YAML reader/writer (configuration-grade subset; see sa_yaml.zig). */
+int32_t sa_yaml_array_get_i64(uint64_t doc, const uint8_t *path, uint64_t path_len, uint64_t index, int64_t *out_value);
+int32_t sa_yaml_array_get_string(uint64_t doc, const uint8_t *path, uint64_t path_len, uint64_t index, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_yaml_array_len(uint64_t doc, const uint8_t *path, uint64_t path_len, uint64_t *out_len);
+int32_t sa_yaml_array_push_bool(uint64_t doc, const uint8_t *path, uint64_t path_len, uint32_t value);
+int32_t sa_yaml_array_push_f64(uint64_t doc, const uint8_t *path, uint64_t path_len, double value);
+int32_t sa_yaml_array_push_i64(uint64_t doc, const uint8_t *path, uint64_t path_len, int64_t value);
+int32_t sa_yaml_array_push_null(uint64_t doc, const uint8_t *path, uint64_t path_len);
+int32_t sa_yaml_array_push_string(uint64_t doc, const uint8_t *path, uint64_t path_len, const uint8_t *value, uint64_t value_len);
+int32_t sa_yaml_array_push_table(uint64_t doc, const uint8_t *path, uint64_t path_len);
+int32_t sa_yaml_count_documents(const uint8_t *yaml_bytes, uint64_t len, uint64_t *out_count);
+int32_t sa_yaml_free(uint64_t doc);
+int32_t sa_yaml_get_bool(uint64_t doc, const uint8_t *path, uint64_t path_len, uint32_t *out_value);
+int32_t sa_yaml_get_f64(uint64_t doc, const uint8_t *path, uint64_t path_len, double *out_value);
+int32_t sa_yaml_get_i64(uint64_t doc, const uint8_t *path, uint64_t path_len, int64_t *out_value);
+int32_t sa_yaml_get_string(uint64_t doc, const uint8_t *path, uint64_t path_len, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_yaml_kind(uint64_t doc, const uint8_t *path, uint64_t path_len, uint32_t *out_kind);
+int32_t sa_yaml_last_error(const uint8_t **out_ptr, uint64_t *out_len);
+uint64_t sa_yaml_new(void);
+uint64_t sa_yaml_parse(const uint8_t *yaml_bytes, uint64_t len);
+uint64_t sa_yaml_parse_at(const uint8_t *yaml_bytes, uint64_t len, uint64_t index);
+int32_t sa_yaml_remove(uint64_t doc, const uint8_t *path, uint64_t path_len);
+int32_t sa_yaml_set_bool(uint64_t doc, const uint8_t *path, uint64_t path_len, uint32_t value);
+int32_t sa_yaml_set_f64(uint64_t doc, const uint8_t *path, uint64_t path_len, double value);
+int32_t sa_yaml_set_i64(uint64_t doc, const uint8_t *path, uint64_t path_len, int64_t value);
+int32_t sa_yaml_set_null(uint64_t doc, const uint8_t *path, uint64_t path_len);
+int32_t sa_yaml_set_string(uint64_t doc, const uint8_t *path, uint64_t path_len, const uint8_t *value, uint64_t value_len);
+int32_t sa_yaml_set_table(uint64_t doc, const uint8_t *path, uint64_t path_len);
+int32_t sa_yaml_stringify(uint64_t doc, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_yaml_table_key_at(uint64_t doc, const uint8_t *path, uint64_t path_len, uint64_t index, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_yaml_table_len(uint64_t doc, const uint8_t *path, uint64_t path_len, uint64_t *out_len);
+int32_t sa_yaml_to_json(uint64_t doc, const uint8_t **out_ptr, uint64_t *out_len);
+
 /* fs additions: file-object API and the filesystem watcher. */
 int32_t sa_fs_file_close(uint64_t file);
 int32_t sa_fs_file_create(const uint8_t *path, uint64_t path_len);

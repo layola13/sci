@@ -1,0 +1,76 @@
+// SA-facing contracts for the Zig-backed sa_std.encoding.yaml module.
+// YAML documents are opaque OWNED U64 HANDLES (not pointers), mirroring
+// the TOML/JSON surfaces. Values are read by dotted path
+// ("server.port"); array elements in a path may be addressed by a
+// numeric segment ("groups.0.name"). Kinds: 0 undefined, 1 null,
+// 2 bool, 3 integer, 4 float, 5 string, 6 array, 7 table — named
+// consts and sa_yaml_is_* predicates live in
+// sa_std/encoding/yaml.sla.
+//
+// This is a configuration-grade subset of YAML 1.2 (the full ruling
+// table is the module doc of src/runtime/sa_yaml.zig): block and flow
+// collections, plain/single/double-quoted scalars, literal and folded
+// block scalars, comments, multi-document streams, anchors, aliases
+// (resolved to deep copies at parse time) and merge keys (expanded at
+// parse time). Explicit tags, complex ("? ") keys, tab indentation
+// and duplicate keys are hard errors reported through
+// sa_yaml_last_error with a line/column position — nothing is parsed
+// approximately and nothing falls back silently.
+//
+// Type inference is JSON-aligned, deliberately not YAML 1.1: null is
+// "~" / null / Null / NULL / empty; booleans are true/false in three
+// casings only (yes/no/on/off resolve to strings); integers are
+// decimal (underscores strictly between digits), 0x hex, 0o octal,
+// legacy 0-prefixed octal and 0b binary (i64 overflow falls back to
+// float); floats need a dot or an exponent, plus .inf/.nan;
+// timestamps and sexagesimal numbers stay strings. Mapping keys are
+// stored as their scalar source text, so the DOM is string-keyed
+// exactly like JSON.
+//
+// sa_yaml_parse reads document 0; sa_yaml_parse_at reads document N
+// and sa_yaml_count_documents counts a stream (an empty input counts
+// 0 documents, but parses to a null-rooted document). Write side:
+// sa_yaml_new builds an empty document; set_* creates intermediate
+// tables on demand and replaces whatever sits at the path;
+// array_push_* appends, creating the array when the path is free;
+// sa_yaml_remove deletes a key, or an array element when the final
+// segment is numeric. sa_yaml_stringify emits block-style YAML that
+// sa_yaml_parse reads back; sa_yaml_to_json emits the same DOM as
+// compact JSON text (a non-finite float is an explicit error there,
+// never invalid JSON). Both output buffers are document-owned and are
+// invalidated by the next mutation or the next call of the same
+// emitter on that document.
+@extern sa_yaml_parse(&yaml_bytes: ptr, len: u64) -> u64
+@extern sa_yaml_parse_at(&yaml_bytes: ptr, len: u64, index: u64) -> u64
+@extern sa_yaml_count_documents(&yaml_bytes: ptr, len: u64, &out_count: ptr) -> i32
+@extern sa_yaml_free(^doc: u64) -> i32
+@extern sa_yaml_last_error(&out_ptr: ptr, &out_len: ptr) -> i32
+// The u32 written to out_kind is one of the SA_YAML_KIND_* values
+// (see yaml.sla). A failed lookup leaves SA_YAML_KIND_UNDEFINED (0)
+// behind; the empty path resolves to the document root.
+@extern sa_yaml_kind(doc: u64, &path: ptr, path_len: u64, &out_kind: ptr) -> i32
+@extern sa_yaml_get_string(doc: u64, &path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_yaml_get_i64(doc: u64, &path: ptr, path_len: u64, &out_value: ptr) -> i32
+@extern sa_yaml_get_f64(doc: u64, &path: ptr, path_len: u64, &out_value: ptr) -> i32
+@extern sa_yaml_get_bool(doc: u64, &path: ptr, path_len: u64, &out_value: ptr) -> i32
+@extern sa_yaml_array_len(doc: u64, &path: ptr, path_len: u64, &out_len: ptr) -> i32
+@extern sa_yaml_table_len(doc: u64, &path: ptr, path_len: u64, &out_len: ptr) -> i32
+@extern sa_yaml_array_get_string(doc: u64, &path: ptr, path_len: u64, index: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_yaml_array_get_i64(doc: u64, &path: ptr, path_len: u64, index: u64, &out_value: ptr) -> i32
+@extern sa_yaml_table_key_at(doc: u64, &path: ptr, path_len: u64, index: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_yaml_new() -> u64
+@extern sa_yaml_set_string(doc: u64, &path: ptr, path_len: u64, &value: ptr, value_len: u64) -> i32
+@extern sa_yaml_set_i64(doc: u64, &path: ptr, path_len: u64, value: i64) -> i32
+@extern sa_yaml_set_f64(doc: u64, &path: ptr, path_len: u64, value: f64) -> i32
+@extern sa_yaml_set_bool(doc: u64, &path: ptr, path_len: u64, value: u32) -> i32
+@extern sa_yaml_set_null(doc: u64, &path: ptr, path_len: u64) -> i32
+@extern sa_yaml_set_table(doc: u64, &path: ptr, path_len: u64) -> i32
+@extern sa_yaml_remove(doc: u64, &path: ptr, path_len: u64) -> i32
+@extern sa_yaml_array_push_string(doc: u64, &path: ptr, path_len: u64, &value: ptr, value_len: u64) -> i32
+@extern sa_yaml_array_push_i64(doc: u64, &path: ptr, path_len: u64, value: i64) -> i32
+@extern sa_yaml_array_push_f64(doc: u64, &path: ptr, path_len: u64, value: f64) -> i32
+@extern sa_yaml_array_push_bool(doc: u64, &path: ptr, path_len: u64, value: u32) -> i32
+@extern sa_yaml_array_push_null(doc: u64, &path: ptr, path_len: u64) -> i32
+@extern sa_yaml_array_push_table(doc: u64, &path: ptr, path_len: u64) -> i32
+@extern sa_yaml_stringify(doc: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_yaml_to_json(doc: u64, &out_ptr: ptr, &out_len: ptr) -> i32
