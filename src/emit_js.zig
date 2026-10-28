@@ -3056,6 +3056,1163 @@ fn isAllocatorShim(name: []const u8) bool {
 
 /// Every extern name with a built-in host lowering in the emitter (as
 /// opposed to a trap stub). A same-module `@export` never shadows these.
+// sa2js net runtime chunk (BP): cookie engine, TLS config model,
+// synchronous socket bridge (worker + SAB + Atomics.wait), netinfo.
+// Emitted once per program that declares any BP net shim (gate below).
+const jsnet_runtime_js =
+    \\// ---- sa2js net runtime chunk (BP wave: cookie / tls-config / net-slice / netinfo) ----
+    \\// Emitted ONCE per generated program that declares any BP net shim (see the
+    \\// gate after writeRuntimeHeader in emit_js.zig). Pure functions operate on
+    \\// Uint8Array byte strings (latin1-exact); shims adapt linear memory <-> bytes.
+    \\// Cookie semantics mirror src/runtime/sa_cookie.zig exactly (RFC 6265);
+    \\// TLS verification modes mirror src/runtime/sa_tls_client.zig.
+    \\globalThis.__sa_jsnet = globalThis.__sa_jsnet || (function () {
+    \\  "use strict";
+    \\  // ---------- byte helpers ----------
+    \\  function bLen(b) { return b.length; }
+    \\  function bEq(a, b) {
+    \\    if (a.length !== b.length) return false;
+    \\    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    \\    return true;
+    \\  }
+    \\  function bLower(b) {
+    \\    const o = new Uint8Array(b.length);
+    \\    for (let i = 0; i < b.length; i++) { const c = b[i]; o[i] = (c >= 65 && c <= 90) ? c + 32 : c; }
+    \\    return o;
+    \\  }
+    \\  function bEqFold(a, b) { return bEq(bLower(a), bLower(b)); }
+    \\  function bEndsWithFold(s, suf) {
+    \\    if (suf.length > s.length) return false;
+    \\    return bEqFold(s.subarray(s.length - suf.length), suf);
+    \\  }
+    \\  function bTrimOws(b) {
+    \\    let a = 0, z = b.length;
+    \\    while (a < z && (b[a] === 32 || b[a] === 9)) a++;
+    \\    while (z > a && (b[z - 1] === 32 || b[z - 1] === 9)) z--;
+    \\    return b.subarray(a, z);
+    \\  }
+    \\  function bIndexOf(b, byte, from) {
+    \\    for (let i = (from || 0); i < b.length; i++) if (b[i] === byte) return i;
+    \\    return -1;
+    \\  }
+    \\  function bFromStr(s) {
+    \\    const o = new Uint8Array(s.length);
+    \\    for (let i = 0; i < s.length; i++) o[i] = s.charCodeAt(i) & 255;
+    \\    return o;
+    \\  }
+    \\  function bToStr(b) {
+    \\    let s = "";
+    \\    for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    \\    return s;
+    \\  }
+    \\  function bConcat(parts) {
+    \\    let n = 0;
+    \\    for (const p of parts) n += p.length;
+    \\    const o = new Uint8Array(n);
+    \\    let off = 0;
+    \\    for (const p of parts) { o.set(p, off); off += p.length; }
+    \\    return o;
+    \\  }
+    \\  function isDigit(c) { return c >= 48 && c <= 57; }
+    \\  function isCtl(c) { return c < 32 || c === 127; }
+    \\  function isTokenChar(c) {
+    \\    if (c >= 48 && c <= 57) return true;
+    \\    if (c >= 65 && c <= 90) return true;
+    \\    if (c >= 97 && c <= 122) return true;
+    \\    return c === 33 || c === 35 || c === 36 || c === 37 || c === 38 || c === 39 ||
+    \\      c === 42 || c === 43 || c === 45 || c === 46 || c === 94 || c === 95 ||
+    \\      c === 96 || c === 124 || c === 126;
+    \\  }
+    \\  function isCookieOctet(c) {
+    \\    return c === 33 || (c >= 35 && c <= 43) || (c >= 45 && c <= 58) ||
+    \\      (c >= 60 && c <= 91) || (c >= 93 && c <= 126);
+    \\  }
+    \\  function validCookieName(b) {
+    \\    if (b.length === 0) return false;
+    \\    for (let i = 0; i < b.length; i++) if (!isTokenChar(b[i])) return false;
+    \\    return true;
+    \\  }
+    \\  function validCookieValue(b) {
+    \\    for (let i = 0; i < b.length; i++) if (!isCookieOctet(b[i])) return false;
+    \\    return true;
+    \\  }
+    \\  function validDomainAttr(b) {
+    \\    if (b.length === 0) return false;
+    \\    for (let i = 0; i < b.length; i++) {
+    \\      const c = b[i];
+    \\      const ok = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) ||
+    \\        c === 45 || c === 46 || c === 95;
+    \\      if (!ok) return false;
+    \\    }
+    \\    return true;
+    \\  }
+    \\  // ---------- dates (RFC 6265 5.1.1 + IMF-fixdate) ----------
+    \\  function daysFromCivil(y0, m, d) {
+    \\    let y = y0;
+    \\    if (m <= 2) y -= 1;
+    \\    const era = Math.floor(y / 400);
+    \\    const yoe = y - era * 400;
+    \\    const mp = (m > 2) ? m - 3 : m + 9;
+    \\    const doy = Math.floor((153 * mp + 2) / 5) + d - 1;
+    \\    const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+    \\    return era * 146097 + doe - 719468;
+    \\  }
+    \\  function civilFromDays(z0) {
+    \\    const z = z0 + 719468;
+    \\    const era = Math.floor(z / 146097);
+    \\    const doe = z - era * 146097;
+    \\    const yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
+    \\    const y = yoe + era * 400;
+    \\    const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
+    \\    const mp = Math.floor((5 * doy + 2) / 153);
+    \\    const d = doy - Math.floor((153 * mp + 2) / 5) + 1;
+    \\    const m = (mp < 10) ? mp + 3 : mp - 9;
+    \\    return { year: (m <= 2) ? y + 1 : y, month: m, day: d };
+    \\  }
+    \\  function isDateDelimiter(c) {
+    \\    return c === 9 || (c >= 32 && c <= 47) || (c >= 59 && c <= 64) ||
+    \\      (c >= 91 && c <= 96) || (c >= 123 && c <= 126);
+    \\  }
+    \\  const MONTH3 = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    \\  function parseLeadingUint(tok, maxDigits) {
+    \\    let v = 0, n = 0;
+    \\    while (n < tok.length && n < maxDigits && isDigit(tok[n])) { v = v * 10 + (tok[n] - 48); n++; }
+    \\    if (n === 0) return null;
+    \\    return { value: v, digits: n };
+    \\  }
+    \\  function tokenTime(tok) {
+    \\    const h = parseLeadingUint(tok, 2);
+    \\    if (!h) return null;
+    \\    let rest = tok.subarray(h.digits);
+    \\    if (rest.length === 0 || rest[0] !== 58) return null;
+    \\    rest = rest.subarray(1);
+    \\    const m = parseLeadingUint(rest, 2);
+    \\    if (!m) return null;
+    \\    rest = rest.subarray(m.digits);
+    \\    if (rest.length === 0 || rest[0] !== 58) return null;
+    \\    rest = rest.subarray(1);
+    \\    const s = parseLeadingUint(rest, 2);
+    \\    if (!s) return null;
+    \\    return { h: h.value, m: m.value, s: s.value };
+    \\  }
+    \\  function parseCookieDate(b) {
+    \\    let time = null, day = null, month = null, year = null;
+    \\    let i = 0;
+    \\    while (i < b.length) {
+    \\      while (i < b.length && isDateDelimiter(b[i])) i++;
+    \\      if (i >= b.length) break;
+    \\      const start = i;
+    \\      while (i < b.length && !isDateDelimiter(b[i])) i++;
+    \\      const tok = b.subarray(start, i);
+    \\      if (time === null) {
+    \\        const t = tokenTime(tok);
+    \\        if (t) { time = t; continue; }
+    \\      }
+    \\      if (day === null) {
+    \\        const d = parseLeadingUint(tok, 2);
+    \\        if (d && (d.digits === tok.length || !isDigit(tok[d.digits]))) { day = d.value; continue; }
+    \\      }
+    \\      if (month === null && tok.length >= 3) {
+    \\        const first3 = bLower(tok.subarray(0, 3));
+    \\        let mo = null;
+    \\        for (let k = 0; k < 12; k++) {
+    \\          if (bEq(first3, bFromStr(MONTH3[k]))) { mo = k + 1; break; }
+    \\        }
+    \\        if (mo !== null) { month = mo; continue; }
+    \\      }
+    \\      if (year === null) {
+    \\        const y = parseLeadingUint(tok, 4);
+    \\        if (y && y.digits >= 2 && (y.digits === tok.length || !isDigit(tok[y.digits]))) {
+    \\          let v = y.value;
+    \\          if (y.digits === 2) v += (v >= 70) ? 1900 : 2000;
+    \\          year = v;
+    \\          continue;
+    \\        }
+    \\      }
+    \\    }
+    \\    if (time === null || day === null || month === null || year === null) return null;
+    \\    if (day < 1 || day > 31) return null;
+    \\    if (year < 1601) return null;
+    \\    if (time.h > 23 || time.m > 59 || time.s > 59) return null;
+    \\    return daysFromCivil(year, month, day) * 86400 + time.h * 3600 + time.m * 60 + time.s;
+    \\  }
+    \\  const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    \\  const MONTHFULL = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    \\  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+    \\  function pad4(n) { let s = String(n); while (s.length < 4) s = "0" + s; return s; }
+    \\  function formatImfFixdate(unix) {
+    \\    const days = Math.floor(unix / 86400);
+    \\    let rem = unix - days * 86400;
+    \\    const c = civilFromDays(days);
+    \\    const wd = ((days + 4) % 7 + 7) % 7;
+    \\    const hh = Math.floor(rem / 3600); rem -= hh * 3600;
+    \\    const mm = Math.floor(rem / 60); const ss = rem - mm * 60;
+    \\    const ystr = (c.year >= 0 && c.year <= 9999) ? pad4(c.year) : String(c.year);
+    \\    return bFromStr(WEEKDAY[wd] + ", " + pad2(c.day) + " " + MONTHFULL[c.month - 1] + " " +
+    \\      ystr + " " + pad2(hh) + ":" + pad2(mm) + ":" + pad2(ss) + " GMT");
+    \\  }
+    \\
+    \\  // ---------- cookie value layer ----------
+    \\  function mkCookie(name, value) {
+    \\    return { name: name, value: value, domain: new Uint8Array(0), hasDomain: false,
+    \\      hostOnly: false, path: new Uint8Array(0), hasPath: false, expires: null,
+    \\      maxAge: null, secure: false, httpOnly: false, partitioned: false, sameSite: 0, seq: 0 };
+    \\  }
+    \\  function cloneCookie(c) {
+    \\    const o = mkCookie(c.name.slice(), c.value.slice());
+    \\    o.domain = c.domain.slice(); o.hasDomain = c.hasDomain; o.hostOnly = c.hostOnly;
+    \\    o.path = c.path.slice(); o.hasPath = c.hasPath; o.expires = c.expires;
+    \\    o.maxAge = c.maxAge; o.secure = c.secure; o.httpOnly = c.httpOnly;
+    \\    o.partitioned = c.partitioned; o.sameSite = c.sameSite; o.seq = c.seq;
+    \\    return o;
+    \\  }
+    \\  function parseMaxAge(b) {
+    \\    if (b.length === 0) return null;
+    \\    let idx = 0, neg = false;
+    \\    if (b[0] === 45) { neg = true; idx = 1; }
+    \\    if (idx >= b.length) return null;
+    \\    let v = 0;
+    \\    const cap = 1 << 62;
+    \\    while (idx < b.length) {
+    \\      const c = b[idx];
+    \\      if (!isDigit(c)) return null;
+    \\      const d = c - 48;
+    \\      v = (v >= Math.floor((cap - 9) / 10)) ? cap : v * 10 + d;
+    \\      idx++;
+    \\    }
+    \\    return neg ? -v : v;
+    \\  }
+    \\  function parseSetCookie(raw) {
+    \\    const firstSemi = bIndexOf(raw, 59, 0);
+    \\    const pairEnd = (firstSemi < 0) ? raw.length : firstSemi;
+    \\    const pair = bTrimOws(raw.subarray(0, pairEnd));
+    \\    const eq = bIndexOf(pair, 61, 0);
+    \\    if (eq < 0) return null;
+    \\    const name = bTrimOws(pair.subarray(0, eq));
+    \\    if (!validCookieName(name)) return null;
+    \\    let value = bTrimOws(pair.subarray(eq + 1));
+    \\    if (value.length >= 2 && value[0] === 34 && value[value.length - 1] === 34) {
+    \\      value = value.subarray(1, value.length - 1);
+    \\    }
+    \\    if (!validCookieValue(value)) return null;
+    \\    const cookie = mkCookie(name.slice(), value.slice());
+    \\    if (firstSemi >= 0) {
+    \\      let pos = firstSemi + 1;
+    \\      while (pos <= raw.length) {
+    \\        const next = bIndexOf(raw, 59, pos);
+    \\        const segEnd = (next < 0) ? raw.length : next;
+    \\        const attr = bTrimOws(raw.subarray(pos, segEnd));
+    \\        if (attr.length > 0) {
+    \\          const aeq = bIndexOf(attr, 61, 0);
+    \\          const aname = (aeq < 0) ? attr : bTrimOws(attr.subarray(0, aeq));
+    \\          const avalue = (aeq < 0) ? new Uint8Array(0) : bTrimOws(attr.subarray(aeq + 1));
+    \\          if (bEqFold(aname, bFromStr("expires"))) {
+    \\            const ts = parseCookieDate(avalue);
+    \\            if (ts !== null) cookie.expires = ts;
+    \\          } else if (bEqFold(aname, bFromStr("max-age"))) {
+    \\            const ma = parseMaxAge(avalue);
+    \\            if (ma !== null) cookie.maxAge = ma;
+    \\          } else if (bEqFold(aname, bFromStr("domain"))) {
+    \\            let d = avalue;
+    \\            if (d.length > 0 && d[0] === 46) d = d.subarray(1);
+    \\            if (validDomainAttr(d)) { cookie.domain = bLower(d).slice(); cookie.hasDomain = true; }
+    \\          } else if (bEqFold(aname, bFromStr("path"))) {
+    \\            if (avalue.length > 0 && avalue[0] === 47) {
+    \\              let bad = false;
+    \\              for (let i = 0; i < avalue.length; i++) if (isCtl(avalue[i])) bad = true;
+    \\              if (!bad) { cookie.path = avalue.slice(); cookie.hasPath = true; }
+    \\            }
+    \\          } else if (bEqFold(aname, bFromStr("secure"))) {
+    \\            cookie.secure = true;
+    \\          } else if (bEqFold(aname, bFromStr("httponly"))) {
+    \\            cookie.httpOnly = true;
+    \\          } else if (bEqFold(aname, bFromStr("partitioned"))) {
+    \\            cookie.partitioned = true;
+    \\          } else if (bEqFold(aname, bFromStr("samesite"))) {
+    \\            if (bEqFold(avalue, bFromStr("lax"))) cookie.sameSite = 1;
+    \\            else if (bEqFold(avalue, bFromStr("strict"))) cookie.sameSite = 2;
+    \\            else if (bEqFold(avalue, bFromStr("none"))) cookie.sameSite = 3;
+    \\          }
+    \\        }
+    \\        if (next < 0) break;
+    \\        pos = next + 1;
+    \\      }
+    \\    }
+    \\    return cookie;
+    \\  }
+    \\  function serializeCookie(c, pairOnly) {
+    \\    const parts = [c.name, bFromStr("="), c.value];
+    \\    if (pairOnly) return bConcat(parts);
+    \\    if (c.hasDomain) parts.push(bFromStr("; Domain="), c.domain);
+    \\    if (c.hasPath) parts.push(bFromStr("; Path="), c.path);
+    \\    if (c.expires !== null) parts.push(bFromStr("; Expires="), formatImfFixdate(c.expires));
+    \\    if (c.maxAge !== null) parts.push(bFromStr("; Max-Age=" + String(c.maxAge)));
+    \\    if (c.secure) parts.push(bFromStr("; Secure"));
+    \\    if (c.httpOnly) parts.push(bFromStr("; HttpOnly"));
+    \\    if (c.sameSite === 1) parts.push(bFromStr("; SameSite=Lax"));
+    \\    else if (c.sameSite === 2) parts.push(bFromStr("; SameSite=Strict"));
+    \\    else if (c.sameSite === 3) parts.push(bFromStr("; SameSite=None"));
+    \\    if (c.partitioned) parts.push(bFromStr("; Partitioned"));
+    \\    return bConcat(parts);
+    \\  }
+    \\  function hostIsIp(host) {
+    \\    if (host.length === 0) return false;
+    \\    if (bIndexOf(host, 58, 0) >= 0) return true;
+    \\    let parts = 0, pos = 0;
+    \\    while (pos <= host.length) {
+    \\      const dot = bIndexOf(host, 46, pos);
+    \\      const end = (dot < 0) ? host.length : dot;
+    \\      const part = host.subarray(pos, end);
+    \\      if (part.length === 0 || part.length > 3) return false;
+    \\      for (let i = 0; i < part.length; i++) if (!isDigit(part[i])) return false;
+    \\      parts++;
+    \\      if (dot < 0) break;
+    \\      pos = dot + 1;
+    \\    }
+    \\    return parts === 4;
+    \\  }
+    \\  function domainMatch(domain, host) {
+    \\    if (domain.length === 0 || host.length === 0) return false;
+    \\    if (bEqFold(domain, host)) return true;
+    \\    if (hostIsIp(host)) return false;
+    \\    if (host.length <= domain.length) return false;
+    \\    if (host[host.length - domain.length - 1] !== 46) return false;
+    \\    return bEndsWithFold(host, domain);
+    \\  }
+    \\  function pathMatch(cookiePath, requestPath) {
+    \\    if (cookiePath.length === 0) return false;
+    \\    const rp = (requestPath.length === 0) ? bFromStr("/") : requestPath;
+    \\    if (bEq(cookiePath, rp)) return true;
+    \\    if (rp.length > cookiePath.length) {
+    \\      let pre = true;
+    \\      for (let i = 0; i < cookiePath.length; i++) if (rp[i] !== cookiePath[i]) { pre = false; break; }
+    \\      if (pre) {
+    \\        if (cookiePath[cookiePath.length - 1] === 47) return true;
+    \\        if (rp[cookiePath.length] === 47) return true;
+    \\      }
+    \\    }
+    \\    return false;
+    \\  }
+    \\  function defaultPath(uriPath) {
+    \\    if (uriPath.length === 0 || uriPath[0] !== 47) return bFromStr("/");
+    \\    let last = -1;
+    \\    for (let i = 0; i < uriPath.length; i++) if (uriPath[i] === 47) last = i;
+    \\    if (last <= 0) return bFromStr("/");
+    \\    return uriPath.subarray(0, last);
+    \\  }
+    \\  function splitUrl(url) {
+    \\    const schemeEnd = bToStr(url).indexOf("://");
+    \\    if (schemeEnd < 0) return null;
+    \\    const scheme = url.subarray(0, schemeEnd);
+    \\    if (scheme.length === 0) return null;
+    \\    for (let i = 0; i < scheme.length; i++) {
+    \\      const c = scheme[i];
+    \\      if (isCtl(c) || c === 32 || c === 47) return null;
+    \\    }
+    \\    let rest = url.subarray(schemeEnd + 3);
+    \\    let authEnd = rest.length;
+    \\    for (let i = 0; i < rest.length; i++) {
+    \\      const c = rest[i];
+    \\      if (c === 47 || c === 63 || c === 35) { authEnd = i; break; }
+    \\    }
+    \\    let authority = rest.subarray(0, authEnd);
+    \\    rest = rest.subarray(authEnd);
+    \\    let at = -1;
+    \\    for (let i = 0; i < authority.length; i++) if (authority[i] === 64) at = i;
+    \\    if (at >= 0) authority = authority.subarray(at + 1);
+    \\    let host;
+    \\    if (authority.length > 0 && authority[0] === 91) {
+    \\      const close = bIndexOf(authority, 93, 0);
+    \\      if (close < 0) return null;
+    \\      host = authority.subarray(1, close);
+    \\    } else {
+    \\      const colon = bIndexOf(authority, 58, 0);
+    \\      host = (colon < 0) ? authority : authority.subarray(0, colon);
+    \\    }
+    \\    if (host.length === 0) return null;
+    \\    let path = new Uint8Array(0);
+    \\    if (rest.length > 0 && rest[0] === 47) {
+    \\      let pathEnd = rest.length;
+    \\      for (let i = 0; i < rest.length; i++) {
+    \\        const c = rest[i];
+    \\        if (c === 63 || c === 35) { pathEnd = i; break; }
+    \\      }
+    \\      path = rest.subarray(0, pathEnd);
+    \\    }
+    \\    return { scheme: scheme, host: host, path: path };
+    \\  }
+    \\  function originTrustworthy(scheme, host) {
+    \\    if (bEqFold(scheme, bFromStr("https")) || bEqFold(scheme, bFromStr("wss"))) return true;
+    \\    if (bEqFold(host, bFromStr("localhost")) || bEndsWithFold(host, bFromStr(".localhost"))) return true;
+    \\    if (bEq(host, bFromStr("127.0.0.1")) || bEq(host, bFromStr("::1"))) return true;
+    \\    return false;
+    \\  }
+    \\  // ---------- cookie registries + last error ----------
+    \\  const CK = { cookies: new Map(), jars: new Map(), next: 1, err: null };
+    \\  function ckErrSet(msg) { CK.err = bFromStr(msg); }
+    \\  function ckErrClear() { CK.err = null; }
+    \\  function ckErrGet() { return CK.err; }
+    \\  function ckReg(c) { const h = CK.next++; CK.cookies.set(h, c); return h; }
+    \\  function ckGet(h) { return CK.cookies.get(h) || null; }
+    \\  function ckFree(h) { return CK.cookies.delete(h); }
+    \\  function jarReg(j) { const h = CK.next++; CK.jars.set(h, j); return h; }
+    \\  function jarGet(h) { return CK.jars.get(h) || null; }
+    \\  function jarFree(h) { return CK.jars.delete(h); }
+    \\  function mkJar() { return { entries: [], policy: 0, nextSeq: 1 }; }
+    \\  function jarFind(jar, name, domain, path) {
+    \\    for (let i = 0; i < jar.entries.length; i++) {
+    \\      const e = jar.entries[i];
+    \\      if (bEq(e.name, name) && bEq(e.domain, domain) && bEq(e.path, path)) return i;
+    \\    }
+    \\    return -1;
+    \\  }
+    \\  function jarInsert(jar, entry) {
+    \\    const idx = jarFind(jar, entry.name, entry.domain, entry.path);
+    \\    if (idx >= 0) { const seq = jar.entries[idx].seq; entry.seq = seq; jar.entries[idx] = entry; return 1; }
+    \\    entry.seq = jar.nextSeq++;
+    \\    jar.entries.push(entry);
+    \\    return 0;
+    \\  }
+    \\  function jarEvict(jar, now) {
+    \\    let removed = 0;
+    \\    for (let i = jar.entries.length - 1; i >= 0; i--) {
+    \\      const e = jar.entries[i];
+    \\      if (e.expires !== null && e.expires <= now) { jar.entries.splice(i, 1); removed++; }
+    \\    }
+    \\    return removed;
+    \\  }
+    \\  // returns STORE code 0..4, or -1 for call-level invalid (bad url / bad cookie)
+    \\  function jarStore(jar, urlB, scB, now) {
+    \\    const url = splitUrl(urlB);
+    \\    if (!url) return -1;
+    \\    const parsed = parseSetCookie(scB);
+    \\    if (!parsed) return -1;
+    \\    if (jar.policy === 1) return 4;
+    \\    const hostLower = bLower(url.host);
+    \\    let domain, hostOnly;
+    \\    if (parsed.hasDomain && jar.policy !== 2) {
+    \\      if (!domainMatch(parsed.domain, hostLower)) return 4;
+    \\      domain = parsed.domain.slice(); hostOnly = false;
+    \\    } else {
+    \\      domain = hostLower.slice(); hostOnly = true;
+    \\    }
+    \\    if (parsed.secure && !originTrustworthy(url.scheme, hostLower)) return 4;
+    \\    const path = parsed.hasPath ? parsed.path.slice() : defaultPath(url.path).slice();
+    \\    let expires = parsed.expires;
+    \\    if (parsed.maxAge !== null) expires = (parsed.maxAge <= 0) ? now : now + parsed.maxAge;
+    \\    const entry = mkCookie(parsed.name.slice(), parsed.value.slice());
+    \\    entry.domain = domain; entry.hasDomain = true; entry.hostOnly = hostOnly;
+    \\    entry.path = path; entry.hasPath = true; entry.expires = expires;
+    \\    entry.secure = parsed.secure; entry.httpOnly = parsed.httpOnly;
+    \\    entry.partitioned = parsed.partitioned; entry.sameSite = parsed.sameSite;
+    \\    if (expires !== null && expires <= now) {
+    \\      const idx = jarFind(jar, entry.name, entry.domain, entry.path);
+    \\      if (idx >= 0) { jar.entries.splice(idx, 1); return 2; }
+    \\      return 3;
+    \\    }
+    \\    return jarInsert(jar, entry);
+    \\  }
+    \\  function jarHeader(jar, urlB, now) {
+    \\    const url = splitUrl(urlB);
+    \\    if (!url) return null;
+    \\    jarEvict(jar, now);
+    \\    const matches = [];
+    \\    for (const e of jar.entries) {
+    \\      if (e.hostOnly) { if (!bEqFold(e.domain, url.host)) continue; }
+    \\      else { if (!domainMatch(e.domain, url.host)) continue; }
+    \\      if (!pathMatch(e.path, url.path)) continue;
+    \\      if (e.secure && !originTrustworthy(url.scheme, url.host)) continue;
+    \\      matches.push(e);
+    \\    }
+    \\    if (matches.length === 0) return null;
+    \\    matches.sort((a, b) => {
+    \\      if (a.path.length !== b.path.length) return b.path.length - a.path.length;
+    \\      return a.seq - b.seq;
+    \\    });
+    \\    const parts = [];
+    \\    for (let i = 0; i < matches.length; i++) {
+    \\      if (i > 0) parts.push(bFromStr("; "));
+    \\      parts.push(serializeCookie(matches[i], true));
+    \\    }
+    \\    return bConcat(parts);
+    \\  }
+    \\  function jarSaveText(jar) {
+    \\    const parts = [bFromStr("# Netscape HTTP Cookie File\n# Written by sa_std (sa_cookie_jar_save). HttpOnly cookies carry the #HttpOnly_ prefix.\n\n")];
+    \\    for (const e of jar.entries) {
+    \\      if (e.httpOnly) parts.push(bFromStr("#HttpOnly_"));
+    \\      if (e.hostOnly) parts.push(e.domain);
+    \\      else parts.push(bFromStr("."), e.domain);
+    \\      parts.push(bFromStr("\t"), bFromStr(e.hostOnly ? "FALSE" : "TRUE"));
+    \\      parts.push(bFromStr("\t"), e.path);
+    \\      parts.push(bFromStr("\t"), bFromStr(e.secure ? "TRUE" : "FALSE"));
+    \\      parts.push(bFromStr("\t"), bFromStr(String(e.expires === null ? 0 : e.expires)));
+    \\      parts.push(bFromStr("\t"), e.name, bFromStr("\t"), e.value, bFromStr("\n"));
+    \\    }
+    \\    return bConcat(parts);
+    \\  }
+    \\  // returns { loaded } or { error } ; on error the jar is untouched
+    \\  function jarLoad(jar, data) {
+    \\    const pending = [];
+    \\    let lineNo = 0, pos = 0;
+    \\    while (pos <= data.length) {
+    \\      const nl = bIndexOf(data, 10, pos);
+    \\      const rawEnd = (nl < 0) ? data.length : nl;
+    \\      let line = data.subarray(pos, rawEnd);
+    \\      lineNo++;
+    \\      if (line.length > 0 && line[line.length - 1] === 13) line = line.subarray(0, line.length - 1);
+    \\      if (line.length > 0) {
+    \\        let httpOnly = false;
+    \\        if (line.length >= 10 && bEq(line.subarray(0, 10), bFromStr("#HttpOnly_"))) {
+    \\          httpOnly = true; line = line.subarray(10);
+    \\        } else if (line[0] === 35) {
+    \\          line = null;
+    \\        }
+    \\        if (line !== null) {
+    \\          const fields = [];
+    \\          let fpos = 0;
+    \\          while (fpos <= line.length) {
+    \\            const tab = bIndexOf(line, 9, fpos);
+    \\            const fend = (tab < 0) ? line.length : tab;
+    \\            fields.push(line.subarray(fpos, fend));
+    \\            if (tab < 0) break;
+    \\            fpos = tab + 1;
+    \\          }
+    \\          if (fields.length > 7) return { error: "cookie: netscape line " + lineNo + " has too many fields" };
+    \\          if (fields.length !== 7) return { error: "cookie: netscape line " + lineNo + " has " + fields.length + " fields, want 7" };
+    \\          const flagAll = bToStr(fields[1]);
+    \\          const secureWord = bToStr(fields[3]);
+    \\          if (flagAll !== "TRUE" && flagAll !== "FALSE") return { error: "cookie: netscape line " + lineNo + " has a bad domain flag" };
+    \\          if (secureWord !== "TRUE" && secureWord !== "FALSE") return { error: "cookie: netscape line " + lineNo + " has a bad secure flag" };
+    \\          const expStr = bToStr(fields[4]);
+    \\          if (!/^[+-]?\d+$/.test(expStr)) return { error: "cookie: netscape line " + lineNo + " has a bad expiry" };
+    \\          let exp = null;
+    \\          try {
+    \\            const bv = BigInt(expStr);
+    \\            if (bv > 9223372036854775807n || bv < -9223372036854775808n) return { error: "cookie: netscape line " + lineNo + " has a bad expiry" };
+    \\            exp = (bv === 0n) ? null : Number(bv);
+    \\          } catch (e) { return { error: "cookie: netscape line " + lineNo + " has a bad expiry" }; }
+    \\          let domain = fields[0];
+    \\          if (domain.length > 0 && domain[0] === 46) domain = domain.subarray(1);
+    \\          if (!validDomainAttr(domain)) return { error: "cookie: netscape line " + lineNo + " has a bad domain" };
+    \\          if (!validCookieName(fields[5])) return { error: "cookie: netscape line " + lineNo + " has a bad name" };
+    \\          if (!validCookieValue(fields[6])) return { error: "cookie: netscape line " + lineNo + " has a bad value" };
+    \\          if (fields[2].length === 0 || fields[2][0] !== 47) return { error: "cookie: netscape line " + lineNo + " has a bad path" };
+    \\          const entry = mkCookie(fields[5].slice(), fields[6].slice());
+    \\          entry.domain = bLower(domain).slice(); entry.hasDomain = true;
+    \\          entry.hostOnly = (flagAll === "FALSE");
+    \\          entry.path = fields[2].slice(); entry.hasPath = true;
+    \\          entry.expires = exp; entry.secure = (secureWord === "TRUE"); entry.httpOnly = httpOnly;
+    \\          pending.push(entry);
+    \\        }
+    \\      }
+    \\      if (nl < 0) break;
+    \\      pos = nl + 1;
+    \\    }
+    \\    let loaded = 0;
+    \\    for (const e of pending) { jarInsert(jar, e); loaded++; }
+    \\    return { loaded: loaded };
+    \\  }
+    \\  function parseHeaderPair(seg) {
+    \\    const eq = bIndexOf(seg, 61, 0);
+    \\    if (eq < 0) return null;
+    \\    const name = bTrimOws(seg.subarray(0, eq));
+    \\    if (!validCookieName(name)) return null;
+    \\    let value = bTrimOws(seg.subarray(eq + 1));
+    \\    if (value.length >= 2 && value[0] === 34 && value[value.length - 1] === 34) {
+    \\      value = value.subarray(1, value.length - 1);
+    \\    }
+    \\    if (!validCookieValue(value)) return null;
+    \\    return mkCookie(name.slice(), value.slice());
+    \\  }
+    \\  // returns count, or -1 on any bad pair
+    \\  function headerPairCount(raw) {
+    \\    let count = 0, pos = 0;
+    \\    while (pos <= raw.length) {
+    \\      const semi = bIndexOf(raw, 59, pos);
+    \\      const end = (semi < 0) ? raw.length : semi;
+    \\      const seg = bTrimOws(raw.subarray(pos, end));
+    \\      if (seg.length > 0) {
+    \\        if (!parseHeaderPair(seg)) return -1;
+    \\        count++;
+    \\      }
+    \\      if (semi < 0) break;
+    \\      pos = semi + 1;
+    \\    }
+    \\    return count;
+    \\  }
+    \\  // returns cookie, the string "bad" (indexed pair malformed -> last_error),
+    \\  // or null (index out of range -> no error)
+    \\  function headerPairAt(raw, index) {
+    \\    let idx = 0, pos = 0;
+    \\    while (pos <= raw.length) {
+    \\      const semi = bIndexOf(raw, 59, pos);
+    \\      const end = (semi < 0) ? raw.length : semi;
+    \\      const seg = bTrimOws(raw.subarray(pos, end));
+    \\      if (seg.length > 0) {
+    \\        if (idx === index) {
+    \\          const c = parseHeaderPair(seg);
+    \\          return c === null ? "bad" : c;
+    \\        }
+    \\        idx++;
+    \\      }
+    \\      if (semi < 0) break;
+    \\      pos = semi + 1;
+    \\    }
+    \\    return null;
+    \\  }
+    \\
+    \\  // ---------- synchronous socket bridge (worker + SAB + Atomics.wait) ----------
+    \\  // SA calls are synchronous; Node net/tls/dgram are async. One worker thread
+    \\  // owns every real socket; the main thread issues one request at a time and
+    \\  // blocks in Atomics.wait. No emitter async-lowering change is involved:
+    \\  // the asynchrony is confined to the worker, and SA programs observe plain
+    \\  // synchronous call/return semantics. If Worker/SAB/Atomics are unavailable
+    \\  // (browser builds), every bridge op answers the family's UNSUPPORTED code.
+    \\  function __sa_jsnet_worker() {
+    \\    "use strict";
+    \\    const { parentPort, workerData } = require("node:worker_threads");
+    \\    const net = require("node:net");
+    \\    const tls = require("node:tls");
+    \\    const dgram = require("node:dgram");
+    \\    const dns = require("node:dns");
+    \\    const crypto = require("node:crypto");
+    \\    const sab = workerData.sab;
+    \\    const hdr = new Int32Array(sab, 0, 4);
+    \\    const data = new Uint8Array(sab, 256);
+    \\    const enc = new TextEncoder();
+    \\    const dec = new TextDecoder();
+    \\    const socks = new Map();
+    \\    let nextId = 1;
+    \\    function respond(status, json, payload) {
+    \\      const jb = enc.encode(JSON.stringify(Object.assign({ __status: status }, json || {})));
+    \\      data.set(jb, 0);
+    \\      let plen = 0;
+    \\      if (payload && payload.length) { data.set(payload, jb.length); plen = payload.length; }
+    \\      hdr[2] = jb.length;
+    \\      hdr[3] = plen;
+    \\      Atomics.store(hdr, 0, 2);
+    \\      Atomics.notify(hdr, 0);
+    \\    }
+    \\    function fail(status, msg) { respond(status, { error: String(msg || "error") }, null); }
+    \\    function getSock(id) { return socks.get(id) || null; }
+    \\    function udpEntry(sock) {
+    \\      const e = { kind: "udp", sock: sock, queue: [], waiter: null, readTimeoutMs: 0, writeTimeoutMs: 0, opts: new Map() };
+    \\      sock.on("message", (msg, rinfo) => {
+    \\        const item = { buf: Buffer.from(msg), src: { host: rinfo.address, port: rinfo.port, family: rinfo.family } };
+    \\        if (e.waiter) { const w = e.waiter; e.waiter = null; w(item); }
+    \\        else e.queue.push(item);
+    \\      });
+    \\      sock.on("error", () => {});
+    \\      return e;
+    \\    }
+    \\    function streamEntry(kind, sock) {
+    \\      const e = { kind: kind, sock: sock, chunks: [], buffered: 0, waiter: null, eof: false, readTimeoutMs: 0, writeTimeoutMs: 0, opts: new Map() };
+    \\      sock.on("data", (chunk) => {
+    \\        e.chunks.push(chunk); e.buffered += chunk.length;
+    \\        if (e.waiter) { const w = e.waiter; e.waiter = null; w(); }
+    \\      });
+    \\      const done = () => { e.eof = true; if (e.waiter) { const w = e.waiter; e.waiter = null; w(); } };
+    \\      sock.on("end", done);
+    \\      sock.on("close", done);
+    \\      sock.on("error", done);
+    \\      return e;
+    \\    }
+    \\    function waitReadable(e, timeoutMs) {
+    \\      return new Promise((resolve) => {
+    \\        let settled = false;
+    \\        const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+    \\        e.waiter = () => finish("data");
+    \\        if (e.eof) finish("eof");
+    \\        if (timeoutMs > 0) setTimeout(() => finish("timeout"), timeoutMs);
+    \\      });
+    \\    }
+    \\    const CERT_ERR = /CERT|certificate|self.signed|unable to verify|altname|ALPN/i;
+    \\    function tlsErrStatus(err) {
+    \\      if (!err) return -5;
+    \\      const code = String(err.code || "");
+    \\      const msg = String(err.message || err);
+    \\      if (CERT_ERR.test(code) || CERT_ERR.test(msg)) return -100;
+    \\      return -5;
+    \\    }
+    \\    async function tlsUpgrade(existingSock, p) {
+    \\      const serverName = (p.serverName === undefined) ? null : p.serverName;
+    \\      const caPems = p.caPems || [];
+    \\      let opts = { servername: undefined };
+    \\      if (existingSock) opts.socket = existingSock;
+    \\      else { opts.host = p.host; opts.port = p.port; }
+    \\      if (p.insecure) {
+    \\        opts.rejectUnauthorized = false;
+    \\        opts.servername = serverName === null ? undefined : serverName;
+    \\      } else if (p.verifySelfSigned) {
+    \\        opts.rejectUnauthorized = false;
+    \\        opts.servername = serverName === null ? p.host : serverName;
+    \\      } else {
+    \\        opts.rejectUnauthorized = true;
+    \\        opts.ca = tls.rootCertificates.concat(caPems);
+    \\        opts.servername = serverName === null ? p.host : serverName;
+    \\      }
+    \\      const sock = tls.connect(opts);
+    \\      await new Promise((resolve, reject) => {
+    \\        let done = false;
+    \\        const ok = () => { if (!done) { done = true; resolve(); } };
+    \\        const bad = (e) => { if (!done) { done = true; reject(e); } };
+    \\        sock.once("secureConnect", ok);
+    \\        sock.once("error", bad);
+    \\        if (p.timeoutMs > 0) setTimeout(() => bad(new Error("tls handshake timeout")), p.timeoutMs);
+    \\      }).catch((err) => { try { sock.destroy(); } catch (e2) {} throw err; });
+    \\      if (p.insecure) return sock;
+    \\      if (p.verifySelfSigned) {
+    \\        const cert = sock.getPeerCertificate(true);
+    \\        if (!cert || !cert.raw) { sock.destroy(); const e = new Error("no peer certificate"); e.code = "CERT"; throw e; }
+    \\        let x;
+    \\        try { x = new crypto.X509Certificate(cert.raw); } catch (e2) { sock.destroy(); const e = new Error("peer certificate unparsable"); e.code = "CERT"; throw e; }
+    \\        const now = Date.now();
+    \\        const selfSigned = (x.issuer === x.subject) && x.verify(x.publicKey);
+    \\        const inDate = (Date.parse(x.validFrom) <= now) && (now <= Date.parse(x.validTo));
+    \\        const idErr = tls.checkServerIdentity(serverName === null ? p.host : serverName, cert);
+    \\        if (!selfSigned || !inDate || idErr) { sock.destroy(); const e = new Error("self-signed verification failed: " + (idErr ? idErr.message : (!selfSigned ? "not self-signed" : "out of date"))); e.code = "CERT"; throw e; }
+    \\        return sock;
+    \\      }
+    \\      if (!sock.authorized) {
+    \\        const e = new Error("peer verification failed: " + String(sock.authorizationError || "unauthorized"));
+    \\        e.code = "CERT";
+    \\        sock.destroy();
+    \\        throw e;
+    \\      }
+    \\      return sock;
+    \\    }
+    \\    async function handle(req, payload) {
+    \\      const op = req.op;
+    \\      try {
+    \\        switch (op) {
+    \\          case "resolve": {
+    \\            const addrs = await dns.promises.lookup(req.host, { all: true, verbatim: true }).catch((e) => { throw Object.assign(new Error("resolve failed"), { saStatus: 7 }); });
+    \\            respond(0, { addrs: addrs.map((a) => ({ host: a.address, family: a.family })) }, null);
+    \\            return;
+    \\          }
+    \\          case "udp_bind": {
+    \\            const fam = (req.host && req.host.indexOf(":") >= 0) ? "udp6" : "udp4";
+    \\            const sock = dgram.createSocket(fam);
+    \\            const e = udpEntry(sock);
+    \\            await new Promise((resolve, reject) => {
+    \\              sock.once("error", reject);
+    \\              sock.bind(req.port, req.host, () => resolve());
+    \\            }).catch((err) => { try { sock.close(); } catch (e2) {} throw Object.assign(err, { saStatus: 6 }); });
+    \\            const id = nextId++;
+    \\            socks.set(id, e);
+    \\            const addr = sock.address();
+    \\            respond(0, { id: id, port: addr.port, host: addr.address, family: addr.family }, null);
+    \\            return;
+    \\          }
+    \\          case "udp_connect": {
+    \\            const e = getSock(req.id); if (!e || e.kind !== "udp") return fail(2, "bad handle");
+    \\            await new Promise((resolve, reject) => { e.sock.connect(req.port, req.host, (err) => err ? reject(err) : resolve()); })
+    \\              .catch((err) => { throw Object.assign(err, { saStatus: 6 }); });
+    \\            respond(0, {}, null);
+    \\            return;
+    \\          }
+    \\          case "udp_send": {
+    \\            const e = getSock(req.id); if (!e || e.kind !== "udp") return fail(2, "bad handle");
+    \\            const buf = Buffer.from(payload || []);
+    \\            const sendP = req.dest
+    \\              ? new Promise((res, rej) => { e.sock.send(buf, req.dest.port, req.dest.host, (err, bytes) => err ? rej(err) : res(bytes)); })
+    \\              : new Promise((res, rej) => { e.sock.send(buf, (err, bytes) => err ? rej(err) : res(bytes)); });
+    \\            const n = await sendP.catch((err) => { throw Object.assign(err, { saStatus: 6 }); });
+    \\            respond(0, { written: n }, null);
+    \\            return;
+    \\          }
+    \\          case "udp_recv": {
+    \\            const e = getSock(req.id); if (!e || e.kind !== "udp") return fail(2, "bad handle");
+    \\            let item = e.queue.shift() || null;
+    \\            if (!item) {
+    \\              const what = await new Promise((resolve) => {
+    \\                let settled = false;
+    \\                const fin = (v) => { if (!settled) { settled = true; resolve(v); } };
+    \\                e.waiter = (it) => fin(it);
+    \\                if (e.readTimeoutMs > 0) setTimeout(() => { if (e.waiter) e.waiter = null; fin(null); }, e.readTimeoutMs);
+    \\              });
+    \\              item = what;
+    \\              if (!item) return fail(6, "recv timeout");
+    \\            }
+    \\            const cap = req.cap || item.buf.length;
+    \\            const out = item.buf.subarray(0, cap);
+    \\            respond(0, { read: out.length, src: item.src }, out);
+    \\            return;
+    \\          }
+    \\          case "udp_set_read_timeout": {
+    \\            const e = getSock(req.id); if (!e) return fail(2, "bad handle");
+    \\            e.readTimeoutMs = req.timeoutMs || 0;
+    \\            respond(0, {}, null);
+    \\            return;
+    \\          }
+    \\          case "sock_close": {
+    \\            const e = getSock(req.id); if (!e) return fail(2, "bad handle");
+    \\            socks.delete(req.id);
+    \\            try { if (e.kind === "udp") e.sock.close(); else e.sock.destroy(); } catch (err) {}
+    \\            respond(0, {}, null);
+    \\            return;
+    \\          }
+    \\          case "tcp_connect": {
+    \\            const sock = net.connect({ host: req.host, port: req.port });
+    \\            const e = streamEntry("tcp", sock);
+    \\            await new Promise((resolve, reject) => {
+    \\              let done = false;
+    \\              const ok = () => { if (!done) { done = true; resolve(); } };
+    \\              const bad = (err) => { if (!done) { done = true; reject(err); } };
+    \\              sock.once("connect", ok);
+    \\              sock.once("error", bad);
+    \\              if (req.timeoutMs > 0) setTimeout(() => bad(new Error("connect timeout")), req.timeoutMs);
+    \\            }).catch((err) => { try { sock.destroy(); } catch (e2) {} throw Object.assign(err, { saStatus: 6 }); });
+    \\            const id = nextId++;
+    \\            socks.set(id, e);
+    \\            respond(0, { id: id, local: { host: sock.localAddress, port: sock.localPort }, peer: { host: sock.remoteAddress, port: sock.remotePort } }, null);
+    \\            return;
+    \\          }
+    \\          case "stream_read": {
+    \\            const e = getSock(req.id); if (!e || (e.kind !== "tcp" && e.kind !== "tls")) return fail(2, "bad handle");
+    \\            const cap = req.cap;
+    \\            while (e.buffered === 0 && !e.eof) {
+    \\              const what = await waitReadable(e, e.readTimeoutMs);
+    \\              if (what === "timeout") return fail(req.tlsSpace ? -5 : 6, "read timeout");
+    \\            }
+    \\            if (e.buffered === 0 && e.eof) { respond(0, { read: 0, eof: true }, null); return; }
+    \\            const parts = [];
+    \\            let need = cap;
+    \\            while (need > 0 && e.chunks.length) {
+    \\              const c = e.chunks[0];
+    \\              if (c.length <= need) { parts.push(c); e.chunks.shift(); e.buffered -= c.length; need -= c.length; }
+    \\              else { parts.push(c.subarray(0, need)); e.chunks[0] = c.subarray(need); e.buffered -= need; need = 0; }
+    \\            }
+    \\            const out = Buffer.concat(parts);
+    \\            respond(0, { read: out.length, eof: false }, out);
+    \\            return;
+    \\          }
+    \\          case "stream_write": {
+    \\            const e = getSock(req.id); if (!e || (e.kind !== "tcp" && e.kind !== "tls")) return fail(2, "bad handle");
+    \\            const buf = Buffer.from(payload || []);
+    \\            const wp = new Promise((resolve, reject) => { e.sock.write(buf, (err) => err ? reject(err) : resolve()); });
+    \\            if (e.writeTimeoutMs > 0) {
+    \\              await Promise.race([wp, new Promise((_, rej) => setTimeout(() => rej(new Error("write timeout")), e.writeTimeoutMs))])
+    \\                .catch((err) => { try { e.sock.destroy(); } catch (e2) {} throw Object.assign(err, { saStatus: req.tlsSpace ? -5 : 6 }); });
+    \\            } else {
+    \\              await wp.catch((err) => { throw Object.assign(err, { saStatus: req.tlsSpace ? -5 : 6 }); });
+    \\            }
+    \\            respond(0, { written: buf.length }, null);
+    \\            return;
+    \\          }
+    \\          case "stream_set_read_timeout": {
+    \\            const e = getSock(req.id); if (!e) return fail(2, "bad handle");
+    \\            e.readTimeoutMs = req.timeoutMs || 0;
+    \\            respond(0, {}, null);
+    \\            return;
+    \\          }
+    \\          case "stream_set_write_timeout": {
+    \\            const e = getSock(req.id); if (!e) return fail(2, "bad handle");
+    \\            e.writeTimeoutMs = req.timeoutMs || 0;
+    \\            respond(0, {}, null);
+    \\            return;
+    \\          }
+    \\          case "reverse": {
+    \\            const names = await dns.promises.reverse(req.host).catch(() => null);
+    \\            if (!names || names.length === 0) return fail(7, "reverse lookup failed");
+    \\            respond(0, { name: names[0] }, null);
+    \\            return;
+    \\          }
+    \\          case "udp_set_broadcast": {
+    \\            const e = getSock(req.id); if (!e || e.kind !== "udp") return fail(2, "bad handle");
+    \\            try { e.sock.setBroadcast(req.enabled !== 0); } catch (err) { return fail(6, err.message); }
+    \\            respond(0, {}, null);
+    \\            return;
+    \\          }
+    \\          case "udp_set_ttl": {
+    \\            const e = getSock(req.id); if (!e || e.kind !== "udp") return fail(2, "bad handle");
+    \\            try { e.sock.setTTL(req.ttl); } catch (err) { return fail(6, err.message); }
+    \\            respond(0, {}, null);
+    \\            return;
+    \\          }
+    \\          case "udp_set_multicast_ttl": {
+    \\            const e = getSock(req.id); if (!e || e.kind !== "udp") return fail(2, "bad handle");
+    \\            try { e.sock.setMulticastTTL(req.ttl); } catch (err) { return fail(6, err.message); }
+    \\            respond(0, {}, null);
+    \\            return;
+    \\          }
+    \\          case "udp_set_multicast_loop": {
+    \\            const e = getSock(req.id); if (!e || e.kind !== "udp") return fail(2, "bad handle");
+    \\            try { e.sock.setMulticastLoop(req.enabled !== 0); } catch (err) { return fail(6, err.message); }
+    \\            respond(0, {}, null);
+    \\            return;
+    \\          }
+    \\          case "tcp_set_nodelay": {
+    \\            const e = getSock(req.id); if (!e || e.kind !== "tcp") return fail(2, "bad handle");
+    \\            try { e.sock.setNoDelay(req.enabled !== 0); } catch (err) { return fail(6, err.message); }
+    \\            respond(0, {}, null);
+    \\            return;
+    \\          }
+    \\          case "tcp_set_keepalive": {
+    \\            const e = getSock(req.id); if (!e || e.kind !== "tcp") return fail(2, "bad handle");
+    \\            try { e.sock.setKeepAlive(req.enabled !== 0); } catch (err) { return fail(6, err.message); }
+    \\            respond(0, {}, null);
+    \\            return;
+    \\          }
+    \\          case "tls_connect": {
+    \\            let sock;
+    \\            try { sock = await tlsUpgrade(null, req); }
+    \\            catch (err) { return fail(tlsErrStatus(err), err.message); }
+    \\            const e = streamEntry("tls", sock);
+    \\            const id = nextId++;
+    \\            socks.set(id, e);
+    \\            respond(0, { id: id }, null);
+    \\            return;
+    \\          }
+    \\          case "tls_start": {
+    \\            const e0 = getSock(req.id); if (!e0 || e0.kind !== "tcp") return fail(-22, "bad plain handle");
+    \\            e0.sock.removeAllListeners("data");
+    \\            e0.chunks = []; e0.buffered = 0; e0.waiter = null;
+    \\            let sock;
+    \\            try { sock = await tlsUpgrade(e0.sock, req); }
+    \\            catch (err) { return fail(tlsErrStatus(err), err.message); }
+    \\            e0.kind = "tls";
+    \\            e0.sock = sock;
+    \\            sock.on("data", (chunk) => { e0.chunks.push(chunk); e0.buffered += chunk.length; if (e0.waiter) { const w = e0.waiter; e0.waiter = null; w(); } });
+    \\            const done = () => { e0.eof = true; if (e0.waiter) { const w = e0.waiter; e0.waiter = null; w(); } };
+    \\            sock.on("end", done); sock.on("close", done); sock.on("error", done);
+    \\            respond(0, { id: req.id }, null);
+    \\            return;
+    \\          }
+    \\          default:
+    \\            return fail(8, "unknown op " + op);
+    \\        }
+    \\      } catch (err) {
+    \\        const st = err && err.saStatus !== undefined ? err.saStatus : 6;
+    \\        fail(st, err && err.message ? err.message : err);
+    \\      }
+    \\    }
+    \\    parentPort.on("message", () => {
+    \\      const jlen = hdr[1];
+    \\      const jsonText = dec.decode(data.subarray(0, jlen));
+    \\      let req;
+    \\      try { req = JSON.parse(jsonText); } catch (e) { fail(1, "bad request json"); return; }
+    \\      const plen = req.plen || 0;
+    \\      const payload = plen > 0 ? Buffer.from(data.subarray(jlen, jlen + plen)) : null;
+    \\      handle(req, payload);
+    \\    });
+    \\  }
+    \\  let BR = null, BRbad = false;
+    \\  function bridgeInit() {
+    \\    if (BR) return true;
+    \\    if (BRbad) return false;
+    \\    try {
+    \\      const wt = __sa_node_builtin("node:worker_threads");
+    \\      if (!wt || !wt.Worker) throw new Error("no worker_threads");
+    \\      if (typeof SharedArrayBuffer === "undefined" || typeof Atomics === "undefined" || typeof Atomics.wait !== "function") throw new Error("no SAB/Atomics");
+    \\      const sab = new SharedArrayBuffer(4 * 1024 * 1024);
+    \\      const worker = new wt.Worker("(" + __sa_jsnet_worker.toString() + ")()", { eval: true, workerData: { sab: sab } });
+    \\      worker.unref();
+    \\      BR = { sab: sab, hdr: new Int32Array(sab, 0, 4), data: new Uint8Array(sab, 256), enc: new TextEncoder(), dec: new TextDecoder(), worker: worker };
+    \\      return true;
+    \\    } catch (e) { BRbad = true; return false; }
+    \\  }
+    \\  // One synchronous bridge round-trip. tlsSpace selects the error-code space
+    \\  // for the unavailable-bridge failure (-1 vs 8). A 10-minute watchdog bounds
+    \\  // a dead worker; a legitimately blocked socket call returns through the
+    \\  // worker long before that in every realistic probe.
+    \\  function bridgeCall(op, params, payload, tlsSpace) {
+    \\    if (!bridgeInit()) return { status: tlsSpace ? -1 : 8, json: { error: "bridge unavailable" }, bytes: null };
+    \\    const req = Object.assign({ op: op, plen: payload ? payload.length : 0 }, params || {});
+    \\    const jb = BR.enc.encode(JSON.stringify(req));
+    \\    if (jb.length + (payload ? payload.length : 0) > BR.data.length) return { status: tlsSpace ? -1 : 8, json: { error: "bridge payload too large" }, bytes: null };
+    \\    BR.data.set(jb, 0);
+    \\    if (payload) BR.data.set(payload, jb.length);
+    \\    BR.hdr[1] = jb.length;
+    \\    Atomics.store(BR.hdr, 0, 1);
+    \\    BR.worker.postMessage({});
+    \\    const deadline = Date.now() + 600000;
+    \\    for (;;) {
+    \\      Atomics.wait(BR.hdr, 0, 1, 1000);
+    \\      if (Atomics.load(BR.hdr, 0) === 2) break;
+    \\      if (Date.now() > deadline) return { status: tlsSpace ? -5 : 6, json: { error: "bridge watchdog timeout" }, bytes: null };
+    \\    }
+    \\    const jlen = BR.hdr[2];
+    \\    const plen = BR.hdr[3];
+    \\    const json = JSON.parse(BR.dec.decode(BR.data.subarray(0, jlen)));
+    \\    const bytes = plen > 0 ? Buffer.from(BR.data.subarray(jlen, jlen + plen)) : null;
+    \\    Atomics.store(BR.hdr, 0, 0);
+    \\    return { status: json.__status, json: json, bytes: bytes };
+    \\  }
+    \\  // ---------- net handle registry (SA-side) ----------
+    \\  // byBridge: live bridge id -> SA handle. detached: bridge ids whose SA
+    \\  // handle was consumed by fd_into_raw (start_tls upgrades them in place
+    \\  // and mints a fresh SA handle, mirroring native fd ownership transfer).
+    \\  const NET = { h: new Map(), next: 1, byBridge: new Map(), detached: new Map() };
+    \\  function netReg(entry) { const h = NET.next++; NET.h.set(h, entry); if (entry.bridgeId !== undefined && entry.bridgeId !== null) NET.byBridge.set(entry.bridgeId, h); return h; }
+    \\  function netGet(h) { return NET.h.get(h) || null; }
+    \\  function netDel(h) { const e = NET.h.get(h); if (e) { NET.h.delete(h); if (e.bridgeId !== undefined && e.bridgeId !== null) NET.byBridge.delete(e.bridgeId); } return e || null; }
+    \\  // ---------- TLS config registry ----------
+    \\  const TLS = { configs: new Map(), next: 1, processCas: [] };
+    \\  function tlsCfgNew() { const c = { serverName: null, caFiles: [], caPems: [], insecure: false, verifySelfSigned: false }; const h = TLS.next++; TLS.configs.set(h, c); return h; }
+    \\  function tlsCfgGet(h) { return TLS.configs.get(h) || null; }
+    \\  function tlsCfgFree(h) { return TLS.configs.delete(h); }
+    \\  // Resolve the effective CA PEM list for a connect: process-wide CAs +
+    \\  // config ca_files (read eagerly; a missing file fails the connect with -5)
+    \\  // + config ca_pems. Returns { pems } or { err }.
+    \\  function tlsResolveCas(cfg) {
+    \\    const pems = TLS.processCas.slice();
+    \\    if (cfg) {
+    \\      for (const f of cfg.caFiles) {
+    \\        try {
+    \\          const fs = __sa_node_builtin("node:fs");
+    \\          pems.push(fs.readFileSync(bToStr(f), "utf8"));
+    \\        } catch (e) { return { err: -5 }; }
+    \\      }
+    \\      for (const p of cfg.caPems) pems.push(p);
+    \\    }
+    \\    return { pems: pems };
+    \\  }
+    \\  // Count usable certificates in a PEM string (-1 on any decode failure).
+    \\  // Native skips some unparseable classes; this port fails loudly instead
+    \\  // (documented approximation; probes use valid certificates).
+    \\  function pemUsableCount(pemStr) {
+    \\    try {
+    \\      const crypto = __sa_node_builtin("node:crypto");
+    \\      if (!crypto || !crypto.X509Certificate) return -1;
+    \\      let count = 0;
+    \\      const begin = "-----BEGIN CERTIFICATE-----";
+    \\      const end = "-----END CERTIFICATE-----";
+    \\      let pos = 0;
+    \\      while (true) {
+    \\        const b = pemStr.indexOf(begin, pos);
+    \\        if (b < 0) break;
+    \\        const e = pemStr.indexOf(end, b + begin.length);
+    \\        if (e < 0) return -1;
+    \\        const b64 = pemStr.slice(b + begin.length, e).replace(/\s/g, "");
+    \\        let der;
+    \\        try { der = Buffer.from(b64, "base64"); } catch (err) { return -1; }
+    \\        try { new crypto.X509Certificate(der); count++; } catch (err) { return -1; }
+    \\        pos = e + end.length;
+    \\      }
+    \\      return count;
+    \\    } catch (err) { return -1; }
+    \\  }
+    \\  // Full TLS connect path shared by connect / connect_config / start_tls.
+    \\  // cfg: null (default) or a config object. upgradeBridgeId: null (fresh
+    \\  // dial) or a bridge socket id to upgrade in place. Returns
+    \\  // { status, saHandle } ; on upgrade failure the plain entry is consumed
+    \\  // (closed), mirroring the native fd-ownership rule.
+    \\  function tlsConnectFull(hostStr, portNum, cfg, upgradeBridgeId) {
+    \\    if (!hostStr || hostStr.length === 0) return { status: -22 };
+    \\    // Fresh dials need a valid port; upgrades reuse the existing socket.
+    \\    if ((upgradeBridgeId === null || upgradeBridgeId === undefined) &&
+    \\        (portNum === 0 || portNum > 65535)) return { status: -22 };
+    \\    let serverName = null, insecure = false, verifySelfSigned = false;
+    \\    if (cfg) {
+    \\      serverName = (cfg.serverName === null) ? null : bToStr(cfg.serverName);
+    \\      insecure = cfg.insecure; verifySelfSigned = cfg.verifySelfSigned;
+    \\      if (insecure && (verifySelfSigned || serverName !== null)) return { status: -22 };
+    \\      if (verifySelfSigned && (cfg.caFiles.length > 0 || cfg.caPems.length > 0)) return { status: -22 };
+    \\    }
+    \\    const cas = tlsResolveCas(cfg);
+    \\    if (cas.err) return { status: cas.err };
+    \\    const params = { host: hostStr, port: portNum, timeoutMs: 0,
+    \\      serverName: serverName, caPems: cas.pems,
+    \\      insecure: insecure, verifySelfSigned: verifySelfSigned };
+    \\    if (upgradeBridgeId === null || upgradeBridgeId === undefined) {
+    \\      const r = bridgeCall("tls_connect", params, null, true);
+    \\      if (r.status !== 0) return { status: r.status };
+    \\      const h = netReg({ kind: "tls", bridgeId: r.json.id, readTimeoutMs: 0, writeTimeoutMs: 0, opts: new Map() });
+    \\      return { status: 0, saHandle: h };
+    \\    }
+    \\    const saH = NET.byBridge.get(upgradeBridgeId);
+    \\    const entry = (saH !== undefined) ? NET.h.get(saH) : null;
+    \\    const detached = NET.detached.get(upgradeBridgeId) === true;
+    \\    if (!detached && (!entry || entry.kind !== "tcp")) return { status: -22 };
+    \\    if (detached && entry) return { status: -22 };
+    \\    const r = bridgeCall("tls_start", Object.assign({ id: upgradeBridgeId }, params), null, true);
+    \\    if (r.status !== 0) {
+    \\      if (entry) { NET.h.delete(saH); NET.byBridge.delete(upgradeBridgeId); }
+    \\      NET.detached.delete(upgradeBridgeId);
+    \\      bridgeCall("sock_close", { id: upgradeBridgeId }, null, true);
+    \\      return { status: r.status };
+    \\    }
+    \\    if (detached) {
+    \\      NET.detached.delete(upgradeBridgeId);
+    \\      const h = netReg({ kind: "tls", bridgeId: upgradeBridgeId, readTimeoutMs: 0, writeTimeoutMs: 0, opts: new Map() });
+    \\      return { status: 0, saHandle: h };
+    \\    }
+    \\    entry.kind = "tls";
+    \\    return { status: 0, saHandle: saH };
+    \\  }
+    \\  // ---------- netinfo ----------
+    \\  function netinfoJson() {
+    \\    const os = __sa_node_builtin("node:os");
+    \\    const ifs = os.networkInterfaces();
+    \\    const out = [];
+    \\    for (const name of Object.keys(ifs)) {
+    \\      for (const a of ifs[name]) {
+    \\        if (!a.address) continue;
+    \\        const fam = (a.family === "IPv4" || a.family === 4) ? 2 : 10;
+    \\        let netmask = a.netmask || "";
+    \\        let prefix = 0;
+    \\        if (fam === 2 && netmask) {
+    \\          const parts = netmask.split(".");
+    \\          for (const p of parts) {
+    \\            let v = parseInt(p, 10);
+    \\            while (v) { prefix += (v & 1); v >>= 1; }
+    \\          }
+    \\        } else if (fam === 10 && a.cidr) {
+    \\          const slash = a.cidr.indexOf("/");
+    \\          if (slash >= 0) prefix = parseInt(a.cidr.slice(slash + 1), 10);
+    \\        }
+    \\        let broadcast = null;
+    \\        if (fam === 2 && !a.internal && netmask) {
+    \\          const ap = a.address.split(".").map((x) => parseInt(x, 10));
+    \\          const mp = netmask.split(".").map((x) => parseInt(x, 10));
+    \\          if (ap.length === 4 && mp.length === 4) {
+    \\            broadcast = ap.map((v, i) => (v | (~mp[i] & 255))).join(".");
+    \\          }
+    \\        }
+    \\        out.push({ name: name, family: fam, address: a.address, netmask: netmask,
+    \\          prefix_len: prefix, broadcast: broadcast, scope_id: (a.scopeid !== undefined && a.scopeid !== null) ? a.scopeid : 0 });
+    \\      }
+    \\    }
+    \\    return bFromStr(JSON.stringify(out));
+    \\  }
+    \\  // String out-pair helper (mirrors sa_cookie.zig outString): null value ->
+    \\  // NOT_FOUND with ptr 0 / len 0; otherwise a fresh linear-memory copy.
+    \\  // Uses the generated module's own memory helpers (defined in the header,
+    \\  // which precedes this chunk in every emitted program).
+    \\  function outStr(out_ptr, out_len, bytesOrNull) {
+    \\    if (bytesOrNull === null) { __sa_store_ptr(out_ptr, 0); __sa_store_i64(out_len, 0n); return 3; }
+    \\    const p = __sa_alloc(bytesOrNull.length);
+    \\    __sa_u8.set(bytesOrNull, p);
+    \\    __sa_store_ptr(out_ptr, p);
+    \\    __sa_store_i64(out_len, BigInt(bytesOrNull.length));
+    \\    return 0;
+    \\  }
+    \\  return {
+    \\    outStr: outStr,
+    \\    validCookieName: validCookieName, validCookieValue: validCookieValue,
+    \\    validDomainAttr: validDomainAttr,
+    \\    bFromStr: bFromStr, bToStr: bToStr, bEq: bEq, bEqFold: bEqFold, bLower: bLower,
+    \\    bTrimOws: bTrimOws, bConcat: bConcat,
+    \\    parseCookieDate: parseCookieDate, formatImfFixdate: formatImfFixdate,
+    \\    parseSetCookie: parseSetCookie, serializeCookie: serializeCookie,
+    \\    cloneCookie: cloneCookie, mkCookie: mkCookie,
+    \\    domainMatch: domainMatch, pathMatch: pathMatch, defaultPath: defaultPath,
+    \\    splitUrl: splitUrl, originTrustworthy: originTrustworthy,
+    \\    ckErrSet: ckErrSet, ckErrClear: ckErrClear, ckErrGet: ckErrGet,
+    \\    ckReg: ckReg, ckGet: ckGet, ckFree: ckFree,
+    \\    jarReg: jarReg, jarGet: jarGet, jarFree: jarFree, mkJar: mkJar,
+    \\    jarStore: jarStore, jarHeader: jarHeader, jarSaveText: jarSaveText,
+    \\    jarLoad: jarLoad, jarEvict: jarEvict,
+    \\    parseHeaderPair: parseHeaderPair, headerPairCount: headerPairCount, headerPairAt: headerPairAt,
+    \\    bridgeCall: bridgeCall, netReg: netReg, netGet: netGet, netDel: netDel, NET: NET,
+    \\    tlsCfgNew: tlsCfgNew, tlsCfgGet: tlsCfgGet, tlsCfgFree: tlsCfgFree,
+    \\    tlsResolveCas: tlsResolveCas, pemUsableCount: pemUsableCount,
+    \\    tlsConnectFull: tlsConnectFull, TLS: TLS, netinfoJson: netinfoJson
+    \\  };
+    \\})();
+;
+
 fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_print_bytes")) return true;
     if (std.mem.eql(u8, name, "sa_std_compress_supported")) return true;
@@ -3346,6 +4503,288 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_http_server_resp_stream_free")) return true;
     if (std.mem.eql(u8, name, "sa_http_server_req_free")) return true;
     if (std.mem.eql(u8, name, "sa_http_server_free")) return true;
+    // BP net shims (cookie / tls-config / net-slice / netinfo).
+    if (std.mem.eql(u8, name, "sa_cookie_parse_set_cookie")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_last_error")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_free")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_new")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_name")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_value")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_domain")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_path")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_expires")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_max_age")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_flags")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_same_site")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_is_host_only")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_domain")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_path")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_expires")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_max_age")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_clear_expiry")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_secure")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_http_only")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_partitioned")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_same_site")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_serialize")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_serialize_pair")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_is_expired")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_domain_match")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_path_match")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_header_pair_count")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_header_pair_at")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_new")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_free")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_set_policy")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_policy")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_store")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_header")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_count")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_at")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_clear")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_evict_expired")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_save")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_load")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_request_header")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_store_response")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_supported")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_add_ca_file")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_connect")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_read")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_write")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_close")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_status_json")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_buffer_data")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_buffer_len")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_buffer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_peer_cert_json")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_new")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_set_server_name")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_add_ca_file")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_add_ca_memory")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_set_insecure_no_verification")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_set_verify_self_signed")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_connect_config")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_start_tls")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_supported")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_connect")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_read")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_write")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_close")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_negotiated_json")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_hello_ja3")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_hello_ja3_string")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_hello_ja4")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_start_tls")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_session_blob")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_peer_cert_chain_json")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_buffer_data")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_buffer_len")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_buffer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_to_socket_addr_first")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_to_socket_addr_list")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_addr_list_next")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_addr_list_remaining")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_addr_list_reset")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_addr_list_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_addr_reverse_lookup")) return true;
+    if (std.mem.eql(u8, name, "sa_net_addr_host")) return true;
+    if (std.mem.eql(u8, name, "sa_net_addr_host_len")) return true;
+    if (std.mem.eql(u8, name, "sa_net_addr_port")) return true;
+    if (std.mem.eql(u8, name, "sa_net_addr_family")) return true;
+    if (std.mem.eql(u8, name, "sa_net_addr_scope_id")) return true;
+    if (std.mem.eql(u8, name, "sa_net_addr_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_addr_format")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_bind")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_local_addr")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_connect")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_connect_addr")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_read_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_write_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_broadcast")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_broadcast")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_ttl")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_ttl")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_multicast_loop_v4")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_multicast_ttl_v4")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_multicast_loop_v6")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_multicast_hops_v6")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_only_v6")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_nonblocking")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_send")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_send_to")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_recv")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_recv_from")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_connect")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_connect_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_connect_timeout_addr")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_connect_timeout_all")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_read")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_write")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_set_read_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_set_write_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_read_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_write_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_set_nodelay")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_set_keepalive")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_socket_setsockopt")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_socket_getsockopt")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_socket_setsockopt_int")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_socket_getsockopt_int")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_recv_msg")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_recv_multi")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_unix_datagram_peer_cred")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_unix_stream_peer_cred")) return true;
+    if (std.mem.eql(u8, name, "sa_std_close")) return true;
+    if (std.mem.eql(u8, name, "sa_std_fd_into_raw")) return true;
+    if (std.mem.eql(u8, name, "sa_fs_read_buffer_data")) return true;
+    if (std.mem.eql(u8, name, "sa_fs_read_buffer_len")) return true;
+    if (std.mem.eql(u8, name, "sa_fs_read_buffer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_interface_addresses_json")) return true;
+    return false;
+}
+
+/// Whether `name` is a BP net shim (gates the jsnet runtime chunk).
+fn isJsNetShim(name: []const u8) bool {
+    if (std.mem.eql(u8, name, "sa_cookie_parse_set_cookie")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_last_error")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_free")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_new")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_name")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_value")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_domain")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_path")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_expires")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_max_age")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_flags")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_same_site")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_is_host_only")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_domain")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_path")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_expires")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_max_age")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_clear_expiry")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_secure")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_http_only")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_partitioned")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_set_same_site")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_serialize")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_serialize_pair")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_is_expired")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_domain_match")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_path_match")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_header_pair_count")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_header_pair_at")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_new")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_free")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_set_policy")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_policy")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_store")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_header")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_count")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_at")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_clear")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_evict_expired")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_save")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_load")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_request_header")) return true;
+    if (std.mem.eql(u8, name, "sa_cookie_jar_store_response")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_supported")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_add_ca_file")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_connect")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_read")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_write")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_close")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_status_json")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_buffer_data")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_buffer_len")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_buffer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_peer_cert_json")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_new")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_set_server_name")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_add_ca_file")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_add_ca_memory")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_set_insecure_no_verification")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_config_set_verify_self_signed")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_connect_config")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_client_start_tls")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_supported")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_connect")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_read")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_write")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_close")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_negotiated_json")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_hello_ja3")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_hello_ja3_string")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_hello_ja4")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_start_tls")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_session_blob")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_peer_cert_chain_json")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_buffer_data")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_buffer_len")) return true;
+    if (std.mem.eql(u8, name, "sa_std_tls_shaped_buffer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_to_socket_addr_first")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_to_socket_addr_list")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_addr_list_next")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_addr_list_remaining")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_addr_list_reset")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_addr_list_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_addr_reverse_lookup")) return true;
+    if (std.mem.eql(u8, name, "sa_net_addr_host")) return true;
+    if (std.mem.eql(u8, name, "sa_net_addr_host_len")) return true;
+    if (std.mem.eql(u8, name, "sa_net_addr_port")) return true;
+    if (std.mem.eql(u8, name, "sa_net_addr_family")) return true;
+    if (std.mem.eql(u8, name, "sa_net_addr_scope_id")) return true;
+    if (std.mem.eql(u8, name, "sa_net_addr_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_addr_format")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_bind")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_local_addr")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_connect")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_connect_addr")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_read_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_write_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_broadcast")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_broadcast")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_ttl")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_ttl")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_multicast_loop_v4")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_multicast_ttl_v4")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_multicast_loop_v6")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_multicast_hops_v6")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_only_v6")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_set_nonblocking")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_send")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_send_to")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_recv")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_recv_from")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_connect")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_connect_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_connect_timeout_addr")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_connect_timeout_all")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_read")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_write")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_set_read_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_set_write_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_read_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_write_timeout")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_set_nodelay")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_tcp_stream_set_keepalive")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_socket_setsockopt")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_socket_getsockopt")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_socket_setsockopt_int")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_socket_getsockopt_int")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_recv_msg")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_udp_recv_multi")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_unix_datagram_peer_cred")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_unix_stream_peer_cred")) return true;
+    if (std.mem.eql(u8, name, "sa_std_close")) return true;
+    if (std.mem.eql(u8, name, "sa_std_fd_into_raw")) return true;
+    if (std.mem.eql(u8, name, "sa_fs_read_buffer_data")) return true;
+    if (std.mem.eql(u8, name, "sa_fs_read_buffer_len")) return true;
+    if (std.mem.eql(u8, name, "sa_fs_read_buffer_free")) return true;
+    if (std.mem.eql(u8, name, "sa_std_net_interface_addresses_json")) return true;
     return false;
 }
 
@@ -7832,6 +9271,2109 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             try writer.writeAll("function sa_http_server_free(server) { delete globalThis.__sa_https[__sa_addr(server)]; return 0; }\n");
             return;
         }
+        // BP net shims (cookie / tls-config / net-slice / netinfo).
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_parse_set_cookie")) {
+            try writer.writeAll(
+                \\function sa_cookie_parse_set_cookie(bytes, len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  J.ckErrClear();
+                \\  const raw = __sa_mem_bytes(bytes, len);
+                \\  const c = J.parseSetCookie(raw);
+                \\  if (!c) { J.ckErrSet("cookie: invalid Set-Cookie value"); return 0n; }
+                \\  return BigInt(J.ckReg(c));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_last_error")) {
+            try writer.writeAll(
+                \\function sa_cookie_last_error(out_ptr, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  return J.outStr(out_ptr, out_len, J.ckErrGet());
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_free")) {
+            try writer.writeAll(
+                \\function sa_cookie_free(handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  return J.ckFree(__sa_num(handle)) ? 0 : 2;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_new")) {
+            try writer.writeAll(
+                \\function sa_cookie_new(name, name_len, value, value_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  J.ckErrClear();
+                \\  const n = __sa_mem_bytes(name, name_len);
+                \\  const v = __sa_mem_bytes(value, value_len);
+                \\  if (!J.validCookieName(n)) { J.ckErrSet("cookie: invalid cookie name"); return 0n; }
+                \\  if (!J.validCookieValue(v)) { J.ckErrSet("cookie: invalid cookie value"); return 0n; }
+                \\  return BigInt(J.ckReg(J.mkCookie(n.slice(), v.slice())));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_name")) {
+            try writer.writeAll(
+                \\function sa_cookie_name(handle, out_ptr, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  return J.outStr(out_ptr, out_len, c.name);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_value")) {
+            try writer.writeAll(
+                \\function sa_cookie_value(handle, out_ptr, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  return J.outStr(out_ptr, out_len, c.value);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_domain")) {
+            try writer.writeAll(
+                \\function sa_cookie_domain(handle, out_ptr, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  return J.outStr(out_ptr, out_len, c.hasDomain ? c.domain : null);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_path")) {
+            try writer.writeAll(
+                \\function sa_cookie_path(handle, out_ptr, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  return J.outStr(out_ptr, out_len, c.hasPath ? c.path : null);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_expires")) {
+            try writer.writeAll(
+                \\function sa_cookie_expires(handle, out_unix) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_unix, 0n);
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  if (c.expires === null) return 3;
+                \\  __sa_store_i64(out_unix, BigInt(c.expires));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_max_age")) {
+            try writer.writeAll(
+                \\function sa_cookie_max_age(handle, out_secs) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_secs, 0n);
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  if (c.maxAge === null) return 3;
+                \\  __sa_store_i64(out_secs, BigInt(c.maxAge));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_flags")) {
+            try writer.writeAll(
+                \\function sa_cookie_flags(handle, out_secure, out_http_only, out_partitioned) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  __sa_store_i32(out_secure, c.secure ? 1 : 0);
+                \\  __sa_store_i32(out_http_only, c.httpOnly ? 1 : 0);
+                \\  __sa_store_i32(out_partitioned, c.partitioned ? 1 : 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_same_site")) {
+            try writer.writeAll(
+                \\function sa_cookie_same_site(handle, out_mode) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_u32(out_mode, 0);
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  __sa_store_u32(out_mode, c.sameSite);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_is_host_only")) {
+            try writer.writeAll(
+                \\function sa_cookie_is_host_only(handle, out_flag) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i32(out_flag, 0);
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  __sa_store_i32(out_flag, c.hostOnly ? 1 : 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_set_domain")) {
+            try writer.writeAll(
+                \\function sa_cookie_set_domain(handle, bytes, len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  let d = __sa_mem_bytes(bytes, len);
+                \\  if (d.length > 0 && d[0] === 46) d = d.subarray(1);
+                \\  if (!J.validDomainAttr(d)) return 1;
+                \\  c.domain = J.bLower(d).slice();
+                \\  c.hasDomain = true;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_set_path")) {
+            try writer.writeAll(
+                \\function sa_cookie_set_path(handle, bytes, len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  const p = __sa_mem_bytes(bytes, len);
+                \\  if (p.length === 0 || p[0] !== 47) return 1;
+                \\  for (let i = 0; i < p.length; i++) if (p[i] < 32 || p[i] === 127) return 1;
+                \\  c.path = p.slice();
+                \\  c.hasPath = true;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_set_expires")) {
+            try writer.writeAll(
+                \\function sa_cookie_set_expires(handle, unix) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  c.expires = __sa_num(unix);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_set_max_age")) {
+            try writer.writeAll(
+                \\function sa_cookie_set_max_age(handle, secs) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  c.maxAge = __sa_num(secs);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_clear_expiry")) {
+            try writer.writeAll(
+                \\function sa_cookie_clear_expiry(handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  c.expires = null;
+                \\  c.maxAge = null;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_set_secure")) {
+            try writer.writeAll(
+                \\function sa_cookie_set_secure(handle, on) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  c.secure = __sa_num(on) !== 0;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_set_http_only")) {
+            try writer.writeAll(
+                \\function sa_cookie_set_http_only(handle, on) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  c.httpOnly = __sa_num(on) !== 0;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_set_partitioned")) {
+            try writer.writeAll(
+                \\function sa_cookie_set_partitioned(handle, on) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  c.partitioned = __sa_num(on) !== 0;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_set_same_site")) {
+            try writer.writeAll(
+                \\function sa_cookie_set_same_site(handle, mode) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  if (__sa_num(mode) > 3) return 1;
+                \\  c.sameSite = __sa_num(mode);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_serialize")) {
+            try writer.writeAll(
+                \\function sa_cookie_serialize(handle, out_ptr, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  return J.outStr(out_ptr, out_len, J.serializeCookie(c, false));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_serialize_pair")) {
+            try writer.writeAll(
+                \\function sa_cookie_serialize_pair(handle, out_ptr, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  return J.outStr(out_ptr, out_len, J.serializeCookie(c, true));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_is_expired")) {
+            try writer.writeAll(
+                \\function sa_cookie_is_expired(handle, now, out_flag) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i32(out_flag, 0);
+                \\  const c = J.ckGet(__sa_num(handle));
+                \\  if (!c) return 2;
+                \\  if (c.expires !== null && c.expires <= __sa_num(now)) __sa_store_i32(out_flag, 1);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_domain_match")) {
+            try writer.writeAll(
+                \\function sa_cookie_domain_match(domain, domain_len, host, host_len, out_flag) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i32(out_flag, 0);
+                \\  let d = __sa_mem_bytes(domain, domain_len);
+                \\  if (d.length > 0 && d[0] === 46) d = d.subarray(1);
+                \\  const h = __sa_mem_bytes(host, host_len);
+                \\  __sa_store_i32(out_flag, J.domainMatch(d, h) ? 1 : 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_path_match")) {
+            try writer.writeAll(
+                \\function sa_cookie_path_match(cookie_path, cookie_path_len, request_path, request_path_len, out_flag) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i32(out_flag, 0);
+                \\  const cp = __sa_mem_bytes(cookie_path, cookie_path_len);
+                \\  const rp = __sa_mem_bytes(request_path, request_path_len);
+                \\  __sa_store_i32(out_flag, J.pathMatch(cp, rp) ? 1 : 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_header_pair_count")) {
+            try writer.writeAll(
+                \\function sa_cookie_header_pair_count(bytes, len, out_count) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_count, 0n);
+                \\  const raw = __sa_mem_bytes(bytes, len);
+                \\  const n = J.headerPairCount(raw);
+                \\  if (n < 0) return 1;
+                \\  __sa_store_i64(out_count, BigInt(n));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_header_pair_at")) {
+            try writer.writeAll(
+                \\function sa_cookie_header_pair_at(bytes, len, index) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  J.ckErrClear();
+                \\  const raw = __sa_mem_bytes(bytes, len);
+                \\  const c = J.headerPairAt(raw, __sa_num(index));
+                \\  if (c === null) return 0n;
+                \\  if (c === "bad") { J.ckErrSet("cookie: invalid Cookie header pair"); return 0n; }
+                \\  return BigInt(J.ckReg(c));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_new")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_new() {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  return BigInt(J.jarReg(J.mkJar()));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_free")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_free(jar) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  return J.jarFree(__sa_num(jar)) ? 0 : 2;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_set_policy")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_set_policy(jar, policy) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const j = J.jarGet(__sa_num(jar));
+                \\  if (!j) return 2;
+                \\  if (__sa_num(policy) > 2) return 1;
+                \\  j.policy = __sa_num(policy);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_policy")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_policy(jar, out_policy) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_u32(out_policy, 0);
+                \\  const j = J.jarGet(__sa_num(jar));
+                \\  if (!j) return 2;
+                \\  __sa_store_u32(out_policy, j.policy);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_store")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_store(jar, url, url_len, set_cookie, set_cookie_len, now, out_result) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const j = J.jarGet(__sa_num(jar));
+                \\  if (!j) return 2;
+                \\  const u = __sa_mem_bytes(url, url_len);
+                \\  const sc = __sa_mem_bytes(set_cookie, set_cookie_len);
+                \\  const r = J.jarStore(j, u, sc, __sa_num(now));
+                \\  if (r < 0) return 1;
+                \\  __sa_store_u32(out_result, r);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_header")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_header(jar, url, url_len, now, out_ptr, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_ptr(out_ptr, 0);
+                \\  __sa_store_i64(out_len, 0n);
+                \\  const j = J.jarGet(__sa_num(jar));
+                \\  if (!j) return 2;
+                \\  const u = __sa_mem_bytes(url, url_len);
+                \\  const h = J.jarHeader(j, u, __sa_num(now));
+                \\  if (h === null) return 3;
+                \\  return J.outStr(out_ptr, out_len, h);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_count")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_count(jar, out_count) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_count, 0n);
+                \\  const j = J.jarGet(__sa_num(jar));
+                \\  if (!j) return 2;
+                \\  __sa_store_i64(out_count, BigInt(j.entries.length));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_at")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_at(jar, index) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const j = J.jarGet(__sa_num(jar));
+                \\  if (!j) return 0n;
+                \\  const idx = __sa_num(index);
+                \\  if (idx >= j.entries.length) return 0n;
+                \\  const copy = J.cloneCookie(j.entries[idx]);
+                \\  copy.maxAge = null;
+                \\  return BigInt(J.ckReg(copy));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_clear")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_clear(jar) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const j = J.jarGet(__sa_num(jar));
+                \\  if (!j) return 2;
+                \\  j.entries.length = 0;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_evict_expired")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_evict_expired(jar, now, out_removed) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_removed, 0n);
+                \\  const j = J.jarGet(__sa_num(jar));
+                \\  if (!j) return 2;
+                \\  __sa_store_i64(out_removed, BigInt(J.jarEvict(j, __sa_num(now))));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_save")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_save(jar, path, path_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const j = J.jarGet(__sa_num(jar));
+                \\  if (!j) return 2;
+                \\  const p = __sa_mem_bytes(path, path_len);
+                \\  if (p.length === 0) return 1;
+                \\  try {
+                \\    const fs = __sa_node_builtin("node:fs");
+                \\    fs.writeFileSync(J.bToStr(p), Buffer.from(J.jarSaveText(j)));
+                \\  } catch (e) { return 6; }
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_load")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_load(jar, path, path_len, out_loaded) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_loaded, 0n);
+                \\  const j = J.jarGet(__sa_num(jar));
+                \\  if (!j) return 2;
+                \\  const p = __sa_mem_bytes(path, path_len);
+                \\  if (p.length === 0) return 1;
+                \\  let data;
+                \\  try {
+                \\    const fs = __sa_node_builtin("node:fs");
+                \\    data = new Uint8Array(fs.readFileSync(J.bToStr(p)));
+                \\  } catch (e) { return 6; }
+                \\  const r = J.jarLoad(j, data);
+                \\  if (r.error) { J.ckErrSet(r.error); return 1; }
+                \\  __sa_store_i64(out_loaded, BigInt(r.loaded));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_request_header")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_request_header(jar, url, url_len, out_ptr, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_ptr(out_ptr, 0);
+                \\  __sa_store_i64(out_len, 0n);
+                \\  const j = J.jarGet(__sa_num(jar));
+                \\  if (!j) return 2;
+                \\  const u = __sa_mem_bytes(url, url_len);
+                \\  const now = Math.floor(Date.now() / 1000);
+                \\  const h = J.jarHeader(j, u, now);
+                \\  if (h === null) return 3;
+                \\  return J.outStr(out_ptr, out_len, h);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_cookie_jar_store_response")) {
+            try writer.writeAll(
+                \\function sa_cookie_jar_store_response(jar, url, url_len, set_cookie, set_cookie_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const j = J.jarGet(__sa_num(jar));
+                \\  if (!j) return 2;
+                \\  const u = __sa_mem_bytes(url, url_len);
+                \\  const sc = __sa_mem_bytes(set_cookie, set_cookie_len);
+                \\  const now = Math.floor(Date.now() / 1000);
+                \\  const r = J.jarStore(j, u, sc, now);
+                \\  if (r < 0) return 1;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_supported")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_supported(out_supported) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_u32(out_supported, 1);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_add_ca_file")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_add_ca_file(path, path_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const p = __sa_mem_bytes(path, path_len);
+                \\  const s = J.bToStr(p);
+                \\  if (s.length === 0 || s[0] !== "/") return -22;
+                \\  try {
+                \\    const fs = __sa_node_builtin("node:fs");
+                \\    J.TLS.processCas.push(fs.readFileSync(s, "utf8"));
+                \\  } catch (e) { return -5; }
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_connect")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_connect(host, host_len, port, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const h = J.bToStr(__sa_mem_bytes(host, host_len));
+                \\  const r = J.tlsConnectFull(h, __sa_num(port), null, null);
+                \\  if (r.status !== 0) return r.status;
+                \\  __sa_store_i64(out_handle, BigInt(r.saHandle));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_read")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_read(handle, buf, cap, out_read) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_read, 0n);
+                \\  const e = J.netGet(__sa_num(handle));
+                \\  if (!e || e.kind !== "tls") return -22;
+                \\  const r = J.bridgeCall("stream_read", { id: e.bridgeId, cap: __sa_num(cap), tlsSpace: true }, null, true);
+                \\  if (r.status !== 0) return r.status;
+                \\  if (r.bytes) __sa_u8.set(r.bytes, __sa_addr(buf));
+                \\  __sa_store_i64(out_read, BigInt(r.json.read || 0));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_write")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_write(handle, buf, len, out_written) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_written, 0n);
+                \\  const e = J.netGet(__sa_num(handle));
+                \\  if (!e || e.kind !== "tls") return -22;
+                \\  const payload = __sa_mem_bytes(buf, len);
+                \\  const r = J.bridgeCall("stream_write", { id: e.bridgeId, tlsSpace: true }, payload, true);
+                \\  if (r.status !== 0) return r.status;
+                \\  __sa_store_i64(out_written, BigInt(r.json.written || 0));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_close")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_close(handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(handle));
+                \\  if (!e || e.kind !== "tls") return -22;
+                \\  J.bridgeCall("sock_close", { id: e.bridgeId }, null, true);
+                \\  J.netDel(__sa_num(handle));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_status_json")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_status_json(out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const text = JSON.stringify({ module: "tls_client", backend: "node:tls", supported: true, protocolMachine: true });
+                \\  const h = __sa_buf_open(new globalThis.TextEncoder().encode(text));
+                \\  __sa_store_i64(out_handle, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_buffer_data")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_buffer_data(buffer) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const b = __sa_buf_get(buffer);
+                \\  if (b === null) return 0;
+                \\  const p = __sa_alloc(b.length);
+                \\  __sa_u8.set(b, p);
+                \\  return p;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_buffer_len")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_buffer_len(buffer) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const b = __sa_buf_get(buffer);
+                \\  return b === null ? 0n : BigInt(b.length);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_buffer_free")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_buffer_free(buffer) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  return __sa_buffers.delete(__sa_num(buffer)) ? 0 : -22;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_peer_cert_json")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_peer_cert_json(handle, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  // UNSUPPORTED by construction on this backend too (std.crypto.tls does
+                \\  // not retain the peer certificate; Node could, but the contract mirrors
+                \\  // native exactly): handle 0 -> -22, anything else -> -1, out untouched.
+                \\  if (__sa_num(handle) === 0) return -22;
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_config_new")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_config_new(out_config) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_config, 0n);
+                \\  __sa_store_i64(out_config, BigInt(J.tlsCfgNew()));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_config_free")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_config_free(config) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  if (__sa_num(config) === 0) return 0;
+                \\  J.tlsCfgFree(__sa_num(config));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_config_set_server_name")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_config_set_server_name(config, name, name_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.tlsCfgGet(__sa_num(config));
+                \\  if (!c) return -22;
+                \\  const n = __sa_mem_bytes(name, name_len);
+                \\  c.serverName = (n.length === 0) ? null : n.slice();
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_config_add_ca_file")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_config_add_ca_file(config, path, path_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.tlsCfgGet(__sa_num(config));
+                \\  if (!c) return -22;
+                \\  const p = __sa_mem_bytes(path, path_len);
+                \\  const s = J.bToStr(p);
+                \\  if (s.length === 0 || s[0] !== "/") return -22;
+                \\  c.caFiles.push(p.slice());
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_config_add_ca_memory")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_config_add_ca_memory(config, pem, pem_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.tlsCfgGet(__sa_num(config));
+                \\  if (!c) return -22;
+                \\  const p = __sa_mem_bytes(pem, pem_len);
+                \\  if (p.length === 0) return -22;
+                \\  const n = J.pemUsableCount(J.bToStr(p));
+                \\  if (n <= 0) return -22;
+                \\  c.caPems.push(J.bToStr(p));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_config_set_insecure_no_verification")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_config_set_insecure_no_verification(config, enabled) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.tlsCfgGet(__sa_num(config));
+                \\  if (!c) return -22;
+                \\  c.insecure = __sa_num(enabled) !== 0;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_config_set_verify_self_signed")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_config_set_verify_self_signed(config, enabled) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const c = J.tlsCfgGet(__sa_num(config));
+                \\  if (!c) return -22;
+                \\  c.verifySelfSigned = __sa_num(enabled) !== 0;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_connect_config")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_connect_config(host, host_len, port, config, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const h = J.bToStr(__sa_mem_bytes(host, host_len));
+                \\  let cfg = null;
+                \\  if (__sa_num(config) !== 0) {
+                \\    cfg = J.tlsCfgGet(__sa_num(config));
+                \\    if (!cfg) return -22;
+                \\  }
+                \\  const r = J.tlsConnectFull(h, __sa_num(port), cfg, null);
+                \\  if (r.status !== 0) return r.status;
+                \\  __sa_store_i64(out_handle, BigInt(r.saHandle));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_client_start_tls")) {
+            try writer.writeAll(
+                \\function sa_std_tls_client_start_tls(fd, host, host_len, config, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const h = J.bToStr(__sa_mem_bytes(host, host_len));
+                \\  let cfg = null;
+                \\  if (__sa_num(config) !== 0) {
+                \\    cfg = J.tlsCfgGet(__sa_num(config));
+                \\    if (!cfg) return -22;
+                \\  }
+                \\  const r = J.tlsConnectFull(h, 0, cfg, __sa_num(fd));
+                \\  // The port comes from the existing connection; the chunk skips the
+                \\  // port check on the upgrade branch.
+                \\  if (r.status !== 0) return r.status;
+                \\  __sa_store_i64(out_handle, BigInt(r.saHandle));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_supported")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_supported(out_supported) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_u32(out_supported, 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_connect")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_connect(host, host_len, port, profile, profile_len, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_read")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_read(handle, buf, cap, out_read) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_read, 0n);
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_write")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_write(handle, buf, len, out_written) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_written, 0n);
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_close")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_close(handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_negotiated_json")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_negotiated_json(handle, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_hello_ja3")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_hello_ja3(handle, out, out_cap, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_len, 0n);
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_hello_ja3_string")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_hello_ja3_string(handle, out, out_cap, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_len, 0n);
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_hello_ja4")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_hello_ja4(handle, out, out_cap, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_len, 0n);
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_start_tls")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_start_tls(fd, host, host_len, profile, profile_len, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_session_blob")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_session_blob(handle, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_peer_cert_chain_json")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_peer_cert_chain_json(handle, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  return -1;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_buffer_data")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_buffer_data(buffer) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_buffer_len")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_buffer_len(buffer) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  return 0n;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_tls_shaped_buffer_free")) {
+            try writer.writeAll(
+                \\function sa_std_tls_shaped_buffer_free(buffer) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  return -22;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_to_socket_addr_first")) {
+            try writer.writeAll(
+                \\function sa_std_net_to_socket_addr_first(host, host_len, port, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  function addrFromWorker(a, port) {
+                \\    return { kind: "addr", host: a.host, port: port, family: (a.family === 4 || a.family === "IPv4") ? 2 : 10, scopeId: 0 };
+                \\  }
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const h = J.bToStr(__sa_mem_bytes(host, host_len));
+                \\  const r = J.bridgeCall("resolve", { host: h }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  if (!r.json.addrs || r.json.addrs.length === 0) return 7;
+                \\  const a = addrFromWorker(r.json.addrs[0], __sa_num(port));
+                \\  __sa_store_i64(out_handle, BigInt(J.netReg(a)));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_to_socket_addr_list")) {
+            try writer.writeAll(
+                \\function sa_std_net_to_socket_addr_list(host, host_len, port, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  function addrFromWorker(a, port) {
+                \\    return { kind: "addr", host: a.host, port: port, family: (a.family === 4 || a.family === "IPv4") ? 2 : 10, scopeId: 0 };
+                \\  }
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const h = J.bToStr(__sa_mem_bytes(host, host_len));
+                \\  const r = J.bridgeCall("resolve", { host: h }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  const addrs = (r.json.addrs || []).map((a) => addrFromWorker(a, __sa_num(port)));
+                \\  __sa_store_i64(out_handle, BigInt(J.netReg({ kind: "addrlist", addrs: addrs, idx: 0 })));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_addr_list_next")) {
+            try writer.writeAll(
+                \\function sa_std_net_addr_list_next(list, out_ok, out_addr) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i32(out_ok, 0);
+                \\  __sa_store_i64(out_addr, 0n);
+                \\  const l = J.netGet(__sa_num(list));
+                \\  if (!l || l.kind !== "addrlist") return 2;
+                \\  if (l.idx >= l.addrs.length) return 0;
+                \\  const a = l.addrs[l.idx++];
+                \\  __sa_store_i32(out_ok, 1);
+                \\  __sa_store_i64(out_addr, BigInt(J.netReg(a)));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_addr_list_remaining")) {
+            try writer.writeAll(
+                \\function sa_std_net_addr_list_remaining(list, out_remaining) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_remaining, 0n);
+                \\  const l = J.netGet(__sa_num(list));
+                \\  if (!l || l.kind !== "addrlist") return 2;
+                \\  __sa_store_i64(out_remaining, BigInt(l.addrs.length - l.idx));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_addr_list_reset")) {
+            try writer.writeAll(
+                \\function sa_std_net_addr_list_reset(list) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const l = J.netGet(__sa_num(list));
+                \\  if (!l || l.kind !== "addrlist") return 2;
+                \\  l.idx = 0;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_addr_list_free")) {
+            try writer.writeAll(
+                \\function sa_std_net_addr_list_free(list) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  return J.netDel(__sa_num(list)) ? 0 : 2;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_addr_reverse_lookup")) {
+            try writer.writeAll(
+                \\function sa_std_net_addr_reverse_lookup(addr, out, out_cap, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_len, 0n);
+                \\  const a = J.netGet(__sa_num(addr));
+                \\  if (!a || a.kind !== "addr") return 2;
+                \\  const r = J.bridgeCall("reverse", { host: a.host }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  const name = J.bFromStr(r.json.name);
+                \\  const cap = __sa_num(out_cap);
+                \\  const n = Math.min(cap, name.length);
+                \\  __sa_u8.set(name.subarray(0, n), __sa_addr(out));
+                \\  __sa_store_i64(out_len, BigInt(n));
+                \\  return (n < name.length) ? 9 : 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_net_addr_host")) {
+            try writer.writeAll(
+                \\function sa_net_addr_host(addr) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const a = J.netGet(__sa_num(addr));
+                \\  if (!a || a.kind !== "addr") return 0;
+                \\  const b = J.bFromStr(a.host);
+                \\  const p = __sa_alloc(b.length);
+                \\  __sa_u8.set(b, p);
+                \\  return p;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_net_addr_host_len")) {
+            try writer.writeAll(
+                \\function sa_net_addr_host_len(addr) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const a = J.netGet(__sa_num(addr));
+                \\  if (!a || a.kind !== "addr") return 0n;
+                \\  return BigInt(J.bFromStr(a.host).length);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_net_addr_port")) {
+            try writer.writeAll(
+                \\function sa_net_addr_port(addr) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const a = J.netGet(__sa_num(addr));
+                \\  if (!a || a.kind !== "addr") return 0;
+                \\  return a.port;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_net_addr_family")) {
+            try writer.writeAll(
+                \\function sa_net_addr_family(addr) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const a = J.netGet(__sa_num(addr));
+                \\  if (!a || a.kind !== "addr") return 0;
+                \\  return a.family;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_net_addr_scope_id")) {
+            try writer.writeAll(
+                \\function sa_net_addr_scope_id(addr) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const a = J.netGet(__sa_num(addr));
+                \\  if (!a || a.kind !== "addr") return 0n;
+                \\  return BigInt(a.scopeId);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_net_addr_free")) {
+            try writer.writeAll(
+                \\function sa_net_addr_free(addr) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  return J.netDel(__sa_num(addr)) ? 0 : 2;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_addr_format")) {
+            try writer.writeAll(
+                \\function sa_std_net_addr_format(addr, out, out_cap, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_len, 0n);
+                \\  const a = J.netGet(__sa_num(addr));
+                \\  if (!a || a.kind !== "addr") return 2;
+                \\  const text = (a.family === 10) ? "[" + a.host + "]:" + a.port : a.host + ":" + a.port;
+                \\  const b = J.bFromStr(text);
+                \\  const cap = __sa_num(out_cap);
+                \\  const n = Math.min(cap, b.length);
+                \\  __sa_u8.set(b.subarray(0, n), __sa_addr(out));
+                \\  __sa_store_i64(out_len, BigInt(n));
+                \\  return (n < b.length) ? 9 : 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_bind")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_bind(host, host_len, port, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const h = J.bToStr(__sa_mem_bytes(host, host_len));
+                \\  const r = J.bridgeCall("udp_bind", { host: h, port: __sa_num(port) }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  const e = { kind: "udp", bridgeId: r.json.id, localHost: r.json.host, localPort: r.json.port,
+                \\    localFamily: (r.json.family === "IPv4" || r.json.family === 4) ? 2 : 10,
+                \\    readTimeoutMs: 0, writeTimeoutMs: 0, opts: new Map() };
+                \\  __sa_store_i64(out_handle, BigInt(J.netReg(e)));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_local_addr")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_local_addr(socket, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const a = { kind: "addr", host: e.localHost, port: e.localPort, family: e.localFamily, scopeId: 0 };
+                \\  __sa_store_i64(out_handle, BigInt(J.netReg(a)));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_connect")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_connect(socket, host, host_len, port) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const h = J.bToStr(__sa_mem_bytes(host, host_len));
+                \\  const r = J.bridgeCall("udp_connect", { id: e.bridgeId, host: h, port: __sa_num(port) }, null, false);
+                \\  return r.status;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_connect_addr")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_connect_addr(socket, addr) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  const a = J.netGet(__sa_num(addr));
+                \\  if (!e || e.kind !== "udp" || !a || a.kind !== "addr") return 2;
+                \\  const r = J.bridgeCall("udp_connect", { id: e.bridgeId, host: a.host, port: a.port }, null, false);
+                \\  return r.status;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_set_read_timeout")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_set_read_timeout(socket, timeout_ns) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const ms = __sa_num(timeout_ns) / 1000000;
+                \\  e.readTimeoutMs = ms;
+                \\  const r = J.bridgeCall("udp_set_read_timeout", { id: e.bridgeId, timeoutMs: ms }, null, false);
+                \\  return r.status;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_set_write_timeout")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_set_write_timeout(socket, timeout_ns) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  e.writeTimeoutMs = __sa_num(timeout_ns) / 1000000;
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_set_broadcast")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_set_broadcast(socket, enabled) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const r = J.bridgeCall("udp_set_broadcast", { id: e.bridgeId, enabled: __sa_num(enabled) }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  e.opts.set("1:6", __sa_num(enabled) !== 0 ? 1 : 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_broadcast")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_broadcast(socket, out_enabled) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i32(out_enabled, 0);
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const v = e.opts.get("1:6");
+                \\  if (v === undefined) return 8;
+                \\  __sa_store_i32(out_enabled, v);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_set_ttl")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_set_ttl(socket, ttl) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const r = J.bridgeCall("udp_set_ttl", { id: e.bridgeId, ttl: __sa_num(ttl) }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  e.opts.set("0:2", __sa_num(ttl));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_ttl")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_ttl(socket, out_ttl) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_u32(out_ttl, 0);
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const v = e.opts.get("0:2");
+                \\  if (v === undefined) return 8;
+                \\  __sa_store_u32(out_ttl, v);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_set_multicast_loop_v4")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_set_multicast_loop_v4(socket, enabled) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const r = J.bridgeCall("udp_set_multicast_loop", { id: e.bridgeId, enabled: __sa_num(enabled) }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  e.opts.set("0:34", __sa_num(enabled) !== 0 ? 1 : 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_set_multicast_ttl_v4")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_set_multicast_ttl_v4(socket, ttl) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const r = J.bridgeCall("udp_set_multicast_ttl", { id: e.bridgeId, ttl: __sa_num(ttl) }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  e.opts.set("0:33", __sa_num(ttl));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_set_multicast_loop_v6")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_set_multicast_loop_v6(socket, enabled) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  // No Node API for IPv6 multicast loop on a bound socket: explicit UNSUPPORTED.
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  return 8;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_set_multicast_hops_v6")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_set_multicast_hops_v6(socket, hops) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  // No Node API for IPv6 multicast hops on a bound socket: explicit UNSUPPORTED.
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  return 8;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_set_only_v6")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_set_only_v6(socket, enabled) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  // Socket family is fixed at bind time; it cannot change afterwards.
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  return 8;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_set_nonblocking")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_set_nonblocking(socket, enabled) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  // The bridge model is blocking-only (worker queue + Atomics.wait).
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  return 8;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_send")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_send(socket, buf, len, out_written) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_written, 0n);
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const payload = __sa_mem_bytes(buf, len);
+                \\  const r = J.bridgeCall("udp_send", { id: e.bridgeId }, payload, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  __sa_store_i64(out_written, BigInt(r.json.written || 0));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_send_to")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_send_to(socket, buf, len, host, host_len, port, out_written) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_written, 0n);
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const payload = __sa_mem_bytes(buf, len);
+                \\  const h = J.bToStr(__sa_mem_bytes(host, host_len));
+                \\  const r = J.bridgeCall("udp_send", { id: e.bridgeId, dest: { host: h, port: __sa_num(port) } }, payload, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  __sa_store_i64(out_written, BigInt(r.json.written || 0));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_recv")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_recv(socket, buf, cap, out_read) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_read, 0n);
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const r = J.bridgeCall("udp_recv", { id: e.bridgeId, cap: __sa_num(cap) }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  if (r.bytes) __sa_u8.set(r.bytes, __sa_addr(buf));
+                \\  __sa_store_i64(out_read, BigInt(r.json.read || 0));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_recv_from")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_recv_from(socket, buf, cap, out_read, out_addr) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_read, 0n);
+                \\  __sa_store_i64(out_addr, 0n);
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  const r = J.bridgeCall("udp_recv", { id: e.bridgeId, cap: __sa_num(cap) }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  if (r.bytes) __sa_u8.set(r.bytes, __sa_addr(buf));
+                \\  __sa_store_i64(out_read, BigInt(r.json.read || 0));
+                \\  const s = r.json.src;
+                \\  const a = { kind: "addr", host: s.host, port: s.port, family: (s.family === "IPv4" || s.family === 4) ? 2 : 10, scopeId: 0 };
+                \\  __sa_store_i64(out_addr, BigInt(J.netReg(a)));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_tcp_connect")) {
+            try writer.writeAll(
+                \\function sa_std_net_tcp_connect(host, host_len, port, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const h = J.bToStr(__sa_mem_bytes(host, host_len));
+                \\  const r = J.bridgeCall("tcp_connect", { host: h, port: __sa_num(port), timeoutMs: 0 }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  const e = { kind: "tcp", bridgeId: r.json.id, localHost: r.json.local.host, localPort: r.json.local.port,
+                \\    peerHost: r.json.peer.host, peerPort: r.json.peer.port,
+                \\    readTimeoutMs: 0, writeTimeoutMs: 0, opts: new Map() };
+                \\  __sa_store_i64(out_handle, BigInt(J.netReg(e)));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_tcp_connect_timeout")) {
+            try writer.writeAll(
+                \\function sa_std_net_tcp_connect_timeout(host, host_len, port, timeout_ns, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const h = J.bToStr(__sa_mem_bytes(host, host_len));
+                \\  const r = J.bridgeCall("tcp_connect", { host: h, port: __sa_num(port), timeoutMs: __sa_num(timeout_ns) / 1000000 }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  const e = { kind: "tcp", bridgeId: r.json.id, localHost: r.json.local.host, localPort: r.json.local.port,
+                \\    peerHost: r.json.peer.host, peerPort: r.json.peer.port,
+                \\    readTimeoutMs: 0, writeTimeoutMs: 0, opts: new Map() };
+                \\  __sa_store_i64(out_handle, BigInt(J.netReg(e)));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_tcp_connect_timeout_addr")) {
+            try writer.writeAll(
+                \\function sa_std_net_tcp_connect_timeout_addr(addr, timeout_ns, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const a = J.netGet(__sa_num(addr));
+                \\  if (!a || a.kind !== "addr") return 2;
+                \\  const r = J.bridgeCall("tcp_connect", { host: a.host, port: a.port, timeoutMs: __sa_num(timeout_ns) / 1000000 }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  const e = { kind: "tcp", bridgeId: r.json.id, localHost: r.json.local.host, localPort: r.json.local.port,
+                \\    peerHost: r.json.peer.host, peerPort: r.json.peer.port,
+                \\    readTimeoutMs: 0, writeTimeoutMs: 0, opts: new Map() };
+                \\  __sa_store_i64(out_handle, BigInt(J.netReg(e)));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_tcp_connect_timeout_all")) {
+            try writer.writeAll(
+                \\function sa_std_net_tcp_connect_timeout_all(host, host_len, port, timeout_ns, out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  // Best-effort alias of connect_timeout: Node resolves and tries the
+                \\  // address family selection itself (autoSelectFamily).
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const h = J.bToStr(__sa_mem_bytes(host, host_len));
+                \\  const r = J.bridgeCall("tcp_connect", { host: h, port: __sa_num(port), timeoutMs: __sa_num(timeout_ns) / 1000000 }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  const e = { kind: "tcp", bridgeId: r.json.id, localHost: r.json.local.host, localPort: r.json.local.port,
+                \\    peerHost: r.json.peer.host, peerPort: r.json.peer.port,
+                \\    readTimeoutMs: 0, writeTimeoutMs: 0, opts: new Map() };
+                \\  __sa_store_i64(out_handle, BigInt(J.netReg(e)));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_tcp_stream_read")) {
+            try writer.writeAll(
+                \\function sa_std_net_tcp_stream_read(stream, buf, cap, out_read) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_read, 0n);
+                \\  const e = J.netGet(__sa_num(stream));
+                \\  if (!e || (e.kind !== "tcp" && e.kind !== "tls")) return 2;
+                \\  const r = J.bridgeCall("stream_read", { id: e.bridgeId, cap: __sa_num(cap) }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  if (r.bytes) __sa_u8.set(r.bytes, __sa_addr(buf));
+                \\  __sa_store_i64(out_read, BigInt(r.json.read || 0));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_tcp_stream_write")) {
+            try writer.writeAll(
+                \\function sa_std_net_tcp_stream_write(stream, buf, len, out_written) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_written, 0n);
+                \\  const e = J.netGet(__sa_num(stream));
+                \\  if (!e || (e.kind !== "tcp" && e.kind !== "tls")) return 2;
+                \\  const payload = __sa_mem_bytes(buf, len);
+                \\  const r = J.bridgeCall("stream_write", { id: e.bridgeId }, payload, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  __sa_store_i64(out_written, BigInt(r.json.written || 0));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_tcp_stream_set_read_timeout")) {
+            try writer.writeAll(
+                \\function sa_std_net_tcp_stream_set_read_timeout(stream, timeout_ns) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(stream));
+                \\  if (!e || (e.kind !== "tcp" && e.kind !== "tls")) return 2;
+                \\  const ms = __sa_num(timeout_ns) / 1000000;
+                \\  e.readTimeoutMs = ms;
+                \\  const r = J.bridgeCall("stream_set_read_timeout", { id: e.bridgeId, timeoutMs: ms }, null, false);
+                \\  return r.status;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_tcp_stream_set_write_timeout")) {
+            try writer.writeAll(
+                \\function sa_std_net_tcp_stream_set_write_timeout(stream, timeout_ns) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(stream));
+                \\  if (!e || (e.kind !== "tcp" && e.kind !== "tls")) return 2;
+                \\  const ms = __sa_num(timeout_ns) / 1000000;
+                \\  e.writeTimeoutMs = ms;
+                \\  const r = J.bridgeCall("stream_set_write_timeout", { id: e.bridgeId, timeoutMs: ms }, null, false);
+                \\  return r.status;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_tcp_stream_read_timeout")) {
+            try writer.writeAll(
+                \\function sa_std_net_tcp_stream_read_timeout(stream, out_timeout_ns) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_timeout_ns, 0n);
+                \\  const e = J.netGet(__sa_num(stream));
+                \\  if (!e || (e.kind !== "tcp" && e.kind !== "tls")) return 2;
+                \\  __sa_store_i64(out_timeout_ns, BigInt(Math.round(e.readTimeoutMs * 1000000)));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_tcp_stream_write_timeout")) {
+            try writer.writeAll(
+                \\function sa_std_net_tcp_stream_write_timeout(stream, out_timeout_ns) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_timeout_ns, 0n);
+                \\  const e = J.netGet(__sa_num(stream));
+                \\  if (!e || (e.kind !== "tcp" && e.kind !== "tls")) return 2;
+                \\  __sa_store_i64(out_timeout_ns, BigInt(Math.round(e.writeTimeoutMs * 1000000)));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_tcp_stream_set_nodelay")) {
+            try writer.writeAll(
+                \\function sa_std_net_tcp_stream_set_nodelay(stream, enabled) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(stream));
+                \\  if (!e || e.kind !== "tcp") return 2;
+                \\  const r = J.bridgeCall("tcp_set_nodelay", { id: e.bridgeId, enabled: __sa_num(enabled) }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  e.opts.set("6:1", __sa_num(enabled) !== 0 ? 1 : 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_tcp_stream_set_keepalive")) {
+            try writer.writeAll(
+                \\function sa_std_net_tcp_stream_set_keepalive(stream, enabled) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(stream));
+                \\  if (!e || e.kind !== "tcp") return 2;
+                \\  const r = J.bridgeCall("tcp_set_keepalive", { id: e.bridgeId, enabled: __sa_num(enabled) }, null, false);
+                \\  if (r.status !== 0) return r.status;
+                \\  e.opts.set("1:9", __sa_num(enabled) !== 0 ? 1 : 0);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_socket_setsockopt")) {
+            try writer.writeAll(
+                \\function sa_std_net_socket_setsockopt(handle, level, optname, value, value_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  function sockoptApply(e, level, optname, value) {
+                \\    const key = level + ":" + optname;
+                \\    if (level === 1 && optname === 3) return 8;
+                \\    const opmap = { "1:6": "udp_set_broadcast", "0:2": "udp_set_ttl", "0:33": "udp_set_multicast_ttl", "0:34": "udp_set_multicast_loop", "6:1": "tcp_set_nodelay", "1:9": "tcp_set_keepalive" };
+                \\    const op = opmap[key];
+                \\    if (!op) return 8;
+                \\    if (op === "udp_set_broadcast" || op === "udp_set_multicast_loop" || op === "tcp_set_keepalive") {
+                \\      if (e.kind !== "udp" && op !== "tcp_set_keepalive") return 8;
+                \\      if (op === "tcp_set_keepalive" && e.kind !== "tcp") return 8;
+                \\      const r = J.bridgeCall(op, { id: e.bridgeId, enabled: value }, null, false);
+                \\      if (r.status !== 0) return r.status;
+                \\    } else if (op === "tcp_set_nodelay") {
+                \\      if (e.kind !== "tcp") return 8;
+                \\      const r = J.bridgeCall(op, { id: e.bridgeId, enabled: value }, null, false);
+                \\      if (r.status !== 0) return r.status;
+                \\    } else {
+                \\      if (e.kind !== "udp") return 8;
+                \\      const field = (op === "udp_set_ttl" || op === "udp_set_multicast_ttl") ? "ttl" : "enabled";
+                \\      const params = { id: e.bridgeId }; params[field] = value;
+                \\      const r = J.bridgeCall(op, params, null, false);
+                \\      if (r.status !== 0) return r.status;
+                \\    }
+                \\    e.opts.set(key, value);
+                \\    return 0;
+                \\  }
+                \\  function sockoptRead(e, level, optname) {
+                \\    if (level === 1 && optname === 3) return e.kind === "udp" ? 2 : 1;
+                \\    const v = e.opts.get(level + ":" + optname);
+                \\    return (v === undefined) ? null : v;
+                \\  }
+                \\  const e = J.netGet(__sa_num(handle));
+                \\  if (!e || (e.kind !== "udp" && e.kind !== "tcp")) return 2;
+                \\  const lv = __sa_num(level), on = __sa_num(optname);
+                \\  const bytes = __sa_mem_bytes(value, value_len);
+                \\  if (bytes.length < 4) return 1;
+                \\  const v = (bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24));
+                \\  return sockoptApply(e, lv, on, v);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_socket_getsockopt")) {
+            try writer.writeAll(
+                \\function sa_std_net_socket_getsockopt(handle, level, optname, out, out_cap, out_len) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  function sockoptApply(e, level, optname, value) {
+                \\    const key = level + ":" + optname;
+                \\    if (level === 1 && optname === 3) return 8;
+                \\    const opmap = { "1:6": "udp_set_broadcast", "0:2": "udp_set_ttl", "0:33": "udp_set_multicast_ttl", "0:34": "udp_set_multicast_loop", "6:1": "tcp_set_nodelay", "1:9": "tcp_set_keepalive" };
+                \\    const op = opmap[key];
+                \\    if (!op) return 8;
+                \\    if (op === "udp_set_broadcast" || op === "udp_set_multicast_loop" || op === "tcp_set_keepalive") {
+                \\      if (e.kind !== "udp" && op !== "tcp_set_keepalive") return 8;
+                \\      if (op === "tcp_set_keepalive" && e.kind !== "tcp") return 8;
+                \\      const r = J.bridgeCall(op, { id: e.bridgeId, enabled: value }, null, false);
+                \\      if (r.status !== 0) return r.status;
+                \\    } else if (op === "tcp_set_nodelay") {
+                \\      if (e.kind !== "tcp") return 8;
+                \\      const r = J.bridgeCall(op, { id: e.bridgeId, enabled: value }, null, false);
+                \\      if (r.status !== 0) return r.status;
+                \\    } else {
+                \\      if (e.kind !== "udp") return 8;
+                \\      const field = (op === "udp_set_ttl" || op === "udp_set_multicast_ttl") ? "ttl" : "enabled";
+                \\      const params = { id: e.bridgeId }; params[field] = value;
+                \\      const r = J.bridgeCall(op, params, null, false);
+                \\      if (r.status !== 0) return r.status;
+                \\    }
+                \\    e.opts.set(key, value);
+                \\    return 0;
+                \\  }
+                \\  function sockoptRead(e, level, optname) {
+                \\    if (level === 1 && optname === 3) return e.kind === "udp" ? 2 : 1;
+                \\    const v = e.opts.get(level + ":" + optname);
+                \\    return (v === undefined) ? null : v;
+                \\  }
+                \\  __sa_store_i64(out_len, 0n);
+                \\  const e = J.netGet(__sa_num(handle));
+                \\  if (!e || (e.kind !== "udp" && e.kind !== "tcp")) return 2;
+                \\  const v = sockoptRead(e, __sa_num(level), __sa_num(optname));
+                \\  if (v === null) return 8;
+                \\  const cap = __sa_num(out_cap);
+                \\  if (cap < 4) return 9;
+                \\  __sa_view.setInt32(__sa_addr(out), v, true);
+                \\  __sa_store_i64(out_len, 4n);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_socket_setsockopt_int")) {
+            try writer.writeAll(
+                \\function sa_std_net_socket_setsockopt_int(handle, level, optname, value) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  function sockoptApply(e, level, optname, value) {
+                \\    const key = level + ":" + optname;
+                \\    if (level === 1 && optname === 3) return 8;
+                \\    const opmap = { "1:6": "udp_set_broadcast", "0:2": "udp_set_ttl", "0:33": "udp_set_multicast_ttl", "0:34": "udp_set_multicast_loop", "6:1": "tcp_set_nodelay", "1:9": "tcp_set_keepalive" };
+                \\    const op = opmap[key];
+                \\    if (!op) return 8;
+                \\    if (op === "udp_set_broadcast" || op === "udp_set_multicast_loop" || op === "tcp_set_keepalive") {
+                \\      if (e.kind !== "udp" && op !== "tcp_set_keepalive") return 8;
+                \\      if (op === "tcp_set_keepalive" && e.kind !== "tcp") return 8;
+                \\      const r = J.bridgeCall(op, { id: e.bridgeId, enabled: value }, null, false);
+                \\      if (r.status !== 0) return r.status;
+                \\    } else if (op === "tcp_set_nodelay") {
+                \\      if (e.kind !== "tcp") return 8;
+                \\      const r = J.bridgeCall(op, { id: e.bridgeId, enabled: value }, null, false);
+                \\      if (r.status !== 0) return r.status;
+                \\    } else {
+                \\      if (e.kind !== "udp") return 8;
+                \\      const field = (op === "udp_set_ttl" || op === "udp_set_multicast_ttl") ? "ttl" : "enabled";
+                \\      const params = { id: e.bridgeId }; params[field] = value;
+                \\      const r = J.bridgeCall(op, params, null, false);
+                \\      if (r.status !== 0) return r.status;
+                \\    }
+                \\    e.opts.set(key, value);
+                \\    return 0;
+                \\  }
+                \\  function sockoptRead(e, level, optname) {
+                \\    if (level === 1 && optname === 3) return e.kind === "udp" ? 2 : 1;
+                \\    const v = e.opts.get(level + ":" + optname);
+                \\    return (v === undefined) ? null : v;
+                \\  }
+                \\  const e = J.netGet(__sa_num(handle));
+                \\  if (!e || (e.kind !== "udp" && e.kind !== "tcp")) return 2;
+                \\  return sockoptApply(e, __sa_num(level), __sa_num(optname), __sa_num(value));
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_socket_getsockopt_int")) {
+            try writer.writeAll(
+                \\function sa_std_net_socket_getsockopt_int(handle, level, optname, out_value) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  function sockoptApply(e, level, optname, value) {
+                \\    const key = level + ":" + optname;
+                \\    if (level === 1 && optname === 3) return 8;
+                \\    const opmap = { "1:6": "udp_set_broadcast", "0:2": "udp_set_ttl", "0:33": "udp_set_multicast_ttl", "0:34": "udp_set_multicast_loop", "6:1": "tcp_set_nodelay", "1:9": "tcp_set_keepalive" };
+                \\    const op = opmap[key];
+                \\    if (!op) return 8;
+                \\    if (op === "udp_set_broadcast" || op === "udp_set_multicast_loop" || op === "tcp_set_keepalive") {
+                \\      if (e.kind !== "udp" && op !== "tcp_set_keepalive") return 8;
+                \\      if (op === "tcp_set_keepalive" && e.kind !== "tcp") return 8;
+                \\      const r = J.bridgeCall(op, { id: e.bridgeId, enabled: value }, null, false);
+                \\      if (r.status !== 0) return r.status;
+                \\    } else if (op === "tcp_set_nodelay") {
+                \\      if (e.kind !== "tcp") return 8;
+                \\      const r = J.bridgeCall(op, { id: e.bridgeId, enabled: value }, null, false);
+                \\      if (r.status !== 0) return r.status;
+                \\    } else {
+                \\      if (e.kind !== "udp") return 8;
+                \\      const field = (op === "udp_set_ttl" || op === "udp_set_multicast_ttl") ? "ttl" : "enabled";
+                \\      const params = { id: e.bridgeId }; params[field] = value;
+                \\      const r = J.bridgeCall(op, params, null, false);
+                \\      if (r.status !== 0) return r.status;
+                \\    }
+                \\    e.opts.set(key, value);
+                \\    return 0;
+                \\  }
+                \\  function sockoptRead(e, level, optname) {
+                \\    if (level === 1 && optname === 3) return e.kind === "udp" ? 2 : 1;
+                \\    const v = e.opts.get(level + ":" + optname);
+                \\    return (v === undefined) ? null : v;
+                \\  }
+                \\  __sa_store_i32(out_value, 0);
+                \\  const e = J.netGet(__sa_num(handle));
+                \\  if (!e || (e.kind !== "udp" && e.kind !== "tcp")) return 2;
+                \\  const v = sockoptRead(e, __sa_num(level), __sa_num(optname));
+                \\  if (v === null) return 8;
+                \\  __sa_store_i32(out_value, v);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_recv_msg")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_recv_msg(socket, buf, cap, out_read, out_addr, out_dest_addr, out_ifindex, out_timestamp_ns, out_flags) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  // No pktinfo / SO_TIMESTAMP in Node: explicit UNSUPPORTED.
+                \\  __sa_store_i64(out_read, 0n);
+                \\  __sa_store_i64(out_addr, 0n);
+                \\  __sa_store_i64(out_dest_addr, 0n);
+                \\  __sa_store_i64(out_ifindex, 0n);
+                \\  __sa_store_i64(out_timestamp_ns, 0n);
+                \\  __sa_store_i64(out_flags, 0n);
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  return 8;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_udp_recv_multi")) {
+            try writer.writeAll(
+                \\function sa_std_net_udp_recv_multi(socket, buf, buf_cap, slot_size, max_msgs, out_count, out_lens, out_addrs) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  // No recvmmsg in Node: explicit UNSUPPORTED.
+                \\  __sa_store_i64(out_count, 0n);
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e || e.kind !== "udp") return 2;
+                \\  return 8;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_unix_datagram_peer_cred")) {
+            try writer.writeAll(
+                \\function sa_std_net_unix_datagram_peer_cred(socket, out_pid, out_uid, out_gid) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  // No peer-credentials API in Node: explicit UNSUPPORTED.
+                \\  __sa_store_i64(out_pid, 0n);
+                \\  __sa_store_i64(out_uid, 0n);
+                \\  __sa_store_i64(out_gid, 0n);
+                \\  const e = J.netGet(__sa_num(socket));
+                \\  if (!e) return 2;
+                \\  return 8;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_unix_stream_peer_cred")) {
+            try writer.writeAll(
+                \\function sa_std_net_unix_stream_peer_cred(stream, out_pid, out_uid, out_gid) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  // No peer-credentials API in Node: explicit UNSUPPORTED.
+                \\  __sa_store_i64(out_pid, 0n);
+                \\  __sa_store_i64(out_uid, 0n);
+                \\  __sa_store_i64(out_gid, 0n);
+                \\  const e = J.netGet(__sa_num(stream));
+                \\  if (!e) return 2;
+                \\  return 8;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_close")) {
+            try writer.writeAll(
+                \\function sa_std_close(handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const e = J.netGet(__sa_num(handle));
+                \\  if (!e) return 2;
+                \\  if (e.bridgeId !== undefined && e.bridgeId !== null) J.bridgeCall("sock_close", { id: e.bridgeId }, null, false);
+                \\  J.netDel(__sa_num(handle));
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_fd_into_raw")) {
+            try writer.writeAll(
+                \\function sa_std_fd_into_raw(handle, out_fd) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i32(out_fd, 0);
+                \\  const e = J.netGet(__sa_num(handle));
+                \\  if (!e || e.kind !== "tcp") return 2;
+                \\  // Detach: the SA handle is consumed; the bridge id moves to the
+                \\  // detached table so start_tls can upgrade this socket in place.
+                \\  const bid = e.bridgeId;
+                \\  J.netDel(__sa_num(handle));
+                \\  J.NET.detached.set(bid, true);
+                \\  __sa_store_i32(out_fd, bid);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fs_read_buffer_data")) {
+            try writer.writeAll(
+                \\function sa_fs_read_buffer_data(buffer) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const b = __sa_buf_get(buffer);
+                \\  if (b === null) return 0;
+                \\  const p = __sa_alloc(b.length);
+                \\  __sa_u8.set(b, p);
+                \\  return p;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fs_read_buffer_len")) {
+            try writer.writeAll(
+                \\function sa_fs_read_buffer_len(buffer) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  const b = __sa_buf_get(buffer);
+                \\  return b === null ? 0n : BigInt(b.length);
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_fs_read_buffer_free")) {
+            try writer.writeAll(
+                \\function sa_fs_read_buffer_free(buffer) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  return __sa_buffers.delete(__sa_num(buffer)) ? 0 : 2;
+                \\}
+                \\
+            );
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_std_net_interface_addresses_json")) {
+            try writer.writeAll(
+                \\function sa_std_net_interface_addresses_json(out_handle) {
+                \\  const J = globalThis.__sa_jsnet;
+                \\  __sa_store_i64(out_handle, 0n);
+                \\  const bytes = J.netinfoJson();
+                \\  const h = __sa_buf_open(bytes);
+                \\  __sa_store_i64(out_handle, h);
+                \\  return 0;
+                \\}
+                \\
+            );
+            return;
+        }
         try writer.writeAll("function ");
         try jsFuncName(writer, fsig.name);
         try writer.writeAll("() { __sa_trap(\"extern not linked: ");
@@ -7918,6 +11460,19 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         allocator.free(npm_imports);
     }
     try writeRuntimeHeader(writer, js_opt, size_bits, npm_imports);
+    // Emit the net runtime chunk once when the program declares any BP
+    // net shim (cookie/tls/net-slice/netinfo). Programs without net
+    // externs pay nothing for it.
+    for (tasks) |task| {
+        if (task.kind != .extern_decl) continue;
+        const fsig = verified.function_sigs[task.fsig_index];
+        if (isJsNetShim(fsig.name)) {
+            try writer.writeAll(jsnet_runtime_js);
+            try writer.writeAll("\n");
+            break;
+        }
+    }
+
     try writer.print("// source: {s}\n", .{source_path});
     // Function table for call_indirect (boxed addresses, see vtable consts).
     try writer.writeAll("const __sa_ftable = [");
