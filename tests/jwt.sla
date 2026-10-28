@@ -1,0 +1,231 @@
+// Behavioral tests for the SLA JWT surface (sa_std/jwt.sla over
+// the crypto suite externs in sa_std/crypto.sai and
+// sa_std/encoding/base64.sai).
+//
+// Fixtures: crafted with python (cryptography + hmac) -- a
+// THROWAWAY RSA-1024 test key (generated for these tests only,
+// never used anywhere else) and tokens whose verify outcomes are
+// known independently of this implementation, including the
+// canonical jwt.io HS256 demo token. The generator script is
+// std-crypto-local/jwt_fixtures.py; values below are frozen.
+//
+// Error-class assertions use the SA_JWT_ERR_* codes from jwt.sla:
+// format -201, alg -202, signature -203, expired -204,
+// not-yet-valid -205, claim -206.
+
+@import "sa_std/jwt.sla"
+@import "sa_std/string.sa"
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+@import "sa_std/ptr.sa"
+
+fn tvec(lit: ptr, lit_len: u64) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    let chunk: [u8; 256] = [0u8; 256];
+    let off: u64 = 0;
+    while off < lit_len {
+        let n: u64 = lit_len - off;
+        if n > 256 {
+            n = 256;
+        };
+        let src: ptr = PTR_BYTE_ADD(lit, off);
+        let dst: ptr = PTR_BYTE_ADD(&chunk, 0);
+        PTR_COPY_BYTES(dst, src, n);
+        let i: u64 = 0;
+        while i < n {
+            out.push(chunk[i]);
+            i = i + 1;
+        }
+        off = off + n;
+    }
+    return out;
+}
+
+fn t_cat(a: Vec<u8>, b: Vec<u8>) -> Vec<u8> {
+    let sl: Slice<u8> = VEC_AS_SLICE(b);
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    let i: u64 = 0;
+    while i < n {
+        let x: u8 = 0;
+        SLICE_GET(x, sl, i);
+        a.push(x);
+        i = i + 1;
+    }
+    return a;
+}
+
+fn t_hexval(c: u8) -> u8 {
+    if c >= 48 {
+        if c <= 57 {
+            return c - 48;
+        };
+    };
+    if c >= 97 {
+        if c <= 102 {
+            return c - 87;
+        };
+    };
+    if c >= 65 {
+        if c <= 70 {
+            return c - 55;
+        };
+    };
+    return 0;
+}
+
+fn t_hex(lit: ptr, lit_len: u64) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    let one: [u8; 1] = [0u8; 1];
+    let i: u64 = 0;
+    while i + 1 < lit_len {
+        let d: ptr = PTR_BYTE_ADD(&one, 0);
+        let p0: ptr = PTR_BYTE_ADD(lit, i);
+        PTR_COPY_BYTES(d, p0, 1);
+        let hi: u8 = t_hexval(one[0]);
+        let p1: ptr = PTR_BYTE_ADD(lit, i + 1);
+        PTR_COPY_BYTES(d, p1, 1);
+        let lo: u8 = t_hexval(one[0]);
+        out.push((hi << 4) | lo);
+        i = i + 2;
+    }
+    return out;
+}
+
+fn t_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
+    if len(a) != len(b) {
+        return false;
+    };
+    let sa: Slice<u8> = VEC_AS_SLICE(a);
+    let sb: Slice<u8> = VEC_AS_SLICE(b);
+    let n: u64 = len(a) as u64;
+    let i: u64 = 0;
+    while i < n {
+        let x: u8 = 0;
+        SLICE_GET(x, sa, i);
+        let y: u8 = 0;
+        SLICE_GET(y, sb, i);
+        if x != y {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+
+@test "jwt hs256: jwt.io and python tokens verify, claims verbatim"() {
+    match jwt_verify_hs256(tvec(STR_PTR("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"), STR_LEN("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c")), tvec(STR_PTR("your-256-bit-secret"), STR_LEN("your-256-bit-secret"))) {
+        Ok(c) => {
+            if t_eq(c, tvec(STR_PTR("{\"sub\":\"1234567890\",\"name\":\"John Doe\",\"iat\":1516239022}"), STR_LEN("{\"sub\":\"1234567890\",\"name\":\"John Doe\",\"iat\":1516239022}"))) { } else { panic(3101); };
+        },
+        Err(e) => { panic(3102); },
+    };
+    match jwt_verify_hs256(tvec(STR_PTR("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.OHNHhSMtsG4eHunCZe1doUOnLV-Zh43HVi2oKQ-pyAI"), STR_LEN("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.OHNHhSMtsG4eHunCZe1doUOnLV-Zh43HVi2oKQ-pyAI")), tvec(STR_PTR("test-secret-key"), STR_LEN("test-secret-key"))) {
+        Ok(c) => {
+            if t_eq(c, tvec(STR_PTR("{\"sub\":\"hs-user\",\"exp\":9999999999}"), STR_LEN("{\"sub\":\"hs-user\",\"exp\":9999999999}"))) { } else { panic(3103); };
+        },
+        Err(e) => { panic(3104); },
+    };
+}
+
+
+@test "jwt hs256: expired / tampered / wrong secret / claim type / nbf are distinct"() {
+    match jwt_verify_hs256(tvec(STR_PTR("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwiZXhwIjoxMDAwMDAwMDAwfQ.CWB2LVUnUsO4x_JTYe01_lfwR1jyifYiP8Khm3PkkS0"), STR_LEN("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwiZXhwIjoxMDAwMDAwMDAwfQ.CWB2LVUnUsO4x_JTYe01_lfwR1jyifYiP8Khm3PkkS0")), tvec(STR_PTR("test-secret-key"), STR_LEN("test-secret-key"))) {
+        Ok(c) => { panic(3110); },
+        Err(e) => { if e == SA_JWT_ERR_EXPIRED { } else { panic(3111); }; },
+    };
+    match jwt_verify_hs256(tvec(STR_PTR("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.OHNHhSMtsG4eHunCZe1doUOnLV-Zh43HVi2oKQ-pyAA"), STR_LEN("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.OHNHhSMtsG4eHunCZe1doUOnLV-Zh43HVi2oKQ-pyAA")), tvec(STR_PTR("test-secret-key"), STR_LEN("test-secret-key"))) {
+        Ok(c) => { panic(3112); },
+        Err(e) => { if e == SA_JWT_ERR_SIGNATURE { } else { panic(3113); }; },
+    };
+    match jwt_verify_hs256(tvec(STR_PTR("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.OHNHhSMtsG4eHunCZe1doUOnLV-Zh43HVi2oKQ-pyAI"), STR_LEN("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.OHNHhSMtsG4eHunCZe1doUOnLV-Zh43HVi2oKQ-pyAI")), tvec(STR_PTR("wrong-secret"), STR_LEN("wrong-secret"))) {
+        Ok(c) => { panic(3114); },
+        Err(e) => { if e == SA_JWT_ERR_SIGNATURE { } else { panic(3115); }; },
+    };
+    match jwt_verify_hs256(tvec(STR_PTR("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwiZXhwIjoiOTk5OTk5OTk5OSJ9.4HjOIA79P1ZTpUIQoUJYjYjoigyOJXKnFusgnv-P3Mk"), STR_LEN("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwiZXhwIjoiOTk5OTk5OTk5OSJ9.4HjOIA79P1ZTpUIQoUJYjYjoigyOJXKnFusgnv-P3Mk")), tvec(STR_PTR("test-secret-key"), STR_LEN("test-secret-key"))) {
+        Ok(c) => { panic(3116); },
+        Err(e) => { if e == SA_JWT_ERR_CLAIM { } else { panic(3117); }; },
+    };
+    match jwt_verify_hs256(tvec(STR_PTR("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwibmJmIjo5OTk5OTk5OTk5fQ.tD8WYwyEFOs_viucFwD6XIIXgxRaY2QHHiaJij2LtdM"), STR_LEN("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwibmJmIjo5OTk5OTk5OTk5fQ.tD8WYwyEFOs_viucFwD6XIIXgxRaY2QHHiaJij2LtdM")), tvec(STR_PTR("test-secret-key"), STR_LEN("test-secret-key"))) {
+        Ok(c) => { panic(3118); },
+        Err(e) => { if e == SA_JWT_ERR_NOT_YET_VALID { } else { panic(3119); }; },
+    };
+}
+
+
+@test "jwt rs256: python tokens verify; expired / tampered / nbf distinct"() {
+    match jwt_verify_rs256(tvec(STR_PTR("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyc2EtdXNlciIsImV4cCI6OTk5OTk5OTk5OX0.npNEha0hoH8d5q62H8GTuTij6xVHUI4GJGFRGmxDuS7gu0ASjWRYbw9nHPNJ7V4eKsY06mfBlbTeA-3WuIUZRLa_ClSLCnho86oBl1j_vSVSnoCaSD_HDDmRZ8eG8Pue09HcVg3t5hN46wsF888lLw8qxEo0TTNZbGlOpUV8PAI"), STR_LEN("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyc2EtdXNlciIsImV4cCI6OTk5OTk5OTk5OX0.npNEha0hoH8d5q62H8GTuTij6xVHUI4GJGFRGmxDuS7gu0ASjWRYbw9nHPNJ7V4eKsY06mfBlbTeA-3WuIUZRLa_ClSLCnho86oBl1j_vSVSnoCaSD_HDDmRZ8eG8Pue09HcVg3t5hN46wsF888lLw8qxEo0TTNZbGlOpUV8PAI")), t_hex(STR_PTR("30819f300d06092a864886f70d010101050003818d0030818902818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d70203010001"), STR_LEN("30819f300d06092a864886f70d010101050003818d0030818902818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d70203010001"))) {
+        Ok(c) => {
+            if t_eq(c, tvec(STR_PTR("{\"sub\":\"rsa-user\",\"exp\":9999999999}"), STR_LEN("{\"sub\":\"rsa-user\",\"exp\":9999999999}"))) { } else { panic(3120); };
+        },
+        Err(e) => { panic(3121); },
+    };
+    match jwt_verify_rs256(tvec(STR_PTR("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyc2EtdXNlciIsImV4cCI6MTAwMDAwMDAwMH0.xnf29dQftfp3GQUqm6i4Jpsv4jgdmcLP7723RYL_A34Bwbl7ItAobCJ5R5iF7l06oJ1KbuMsA-2HQwLZOk0oP-iGgOUDyYFo5TsN1v5ilPtrtb7_hZFO0w3NQxTqnjbobNByYYMTp5GlorLW4W3oxFRpGDWFHz7NKCJkRr-WfCQ"), STR_LEN("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyc2EtdXNlciIsImV4cCI6MTAwMDAwMDAwMH0.xnf29dQftfp3GQUqm6i4Jpsv4jgdmcLP7723RYL_A34Bwbl7ItAobCJ5R5iF7l06oJ1KbuMsA-2HQwLZOk0oP-iGgOUDyYFo5TsN1v5ilPtrtb7_hZFO0w3NQxTqnjbobNByYYMTp5GlorLW4W3oxFRpGDWFHz7NKCJkRr-WfCQ")), t_hex(STR_PTR("30819f300d06092a864886f70d010101050003818d0030818902818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d70203010001"), STR_LEN("30819f300d06092a864886f70d010101050003818d0030818902818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d70203010001"))) {
+        Ok(c) => { panic(3122); },
+        Err(e) => { if e == SA_JWT_ERR_EXPIRED { } else { panic(3123); }; },
+    };
+    match jwt_verify_rs256(tvec(STR_PTR("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyc2EtdXNlciIsImV4cCI6OTk5OTk5OTk5OX0.npNEha0hoH8d5q62H8GTuTij6xVHUI4GJGFRGmxDuS7gu0ASjWRYbw9nHPNJ7V4eKsY06mfBlbTeA-3WuIUZRLa_ClSLCnho86oBl1j_vSVSnoCaSD_HDDmRZ8eG8Pue09HcVg3t5hN46wsF888lLw8qxEo0TTNZbGlOpUV8PAA"), STR_LEN("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyc2EtdXNlciIsImV4cCI6OTk5OTk5OTk5OX0.npNEha0hoH8d5q62H8GTuTij6xVHUI4GJGFRGmxDuS7gu0ASjWRYbw9nHPNJ7V4eKsY06mfBlbTeA-3WuIUZRLa_ClSLCnho86oBl1j_vSVSnoCaSD_HDDmRZ8eG8Pue09HcVg3t5hN46wsF888lLw8qxEo0TTNZbGlOpUV8PAA")), t_hex(STR_PTR("30819f300d06092a864886f70d010101050003818d0030818902818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d70203010001"), STR_LEN("30819f300d06092a864886f70d010101050003818d0030818902818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d70203010001"))) {
+        Ok(c) => { panic(3124); },
+        Err(e) => { if e == SA_JWT_ERR_SIGNATURE { } else { panic(3125); }; },
+    };
+    match jwt_verify_rs256(tvec(STR_PTR("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyc2EtdXNlciIsIm5iZiI6OTk5OTk5OTk5OX0.momYPXI3iydYmsJse8VaO3PALXMTq5kfuzo59Vcf7McknvbxmjK0eUrsVBzmHi4681IFpy-eNOokBubRbDW9_lgEvGb6XEXX0ObMvfGjqlr62xNqUrdNUkjpSwodQC_i3H_bkdsketYT1wgskizskTMHCOUgwk4v9YRyo4uHStw"), STR_LEN("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyc2EtdXNlciIsIm5iZiI6OTk5OTk5OTk5OX0.momYPXI3iydYmsJse8VaO3PALXMTq5kfuzo59Vcf7McknvbxmjK0eUrsVBzmHi4681IFpy-eNOokBubRbDW9_lgEvGb6XEXX0ObMvfGjqlr62xNqUrdNUkjpSwodQC_i3H_bkdsketYT1wgskizskTMHCOUgwk4v9YRyo4uHStw")), t_hex(STR_PTR("30819f300d06092a864886f70d010101050003818d0030818902818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d70203010001"), STR_LEN("30819f300d06092a864886f70d010101050003818d0030818902818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d70203010001"))) {
+        Ok(c) => { panic(3126); },
+        Err(e) => { if e == SA_JWT_ERR_NOT_YET_VALID { } else { panic(3127); }; },
+    };
+}
+
+
+@test "jwt: cross-alg tokens are alg errors; malformed tokens are format errors"() {
+    match jwt_verify_rs256(tvec(STR_PTR("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.OHNHhSMtsG4eHunCZe1doUOnLV-Zh43HVi2oKQ-pyAI"), STR_LEN("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJocy11c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.OHNHhSMtsG4eHunCZe1doUOnLV-Zh43HVi2oKQ-pyAI")), t_hex(STR_PTR("30819f300d06092a864886f70d010101050003818d0030818902818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d70203010001"), STR_LEN("30819f300d06092a864886f70d010101050003818d0030818902818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d70203010001"))) {
+        Ok(c) => { panic(3130); },
+        Err(e) => { if e == SA_JWT_ERR_ALG { } else { panic(3131); }; },
+    };
+    match jwt_verify_hs256(tvec(STR_PTR("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyc2EtdXNlciIsImV4cCI6OTk5OTk5OTk5OX0.npNEha0hoH8d5q62H8GTuTij6xVHUI4GJGFRGmxDuS7gu0ASjWRYbw9nHPNJ7V4eKsY06mfBlbTeA-3WuIUZRLa_ClSLCnho86oBl1j_vSVSnoCaSD_HDDmRZ8eG8Pue09HcVg3t5hN46wsF888lLw8qxEo0TTNZbGlOpUV8PAI"), STR_LEN("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyc2EtdXNlciIsImV4cCI6OTk5OTk5OTk5OX0.npNEha0hoH8d5q62H8GTuTij6xVHUI4GJGFRGmxDuS7gu0ASjWRYbw9nHPNJ7V4eKsY06mfBlbTeA-3WuIUZRLa_ClSLCnho86oBl1j_vSVSnoCaSD_HDDmRZ8eG8Pue09HcVg3t5hN46wsF888lLw8qxEo0TTNZbGlOpUV8PAI")), tvec(STR_PTR("test-secret-key"), STR_LEN("test-secret-key"))) {
+        Ok(c) => { panic(3132); },
+        Err(e) => { if e == SA_JWT_ERR_ALG { } else { panic(3133); }; },
+    };
+    match jwt_verify_hs256(tvec(STR_PTR("abc.def"), STR_LEN("abc.def")), tvec(STR_PTR("test-secret-key"), STR_LEN("test-secret-key"))) {
+        Ok(c) => { panic(3134); },
+        Err(e) => { if e == SA_JWT_ERR_FORMAT { } else { panic(3135); }; },
+    };
+    match jwt_verify_hs256(tvec(STR_PTR("a.b.c.d"), STR_LEN("a.b.c.d")), tvec(STR_PTR("test-secret-key"), STR_LEN("test-secret-key"))) {
+        Ok(c) => { panic(3136); },
+        Err(e) => { if e == SA_JWT_ERR_FORMAT { } else { panic(3137); }; },
+    };
+    match jwt_verify_hs256(tvec(STR_PTR("e30.e30.e30"), STR_LEN("e30.e30.e30")), tvec(STR_PTR("test-secret-key"), STR_LEN("test-secret-key"))) {
+        Ok(c) => { panic(3138); },
+        Err(e) => { if e == SA_JWT_ERR_FORMAT { } else { panic(3139); }; },
+    };
+}
+
+
+@test "jwt sign: hs256 and rs256 roundtrips return the signed claims"() {
+    let claims1: Vec<u8> = tvec(STR_PTR("{\"sub\":\"rt\",\"exp\":9999999999}"), STR_LEN("{\"sub\":\"rt\",\"exp\":9999999999}"));
+    let claims2: Vec<u8> = tvec(STR_PTR("{\"sub\":\"rt\",\"exp\":9999999999}"), STR_LEN("{\"sub\":\"rt\",\"exp\":9999999999}"));
+    match jwt_sign_hs256(tvec(STR_PTR("test-secret-key"), STR_LEN("test-secret-key")), claims1) {
+        Ok(tok) => {
+            match jwt_verify_hs256(tok, tvec(STR_PTR("test-secret-key"), STR_LEN("test-secret-key"))) {
+                Ok(c) => {
+                    if t_eq(c, claims2) { } else { panic(3140); };
+                },
+                Err(e) => { panic(3141); },
+            };
+        },
+        Err(e) => { panic(3142); },
+    };
+    let rclaims1: Vec<u8> = tvec(STR_PTR("{\"sub\":\"rt\",\"exp\":9999999999}"), STR_LEN("{\"sub\":\"rt\",\"exp\":9999999999}"));
+    let rclaims2: Vec<u8> = tvec(STR_PTR("{\"sub\":\"rt\",\"exp\":9999999999}"), STR_LEN("{\"sub\":\"rt\",\"exp\":9999999999}"));
+    match jwt_sign_rs256(t_cat(t_cat(t_hex(STR_PTR("30820277020100300d06092a864886f70d0101010500048202613082025d02010002818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d7020301000102818100be3d0f330b1e8c533adbeed636c3fff059292debc1a60fde48a97e428d21e5616b233af2e65ea6f2bbce16a7682cfa3dd40c"), STR_LEN("30820277020100300d06092a864886f70d0101010500048202613082025d02010002818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d7020301000102818100be3d0f330b1e8c533adbeed636c3fff059292debc1a60fde48a97e428d21e5616b233af2e65ea6f2bbce16a7682cfa3dd40c")), t_hex(STR_PTR("1de7477fcbb214f688248ff82b2dae5da4e0ab151185a50be505c3b9283933ef00432f30ad77d274a428511f71bffb240870f8e3aa69f746f9d477fb0099604e23582740e583441e2b18aac65681024100f4c59cd64d14cc21326736468e11c6f9a90f1c90eb4a309854328b8594dbe79749f853a60777c0d891217afa2889aab076144be387bc43d822e4f5df3c1ae721024100d228e6622a7b50b1d6e8a1e9e22f7e6262cd9e3dda2555726b0607a89205867931d8393c1583bcb23a376a156f1e07f0811ac0789aa61821175b0035aa0625f702402f49820c30a604eda0e4"), STR_LEN("1de7477fcbb214f688248ff82b2dae5da4e0ab151185a50be505c3b9283933ef00432f30ad77d274a428511f71bffb240870f8e3aa69f746f9d477fb0099604e23582740e583441e2b18aac65681024100f4c59cd64d14cc21326736468e11c6f9a90f1c90eb4a309854328b8594dbe79749f853a60777c0d891217afa2889aab076144be387bc43d822e4f5df3c1ae721024100d228e6622a7b50b1d6e8a1e9e22f7e6262cd9e3dda2555726b0607a89205867931d8393c1583bcb23a376a156f1e07f0811ac0789aa61821175b0035aa0625f702402f49820c30a604eda0e4"))), t_hex(STR_PTR("29ab25c52f708a059e5a2cea8f4ace71595cfc2e23a6a9a6acda5575002f96922644efd1f0c4d87b01523aa5d76189143c9fdce7c1a1024024098b67edecf36b6b74bcbf04602c85e67767d9275d1b87e13e4975e8843608f63923a75ff1151c62cb39cfaf1c3134568f25ce0886cec06de6d6e45ce16d05024100822447346a0ac873507b98fafa558d6536cbc5d926f7d065d0f7f2d0f680ec8df9fdd444e37a715a0176fd4faae6ffc2eeb77cd6947a49621040b59222dca799"), STR_LEN("29ab25c52f708a059e5a2cea8f4ace71595cfc2e23a6a9a6acda5575002f96922644efd1f0c4d87b01523aa5d76189143c9fdce7c1a1024024098b67edecf36b6b74bcbf04602c85e67767d9275d1b87e13e4975e8843608f63923a75ff1151c62cb39cfaf1c3134568f25ce0886cec06de6d6e45ce16d05024100822447346a0ac873507b98fafa558d6536cbc5d926f7d065d0f7f2d0f680ec8df9fdd444e37a715a0176fd4faae6ffc2eeb77cd6947a49621040b59222dca799"))), rclaims1) {
+        Ok(tok) => {
+            match jwt_verify_rs256(tok, t_hex(STR_PTR("30819f300d06092a864886f70d010101050003818d0030818902818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d70203010001"), STR_LEN("30819f300d06092a864886f70d010101050003818d0030818902818100c8f135cfb3e401d2a0a0fc62e1a23c704c05f00731a4975bc9ddc872b74b42841da08cd620783406a55b163a88d19bfb45d81e3fc6dc17aca006318a79ef07d00a6e06d72080fd41601cb73ac3c6d411f3ea7a6f6063d98dbf087a14f28dd546fdcc9ee4a4cfde2568e175f23b309bae82bf3333f761220554e49e053622c5d70203010001"))) {
+                Ok(c) => {
+                    if t_eq(c, rclaims2) { } else { panic(3143); };
+                },
+                Err(e) => { panic(3144); },
+            };
+        },
+        Err(e) => { panic(3145); },
+    };
+}
+

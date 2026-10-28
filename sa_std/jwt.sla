@@ -1,0 +1,589 @@
+// sa_std/jwt.sla -- JWT (RFC 7519) sign / verify for the two
+// algorithms the sa_std crypto suite supports end to end: HS256
+// (HMAC-SHA256) and RS256 (RSASSA-PKCS1-v1_5 with SHA-256).
+//
+// Why this file exists: the sub2api / new-api censuses found JWT
+// verification (OIDC RS256 in particular) blocked on three separate
+// std gaps at once -- no raw HMAC form, no RSA verify, no base64url.
+// With the STD batch-4 crypto suite in place (sa_std/crypto.sai,
+// sa_std/encoding/base64.sai) the remaining piece is the token
+// plumbing itself, which is pure SLA over those externs plus the
+// JSON handle surface (exp / nbf are read out of the claims JSON).
+//
+// Model choices:
+//   - The algorithm is pinned by the entry point, never negotiated:
+//     jwt_verify_hs256 accepts only alg "HS256", jwt_verify_rs256
+//     only "RS256". A token whose header names the other algorithm
+//     (or anything else) fails with SA_JWT_ERR_ALG before any
+//     signature work -- the classic alg-confusion shape is rejected
+//     structurally, not by a denylist.
+//   - Signatures are checked BEFORE any claim is trusted: exp / nbf
+//     are evaluated only after the signature verifies.
+//   - exp / nbf enforcement: when the claim is present it must be a
+//     JSON integer (NumericDate; a float or string claim is
+//     SA_JWT_ERR_CLAIM, never silently ignored). now >= exp is
+//     SA_JWT_ERR_EXPIRED; now < nbf is SA_JWT_ERR_NOT_YET_VALID.
+//     The clock is sa_time_unix_s().
+//   - On success verify returns the claims (payload) bytes exactly
+//     as they appeared in the token; callers parse the JSON fields
+//     they need with the sa_json_* surface.
+//   - Errors distinguish the failure classes with jwt-specific
+//     negative codes (the tls_server.sla precedent: SA_STD statuses
+//     are >= 0, domain codes are negative). Malformed key material
+//     and other mechanical extern failures pass the underlying
+//     SA_STD status through unchanged.
+//   - Size caps (explicit errors, never silent truncation):
+//     token <= 4096 bytes, header/payload JSON <= 2048 bytes,
+//     signing input <= 4096 bytes, key DER <= 2048 bytes,
+//     HMAC secret <= 1024 bytes, decoded signature <= 512 bytes.
+//     A larger RSA key or an oversized claims set is a caller
+//     error (SA_STD_ERR_INVALID_ARGUMENT), not a fallback path.
+//
+// Implementation note: a stack array's address is materialized
+// ONCE into a ptr local per function (PTR_BYTE_ADD over the array
+// consumes the array value in the ownership checker); every extern
+// call and staging step then reuses that ptr.
+
+@import "sa_std/crypto.sai"
+@import "sa_std/encoding/base64.sai"
+@import "sa_std/encoding/json.sai"
+@import "sa_std/time.sai"
+@import "sa_std/string.sa"
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+@import "sa_std/ptr.sa"
+@import "sa_std/status.sla"
+
+// JWT failure classes (negative: distinct from SA_STD statuses).
+const SA_JWT_ERR_FORMAT: i32 = -201; // not 3 parts / bad base64url / header or claims not a JSON object / no alg
+const SA_JWT_ERR_ALG: i32 = -202; // alg header is not the entry point's algorithm
+const SA_JWT_ERR_SIGNATURE: i32 = -203; // signature does not verify
+const SA_JWT_ERR_EXPIRED: i32 = -204; // exp present and now >= exp
+const SA_JWT_ERR_NOT_YET_VALID: i32 = -205; // nbf present and now < nbf
+const SA_JWT_ERR_CLAIM: i32 = -206; // exp / nbf present but not a JSON integer
+
+const JWT_MAX_TOKEN: u64 = 4096;
+const JWT_MAX_JSON: u64 = 2048;
+const JWT_MAX_INPUT: u64 = 4096;
+const JWT_MAX_KEY: u64 = 2048;
+const JWT_MAX_SECRET: u64 = 1024;
+const JWT_MAX_SIG: u64 = 512;
+const JWT_B64_OF_JSON: u64 = 2736; // base64url of JWT_MAX_JSON, rounded up
+
+// ---- byte helpers (dns.sla / net_info.sla staging idioms) ----
+
+fn jwt_sl_len(sl: &Slice<u8>) -> u64 {
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    return n;
+}
+
+fn jwt_get(sl: &Slice<u8>, off: u64) -> u8 {
+    let b: u8 = 0;
+    SLICE_GET(b, sl, off);
+    return b;
+}
+
+// Copies sl[start..end] into a fresh Vec.
+fn jwt_range(sl: &Slice<u8>, start: u64, end: u64) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = start;
+    while i < end {
+        out.push(jwt_get(sl, i));
+        i = i + 1;
+    }
+    return out;
+}
+
+// Appends all bytes of src to dst.
+fn jwt_push_all(dst: Vec<u8>, src: Vec<u8>) -> Vec<u8> {
+    let sl: Slice<u8> = VEC_AS_SLICE(src);
+    let n: u64 = jwt_sl_len(&sl);
+    let i: u64 = 0;
+    while i < n {
+        dst.push(jwt_get(&sl, i));
+        i = i + 1;
+    }
+    return dst;
+}
+
+// Builds a Vec from a raw (ptr, len) range (literals, JSON string
+// values) in 256-byte staged chunks.
+fn jwt_vec_from_ptr(data: ptr, total: u64) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    let chunk: [u8; 256] = [0u8; 256];
+    let dst: ptr = PTR_BYTE_ADD(&chunk, 0);
+    let off: u64 = 0;
+    while off < total {
+        let n: u64 = total - off;
+        if n > 256 {
+            n = 256;
+        };
+        let src: ptr = PTR_BYTE_ADD(data, off);
+        PTR_COPY_BYTES(dst, src, n);
+        let i: u64 = 0;
+        while i < n {
+            out.push(chunk[i]);
+            i = i + 1;
+        }
+        off = off + n;
+    }
+    return out;
+}
+
+// Stages a byte Vec into the buffer at dst (borrowed: the Vec
+// stays alive for the caller); the caller checked the length
+// against the buffer size beforehand.
+fn jwt_stage(dst: ptr, v: &Vec<u8>) {
+    let sl: Slice<u8> = VEC_AS_SLICE(v);
+    let n: u64 = jwt_sl_len(&sl);
+    let chunk: [u8; 256] = [0u8; 256];
+    let cp: ptr = PTR_BYTE_ADD(&chunk, 0);
+    let off: u64 = 0;
+    while off < n {
+        let m: u64 = n - off;
+        if m > 256 {
+            m = 256;
+        };
+        let i: u64 = 0;
+        while i < m {
+            chunk[i] = jwt_get(&sl, off + i);
+            i = i + 1;
+        }
+        let d: ptr = PTR_BYTE_ADD(dst, off);
+        PTR_COPY_BYTES(d, cp, m);
+        off = off + m;
+    }
+}
+
+// Collects n bytes out of a buffer into a Vec.
+fn jwt_collect(arr: ptr, n: u64) -> Vec<u8> {
+    return jwt_vec_from_ptr(arr, n);
+}
+
+// ---- base64url over the crypto externs ----
+
+fn jwt_b64_encode(data: Vec<u8>) -> Result<Vec<u8>, i32> {
+    let n: u64 = len(data) as u64;
+    if n > JWT_MAX_JSON {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let in_arr: [u8; 2048] = [0u8; 2048];
+    let in_p: ptr = PTR_BYTE_ADD(&in_arr, 0);
+    jwt_stage(in_p, &data);
+    let out_arr: [u8; 2736] = [0u8; 2736];
+    let out_p: ptr = PTR_BYTE_ADD(&out_arr, 0);
+    let out_len: u64 = 0;
+    let st: i32 = sa_base64url_encode(in_p, n, out_p, JWT_B64_OF_JSON, &out_len);
+    if st != SA_STD_OK {
+        return Err(st);
+    };
+    return Ok(jwt_collect(out_p, out_len));
+}
+
+fn jwt_b64_decode(text: Vec<u8>) -> Result<Vec<u8>, i32> {
+    let n: u64 = len(text) as u64;
+    if n > JWT_B64_OF_JSON {
+        return Err(SA_JWT_ERR_FORMAT);
+    };
+    let in_arr: [u8; 2736] = [0u8; 2736];
+    let in_p: ptr = PTR_BYTE_ADD(&in_arr, 0);
+    jwt_stage(in_p, &text);
+    let out_arr: [u8; 2048] = [0u8; 2048];
+    let out_p: ptr = PTR_BYTE_ADD(&out_arr, 0);
+    let out_len: u64 = 0;
+    let st: i32 = sa_base64url_decode(in_p, n, out_p, JWT_MAX_JSON, &out_len);
+    if st != SA_STD_OK {
+        return Err(SA_JWT_ERR_FORMAT);
+    };
+    return Ok(jwt_collect(out_p, out_len));
+}
+
+// A signature part can decode to at most JWT_MAX_SIG bytes; it is
+// decoded through a wider path than JSON payloads.
+fn jwt_b64_decode_sig(text: Vec<u8>) -> Result<Vec<u8>, i32> {
+    let n: u64 = len(text) as u64;
+    if n > 688 {
+        return Err(SA_JWT_ERR_FORMAT);
+    };
+    let in_arr: [u8; 688] = [0u8; 688];
+    let in_p: ptr = PTR_BYTE_ADD(&in_arr, 0);
+    jwt_stage(in_p, &text);
+    let out_arr: [u8; 512] = [0u8; 512];
+    let out_p: ptr = PTR_BYTE_ADD(&out_arr, 0);
+    let out_len: u64 = 0;
+    let st: i32 = sa_base64url_decode(in_p, n, out_p, JWT_MAX_SIG, &out_len);
+    if st != SA_STD_OK {
+        return Err(SA_JWT_ERR_FORMAT);
+    };
+    return Ok(jwt_collect(out_p, out_len));
+}
+
+// ---- signing ----
+
+fn jwt_dot() -> Vec<u8> {
+    let v: Vec<u8> = Vec::new();
+    v.push(46);
+    return v;
+}
+
+// Assembles header_b64.claims_b64 with the dot separator.
+fn jwt_join_input(header_b64: Vec<u8>, claims_b64: Vec<u8>) -> Vec<u8> {
+    let out: Vec<u8> = jwt_push_all(Vec::new(), header_b64);
+    let out2: Vec<u8> = jwt_push_all(out, jwt_dot());
+    return jwt_push_all(out2, claims_b64);
+}
+
+fn jwt_signing_input(header_json: ptr, header_len: u64, claims: Vec<u8>) -> Result<Vec<u8>, i32> {
+    let header_b64: Vec<u8> = Vec::new();
+    match jwt_b64_encode(jwt_vec_from_ptr(header_json, header_len)) {
+        Ok(v) => {
+            header_b64 = v;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    let claims_b64: Vec<u8> = Vec::new();
+    match jwt_b64_encode(claims) {
+        Ok(v) => {
+            claims_b64 = v;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    return Ok(jwt_join_input(header_b64, claims_b64));
+}
+
+fn jwt_build_token(input: Vec<u8>, sig: Vec<u8>) -> Result<Vec<u8>, i32> {
+    let sig_b64: Vec<u8> = Vec::new();
+    match jwt_b64_encode(sig) {
+        Ok(v) => {
+            sig_b64 = v;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    let out: Vec<u8> = jwt_push_all(input, jwt_dot());
+    return Ok(jwt_push_all(out, sig_b64));
+}
+
+// HS256: token = b64(header).b64(claims).b64(HMAC-SHA256(secret,
+// signing input)). The claims bytes are signed verbatim -- callers
+// build the JSON themselves (the sa_json_* writer surface works).
+fn jwt_sign_hs256(secret: Vec<u8>, claims: Vec<u8>) -> Result<Vec<u8>, i32> {
+    let input: Vec<u8> = Vec::new();
+    match jwt_signing_input(STR_PTR("{\"alg\":\"HS256\",\"typ\":\"JWT\"}"), STR_LEN("{\"alg\":\"HS256\",\"typ\":\"JWT\"}"), claims) {
+        Ok(v) => {
+            input = v;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    let secret_len: u64 = len(secret) as u64;
+    let input_len: u64 = len(input) as u64;
+    if secret_len > JWT_MAX_SECRET || input_len > JWT_MAX_INPUT {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let key_arr: [u8; 1024] = [0u8; 1024];
+    let key_p: ptr = PTR_BYTE_ADD(&key_arr, 0);
+    jwt_stage(key_p, &secret);
+    let in_arr: [u8; 4096] = [0u8; 4096];
+    let in_p: ptr = PTR_BYTE_ADD(&in_arr, 0);
+    jwt_stage(in_p, &input);
+    let mac: [u8; 32] = [0u8; 32];
+    let mac_p: ptr = PTR_BYTE_ADD(&mac, 0);
+    let st: i32 = sa_hmac_sha256(key_p, secret_len, in_p, input_len, mac_p);
+    if st != SA_STD_OK {
+        return Err(st);
+    };
+    return jwt_build_token(input, jwt_collect(mac_p, 32));
+}
+
+// RS256: the RSA private key is PKCS#8 (or bare PKCS#1) DER; the
+// signature is RSASSA-PKCS1-v1_5 over SHA-256(signing input).
+fn jwt_sign_rs256(pkcs8_der: Vec<u8>, claims: Vec<u8>) -> Result<Vec<u8>, i32> {
+    let input: Vec<u8> = Vec::new();
+    match jwt_signing_input(STR_PTR("{\"alg\":\"RS256\",\"typ\":\"JWT\"}"), STR_LEN("{\"alg\":\"RS256\",\"typ\":\"JWT\"}"), claims) {
+        Ok(v) => {
+            input = v;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    let key_len: u64 = len(pkcs8_der) as u64;
+    let input_len: u64 = len(input) as u64;
+    if key_len > JWT_MAX_KEY || input_len > JWT_MAX_INPUT {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let in_arr: [u8; 4096] = [0u8; 4096];
+    let in_p: ptr = PTR_BYTE_ADD(&in_arr, 0);
+    jwt_stage(in_p, &input);
+    let digest: [u8; 32] = [0u8; 32];
+    let digest_p: ptr = PTR_BYTE_ADD(&digest, 0);
+    let dst: i32 = sa_sha256(in_p, input_len, digest_p);
+    if dst != SA_STD_OK {
+        return Err(dst);
+    };
+    let key_arr: [u8; 2048] = [0u8; 2048];
+    let key_p: ptr = PTR_BYTE_ADD(&key_arr, 0);
+    jwt_stage(key_p, &pkcs8_der);
+    let sig_arr: [u8; 512] = [0u8; 512];
+    let sig_p: ptr = PTR_BYTE_ADD(&sig_arr, 0);
+    let sig_len: u64 = 0;
+    let st: i32 = sa_rsa_pkcs1_sign(key_p, key_len, 0, digest_p, 32, sig_p, JWT_MAX_SIG, &sig_len);
+    if st != SA_STD_OK {
+        return Err(st);
+    };
+    return jwt_build_token(input, jwt_collect(sig_p, sig_len));
+}
+
+// ---- verification ----
+
+struct JwtParts {
+    input: Vec<u8>,
+    payload: Vec<u8>,
+    sig: Vec<u8>,
+    status: i32,
+}
+
+fn jwt_parts_fail(status: i32) -> JwtParts {
+    return JwtParts { input: Vec::new(), payload: Vec::new(), sig: Vec::new(), status: status };
+}
+
+// Splits the token, decodes the parts, and pins the header alg to
+// the entry point's algorithm. Signature and claims checks are the
+// callers' next steps.
+fn jwt_split(token: Vec<u8>, alg: ptr, alg_len: u64) -> JwtParts {
+    if (len(token) as u64) > JWT_MAX_TOKEN {
+        return jwt_parts_fail(SA_JWT_ERR_FORMAT);
+    };
+    let sl: Slice<u8> = VEC_AS_SLICE(token);
+    let n: u64 = jwt_sl_len(&sl);
+    let d1: u64 = n;
+    let d2: u64 = n;
+    let i: u64 = 0;
+    while i < n {
+        if jwt_get(&sl, i) == 46 {
+            if d1 == n {
+                d1 = i;
+            } else {
+                if d2 == n {
+                    d2 = i;
+                } else {
+                    return jwt_parts_fail(SA_JWT_ERR_FORMAT); // a third dot
+                };
+            };
+        };
+        i = i + 1;
+    }
+    if d1 == n || d2 == n || d1 == 0 || d2 == d1 + 1 || d2 + 1 >= n {
+        return jwt_parts_fail(SA_JWT_ERR_FORMAT);
+    };
+    let header: Vec<u8> = Vec::new();
+    match jwt_b64_decode(jwt_range(&sl, 0, d1)) {
+        Ok(v) => {
+            header = v;
+        },
+        Err(e) => {
+            return jwt_parts_fail(e);
+        },
+    };
+    let payload: Vec<u8> = Vec::new();
+    match jwt_b64_decode(jwt_range(&sl, d1 + 1, d2)) {
+        Ok(v) => {
+            payload = v;
+        },
+        Err(e) => {
+            return jwt_parts_fail(e);
+        },
+    };
+    let sig: Vec<u8> = Vec::new();
+    match jwt_b64_decode_sig(jwt_range(&sl, d2 + 1, n)) {
+        Ok(v) => {
+            sig = v;
+        },
+        Err(e) => {
+            return jwt_parts_fail(e);
+        },
+    };
+    // Header must be a JSON object whose alg is exactly the pinned
+    // algorithm for this entry point.
+    if (len(header) as u64) > JWT_MAX_JSON {
+        return jwt_parts_fail(SA_JWT_ERR_FORMAT);
+    };
+    let h_arr: [u8; 2048] = [0u8; 2048];
+    let h_p: ptr = PTR_BYTE_ADD(&h_arr, 0);
+    jwt_stage(h_p, &header);
+    let doc: u64 = sa_json_parse(h_p, len(header) as u64);
+    if doc == 0 {
+        return jwt_parts_fail(SA_JWT_ERR_FORMAT);
+    };
+    if sa_json_kind(doc) != 7 {
+        let f0: i32 = sa_json_free(doc);
+        return jwt_parts_fail(SA_JWT_ERR_FORMAT);
+    };
+    let alg_p: ptr = STR_PTR("");
+    let alg_l: u64 = 0;
+    let gst: i32 = sa_json_object_get_string(doc, STR_PTR("alg"), STR_LEN("alg"), &alg_p, &alg_l);
+    let f1: i32 = sa_json_free(doc);
+    if gst != SA_STD_OK {
+        return jwt_parts_fail(SA_JWT_ERR_FORMAT);
+    };
+    if alg_l != alg_len {
+        return jwt_parts_fail(SA_JWT_ERR_ALG);
+    };
+    let want: Vec<u8> = jwt_vec_from_ptr(alg, alg_len);
+    let got: Vec<u8> = jwt_vec_from_ptr(alg_p, alg_l);
+    let wsl: Slice<u8> = VEC_AS_SLICE(want);
+    let gsl: Slice<u8> = VEC_AS_SLICE(got);
+    let k: u64 = 0;
+    while k < alg_len {
+        if jwt_get(&wsl, k) != jwt_get(&gsl, k) {
+            return jwt_parts_fail(SA_JWT_ERR_ALG);
+        };
+        k = k + 1;
+    }
+    let input: Vec<u8> = jwt_range(&sl, 0, d2);
+    return JwtParts { input: input, payload: payload, sig: sig, status: 0 };
+}
+
+// exp / nbf enforcement over the (already signature-verified)
+// claims bytes.
+fn jwt_check_times(payload: &Vec<u8>) -> i32 {
+    if (len(payload) as u64) > JWT_MAX_JSON {
+        return SA_JWT_ERR_FORMAT;
+    };
+    let arr: [u8; 2048] = [0u8; 2048];
+    let arr_p: ptr = PTR_BYTE_ADD(&arr, 0);
+    jwt_stage(arr_p, payload);
+    let doc: u64 = sa_json_parse(arr_p, len(payload) as u64);
+    if doc == 0 {
+        return SA_JWT_ERR_FORMAT;
+    };
+    if sa_json_kind(doc) != 7 {
+        let f0: i32 = sa_json_free(doc);
+        return SA_JWT_ERR_FORMAT;
+    };
+    let now: i64 = sa_time_unix_s();
+    let exp: i64 = 0;
+    let est: i32 = sa_json_object_get_i64(doc, STR_PTR("exp"), STR_LEN("exp"), &exp);
+    if est == SA_STD_OK {
+        if now >= exp {
+            let f1: i32 = sa_json_free(doc);
+            return SA_JWT_ERR_EXPIRED;
+        };
+    } else {
+        if est != SA_STD_ERR_NOT_FOUND {
+            let f2: i32 = sa_json_free(doc);
+            return SA_JWT_ERR_CLAIM;
+        };
+    };
+    let nbf: i64 = 0;
+    let nst: i32 = sa_json_object_get_i64(doc, STR_PTR("nbf"), STR_LEN("nbf"), &nbf);
+    let f3: i32 = sa_json_free(doc);
+    if nst == SA_STD_OK {
+        if now < nbf {
+            return SA_JWT_ERR_NOT_YET_VALID;
+        };
+        return SA_STD_OK;
+    };
+    if nst != SA_STD_ERR_NOT_FOUND {
+        return SA_JWT_ERR_CLAIM;
+    };
+    return SA_STD_OK;
+}
+
+// HS256 verify: constant-time MAC comparison, then claims time
+// checks. Returns the claims bytes on success.
+fn jwt_verify_hs256(token: Vec<u8>, secret: Vec<u8>) -> Result<Vec<u8>, i32> {
+    let parts: JwtParts = jwt_split(token, STR_PTR("HS256"), STR_LEN("HS256"));
+    if parts.status != 0 {
+        return Err(parts.status);
+    };
+    let sig_len: u64 = len(parts.sig) as u64;
+    if sig_len != 32 {
+        return Err(SA_JWT_ERR_SIGNATURE);
+    };
+    let secret_len: u64 = len(secret) as u64;
+    let input_len: u64 = len(parts.input) as u64;
+    if secret_len > JWT_MAX_SECRET || input_len > JWT_MAX_INPUT {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let key_arr: [u8; 1024] = [0u8; 1024];
+    let key_p: ptr = PTR_BYTE_ADD(&key_arr, 0);
+    jwt_stage(key_p, &secret);
+    let in_arr: [u8; 4096] = [0u8; 4096];
+    let in_p: ptr = PTR_BYTE_ADD(&in_arr, 0);
+    jwt_stage(in_p, &parts.input);
+    let mac: [u8; 32] = [0u8; 32];
+    let mac_p: ptr = PTR_BYTE_ADD(&mac, 0);
+    let st: i32 = sa_hmac_sha256(key_p, secret_len, in_p, input_len, mac_p);
+    if st != SA_STD_OK {
+        return Err(st);
+    };
+    let sig_arr: [u8; 32] = [0u8; 32];
+    let sig_p: ptr = PTR_BYTE_ADD(&sig_arr, 0);
+    jwt_stage(sig_p, &parts.sig);
+    let eq: u32 = 0;
+    let cst: i32 = sa_crypto_timing_safe_equal(mac_p, 32, sig_p, 32, &eq);
+    if cst != SA_STD_OK {
+        return Err(cst);
+    };
+    if eq != 1 {
+        return Err(SA_JWT_ERR_SIGNATURE);
+    };
+    let tst: i32 = jwt_check_times(&parts.payload);
+    if tst != SA_STD_OK {
+        return Err(tst);
+    };
+    return Ok(parts.payload);
+}
+
+// RS256 verify: the public key is SPKI (or bare PKCS#1) DER --
+// e.g. extracted from a JWKS JWK via sa_rsa_jwk_to_spki, or from a
+// certificate via sa_x509_spki.
+fn jwt_verify_rs256(token: Vec<u8>, spki_der: Vec<u8>) -> Result<Vec<u8>, i32> {
+    let parts: JwtParts = jwt_split(token, STR_PTR("RS256"), STR_LEN("RS256"));
+    if parts.status != 0 {
+        return Err(parts.status);
+    };
+    let key_len: u64 = len(spki_der) as u64;
+    let input_len: u64 = len(parts.input) as u64;
+    let sig_len: u64 = len(parts.sig) as u64;
+    if key_len > JWT_MAX_KEY || input_len > JWT_MAX_INPUT {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let in_arr: [u8; 4096] = [0u8; 4096];
+    let in_p: ptr = PTR_BYTE_ADD(&in_arr, 0);
+    jwt_stage(in_p, &parts.input);
+    let digest: [u8; 32] = [0u8; 32];
+    let digest_p: ptr = PTR_BYTE_ADD(&digest, 0);
+    let dst: i32 = sa_sha256(in_p, input_len, digest_p);
+    if dst != SA_STD_OK {
+        return Err(dst);
+    };
+    let key_arr: [u8; 2048] = [0u8; 2048];
+    let key_p: ptr = PTR_BYTE_ADD(&key_arr, 0);
+    jwt_stage(key_p, &spki_der);
+    let sig_arr: [u8; 512] = [0u8; 512];
+    let sig_p: ptr = PTR_BYTE_ADD(&sig_arr, 0);
+    jwt_stage(sig_p, &parts.sig);
+    let valid: u32 = 0;
+    let st: i32 = sa_rsa_pkcs1_verify(key_p, key_len, 0, digest_p, 32, sig_p, sig_len, &valid);
+    if st != SA_STD_OK {
+        return Err(st);
+    };
+    if valid != 1 {
+        return Err(SA_JWT_ERR_SIGNATURE);
+    };
+    let tst: i32 = jwt_check_times(&parts.payload);
+    if tst != SA_STD_OK {
+        return Err(tst);
+    };
+    return Ok(parts.payload);
+}
