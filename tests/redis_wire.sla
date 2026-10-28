@@ -1,0 +1,428 @@
+// Wire-codec tests for sa_std/redis.sla: the RESP frame encoder
+// and the RESP2/RESP3 reply parser, exercised purely (no server).
+// Live behavior against a real redis-server lives in
+// tests/redis_client_loopback.sla.
+
+@import "sa_std/redis.sla"
+
+fn p(v: Vec<u8>, text: ptr, n: u64) -> Vec<u8> {
+    return redis_push_lit(v, text, n);
+}
+
+fn crlf(v: Vec<u8>) -> Vec<u8> {
+    v.push(13);
+    v.push(10);
+    return v;
+}
+
+fn bytes(text: ptr, n: u64) -> Vec<u8> {
+    let v: Vec<u8> = Vec::new();
+    return redis_push_lit(v, text, n);
+}
+
+fn expect_bytes(got: Vec<u8>, want: Vec<u8>, code: u32) {
+    if redis_bytes_eq(got, want) == false {
+        panic(code);
+    };
+}
+
+fn must_parse(wire: Vec<u8>, code: u32) -> RedisParse {
+    let r = redis_parse_reply(wire);
+    if r.status != SA_STD_OK {
+        panic(code);
+    };
+    if r.ready == false {
+        panic(code + 1);
+    };
+    return r;
+}
+
+fn must_incomplete(wire: Vec<u8>, code: u32) {
+    let r = redis_parse_reply(wire);
+    if r.status != SA_STD_OK {
+        panic(code);
+    };
+    if r.ready {
+        panic(code + 1);
+    };
+}
+
+fn must_malformed(wire: Vec<u8>, code: u32) {
+    let r = redis_parse_reply(wire);
+    if r.status == SA_STD_OK {
+        panic(code);
+    };
+    if r.ready {
+        panic(code + 1);
+    };
+}
+
+// ----------------------------------------------------------------
+// Encoder
+// ----------------------------------------------------------------
+
+@test "args frame for GET key is byte exact"() {
+    let a = redis_args_new();
+    a = redis_args_push_lit(a, STR_PTR("GET"), STR_LEN("GET"));
+    a = redis_args_push(a, bytes(STR_PTR("key"), STR_LEN("key")));
+    let frame = redis_args_frame(a);
+    let want: Vec<u8> = Vec::new();
+    want = p(want, STR_PTR("*2"), STR_LEN("*2"));
+    want = crlf(want);
+    want = p(want, STR_PTR("$3"), STR_LEN("$3"));
+    want = crlf(want);
+    want = p(want, STR_PTR("GET"), STR_LEN("GET"));
+    want = crlf(want);
+    want = p(want, STR_PTR("$3"), STR_LEN("$3"));
+    want = crlf(want);
+    want = p(want, STR_PTR("key"), STR_LEN("key"));
+    want = crlf(want);
+    expect_bytes(frame, want, 1001);
+};
+
+@test "args push int spells negatives and extremes"() {
+    let a = redis_args_new();
+    a = redis_args_push_lit(a, STR_PTR("INCRBY"), STR_LEN("INCRBY"));
+    a = redis_args_push(a, bytes(STR_PTR("n"), STR_LEN("n")));
+    a = redis_args_push_int(a, 0 - 5);
+    let frame = redis_args_frame(a);
+    let want: Vec<u8> = Vec::new();
+    want = p(want, STR_PTR("*3"), STR_LEN("*3"));
+    want = crlf(want);
+    want = p(want, STR_PTR("$6"), STR_LEN("$6"));
+    want = crlf(want);
+    want = p(want, STR_PTR("INCRBY"), STR_LEN("INCRBY"));
+    want = crlf(want);
+    want = p(want, STR_PTR("$1"), STR_LEN("$1"));
+    want = crlf(want);
+    want = p(want, STR_PTR("n"), STR_LEN("n"));
+    want = crlf(want);
+    want = p(want, STR_PTR("$2"), STR_LEN("$2"));
+    want = crlf(want);
+    want = p(want, STR_PTR("-5"), STR_LEN("-5"));
+    want = crlf(want);
+    expect_bytes(frame, want, 1011);
+};
+
+@test "i64 decimal spelling round trips through the parser"() {
+    let cases: Vec<i64> = Vec::new();
+    cases.push(0);
+    cases.push(7);
+    cases.push(0 - 42);
+    cases.push(9223372036854775807);
+    cases.push(0 - 9223372036854775807 - 1);
+    let i: u64 = 0;
+    while i < 5 {
+        let sl: Slice<i64> = VEC_AS_SLICE(cases);
+        let v: i64 = 0;
+        SLICE_GET(v, sl, i);
+        let text: Vec<u8> = Vec::new();
+        text = redis_push_i64(text, v);
+        let tsl: Slice<u8> = VEC_AS_SLICE(text);
+        let parsed = redis_parse_i64(&tsl, 0, len(text) as u64);
+        if parsed.ok == false {
+            panic(1021);
+        };
+        if parsed.value != v {
+            panic(1022);
+        };
+        i = i + 1;
+    }
+    // Overflow spellings are rejected, never wrapped.
+    let big = bytes(STR_PTR("9223372036854775808"), STR_LEN("9223372036854775808"));
+    let bsl: Slice<u8> = VEC_AS_SLICE(big);
+    let over = redis_parse_i64(&bsl, 0, len(big) as u64);
+    if over.ok {
+        panic(1023);
+    };
+    let junk = bytes(STR_PTR("12a"), STR_LEN("12a"));
+    let jsl: Slice<u8> = VEC_AS_SLICE(junk);
+    let bad = redis_parse_i64(&jsl, 0, len(junk) as u64);
+    if bad.ok {
+        panic(1024);
+    };
+};
+
+// ----------------------------------------------------------------
+// Parser: RESP2 shapes
+// ----------------------------------------------------------------
+
+@test "parse simple string error and integer"() {
+    let w1: Vec<u8> = Vec::new();
+    w1 = p(w1, STR_PTR("+OK"), STR_LEN("+OK"));
+    w1 = crlf(w1);
+    let r1 = must_parse(w1, 1101);
+    if redis_value_kind(&r1.value) != SA_REDIS_KIND_SIMPLE { panic(1103); };
+    expect_bytes(redis_value_bulk(&r1.value), bytes(STR_PTR("OK"), STR_LEN("OK")), 1104);
+    if r1.next_pos != 5 { panic(1105); };
+
+    let w2: Vec<u8> = Vec::new();
+    w2 = p(w2, STR_PTR("-WRONGTYPE nope"), STR_LEN("-WRONGTYPE nope"));
+    w2 = crlf(w2);
+    let r2 = must_parse(w2, 1111);
+    if redis_value_kind(&r2.value) != SA_REDIS_KIND_ERROR { panic(1113); };
+    expect_bytes(redis_value_bulk(&r2.value), bytes(STR_PTR("WRONGTYPE nope"), STR_LEN("WRONGTYPE nope")), 1114);
+
+    let w3: Vec<u8> = Vec::new();
+    w3 = p(w3, STR_PTR(":-99"), STR_LEN(":-99"));
+    w3 = crlf(w3);
+    let r3 = must_parse(w3, 1121);
+    if redis_value_kind(&r3.value) != SA_REDIS_KIND_INTEGER { panic(1123); };
+    if redis_value_int(&r3.value) != 0 - 99 { panic(1124); };
+};
+
+@test "parse bulk string including embedded CRLF and null forms"() {
+    let w1: Vec<u8> = Vec::new();
+    w1 = p(w1, STR_PTR("$5"), STR_LEN("$5"));
+    w1 = crlf(w1);
+    w1 = p(w1, STR_PTR("hello"), STR_LEN("hello"));
+    w1 = crlf(w1);
+    let r1 = must_parse(w1, 1201);
+    if redis_value_kind(&r1.value) != SA_REDIS_KIND_BULK { panic(1203); };
+    expect_bytes(redis_value_bulk(&r1.value), bytes(STR_PTR("hello"), STR_LEN("hello")), 1204);
+
+    // Content "a\r\nb" (4 bytes) framed by its own CRLF.
+    let w2: Vec<u8> = Vec::new();
+    w2 = p(w2, STR_PTR("$4"), STR_LEN("$4"));
+    w2 = crlf(w2);
+    w2.push(97);
+    w2 = crlf(w2);
+    w2.push(98);
+    w2 = crlf(w2);
+    let r2 = must_parse(w2, 1211);
+    let want2: Vec<u8> = Vec::new();
+    want2.push(97);
+    want2 = crlf(want2);
+    want2.push(98);
+    expect_bytes(redis_value_bulk(&r2.value), want2, 1214);
+
+    let w3: Vec<u8> = Vec::new();
+    w3 = p(w3, STR_PTR("$-1"), STR_LEN("$-1"));
+    w3 = crlf(w3);
+    let r3 = must_parse(w3, 1221);
+    if redis_value_is_null(&r3.value) == false { panic(1223); };
+
+    let w4: Vec<u8> = Vec::new();
+    w4 = p(w4, STR_PTR("*-1"), STR_LEN("*-1"));
+    w4 = crlf(w4);
+    let r4 = must_parse(w4, 1231);
+    if redis_value_is_null(&r4.value) == false { panic(1233); };
+
+    // An empty bulk is a value, not a null.
+    let w5: Vec<u8> = Vec::new();
+    w5 = p(w5, STR_PTR("$0"), STR_LEN("$0"));
+    w5 = crlf(w5);
+    w5 = crlf(w5);
+    let r5 = must_parse(w5, 1241);
+    if redis_value_kind(&r5.value) != SA_REDIS_KIND_BULK { panic(1243); };
+    if (len(redis_value_bulk(&r5.value)) as u64) != 0 { panic(1244); };
+};
+
+@test "parse nested arrays and trailing bytes"() {
+    let w: Vec<u8> = Vec::new();
+    w = p(w, STR_PTR("*2"), STR_LEN("*2"));
+    w = crlf(w);
+    w = p(w, STR_PTR("*3"), STR_LEN("*3"));
+    w = crlf(w);
+    w = p(w, STR_PTR(":1"), STR_LEN(":1"));
+    w = crlf(w);
+    w = p(w, STR_PTR(":2"), STR_LEN(":2"));
+    w = crlf(w);
+    w = p(w, STR_PTR(":3"), STR_LEN(":3"));
+    w = crlf(w);
+    w = p(w, STR_PTR("$5"), STR_LEN("$5"));
+    w = crlf(w);
+    w = p(w, STR_PTR("hello"), STR_LEN("hello"));
+    w = crlf(w);
+    let total: u64 = len(w) as u64;
+    w = p(w, STR_PTR("+PONG"), STR_LEN("+PONG"));
+    w = crlf(w);
+    let r = must_parse(w, 1301);
+    if redis_value_kind(&r.value) != SA_REDIS_KIND_ARRAY { panic(1303); };
+    if redis_value_child_count(&r.value) != 2 { panic(1304); };
+    if redis_value_child_kind(&r.value, 0) != SA_REDIS_KIND_ARRAY { panic(1305); };
+    if redis_value_child_int(&r.value, 0) != 0 { panic(1306); };
+    let inner = redis_value_child(&r.value, 0);
+    if redis_value_child_count(&inner) != 3 { panic(1307); };
+    if redis_value_child_int(&inner, 2) != 3 { panic(1308); };
+    expect_bytes(redis_value_child_bulk(&r.value, 1), bytes(STR_PTR("hello"), STR_LEN("hello")), 1309);
+    // The second value in the buffer is left for the next parse.
+    if r.next_pos != total { panic(1310); };
+};
+
+// ----------------------------------------------------------------
+// Parser: RESP3 shapes
+// ----------------------------------------------------------------
+
+@test "parse resp3 map set push bool double bigint verbatim blob error null"() {
+    // Map {foo: bar}
+    let wm: Vec<u8> = Vec::new();
+    wm = p(wm, STR_PTR("%1"), STR_LEN("%1"));
+    wm = crlf(wm);
+    wm = p(wm, STR_PTR("$3"), STR_LEN("$3"));
+    wm = crlf(wm);
+    wm = p(wm, STR_PTR("foo"), STR_LEN("foo"));
+    wm = crlf(wm);
+    wm = p(wm, STR_PTR("$3"), STR_LEN("$3"));
+    wm = crlf(wm);
+    wm = p(wm, STR_PTR("bar"), STR_LEN("bar"));
+    wm = crlf(wm);
+    let rm = must_parse(wm, 1401);
+    if redis_value_kind(&rm.value) != SA_REDIS_KIND_MAP { panic(1403); };
+    if redis_value_pair_count(&rm.value) != 1 { panic(1404); };
+    expect_bytes(redis_value_child_bulk(&rm.value, 0), bytes(STR_PTR("foo"), STR_LEN("foo")), 1405);
+    expect_bytes(redis_value_child_bulk(&rm.value, 1), bytes(STR_PTR("bar"), STR_LEN("bar")), 1406);
+
+    // Set {a, b}
+    let ws: Vec<u8> = Vec::new();
+    ws = p(ws, STR_PTR("~2"), STR_LEN("~2"));
+    ws = crlf(ws);
+    ws = p(ws, STR_PTR("+a"), STR_LEN("+a"));
+    ws = crlf(ws);
+    ws = p(ws, STR_PTR("+b"), STR_LEN("+b"));
+    ws = crlf(ws);
+    let rs = must_parse(ws, 1411);
+    if redis_value_kind(&rs.value) != SA_REDIS_KIND_SET { panic(1413); };
+    if redis_value_child_count(&rs.value) != 2 { panic(1414); };
+
+    // Push [message, hi]
+    let wp: Vec<u8> = Vec::new();
+    wp = p(wp, STR_PTR(">2"), STR_LEN(">2"));
+    wp = crlf(wp);
+    wp = p(wp, STR_PTR("$7"), STR_LEN("$7"));
+    wp = crlf(wp);
+    wp = p(wp, STR_PTR("message"), STR_LEN("message"));
+    wp = crlf(wp);
+    wp = p(wp, STR_PTR("$2"), STR_LEN("$2"));
+    wp = crlf(wp);
+    wp = p(wp, STR_PTR("hi"), STR_LEN("hi"));
+    wp = crlf(wp);
+    let rp = must_parse(wp, 1421);
+    if redis_value_kind(&rp.value) != SA_REDIS_KIND_PUSH { panic(1423); };
+    expect_bytes(redis_value_child_bulk(&rp.value, 1), bytes(STR_PTR("hi"), STR_LEN("hi")), 1424);
+
+    // Null / bool / double / bigint
+    let wn: Vec<u8> = Vec::new();
+    wn = p(wn, STR_PTR("_"), STR_LEN("_"));
+    wn = crlf(wn);
+    let rn = must_parse(wn, 1431);
+    if redis_value_is_null(&rn.value) == false { panic(1433); };
+
+    let wb: Vec<u8> = Vec::new();
+    wb = p(wb, STR_PTR("#t"), STR_LEN("#t"));
+    wb = crlf(wb);
+    let rb = must_parse(wb, 1441);
+    if redis_value_kind(&rb.value) != SA_REDIS_KIND_BOOL { panic(1443); };
+    if redis_value_int(&rb.value) != 1 { panic(1444); };
+
+    let wd: Vec<u8> = Vec::new();
+    wd = p(wd, STR_PTR(",3.5"), STR_LEN(",3.5"));
+    wd = crlf(wd);
+    let rd = must_parse(wd, 1451);
+    if redis_value_kind(&rd.value) != SA_REDIS_KIND_DOUBLE { panic(1453); };
+    expect_bytes(redis_value_bulk(&rd.value), bytes(STR_PTR("3.5"), STR_LEN("3.5")), 1454);
+
+    let wg: Vec<u8> = Vec::new();
+    wg = p(wg, STR_PTR("(3492890328409238593085"), STR_LEN("(3492890328409238593085"));
+    wg = crlf(wg);
+    let rg = must_parse(wg, 1461);
+    if redis_value_kind(&rg.value) != SA_REDIS_KIND_BIGINT { panic(1463); };
+    expect_bytes(redis_value_bulk(&rg.value), bytes(STR_PTR("3492890328409238593085"), STR_LEN("3492890328409238593085")), 1464);
+
+    // Verbatim: content after the 4-byte "txt:" prefix.
+    let wv: Vec<u8> = Vec::new();
+    wv = p(wv, STR_PTR("=15"), STR_LEN("=15"));
+    wv = crlf(wv);
+    wv = p(wv, STR_PTR("txt:hello world"), STR_LEN("txt:hello world"));
+    wv = crlf(wv);
+    let rv = must_parse(wv, 1471);
+    if redis_value_kind(&rv.value) != SA_REDIS_KIND_VERBATIM { panic(1473); };
+    expect_bytes(redis_value_bulk(&rv.value), bytes(STR_PTR("hello world"), STR_LEN("hello world")), 1474);
+
+    // Blob error
+    let we: Vec<u8> = Vec::new();
+    we = p(we, STR_PTR("!21"), STR_LEN("!21"));
+    we = crlf(we);
+    we = p(we, STR_PTR("SYNTAX invalid syntax"), STR_LEN("SYNTAX invalid syntax"));
+    we = crlf(we);
+    let re = must_parse(we, 1481);
+    if redis_value_kind(&re.value) != SA_REDIS_KIND_BLOB_ERROR { panic(1483); };
+    expect_bytes(redis_value_bulk(&re.value), bytes(STR_PTR("SYNTAX invalid syntax"), STR_LEN("SYNTAX invalid syntax")), 1484);
+};
+
+// ----------------------------------------------------------------
+// Parser: incomplete and malformed inputs
+// ----------------------------------------------------------------
+
+@test "parse incomplete prefixes wait for more bytes"() {
+    let empty: Vec<u8> = Vec::new();
+    must_incomplete(empty, 1501);
+
+    let w1: Vec<u8> = Vec::new();
+    w1 = p(w1, STR_PTR("$5"), STR_LEN("$5"));
+    w1 = crlf(w1);
+    w1 = p(w1, STR_PTR("hel"), STR_LEN("hel"));
+    must_incomplete(w1, 1511);
+
+    let w2: Vec<u8> = Vec::new();
+    w2 = p(w2, STR_PTR("*2"), STR_LEN("*2"));
+    w2 = crlf(w2);
+    w2 = p(w2, STR_PTR(":1"), STR_LEN(":1"));
+    w2 = crlf(w2);
+    must_incomplete(w2, 1521);
+
+    let w3: Vec<u8> = Vec::new();
+    w3 = p(w3, STR_PTR("+OK"), STR_LEN("+OK"));
+    must_incomplete(w3, 1531);
+};
+
+@test "parse malformed inputs fail loudly"() {
+    // Unknown type byte.
+    let w1: Vec<u8> = Vec::new();
+    w1 = p(w1, STR_PTR("?x"), STR_LEN("?x"));
+    w1 = crlf(w1);
+    must_malformed(w1, 1601);
+
+    // Non-numeric bulk length.
+    let w2: Vec<u8> = Vec::new();
+    w2 = p(w2, STR_PTR("$x"), STR_LEN("$x"));
+    w2 = crlf(w2);
+    must_malformed(w2, 1611);
+
+    // Bulk length below -1.
+    let w3: Vec<u8> = Vec::new();
+    w3 = p(w3, STR_PTR("$-2"), STR_LEN("$-2"));
+    w3 = crlf(w3);
+    must_malformed(w3, 1621);
+
+    // Bulk payload not followed by CRLF.
+    let w4: Vec<u8> = Vec::new();
+    w4 = p(w4, STR_PTR("$3"), STR_LEN("$3"));
+    w4 = crlf(w4);
+    w4 = p(w4, STR_PTR("abcXX"), STR_LEN("abcXX"));
+    must_malformed(w4, 1631);
+
+    // Integer with junk.
+    let w5: Vec<u8> = Vec::new();
+    w5 = p(w5, STR_PTR(":12a"), STR_LEN(":12a"));
+    w5 = crlf(w5);
+    must_malformed(w5, 1641);
+
+    // Bare LF line ending is not RESP.
+    let w6: Vec<u8> = Vec::new();
+    w6 = p(w6, STR_PTR("+OK"), STR_LEN("+OK"));
+    w6.push(10);
+    must_malformed(w6, 1651);
+
+    // Boolean other than t/f.
+    let w7: Vec<u8> = Vec::new();
+    w7 = p(w7, STR_PTR("#x"), STR_LEN("#x"));
+    w7 = crlf(w7);
+    must_malformed(w7, 1661);
+
+    // Null with a payload.
+    let w8: Vec<u8> = Vec::new();
+    w8 = p(w8, STR_PTR("_x"), STR_LEN("_x"));
+    w8 = crlf(w8);
+    must_malformed(w8, 1671);
+};

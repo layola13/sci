@@ -1,0 +1,672 @@
+// Loopback client tests for sa_std/redis.sla against a real
+// redis-server (see tests/run_redis_loopback_tests.sh, which
+// starts two throwaway instances: 127.0.0.1:6390 with no auth and
+// 127.0.0.1:6391 with requirepass sla-test-pass, seeds one key via
+// redis-cli, runs this file, and afterwards checks with redis-cli
+// that a key written here is readable by the reference client).
+//
+// Every assertion compares against the server's actual reply, so
+// the suite doubles as a cross-check against redis-cli semantics.
+
+@import "sa_std/redis.sla"
+
+fn tb(s: String) -> Vec<u8> {
+    return redis_bytes_of(s);
+}
+
+fn host() -> Vec<u8> {
+    return tb(format("127.0.0.1"));
+}
+
+fn conn(port: u32, code: u32) -> RedisClient {
+    let s = redis_connect(host(), port);
+    if s.status != SA_STD_OK {
+        panic(code);
+    };
+    return s.client;
+}
+
+fn starts_with(text: Vec<u8>, prefix: Vec<u8>) -> bool {
+    let n: u64 = len(prefix) as u64;
+    if (len(text) as u64) < n {
+        return false;
+    };
+    let ts: Slice<u8> = VEC_AS_SLICE(text);
+    let ps: Slice<u8> = VEC_AS_SLICE(prefix);
+    let i: u64 = 0;
+    while i < n {
+        let a: u8 = 0;
+        SLICE_GET(a, ts, i);
+        let b: u8 = 0;
+        SLICE_GET(b, ps, i);
+        if a != b {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+fn expect_bulk(step: &RedisStep, want: Vec<u8>, code: u32) {
+    if step.status != SA_STD_OK {
+        panic(code);
+    };
+    if redis_value_kind(&step.reply) != SA_REDIS_KIND_BULK {
+        panic(code + 1);
+    };
+    if redis_bytes_eq(redis_value_bulk(&step.reply), want) == false {
+        panic(code + 2);
+    };
+}
+
+fn expect_int(step: &RedisStep, want: i64, code: u32) {
+    if step.status != SA_STD_OK {
+        panic(code);
+    };
+    if redis_value_kind(&step.reply) != SA_REDIS_KIND_INTEGER {
+        panic(code + 1);
+    };
+    if redis_value_int(&step.reply) != want {
+        panic(code + 2);
+    };
+}
+
+fn expect_ok_simple(step: &RedisStep, code: u32) {
+    if step.status != SA_STD_OK {
+        panic(code);
+    };
+    if redis_value_kind(&step.reply) != SA_REDIS_KIND_SIMPLE {
+        panic(code + 1);
+    };
+}
+
+fn expect_null(step: &RedisStep, code: u32) {
+    if step.status != SA_STD_OK {
+        panic(code);
+    };
+    if redis_value_is_null(&step.reply) == false {
+        panic(code + 1);
+    };
+}
+
+fn expect_err_prefix(step: &RedisStep, prefix: Vec<u8>, code: u32) {
+    if step.status != SA_REDIS_STATUS_REPLY_ERROR {
+        panic(code);
+    };
+    let tsl: Slice<u8> = VEC_AS_SLICE(step.error_text);
+    let n: u64 = len(prefix) as u64;
+    if redis_slice_len(&tsl) < n {
+        panic(code + 1);
+    };
+    let psl: Slice<u8> = VEC_AS_SLICE(prefix);
+    let i: u64 = 0;
+    let same: bool = true;
+    while i < n {
+        if redis_slice_byte(&tsl, i) != redis_slice_byte(&psl, i) {
+            same = false;
+        };
+        i = i + 1;
+    }
+    if same == false {
+        panic(code + 1);
+    };
+}
+
+fn reply_at(step: &RedisMultiStep, idx: u64) -> RedisValue {
+    let sl: Slice<RedisValue> = VEC_AS_SLICE(step.replies);
+    let out = redis_empty_value();
+    SLICE_GET(out, sl, idx);
+    return out;
+}
+
+// ----------------------------------------------------------------
+
+@test "ping and ping with message"() {
+    let c = conn(6390, 9001);
+    let s = redis_ping(c);
+    if s.status != SA_STD_OK { panic(101); };
+    if redis_value_kind(&s.reply) != SA_REDIS_KIND_SIMPLE { panic(102); };
+    if redis_bytes_eq(redis_value_bulk(&s.reply), tb(format("PONG"))) == false { panic(103); };
+    c = s.client;
+    let s2 = redis_ping_msg(c, tb(format("hello redis")));
+    expect_bulk(&s2, tb(format("hello redis")), 110);
+    c = s2.client;
+    let cl: i32 = redis_client_close(c);
+    if cl != SA_STD_OK { panic(119); };
+};
+
+@test "set get del exists with nil distinct from error"() {
+    let c = conn(6390, 9002);
+    let k = tb(format("sla:basic:k"));
+    let s = redis_set(c, k, tb(format("v1")));
+    expect_ok_simple(&s, 201);
+    c = s.client;
+    let g = redis_get(c, k);
+    expect_bulk(&g, tb(format("v1")), 210);
+    c = g.client;
+    let e = redis_exists(c, k);
+    expect_int(&e, 1, 220);
+    c = e.client;
+    let d = redis_del(c, k);
+    expect_int(&d, 1, 230);
+    c = d.client;
+    // Missing key: nil bulk, status OK -- not an error.
+    let g2 = redis_get(c, k);
+    expect_null(&g2, 240);
+    c = g2.client;
+    let e2 = redis_exists(c, k);
+    expect_int(&e2, 0, 250);
+    c = e2.client;
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "set options nx xx ex px"() {
+    let c = conn(6390, 9003);
+    let k = tb(format("sla:opts:k"));
+    let d = redis_del(c, k);
+    c = d.client;
+    // NX on a missing key sets it.
+    let s1 = redis_set_opts(c, k, tb(format("a")), true, false, SA_REDIS_SET_TTL_NONE, 0);
+    expect_ok_simple(&s1, 301);
+    c = s1.client;
+    // NX on an existing key does not: nil reply, value unchanged.
+    let s2 = redis_set_opts(c, k, tb(format("b")), true, false, SA_REDIS_SET_TTL_NONE, 0);
+    expect_null(&s2, 310);
+    c = s2.client;
+    let g = redis_get(c, k);
+    expect_bulk(&g, tb(format("a")), 320);
+    c = g.client;
+    // XX on an existing key sets it.
+    let s3 = redis_set_opts(c, k, tb(format("c")), false, true, SA_REDIS_SET_TTL_NONE, 0);
+    expect_ok_simple(&s3, 330);
+    c = s3.client;
+    // XX on a missing key does not.
+    let k2 = tb(format("sla:opts:missing"));
+    let s4 = redis_set_opts(c, k2, tb(format("x")), false, true, SA_REDIS_SET_TTL_NONE, 0);
+    expect_null(&s4, 340);
+    c = s4.client;
+    // NX+XX together are rejected locally.
+    let s5 = redis_set_opts(c, k, tb(format("z")), true, true, SA_REDIS_SET_TTL_NONE, 0);
+    if s5.status != SA_STD_ERR_INVALID_ARGUMENT { panic(350); };
+    c = s5.client;
+    // EX: TTL lands in (0, 100].
+    let s6 = redis_set_ex(c, tb(format("sla:opts:ex")), tb(format("v")), 100);
+    expect_ok_simple(&s6, 360);
+    c = s6.client;
+    let t = redis_ttl(c, tb(format("sla:opts:ex")));
+    if t.status != SA_STD_OK { panic(370); };
+    let tv: i64 = redis_value_int(&t.reply);
+    if tv <= 0 || tv > 100 { panic(371); };
+    c = t.client;
+    // PX: 60 s in milliseconds.
+    let s7 = redis_set_px(c, tb(format("sla:opts:px")), tb(format("v")), 60000);
+    expect_ok_simple(&s7, 380);
+    c = s7.client;
+    let t2 = redis_ttl(c, tb(format("sla:opts:px")));
+    if t2.status != SA_STD_OK { panic(390); };
+    let tv2: i64 = redis_value_int(&t2.reply);
+    if tv2 <= 0 || tv2 > 60 { panic(391); };
+    c = t2.client;
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "incr family and expire ttl semantics"() {
+    let c = conn(6390, 9004);
+    let k = tb(format("sla:ctr"));
+    let d = redis_del(c, k);
+    c = d.client;
+    let i1 = redis_incr(c, k);
+    expect_int(&i1, 1, 401);
+    c = i1.client;
+    let i2 = redis_incr(c, k);
+    expect_int(&i2, 2, 410);
+    c = i2.client;
+    let i3 = redis_incrby(c, k, 40);
+    expect_int(&i3, 42, 420);
+    c = i3.client;
+    let i4 = redis_incrby(c, k, 0 - 2);
+    expect_int(&i4, 40, 430);
+    c = i4.client;
+    let x = redis_expire(c, k, 100);
+    expect_int(&x, 1, 440);
+    c = x.client;
+    let t = redis_ttl(c, k);
+    if t.status != SA_STD_OK { panic(450); };
+    let tv: i64 = redis_value_int(&t.reply);
+    if tv <= 0 || tv > 100 { panic(451); };
+    c = t.client;
+    // Expire/TTL on missing and persistent keys.
+    let x2 = redis_expire(c, tb(format("sla:absent")), 100);
+    expect_int(&x2, 0, 460);
+    c = x2.client;
+    let t2 = redis_ttl(c, tb(format("sla:absent")));
+    expect_int(&t2, 0 - 2, 470);
+    c = t2.client;
+    let p = redis_set(c, tb(format("sla:persistent")), tb(format("v")));
+    c = p.client;
+    let t3 = redis_ttl(c, tb(format("sla:persistent")));
+    expect_int(&t3, 0 - 1, 480);
+    c = t3.client;
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "error replies map to reply error with text and client stays usable"() {
+    let c = conn(6390, 9005);
+    let k = tb(format("sla:err:str"));
+    let s = redis_set(c, k, tb(format("abc")));
+    c = s.client;
+    // INCR on a non-integer string: ERR value is not an integer.
+    let e1 = redis_incr(c, k);
+    expect_err_prefix(&e1, tb(format("ERR")), 501);
+    c = e1.client;
+    // LPUSH on a string key: WRONGTYPE.
+    let e2 = redis_lpush(c, k, tb(format("x")));
+    expect_err_prefix(&e2, tb(format("WRONGTYPE")), 510);
+    c = e2.client;
+    // The connection is still in sync after error replies.
+    let p = redis_ping(c);
+    if p.status != SA_STD_OK { panic(520); };
+    c = p.client;
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "hash commands"() {
+    let c = conn(6390, 9006);
+    let k = tb(format("sla:hash"));
+    let d = redis_del(c, k);
+    c = d.client;
+    let h1 = redis_hset(c, k, tb(format("f1")), tb(format("v1")));
+    expect_int(&h1, 1, 601);
+    c = h1.client;
+    let h2 = redis_hset(c, k, tb(format("f1")), tb(format("v1b")));
+    expect_int(&h2, 0, 610);
+    c = h2.client;
+    let h3 = redis_hset(c, k, tb(format("f2")), tb(format("v2")));
+    expect_int(&h3, 1, 620);
+    c = h3.client;
+    let g = redis_hget(c, k, tb(format("f1")));
+    expect_bulk(&g, tb(format("v1b")), 630);
+    c = g.client;
+    let gm = redis_hget(c, k, tb(format("nope")));
+    expect_null(&gm, 640);
+    c = gm.client;
+    let all = redis_hgetall(c, k);
+    if all.status != SA_STD_OK { panic(650); };
+    // RESP2: flattened array; pair_count reads it.
+    if redis_value_kind(&all.reply) != SA_REDIS_KIND_ARRAY { panic(651); };
+    if redis_value_pair_count(&all.reply) != 2 { panic(652); };
+    c = all.client;
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "list commands"() {
+    let c = conn(6390, 9007);
+    let k = tb(format("sla:list"));
+    let d = redis_del(c, k);
+    c = d.client;
+    let r1 = redis_rpush(c, k, tb(format("a")));
+    expect_int(&r1, 1, 701);
+    c = r1.client;
+    let r2 = redis_rpush(c, k, tb(format("b")));
+    expect_int(&r2, 2, 710);
+    c = r2.client;
+    let l1 = redis_lpush(c, k, tb(format("z")));
+    expect_int(&l1, 3, 720);
+    c = l1.client;
+    let range = redis_lrange(c, k, 0, 0 - 1);
+    if range.status != SA_STD_OK { panic(730); };
+    if redis_value_child_count(&range.reply) != 3 { panic(731); };
+    if redis_bytes_eq(redis_value_child_bulk(&range.reply, 0), tb(format("z"))) == false { panic(732); };
+    if redis_bytes_eq(redis_value_child_bulk(&range.reply, 1), tb(format("a"))) == false { panic(733); };
+    if redis_bytes_eq(redis_value_child_bulk(&range.reply, 2), tb(format("b"))) == false { panic(734); };
+    c = range.client;
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "set commands"() {
+    let c = conn(6390, 9008);
+    let k = tb(format("sla:set"));
+    let d = redis_del(c, k);
+    c = d.client;
+    let a1 = redis_sadd(c, k, tb(format("m1")));
+    expect_int(&a1, 1, 801);
+    c = a1.client;
+    let a2 = redis_sadd(c, k, tb(format("m1")));
+    expect_int(&a2, 0, 810);
+    c = a2.client;
+    let a3 = redis_sadd(c, k, tb(format("m2")));
+    expect_int(&a3, 1, 820);
+    c = a3.client;
+    let m = redis_smembers(c, k);
+    if m.status != SA_STD_OK { panic(830); };
+    if redis_value_child_count(&m.reply) != 2 { panic(831); };
+    let seen1: bool = false;
+    let seen2: bool = false;
+    let i: u64 = 0;
+    while i < 2 {
+        let member = redis_value_child_bulk(&m.reply, i);
+        if redis_bytes_eq(member, tb(format("m1"))) { seen1 = true; };
+        if redis_bytes_eq(member, tb(format("m2"))) { seen2 = true; };
+        i = i + 1;
+    }
+    if seen1 == false || seen2 == false { panic(832); };
+    c = m.client;
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "sorted set commands"() {
+    let c = conn(6390, 9009);
+    let k = tb(format("sla:zset"));
+    let d = redis_del(c, k);
+    c = d.client;
+    let z1 = redis_zadd(c, k, tb(format("2.5")), tb(format("m2")));
+    expect_int(&z1, 1, 901);
+    c = z1.client;
+    let z2 = redis_zadd(c, k, tb(format("1.5")), tb(format("m1")));
+    expect_int(&z2, 1, 910);
+    c = z2.client;
+    let r = redis_zrange(c, k, 0, 0 - 1);
+    if r.status != SA_STD_OK { panic(920); };
+    if redis_value_child_count(&r.reply) != 2 { panic(921); };
+    if redis_bytes_eq(redis_value_child_bulk(&r.reply, 0), tb(format("m1"))) == false { panic(922); };
+    if redis_bytes_eq(redis_value_child_bulk(&r.reply, 1), tb(format("m2"))) == false { panic(923); };
+    c = r.client;
+    let rs = redis_zrange_withscores(c, k, 0, 0 - 1);
+    if rs.status != SA_STD_OK { panic(930); };
+    if redis_value_child_count(&rs.reply) != 4 { panic(931); };
+    if redis_bytes_eq(redis_value_child_bulk(&rs.reply, 1), tb(format("1.5"))) == false { panic(932); };
+    if redis_bytes_eq(redis_value_child_bulk(&rs.reply, 3), tb(format("2.5"))) == false { panic(933); };
+    c = rs.client;
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "keys and scan iteration"() {
+    let c = conn(6390, 9010);
+    let ka = tb(format("sla:scan:a"));
+    let kb = tb(format("sla:scan:b"));
+    let s1 = redis_set(c, ka, tb(format("1")));
+    c = s1.client;
+    let s2 = redis_set(c, kb, tb(format("2")));
+    c = s2.client;
+    let ks = redis_keys(c, tb(format("sla:scan:*")));
+    if ks.status != SA_STD_OK { panic(1001); };
+    if redis_value_child_count(&ks.reply) != 2 { panic(1002); };
+    c = ks.client;
+    // SCAN until the cursor returns to 0; both keys must appear.
+    let cursor: i64 = 0;
+    let found_a: bool = false;
+    let found_b: bool = false;
+    let done: bool = false;
+    let rounds: u64 = 0;
+    while done == false && rounds < 100 {
+        let st = redis_scan(c, cursor, tb(format("sla:scan:*")), 10);
+        if st.status != SA_STD_OK { panic(1010); };
+        let nk: u64 = len(st.keys) as u64;
+        let ksl: Slice<Vec<u8>> = VEC_AS_SLICE(st.keys);
+        let i: u64 = 0;
+        while i < nk {
+            let key: Vec<u8> = Vec::new();
+            SLICE_GET(key, ksl, i);
+            if redis_bytes_eq(key, ka) { found_a = true; };
+            if redis_bytes_eq(key, kb) { found_b = true; };
+            i = i + 1;
+        }
+        cursor = st.next_cursor;
+        c = st.client;
+        if cursor == 0 {
+            done = true;
+        };
+        rounds = rounds + 1;
+    }
+    if done == false { panic(1020); };
+    if found_a == false || found_b == false { panic(1021); };
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "eval limiter script and evalsha"() {
+    let c = conn(6390, 9011);
+    let key = tb(format("sla:eval:limiter"));
+    let d = redis_del(c, key);
+    c = d.client;
+    let script = tb(format("local c = redis.call('INCR', KEYS[1]) if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end return c"));
+    let keys = redis_args_new();
+    keys = redis_args_push(keys, key);
+    let args = redis_args_new();
+    args = redis_args_push_int(args, 60);
+    let e1 = redis_eval(c, script, keys, args);
+    expect_int(&e1, 1, 1101);
+    c = e1.client;
+    let keys2 = redis_args_new();
+    keys2 = redis_args_push(keys2, key);
+    let args2 = redis_args_new();
+    args2 = redis_args_push_int(args2, 60);
+    let e2 = redis_eval(c, script, keys2, args2);
+    expect_int(&e2, 2, 1110);
+    c = e2.client;
+    // SCRIPT LOAD then EVALSHA continues the same counter.
+    let load = redis_script_load(c, script);
+    if load.status != SA_STD_OK { panic(1120); };
+    if redis_value_kind(&load.reply) != SA_REDIS_KIND_BULK { panic(1121); };
+    let sha = redis_value_bulk(&load.reply);
+    if (len(sha) as u64) != 40 { panic(1122); };
+    c = load.client;
+    let keys3 = redis_args_new();
+    keys3 = redis_args_push(keys3, key);
+    let args3 = redis_args_new();
+    args3 = redis_args_push_int(args3, 60);
+    let e3 = redis_evalsha(c, sha, keys3, args3);
+    expect_int(&e3, 3, 1130);
+    c = e3.client;
+    // An unknown SHA is a NOSCRIPT error reply, surfaced as-is.
+    let keys4 = redis_args_new();
+    keys4 = redis_args_push(keys4, key);
+    let args4 = redis_args_new();
+    args4 = redis_args_push_int(args4, 60);
+    let e4 = redis_evalsha(c, tb(format("0000000000000000000000000000000000000000")), keys4, args4);
+    expect_err_prefix(&e4, tb(format("NOSCRIPT")), 1140);
+    c = e4.client;
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "multi exec and discard"() {
+    let c = conn(6390, 9012);
+    // EXEC without MULTI is a local argument error.
+    let bad = redis_exec(c);
+    if bad.status != SA_STD_ERR_INVALID_ARGUMENT { panic(1201); };
+    c = bad.client;
+    let mk = tb(format("sla:multi:k"));
+    let mc = tb(format("sla:multi:ctr"));
+    let d1 = redis_del(c, mk);
+    c = d1.client;
+    let d2 = redis_del(c, mc);
+    c = d2.client;
+    let m = redis_multi(c);
+    expect_ok_simple(&m, 1210);
+    c = m.client;
+    // A second MULTI is rejected locally; the client stays in MULTI.
+    let m2 = redis_multi(c);
+    if m2.status != SA_STD_ERR_INVALID_ARGUMENT { panic(1215); };
+    c = m2.client;
+    let qa = redis_args_verb(STR_PTR("SET"), STR_LEN("SET"));
+    qa = redis_args_push(qa, mk);
+    qa = redis_args_push(qa, tb(format("mv")));
+    let q1 = redis_command(c, qa);
+    if q1.status != SA_STD_OK { panic(1220); };
+    if redis_bytes_eq(redis_value_bulk(&q1.reply), tb(format("QUEUED"))) == false { panic(1221); };
+    c = q1.client;
+    let qb = redis_args_verb(STR_PTR("INCR"), STR_LEN("INCR"));
+    qb = redis_args_push(qb, mc);
+    let q2 = redis_command(c, qb);
+    if q2.status != SA_STD_OK { panic(1230); };
+    c = q2.client;
+    let x = redis_exec(c);
+    if x.status != SA_STD_OK { panic(1240); };
+    if redis_value_kind(&x.reply) != SA_REDIS_KIND_ARRAY { panic(1241); };
+    if redis_value_child_count(&x.reply) != 2 { panic(1242); };
+    if redis_value_child_kind(&x.reply, 0) != SA_REDIS_KIND_SIMPLE { panic(1243); };
+    if redis_value_child_int(&x.reply, 1) != 1 { panic(1244); };
+    c = x.client;
+    let g = redis_get(c, mk);
+    expect_bulk(&g, tb(format("mv")), 1250);
+    c = g.client;
+    // DISCARD drops the queue.
+    let dk = tb(format("sla:multi:discarded"));
+    let m3 = redis_multi(c);
+    c = m3.client;
+    let qc = redis_args_verb(STR_PTR("SET"), STR_LEN("SET"));
+    qc = redis_args_push(qc, dk);
+    qc = redis_args_push(qc, tb(format("dv")));
+    let q3 = redis_command(c, qc);
+    c = q3.client;
+    let disc = redis_discard(c);
+    expect_ok_simple(&disc, 1260);
+    c = disc.client;
+    let g2 = redis_get(c, dk);
+    expect_null(&g2, 1270);
+    c = g2.client;
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "pipeline preserves order and keeps per-item errors as values"() {
+    let c = conn(6390, 9013);
+    let k = tb(format("sla:pipe:k"));
+    let n = tb(format("sla:pipe:n"));
+    let d1 = redis_del(c, k);
+    c = d1.client;
+    let d2 = redis_del(c, n);
+    c = d2.client;
+    let pipe = redis_pipeline_new();
+    let a1 = redis_args_verb(STR_PTR("SET"), STR_LEN("SET"));
+    a1 = redis_args_push(a1, k);
+    a1 = redis_args_push(a1, tb(format("pv")));
+    pipe = redis_pipeline_add(pipe, a1);
+    let a2 = redis_args_verb(STR_PTR("INCR"), STR_LEN("INCR"));
+    a2 = redis_args_push(a2, n);
+    pipe = redis_pipeline_add(pipe, a2);
+    let a3 = redis_args_verb(STR_PTR("GET"), STR_LEN("GET"));
+    a3 = redis_args_push(a3, k);
+    pipe = redis_pipeline_add(pipe, a3);
+    let a4 = redis_args_verb(STR_PTR("LPUSH"), STR_LEN("LPUSH"));
+    a4 = redis_args_push(a4, k);
+    a4 = redis_args_push(a4, tb(format("x")));
+    pipe = redis_pipeline_add(pipe, a4);
+    let ms = redis_pipeline_execute(c, pipe);
+    if ms.status != SA_STD_OK { panic(1301); };
+    if (len(ms.replies) as u64) != 4 { panic(1302); };
+    let r0 = reply_at(&ms, 0);
+    if redis_value_kind(&r0) != SA_REDIS_KIND_SIMPLE { panic(1303); };
+    let r1 = reply_at(&ms, 1);
+    if redis_value_kind(&r1) != SA_REDIS_KIND_INTEGER { panic(1304); };
+    if redis_value_int(&r1) != 1 { panic(1305); };
+    let r2 = reply_at(&ms, 2);
+    if redis_bytes_eq(redis_value_bulk(&r2), tb(format("pv"))) == false { panic(1306); };
+    let r3 = reply_at(&ms, 3);
+    if redis_value_kind(&r3) != SA_REDIS_KIND_ERROR { panic(1307); };
+    if starts_with(redis_value_bulk(&r3), tb(format("WRONGTYPE"))) == false { panic(1308); };
+    c = ms.client;
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "pub sub round trip with quiet poll timeout"() {
+    let sub = conn(6390, 9014);
+    let chan = tb(format("sla:news"));
+    let s = redis_subscribe(sub, chan);
+    if s.status != SA_STD_OK { panic(1401); };
+    if redis_value_kind(&s.reply) != SA_REDIS_KIND_PUSH { panic(1402); };
+    if redis_value_child_count(&s.reply) != 3 { panic(1403); };
+    if redis_bytes_eq(redis_value_child_bulk(&s.reply, 0), tb(format("subscribe"))) == false { panic(1404); };
+    sub = s.client;
+    // No message yet: a 300 ms poll comes back empty, not an error.
+    let p0 = redis_sub_poll(sub, 300);
+    if p0.status != SA_STD_OK { panic(1410); };
+    if p0.has_message { panic(1411); };
+    sub = p0.client;
+    // Publish from a second connection.
+    let publisher = conn(6390, 9015);
+    let pa = redis_args_verb(STR_PTR("PUBLISH"), STR_LEN("PUBLISH"));
+    pa = redis_args_push(pa, chan);
+    pa = redis_args_push(pa, tb(format("hello subs")));
+    let pr = redis_command(publisher, pa);
+    expect_int(&pr, 1, 1420);
+    let pubc = pr.client;
+    let clp: i32 = redis_client_close(pubc);
+    // The message arrives as a PUSH value.
+    let p1 = redis_sub_poll(sub, 5000);
+    if p1.status != SA_STD_OK { panic(1430); };
+    if p1.has_message == false { panic(1431); };
+    if redis_value_kind(&p1.message) != SA_REDIS_KIND_PUSH { panic(1432); };
+    if redis_bytes_eq(redis_value_child_bulk(&p1.message, 0), tb(format("message"))) == false { panic(1433); };
+    if redis_bytes_eq(redis_value_child_bulk(&p1.message, 1), chan) == false { panic(1434); };
+    if redis_bytes_eq(redis_value_child_bulk(&p1.message, 2), tb(format("hello subs"))) == false { panic(1435); };
+    sub = p1.client;
+    let u = redis_unsubscribe(sub, chan);
+    if u.status != SA_STD_OK { panic(1440); };
+    if redis_bytes_eq(redis_value_child_bulk(&u.reply, 0), tb(format("unsubscribe"))) == false { panic(1441); };
+    sub = u.client;
+    let cl: i32 = redis_client_close(sub);
+};
+
+@test "auth forms and db isolation on the requirepass instance"() {
+    // Wrong password: WRONGPASS as a reply error.
+    let c = conn(6391, 9016);
+    let bad = redis_auth(c, tb(format("not-the-password")));
+    expect_err_prefix(&bad, tb(format("WRONGPASS")), 1501);
+    let badc = bad.client;
+    let cl0: i32 = redis_client_close(badc);
+    // ACL user form with the default user.
+    let c2 = conn(6391, 9017);
+    let good = redis_auth_user(c2, tb(format("default")), tb(format("sla-test-pass")));
+    expect_ok_simple(&good, 1510);
+    let c2c = good.client;
+    let cl2: i32 = redis_client_close(c2c);
+    // Combined connect into db 5; a db-0 client must not see the key.
+    let s = redis_connect_auth_db(host(), 6391, tb(format("")), tb(format("sla-test-pass")), 5);
+    if s.status != SA_STD_OK { panic(1520); };
+    let c5 = s.client;
+    let w = redis_set(c5, tb(format("sla:auth:k")), tb(format("in-db-5")));
+    expect_ok_simple(&w, 1530);
+    let c5b = w.client;
+    let cl5: i32 = redis_client_close(c5b);
+    let s0 = redis_connect_auth_db(host(), 6391, tb(format("")), tb(format("sla-test-pass")), 0);
+    if s0.status != SA_STD_OK { panic(1540); };
+    let c0 = s0.client;
+    let g = redis_get(c0, tb(format("sla:auth:k")));
+    expect_null(&g, 1550);
+    let c0b = g.client;
+    let cl6: i32 = redis_client_close(c0b);
+};
+
+@test "resp3 hello switches maps on"() {
+    let c = conn(6390, 9018);
+    let a = redis_args_verb(STR_PTR("HELLO"), STR_LEN("HELLO"));
+    a = redis_args_push_int(a, 3);
+    let h = redis_command(c, a);
+    if h.status != SA_STD_OK { panic(1601); };
+    if redis_value_kind(&h.reply) != SA_REDIS_KIND_MAP { panic(1602); };
+    c = h.client;
+    let k = tb(format("sla:resp3:hash"));
+    let d = redis_del(c, k);
+    c = d.client;
+    let hs = redis_hset(c, k, tb(format("f")), tb(format("v")));
+    c = hs.client;
+    let all = redis_hgetall(c, k);
+    if all.status != SA_STD_OK { panic(1610); };
+    if redis_value_kind(&all.reply) != SA_REDIS_KIND_MAP { panic(1611); };
+    if redis_value_pair_count(&all.reply) != 1 { panic(1612); };
+    c = all.client;
+    let cl: i32 = redis_client_close(c);
+};
+
+@test "redis cli cross check seed"() {
+    // Seeded by run_redis_loopback_tests.sh via redis-cli before
+    // this file runs: sla:seed must read back exactly, and the
+    // sla:probe key written here is verified by redis-cli after.
+    let c = conn(6390, 9019);
+    let g = redis_get(c, tb(format("sla:seed")));
+    expect_bulk(&g, tb(format("written-by-redis-cli")), 1701);
+    c = g.client;
+    let s = redis_set(c, tb(format("sla:probe")), tb(format("written-by-sla")));
+    expect_ok_simple(&s, 1710);
+    c = s.client;
+    let cl: i32 = redis_client_close(c);
+};
