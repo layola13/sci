@@ -1,0 +1,1918 @@
+// sa_std/redis.sla -- a Redis (RESP) client for SLA, plus the pure
+// wire codec it is built from: a RESP frame encoder and a streaming
+// RESP2/RESP3 reply parser.
+//
+// Why this file exists: the sub2api and new-api backend censuses
+// (2026-10-28) both recorded a Redis client as a header-tier gap --
+// go-redis is referenced from 98 files in sub2api (billing cache,
+// scheduler, rate limiting, sessions, pub/sub, Lua) and new-api's
+// limiter embeds a Lua script run through EVALSHA. sa_std had the
+// TCP face (net.sai) but no RESP client at all. The client here is
+// pure SLA over the net.sai TCP stream externs, exactly the
+// http_proxy.sla / smtp.sla shape: no new externs, no ABI change.
+//
+// What is delivered:
+//   - redis_connect (plain TCP, 10 s read timeout) with AUTH (both
+//     the password-only and the ACL user+password forms) and SELECT
+//     as separate checked steps, plus the combined
+//     redis_connect_auth_db convenience.
+//   - A general command escape hatch: redis_args_* builds a command
+//     frame argument by argument, redis_command sends it and reads
+//     one reply. Typed helpers cover the command surface the two
+//     censuses exercise: GET/SET (NX/XX/EX/PX), DEL, EXISTS,
+//     INCR/INCRBY, EXPIRE/TTL, HGET/HSET/HGETALL, LPUSH/RPUSH/LRANGE,
+//     SADD/SMEMBERS, ZADD/ZRANGE (incl. WITHSCORES), KEYS, SCAN,
+//     EVAL/EVALSHA (pass-through), MULTI/EXEC/DISCARD.
+//   - Pipelines: redis_pipeline_* composes many command frames into
+//     one write and reads that many replies in order.
+//   - Pub/Sub: redis_subscribe / redis_psubscribe /
+//     redis_unsubscribe, and redis_sub_poll, which delivers one
+//     pushed message per call in the std future-poll shape (a
+//     has_message flag; a quiet timeout is a normal empty result,
+//     a dropped connection is an explicit error).
+//   - The RESP2/RESP3 parser is a pure function (redis_parse_reply)
+//     over a byte buffer, so the wire codec is testable without a
+//     server. It covers simple string, error, integer, bulk string,
+//     array, null (both the RESP2 $-1/*-1 spellings and RESP3 _),
+//     double, boolean, verbatim string, big number, blob error,
+//     map, set and push. An unknown type byte, a bad length, a
+//     missing CRLF or an over-cap aggregate is a loud protocol
+//     error (SA_STD_ERR_NET), never a silent truncation or a
+//     fabricated empty value. Trailing bytes after one complete
+//     value are reported through RedisParse.next_pos, not dropped.
+//
+// Error model (the smtp.sla convention, widened for text errors):
+//   - status == SA_STD_OK: the reply is in step.reply.
+//   - status > 0: an SA_STD_* local/transport failure (connect,
+//     write, EOF mid-reply, malformed RESP, latched protocol
+//     failure).
+//   - status == SA_REDIS_STATUS_REPLY_ERROR (-1): the server
+//     answered with a RESP error. The full error text (e.g.
+//     "WRONGTYPE Operation against a key holding the wrong kind of
+//     value") is in step.error_text, and step.reply is the error
+//     value itself (kind SA_REDIS_KIND_ERROR). A nil bulk reply is
+//     NOT an error: it arrives as status SA_STD_OK with a reply of
+//     kind SA_REDIS_KIND_NULL, so "missing key" and "server
+//     refused" are always distinguishable. Inside pipelines and
+//     EXEC arrays, per-item errors stay as ERROR values in place
+//     and do not fail the whole step, matching go-redis.
+//   - After a malformed reply the client's failed latch is set and
+//     every later operation returns SA_STD_ERR_NET: a desynchronised
+//     RESP stream is not resumable, and pretending otherwise would
+//     misattribute replies to commands.
+//
+// Model choices:
+//   - The client is threaded by value inside RedisStep (the
+//     smtp.sla model). redis_client_close consumes the client.
+//   - Values form a tree: RedisValue { kind, int_val, bulk, items }
+//     with Vec<RedisValue> children. MAP values hold 2*n children
+//     (key, value, key, value...); redis_value_pair_count reports
+//     the pair count. DOUBLE and BIGINT keep their wire text in
+//     bulk (exact, locale-free); redis_value_bulk returns it.
+//     VERBATIM values keep the content after the 4-byte format
+//     prefix. Accessors copy out, following the dns.sla SLICE_GET
+//     idiom, so callers never hold a borrow into a reply.
+//   - Keys, values, scripts and patterns are bytes (Vec<u8>)
+//     throughout: Redis keys are binary and a String face would
+//     invite encoding bugs. redis_bytes_of converts a String.
+//   - Caps (loud SA_STD_ERR_NET beyond them, per reply): one bulk
+//     string 64 MiB, one header line 64 KiB, nesting depth 128,
+//     1 Mi aggregate children across one value. These are far above
+//     anything the census workloads produce and exist so a corrupt
+//     or hostile stream cannot exhaust memory.
+//   - Plain connections get a 10 s read timeout (the smtp.sla
+//     choice); redis_sub_poll temporarily narrows it and always
+//     restores it. rediss:// (TLS) is not covered by this v1: the
+//     censuses run Redis over loopback/LAN plaintext, and the TLS
+//     upgrade shape is registered in the delivery notes.
+
+@import "sa_std/string.sa"
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+@import "sa_std/ptr.sa"
+@import "sa_std/status.sla"
+@import "sa_std/net.sai"
+
+const SA_REDIS_PORT: u32 = 6379;
+
+// Reply status for a server RESP error; the error text is in the
+// step's error_text. See the header's error model.
+const SA_REDIS_STATUS_REPLY_ERROR: i32 = -1;
+
+// RedisValue kinds. INVALID marks "no value" (the reply field of a
+// step that failed before any reply was read).
+const SA_REDIS_KIND_INVALID: u32 = 0;
+const SA_REDIS_KIND_SIMPLE: u32 = 1;
+const SA_REDIS_KIND_ERROR: u32 = 2;
+const SA_REDIS_KIND_INTEGER: u32 = 3;
+const SA_REDIS_KIND_BULK: u32 = 4;
+const SA_REDIS_KIND_ARRAY: u32 = 5;
+const SA_REDIS_KIND_NULL: u32 = 6;
+const SA_REDIS_KIND_DOUBLE: u32 = 7;
+const SA_REDIS_KIND_BOOL: u32 = 8;
+const SA_REDIS_KIND_VERBATIM: u32 = 9;
+const SA_REDIS_KIND_MAP: u32 = 10;
+const SA_REDIS_KIND_SET: u32 = 11;
+const SA_REDIS_KIND_PUSH: u32 = 12;
+const SA_REDIS_KIND_BIGINT: u32 = 13;
+const SA_REDIS_KIND_BLOB_ERROR: u32 = 14;
+
+// SET TTL selectors for redis_set_opts.
+const SA_REDIS_SET_TTL_NONE: u32 = 0;
+const SA_REDIS_SET_TTL_EX: u32 = 1;
+const SA_REDIS_SET_TTL_PX: u32 = 2;
+
+const SA_REDIS_MAX_BULK: u64 = 67108864;
+const SA_REDIS_MAX_LINE: u64 = 65536;
+const SA_REDIS_MAX_DEPTH: u64 = 128;
+const SA_REDIS_MAX_CHILDREN: u64 = 1048576;
+const SA_REDIS_MAX_HOST: u64 = 512;
+const SA_REDIS_READ_TIMEOUT_NS: u64 = 10000000000;
+
+struct RedisValue {
+    kind: u32,
+    int_val: i64,
+    bulk: Vec<u8>,
+    items: Vec<RedisValue>,
+}
+
+struct RedisClient {
+    handle: u64,
+    open: bool,
+    failed: bool,
+    in_multi: bool,
+    pending: Vec<u8>,
+}
+
+struct RedisStep {
+    client: RedisClient,
+    status: i32,
+    reply: RedisValue,
+    error_text: Vec<u8>,
+}
+
+struct RedisMultiStep {
+    client: RedisClient,
+    status: i32,
+    replies: Vec<RedisValue>,
+    error_text: Vec<u8>,
+}
+
+struct RedisPoll {
+    client: RedisClient,
+    status: i32,
+    has_message: bool,
+    message: RedisValue,
+}
+
+struct RedisScanStep {
+    client: RedisClient,
+    status: i32,
+    next_cursor: i64,
+    keys: Vec<Vec<u8>>,
+    error_text: Vec<u8>,
+}
+
+// The result of parsing one value out of a byte buffer. buf is the
+// input handed back (the parser threads it by value); next_pos is
+// the offset just past the value when ready is true. ready is false
+// with status SA_STD_OK when the buffer holds a proper prefix of a
+// value -- feed more bytes and retry from the same offset.
+struct RedisParse {
+    buf: Vec<u8>,
+    value: RedisValue,
+    next_pos: u64,
+    ready: bool,
+    status: i32,
+}
+
+// A command under construction: the encoded argument bodies plus
+// the argument count. The "*N" frame header depends on the final
+// count, so it is composed at send time by redis_args_frame.
+struct RedisArgs {
+    body: Vec<u8>,
+    count: u64,
+}
+
+struct RedisPipeline {
+    frame: Vec<u8>,
+    count: u64,
+}
+
+struct RedisBulk {
+    found: bool,
+    data: Vec<u8>,
+}
+
+struct RedisInt {
+    ok: bool,
+    value: i64,
+}
+
+// ---- byte helpers (the dns.sla / smtp.sla idiom) ----
+
+fn redis_slice_len(sl: &Slice<u8>) -> u64 {
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, sl);
+    return n;
+}
+
+fn redis_slice_byte(sl: &Slice<u8>, off: u64) -> u8 {
+    let b: u8 = 0;
+    SLICE_GET(b, sl, off);
+    return b;
+}
+
+// Append sl[begin..end] to dst (by-value threading, the smtp.sla
+// rule: pushing into a &Vec inside a loop is a proven referee
+// conflict shape, so appends consume and return the vector).
+fn redis_push_slice(dst: Vec<u8>, sl: &Slice<u8>, begin: u64, end: u64) -> Vec<u8> {
+    let i: u64 = begin;
+    while i < end {
+        dst.push(redis_slice_byte(sl, i));
+        i = i + 1;
+    }
+    return dst;
+}
+
+// Append a short literal staged through a stack array (command
+// verbs and punctuation; at most 1024 bytes).
+fn redis_push_lit(dst: Vec<u8>, text: ptr, text_len: u64) -> Vec<u8> {
+    let arr: [u8; 1024] = [0u8; 1024];
+    let p: ptr = PTR_BYTE_ADD(&arr, 0);
+    PTR_COPY_BYTES(p, text, text_len);
+    let i: u64 = 0;
+    while i < text_len {
+        dst.push(arr[i]);
+        i = i + 1;
+    }
+    return dst;
+}
+
+// Bytes of a String (command names, hosts, simple keys in tests and
+// other text-only call sites). Binary data should travel as
+// Vec<u8> directly.
+fn redis_bytes_of(s: String) -> Vec<u8> {
+    let out: Vec<u8> = Vec::new();
+    return redis_push_lit(out, STR_PTR(s), STR_LEN(s));
+}
+
+fn redis_is_digit(b: u8) -> bool {
+    return b >= 48 && b <= 57;
+}
+
+// Append the decimal spelling of v (no leading zeros, '-' for
+// negatives). i64's minimum is handled by magnitude arithmetic
+// that never negates it.
+fn redis_push_i64(out: Vec<u8>, v: i64) -> Vec<u8> {
+    let mag: u64 = 0;
+    if v < 0 {
+        out.push(45);
+        mag = (0 - (v + 1)) as u64 + 1;
+    } else {
+        mag = v as u64;
+    };
+    // Digits, least significant first, into a stack buffer.
+    let digits: [u8; 20] = [0u8; 20];
+    let nd: u64 = 0;
+    if mag == 0 {
+        digits[0] = 48;
+        nd = 1;
+    } else {
+        let m: u64 = mag;
+        while m > 0 {
+            digits[nd] = 48 + ((m % 10) as u8);
+            nd = nd + 1;
+            m = m / 10;
+        }
+    };
+    let i: u64 = nd;
+    while i > 0 {
+        i = i - 1;
+        out.push(digits[i]);
+    }
+    return out;
+}
+
+fn redis_push_u64(out: Vec<u8>, v: u64) -> Vec<u8> {
+    let digits: [u8; 20] = [0u8; 20];
+    let nd: u64 = 0;
+    if v == 0 {
+        digits[0] = 48;
+        nd = 1;
+    } else {
+        let m: u64 = v;
+        while m > 0 {
+            digits[nd] = 48 + ((m % 10) as u8);
+            nd = nd + 1;
+            m = m / 10;
+        }
+    };
+    let i: u64 = nd;
+    while i > 0 {
+        i = i - 1;
+        out.push(digits[i]);
+    }
+    return out;
+}
+
+// Parse sl[begin..end] as a signed decimal integer. ok is false on
+// an empty range, a lone sign, a non-digit, or overflow -- callers
+// map that to a loud protocol/argument error, never to 0.
+struct RedisI64Parse {
+    ok: bool,
+    value: i64,
+}
+
+fn redis_parse_i64(sl: &Slice<u8>, begin: u64, end: u64) -> RedisI64Parse {
+    let bad = RedisI64Parse {
+        ok: false,
+        value: 0,
+    };
+    if begin >= end {
+        return bad;
+    };
+    let i: u64 = begin;
+    let neg: bool = false;
+    let first: u8 = redis_slice_byte(sl, i);
+    if first == 45 {
+        neg = true;
+        i = i + 1;
+    } else {
+        if first == 43 {
+            i = i + 1;
+        };
+    };
+    if i >= end {
+        return bad;
+    };
+    let mag: u64 = 0;
+    while i < end {
+        let b: u8 = redis_slice_byte(sl, i);
+        if redis_is_digit(b) == false {
+            return bad;
+        };
+        let d: u64 = (b - 48) as u64;
+        // u64 max, computed: the SLA parser/codegen reject integer
+        // literals at or past 2^63 in source text.
+        let u64_max: u64 = ((1 as u64) << 63) + (((1 as u64) << 63) - 1);
+        if mag > (u64_max - d) / 10 {
+            return bad;
+        };
+        mag = mag * 10 + d;
+        i = i + 1;
+    }
+    // i64 range: magnitude 2^63 is representable only when
+    // negative. The 2^63 bound is computed, not written (see the
+    // u64_max note above).
+    let mag_limit: u64 = (1 as u64) << 63;
+    if neg {
+        if mag > mag_limit {
+            return bad;
+        };
+        if mag == mag_limit {
+            return RedisI64Parse {
+                ok: true,
+                value: 0 - 0x7FFFFFFFFFFFFFFF - 1,
+            };
+        };
+        return RedisI64Parse {
+            ok: true,
+            value: 0 - (mag as i64),
+        };
+    };
+    if mag >= mag_limit {
+        return bad;
+    };
+    return RedisI64Parse {
+        ok: true,
+        value: mag as i64,
+    };
+}
+
+// ---- values ----
+
+fn redis_empty_value() -> RedisValue {
+    let bulk: Vec<u8> = Vec::new();
+    let items: Vec<RedisValue> = Vec::new();
+    return RedisValue {
+        kind: SA_REDIS_KIND_INVALID,
+        int_val: 0,
+        bulk: bulk,
+        items: items,
+    };
+}
+
+fn redis_simple_value(text: Vec<u8>) -> RedisValue {
+    let items: Vec<RedisValue> = Vec::new();
+    return RedisValue {
+        kind: SA_REDIS_KIND_SIMPLE,
+        int_val: 0,
+        bulk: text,
+        items: items,
+    };
+}
+
+fn redis_error_value(text: Vec<u8>) -> RedisValue {
+    let items: Vec<RedisValue> = Vec::new();
+    return RedisValue {
+        kind: SA_REDIS_KIND_ERROR,
+        int_val: 0,
+        bulk: text,
+        items: items,
+    };
+}
+
+fn redis_int_value(v: i64) -> RedisValue {
+    let bulk: Vec<u8> = Vec::new();
+    let items: Vec<RedisValue> = Vec::new();
+    return RedisValue {
+        kind: SA_REDIS_KIND_INTEGER,
+        int_val: v,
+        bulk: bulk,
+        items: items,
+    };
+}
+
+fn redis_bulk_value(data: Vec<u8>) -> RedisValue {
+    let items: Vec<RedisValue> = Vec::new();
+    return RedisValue {
+        kind: SA_REDIS_KIND_BULK,
+        int_val: 0,
+        bulk: data,
+        items: items,
+    };
+}
+
+fn redis_null_value() -> RedisValue {
+    let bulk: Vec<u8> = Vec::new();
+    let items: Vec<RedisValue> = Vec::new();
+    return RedisValue {
+        kind: SA_REDIS_KIND_NULL,
+        int_val: 0,
+        bulk: bulk,
+        items: items,
+    };
+}
+
+fn redis_value_kind(v: &RedisValue) -> u32 {
+    return v.kind;
+}
+
+fn redis_value_is_null(v: &RedisValue) -> bool {
+    return v.kind == SA_REDIS_KIND_NULL;
+}
+
+// The integer payload (INTEGER values; BOOL stores 0/1 here too).
+// Other kinds return 0 -- check redis_value_kind first.
+fn redis_value_int(v: &RedisValue) -> i64 {
+    return v.int_val;
+}
+
+// A copy of the byte payload: BULK bytes, SIMPLE/ERROR text, the
+// wire text of DOUBLE and BIGINT values, VERBATIM content (format
+// prefix stripped). Empty for kinds that carry no bytes.
+fn redis_value_bulk(v: &RedisValue) -> Vec<u8> {
+    let sl: Slice<u8> = VEC_AS_SLICE(v.bulk);
+    let out: Vec<u8> = Vec::new();
+    return redis_push_slice(out, &sl, 0, len(v.bulk) as u64);
+}
+
+// Number of children (ARRAY/SET/PUSH elements; MAP counts every
+// key and value, so 2 per pair).
+fn redis_value_child_count(v: &RedisValue) -> u64 {
+    return len(v.items) as u64;
+}
+
+// Number of key/value pairs in a MAP reply, or in an ARRAY reply
+// with the flattened RESP2 hash shape (HGETALL under RESP2).
+fn redis_value_pair_count(v: &RedisValue) -> u64 {
+    if v.kind == SA_REDIS_KIND_MAP || v.kind == SA_REDIS_KIND_ARRAY {
+        return (len(v.items) as u64) / 2;
+    };
+    return 0;
+}
+
+// A copy of child idx (for a MAP, children 2*i and 2*i+1 are the
+// i-th key and value). Out of range yields an INVALID value --
+// check redis_value_child_count when the shape matters.
+fn redis_value_child(v: &RedisValue, idx: u64) -> RedisValue {
+    if idx >= (len(v.items) as u64) {
+        return redis_empty_value();
+    };
+    let sl: Slice<RedisValue> = VEC_AS_SLICE(v.items);
+    let out = redis_empty_value();
+    SLICE_GET(out, sl, idx);
+    return out;
+}
+
+fn redis_value_child_kind(v: &RedisValue, idx: u64) -> u32 {
+    let child = redis_value_child(v, idx);
+    return child.kind;
+}
+
+fn redis_value_child_int(v: &RedisValue, idx: u64) -> i64 {
+    let child = redis_value_child(v, idx);
+    return child.int_val;
+}
+
+fn redis_value_child_bulk(v: &RedisValue, idx: u64) -> Vec<u8> {
+    let child = redis_value_child(v, idx);
+    return redis_value_bulk(&child);
+}
+
+fn redis_value_child_is_null(v: &RedisValue, idx: u64) -> bool {
+    let child = redis_value_child(v, idx);
+    return child.kind == SA_REDIS_KIND_NULL;
+}
+
+fn redis_bytes_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
+    let n: u64 = len(a) as u64;
+    if n != (len(b) as u64) {
+        return false;
+    };
+    let sa: Slice<u8> = VEC_AS_SLICE(a);
+    let sb: Slice<u8> = VEC_AS_SLICE(b);
+    let i: u64 = 0;
+    while i < n {
+        if redis_slice_byte(&sa, i) != redis_slice_byte(&sb, i) {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+// ---- command frame construction ----
+
+fn redis_args_new() -> RedisArgs {
+    let body: Vec<u8> = Vec::new();
+    return RedisArgs {
+        body: body,
+        count: 0,
+    };
+}
+
+// Append one argument (any bytes; RESP bulk framing is added).
+fn redis_args_push(args: RedisArgs, arg: Vec<u8>) -> RedisArgs {
+    let body: Vec<u8> = args.body;
+    body.push(36);
+    body = redis_push_u64(body, len(arg) as u64);
+    body.push(13);
+    body.push(10);
+    let sl: Slice<u8> = VEC_AS_SLICE(arg);
+    body = redis_push_slice(body, &sl, 0, len(arg) as u64);
+    body.push(13);
+    body.push(10);
+    return RedisArgs {
+        body: body,
+        count: args.count + 1,
+    };
+}
+
+// Append one argument from its decimal integer spelling.
+fn redis_args_push_int(args: RedisArgs, v: i64) -> RedisArgs {
+    let text: Vec<u8> = Vec::new();
+    let digits = redis_push_i64(text, v);
+    return redis_args_push(args, digits);
+}
+
+// Append a short literal argument (verbs, option keywords).
+fn redis_args_push_lit(args: RedisArgs, text: ptr, text_len: u64) -> RedisArgs {
+    let arg: Vec<u8> = Vec::new();
+    let bytes = redis_push_lit(arg, text, text_len);
+    return redis_args_push(args, bytes);
+}
+
+fn redis_args_count(args: &RedisArgs) -> u64 {
+    return args.count;
+}
+
+// The complete wire frame: "*N" header plus the encoded body.
+fn redis_args_frame(args: RedisArgs) -> Vec<u8> {
+    let frame: Vec<u8> = Vec::new();
+    frame.push(42);
+    frame = redis_push_u64(frame, args.count);
+    frame.push(13);
+    frame.push(10);
+    let sl: Slice<u8> = VEC_AS_SLICE(args.body);
+    frame = redis_push_slice(frame, &sl, 0, len(args.body) as u64);
+    return frame;
+}
+
+// ---- the RESP parser (pure) ----
+
+// Internal one-value parse result; buf is threaded by value so a
+// caller can keep feeding the same buffer.
+struct RedisParseOne {
+    buf: Vec<u8>,
+    value: RedisValue,
+    next_pos: u64,
+    ready: bool,
+    status: i32,
+}
+
+fn redis_parse_incomplete(buf: Vec<u8>, pos: u64) -> RedisParseOne {
+    return RedisParseOne {
+        buf: buf,
+        value: redis_empty_value(),
+        next_pos: pos,
+        ready: false,
+        status: SA_STD_OK,
+    };
+}
+
+fn redis_parse_fail(buf: Vec<u8>, pos: u64) -> RedisParseOne {
+    return RedisParseOne {
+        buf: buf,
+        value: redis_empty_value(),
+        next_pos: pos,
+        ready: false,
+        status: SA_STD_ERR_NET,
+    };
+}
+
+fn redis_parse_done(buf: Vec<u8>, value: RedisValue, next_pos: u64) -> RedisParseOne {
+    return RedisParseOne {
+        buf: buf,
+        value: value,
+        next_pos: next_pos,
+        ready: true,
+        status: SA_STD_OK,
+    };
+}
+
+// Scan one CRLF-terminated header line starting at begin.
+// state: 0 = incomplete (proper prefix), 1 = ok, 2 = malformed.
+struct RedisLineScan {
+    state: u32,
+    content_end: u64,
+    next: u64,
+}
+
+fn redis_scan_line(sl: &Slice<u8>, begin: u64, n: u64) -> RedisLineScan {
+    let i: u64 = begin;
+    while i < n {
+        if redis_slice_byte(sl, i) == 10 {
+            if i == begin || redis_slice_byte(sl, i - 1) != 13 {
+                // LF without a preceding CR: not RESP.
+                return RedisLineScan {
+                    state: 2,
+                    content_end: begin,
+                    next: begin,
+                };
+            };
+            return RedisLineScan {
+                state: 1,
+                content_end: i - 1,
+                next: i + 1,
+            };
+        };
+        if i - begin > SA_REDIS_MAX_LINE {
+            return RedisLineScan {
+                state: 2,
+                content_end: begin,
+                next: begin,
+            };
+        };
+        i = i + 1;
+    }
+    if n - begin > SA_REDIS_MAX_LINE {
+        return RedisLineScan {
+            state: 2,
+            content_end: begin,
+            next: begin,
+        };
+    };
+    return RedisLineScan {
+        state: 0,
+        content_end: begin,
+        next: begin,
+    };
+}
+
+fn redis_parse_value(buf: Vec<u8>, pos: u64, depth: u64) -> RedisParseOne {
+    let n: u64 = len(buf) as u64;
+    if pos >= n {
+        return redis_parse_incomplete(buf, pos);
+    };
+    if depth > SA_REDIS_MAX_DEPTH {
+        return redis_parse_fail(buf, pos);
+    };
+    let sl: Slice<u8> = VEC_AS_SLICE(buf);
+    let t: u8 = redis_slice_byte(&sl, pos);
+
+    // Line-shaped values: + - : _ # , (
+    if t == 43 || t == 45 || t == 58 || t == 95 || t == 35 || t == 44 || t == 40 {
+        let scan = redis_scan_line(&sl, pos + 1, n);
+        if scan.state == 0 {
+            return redis_parse_incomplete(buf, pos);
+        };
+        if scan.state == 2 {
+            return redis_parse_fail(buf, pos);
+        };
+        let text: Vec<u8> = Vec::new();
+        text = redis_push_slice(text, &sl, pos + 1, scan.content_end);
+        if t == 43 {
+            return redis_parse_done(buf, redis_simple_value(text), scan.next);
+        };
+        if t == 45 {
+            return redis_parse_done(buf, redis_error_value(text), scan.next);
+        };
+        if t == 95 {
+            if (len(text) as u64) != 0 {
+                return redis_parse_fail(buf, pos);
+            };
+            return redis_parse_done(buf, redis_null_value(), scan.next);
+        };
+        if t == 35 {
+            if (len(text) as u64) == 1 {
+                let tsl2: Slice<u8> = VEC_AS_SLICE(text);
+                let tb: u8 = redis_slice_byte(&tsl2, 0);
+                if tb == 116 {
+                    let v = redis_empty_value();
+                    v.kind = SA_REDIS_KIND_BOOL;
+                    v.int_val = 1;
+                    return redis_parse_done(buf, v, scan.next);
+                };
+                if tb == 102 {
+                    let v = redis_empty_value();
+                    v.kind = SA_REDIS_KIND_BOOL;
+                    v.int_val = 0;
+                    return redis_parse_done(buf, v, scan.next);
+                };
+            };
+            return redis_parse_fail(buf, pos);
+        };
+        if t == 44 {
+            if (len(text) as u64) == 0 {
+                return redis_parse_fail(buf, pos);
+            };
+            let v = redis_empty_value();
+            v.kind = SA_REDIS_KIND_DOUBLE;
+            v.bulk = text;
+            return redis_parse_done(buf, v, scan.next);
+        };
+        if t == 40 {
+            // Big number: optional sign, then at least one digit.
+            let tsl: Slice<u8> = VEC_AS_SLICE(text);
+            let tn: u64 = len(text) as u64;
+            let ti: u64 = 0;
+            if ti < tn {
+                let b0: u8 = redis_slice_byte(&tsl, ti);
+                if b0 == 45 || b0 == 43 {
+                    ti = ti + 1;
+                };
+            };
+            if ti >= tn {
+                return redis_parse_fail(buf, pos);
+            };
+            let digits_ok: bool = true;
+            while ti < tn {
+                if redis_is_digit(redis_slice_byte(&tsl, ti)) == false {
+                    digits_ok = false;
+                };
+                ti = ti + 1;
+            }
+            if digits_ok == false {
+                return redis_parse_fail(buf, pos);
+            };
+            let v = redis_empty_value();
+            v.kind = SA_REDIS_KIND_BIGINT;
+            v.bulk = text;
+            return redis_parse_done(buf, v, scan.next);
+        };
+        // ':' -- the only line type left.
+        let tsl: Slice<u8> = VEC_AS_SLICE(text);
+        let parsed = redis_parse_i64(&tsl, 0, len(text) as u64);
+        if parsed.ok == false {
+            return redis_parse_fail(buf, pos);
+        };
+        return redis_parse_done(buf, redis_int_value(parsed.value), scan.next);
+    };
+
+    // Length-prefixed values: $ (bulk) ! (blob error) = (verbatim)
+    if t == 36 || t == 33 || t == 61 {
+        let scan = redis_scan_line(&sl, pos + 1, n);
+        if scan.state == 0 {
+            return redis_parse_incomplete(buf, pos);
+        };
+        if scan.state == 2 {
+            return redis_parse_fail(buf, pos);
+        };
+        let parsed = redis_parse_i64(&sl, pos + 1, scan.content_end);
+        if parsed.ok == false {
+            return redis_parse_fail(buf, pos);
+        };
+        let blen: i64 = parsed.value;
+        if blen == -1 {
+            if t == 36 {
+                return redis_parse_done(buf, redis_null_value(), scan.next);
+            };
+            return redis_parse_fail(buf, pos);
+        };
+        if blen < 0 || (blen as u64) > SA_REDIS_MAX_BULK {
+            return redis_parse_fail(buf, pos);
+        };
+        let data_begin: u64 = scan.next;
+        let data_end: u64 = data_begin + (blen as u64);
+        if data_end + 2 > n {
+            return redis_parse_incomplete(buf, pos);
+        };
+        if redis_slice_byte(&sl, data_end) != 13 || redis_slice_byte(&sl, data_end + 1) != 10 {
+            return redis_parse_fail(buf, pos);
+        };
+        if t == 61 {
+            // Verbatim: 3 format bytes + ':' precede the content.
+            if blen < 4 {
+                return redis_parse_fail(buf, pos);
+            };
+            if redis_slice_byte(&sl, data_begin + 3) != 58 {
+                return redis_parse_fail(buf, pos);
+            };
+            let content: Vec<u8> = Vec::new();
+            content = redis_push_slice(content, &sl, data_begin + 4, data_end);
+            let v = redis_empty_value();
+            v.kind = SA_REDIS_KIND_VERBATIM;
+            v.bulk = content;
+            return redis_parse_done(buf, v, data_end + 2);
+        };
+        let data: Vec<u8> = Vec::new();
+        data = redis_push_slice(data, &sl, data_begin, data_end);
+        if t == 33 {
+            let v = redis_empty_value();
+            v.kind = SA_REDIS_KIND_BLOB_ERROR;
+            v.bulk = data;
+            return redis_parse_done(buf, v, data_end + 2);
+        };
+        return redis_parse_done(buf, redis_bulk_value(data), data_end + 2);
+    };
+
+    // Aggregate values: * (array) % (map) ~ (set) > (push)
+    if t == 42 || t == 37 || t == 126 || t == 62 {
+        let scan = redis_scan_line(&sl, pos + 1, n);
+        if scan.state == 0 {
+            return redis_parse_incomplete(buf, pos);
+        };
+        if scan.state == 2 {
+            return redis_parse_fail(buf, pos);
+        };
+        let parsed = redis_parse_i64(&sl, pos + 1, scan.content_end);
+        if parsed.ok == false {
+            return redis_parse_fail(buf, pos);
+        };
+        let count: i64 = parsed.value;
+        if count == -1 {
+            if t == 42 {
+                return redis_parse_done(buf, redis_null_value(), scan.next);
+            };
+            return redis_parse_fail(buf, pos);
+        };
+        if count < 0 {
+            return redis_parse_fail(buf, pos);
+        };
+        let total: u64 = count as u64;
+        if t == 37 {
+            total = total * 2;
+        };
+        if total > SA_REDIS_MAX_CHILDREN {
+            return redis_parse_fail(buf, pos);
+        };
+        let items: Vec<RedisValue> = Vec::new();
+        let cur: u64 = scan.next;
+        let k: u64 = 0;
+        let owned = buf;
+        while k < total {
+            let child = redis_parse_value(owned, cur, depth + 1);
+            owned = child.buf;
+            if child.status != SA_STD_OK {
+                return RedisParseOne {
+                    buf: owned,
+                    value: redis_empty_value(),
+                    next_pos: pos,
+                    ready: false,
+                    status: child.status,
+                };
+            };
+            if child.ready == false {
+                return redis_parse_incomplete(owned, pos);
+            };
+            items.push(child.value);
+            cur = child.next_pos;
+            k = k + 1;
+        }
+        let v = redis_empty_value();
+        if t == 42 {
+            v.kind = SA_REDIS_KIND_ARRAY;
+        };
+        if t == 37 {
+            v.kind = SA_REDIS_KIND_MAP;
+        };
+        if t == 126 {
+            v.kind = SA_REDIS_KIND_SET;
+        };
+        if t == 62 {
+            v.kind = SA_REDIS_KIND_PUSH;
+        };
+        v.items = items;
+        return redis_parse_done(owned, v, cur);
+    };
+
+    // Unknown type byte: a loud protocol error, never a guess.
+    return redis_parse_fail(buf, pos);
+}
+
+// Parse one complete RESP value from the start of buf. See
+// RedisParse for the result contract. This is the entry point the
+// streaming reader uses, and it is public so the wire codec can be
+// unit-tested (and reused) without a connection.
+fn redis_parse_reply(buf: Vec<u8>) -> RedisParse {
+    let one = redis_parse_value(buf, 0, 0);
+    return RedisParse {
+        buf: one.buf,
+        value: one.value,
+        next_pos: one.next_pos,
+        ready: one.ready,
+        status: one.status,
+    };
+}
+
+// ---- transport ----
+
+struct RedisReadChunk {
+    status: i32,
+    data: Vec<u8>,
+}
+
+fn redis_read_chunk(handle: u64) -> RedisReadChunk {
+    let buf: [u8; 8192] = [0u8; 8192];
+    let buf_ptr: ptr = PTR_BYTE_ADD(&buf, 0);
+    let got: u64 = 0;
+    let st: i32 = sa_std_net_tcp_stream_read(handle, buf_ptr, 8192, &got);
+    let data: Vec<u8> = Vec::new();
+    if st == SA_STD_OK {
+        let i: u64 = 0;
+        while i < got {
+            data.push(buf[i]);
+            i = i + 1;
+        }
+    };
+    return RedisReadChunk {
+        status: st,
+        data: data,
+    };
+}
+
+// Write all of data, in stack-staged chunks, tolerating partial
+// writes (the smtp.sla shape).
+fn redis_write_all(handle: u64, data: Vec<u8>) -> i32 {
+    let sl: Slice<u8> = VEC_AS_SLICE(data);
+    let total: u64 = len(data) as u64;
+    let off: u64 = 0;
+    while off < total {
+        let chunk_len: u64 = total - off;
+        if chunk_len > 4096 {
+            chunk_len = 4096;
+        };
+        let buf: [u8; 4096] = [0u8; 4096];
+        let j: u64 = 0;
+        while j < chunk_len {
+            let b: u8 = 0;
+            SLICE_GET(b, sl, off + j);
+            buf[j] = b;
+            j = j + 1;
+        }
+        let buf_ptr: ptr = PTR_BYTE_ADD(&buf, 0);
+        let written: u64 = 0;
+        let st: i32 = sa_std_net_tcp_stream_write(handle, buf_ptr, chunk_len, &written);
+        if st != SA_STD_OK {
+            return st;
+        };
+        if written == 0 {
+            return SA_STD_ERR_NET;
+        };
+        off = off + written;
+    }
+    return SA_STD_OK;
+}
+
+// ---- client plumbing ----
+
+fn redis_empty_client() -> RedisClient {
+    let pending: Vec<u8> = Vec::new();
+    return RedisClient {
+        handle: 0,
+        open: false,
+        failed: false,
+        in_multi: false,
+        pending: pending,
+    };
+}
+
+fn redis_step(c: RedisClient, status: i32, value: RedisValue) -> RedisStep {
+    let et: Vec<u8> = Vec::new();
+    return RedisStep {
+        client: c,
+        status: status,
+        reply: value,
+        error_text: et,
+    };
+}
+
+// A step for a completed read: a top-level ERROR (or BLOB_ERROR)
+// reply becomes SA_REDIS_STATUS_REPLY_ERROR with the text copied
+// out; anything else is a plain success.
+fn redis_step_value(c: RedisClient, value: RedisValue) -> RedisStep {
+    if value.kind == SA_REDIS_KIND_ERROR || value.kind == SA_REDIS_KIND_BLOB_ERROR {
+        let et = redis_value_bulk(&value);
+        return RedisStep {
+            client: c,
+            status: SA_REDIS_STATUS_REPLY_ERROR,
+            reply: value,
+            error_text: et,
+        };
+    };
+    return redis_step(c, SA_STD_OK, value);
+}
+
+// Read until one full reply is buffered. EOF before a complete
+// reply is SA_STD_ERR_NET; a malformed reply latches the client
+// failed (see the header).
+fn redis_read_value(c: RedisClient) -> RedisStep {
+    let guard: u64 = 0;
+    while guard < 8192 {
+        let p = redis_parse_reply(c.pending);
+        c.pending = p.buf;
+        if p.status != SA_STD_OK {
+            c.failed = true;
+            return redis_step(c, p.status, redis_empty_value());
+        };
+        if p.ready {
+            let sl: Slice<u8> = VEC_AS_SLICE(c.pending);
+            let n: u64 = len(c.pending) as u64;
+            let rest: Vec<u8> = Vec::new();
+            rest = redis_push_slice(rest, &sl, p.next_pos, n);
+            c.pending = rest;
+            return redis_step(c, SA_STD_OK, p.value);
+        };
+        let chunk = redis_read_chunk(c.handle);
+        if chunk.status != SA_STD_OK {
+            return redis_step(c, chunk.status, redis_empty_value());
+        };
+        if (len(chunk.data) as u64) == 0 {
+            return redis_step(c, SA_STD_ERR_NET, redis_empty_value());
+        };
+        let csl: Slice<u8> = VEC_AS_SLICE(chunk.data);
+        c.pending = redis_push_slice(c.pending, &csl, 0, len(chunk.data) as u64);
+        guard = guard + 1;
+    }
+    return redis_step(c, SA_STD_ERR_NET, redis_empty_value());
+}
+
+// Send one command frame and read its reply, mapping a top-level
+// error reply to SA_REDIS_STATUS_REPLY_ERROR.
+fn redis_command(c: RedisClient, args: RedisArgs) -> RedisStep {
+    if c.failed {
+        return redis_step(c, SA_STD_ERR_NET, redis_empty_value());
+    };
+    if c.open == false {
+        return redis_step(c, SA_STD_ERR_INVALID_HANDLE, redis_empty_value());
+    };
+    let frame = redis_args_frame(args);
+    let st: i32 = redis_write_all(c.handle, frame);
+    if st != SA_STD_OK {
+        return redis_step(c, st, redis_empty_value());
+    };
+    let rd = redis_read_value(c);
+    if rd.status != SA_STD_OK {
+        return rd;
+    };
+    return redis_step_value(rd.client, rd.reply);
+}
+
+// Check that a step's reply is the simple string "OK" (the AUTH /
+// SELECT / MULTI / DISCARD success shape). Anything else that
+// arrived as a value is a protocol surprise: SA_STD_ERR_NET.
+fn redis_expect_ok(step: RedisStep) -> RedisStep {
+    if step.status != SA_STD_OK {
+        return step;
+    };
+    if step.reply.kind == SA_REDIS_KIND_SIMPLE {
+        let txt = redis_value_bulk(&step.reply);
+        let ok_text: Vec<u8> = Vec::new();
+        let ok_lit = redis_push_lit(ok_text, STR_PTR("OK"), STR_LEN("OK"));
+        if redis_bytes_eq(txt, ok_lit) {
+            return step;
+        };
+    };
+    return redis_step(step.client, SA_STD_ERR_NET, redis_empty_value());
+}
+
+fn redis_args_verb(verb: ptr, verb_len: u64) -> RedisArgs {
+    let a = redis_args_new();
+    return redis_args_push_lit(a, verb, verb_len);
+}
+
+// ---- connection ----
+
+// Open a plain TCP connection (10 s read timeout). Redis sends no
+// greeting, so a successful step means the socket is ready; issue
+// redis_auth / redis_select as needed, or use
+// redis_connect_auth_db for the combined shape.
+fn redis_connect(host: Vec<u8>, port: u32) -> RedisStep {
+    if (len(host) as u64) > SA_REDIS_MAX_HOST {
+        return redis_step(redis_empty_client(), SA_STD_ERR_INVALID_ARGUMENT, redis_empty_value());
+    };
+    let arr: [u8; 512] = [0u8; 512];
+    let hsl: Slice<u8> = VEC_AS_SLICE(host);
+    let hn: u64 = len(host) as u64;
+    let i: u64 = 0;
+    while i < hn {
+        arr[i] = redis_slice_byte(&hsl, i);
+        i = i + 1;
+    }
+    let host_ptr: ptr = PTR_BYTE_ADD(&arr, 0);
+    let handle: u64 = 0;
+    let st: i32 = sa_std_net_tcp_connect(host_ptr, hn, port, &handle);
+    if st != SA_STD_OK {
+        return redis_step(redis_empty_client(), st, redis_empty_value());
+    };
+    let to_st: i32 = sa_std_net_tcp_stream_set_read_timeout(handle, SA_REDIS_READ_TIMEOUT_NS);
+    if to_st != SA_STD_OK {
+        let cl: i32 = sa_net_tcp_stream_close(handle);
+        return redis_step(redis_empty_client(), to_st, redis_empty_value());
+    };
+    let client = redis_empty_client();
+    client.handle = handle;
+    client.open = true;
+    return redis_step(client, SA_STD_OK, redis_empty_value());
+}
+
+// AUTH with a password only (the requirepass shape).
+fn redis_auth(c: RedisClient, password: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("AUTH"), STR_LEN("AUTH"));
+    a = redis_args_push(a, password);
+    return redis_expect_ok(redis_command(c, a));
+}
+
+// AUTH with an ACL user and password (Redis 6+).
+fn redis_auth_user(c: RedisClient, user: Vec<u8>, password: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("AUTH"), STR_LEN("AUTH"));
+    a = redis_args_push(a, user);
+    a = redis_args_push(a, password);
+    return redis_expect_ok(redis_command(c, a));
+}
+
+// SELECT the logical database by index.
+fn redis_select(c: RedisClient, db: i64) -> RedisStep {
+    if db < 0 {
+        return redis_step(c, SA_STD_ERR_INVALID_ARGUMENT, redis_empty_value());
+    };
+    let a = redis_args_verb(STR_PTR("SELECT"), STR_LEN("SELECT"));
+    a = redis_args_push_int(a, db);
+    return redis_expect_ok(redis_command(c, a));
+}
+
+// Connect, then AUTH when password is non-empty (with the ACL
+// user when user is non-empty), then SELECT when db > 0. On an
+// AUTH/SELECT failure the socket is closed and the returned client
+// is empty: there is no half-authenticated client to misuse.
+fn redis_connect_auth_db(host: Vec<u8>, port: u32, user: Vec<u8>, password: Vec<u8>, db: i64) -> RedisStep {
+    let step = redis_connect(host, port);
+    if step.status != SA_STD_OK {
+        return step;
+    };
+    let cur = step;
+    if (len(password) as u64) > 0 {
+        if (len(user) as u64) > 0 {
+            cur = redis_auth_user(cur.client, user, password);
+        } else {
+            cur = redis_auth(cur.client, password);
+        };
+        if cur.status != SA_STD_OK {
+            let failed = cur;
+            let cl: i32 = redis_client_close(failed.client);
+            return redis_step(redis_empty_client(), failed.status, redis_empty_value());
+        };
+    };
+    if db > 0 {
+        cur = redis_select(cur.client, db);
+        if cur.status != SA_STD_OK {
+            let failed = cur;
+            let cl: i32 = redis_client_close(failed.client);
+            return redis_step(redis_empty_client(), failed.status, redis_empty_value());
+        };
+    };
+    return cur;
+}
+
+// Close the connection (consumes the client). Closing an already
+// empty client is a no-op success.
+fn redis_client_close(c: RedisClient) -> i32 {
+    if c.open {
+        return sa_net_tcp_stream_close(c.handle);
+    };
+    return SA_STD_OK;
+}
+
+// PING; the reply is the simple string PONG.
+fn redis_ping(c: RedisClient) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("PING"), STR_LEN("PING"));
+    return redis_command(c, a);
+}
+
+// PING with a message; the reply is the message as a bulk string.
+fn redis_ping_msg(c: RedisClient, message: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("PING"), STR_LEN("PING"));
+    a = redis_args_push(a, message);
+    return redis_command(c, a);
+}
+
+// ---- typed helpers: strings and keys ----
+
+fn redis_get(c: RedisClient, key: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("GET"), STR_LEN("GET"));
+    a = redis_args_push(a, key);
+    return redis_command(c, a);
+}
+
+// SET with no options (overwrites any existing value/TTL).
+fn redis_set(c: RedisClient, key: Vec<u8>, value: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("SET"), STR_LEN("SET"));
+    a = redis_args_push(a, key);
+    a = redis_args_push(a, value);
+    return redis_command(c, a);
+}
+
+// SET with the NX/XX conditions and an optional TTL:
+// ttl_kind is SA_REDIS_SET_TTL_NONE / _EX (ttl in seconds) / _PX
+// (ttl in milliseconds). NX and XX together are rejected locally
+// (SA_STD_ERR_INVALID_ARGUMENT) instead of relying on the
+// server's syntax error. When the condition is not met the server
+// answers a nil bulk: status SA_STD_OK, reply kind NULL -- that
+// is a normal outcome, not an error.
+fn redis_set_opts(c: RedisClient, key: Vec<u8>, value: Vec<u8>, nx: bool, xx: bool, ttl_kind: u32, ttl: i64) -> RedisStep {
+    if nx && xx {
+        return redis_step(c, SA_STD_ERR_INVALID_ARGUMENT, redis_empty_value());
+    };
+    if ttl_kind != SA_REDIS_SET_TTL_NONE && ttl_kind != SA_REDIS_SET_TTL_EX && ttl_kind != SA_REDIS_SET_TTL_PX {
+        return redis_step(c, SA_STD_ERR_INVALID_ARGUMENT, redis_empty_value());
+    };
+    if ttl_kind != SA_REDIS_SET_TTL_NONE && ttl <= 0 {
+        return redis_step(c, SA_STD_ERR_INVALID_ARGUMENT, redis_empty_value());
+    };
+    let a = redis_args_verb(STR_PTR("SET"), STR_LEN("SET"));
+    a = redis_args_push(a, key);
+    a = redis_args_push(a, value);
+    if nx {
+        a = redis_args_push_lit(a, STR_PTR("NX"), STR_LEN("NX"));
+    };
+    if xx {
+        a = redis_args_push_lit(a, STR_PTR("XX"), STR_LEN("XX"));
+    };
+    if ttl_kind == SA_REDIS_SET_TTL_EX {
+        a = redis_args_push_lit(a, STR_PTR("EX"), STR_LEN("EX"));
+        a = redis_args_push_int(a, ttl);
+    };
+    if ttl_kind == SA_REDIS_SET_TTL_PX {
+        a = redis_args_push_lit(a, STR_PTR("PX"), STR_LEN("PX"));
+        a = redis_args_push_int(a, ttl);
+    };
+    return redis_command(c, a);
+}
+
+// SET with an expiry in seconds.
+fn redis_set_ex(c: RedisClient, key: Vec<u8>, value: Vec<u8>, seconds: i64) -> RedisStep {
+    return redis_set_opts(c, key, value, false, false, SA_REDIS_SET_TTL_EX, seconds);
+}
+
+// SET with an expiry in milliseconds.
+fn redis_set_px(c: RedisClient, key: Vec<u8>, value: Vec<u8>, millis: i64) -> RedisStep {
+    return redis_set_opts(c, key, value, false, false, SA_REDIS_SET_TTL_PX, millis);
+}
+
+// DEL one key; the integer reply is the number of keys removed.
+fn redis_del(c: RedisClient, key: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("DEL"), STR_LEN("DEL"));
+    a = redis_args_push(a, key);
+    return redis_command(c, a);
+}
+
+// EXISTS one key; the integer reply is 1 or 0 (or the key's
+// multiplicity count on Redis 7.2+ when the same key is passed
+// repeatedly -- this helper passes it once).
+fn redis_exists(c: RedisClient, key: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("EXISTS"), STR_LEN("EXISTS"));
+    a = redis_args_push(a, key);
+    return redis_command(c, a);
+}
+
+fn redis_incr(c: RedisClient, key: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("INCR"), STR_LEN("INCR"));
+    a = redis_args_push(a, key);
+    return redis_command(c, a);
+}
+
+fn redis_incrby(c: RedisClient, key: Vec<u8>, delta: i64) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("INCRBY"), STR_LEN("INCRBY"));
+    a = redis_args_push(a, key);
+    a = redis_args_push_int(a, delta);
+    return redis_command(c, a);
+}
+
+// EXPIRE in seconds; the integer reply is 1 when the timeout was
+// set, 0 when the key does not exist.
+fn redis_expire(c: RedisClient, key: Vec<u8>, seconds: i64) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("EXPIRE"), STR_LEN("EXPIRE"));
+    a = redis_args_push(a, key);
+    a = redis_args_push_int(a, seconds);
+    return redis_command(c, a);
+}
+
+// TTL in seconds: -2 when the key does not exist, -1 when it has
+// no expiry, otherwise the remaining seconds.
+fn redis_ttl(c: RedisClient, key: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("TTL"), STR_LEN("TTL"));
+    a = redis_args_push(a, key);
+    return redis_command(c, a);
+}
+
+// ---- typed helpers: hashes ----
+
+fn redis_hget(c: RedisClient, key: Vec<u8>, field: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("HGET"), STR_LEN("HGET"));
+    a = redis_args_push(a, key);
+    a = redis_args_push(a, field);
+    return redis_command(c, a);
+}
+
+// HSET one field/value pair; the integer reply is the number of
+// fields added.
+fn redis_hset(c: RedisClient, key: Vec<u8>, field: Vec<u8>, value: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("HSET"), STR_LEN("HSET"));
+    a = redis_args_push(a, key);
+    a = redis_args_push(a, field);
+    a = redis_args_push(a, value);
+    return redis_command(c, a);
+}
+
+// HGETALL: a MAP reply under RESP3, a flattened ARRAY under
+// RESP2; redis_value_pair_count reads both shapes.
+fn redis_hgetall(c: RedisClient, key: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("HGETALL"), STR_LEN("HGETALL"));
+    a = redis_args_push(a, key);
+    return redis_command(c, a);
+}
+
+// ---- typed helpers: lists ----
+
+fn redis_lpush(c: RedisClient, key: Vec<u8>, value: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("LPUSH"), STR_LEN("LPUSH"));
+    a = redis_args_push(a, key);
+    a = redis_args_push(a, value);
+    return redis_command(c, a);
+}
+
+fn redis_rpush(c: RedisClient, key: Vec<u8>, value: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("RPUSH"), STR_LEN("RPUSH"));
+    a = redis_args_push(a, key);
+    a = redis_args_push(a, value);
+    return redis_command(c, a);
+}
+
+fn redis_lrange(c: RedisClient, key: Vec<u8>, start: i64, stop: i64) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("LRANGE"), STR_LEN("LRANGE"));
+    a = redis_args_push(a, key);
+    a = redis_args_push_int(a, start);
+    a = redis_args_push_int(a, stop);
+    return redis_command(c, a);
+}
+
+// ---- typed helpers: sets and sorted sets ----
+
+fn redis_sadd(c: RedisClient, key: Vec<u8>, member: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("SADD"), STR_LEN("SADD"));
+    a = redis_args_push(a, key);
+    a = redis_args_push(a, member);
+    return redis_command(c, a);
+}
+
+fn redis_smembers(c: RedisClient, key: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("SMEMBERS"), STR_LEN("SMEMBERS"));
+    a = redis_args_push(a, key);
+    return redis_command(c, a);
+}
+
+// ZADD one member. The score travels as its decimal text
+// (e.g. "3.5", "-inf"): Redis scores are doubles, but their exact
+// spelling belongs to the caller, and this avoids forcing an
+// f64-to-text format choice into the std surface.
+fn redis_zadd(c: RedisClient, key: Vec<u8>, score: Vec<u8>, member: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("ZADD"), STR_LEN("ZADD"));
+    a = redis_args_push(a, key);
+    a = redis_args_push(a, score);
+    a = redis_args_push(a, member);
+    return redis_command(c, a);
+}
+
+fn redis_zrange(c: RedisClient, key: Vec<u8>, start: i64, stop: i64) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("ZRANGE"), STR_LEN("ZRANGE"));
+    a = redis_args_push(a, key);
+    a = redis_args_push_int(a, start);
+    a = redis_args_push_int(a, stop);
+    return redis_command(c, a);
+}
+
+// ZRANGE with WITHSCORES: the reply alternates member, score
+// (scores as bulk text).
+fn redis_zrange_withscores(c: RedisClient, key: Vec<u8>, start: i64, stop: i64) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("ZRANGE"), STR_LEN("ZRANGE"));
+    a = redis_args_push(a, key);
+    a = redis_args_push_int(a, start);
+    a = redis_args_push_int(a, stop);
+    a = redis_args_push_lit(a, STR_PTR("WITHSCORES"), STR_LEN("WITHSCORES"));
+    return redis_command(c, a);
+}
+
+// ---- typed helpers: keyspace iteration ----
+
+// KEYS pattern: the reply is an array of key names. Prefer
+// redis_scan on production keyspaces; KEYS is here because the
+// census workloads use it on small ones.
+fn redis_keys(c: RedisClient, pattern: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("KEYS"), STR_LEN("KEYS"));
+    a = redis_args_push(a, pattern);
+    return redis_command(c, a);
+}
+
+// One SCAN step. pattern may be empty (no MATCH); count <= 0 omits
+// COUNT. The step carries the next cursor and this round's keys;
+// iterate until next_cursor is 0.
+fn redis_scan(c: RedisClient, cursor: i64, pattern: Vec<u8>, count: i64) -> RedisScanStep {
+    let empty_keys: Vec<Vec<u8>> = Vec::new();
+    if cursor < 0 {
+        return RedisScanStep {
+            client: c,
+            status: SA_STD_ERR_INVALID_ARGUMENT,
+            next_cursor: 0,
+            keys: empty_keys,
+            error_text: redis_empty_text(),
+        };
+    };
+    let a = redis_args_verb(STR_PTR("SCAN"), STR_LEN("SCAN"));
+    a = redis_args_push_int(a, cursor);
+    if (len(pattern) as u64) > 0 {
+        a = redis_args_push_lit(a, STR_PTR("MATCH"), STR_LEN("MATCH"));
+        a = redis_args_push(a, pattern);
+    };
+    if count > 0 {
+        a = redis_args_push_lit(a, STR_PTR("COUNT"), STR_LEN("COUNT"));
+        a = redis_args_push_int(a, count);
+    };
+    let step = redis_command(c, a);
+    if step.status != SA_STD_OK {
+        return RedisScanStep {
+            client: step.client,
+            status: step.status,
+            next_cursor: 0,
+            keys: empty_keys,
+            error_text: step.error_text,
+        };
+    };
+    if step.reply.kind != SA_REDIS_KIND_ARRAY || redis_value_child_count(&step.reply) != 2 {
+        return RedisScanStep {
+            client: step.client,
+            status: SA_STD_ERR_NET,
+            next_cursor: 0,
+            keys: empty_keys,
+            error_text: redis_empty_text(),
+        };
+    };
+    let cursor_text = redis_value_child_bulk(&step.reply, 0);
+    let csl: Slice<u8> = VEC_AS_SLICE(cursor_text);
+    let parsed = redis_parse_i64(&csl, 0, len(cursor_text) as u64);
+    if parsed.ok == false || parsed.value < 0 {
+        return RedisScanStep {
+            client: step.client,
+            status: SA_STD_ERR_NET,
+            next_cursor: 0,
+            keys: empty_keys,
+            error_text: redis_empty_text(),
+        };
+    };
+    let keys_arr = redis_value_child(&step.reply, 1);
+    if keys_arr.kind != SA_REDIS_KIND_ARRAY {
+        return RedisScanStep {
+            client: step.client,
+            status: SA_STD_ERR_NET,
+            next_cursor: 0,
+            keys: empty_keys,
+            error_text: redis_empty_text(),
+        };
+    };
+    let keys: Vec<Vec<u8>> = Vec::new();
+    let nk: u64 = redis_value_child_count(&keys_arr);
+    let i: u64 = 0;
+    while i < nk {
+        keys.push(redis_value_child_bulk(&keys_arr, i));
+        i = i + 1;
+    }
+    return RedisScanStep {
+        client: step.client,
+        status: SA_STD_OK,
+        next_cursor: parsed.value,
+        keys: keys,
+        error_text: redis_empty_text(),
+    };
+}
+
+fn redis_empty_text() -> Vec<u8> {
+    let t: Vec<u8> = Vec::new();
+    return t;
+}
+
+// ---- scripts ----
+
+// Compose EVAL/EVALSHA from a script (or its SHA1) plus the keys
+// and plain arguments as two RedisArgs builders, so numkeys is
+// always the keys builder's count -- the caller cannot skew it.
+fn redis_eval_compose(verb: ptr, verb_len: u64, script: Vec<u8>, keys: RedisArgs, args: RedisArgs) -> RedisArgs {
+    let a = redis_args_verb(verb, verb_len);
+    a = redis_args_push(a, script);
+    a = redis_args_push_int(a, redis_args_count(&keys) as i64);
+    let body: Vec<u8> = a.body;
+    let ksl: Slice<u8> = VEC_AS_SLICE(keys.body);
+    body = redis_push_slice(body, &ksl, 0, len(keys.body) as u64);
+    let asl: Slice<u8> = VEC_AS_SLICE(args.body);
+    body = redis_push_slice(body, &asl, 0, len(args.body) as u64);
+    return RedisArgs {
+        body: body,
+        count: a.count + keys.count + args.count,
+    };
+}
+
+// EVAL: run a Lua script server-side, pass-through. The reply has
+// the script's return shape (Redis converts Lua tables to arrays,
+// Lua errors to error replies).
+fn redis_eval(c: RedisClient, script: Vec<u8>, keys: RedisArgs, args: RedisArgs) -> RedisStep {
+    let a = redis_eval_compose(STR_PTR("EVAL"), STR_LEN("EVAL"), script, keys, args);
+    return redis_command(c, a);
+}
+
+// EVALSHA: run a previously loaded script by its SHA1. A NOSCRIPT
+// error reply is the caller's cue to fall back to redis_eval --
+// it is surfaced, not hidden.
+fn redis_evalsha(c: RedisClient, sha: Vec<u8>, keys: RedisArgs, args: RedisArgs) -> RedisStep {
+    let a = redis_eval_compose(STR_PTR("EVALSHA"), STR_LEN("EVALSHA"), sha, keys, args);
+    return redis_command(c, a);
+}
+
+// SCRIPT LOAD via the general path is just redis_command with a
+// SCRIPT/LOAD argument pair; this helper exists because EVALSHA
+// callers always need it. The reply is the SHA1 as a bulk string.
+fn redis_script_load(c: RedisClient, script: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("SCRIPT"), STR_LEN("SCRIPT"));
+    a = redis_args_push_lit(a, STR_PTR("LOAD"), STR_LEN("LOAD"));
+    a = redis_args_push(a, script);
+    return redis_command(c, a);
+}
+
+// ---- pipelines ----
+
+fn redis_pipeline_new() -> RedisPipeline {
+    let frame: Vec<u8> = Vec::new();
+    return RedisPipeline {
+        frame: frame,
+        count: 0,
+    };
+}
+
+// Append one command (an already-built RedisArgs) to the pipeline.
+fn redis_pipeline_add(pipe: RedisPipeline, args: RedisArgs) -> RedisPipeline {
+    let frame: Vec<u8> = pipe.frame;
+    let part = redis_args_frame(args);
+    let psl: Slice<u8> = VEC_AS_SLICE(part);
+    frame = redis_push_slice(frame, &psl, 0, len(part) as u64);
+    return RedisPipeline {
+        frame: frame,
+        count: pipe.count + 1,
+    };
+}
+
+// Send the whole pipeline in one write and read that many replies
+// in order. Per-command error replies stay in place as ERROR
+// values (the step status remains SA_STD_OK); only a transport or
+// protocol failure sets the step status, with the replies read so
+// far still attached. Pipelines are rejected while the client is
+// in MULTI (queue with redis_command there instead).
+fn redis_pipeline_execute(c: RedisClient, pipe: RedisPipeline) -> RedisMultiStep {
+    let empty_replies: Vec<RedisValue> = Vec::new();
+    if c.failed {
+        return RedisMultiStep {
+            client: c,
+            status: SA_STD_ERR_NET,
+            replies: empty_replies,
+            error_text: redis_empty_text(),
+        };
+    };
+    if c.open == false {
+        return RedisMultiStep {
+            client: c,
+            status: SA_STD_ERR_INVALID_HANDLE,
+            replies: empty_replies,
+            error_text: redis_empty_text(),
+        };
+    };
+    if c.in_multi {
+        return RedisMultiStep {
+            client: c,
+            status: SA_STD_ERR_INVALID_ARGUMENT,
+            replies: empty_replies,
+            error_text: redis_empty_text(),
+        };
+    };
+    let st: i32 = redis_write_all(c.handle, pipe.frame);
+    if st != SA_STD_OK {
+        return RedisMultiStep {
+            client: c,
+            status: st,
+            replies: empty_replies,
+            error_text: redis_empty_text(),
+        };
+    };
+    let replies: Vec<RedisValue> = Vec::new();
+    let cur = c;
+    let i: u64 = 0;
+    while i < pipe.count {
+        let rd = redis_read_value(cur);
+        cur = rd.client;
+        if rd.status != SA_STD_OK {
+            return RedisMultiStep {
+                client: cur,
+                status: rd.status,
+                replies: replies,
+                error_text: redis_empty_text(),
+            };
+        };
+        replies.push(rd.reply);
+        i = i + 1;
+    }
+    return RedisMultiStep {
+        client: cur,
+        status: SA_STD_OK,
+        replies: replies,
+        error_text: redis_empty_text(),
+    };
+}
+
+// ---- MULTI / EXEC ----
+
+// MULTI: start queueing. While in MULTI, redis_command sends
+// queue and the server answers +QUEUED (a SIMPLE reply) per
+// command; redis_exec runs the queue atomically.
+fn redis_multi(c: RedisClient) -> RedisStep {
+    if c.in_multi {
+        return redis_step(c, SA_STD_ERR_INVALID_ARGUMENT, redis_empty_value());
+    };
+    let a = redis_args_verb(STR_PTR("MULTI"), STR_LEN("MULTI"));
+    let step = redis_expect_ok(redis_command(c, a));
+    if step.status != SA_STD_OK {
+        return step;
+    };
+    let cl: RedisClient = step.client;
+    cl.in_multi = true;
+    return RedisStep {
+        client: cl,
+        status: SA_STD_OK,
+        reply: step.reply,
+        error_text: redis_empty_text(),
+    };
+}
+
+fn redis_clear_multi(step: RedisStep) -> RedisStep {
+    let cl: RedisClient = step.client;
+    cl.in_multi = false;
+    return RedisStep {
+        client: cl,
+        status: step.status,
+        reply: step.reply,
+        error_text: step.error_text,
+    };
+}
+
+// EXEC: run the queued commands. The reply is an ARRAY with one
+// element per queued command (per-command errors are ERROR
+// elements, not a failed step). A WATCH abort arrives as a NULL
+// reply with status SA_STD_OK. An EXECABORT arrives as an error
+// reply and maps to SA_REDIS_STATUS_REPLY_ERROR. The client
+// leaves MULTI in every case where the EXEC frame was exchanged.
+fn redis_exec(c: RedisClient) -> RedisStep {
+    if c.in_multi == false {
+        return redis_step(c, SA_STD_ERR_INVALID_ARGUMENT, redis_empty_value());
+    };
+    let a = redis_args_verb(STR_PTR("EXEC"), STR_LEN("EXEC"));
+    return redis_clear_multi(redis_command(c, a));
+}
+
+// DISCARD: drop the queued commands and leave MULTI.
+fn redis_discard(c: RedisClient) -> RedisStep {
+    if c.in_multi == false {
+        return redis_step(c, SA_STD_ERR_INVALID_ARGUMENT, redis_empty_value());
+    };
+    let a = redis_args_verb(STR_PTR("DISCARD"), STR_LEN("DISCARD"));
+    return redis_clear_multi(redis_expect_ok(redis_command(c, a)));
+}
+
+// ---- pub/sub ----
+
+// SUBSCRIBE one channel. The reply is the PUSH confirmation
+// [subscribe, channel, subscription-count]. Once subscribed, use
+// redis_sub_poll for messages and redis_unsubscribe to leave;
+// other commands on this connection would consume pushed
+// messages as if they were replies (a protocol fact, documented
+// here rather than policed).
+// Pub/sub frames wear two wire shapes: RESP3 sends them as
+// PUSH values, RESP2 as plain arrays. Inside the pub/sub surface
+// only, RESP2 arrays are presented as PUSH so consumers switch
+// on one kind in both protocol versions. (A frame arriving on a
+// subscribed connection, or as a subscribe-family reply, is a
+// pub/sub frame by protocol, so the relabel cannot misfire.)
+fn redis_pubsub_normalize(v: RedisValue) -> RedisValue {
+    if v.kind == SA_REDIS_KIND_ARRAY {
+        v.kind = SA_REDIS_KIND_PUSH;
+    };
+    return v;
+}
+
+fn redis_subscribe(c: RedisClient, channel: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("SUBSCRIBE"), STR_LEN("SUBSCRIBE"));
+    a = redis_args_push(a, channel);
+    let step = redis_command(c, a);
+    if step.status != SA_STD_OK {
+        return step;
+    };
+    return RedisStep {
+        client: step.client,
+        status: step.status,
+        reply: redis_pubsub_normalize(step.reply),
+        error_text: step.error_text,
+    };
+}
+
+// PSUBSCRIBE one pattern; confirmations and messages arrive as
+// PUSH values (pmessage for deliveries).
+fn redis_psubscribe(c: RedisClient, pattern: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("PSUBSCRIBE"), STR_LEN("PSUBSCRIBE"));
+    a = redis_args_push(a, pattern);
+    let step = redis_command(c, a);
+    if step.status != SA_STD_OK {
+        return step;
+    };
+    return RedisStep {
+        client: step.client,
+        status: step.status,
+        reply: redis_pubsub_normalize(step.reply),
+        error_text: step.error_text,
+    };
+}
+
+// UNSUBSCRIBE one channel (or all channels when channel is
+// empty). The reply is the PUSH confirmation.
+fn redis_unsubscribe(c: RedisClient, channel: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("UNSUBSCRIBE"), STR_LEN("UNSUBSCRIBE"));
+    if (len(channel) as u64) > 0 {
+        a = redis_args_push(a, channel);
+    };
+    let step = redis_command(c, a);
+    if step.status != SA_STD_OK {
+        return step;
+    };
+    return RedisStep {
+        client: step.client,
+        status: step.status,
+        reply: redis_pubsub_normalize(step.reply),
+        error_text: step.error_text,
+    };
+}
+
+fn redis_punsubscribe(c: RedisClient, pattern: Vec<u8>) -> RedisStep {
+    let a = redis_args_verb(STR_PTR("PUNSUBSCRIBE"), STR_LEN("PUNSUBSCRIBE"));
+    if (len(pattern) as u64) > 0 {
+        a = redis_args_push(a, pattern);
+    };
+    let step = redis_command(c, a);
+    if step.status != SA_STD_OK {
+        return step;
+    };
+    return RedisStep {
+        client: step.client,
+        status: step.status,
+        reply: redis_pubsub_normalize(step.reply),
+        error_text: step.error_text,
+    };
+}
+
+fn redis_poll(c: RedisClient, status: i32, has: bool, msg: RedisValue) -> RedisPoll {
+    if has {
+        msg = redis_pubsub_normalize(msg);
+    };
+    return RedisPoll {
+        client: c,
+        status: status,
+        has_message: has,
+        message: msg,
+    };
+}
+
+// Wait (with the short timeout already set on the stream) for one
+// pushed message. Read timeout expiries surface from the net face
+// as SA_STD_ERR_IO; inside a poll that means "no message yet".
+fn redis_poll_wait(c: RedisClient) -> RedisPoll {
+    let guard: u64 = 0;
+    while guard < 8192 {
+        let chunk = redis_read_chunk(c.handle);
+        if chunk.status == SA_STD_ERR_IO {
+            return redis_poll(c, SA_STD_OK, false, redis_empty_value());
+        };
+        if chunk.status != SA_STD_OK {
+            return redis_poll(c, chunk.status, false, redis_empty_value());
+        };
+        if (len(chunk.data) as u64) == 0 {
+            // EOF: the server dropped us. Loud, per the contract.
+            return redis_poll(c, SA_STD_ERR_NET, false, redis_empty_value());
+        };
+        let csl: Slice<u8> = VEC_AS_SLICE(chunk.data);
+        c.pending = redis_push_slice(c.pending, &csl, 0, len(chunk.data) as u64);
+        let p = redis_parse_reply(c.pending);
+        c.pending = p.buf;
+        if p.status != SA_STD_OK {
+            c.failed = true;
+            return redis_poll(c, p.status, false, redis_empty_value());
+        };
+        if p.ready {
+            let sl: Slice<u8> = VEC_AS_SLICE(c.pending);
+            let n: u64 = len(c.pending) as u64;
+            let rest: Vec<u8> = Vec::new();
+            rest = redis_push_slice(rest, &sl, p.next_pos, n);
+            c.pending = rest;
+            return redis_poll(c, SA_STD_OK, true, p.value);
+        };
+        guard = guard + 1;
+    }
+    return redis_poll(c, SA_STD_ERR_NET, false, redis_empty_value());
+}
+
+// Poll for one pub/sub message, waiting at most timeout_ms.
+// Result contract (the std future-poll shape):
+//   status SA_STD_OK + has_message true: message holds the PUSH
+//     value ([message, channel, payload], or the pmessage shape).
+//   status SA_STD_OK + has_message false: the wait timed out
+//     with no message -- a normal outcome, not an error. Any
+//     partially received message stays buffered for the next poll.
+//   status > 0: the connection failed (EOF included) -- loud.
+// The stream's read timeout is narrowed for the wait and restored
+// to the connection default afterwards.
+fn redis_sub_poll(c: RedisClient, timeout_ms: u64) -> RedisPoll {
+    if c.failed {
+        return redis_poll(c, SA_STD_ERR_NET, false, redis_empty_value());
+    };
+    if c.open == false {
+        return redis_poll(c, SA_STD_ERR_INVALID_HANDLE, false, redis_empty_value());
+    };
+    // A complete message may already be buffered.
+    let p = redis_parse_reply(c.pending);
+    c.pending = p.buf;
+    if p.status != SA_STD_OK {
+        c.failed = true;
+        return redis_poll(c, p.status, false, redis_empty_value());
+    };
+    if p.ready {
+        let sl: Slice<u8> = VEC_AS_SLICE(c.pending);
+        let n: u64 = len(c.pending) as u64;
+        let rest: Vec<u8> = Vec::new();
+        rest = redis_push_slice(rest, &sl, p.next_pos, n);
+        c.pending = rest;
+        return redis_poll(c, SA_STD_OK, true, p.value);
+    };
+    let tmo_ns: u64 = timeout_ms * 1000000;
+    if tmo_ns == 0 {
+        tmo_ns = 1000000;
+    };
+    let st0: i32 = sa_std_net_tcp_stream_set_read_timeout(c.handle, tmo_ns);
+    if st0 != SA_STD_OK {
+        return redis_poll(c, st0, false, redis_empty_value());
+    };
+    let polled = redis_poll_wait(c);
+    let cl: RedisClient = polled.client;
+    // Restore the connection's normal read timeout. A failure here
+    // leaves the short timeout in force, which later reads surface
+    // as SA_STD_ERR_IO rather than silent success -- acceptable,
+    // and the alternative (failing a completed poll) is worse.
+    let rst: i32 = sa_std_net_tcp_stream_set_read_timeout(cl.handle, SA_REDIS_READ_TIMEOUT_NS);
+    return RedisPoll {
+        client: cl,
+        status: polled.status,
+        has_message: polled.has_message,
+        message: polled.message,
+    };
+}
