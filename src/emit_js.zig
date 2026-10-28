@@ -11829,6 +11829,68 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
     try writer.writeAll("  } finally { const __f = __sa_fstack.pop(); for (let __k = 0; __k < __f.length; __k++) __sa_sfree(__f[__k]); }\n}\n");
 }
 
+/// Render a function name exactly as the emitter writes it into JS
+/// (`jsFuncName`: quote/@ stripping + identifier sanitization) as an
+/// owned key. Reference sets are keyed by these rendered names so the
+/// callee spelling, the vtable slot spelling and the signature name
+/// compare equal whenever they would emit the same JS identifier.
+fn jsNameKey(allocator: std.mem.Allocator, name: []const u8) ![]u8 {
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    try jsFuncName(&out.writer, name);
+    return out.toOwnedSlice();
+}
+
+fn putJsNameKey(set: *std.StringHashMap(void), allocator: std.mem.Allocator, name: []const u8) !void {
+    const key = try jsNameKey(allocator, name);
+    errdefer allocator.free(key);
+    const gop = try set.getOrPut(key);
+    if (gop.found_existing) allocator.free(key);
+}
+
+/// dce=full reference census for extern stubs: the set of rendered JS
+/// names that emitted code can still reference.
+///  (A) direct `.call` callees in every emitted (non-extern) body --
+///      the same parse the call emitters use; calls that fail to parse
+///      or are flagged indirect emit trap text / resolve through the
+///      function table, never a bare name reference;
+///  (B) every vtable slot name -- the `__sa_ftable` prologue references
+///      them all by name, and `.func` operands / `call_indirect` can
+///      only resolve through that table (a name outside it is a build
+///      error today).
+/// Runtime chunks and emitter shim bodies never call SA-level
+/// functions by name (audited: they use `__sa_*` helpers and their own
+/// nested helpers only), and there is no eval / Function() / dynamic
+/// global lookup anywhere in this backend, so (A) + (B) is the
+/// complete reference surface.
+fn collectReferencedJsNames(
+    allocator: std.mem.Allocator,
+    verified: anytype,
+    tasks: []const FuncTask,
+    fn_names: []const []const u8,
+) !std.StringHashMap(void) {
+    var set = std.StringHashMap(void).init(allocator);
+    errdefer {
+        var kit = set.keyIterator();
+        while (kit.next()) |k| allocator.free(k.*);
+        set.deinit();
+    }
+    for (fn_names) |fname| try putJsNameKey(&set, allocator, fname);
+    for (tasks) |task| {
+        if (task.kind == .extern_decl) continue;
+        var i = task.start_idx;
+        while (i < task.end_idx) : (i += 1) {
+            const base = verified.annotated[i].base;
+            if (base.kind != .call) continue;
+            var parsed = call.parseInstructionCall(allocator, base, verified.symbols) catch continue;
+            defer parsed.deinit(allocator);
+            if (parsed.is_indirect) continue;
+            try putJsNameKey(&set, allocator, parsed.callee);
+        }
+    }
+    return set;
+}
+
 pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, js_opt: JsEmitOptions, npm_binds: *const std.StringHashMap([]const u8)) ![]u8 {
     // Error-context globals are per-build: they point into the current
     // build's verified module. Reset them at entry — a build that fails
@@ -12028,6 +12090,17 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         if (std.mem.eql(u8, fsig.name, "main")) has_main = true;
     }
     var stub_emitted = std.StringHashMap(void).init(allocator);
+    // dce=full for extern stubs (see collectReferencedJsNames): an
+    // unbound extern that no emitted code references is not emitted at
+    // all. Referenced unbound externs keep their trap stub verbatim;
+    // bound externs (npm wrappers above, emitter shim bodies below)
+    // are unaffected.
+    var referenced_js_names = try collectReferencedJsNames(allocator, verified, tasks, fn_names.items);
+    defer {
+        var kit = referenced_js_names.keyIterator();
+        while (kit.next()) |k| allocator.free(k.*);
+        referenced_js_names.deinit();
+    }
     // extern stubs (so calls don't ReferenceError; they trap with name).
     // `#npm_bind` externs get a marshaling wrapper instead, unless a
     // same-module `@export` already satisfies the declaration.
@@ -12042,8 +12115,22 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
             continue;
         }
         if (emitted.contains(fsig.name) or stub_emitted.contains(fsig.name)) continue;
-        try emitOneFunction(writer, allocator, verified, task, &const_addrs, &fn_idx, js_opt, &retbase);
         try stub_emitted.put(fsig.name, {});
+        // Emit into a scratch buffer first: if the product is the trap
+        // stub of an unreferenced extern, drop it (dce=full); anything
+        // else (a referenced trap stub, or an emitter shim body) is
+        // written through byte-identical to the pre-DCE output.
+        var scratch: std.Io.Writer.Allocating = .init(allocator);
+        defer scratch.deinit();
+        try emitOneFunction(&scratch.writer, allocator, verified, task, &const_addrs, &fn_idx, js_opt, &retbase);
+        const text = try scratch.toOwnedSlice();
+        defer allocator.free(text);
+        if (std.mem.indexOf(u8, text, "__sa_trap(\"extern not linked: ") != null) {
+            const key = try jsNameKey(allocator, fsig.name);
+            defer allocator.free(key);
+            if (!referenced_js_names.contains(key)) continue;
+        }
+        try writer.writeAll(text);
     }
     // exports + main runner
     if (js_opt.format == .cjs) {

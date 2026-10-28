@@ -1199,3 +1199,80 @@ test "js backend runtime traps surface through node with diagnostics" {
     try assertJsRuntimeTrap("demos/support/jsh_invalid_handle.sa", "js handle: handle out of range");
     try assertJsRuntimeTrap("demos/support/jsh_make_callback_bad.sa", "not an SA function pointer");
 }
+
+test "js backend dce: unreferenced extern trap stubs are not emitted" {
+    // dce=full for extern stubs: a module may declare a wide extern
+    // surface (generated .sai files carry tens of thousands of entries)
+    // while referencing almost none of it. Unreferenced, unbound externs
+    // must not be materialized as `extern not linked` trap stubs in the
+    // emitted JS; a referenced-but-unbound extern keeps its trap stub
+    // verbatim and still traps loudly when called at runtime.
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const node_probe = sio.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{ "node", "--version" },
+    }) catch return error.SkipZigTest;
+    defer std.testing.allocator.free(node_probe.stdout);
+    defer std.testing.allocator.free(node_probe.stderr);
+    switch (node_probe.term) {
+        .exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const source =
+        \\@extern dce_used(x: i32) -> i32
+        \\@extern dce_unused_a(x: i32) -> i32
+        \\@extern dce_unused_b(x: i32) -> i32
+        \\
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    r = call @dce_used(41)
+        \\    return r
+    ;
+    {
+        const f = try tmp.dir.createFile(std.testing.io, "dce_unit.sa", .{ .truncate = true });
+        defer f.close(std.testing.io);
+        var wbuf: [1024]u8 = undefined;
+        var fw = f.writer(std.testing.io, &wbuf);
+        try fw.interface.writeAll(source);
+        try fw.interface.flush();
+    }
+
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    defer original_cwd.setAsCwd() catch {};
+
+    const build_js_argv = [_][]const u8{ "sa", "build-js", "dce_unit.sa", "-o", "dce_unit.mjs", "--project-root", repo_root };
+    const build_js_code = try saasm.cli.execute(std.testing.allocator, build_js_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_js_code);
+
+    const js_file = try tmp.dir.openFile(std.testing.io, "dce_unit.mjs", .{});
+    defer js_file.close(std.testing.io);
+    var js_rbuf: [8192]u8 = undefined;
+    var js_reader = js_file.reader(std.testing.io, &js_rbuf);
+    const js_bytes = try js_reader.interface.allocRemaining(std.testing.allocator, .limited(1 << 24));
+    defer std.testing.allocator.free(js_bytes);
+
+    // Referenced + unbound: trap stub retained verbatim.
+    try std.testing.expect(std.mem.indexOf(u8, js_bytes, "function dce_used() { __sa_trap(\"extern not linked: dce_used\"); }") != null);
+    // Unreferenced + unbound: no trace in the output at all.
+    try std.testing.expect(std.mem.indexOf(u8, js_bytes, "dce_unused_a") == null);
+    try std.testing.expect(std.mem.indexOf(u8, js_bytes, "dce_unused_b") == null);
+
+    // Runtime: calling the referenced unbound extern traps with its name.
+    const js_result = try runJsWithNode(std.testing.allocator, "dce_unit.mjs");
+    defer std.testing.allocator.free(js_result.stdout);
+    defer std.testing.allocator.free(js_result.stderr);
+    switch (js_result.term) {
+        .exited => |code| try std.testing.expect(code != 0),
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expect(std.mem.indexOf(u8, js_result.stderr, "extern not linked: dce_used") != null);
+}
