@@ -191,6 +191,42 @@ int32_t sa_deno_env_delete(const uint8_t *key, uint64_t key_len);
 uint64_t sa_deno_random_uuid(void);
 int32_t sa_hmac_sha256_hex(const uint8_t *key, uint64_t key_len, const uint8_t *msg, uint64_t msg_len, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
 int32_t sa_hmac_sha1_hex(const uint8_t *key, uint64_t key_len, const uint8_t *msg, uint64_t msg_len, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+/* MySQL/MariaDB client (src/runtime/sa_mysql_client.zig). Handles are
+ * opaque u64 (0 = invalid). Statuses: 0 ok; -1 unsupported, -5 I/O,
+ * -12 out of memory, -22 invalid argument; -101 server ERR packet
+ * (see sa_mysql_errno/sqlstate/error_message), -102 protocol error,
+ * -103 caching_sha2 full auth requires TLS or RSA, -104 unknown
+ * auth plugin. */
+int32_t sa_mysql_supported(uint32_t *out_supported);
+int32_t sa_mysql_connect(const uint8_t *host, uint64_t host_len, uint32_t port, const uint8_t *user, uint64_t user_len, const uint8_t *pass, uint64_t pass_len, const uint8_t *db, uint64_t db_len, uint64_t *out_conn);
+int32_t sa_mysql_close(uint64_t conn);
+int32_t sa_mysql_ping(uint64_t conn);
+int32_t sa_mysql_query(uint64_t conn, const uint8_t *sql, uint64_t sql_len, uint64_t *out_result);
+int32_t sa_mysql_prepare(uint64_t conn, const uint8_t *sql, uint64_t sql_len, uint64_t *out_stmt);
+int32_t sa_mysql_stmt_bind_null(uint64_t stmt, uint64_t idx);
+int32_t sa_mysql_stmt_bind_i64(uint64_t stmt, uint64_t idx, int64_t value);
+int32_t sa_mysql_stmt_bind_u64(uint64_t stmt, uint64_t idx, uint64_t value);
+int32_t sa_mysql_stmt_bind_f64(uint64_t stmt, uint64_t idx, double value);
+int32_t sa_mysql_stmt_bind_bytes(uint64_t stmt, uint64_t idx, const uint8_t *data, uint64_t data_len);
+uint64_t sa_mysql_stmt_param_count(uint64_t stmt);
+int32_t sa_mysql_stmt_execute(uint64_t stmt, uint64_t *out_result);
+int32_t sa_mysql_stmt_close(uint64_t stmt);
+uint32_t sa_mysql_errno(uint64_t conn);
+int32_t sa_mysql_sqlstate(uint64_t conn, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_mysql_error_message(uint64_t conn, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_mysql_server_version(uint64_t conn, const uint8_t **out_ptr, uint64_t *out_len);
+uint32_t sa_mysql_connection_id(uint64_t conn);
+int32_t sa_mysql_result_free(uint64_t result);
+uint32_t sa_mysql_result_has_result_set(uint64_t result);
+uint64_t sa_mysql_result_column_count(uint64_t result);
+int32_t sa_mysql_result_column_name(uint64_t result, uint64_t idx, const uint8_t **out_ptr, uint64_t *out_len);
+uint32_t sa_mysql_result_column_type(uint64_t result, uint64_t idx);
+uint64_t sa_mysql_result_row_count(uint64_t result);
+int32_t sa_mysql_result_next(uint64_t result, uint64_t *out_row);
+int32_t sa_mysql_result_value(uint64_t result, uint64_t row_idx, uint64_t col_idx, const uint8_t **out_ptr, uint64_t *out_len, uint32_t *out_is_null);
+uint64_t sa_mysql_affected_rows(uint64_t result);
+uint64_t sa_mysql_last_insert_id(uint64_t result);
+uint32_t sa_mysql_result_warnings(uint64_t result);
 int32_t sa_crypto_random_bytes(uint8_t *out, uint64_t len);
 uint64_t sa_deno_args_json(void);
 uint64_t sa_deno_btoa(const uint8_t *data, uint64_t len);

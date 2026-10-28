@@ -1,0 +1,52 @@
+// SLA-facing named constants for the sa_std MySQL client surface
+// (sa_std/mysql_client.sai): the column type codes returned by
+// sa_mysql_result_column_type.
+//
+// Why this file exists: the extern surface passes column types as
+// bare u8 codes (the MySQL enum_field_types registry), and without
+// published names every SLA caller would hardcode magic numbers.
+// Pure declarations: no new externs, no ABI change. The numeric
+// values are the protocol's own and must never be renumbered.
+//
+// Note on BLOB widths: TINY/MEDIUM/LONG_BLOB are distinct wire codes
+// but the server reports plain BLOB columns as SA_MYSQL_TYPE_BLOB;
+// the width codes surface for TEXT/BLOB columns whose maximum length
+// the server classifies differently. BIT and GEOMETRY values arrive
+// as raw bytes (see the .sai value-model notes).
+
+const SA_MYSQL_TYPE_DECIMAL: u32 = 0;
+const SA_MYSQL_TYPE_TINY: u32 = 1;
+const SA_MYSQL_TYPE_SHORT: u32 = 2;
+const SA_MYSQL_TYPE_LONG: u32 = 3;
+const SA_MYSQL_TYPE_FLOAT: u32 = 4;
+const SA_MYSQL_TYPE_DOUBLE: u32 = 5;
+const SA_MYSQL_TYPE_NULL: u32 = 6;
+const SA_MYSQL_TYPE_TIMESTAMP: u32 = 7;
+const SA_MYSQL_TYPE_LONGLONG: u32 = 8;
+const SA_MYSQL_TYPE_INT24: u32 = 9;
+const SA_MYSQL_TYPE_DATE: u32 = 10;
+const SA_MYSQL_TYPE_TIME: u32 = 11;
+const SA_MYSQL_TYPE_DATETIME: u32 = 12;
+const SA_MYSQL_TYPE_YEAR: u32 = 13;
+const SA_MYSQL_TYPE_VARCHAR: u32 = 15;
+const SA_MYSQL_TYPE_BIT: u32 = 16;
+const SA_MYSQL_TYPE_JSON: u32 = 245;
+const SA_MYSQL_TYPE_NEWDECIMAL: u32 = 246;
+const SA_MYSQL_TYPE_ENUM: u32 = 247;
+const SA_MYSQL_TYPE_SET: u32 = 248;
+const SA_MYSQL_TYPE_TINY_BLOB: u32 = 249;
+const SA_MYSQL_TYPE_MEDIUM_BLOB: u32 = 250;
+const SA_MYSQL_TYPE_LONG_BLOB: u32 = 251;
+const SA_MYSQL_TYPE_BLOB: u32 = 252;
+const SA_MYSQL_TYPE_VAR_STRING: u32 = 253;
+const SA_MYSQL_TYPE_STRING: u32 = 254;
+const SA_MYSQL_TYPE_GEOMETRY: u32 = 255;
+
+// Status codes of the MySQL client surface that have no sci-wide
+// name (0 and the negative generic codes -1/-5/-12/-22 are the
+// SA_STD conventions documented in mysql_client.sai). SLA i32
+// constants cannot name the negative MySQL-specific codes in this
+// file's u32 registry style; they are documented in the .sai header
+// as -101 (server ERR packet), -102 (protocol error), -103
+// (caching_sha2 full auth unsupported in v1), -104 (unknown auth
+// plugin).
