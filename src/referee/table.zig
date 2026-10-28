@@ -224,7 +224,17 @@ pub const CapabilityTable = struct {
 
         self.lock_refs[origin] -= 1;
         if (self.lock_refs[origin] == 0) {
-            self.masks[origin] = maskOf(.active);
+            // Same guard as verifier clearBorrowCtx: only restore an origin
+            // this borrow actually locked. A borrow-view origin (borrow of a
+            // borrow) was left untouched by startReadBorrow/startMutBorrow;
+            // resetting it to plain Active would strip its borrow_view bit
+            // and leak the ultimate source's lock (false BorrowConflict).
+            const origin_mask = self.masks[origin];
+            if ((origin_mask & maskOf(.borrow_view)) == 0 and
+                (origin_mask & (maskOf(.locked_read) | maskOf(.locked_mut))) != 0)
+            {
+                self.masks[origin] = maskOf(.active);
+            }
         }
 
         self.masks[view] = 0;

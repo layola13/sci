@@ -2874,7 +2874,22 @@ fn clearBorrowCtx(
     if (locks[origin_idx] > 0) {
         locks[origin_idx] -= 1;
         if (locks[origin_idx] == 0) {
-            state[origin_idx] = if (isImmutableConst(state, flags, origin)) maskOf(.active) | maskOf(.immutable) else maskOf(.active);
+            // Restore the origin only when this borrow actually locked it.
+            // setBorrowState locks the source (Locked_Read/Locked_Mut) only
+            // when it was plain Active; when the source is itself a borrow
+            // view (borrow-of-borrow, e.g. STRING_BUF_AS_STR over the
+            // borrow produced for `&local`), its state was left untouched,
+            // and resetting it to plain Active here would strip its
+            // BorrowView bit. The outer view's later release would then
+            // take the non-borrow path, the ultimate source's lock count
+            // would never decrement, and releasing the owner would raise a
+            // false BorrowConflict (expected Active, actual Locked_Read).
+            const origin_state = state[origin_idx];
+            if ((origin_state & maskOf(.borrow_view)) == 0 and
+                (origin_state & (maskOf(.locked_read) | maskOf(.locked_mut))) != 0)
+            {
+                state[origin_idx] = if (isImmutableConst(state, flags, origin)) maskOf(.active) | maskOf(.immutable) else maskOf(.active);
+            }
         }
     }
     state[idx] = 0;
