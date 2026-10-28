@@ -1,0 +1,89 @@
+// ts_promise.sa -- ReadyFuture combinators for tsgosa Promise lowering
+// (promise_tspromise step 3; submitted to sci sa_std 2026-10-28).
+//
+// Handle model (sci/sa_std/core/future.sal ReadyFuture, 16 bytes):
+//   +0: state i32 (1 = Ready; lowered futures are Ready-by-construction,
+//       so a poll never observes Pending in v1)
+//   +8: value slot (i32 values stored as i32, str/arr handles as ptr;
+//       the poll point loads by the statically known value kind, so
+//       no width conversion is ever needed on either side)
+// Fresh futures are caller-owned, released with `!` after use (the
+// tsgosa emitter transfers ownership into the future binding via
+// saConsumeOwn; adopt bindings borrow and must NOT release).
+// COPY SEMANTICS: each helper COPIES its handle input (str: fresh 16B
+// struct with the same ptr/len; arr: fresh handle + fresh buffer with
+// the same element words, shared elements not individually released,
+// mirroring the ts_array.sa split discipline). The caller therefore
+// RETAINS its input value (no move on resolve, matching JS), and the
+// future owns an independent copy: ending the input temp after the
+// call can never dangle the future, and freeing the future struct
+// never frees the caller's value. The copy itself is stored into the
+// future and ended there (push's store-then-`!` precedent); the copy's
+// own storage is not cascaded on future release (bounded v1 leak,
+// same class as array buffers under a plain `!` release).
+// Ownership/purity: each helper allocates exactly one 16-byte future
+// struct plus one value copy; no other allocation, no reads of the
+// caller's value beyond the copied bits.
+// Ported from: tsgosa internal/transpile/sa_arr.go saLowerPromiseResolve
+// (wrap shape, sa_arr.go:8016 at tsgosa main 673aaae12) +
+// saLowerFuturePoll (slot layout +8, read_noconsume, sa_arr.go:7947).
+
+// @ts_promise_resolve_i32 wraps an i32 value into a Ready future.
+// Values copy by nature; no handle copy needed. Stored as i32 (not
+// u64) so the poll loads i32 directly with no trunc: a trunc temp
+// bound to a name leaks per the verifier (bisect V2/V6).
+@ts_promise_resolve_i32(v: i32) -> ptr:
+L_RI_ENTRY:
+    f = alloc 16
+    store f+0, 1 as i32
+    store f+8, v as i32
+    return f
+
+// @ts_promise_resolve_str wraps a string handle into a Ready future.
+// The handle STRUCT is copied (ptr/len bits); the bytes are shared,
+// never freed per handle (ts_string.sa value discipline).
+@ts_promise_resolve_str(s: ptr) -> ptr:
+L_RS_ENTRY:
+    cp = alloc 16
+    p = load s+0 as ptr
+    ln = load s+8 as u64
+    store cp+0, p as ptr
+    store cp+8, ln as u64
+    f = alloc 16
+    store f+0, 1 as i32
+    store f+8, cp as ptr
+    !cp
+    return f
+
+// @ts_promise_resolve_arr wraps an array handle into a Ready future.
+// The handle AND its buffer are copied (element words shared, not
+// individually released); the caller keeps the original.
+@ts_promise_resolve_arr(a: ptr) -> ptr:
+L_RA_ENTRY:
+    ln = load a+8 as u64
+    data = load a+0 as ptr
+    nbytes = mul ln, 4
+    nbuf = alloc nbytes
+    ndata = alloc 16
+    store ndata+0, nbuf as ptr
+    store ndata+8, ln as u64
+    i = 0
+    jmp L_RA_COPY
+L_RA_COPY:
+    c = slt i, ln
+    br c -> L_RA_BODY, L_RA_END
+L_RA_BODY:
+    soff = mul i, 4
+    saddr = add data, soff
+    tmp = load saddr+0 as i32
+    daddr = add nbuf, soff
+    store daddr+0, tmp as i32
+    inext = add i, 1
+    i = inext
+    jmp L_RA_COPY
+L_RA_END:
+    f = alloc 16
+    store f+0, 1 as i32
+    store f+8, ndata as ptr
+    !ndata
+    return f
