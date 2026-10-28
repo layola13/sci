@@ -143,3 +143,16 @@ const SA_NET_SOCK_DGRAM: u32 = 2;
 const SA_NET_SOCK_RAW: u32 = 3;
 const SA_NET_IPPROTO_ICMP: u32 = 1;
 const SA_NET_IPPROTO_ICMPV6: u32 = 58;
+
+// SLA-facing named constants for the sa_std_net_poll_wait
+// readiness face (net.sai): the interest mask passed in and the
+// readiness mask returned share the READ/WRITE bits; ERROR is
+// readiness-only (a hangup reports READ|ERROR so the loop reads
+// and observes EOF). These are sa_std's own bit assignments,
+// defined by SA_STD_NET_POLL_* in src/runtime/sa_std.zig, not OS
+// numbers. The wait is level-triggered and capped at
+// SA_STD_NET_POLL_MAX_HANDLES handles per call.
+const SA_NET_POLL_READ: u32 = 1;
+const SA_NET_POLL_WRITE: u32 = 2;
+const SA_NET_POLL_ERROR: u32 = 4;
+const SA_NET_POLL_MAX_HANDLES: u64 = 4096;

@@ -547,6 +547,7 @@ int32_t sa_std_net_tcp_listen(const uint8_t *host, uint64_t host_len, uint32_t p
 int32_t sa_std_net_tcp_accept(uint64_t listener_handle, uint64_t *out_handle);
 int32_t sa_std_net_tcp_accept_addr(uint64_t listener_handle, uint64_t *out_stream, uint64_t *out_addr);
 int32_t sa_std_net_tcp_listener_local_addr(uint64_t listener_handle, uint64_t *out_handle);
+int32_t sa_std_net_poll_wait(const uint64_t *handles, const uint32_t *interests, uint64_t count, int32_t timeout_ms, uint32_t *ready, uint64_t *out_ready_count);
 int32_t sa_std_net_tcp_stream_read(uint64_t stream_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_tcp_stream_peek(uint64_t stream_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_tcp_stream_write(uint64_t stream_handle, const uint8_t *buf, uint64_t len, uint64_t *out_written);

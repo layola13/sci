@@ -13871,6 +13871,78 @@ pub export fn sa_std_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i
     return finish(SA_STD_OK);
 }
 
+/// Interest/readiness bits for sa_std_net_poll_wait. The interest
+/// mask (input) and the readiness mask (output) share the read and
+/// write bits; the error bit is readiness-only.
+pub const SA_STD_NET_POLL_READ: u32 = 1;
+pub const SA_STD_NET_POLL_WRITE: u32 = 2;
+pub const SA_STD_NET_POLL_ERROR: u32 = 4;
+
+/// Largest readiness set accepted by one sa_std_net_poll_wait call.
+/// Larger connection sets are served by waiting on slices of the
+/// set in rotation; the cap is loud (invalid argument), never a
+/// silent truncation.
+pub const SA_STD_NET_POLL_MAX_HANDLES: u64 = 4096;
+const poll_wait_stack_handles: usize = 256;
+
+/// Block until at least one of the given socket handles (TCP
+/// streams, TCP listeners, UDP sockets) is ready for the requested
+/// operations, or timeout_ms elapses (0 = return immediately,
+/// negative = wait indefinitely). ready[i] receives the readiness
+/// mask for handles[i] (0 = not ready) and out_ready_count the
+/// number of ready entries. A hangup reports READ|ERROR so an
+/// event loop attempts the read and observes EOF. Level-triggered
+/// only: readiness is re-evaluated on every call, which is what
+/// lets an event loop replace sleep-polling AND the per-round
+/// scan of every connection with a single wait over exactly the
+/// ready set. Handles must outlive the call. Native only; WASM
+/// returns SA_STD_ERR_UNSUPPORTED.
+pub export fn sa_std_net_poll_wait(handles_ptr: ?[*]const u64, interests_ptr: ?[*]const u32, count: u64, timeout_ms: i32, ready_ptr: ?[*]u32, out_ready_count: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    const ready_count_slot = out_ready_count orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    ready_count_slot.* = 0;
+    if (count > SA_STD_NET_POLL_MAX_HANDLES) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const n = lenAsUsize(count) catch |err| return finishErr(err);
+    if (n == 0) {
+        // A wait over an empty set is a plain timed sleep.
+        var no_fds: [0]std.posix.pollfd = .{};
+        _ = std.posix.poll(&no_fds, timeout_ms) catch |err| return finishErr(err);
+        return finish(SA_STD_OK);
+    }
+    const handles = handles_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const interests = interests_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const ready = ready_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    var stack_fds: [poll_wait_stack_handles]std.posix.pollfd = undefined;
+    const heap_fds = if (n > poll_wait_stack_handles)
+        std.heap.page_allocator.alloc(std.posix.pollfd, n) catch |err| return finishErr(err)
+    else
+        null;
+    defer if (heap_fds) |buf| std.heap.page_allocator.free(buf);
+    const fds: []std.posix.pollfd = if (heap_fds) |buf| buf else stack_fds[0..n];
+    for (0..n) |i| {
+        ready[i] = 0;
+        const resolved = ensureSocketHandle(handles[i]) catch |err| return finishErr(err);
+        var events: i16 = 0;
+        if (interests[i] & SA_STD_NET_POLL_READ != 0) events |= std.posix.POLL.IN;
+        if (interests[i] & SA_STD_NET_POLL_WRITE != 0) events |= std.posix.POLL.OUT;
+        fds[i] = .{ .fd = resolved.fd, .events = events, .revents = 0 };
+    }
+    _ = std.posix.poll(fds, timeout_ms) catch |err| return finishErr(err);
+    var ready_total: u64 = 0;
+    for (0..n) |i| {
+        const rev = fds[i].revents;
+        var mask: u32 = 0;
+        if (rev & std.posix.POLL.IN != 0) mask |= SA_STD_NET_POLL_READ;
+        if (rev & std.posix.POLL.OUT != 0) mask |= SA_STD_NET_POLL_WRITE;
+        if (rev & (std.posix.POLL.ERR | std.posix.POLL.NVAL) != 0) mask |= SA_STD_NET_POLL_ERROR;
+        if (rev & std.posix.POLL.HUP != 0) mask |= SA_STD_NET_POLL_ERROR | SA_STD_NET_POLL_READ;
+        ready[i] = mask;
+        if (mask != 0) ready_total += 1;
+    }
+    ready_count_slot.* = ready_total;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
@@ -18619,4 +18691,71 @@ test "tcp stream send_file moves file bytes over loopback" {
     // Bad handles fail loudly.
     try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_tcp_stream_send_file(0, file_handle, 0, 1, &sent, &next_offset));
     try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_tcp_stream_send_file(server_side, 0, 0, 1, &sent, &next_offset));
+}
+
+test "net poll wait reports listener and stream readiness over loopback" {
+    if (comptime is_wasm) return error.SkipZigTest;
+    const host = "127.0.0.1";
+    var listener: u64 = 0;
+    var bound_port: u32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listen(host.ptr, host.len, 0, &listener, &bound_port));
+    defer _ = sa_std_close(listener);
+    try std.testing.expect(bound_port != 0);
+
+    var handles = [_]u64{listener};
+    var interests = [_]u32{SA_STD_NET_POLL_READ};
+    var ready = [_]u32{0};
+    var ready_count: u64 = 99;
+
+    // Nothing pending: a zero timeout returns immediately with no
+    // ready entries, and a short timeout simply elapses.
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_poll_wait(&handles, &interests, 1, 0, &ready, &ready_count));
+    try std.testing.expectEqual(@as(u64, 0), ready_count);
+    try std.testing.expectEqual(@as(u32, 0), ready[0]);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_poll_wait(&handles, &interests, 1, 25, &ready, &ready_count));
+    try std.testing.expectEqual(@as(u64, 0), ready_count);
+
+    // A pending connection makes the listener readable.
+    var client: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_connect(host.ptr, host.len, bound_port, &client));
+    defer _ = sa_std_close(client);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_poll_wait(&handles, &interests, 1, 5000, &ready, &ready_count));
+    try std.testing.expectEqual(@as(u64, 1), ready_count);
+    try std.testing.expect(ready[0] & SA_STD_NET_POLL_READ != 0);
+
+    var server_side: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_accept(listener, &server_side));
+    defer _ = sa_std_close(server_side);
+
+    // The accepted stream is writable at once and not readable
+    // until the peer sends.
+    handles[0] = server_side;
+    interests[0] = SA_STD_NET_POLL_READ | SA_STD_NET_POLL_WRITE;
+    ready[0] = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_poll_wait(&handles, &interests, 1, 5000, &ready, &ready_count));
+    try std.testing.expectEqual(@as(u64, 1), ready_count);
+    try std.testing.expect(ready[0] & SA_STD_NET_POLL_WRITE != 0);
+    try std.testing.expect(ready[0] & SA_STD_NET_POLL_READ == 0);
+
+    const msg = "poll-ping";
+    var written: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_write(client, msg.ptr, msg.len, &written));
+    try std.testing.expectEqual(@as(u64, msg.len), written);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_poll_wait(&handles, &interests, 1, 5000, &ready, &ready_count));
+    try std.testing.expectEqual(@as(u64, 1), ready_count);
+    try std.testing.expect(ready[0] & SA_STD_NET_POLL_READ != 0);
+
+    // A wait over both sockets reports exactly the ready subset.
+    var pair_handles = [_]u64{ listener, server_side };
+    var pair_interests = [_]u32{ SA_STD_NET_POLL_READ, SA_STD_NET_POLL_READ };
+    var pair_ready = [_]u32{ 0, 0 };
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_poll_wait(&pair_handles, &pair_interests, 2, 0, &pair_ready, &ready_count));
+    try std.testing.expectEqual(@as(u64, 1), ready_count);
+    try std.testing.expectEqual(@as(u32, 0), pair_ready[0]);
+    try std.testing.expect(pair_ready[1] & SA_STD_NET_POLL_READ != 0);
+
+    // Bad handles and oversized sets fail loudly.
+    handles[0] = 0;
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_poll_wait(&handles, &interests, 1, 0, &ready, &ready_count));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_poll_wait(&handles, &interests, SA_STD_NET_POLL_MAX_HANDLES + 1, 0, &ready, &ready_count));
 }
