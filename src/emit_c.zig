@@ -3214,6 +3214,59 @@ fn bindingNeedsDispatcher(norm_name: []const u8) bool {
 /// so output stays deterministic with no host dependencies. Emits the
 /// definition with the uniform-arity signature and returns true; unknown
 /// names return false and the caller falls back to the trap stub.
+/// True for externs bound directly to libsa_std.a entry points (the
+/// cookie, TLS client-config and sockopt passthrough families). Their
+/// rendered bindings call the real sa_std functions through the
+/// sa_glue_* adapters, so a program using any of them needs the
+/// preamble's prototype block and the catalog helpers the adapters
+/// call (both keyed off this predicate), and its final link must
+/// include libsa_std.a.
+fn isStdlinkExtern(norm_name: []const u8) bool {
+    if (std.mem.startsWith(u8, norm_name, "sa_cookie_")) return true;
+    const names = [_][]const u8{
+        "sa_std_tls_client_config_new",
+        "sa_std_tls_client_config_free",
+        "sa_std_tls_client_config_set_server_name",
+        "sa_std_tls_client_config_add_ca_file",
+        "sa_std_tls_client_config_add_ca_memory",
+        "sa_std_tls_client_config_set_insecure_no_verification",
+        "sa_std_tls_client_config_set_verify_self_signed",
+        "sa_std_tls_client_peer_cert_json",
+        "sa_std_tls_shaped_supported",
+        "sa_std_tls_shaped_connect",
+        "sa_std_tls_client_buffer_data",
+        "sa_std_tls_client_buffer_len",
+        "sa_std_tls_client_buffer_free",
+        "sa_net_addr_family",
+        "sa_net_addr_free",
+        "sa_net_addr_port",
+        "sa_std_net_addr_format",
+        "sa_std_net_socket_getsockopt",
+        "sa_std_net_socket_getsockopt_int",
+        "sa_std_net_socket_setsockopt",
+        "sa_std_net_socket_setsockopt_int",
+        "sa_std_net_to_socket_addr_first",
+        "sa_std_net_udp_bind",
+        "sa_std_net_udp_broadcast",
+        "sa_std_net_udp_connect_addr",
+        "sa_std_net_udp_local_addr",
+        "sa_std_net_udp_recv_msg",
+        "sa_std_net_udp_recv_multi",
+        "sa_std_net_udp_send",
+        "sa_std_net_udp_set_read_timeout",
+        "sa_std_net_udp_ttl",
+        "sa_std_net_unix_datagram_pair",
+        "sa_std_net_unix_datagram_peer_cred",
+        "sa_std_net_unix_datagram_unbound",
+        "sa_std_process_id",
+        "sa_std_process_user_id",
+    };
+    for (names) |n| {
+        if (std.mem.eql(u8, norm_name, n)) return true;
+    }
+    return false;
+}
+
 fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usize, gas: bool) !bool {
     const name = sigNormName(raw_name);
     // `voids` bitmask: bit i set => emit `(void)a{i};`. Bit positions
@@ -3479,6 +3532,85 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         ssh_buf_data,
         ssh_buf_len,
         ssh_buf_free,
+        cookie_parse,
+        cookie_last_error,
+        cookie_free,
+        cookie_new,
+        cookie_name,
+        cookie_value,
+        cookie_domain,
+        cookie_path,
+        cookie_expires,
+        cookie_max_age,
+        cookie_flags,
+        cookie_same_site,
+        cookie_is_host_only,
+        cookie_set_domain,
+        cookie_set_path,
+        cookie_set_expires,
+        cookie_set_max_age,
+        cookie_clear_expiry,
+        cookie_set_secure,
+        cookie_set_http_only,
+        cookie_set_partitioned,
+        cookie_set_same_site,
+        cookie_serialize,
+        cookie_serialize_pair,
+        cookie_is_expired,
+        cookie_domain_match,
+        cookie_path_match,
+        cookie_header_pair_count,
+        cookie_header_pair_at,
+        cookie_jar_new,
+        cookie_jar_free,
+        cookie_jar_set_policy,
+        cookie_jar_policy,
+        cookie_jar_store,
+        cookie_jar_header,
+        cookie_jar_count,
+        cookie_jar_at,
+        cookie_jar_clear,
+        cookie_jar_evict_expired,
+        cookie_jar_save,
+        cookie_jar_load,
+        cookie_jar_request_header,
+        cookie_jar_store_response,
+        tlscfg_new,
+        tlscfg_free,
+        tlscfg_set_server_name,
+        tlscfg_add_ca_file,
+        tlscfg_add_ca_memory,
+        tlscfg_set_insecure,
+        tlscfg_set_verify_self_signed,
+        tls_peer_cert_json,
+        tls_shaped_supported,
+        tls_shaped_connect,
+        tls_cbuf_data,
+        tls_cbuf_len,
+        tls_cbuf_free,
+        na_family,
+        na_free,
+        na_port,
+        na_format,
+        sk_get,
+        sk_get_int,
+        sk_set,
+        sk_set_int,
+        na_to_first,
+        udp_bind_h,
+        udp_broadcast_h,
+        udp_connect_addr_h,
+        udp_local_addr_h,
+        udp_recv_msg_h,
+        udp_recv_multi_h,
+        udp_send_h,
+        udp_set_read_timeout_h,
+        udp_ttl_h,
+        unix_pair_h,
+        unix_peer_cred_h,
+        unix_unbound_h,
+        proc_id,
+        proc_user_id,
         net_unsupported8,
     } };
     const all_void: u64 = ~@as(u64, 0);
@@ -4096,6 +4228,164 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b1, .tag = .http_server_req_free }
     else if (std.mem.eql(u8, name, "sa_http_server_free"))
         .{ .voids = all_void ^ 0b1, .tag = .http_server_free }
+    else if (std.mem.eql(u8, name, "sa_cookie_parse_set_cookie"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_parse }
+    else if (std.mem.eql(u8, name, "sa_cookie_last_error"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_last_error }
+    else if (std.mem.eql(u8, name, "sa_cookie_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .cookie_free }
+    else if (std.mem.eql(u8, name, "sa_cookie_new"))
+        .{ .voids = all_void ^ 0b1111, .tag = .cookie_new }
+    else if (std.mem.eql(u8, name, "sa_cookie_name"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_name }
+    else if (std.mem.eql(u8, name, "sa_cookie_value"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_value }
+    else if (std.mem.eql(u8, name, "sa_cookie_domain"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_domain }
+    else if (std.mem.eql(u8, name, "sa_cookie_path"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_path }
+    else if (std.mem.eql(u8, name, "sa_cookie_expires"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_expires }
+    else if (std.mem.eql(u8, name, "sa_cookie_max_age"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_max_age }
+    else if (std.mem.eql(u8, name, "sa_cookie_flags"))
+        .{ .voids = all_void ^ 0b1111, .tag = .cookie_flags }
+    else if (std.mem.eql(u8, name, "sa_cookie_same_site"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_same_site }
+    else if (std.mem.eql(u8, name, "sa_cookie_is_host_only"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_is_host_only }
+    else if (std.mem.eql(u8, name, "sa_cookie_set_domain"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_set_domain }
+    else if (std.mem.eql(u8, name, "sa_cookie_set_path"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_set_path }
+    else if (std.mem.eql(u8, name, "sa_cookie_set_expires"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_set_expires }
+    else if (std.mem.eql(u8, name, "sa_cookie_set_max_age"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_set_max_age }
+    else if (std.mem.eql(u8, name, "sa_cookie_clear_expiry"))
+        .{ .voids = all_void ^ 0b1, .tag = .cookie_clear_expiry }
+    else if (std.mem.eql(u8, name, "sa_cookie_set_secure"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_set_secure }
+    else if (std.mem.eql(u8, name, "sa_cookie_set_http_only"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_set_http_only }
+    else if (std.mem.eql(u8, name, "sa_cookie_set_partitioned"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_set_partitioned }
+    else if (std.mem.eql(u8, name, "sa_cookie_set_same_site"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_set_same_site }
+    else if (std.mem.eql(u8, name, "sa_cookie_serialize"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_serialize }
+    else if (std.mem.eql(u8, name, "sa_cookie_serialize_pair"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_serialize_pair }
+    else if (std.mem.eql(u8, name, "sa_cookie_is_expired"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_is_expired }
+    else if (std.mem.eql(u8, name, "sa_cookie_domain_match"))
+        .{ .voids = all_void ^ 0b11111, .tag = .cookie_domain_match }
+    else if (std.mem.eql(u8, name, "sa_cookie_path_match"))
+        .{ .voids = all_void ^ 0b11111, .tag = .cookie_path_match }
+    else if (std.mem.eql(u8, name, "sa_cookie_header_pair_count"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_header_pair_count }
+    else if (std.mem.eql(u8, name, "sa_cookie_header_pair_at"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_header_pair_at }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_new"))
+        .{ .voids = all_void, .tag = .cookie_jar_new }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .cookie_jar_free }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_set_policy"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_jar_set_policy }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_policy"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_jar_policy }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_store"))
+        .{ .voids = all_void ^ 0b1111111, .tag = .cookie_jar_store }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_header"))
+        .{ .voids = all_void ^ 0b111111, .tag = .cookie_jar_header }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_count"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_jar_count }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_at"))
+        .{ .voids = all_void ^ 0b11, .tag = .cookie_jar_at }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_clear"))
+        .{ .voids = all_void ^ 0b1, .tag = .cookie_jar_clear }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_evict_expired"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_jar_evict_expired }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_save"))
+        .{ .voids = all_void ^ 0b111, .tag = .cookie_jar_save }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_load"))
+        .{ .voids = all_void ^ 0b1111, .tag = .cookie_jar_load }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_request_header"))
+        .{ .voids = all_void ^ 0b11111, .tag = .cookie_jar_request_header }
+    else if (std.mem.eql(u8, name, "sa_cookie_jar_store_response"))
+        .{ .voids = all_void ^ 0b11111, .tag = .cookie_jar_store_response }
+    else if (std.mem.eql(u8, name, "sa_std_tls_client_config_new"))
+        .{ .voids = all_void ^ 0b1, .tag = .tlscfg_new }
+    else if (std.mem.eql(u8, name, "sa_std_tls_client_config_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .tlscfg_free }
+    else if (std.mem.eql(u8, name, "sa_std_tls_client_config_set_server_name"))
+        .{ .voids = all_void ^ 0b111, .tag = .tlscfg_set_server_name }
+    else if (std.mem.eql(u8, name, "sa_std_tls_client_config_add_ca_file"))
+        .{ .voids = all_void ^ 0b111, .tag = .tlscfg_add_ca_file }
+    else if (std.mem.eql(u8, name, "sa_std_tls_client_config_add_ca_memory"))
+        .{ .voids = all_void ^ 0b111, .tag = .tlscfg_add_ca_memory }
+    else if (std.mem.eql(u8, name, "sa_std_tls_client_config_set_insecure_no_verification"))
+        .{ .voids = all_void ^ 0b11, .tag = .tlscfg_set_insecure }
+    else if (std.mem.eql(u8, name, "sa_std_tls_client_config_set_verify_self_signed"))
+        .{ .voids = all_void ^ 0b11, .tag = .tlscfg_set_verify_self_signed }
+    else if (std.mem.eql(u8, name, "sa_std_tls_client_peer_cert_json"))
+        .{ .voids = all_void ^ 0b11, .tag = .tls_peer_cert_json }
+    else if (std.mem.eql(u8, name, "sa_std_tls_shaped_supported"))
+        .{ .voids = all_void ^ 0b1, .tag = .tls_shaped_supported }
+    else if (std.mem.eql(u8, name, "sa_std_tls_shaped_connect"))
+        .{ .voids = all_void ^ 0b111111, .tag = .tls_shaped_connect }
+    else if (std.mem.eql(u8, name, "sa_std_tls_client_buffer_data"))
+        .{ .voids = all_void ^ 0b1, .tag = .tls_cbuf_data }
+    else if (std.mem.eql(u8, name, "sa_std_tls_client_buffer_len"))
+        .{ .voids = all_void ^ 0b1, .tag = .tls_cbuf_len }
+    else if (std.mem.eql(u8, name, "sa_std_tls_client_buffer_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .tls_cbuf_free }
+    else if (std.mem.eql(u8, name, "sa_net_addr_family"))
+        .{ .voids = all_void ^ 0b1, .tag = .na_family }
+    else if (std.mem.eql(u8, name, "sa_net_addr_free"))
+        .{ .voids = all_void ^ 0b1, .tag = .na_free }
+    else if (std.mem.eql(u8, name, "sa_net_addr_port"))
+        .{ .voids = all_void ^ 0b1, .tag = .na_port }
+    else if (std.mem.eql(u8, name, "sa_std_net_addr_format"))
+        .{ .voids = all_void ^ 0b1111, .tag = .na_format }
+    else if (std.mem.eql(u8, name, "sa_std_net_socket_getsockopt"))
+        .{ .voids = all_void ^ 0b111111, .tag = .sk_get }
+    else if (std.mem.eql(u8, name, "sa_std_net_socket_getsockopt_int"))
+        .{ .voids = all_void ^ 0b1111, .tag = .sk_get_int }
+    else if (std.mem.eql(u8, name, "sa_std_net_socket_setsockopt"))
+        .{ .voids = all_void ^ 0b11111, .tag = .sk_set }
+    else if (std.mem.eql(u8, name, "sa_std_net_socket_setsockopt_int"))
+        .{ .voids = all_void ^ 0b1111, .tag = .sk_set_int }
+    else if (std.mem.eql(u8, name, "sa_std_net_to_socket_addr_first"))
+        .{ .voids = all_void ^ 0b1111, .tag = .na_to_first }
+    else if (std.mem.eql(u8, name, "sa_std_net_udp_bind"))
+        .{ .voids = all_void ^ 0b1111, .tag = .udp_bind_h }
+    else if (std.mem.eql(u8, name, "sa_std_net_udp_broadcast"))
+        .{ .voids = all_void ^ 0b11, .tag = .udp_broadcast_h }
+    else if (std.mem.eql(u8, name, "sa_std_net_udp_connect_addr"))
+        .{ .voids = all_void ^ 0b11, .tag = .udp_connect_addr_h }
+    else if (std.mem.eql(u8, name, "sa_std_net_udp_local_addr"))
+        .{ .voids = all_void ^ 0b11, .tag = .udp_local_addr_h }
+    else if (std.mem.eql(u8, name, "sa_std_net_udp_recv_msg"))
+        .{ .voids = all_void ^ 0b111111111, .tag = .udp_recv_msg_h }
+    else if (std.mem.eql(u8, name, "sa_std_net_udp_recv_multi"))
+        .{ .voids = all_void ^ 0b11111111, .tag = .udp_recv_multi_h }
+    else if (std.mem.eql(u8, name, "sa_std_net_udp_send"))
+        .{ .voids = all_void ^ 0b1111, .tag = .udp_send_h }
+    else if (std.mem.eql(u8, name, "sa_std_net_udp_set_read_timeout"))
+        .{ .voids = all_void ^ 0b11, .tag = .udp_set_read_timeout_h }
+    else if (std.mem.eql(u8, name, "sa_std_net_udp_ttl"))
+        .{ .voids = all_void ^ 0b11, .tag = .udp_ttl_h }
+    else if (std.mem.eql(u8, name, "sa_std_net_unix_datagram_pair"))
+        .{ .voids = all_void ^ 0b11, .tag = .unix_pair_h }
+    else if (std.mem.eql(u8, name, "sa_std_net_unix_datagram_peer_cred"))
+        .{ .voids = all_void ^ 0b1111, .tag = .unix_peer_cred_h }
+    else if (std.mem.eql(u8, name, "sa_std_net_unix_datagram_unbound"))
+        .{ .voids = all_void ^ 0b1, .tag = .unix_unbound_h }
+    else if (std.mem.eql(u8, name, "sa_std_process_id"))
+        .{ .voids = all_void, .tag = .proc_id }
+    else if (std.mem.eql(u8, name, "sa_std_process_user_id"))
+        .{ .voids = all_void, .tag = .proc_user_id }
     else
         null;
     const binding = b orelse return false;
@@ -6400,6 +6690,267 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .ssh_buf_free => {
             try writer.writeAll(" { return 0; } }\n");
         },
+        .cookie_parse => {
+            // Direct link: the real RFC 6265 parser in libsa_std.a;
+            // the guest byte span is handed over as a host pointer
+            // into linear memory, the returned handle passes through.
+            try writer.writeAll(" return sa_cookie_parse_set_cookie(sa_glue_cptr(a0, a1), a1); }\n");
+        },
+        .cookie_last_error => {
+            try writer.writeAll(" { const uint8_t *hp = 0; uint64_t hn = 0; int32_t st = sa_cookie_last_error(&hp, &hn); sa_glue_out_str(a0, a1, hp, hn); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_free => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_free(a0); }\n");
+        },
+        .cookie_new => {
+            try writer.writeAll(" return sa_cookie_new(sa_glue_cptr(a0, a1), a1, sa_glue_cptr(a2, a3), a3); }\n");
+        },
+        .cookie_name => {
+            try writer.writeAll(" { const uint8_t *hp = 0; uint64_t hn = 0; int32_t st = sa_cookie_name(a0, &hp, &hn); sa_glue_out_str(a1, a2, hp, hn); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_value => {
+            try writer.writeAll(" { const uint8_t *hp = 0; uint64_t hn = 0; int32_t st = sa_cookie_value(a0, &hp, &hn); sa_glue_out_str(a1, a2, hp, hn); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_domain => {
+            try writer.writeAll(" { const uint8_t *hp = 0; uint64_t hn = 0; int32_t st = sa_cookie_domain(a0, &hp, &hn); sa_glue_out_str(a1, a2, hp, hn); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_path => {
+            try writer.writeAll(" { const uint8_t *hp = 0; uint64_t hn = 0; int32_t st = sa_cookie_path(a0, &hp, &hn); sa_glue_out_str(a1, a2, hp, hn); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_expires => {
+            try writer.writeAll(" { int64_t v = 0; int32_t st = sa_cookie_expires(a0, &v); sa_store_u64(a1, (sa_u64)v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_max_age => {
+            try writer.writeAll(" { int64_t v = 0; int32_t st = sa_cookie_max_age(a0, &v); sa_store_u64(a1, (sa_u64)v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_flags => {
+            try writer.writeAll(" { int32_t x = 0, y = 0, z = 0; int32_t st = sa_cookie_flags(a0, &x, &y, &z); sa_store_u32(a1, (sa_u64)(uint32_t)x); sa_store_u32(a2, (sa_u64)(uint32_t)y); sa_store_u32(a3, (sa_u64)(uint32_t)z); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_same_site => {
+            try writer.writeAll(" { uint32_t v = 0; int32_t st = sa_cookie_same_site(a0, &v); sa_store_u32(a1, (sa_u64)v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_is_host_only => {
+            try writer.writeAll(" { int32_t v = 0; int32_t st = sa_cookie_is_host_only(a0, &v); sa_store_u32(a1, (sa_u64)(uint32_t)v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_set_domain => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_set_domain(a0, sa_glue_cptr(a1, a2), a2); }\n");
+        },
+        .cookie_set_path => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_set_path(a0, sa_glue_cptr(a1, a2), a2); }\n");
+        },
+        .cookie_set_expires => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_set_expires(a0, (sa_i64)a1); }\n");
+        },
+        .cookie_set_max_age => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_set_max_age(a0, (sa_i64)a1); }\n");
+        },
+        .cookie_clear_expiry => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_clear_expiry(a0); }\n");
+        },
+        .cookie_set_secure => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_set_secure(a0, (int32_t)a1); }\n");
+        },
+        .cookie_set_http_only => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_set_http_only(a0, (int32_t)a1); }\n");
+        },
+        .cookie_set_partitioned => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_set_partitioned(a0, (int32_t)a1); }\n");
+        },
+        .cookie_set_same_site => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_set_same_site(a0, (uint32_t)a1); }\n");
+        },
+        .cookie_serialize => {
+            try writer.writeAll(" { const uint8_t *hp = 0; uint64_t hn = 0; int32_t st = sa_cookie_serialize(a0, &hp, &hn); sa_glue_out_str(a1, a2, hp, hn); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_serialize_pair => {
+            try writer.writeAll(" { const uint8_t *hp = 0; uint64_t hn = 0; int32_t st = sa_cookie_serialize_pair(a0, &hp, &hn); sa_glue_out_str(a1, a2, hp, hn); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_is_expired => {
+            try writer.writeAll(" { int32_t v = 0; int32_t st = sa_cookie_is_expired(a0, (sa_i64)a1, &v); sa_store_u32(a2, (sa_u64)(uint32_t)v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_domain_match => {
+            try writer.writeAll(" { int32_t v = 0; int32_t st = sa_cookie_domain_match(sa_glue_cptr(a0, a1), a1, sa_glue_cptr(a2, a3), a3, &v); sa_store_u32(a4, (sa_u64)(uint32_t)v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_path_match => {
+            try writer.writeAll(" { int32_t v = 0; int32_t st = sa_cookie_path_match(sa_glue_cptr(a0, a1), a1, sa_glue_cptr(a2, a3), a3, &v); sa_store_u32(a4, (sa_u64)(uint32_t)v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_header_pair_count => {
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = sa_cookie_header_pair_count(sa_glue_cptr(a0, a1), a1, &v); sa_store_u64(a2, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_header_pair_at => {
+            try writer.writeAll(" return sa_cookie_header_pair_at(sa_glue_cptr(a0, a1), a1, a2); }\n");
+        },
+        .cookie_jar_new => {
+            try writer.writeAll(" return sa_cookie_jar_new(); }\n");
+        },
+        .cookie_jar_free => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_jar_free(a0); }\n");
+        },
+        .cookie_jar_set_policy => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_jar_set_policy(a0, (uint32_t)a1); }\n");
+        },
+        .cookie_jar_policy => {
+            try writer.writeAll(" { uint32_t v = 0; int32_t st = sa_cookie_jar_policy(a0, &v); sa_store_u32(a1, (sa_u64)v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_jar_store => {
+            try writer.writeAll(" { uint32_t r = 0; int32_t st = sa_cookie_jar_store(a0, sa_glue_cptr(a1, a2), a2, sa_glue_cptr(a3, a4), a4, (sa_i64)a5, &r); sa_store_u32(a6, (sa_u64)r); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_jar_header => {
+            try writer.writeAll(" { const uint8_t *hp = 0; uint64_t hn = 0; int32_t st = sa_cookie_jar_header(a0, sa_glue_cptr(a1, a2), a2, (sa_i64)a3, &hp, &hn); sa_glue_out_str(a4, a5, hp, hn); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_jar_count => {
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = sa_cookie_jar_count(a0, &v); sa_store_u64(a1, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_jar_at => {
+            try writer.writeAll(" return sa_cookie_jar_at(a0, a1); }\n");
+        },
+        .cookie_jar_clear => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_jar_clear(a0); }\n");
+        },
+        .cookie_jar_evict_expired => {
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = sa_cookie_jar_evict_expired(a0, (sa_i64)a1, &v); sa_store_u64(a2, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_jar_save => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_jar_save(a0, sa_glue_cptr(a1, a2), a2); }\n");
+        },
+        .cookie_jar_load => {
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = sa_cookie_jar_load(a0, sa_glue_cptr(a1, a2), a2, &v); sa_store_u64(a3, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_jar_request_header => {
+            try writer.writeAll(" { const uint8_t *hp = 0; uint64_t hn = 0; int32_t st = sa_cookie_jar_request_header(a0, sa_glue_cptr(a1, a2), a2, &hp, &hn); sa_glue_out_str(a3, a4, hp, hn); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .cookie_jar_store_response => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_cookie_jar_store_response(a0, sa_glue_cptr(a1, a2), a2, sa_glue_cptr(a3, a4), a4); }\n");
+        },
+        .tlscfg_new => {
+            // Direct link: the real config registry in libsa_std.a;
+            // the handle value passes through, only the out slot is
+            // translated into guest memory.
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = sa_std_tls_client_config_new(&v); sa_store_u64(a0, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .tlscfg_free => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_std_tls_client_config_free(a0); }\n");
+        },
+        .tlscfg_set_server_name => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_std_tls_client_config_set_server_name(a0, sa_glue_cptr(a1, a2), a2); }\n");
+        },
+        .tlscfg_add_ca_file => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_std_tls_client_config_add_ca_file(a0, sa_glue_cptr(a1, a2), a2); }\n");
+        },
+        .tlscfg_add_ca_memory => {
+            // The PEM validation is OpenSSL's, inside libsa_std.a:
+            // malformed PEM fails with -22 exactly as natively.
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_std_tls_client_config_add_ca_memory(a0, sa_glue_cptr(a1, a2), a2); }\n");
+        },
+        .tlscfg_set_insecure => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_std_tls_client_config_set_insecure_no_verification(a0, (uint32_t)a1); }\n");
+        },
+        .tlscfg_set_verify_self_signed => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_std_tls_client_config_set_verify_self_signed(a0, (uint32_t)a1); }\n");
+        },
+        .tls_peer_cert_json => {
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = sa_std_tls_client_peer_cert_json(a0, &v); sa_store_u64(a1, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .tls_shaped_supported => {
+            try writer.writeAll(" { uint32_t v = 0; int32_t st = sa_std_tls_shaped_supported(&v); sa_store_u32(a0, (sa_u64)v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .tls_shaped_connect => {
+            // Pre-dial profile validation happens inside libsa_std.a
+            // (a malformed profile is -22 before any socket is opened),
+            // so forwarding preserves the no-network test contract.
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = sa_std_tls_shaped_connect(sa_glue_cptr(a0, a1), a1, (uint32_t)a2, sa_glue_cptr(a3, a4), a4, &v); sa_store_u64(a5, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .tls_cbuf_data => {
+            // The native accessor returns a host pointer into the
+            // buffer's bytes; the guest form copies the bytes into a
+            // fresh guest allocation and returns its address (the
+            // copy is never invalidated, unlike the native borrow).
+            try writer.writeAll(" { uint64_t n = sa_std_tls_client_buffer_len(a0); const uint8_t *hp = sa_std_tls_client_buffer_data(a0); if (hp == 0) return 0; { sa_u64 g = sa_alloc(n == 0 ? 1 : n); uint32_t d = sa_checked_addr(g, (size_t)(n == 0 ? 1 : n)); if (n != 0) memcpy(&sa_mem[d], hp, (size_t)n); return g; } } }\n");
+        },
+        .tls_cbuf_len => {
+            try writer.writeAll(" return sa_std_tls_client_buffer_len(a0); }\n");
+        },
+        .tls_cbuf_free => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_std_tls_client_buffer_free(a0); }\n");
+        },
+        .na_family => {
+            try writer.writeAll(" return (sa_u64)sa_net_addr_family(a0); }\n");
+        },
+        .na_free => {
+            // Fallible extern: the SA-level value is the status half
+            // of the fallible pair (0 = SA_STD_OK on success).
+            try writer.writeAll(" { sa_std_fallible_i32 r = sa_net_addr_free(a0); return (sa_u64)(sa_i64)r.status; } }\n");
+        },
+        .na_port => {
+            try writer.writeAll(" return (sa_u64)sa_net_addr_port(a0); }\n");
+        },
+        .na_format => {
+            try writer.writeAll(" { uint64_t n = 0; int32_t st = sa_std_net_addr_format(a0, sa_glue_mptr(a1, a2), a2, &n); sa_store_u64(a3, n); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .sk_get => {
+            // Direct link: the real getsockopt syscall wrapper in
+            // libsa_std.a runs against the real socket behind the
+            // handle; only the out span is guest memory.
+            try writer.writeAll(" { uint64_t n = 0; int32_t st = sa_std_net_socket_getsockopt(a0, (int32_t)a1, (uint32_t)a2, sa_glue_mptr(a3, a4), a4, &n); sa_store_u64(a5, n); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .sk_get_int => {
+            try writer.writeAll(" { int32_t v = 0; int32_t st = sa_std_net_socket_getsockopt_int(a0, (int32_t)a1, (uint32_t)a2, &v); sa_store_u32(a3, (sa_u64)(uint32_t)v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .sk_set => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_std_net_socket_setsockopt(a0, (int32_t)a1, (uint32_t)a2, sa_glue_cptr(a3, a4), a4); }\n");
+        },
+        .sk_set_int => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_std_net_socket_setsockopt_int(a0, (int32_t)a1, (uint32_t)a2, (int32_t)a3); }\n");
+        },
+        .na_to_first => {
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = sa_std_net_to_socket_addr_first(sa_glue_cptr(a0, a1), a1, (uint32_t)a2, &v); sa_store_u64(a3, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .udp_bind_h => {
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = sa_std_net_udp_bind(sa_glue_cptr(a0, a1), a1, (uint32_t)a2, &v); sa_store_u64(a3, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .udp_broadcast_h => {
+            try writer.writeAll(" { int32_t v = 0; int32_t st = sa_std_net_udp_broadcast(a0, &v); sa_store_u32(a1, (sa_u64)(uint32_t)v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .udp_connect_addr_h => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_std_net_udp_connect_addr(a0, a1); }\n");
+        },
+        .udp_local_addr_h => {
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = sa_std_net_udp_local_addr(a0, &v); sa_store_u64(a1, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .udp_recv_msg_h => {
+            try writer.writeAll(" { uint64_t rd = 0, saddr = 0, daddr = 0, ts = 0; uint32_t ix = 0, fl = 0; int32_t st = sa_std_net_udp_recv_msg(a0, sa_glue_mptr(a1, a2), a2, &rd, &saddr, &daddr, &ix, &ts, &fl); sa_store_u64(a3, rd); sa_store_u64(a4, saddr); sa_store_u64(a5, daddr); sa_store_u32(a6, (sa_u64)ix); sa_store_u64(a7, ts); sa_store_u32(a8, (sa_u64)fl); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .udp_recv_multi_h => {
+            // The lens/addrs out arrays are staged in host scratch
+            // and stored back element-wise (guest slots are byte
+            // addressed; a direct uint64_t* cast would assume guest
+            // alignment the SA allocator does not guarantee).
+            try writer.writeAll(" { uint64_t cnt = 0; uint64_t *lens = (uint64_t *)malloc((a4 == 0 ? 1 : a4) * 8); uint64_t *addrs = (uint64_t *)malloc((a4 == 0 ? 1 : a4) * 8); if (lens == 0 || addrs == 0) { free(lens); free(addrs); return 5; } { int32_t st = sa_std_net_udp_recv_multi(a0, sa_glue_mptr(a1, a2), a2, a3, a4, &cnt, lens, addrs); sa_u64 i; for (i = 0; i < cnt; i++) { sa_store_u64(a6 + i * 8, lens[i]); sa_store_u64(a7 + i * 8, addrs[i]); } free(lens); free(addrs); sa_store_u64(a5, cnt); return (sa_u64)(sa_i64)st; } } }\n");
+        },
+        .udp_send_h => {
+            try writer.writeAll(" { uint64_t w = 0; int32_t st = sa_std_net_udp_send(a0, sa_glue_cptr(a1, a2), a2, &w); sa_store_u64(a3, w); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .udp_set_read_timeout_h => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_std_net_udp_set_read_timeout(a0, a1); }\n");
+        },
+        .udp_ttl_h => {
+            try writer.writeAll(" { uint32_t v = 0; int32_t st = sa_std_net_udp_ttl(a0, &v); sa_store_u32(a1, (sa_u64)v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .unix_pair_h => {
+            try writer.writeAll(" { uint64_t l = 0, r = 0; int32_t st = sa_std_net_unix_datagram_pair(&l, &r); sa_store_u64(a0, l); sa_store_u64(a1, r); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .unix_peer_cred_h => {
+            try writer.writeAll(" { int32_t pid = 0; uint32_t uid = 0, gid = 0; int32_t st = sa_std_net_unix_datagram_peer_cred(a0, &pid, &uid, &gid); sa_store_u32(a1, (sa_u64)(uint32_t)pid); sa_store_u32(a2, (sa_u64)uid); sa_store_u32(a3, (sa_u64)gid); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .unix_unbound_h => {
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = sa_std_net_unix_datagram_unbound(&v); sa_store_u64(a0, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .proc_id => {
+            try writer.writeAll(" return (sa_u64)sa_std_process_id(); }\n");
+        },
+        .proc_user_id => {
+            try writer.writeAll(" return (sa_u64)sa_std_process_user_id(); }\n");
+        },
         .net_unsupported8 => {
             try writer.writeAll(" { return 8; } }\n");
         },
@@ -6491,6 +7042,7 @@ fn writePreamble(
     need_time_clock: bool,
     need_sys_stat: bool,
     need_json: bool,
+    need_stdlink: bool,
 ) !void {
     const mem_bytes: usize = @as(usize, c_opt.mem_pages) * 65536;
     try writer.print("/* Generated by `sa build-c` (c backend, MVP). DO NOT EDIT. */\n", .{});
@@ -6649,6 +7201,102 @@ fn writePreamble(
             try writer.writeAll(h.code);
             try writer.writeAll("\n");
         }
+    }
+    // stdlink families (cookie / TLS client config / sockopt
+    // passthrough): the bindings forward to the real libsa_std.a
+    // entry points, so the preamble carries their prototypes
+    // (mirroring src/runtime/sa_std.h) plus the guest<->host
+    // adapters the wrappers use. A program that renders any of
+    // these bindings must link libsa_std.a (the probe harness and
+    // the c-matrix harness both do); programs that use none of
+    // them never see this block.
+    if (need_stdlink) {
+        try writer.writeAll(
+            \\typedef struct { int32_t status; int32_t value; } sa_std_fallible_i32;
+            \\uint64_t sa_cookie_parse_set_cookie(const uint8_t *, uint64_t);
+            \\int32_t sa_cookie_last_error(const uint8_t **, uint64_t *);
+            \\int32_t sa_cookie_free(uint64_t);
+            \\uint64_t sa_cookie_new(const uint8_t *, uint64_t, const uint8_t *, uint64_t);
+            \\int32_t sa_cookie_name(uint64_t, const uint8_t **, uint64_t *);
+            \\int32_t sa_cookie_value(uint64_t, const uint8_t **, uint64_t *);
+            \\int32_t sa_cookie_domain(uint64_t, const uint8_t **, uint64_t *);
+            \\int32_t sa_cookie_path(uint64_t, const uint8_t **, uint64_t *);
+            \\int32_t sa_cookie_expires(uint64_t, int64_t *);
+            \\int32_t sa_cookie_max_age(uint64_t, int64_t *);
+            \\int32_t sa_cookie_flags(uint64_t, int32_t *, int32_t *, int32_t *);
+            \\int32_t sa_cookie_same_site(uint64_t, uint32_t *);
+            \\int32_t sa_cookie_is_host_only(uint64_t, int32_t *);
+            \\int32_t sa_cookie_set_domain(uint64_t, const uint8_t *, uint64_t);
+            \\int32_t sa_cookie_set_path(uint64_t, const uint8_t *, uint64_t);
+            \\int32_t sa_cookie_set_expires(uint64_t, int64_t);
+            \\int32_t sa_cookie_set_max_age(uint64_t, int64_t);
+            \\int32_t sa_cookie_clear_expiry(uint64_t);
+            \\int32_t sa_cookie_set_secure(uint64_t, int32_t);
+            \\int32_t sa_cookie_set_http_only(uint64_t, int32_t);
+            \\int32_t sa_cookie_set_partitioned(uint64_t, int32_t);
+            \\int32_t sa_cookie_set_same_site(uint64_t, uint32_t);
+            \\int32_t sa_cookie_serialize(uint64_t, const uint8_t **, uint64_t *);
+            \\int32_t sa_cookie_serialize_pair(uint64_t, const uint8_t **, uint64_t *);
+            \\int32_t sa_cookie_is_expired(uint64_t, int64_t, int32_t *);
+            \\int32_t sa_cookie_domain_match(const uint8_t *, uint64_t, const uint8_t *, uint64_t, int32_t *);
+            \\int32_t sa_cookie_path_match(const uint8_t *, uint64_t, const uint8_t *, uint64_t, int32_t *);
+            \\int32_t sa_cookie_header_pair_count(const uint8_t *, uint64_t, uint64_t *);
+            \\uint64_t sa_cookie_header_pair_at(const uint8_t *, uint64_t, uint64_t);
+            \\uint64_t sa_cookie_jar_new(void);
+            \\int32_t sa_cookie_jar_free(uint64_t);
+            \\int32_t sa_cookie_jar_set_policy(uint64_t, uint32_t);
+            \\int32_t sa_cookie_jar_policy(uint64_t, uint32_t *);
+            \\int32_t sa_cookie_jar_store(uint64_t, const uint8_t *, uint64_t, const uint8_t *, uint64_t, int64_t, uint32_t *);
+            \\int32_t sa_cookie_jar_header(uint64_t, const uint8_t *, uint64_t, int64_t, const uint8_t **, uint64_t *);
+            \\int32_t sa_cookie_jar_count(uint64_t, uint64_t *);
+            \\uint64_t sa_cookie_jar_at(uint64_t, uint64_t);
+            \\int32_t sa_cookie_jar_clear(uint64_t);
+            \\int32_t sa_cookie_jar_evict_expired(uint64_t, int64_t, uint64_t *);
+            \\int32_t sa_cookie_jar_save(uint64_t, const uint8_t *, uint64_t);
+            \\int32_t sa_cookie_jar_load(uint64_t, const uint8_t *, uint64_t, uint64_t *);
+            \\int32_t sa_cookie_jar_request_header(uint64_t, const uint8_t *, uint64_t, const uint8_t **, uint64_t *);
+            \\int32_t sa_cookie_jar_store_response(uint64_t, const uint8_t *, uint64_t, const uint8_t *, uint64_t);
+            \\int32_t sa_std_tls_client_config_new(uint64_t *);
+            \\int32_t sa_std_tls_client_config_free(uint64_t);
+            \\int32_t sa_std_tls_client_config_set_server_name(uint64_t, const uint8_t *, uint64_t);
+            \\int32_t sa_std_tls_client_config_add_ca_file(uint64_t, const uint8_t *, uint64_t);
+            \\int32_t sa_std_tls_client_config_add_ca_memory(uint64_t, const uint8_t *, uint64_t);
+            \\int32_t sa_std_tls_client_config_set_insecure_no_verification(uint64_t, uint32_t);
+            \\int32_t sa_std_tls_client_config_set_verify_self_signed(uint64_t, uint32_t);
+            \\int32_t sa_std_tls_client_peer_cert_json(uint64_t, uint64_t *);
+            \\int32_t sa_std_tls_shaped_supported(uint32_t *);
+            \\int32_t sa_std_tls_shaped_connect(const uint8_t *, uint64_t, uint32_t, const uint8_t *, uint64_t, uint64_t *);
+            \\const uint8_t *sa_std_tls_client_buffer_data(uint64_t);
+            \\uint64_t sa_std_tls_client_buffer_len(uint64_t);
+            \\int32_t sa_std_tls_client_buffer_free(uint64_t);
+            \\uint32_t sa_net_addr_family(uint64_t);
+            \\sa_std_fallible_i32 sa_net_addr_free(uint64_t);
+            \\uint32_t sa_net_addr_port(uint64_t);
+            \\int32_t sa_std_net_addr_format(uint64_t, uint8_t *, uint64_t, uint64_t *);
+            \\int32_t sa_std_net_socket_getsockopt(uint64_t, int32_t, uint32_t, uint8_t *, uint64_t, uint64_t *);
+            \\int32_t sa_std_net_socket_getsockopt_int(uint64_t, int32_t, uint32_t, int32_t *);
+            \\int32_t sa_std_net_socket_setsockopt(uint64_t, int32_t, uint32_t, const uint8_t *, uint64_t);
+            \\int32_t sa_std_net_socket_setsockopt_int(uint64_t, int32_t, uint32_t, int32_t);
+            \\int32_t sa_std_net_to_socket_addr_first(const uint8_t *, uint64_t, uint32_t, uint64_t *);
+            \\int32_t sa_std_net_udp_bind(const uint8_t *, uint64_t, uint32_t, uint64_t *);
+            \\int32_t sa_std_net_udp_broadcast(uint64_t, int32_t *);
+            \\int32_t sa_std_net_udp_connect_addr(uint64_t, uint64_t);
+            \\int32_t sa_std_net_udp_local_addr(uint64_t, uint64_t *);
+            \\int32_t sa_std_net_udp_recv_msg(uint64_t, uint8_t *, uint64_t, uint64_t *, uint64_t *, uint64_t *, uint32_t *, uint64_t *, uint32_t *);
+            \\int32_t sa_std_net_udp_recv_multi(uint64_t, uint8_t *, uint64_t, uint64_t, uint64_t, uint64_t *, uint64_t *, uint64_t *);
+            \\int32_t sa_std_net_udp_send(uint64_t, const uint8_t *, uint64_t, uint64_t *);
+            \\int32_t sa_std_net_udp_set_read_timeout(uint64_t, uint64_t);
+            \\int32_t sa_std_net_udp_ttl(uint64_t, uint32_t *);
+            \\int32_t sa_std_net_unix_datagram_pair(uint64_t *, uint64_t *);
+            \\int32_t sa_std_net_unix_datagram_peer_cred(uint64_t, int32_t *, uint32_t *, uint32_t *);
+            \\int32_t sa_std_net_unix_datagram_unbound(uint64_t *);
+            \\uint32_t sa_std_process_id(void);
+            \\uint32_t sa_std_process_user_id(void);
+            \\static __attribute__((unused)) const uint8_t *sa_glue_cptr(sa_u64 p, sa_u64 n) { return (const uint8_t *)&sa_mem[sa_checked_addr(p, (size_t)n)]; }
+            \\static __attribute__((unused)) uint8_t *sa_glue_mptr(sa_u64 p, sa_u64 n) { return (uint8_t *)&sa_mem[sa_checked_addr(p, (size_t)n)]; }
+            \\static __attribute__((unused)) void sa_glue_out_str(sa_u64 op, sa_u64 ol, const uint8_t *hp, uint64_t n) { sa_u64 g = sa_alloc(n == 0 ? 1 : n); uint32_t d = sa_checked_addr(g, (size_t)(n == 0 ? 1 : n)); if (n != 0 && hp != 0) memcpy(&sa_mem[d], hp, (size_t)n); sa_store_u64(op, g); sa_store_u64(ol, n); }
+            \\
+        );
     }
 }
 
@@ -8013,6 +8661,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     var need_regex = false;
     var need_time_clock = false;
     var need_json = false;
+    var need_stdlink = false;
     var need_sys_stat = false;
     var need_mem_direct = false;
     for (tasks) |task| {
@@ -8024,6 +8673,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         defer tmp.deinit();
         if (!try writeExternBinding(&tmp.writer, efsig.name, uniform_arity, c_opt.gas)) continue;
         const rendered_norm = sigNormName(efsig.name);
+        if (isStdlinkExtern(rendered_norm)) need_stdlink = true;
         if (std.mem.startsWith(u8, rendered_norm, "sa_http_")) need_http = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_owned_") != null) need_owned = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_modstate_") != null) need_modstate = true;
@@ -8046,6 +8696,17 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         defer bu.deinit();
         var bit = bu.iterator();
         while (bit.next()) |e| try used.put(e.key_ptr.*, {});
+    }
+    if (need_stdlink) {
+        // The sa_glue_* adapters emitted by the preamble call
+        // these catalog helpers directly; pull them and
+        // their dependency closure into the used set.
+        try used.put("sa_addr", {});
+        try used.put("sa_checked_addr", {});
+        try used.put("sa_align", {});
+        try used.put("sa_alloc", {});
+        try used.put("sa_store_u32", {});
+        try used.put("sa_store_u64", {});
     }
     // Linear memory is needed for const bytes or any mem-touching helper.
     // (sa_brk only travels with the allocator; sa_mem stays out entirely
@@ -8071,7 +8732,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         }
     }
     const need_brk = used.get("sa_alloc") != null;
-    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk, need_http, need_owned, need_modstate, need_regex, need_time_clock, need_sys_stat, need_json);
+    try writePreamble(writer, c_opt, size_bits, &used, need_mem, need_brk, need_http, need_owned, need_modstate, need_regex, need_time_clock, need_sys_stat, need_json, need_stdlink);
     try writer.print("/* source: {s} */\n", .{source_path});
     // const address defines
     for (verified.const_decls) |decl| {
@@ -8344,6 +9005,103 @@ test "c memPrimType untyped fallbacks match reference widths" {
     var typed = inst.makeInstruction(.load, 0, 0, null, "");
     typed.operands[3] = .{ .ty = @intFromEnum(sig.PrimType.u16) };
     try std.testing.expectEqual(sig.PrimType.u16, memPrimType(typed));
+}
+
+test "c stdlink bindings cover the cookie/tls/sockopt gap lists" {
+    // Regression lock for the BQ-registered sa2c binding gaps: the
+    // cookie family (the 17 names BQ hit plus the rest of the
+    // http_cookie.sai surface), the TLS config face (10 names plus
+    // the client-buffer accessors peer_cert_json is consumed
+    // through) and the sockopt passthrough family (23 names). Every
+    // name must render a real direct-link binding instead of falling
+    // through to the trap stub.
+    const names = [_][]const u8{
+        "sa_cookie_parse_set_cookie",
+        "sa_cookie_last_error",
+        "sa_cookie_free",
+        "sa_cookie_new",
+        "sa_cookie_name",
+        "sa_cookie_value",
+        "sa_cookie_domain",
+        "sa_cookie_path",
+        "sa_cookie_expires",
+        "sa_cookie_max_age",
+        "sa_cookie_flags",
+        "sa_cookie_same_site",
+        "sa_cookie_is_host_only",
+        "sa_cookie_set_domain",
+        "sa_cookie_set_path",
+        "sa_cookie_set_expires",
+        "sa_cookie_set_max_age",
+        "sa_cookie_clear_expiry",
+        "sa_cookie_set_secure",
+        "sa_cookie_set_http_only",
+        "sa_cookie_set_partitioned",
+        "sa_cookie_set_same_site",
+        "sa_cookie_serialize",
+        "sa_cookie_serialize_pair",
+        "sa_cookie_is_expired",
+        "sa_cookie_domain_match",
+        "sa_cookie_path_match",
+        "sa_cookie_header_pair_count",
+        "sa_cookie_header_pair_at",
+        "sa_cookie_jar_new",
+        "sa_cookie_jar_free",
+        "sa_cookie_jar_set_policy",
+        "sa_cookie_jar_policy",
+        "sa_cookie_jar_store",
+        "sa_cookie_jar_header",
+        "sa_cookie_jar_count",
+        "sa_cookie_jar_at",
+        "sa_cookie_jar_clear",
+        "sa_cookie_jar_evict_expired",
+        "sa_cookie_jar_save",
+        "sa_cookie_jar_load",
+        "sa_cookie_jar_request_header",
+        "sa_cookie_jar_store_response",
+        "sa_std_tls_client_config_new",
+        "sa_std_tls_client_config_free",
+        "sa_std_tls_client_config_set_server_name",
+        "sa_std_tls_client_config_add_ca_file",
+        "sa_std_tls_client_config_add_ca_memory",
+        "sa_std_tls_client_config_set_insecure_no_verification",
+        "sa_std_tls_client_config_set_verify_self_signed",
+        "sa_std_tls_client_peer_cert_json",
+        "sa_std_tls_shaped_supported",
+        "sa_std_tls_shaped_connect",
+        "sa_std_tls_client_buffer_data",
+        "sa_std_tls_client_buffer_len",
+        "sa_std_tls_client_buffer_free",
+        "sa_net_addr_family",
+        "sa_net_addr_free",
+        "sa_net_addr_port",
+        "sa_std_net_addr_format",
+        "sa_std_net_socket_getsockopt",
+        "sa_std_net_socket_getsockopt_int",
+        "sa_std_net_socket_setsockopt",
+        "sa_std_net_socket_setsockopt_int",
+        "sa_std_net_to_socket_addr_first",
+        "sa_std_net_udp_bind",
+        "sa_std_net_udp_broadcast",
+        "sa_std_net_udp_connect_addr",
+        "sa_std_net_udp_local_addr",
+        "sa_std_net_udp_recv_msg",
+        "sa_std_net_udp_recv_multi",
+        "sa_std_net_udp_send",
+        "sa_std_net_udp_set_read_timeout",
+        "sa_std_net_udp_ttl",
+        "sa_std_net_unix_datagram_pair",
+        "sa_std_net_unix_datagram_peer_cred",
+        "sa_std_net_unix_datagram_unbound",
+        "sa_std_process_id",
+        "sa_std_process_user_id",
+    };
+    for (names) |n| {
+        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer aw.deinit();
+        try std.testing.expect(try writeExternBinding(&aw.writer, n, 12, false));
+        try std.testing.expect(isStdlinkExtern(n));
+    }
 }
 
 /// True iff every param a0..aN in a rendered binding body occurs at
