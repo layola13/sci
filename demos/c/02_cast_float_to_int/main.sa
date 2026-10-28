@@ -1,0 +1,18 @@
+@import "sa_std/io/print.sai"
+
+@const CAST_OK_MSG = utf8:"CAST_OK\n"
+@const CAST_BAD_MSG = utf8:"CAST_BAD\n"
+
+@main() -> i32:
+L_ENTRY:
+    x = 6.9
+    y = x as i64
+    z = 6
+    c = eq y, z
+    br c -> L_OK, L_BAD
+L_OK:
+    call @sa_print_bytes(&CAST_OK_MSG, 8)
+    return 0
+L_BAD:
+    call @sa_print_bytes(&CAST_BAD_MSG, 9)
+    return 1

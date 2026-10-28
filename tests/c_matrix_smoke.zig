@@ -125,6 +125,7 @@ fn assertCMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
 
 test "c backend rosetta demos match expected output under cc" {
     try assertCMatrixStdout("demos/c/01_hello_world/main.sa", "hello, saasm\n");
+    try assertCMatrixStdout("demos/c/02_cast_float_to_int/main.sa", "CAST_OK\n");
     try assertCMatrixStdout("demos/rosetta/02_mutability/main.sa", "20\n");
     try assertCMatrixStdout("demos/rosetta/03_if_else/main.sa", "20\n");
     try assertCMatrixStdout("demos/rosetta/04_loop/main.sa", "[0,0,0,0]\n");
