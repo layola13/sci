@@ -1441,6 +1441,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("Build a JavaScript module from a .sa source file or .sab binary (JS backend, coexists with LLVM).\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --format esm|cjs              Select the JS module format (default: esm)\n");
+            try writer.writeAll("  --emit-dts                    Also emit a TypeScript declaration file (.d.ts) next to the JS output\n");
             try writeBuildOptionsHelp(writer, "the js module", false);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
@@ -7635,7 +7636,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     }
 }
 
-fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, js_format: emit_js.JsFormat, debug: bool, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
+fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, js_format: emit_js.JsFormat, debug: bool, emit_dts: bool, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
     const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     const compiled = try compileSource(allocator, source_path, compile_options);
     switch (compiled) {
@@ -7649,7 +7650,7 @@ fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_pat
             try ensureParentDir(out_path);
             const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
             const size_bits = sizeBitsForTriple(compile_options.target_triple);
-            emit_js.emitJsToFile(allocator, owned.verified, source_path, size_bits, .{ .format = js_format, .debug_comments = debug, .dce = compile_options.dce }, &owned.flat.def_dict.npm_binds, out_path) catch |err| {
+            emit_js.emitJsToFile(allocator, owned.verified, source_path, size_bits, .{ .format = js_format, .debug_comments = debug, .dce = compile_options.dce, .emit_dts = emit_dts }, &owned.flat.def_dict.npm_binds, out_path) catch |err| {
                 try stderr.print("error: JS backend emit failed: {s}", .{@errorName(err)});
                 if (emit_js.last_js_func.len != 0) try stderr.print(" in {s}", .{emit_js.last_js_func});
                 if (emit_js.last_js_inst.len != 0) try stderr.print(": {s}", .{std.mem.trim(u8, emit_js.last_js_inst, " \t\r\n")});
@@ -9795,6 +9796,7 @@ fn executeWithWritersAndOptionsImpl(
             var source_path: ?[]const u8 = null;
             var out_path: ?[]const u8 = null;
             var js_format: emit_js.JsFormat = .esm;
+            var emit_dts = false;
             var debug = false;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
@@ -9817,6 +9819,10 @@ fn executeWithWritersAndOptionsImpl(
                     debug = false;
                     continue;
                 }
+                if (std.mem.eql(u8, args[i], "--emit-dts")) {
+                    emit_dts = true;
+                    continue;
+                }
                 if (std.mem.eql(u8, args[i], "--format")) {
                     if (i + 1 >= args.len) return error.MissingOutputPath;
                     js_format = emit_js.JsFormat.parse(args[i + 1]) orelse return error.UnexpectedArgument;
@@ -9833,7 +9839,7 @@ fn executeWithWritersAndOptionsImpl(
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, ".js");
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildJs(allocator, final_source_path, if (out_path) |p| p else owned_out, js_format, debug, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildJs(allocator, final_source_path, if (out_path) |p| p else owned_out, js_format, debug, emit_dts, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_c => {
             var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);

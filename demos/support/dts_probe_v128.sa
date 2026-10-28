@@ -1,0 +1,7 @@
+// Negative probe for --emit-dts: a v128 shape on the export surface has
+// no JS representation, so declaration emission must reject the build
+// loudly (error.UnsupportedDtsType) instead of emitting `any`.
+
+@export id_v128(x: v128) -> v128:
+L_ENTRY:
+    return x

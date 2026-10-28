@@ -1,0 +1,91 @@
+// Probe: JS boundary representation of every PrimType (build-js, ESM).
+// Identity / roundtrip exports; the node driver prints typeof + value
+// for calls with number and BigInt arguments.
+
+@export id_i8(x: i8) -> i8:
+L_ENTRY:
+    return x
+
+@export id_i16(x: i16) -> i16:
+L_ENTRY:
+    return x
+
+@export id_i32(x: i32) -> i32:
+L_ENTRY:
+    return x
+
+@export id_u8(x: u8) -> u8:
+L_ENTRY:
+    return x
+
+@export id_u16(x: u16) -> u16:
+L_ENTRY:
+    return x
+
+@export id_u32(x: u32) -> u32:
+L_ENTRY:
+    return x
+
+@export id_i64(x: i64) -> i64:
+L_ENTRY:
+    return x
+
+@export id_u64(x: u64) -> u64:
+L_ENTRY:
+    return x
+
+@export id_f32(x: f32) -> f32:
+L_ENTRY:
+    return x
+
+@export id_f64(x: f64) -> f64:
+L_ENTRY:
+    return x
+
+@export id_i1(x: i1) -> i1:
+L_ENTRY:
+    return x
+
+@export id_ptr(x: ptr) -> ptr:
+L_ENTRY:
+    return x
+
+@export add_i64(a: i64, b: i64) -> i64:
+L_ENTRY:
+    s = add a, b
+    return s
+
+@export mem_i64(x: i64) -> i64:
+L_ENTRY:
+    slot = stack_alloc 8
+    store slot+0, x as i64
+    y = load slot+0 as i64
+    return y
+
+@export mem_u32(x: u32) -> u32:
+L_ENTRY:
+    slot = stack_alloc 4
+    store slot+0, x as u32
+    y = load slot+0 as u32
+    return y
+
+@export wide_i64() -> i64:
+L_ENTRY:
+    return 5000000000
+
+@export noop() -> void:
+L_ENTRY:
+    return
+
+@export fall_ok(x: i32) -> i32!:
+L_ENTRY:
+    return x
+
+@export fall_void() -> void!:
+L_ENTRY:
+    return
+
+@export pair_len(p: ptr, len: u64) -> u64:
+L_ENTRY:
+    !p
+    return len

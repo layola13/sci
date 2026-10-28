@@ -8,7 +8,7 @@ const const_decl = @import("common/const_decl.zig");
 const sio = @import("sio");
 
 pub const EmitOptions = emit_options.EmitOptions;
-pub const JsEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, UnsupportedNpmBinding, OutOfMemory };
+pub const JsEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, UnsupportedNpmBinding, UnsupportedDtsType, OutOfMemory };
 
 /// Last instruction raw text seen by the emitter (diagnostics only).
 pub threadlocal var last_js_inst: []const u8 = "";
@@ -36,6 +36,7 @@ pub const JsEmitOptions = struct {
     /// code references. The struct default is .full so existing
     /// callers keep the current (trimming) behavior unchanged.
     dce: emit_options.DceMode = .full,
+    emit_dts: bool = false,
 };
 
 /// JS reserved words (strict-mode ESM): suffixed with `$` when emitted.
@@ -12188,6 +12189,7 @@ pub fn emitJsToFile(allocator: std.mem.Allocator, verified: anytype, source_path
         const f = try sio.cwd().createFile(path, .{});
         defer f.close();
         try f.writeAll(owned);
+        if (js_opt.emit_dts) try emitDtsToFile(allocator, verified, source_path, js_opt, npm_binds, path);
         return;
     }
     const dir = std.fs.path.dirname(path);
@@ -12195,6 +12197,208 @@ pub fn emitJsToFile(allocator: std.mem.Allocator, verified: anytype, source_path
     const f = try sio.cwd().createFile(path, .{});
     defer f.close();
     try f.writeAll(final);
+    if (js_opt.emit_dts) try emitDtsToFile(allocator, verified, source_path, js_opt, npm_binds, path);
+}
+
+
+// ---------------------------------------------------------------------------
+// .d.ts declaration emission (`sa build-js --emit-dts`): the JS target's
+// outbound mirror of `sla convert` (.d.ts -> .sai). The declarations are
+// a pure function of the verified module and mirror the JS product's
+// export surface per format (census: SURFACE.md; mapping table:
+// DTS_EMIT_DESIGN.md). Shapes with no JS representation (v128) fail
+// loudly with UnsupportedDtsType instead of silently emitting `any`;
+// the emitter never emits `any`.
+// ---------------------------------------------------------------------------
+
+pub const DtsAliases = struct {
+    sa_i64: bool = false,
+    sa_u64: bool = false,
+    sa_ptr: bool = false,
+    sa_handle: bool = false,
+    sa_fallible: bool = false,
+};
+
+/// SA PrimType -> TS type name under the DTS_EMIT_DESIGN.md mapping
+/// table. Records alias usage so only used aliases are declared.
+fn dtsTypeName(ty: sig.PrimType, aliases: *DtsAliases) JsEmitError![]const u8 {
+    switch (ty) {
+        .i1, .i8, .i16, .i32, .u8, .u16, .u32, .f32, .f64 => return "number",
+        .i64 => {
+            aliases.sa_i64 = true;
+            return "SaI64";
+        },
+        .u64 => {
+            aliases.sa_u64 = true;
+            return "SaU64";
+        },
+        .ptr => {
+            aliases.sa_ptr = true;
+            return "SaPtr";
+        },
+        .blob_handle => {
+            aliases.sa_handle = true;
+            return "SaHandle";
+        },
+        .void, .v128 => return JsEmitError.UnsupportedDtsType,
+    }
+}
+
+fn writeDtsReturnType(writer: anytype, fsig: sig.FunctionSig, is_wrapper: bool, aliases: *DtsAliases) !void {
+    if (!is_wrapper and fsig.return_fallible) {
+        if (fsig.return_ty == .void) {
+            try writer.writeAll("{ s: number }");
+            return;
+        }
+        const inner = try dtsTypeName(fsig.return_ty, aliases);
+        aliases.sa_fallible = true;
+        try writer.print("SaFallible<{s}>", .{inner});
+        return;
+    }
+    if (fsig.return_ty == .void) {
+        // Measured (SURFACE.md section 2): plain SA functions return 0 in the
+        // JS backend; npm wrapper bodies end without a return
+        // (undefined), which TS spells `void`.
+        try writer.writeAll(if (is_wrapper) "void" else "number");
+        return;
+    }
+    try writer.writeAll(try dtsTypeName(fsig.return_ty, aliases));
+}
+
+fn writeDtsDecl(writer: anytype, fsig: sig.FunctionSig, is_wrapper: bool, aliases: *DtsAliases) !void {
+    for (fsig.params) |p| {
+        if (p.ty == .v128 or p.ty == .void) {
+            last_js_func = fsig.name;
+            last_js_inst = if (p.ty == .v128)
+                "v128 parameter has no JS representation (--emit-dts)"
+            else
+                "void parameter has no JS representation (--emit-dts)";
+            return JsEmitError.UnsupportedDtsType;
+        }
+    }
+    if (fsig.return_ty == .v128) {
+        last_js_func = fsig.name;
+        last_js_inst = "v128 return has no JS representation (--emit-dts)";
+        return JsEmitError.UnsupportedDtsType;
+    }
+    try writer.writeAll("export declare function ");
+    try jsFuncName(writer, fsig.name);
+    try writer.writeAll("(");
+    for (fsig.params, 0..) |p, idx| {
+        if (idx != 0) try writer.writeAll(", ");
+        try jsIdent(writer, p.name);
+        try writer.writeAll(": ");
+        try writer.writeAll(try dtsTypeName(p.ty, aliases));
+    }
+    try writer.writeAll("): ");
+    try writeDtsReturnType(writer, fsig, is_wrapper, aliases);
+    try writer.writeAll(";\n");
+}
+
+fn dtsNameAlloc(allocator: std.mem.Allocator, name: []const u8) ![]u8 {
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    try jsFuncName(&out.writer, name);
+    return out.toOwnedSlice();
+}
+
+pub fn emitDtsToString(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, js_opt: JsEmitOptions, npm_binds: *const std.StringHashMap([]const u8)) ![]u8 {
+    const tasks = try collectFuncTasks(allocator, verified);
+    defer allocator.free(tasks);
+    const npm_imports = try collectNpmImports(allocator, verified, tasks, npm_binds);
+    defer {
+        for (npm_imports) |item| allocator.free(item.alias);
+        allocator.free(npm_imports);
+    }
+    var aliases = DtsAliases{};
+    // Declarations follow task order; a later declaration whose
+    // sanitized JS name collides with an earlier one replaces it
+    // (mirrors JS function-declaration hoisting in the product).
+    var order = std.array_list.Managed([]u8).init(allocator);
+    defer {
+        for (order.items) |n| allocator.free(n);
+        order.deinit();
+    }
+    var decls = std.StringHashMap([]u8).init(allocator);
+    defer {
+        var vit = decls.valueIterator();
+        while (vit.next()) |v| allocator.free(v.*);
+        decls.deinit();
+    }
+    for (tasks) |task| {
+        const fsig = verified.function_sigs[task.fsig_index];
+        const is_wrapper = task.kind == .extern_decl;
+        if (is_wrapper) {
+            // Only #npm_bind externs get a product-visible wrapper;
+            // host shims and trap stubs stay module-internal. The CJS
+            // product does not export wrappers at all (SURFACE.md section 1).
+            if (js_opt.format == .cjs) continue;
+            if (npmImportFor(npm_imports, fsig.name) == null) continue;
+        }
+        const name = try dtsNameAlloc(allocator, fsig.name);
+        errdefer allocator.free(name);
+        var decl: std.Io.Writer.Allocating = .init(allocator);
+        errdefer decl.deinit();
+        try writeDtsDecl(&decl.writer, fsig, is_wrapper, &aliases);
+        const text = try decl.toOwnedSlice();
+        const gop = try decls.getOrPut(name);
+        if (gop.found_existing) {
+            allocator.free(gop.value_ptr.*);
+            gop.value_ptr.* = text;
+            allocator.free(name);
+        } else {
+            gop.value_ptr.* = text;
+            try order.append(name);
+        }
+    }
+    var body: std.Io.Writer.Allocating = .init(allocator);
+    errdefer body.deinit();
+    for (order.items) |name| try body.writer.writeAll(decls.get(name).?);
+    // Runtime helpers, in the JS product's trailing export-list order.
+    aliases.sa_ptr = true;
+    try body.writer.writeAll("export declare const __sa_memory: ArrayBuffer;\n");
+    try body.writer.writeAll("export declare const __sa_view: DataView;\n");
+    try body.writer.writeAll("export declare const __sa_u8: Uint8Array;\n");
+    try body.writer.writeAll("export declare function __sa_alloc(size: number): number;\n");
+    try body.writer.writeAll("export declare function __sa_free(ptr: SaPtr): number;\n");
+    try body.writer.writeAll("export declare function __sa_salloc(size: number): number;\n");
+    try body.writer.writeAll("export declare function __sa_sfree(ptr: SaPtr): number;\n");
+    try body.writer.writeAll("export declare function __sa_mem_used(): number;\n");
+    const body_text = try body.toOwnedSlice();
+    defer allocator.free(body_text);
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    const w = &out.writer;
+    try w.print("// Generated by `sa build-js --emit-dts` from {s}. Do not edit.\n", .{source_path});
+    try w.writeAll("// SA void functions return 0 in the JS backend; i64/u64/ptr/handle\n");
+    try w.writeAll("// values are `number | bigint` (measured, see DTS_EMIT_DESIGN.md).\n");
+    if (aliases.sa_i64) try w.writeAll("export type SaI64 = number | bigint;\n");
+    if (aliases.sa_u64) try w.writeAll("export type SaU64 = number | bigint;\n");
+    if (aliases.sa_ptr) try w.writeAll("export type SaPtr = number | bigint;\n");
+    if (aliases.sa_handle) try w.writeAll("export type SaHandle = number | bigint;\n");
+    if (aliases.sa_fallible) try w.writeAll("export type SaFallible<T> = { s: number; v: T }; // v is meaningful only when s === 0\n");
+    try w.writeAll(body_text);
+    return out.toOwnedSlice();
+}
+
+/// Declaration path for a JS product path: strip the trailing
+/// extension and append `.d.ts` (`foo.mjs` -> `foo.d.ts`).
+pub fn dtsPathForJsPath(allocator: std.mem.Allocator, js_path: []const u8) ![]u8 {
+    const ext = std.fs.path.extension(js_path);
+    const stem = if (ext.len == 0) js_path else js_path[0 .. js_path.len - ext.len];
+    return std.fmt.allocPrint(allocator, "{s}.d.ts", .{stem});
+}
+
+fn emitDtsToFile(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, js_opt: JsEmitOptions, npm_binds: *const std.StringHashMap([]const u8), js_path: []const u8) !void {
+    const text = try emitDtsToString(allocator, verified, source_path, js_opt, npm_binds);
+    defer allocator.free(text);
+    const dts_path = try dtsPathForJsPath(allocator, js_path);
+    defer allocator.free(dts_path);
+    const dir = std.fs.path.dirname(dts_path);
+    if (dir) |d| try sio.cwd().makePath(d);
+    const f = try sio.cwd().createFile(dts_path, .{});
+    defer f.close();
+    try f.writeAll(text);
 }
 
 test "js ident sanitizes names" {
@@ -12208,4 +12412,32 @@ test "js format parses esm and cjs" {
     try std.testing.expectEqual(JsFormat.esm, JsFormat.parse("esm").?);
     try std.testing.expectEqual(JsFormat.cjs, JsFormat.parse("cjs").?);
     try std.testing.expect(JsFormat.parse("bad") == null);
+}
+
+test "dts path replaces the js extension" {
+    const a = std.testing.allocator;
+    const p1 = try dtsPathForJsPath(a, "out/foo.mjs");
+    defer a.free(p1);
+    try std.testing.expectEqualStrings("out/foo.d.ts", p1);
+    const p2 = try dtsPathForJsPath(a, "foo.cjs");
+    defer a.free(p2);
+    try std.testing.expectEqualStrings("foo.d.ts", p2);
+    const p3 = try dtsPathForJsPath(a, "foo");
+    defer a.free(p3);
+    try std.testing.expectEqualStrings("foo.d.ts", p3);
+}
+
+test "dts type mapping follows measured boundary representations" {
+    var aliases = DtsAliases{};
+    try std.testing.expectEqualStrings("number", try dtsTypeName(.i32, &aliases));
+    try std.testing.expectEqualStrings("number", try dtsTypeName(.f64, &aliases));
+    try std.testing.expectEqualStrings("number", try dtsTypeName(.u32, &aliases));
+    try std.testing.expectEqualStrings("SaI64", try dtsTypeName(.i64, &aliases));
+    try std.testing.expect(aliases.sa_i64);
+    try std.testing.expectEqualStrings("SaU64", try dtsTypeName(.u64, &aliases));
+    try std.testing.expectEqualStrings("SaPtr", try dtsTypeName(.ptr, &aliases));
+    try std.testing.expectEqualStrings("SaHandle", try dtsTypeName(.blob_handle, &aliases));
+    try std.testing.expect(aliases.sa_handle);
+    try std.testing.expectError(JsEmitError.UnsupportedDtsType, dtsTypeName(.v128, &aliases));
+    try std.testing.expectError(JsEmitError.UnsupportedDtsType, dtsTypeName(.void, &aliases));
 }
