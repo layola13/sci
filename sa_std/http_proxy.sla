@@ -1,0 +1,2103 @@
+// sa_std/http_proxy.sla -- HTTP/HTTPS/SOCKS5 proxy surface for SLA:
+// proxy URL parsing, environment configuration (ProxyFromEnvironment
+// in the Go sense), the per-target proxy decision (Transport.Proxy /
+// ProxySelector in the Go/Java sense), and explicit tunnel wiring
+// (HTTP CONNECT, SOCKS5, and CONNECT + start_tls composition).
+//
+// Why this file exists: until now sa_std had no proxy surface at
+// all -- a tree-wide keyword census of the sa_std network surface
+// found zero proxy symbols (recorded by the Android census in sala,
+// 06_stdlib/21). The cross-language std censuses in sala list the
+// forward-proxy face as a small, high-leverage gap: Go counts about
+// six direct items (Transport.Proxy / ProxyFromEnvironment /
+// ProxyURL / the CONNECT header), Java lists Proxy/ProxySelector as
+// missing for both the HTTP client and raw sockets, Python's
+// ProxyHandler + getproxies is a direct correspondence, and .NET
+// counts proxy among the four zero-hit client features. CXU lives
+// in a proxy ecosystem (relays, tunnels, gateways), so a client
+// that cannot speak to a proxy is a hard gap. This file closes the
+// portable core of it.
+//
+// Model choices (sa_std house style):
+//   - Pure SLA layer: no new externs, no ABI change. Everything is
+//     composed from surfaces that already exist -- the net.sai TCP
+//     stream handles, os/fd.sai's sa_std_fd_into_raw (the detach
+//     that hands a stream's fd to start_tls), the tls_client.sai
+//     configuration object, env.sai, encoding/base64.sai (via
+//     sa_deno_btoa) and ip.sla for CIDR/loopback decisions.
+//   - Errors are i32 status codes (SA_STD_* from status.sla). A
+//     negative status returned by a tunnel function is a
+//     tls_client-family code (-1 unsupported, -5 I/O, -22 invalid
+//     argument, -100 certificate verification) propagated unchanged;
+//     zero is success in both families, so `status != SA_STD_OK`
+//     is the universal failure test. Malformed local input (bad
+//     proxy URL, bad target URL) is Err(SA_STD_ERR_INVALID_ARGUMENT)
+//     from the Result-returning functions, never a panic and never
+//     a silently ignored value.
+//   - A ProxyUrl keeps the original text as a Vec<u8> plus byte
+//     spans into it (the dns.sla representation discipline: text
+//     that must live inside a struct is bytes, never a String --
+//     String-typed struct fields mislower on the SAB/flatten path,
+//     measured 2026-10-28; Vec<u8> fields are the proven shape).
+//     Scalar facts (kind, port, has_user, has_password) read
+//     through &ProxyUrl; the text accessors (host / user /
+//     password / authority) consume the value by move and
+//     materialize on demand; the password accessor percent-
+//     decodes, so what a caller logs is the real credential text
+//     -- treat it with the same care as any secret. All byte-to-
+//     String building in this file funnels through
+//     proxy_range_str (the one collect-based builder, reached
+//     only through in-module call chains).
+//   - The decision function is pure and takes the configuration
+//     strings explicitly (http_proxy_decide); http_proxy_for_url
+//     is the thin environment-reading wrapper, and http_proxy_dial
+//     is the one-call wiring an HTTP consumer uses instead of a
+//     bare connect: decide, then tunnel or direct-dial, then
+//     layer TLS for https targets. None of this touches the
+//     built-in http_client: sa_http_client_req_send dials its URL
+//     host internally and has no proxy knob, and this file does
+//     not pretend otherwise. Giving the built-in client a proxy
+//     knob is a Zig-side change to sa_http_client.zig and is
+//     registered here as not-in-this-surface, not faked.
+//   - Environment values are read at call time (the dns.sla
+//     /etc/services precedent), not cached process-wide the way
+//     Go's ProxyFromEnvironment caches on first use. A caller that
+//     needs Go's read-once semantics reads once and keeps the
+//     http_proxy_decide inputs.
+//   - NO_PROXY matching follows Go's x/net/http/httpproxy rules:
+//     comma-separated entries, case-insensitive; "*" matches every
+//     host; an entry may carry a :port that must equal the target
+//     port; a CIDR entry matches IP targets inside the range; a
+//     plain domain entry matches the domain itself and every
+//     subdomain; a leading-dot (or "*.") entry matches subdomains
+//     only. Independently of NO_PROXY, loopback targets and the
+//     literal host "localhost" are never proxied (the Go >= 1.16
+//     rule), reported as their own decision reason.
+//   - CONNECT: the response head is read byte-wise until the
+//     CRLFCRLF terminator (so no byte of the tunneled stream can
+//     be swallowed by an over-read), interim 1xx responses are
+//     skipped (at most 4), the head is capped at 8192 bytes, and
+//     any non-2xx final status is an explicit failure whose code
+//     rides in ProxyTunnel.http_status -- a 407 is therefore
+//     distinguishable from a 500 by the caller, which can retry
+//     with credentials.
+//   - SOCKS5: RFC 1928 CONNECT with the domain address form for
+//     non-IP targets (the proxy resolves names -- the behaviour
+//     other ecosystems call socks5h; the "socks5h" URL scheme
+//     spelling itself is not accepted), RFC 1929 user/password
+//     auth when the proxy URL carries userinfo. A non-zero reply
+//     code is an explicit failure with the code in
+//     ProxyTunnel.socks_reply.
+//   - https proxies (TLS to the proxy, then CONNECT inside):
+//     KNOWN GAP (registered 2026-10-28, BA2) -- the https proxy
+//     path has no caller TLS-configuration entry point:
+//     http_proxy_tunnel always opens the proxy leg with the
+//     default configuration (config 0), so a caller cannot
+//     supply a CA or a verify name for the proxy leg. Measured
+//     on the loopback rig (self-built CA installed for the
+//     system trust store): the config-0 https-proxy tunnel
+//     fails with SA_STD_ERR_NET at the CONNECT exchange, so the
+//     "connect through https proxy with default config"
+//     loopback test was removed rather than left red; the path
+//     needs a config-taking tunnel variant (and a working
+//     default-trust story) before it can be called supported.
+//     Layering target TLS over an https proxy (https target
+//     through an https proxy) is separately NOT offered:
+//     start_tls needs a raw fd and a TLS handle is not
+//     fd-detachable, so http_proxy_tunnel_tls rejects that
+//     combination with SA_STD_ERR_UNSUPPORTED rather than
+//     approximating it.
+
+@import "sa_std/net.sai"
+@import "sa_std/fs.sai"
+@import "sa_std/os/fd.sai"
+@import "sa_std/tls_client.sai"
+@import "sa_std/env.sai"
+@import "sa_std/encoding/base64.sai"
+@import "sa_std/fmt.sai"
+@import "sa_std/status.sla"
+@import "sa_std/ip.sla"
+@import "sa_std/string.sa"
+@import "sa_std/string_format.sa"
+@import "sa_std/string.sai"
+@import "sa_std/ptr.sa"
+@import "sa_std/vec.sa"
+@import "sa_std/alloc/vec.sa"
+
+// Proxy kinds (the scheme of a proxy URL).
+const SA_HTTP_PROXY_KIND_HTTP: u32 = 1;
+const SA_HTTP_PROXY_KIND_HTTPS: u32 = 2;
+const SA_HTTP_PROXY_KIND_SOCKS5: u32 = 3;
+
+// Decision reasons (ProxyDecision.reason). VIA_PROXY is the only
+// reason with use_proxy set.
+const SA_HTTP_PROXY_DECISION_VIA_PROXY: u32 = 1;
+const SA_HTTP_PROXY_DECISION_NO_PROXY_CONFIGURED: u32 = 2;
+const SA_HTTP_PROXY_DECISION_BYPASSED_NO_PROXY: u32 = 3;
+const SA_HTTP_PROXY_DECISION_BYPASSED_LOOPBACK: u32 = 4;
+
+// Default ports per proxy kind (http_proxy_default_port).
+const SA_HTTP_PROXY_DEFAULT_PORT_HTTP: u32 = 80;
+const SA_HTTP_PROXY_DEFAULT_PORT_HTTPS: u32 = 443;
+const SA_HTTP_PROXY_DEFAULT_PORT_SOCKS5: u32 = 1080;
+
+// Tunnel tuning: one timeout for connect and for handshake reads.
+const SA_HTTP_PROXY_TIMEOUT_NS: u64 = 30000000000;
+// Cap on a CONNECT response head; real proxy heads are a few
+// hundred bytes, 8 KiB is generous and bounds the byte-wise read.
+const SA_HTTP_PROXY_MAX_HEAD_BYTES: u64 = 8192;
+// At most this many interim 1xx responses precede the final one.
+const SA_HTTP_PROXY_MAX_INTERIM: u32 = 4;
+
+// A parsed proxy endpoint. `raw` is the URL text as given, held
+// as bytes; every other field is a scalar or a byte span into
+// it. `port` is the
+// effective port (explicit or the scheme default). The user /
+// password spans index the percent-encoded forms; the accessors
+// decode. has_pass distinguishes "user" from "user:" (an explicitly
+// empty password), which the Basic credentials encoding preserves.
+struct ProxyUrl {
+    raw: Vec<u8>,
+    kind: u32,
+    host_off: u64,
+    host_len: u64,
+    port: u32,
+    has_user: bool,
+    user_off: u64,
+    user_len: u64,
+    has_pass: bool,
+    pass_off: u64,
+    pass_len: u64,
+}
+
+// The decomposition of a target URL for the decision: scheme kind
+// (SA_HTTP_PROXY_KIND_HTTP / _HTTPS -- targets are web URLs, the
+// kind numbering is shared), the host as owned bytes (userinfo
+// stripped, brackets stripped for IPv6), and the effective port.
+struct ProxyTarget {
+    kind: u32,
+    host: Vec<u8>,
+    port: u32,
+}
+
+// The outcome of a proxy decision. `proxy` is meaningful only
+// when use_proxy is true; otherwise it is the empty sentinel
+// (kind 0) and must be ignored.
+struct ProxyDecision {
+    use_proxy: bool,
+    reason: u32,
+    proxy: ProxyUrl,
+}
+
+// The outcome of a tunnel / dial attempt. On success status is
+// SA_STD_OK and handle is the ready connection: a TCP stream
+// handle (sa_std_net_tcp_*), or a TLS client handle
+// (sa_std_tls_client_*) when the *_tls / dial path layered TLS.
+// On failure handle is 0, status is an SA_STD_* code (or a
+// negative tls_client-family code propagated unchanged), and
+// http_status / socks_reply carry the peer's refusal code when
+// the failure was a protocol refusal rather than a local or
+// transport error.
+struct ProxyTunnel {
+    status: i32,
+    http_status: u32,
+    socks_reply: u32,
+    handle: u64,
+}
+
+// ---- byte / string helpers (proxy_ prefix, internal) ----
+
+fn proxy_is_space(b: u8) -> bool {
+    return b == 32 || b == 9 || b == 13 || b == 10;
+}
+
+fn proxy_is_digit(b: u8) -> bool {
+    return b >= 48 && b <= 57;
+}
+
+fn proxy_lower_byte(b: u8) -> u8 {
+    if b >= 65 && b <= 90 {
+        return b + 32;
+    };
+    return b;
+}
+
+fn proxy_hex_val(b: u8) -> i32 {
+    if b >= 48 && b <= 57 {
+        return (b - 48) as i32;
+    };
+    if b >= 97 && b <= 102 {
+        return (b - 87) as i32;
+    };
+    if b >= 65 && b <= 70 {
+        return (b - 55) as i32;
+    };
+    return -1;
+}
+
+// Build a String from the byte range [off, off+n) of a raw pointer.
+fn proxy_range_str(p: ptr, off: u64, n: u64) -> String {
+    let out: String = format("");
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = PTR_BYTE_AT(p, off + i);
+        let one_arr: [u8; 1] = [b];
+        let one_str: String = one_arr.iter().collect<String>();
+        out = format("{}{}", out, one_str);
+        i = i + 1;
+    }
+    return out;
+}
+
+// A byte-for-byte copy of a String is built with
+// proxy_range_str(STR_PTR(s), 0, len(s)) -- reading the source
+// through its pointer, which does not consume it.
+
+// Lowercased copy of a String (ASCII only; bytes outside A-Z pass
+// through unchanged, which is all host-name case folding needs).
+fn proxy_lower_range(p: ptr, off: u64, n: u64) -> String {
+    let buf: [u8; 512] = [0u8; 512];
+    let out: String = format("");
+    let done: u64 = 0;
+    while done < n {
+        let chunk: u64 = n - done;
+        if chunk > 512 {
+            chunk = 512;
+        };
+        let i: u64 = 0;
+        while i < chunk {
+            buf[i] = proxy_lower_byte(PTR_BYTE_AT(p, off + done + i));
+            i = i + 1;
+        }
+        let bp: ptr = PTR_BYTE_ADD(&buf, 0);
+        out = format("{}{}", out, proxy_range_str(bp, 0, chunk));
+        done = done + chunk;
+    }
+    return out;
+}
+
+fn proxy_lower_str(s: String) -> String {
+    return proxy_lower_range(STR_PTR(s), 0, len(s));
+}
+
+// Trim ASCII whitespace from both ends of a String.
+fn proxy_trim_str(s: String) -> String {
+    let p: ptr = STR_PTR(s);
+    let n: u64 = len(s);
+    let lo: u64 = 0;
+    while lo < n {
+        if !proxy_is_space(PTR_BYTE_AT(p, lo)) {
+            break;
+        };
+        lo = lo + 1;
+    }
+    let hi: u64 = n;
+    while hi > lo {
+        if !proxy_is_space(PTR_BYTE_AT(p, hi - 1)) {
+            break;
+        };
+        hi = hi - 1;
+    }
+    return proxy_range_str(p, lo, hi - lo);
+}
+
+// Find byte b in [from, n) of p; returns the index or -1.
+fn proxy_find_byte(p: ptr, n: u64, from: u64, b: u8) -> i64 {
+    let i: u64 = from;
+    while i < n {
+        if PTR_BYTE_AT(p, i) == b {
+            return i as i64;
+        };
+        i = i + 1;
+    }
+    return -1;
+}
+
+// Case-insensitive equality of the range [off, off+n) of p with an
+// already-lowercase literal.
+fn proxy_range_eq_lower(p: ptr, off: u64, n: u64, lit: String) -> bool {
+    if len(lit) != n {
+        return false;
+    };
+    let lp: ptr = STR_PTR(lit);
+    let i: u64 = 0;
+    while i < n {
+        if proxy_lower_byte(PTR_BYTE_AT(p, off + i)) != PTR_BYTE_AT(lp, i) {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+// Decimal digits of a u32 into a fixed array, most significant
+// first (the ip.sla digit-builder shape), with its length.
+fn proxy_dec_digits(v: u32) -> [u8; 10] {
+    let out: [u8; 10] = [0u8; 10];
+    let tmp: [u8; 10] = [0u8; 10];
+    let x: u32 = v;
+    let nd: u64 = 0;
+    if x == 0 {
+        tmp[0] = 48;
+        nd = 1;
+    };
+    while x > 0 {
+        tmp[nd] = ((x % 10) as u8) + 48;
+        nd = nd + 1;
+        x = x / 10;
+    }
+    let i: u64 = 0;
+    while i < nd {
+        out[i] = tmp[nd - 1 - i];
+        i = i + 1;
+    }
+    return out;
+}
+
+fn proxy_dec_len(v: u32) -> u64 {
+    if v == 0 {
+        return 1;
+    };
+    let n: u64 = 0;
+    let x: u32 = v;
+    while x > 0 {
+        n = n + 1;
+        x = x / 10;
+    }
+    return n;
+}
+
+// The decimal spelling of a u32.
+fn proxy_u32_str(v: u32) -> String {
+    let digits: [u8; 10] = proxy_dec_digits(v);
+    let n: u64 = proxy_dec_len(v);
+    let dp: ptr = PTR_BYTE_ADD(&digits, 0);
+    return proxy_range_str(dp, 0, n);
+}
+
+// Append the byte range [off, off+n) of p to an accumulator.
+// String building in this layer follows the measured SAB-path
+// rules ip.sla documents: the accumulator never crosses a user
+// function call inside a loop, so appends happen through this one
+// helper whose own loop is internal, or inline at the build site.
+fn proxy_append_range(acc: String, p: ptr, off: u64, n: u64) -> String {
+    return format("{}{}", acc, proxy_range_str(p, off, n));
+}
+
+fn proxy_append_str(acc: String, s: String) -> String {
+    return format("{}{}", acc, s);
+}
+
+fn proxy_append_byte(acc: String, b: u8) -> String {
+    let one_arr: [u8; 1] = [b];
+    let bp: ptr = PTR_BYTE_ADD(&one_arr, 0);
+    return format("{}{}", acc, proxy_range_str(bp, 0, 1));
+}
+
+fn proxy_crlf() -> String {
+    // Assignment-filled, NOT a multi-element literal: stack
+    // array literals read back 0 at every index >= 1 (measured
+    // 2026-10-28, BA2 probes: [13, 10] yields CR then NUL on the
+    // wire); element assignment reads back correctly.
+    let arr: [u8; 2] = [0u8; 2];
+    arr[0] = 13;
+    arr[1] = 10;
+    let ap: ptr = PTR_BYTE_ADD(&arr, 0);
+    return proxy_range_str(ap, 0, 2);
+}
+
+// Build a String from the byte range [off, off+n) of a slice, in
+// 512-byte staged chunks through proxy_range_str.
+fn proxy_slice_str(sl: &Slice<u8>, off: u64, n: u64) -> String {
+    let buf: [u8; 512] = [0u8; 512];
+    let out: String = format("");
+    let done: u64 = 0;
+    while done < n {
+        let chunk: u64 = n - done;
+        if chunk > 512 {
+            chunk = 512;
+        };
+        let i: u64 = 0;
+        while i < chunk {
+            let b: u8 = 0;
+            SLICE_GET(b, sl, off + done + i);
+            buf[i] = b;
+            i = i + 1;
+        }
+        let bp: ptr = PTR_BYTE_ADD(&buf, 0);
+        out = format("{}{}", out, proxy_range_str(bp, 0, chunk));
+        done = done + chunk;
+    }
+    return out;
+}
+
+// ---- authority splitting (shared by proxy and target URLs) ----
+
+// The spans of one authority component: [userinfo@]host[:port].
+// All offsets are absolute into the source string; `end` is the
+// index just past the authority (the first '/', '?' or '#' after
+// it, or the string length).
+struct ProxyAuthority {
+    host_off: u64,
+    host_len: u64,
+    port: u32,
+    has_user: bool,
+    user_off: u64,
+    user_len: u64,
+    has_pass: bool,
+    pass_off: u64,
+    pass_len: u64,
+    end: u64,
+}
+
+fn proxy_empty_authority() -> ProxyAuthority {
+    return ProxyAuthority {
+        host_off: 0, host_len: 0, port: 0, has_user: false,
+        user_off: 0, user_len: 0, has_pass: false,
+        pass_off: 0, pass_len: 0, end: 0,
+    };
+}
+
+// Parse a port span: 1-5 ASCII digits, value 1..65535.
+fn proxy_parse_port(p: ptr, off: u64, n: u64) -> Result<u32, i32> {
+    if n == 0 || n > 5 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let value: u32 = 0;
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = PTR_BYTE_AT(p, off + i);
+        if !proxy_is_digit(b) {
+            return Err(SA_STD_ERR_INVALID_ARGUMENT);
+        };
+        value = value * 10 + ((b - 48) as u32);
+        i = i + 1;
+    }
+    if value < 1 || value > 65535 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    return Ok(value);
+}
+
+// Validate percent-encoding inside a userinfo span: every '%'
+// must be followed by two hex digits.
+fn proxy_check_percent(p: ptr, off: u64, n: u64) -> bool {
+    let i: u64 = 0;
+    while i < n {
+        if PTR_BYTE_AT(p, off + i) == 37 {
+            if i + 2 >= n {
+                return false;
+            };
+            if proxy_hex_val(PTR_BYTE_AT(p, off + i + 1)) < 0 {
+                return false;
+            };
+            if proxy_hex_val(PTR_BYTE_AT(p, off + i + 2)) < 0 {
+                return false;
+            };
+            i = i + 3;
+        } else {
+            i = i + 1;
+        };
+    }
+    return true;
+}
+
+// Split the authority starting at `start` in the byte string
+// (p, n). default_port is used when the authority carries no
+// (or an empty) port part. Pointer-based: the caller's String is
+// only read, never consumed.
+fn proxy_split_authority(p: ptr, n: u64, start: u64, default_port: u32) -> Result<ProxyAuthority, i32> {
+    // The authority ends at the first '/', '?' or '#'.
+    let auth_end: u64 = start;
+    while auth_end < n {
+        let b: u8 = PTR_BYTE_AT(p, auth_end);
+        if b == 47 || b == 63 || b == 35 {
+            break;
+        };
+        auth_end = auth_end + 1;
+    }
+    // Userinfo: everything before the LAST '@' in the authority.
+    let has_user: bool = false;
+    let user_off: u64 = start;
+    let user_len: u64 = 0;
+    let has_pass: bool = false;
+    let pass_off: u64 = start;
+    let pass_len: u64 = 0;
+    let hostport_off: u64 = start;
+    let last_at: i64 = -1;
+    let scan: u64 = start;
+    while scan < auth_end {
+        if PTR_BYTE_AT(p, scan) == 64 {
+            last_at = scan as i64;
+        };
+        scan = scan + 1;
+    }
+    if last_at >= 0 {
+        has_user = true;
+        let at: u64 = last_at as u64;
+        hostport_off = at + 1;
+        // user[:password] -- split on the FIRST ':'.
+        let colon: i64 = proxy_find_byte(p, at, start, 58);
+        if colon >= 0 {
+            let c: u64 = colon as u64;
+            user_off = start;
+            user_len = c - start;
+            has_pass = true;
+            pass_off = c + 1;
+            pass_len = at - (c + 1);
+        } else {
+            user_off = start;
+            user_len = at - start;
+        };
+        if !proxy_check_percent(p, user_off, user_len) {
+            return Err(SA_STD_ERR_INVALID_ARGUMENT);
+        };
+        if has_pass {
+            if !proxy_check_percent(p, pass_off, pass_len) {
+                return Err(SA_STD_ERR_INVALID_ARGUMENT);
+            };
+        };
+    };
+    // Host and port.
+    let host_off: u64 = hostport_off;
+    let host_len: u64 = 0;
+    let port: u32 = default_port;
+    if hostport_off >= auth_end {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if PTR_BYTE_AT(p, hostport_off) == 91 {
+        // Bracketed IPv6 literal: host is inside the brackets.
+        let close: i64 = proxy_find_byte(p, auth_end, hostport_off + 1, 93);
+        if close < 0 {
+            return Err(SA_STD_ERR_INVALID_ARGUMENT);
+        };
+        let c: u64 = close as u64;
+        host_off = hostport_off + 1;
+        host_len = c - host_off;
+        if c + 1 < auth_end {
+            if PTR_BYTE_AT(p, c + 1) != 58 {
+                return Err(SA_STD_ERR_INVALID_ARGUMENT);
+            };
+            if c + 2 < auth_end {
+                let pr = proxy_parse_port(p, c + 2, auth_end - (c + 2));
+                match pr {
+                    Ok(v) => {
+                        port = v;
+                    },
+                    Err(e) => {
+                        return Err(e);
+                    },
+                };
+            };
+        };
+    } else {
+        // Count colons: 0 = host only, 1 = host:port, more is a
+        // bare IPv6 literal, which must be bracketed -- reject.
+        let colons: u64 = 0;
+        let first_colon: u64 = auth_end;
+        let i: u64 = hostport_off;
+        while i < auth_end {
+            if PTR_BYTE_AT(p, i) == 58 {
+                if colons == 0 {
+                    first_colon = i;
+                };
+                colons = colons + 1;
+            };
+            i = i + 1;
+        }
+        if colons > 1 {
+            return Err(SA_STD_ERR_INVALID_ARGUMENT);
+        };
+        if colons == 1 {
+            host_off = hostport_off;
+            host_len = first_colon - hostport_off;
+            if first_colon + 1 < auth_end {
+                let pr = proxy_parse_port(p, first_colon + 1, auth_end - (first_colon + 1));
+                match pr {
+                    Ok(v) => {
+                        port = v;
+                    },
+                    Err(e) => {
+                        return Err(e);
+                    },
+                };
+            };
+        } else {
+            host_off = hostport_off;
+            host_len = auth_end - hostport_off;
+        };
+    };
+    if host_len == 0 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    // Host bytes must be printable, non-space ASCII (names, IPv4
+    // and bracketed-IPv6 content all satisfy this; a raw control
+    // byte or space means the URL was malformed).
+    let hi: u64 = 0;
+    while hi < host_len {
+        let b: u8 = PTR_BYTE_AT(p, host_off + hi);
+        if b <= 32 || b == 127 {
+            return Err(SA_STD_ERR_INVALID_ARGUMENT);
+        };
+        hi = hi + 1;
+    }
+    return Ok(ProxyAuthority {
+        host_off: host_off,
+        host_len: host_len,
+        port: port,
+        has_user: has_user,
+        user_off: user_off,
+        user_len: user_len,
+        has_pass: has_pass,
+        pass_off: pass_off,
+        pass_len: pass_len,
+        end: auth_end,
+    });
+}
+
+// ---- proxy URL parsing and accessors ----
+
+// The default port for a proxy kind (0 for an unknown kind).
+fn http_proxy_default_port(kind: u32) -> u32 {
+    if kind == SA_HTTP_PROXY_KIND_HTTP {
+        return SA_HTTP_PROXY_DEFAULT_PORT_HTTP;
+    };
+    if kind == SA_HTTP_PROXY_KIND_HTTPS {
+        return SA_HTTP_PROXY_DEFAULT_PORT_HTTPS;
+    };
+    if kind == SA_HTTP_PROXY_KIND_SOCKS5 {
+        return SA_HTTP_PROXY_DEFAULT_PORT_SOCKS5;
+    };
+    return 0;
+}
+
+// Map a scheme name to a proxy kind (0 when unsupported).
+fn http_proxy_kind_of_scheme(scheme: String) -> u32 {
+    let p: ptr = STR_PTR(scheme);
+    let n: u64 = len(scheme);
+    if proxy_range_eq_lower(p, 0, n, format("http")) {
+        return SA_HTTP_PROXY_KIND_HTTP;
+    };
+    if proxy_range_eq_lower(p, 0, n, format("https")) {
+        return SA_HTTP_PROXY_KIND_HTTPS;
+    };
+    if proxy_range_eq_lower(p, 0, n, format("socks5")) {
+        return SA_HTTP_PROXY_KIND_SOCKS5;
+    };
+    return 0;
+}
+
+// Parse a proxy URL: scheme://[user[:password]@]host[:port][/].
+// The scheme must be http, https or socks5; the host may be a
+// name, an IPv4 literal or a bracketed IPv6 literal. A path other
+// than "/" names a resource, not an endpoint, and is rejected.
+// Userinfo percent-encoding is validated here (the accessors
+// decode). The scheme must be present: a bare "host:port" value
+// is rejected, the Go behaviour, not silently upgraded.
+fn http_proxy_parse(url: String) -> Result<ProxyUrl, i32> {
+    let p: ptr = STR_PTR(url);
+    let n: u64 = len(url);
+    // The scheme ends at the first ':'; it must be followed by
+    // "//" and contain only scheme characters.
+    let colon: i64 = proxy_find_byte(p, n, 0, 58);
+    if colon < 3 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let c: u64 = colon as u64;
+    if c + 2 >= n {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if PTR_BYTE_AT(p, c + 1) != 47 || PTR_BYTE_AT(p, c + 2) != 47 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let si: u64 = 0;
+    while si < c {
+        let b: u8 = PTR_BYTE_AT(p, si);
+        let alnum: bool = (b >= 48 && b <= 57) || (b >= 65 && b <= 90) || (b >= 97 && b <= 122);
+        if !alnum && b != 43 && b != 45 && b != 46 {
+            return Err(SA_STD_ERR_INVALID_ARGUMENT);
+        };
+        si = si + 1;
+    }
+    let kind: u32 = 0;
+    if proxy_range_eq_lower(p, 0, c, format("http")) {
+        kind = SA_HTTP_PROXY_KIND_HTTP;
+    } else {
+        if proxy_range_eq_lower(p, 0, c, format("https")) {
+            kind = SA_HTTP_PROXY_KIND_HTTPS;
+        } else {
+            if proxy_range_eq_lower(p, 0, c, format("socks5")) {
+                kind = SA_HTTP_PROXY_KIND_SOCKS5;
+            } else {
+                return Err(SA_STD_ERR_INVALID_ARGUMENT);
+            };
+        };
+    };
+    let auth = proxy_split_authority(p, n, c + 3, http_proxy_default_port(kind));
+    let a: ProxyAuthority = proxy_empty_authority();
+    match auth {
+        Ok(v) => {
+            a = v;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    // Remainder after the authority: empty, or a path of exactly
+    // "/" (a query or fragment after it is tolerated).
+    if a.end < n {
+        if PTR_BYTE_AT(p, a.end) == 47 {
+            let path_end: u64 = a.end;
+            while path_end < n {
+                let b: u8 = PTR_BYTE_AT(p, path_end);
+                if b == 63 || b == 35 {
+                    break;
+                };
+                path_end = path_end + 1;
+            }
+            if path_end - a.end != 1 {
+                return Err(SA_STD_ERR_INVALID_ARGUMENT);
+            };
+        };
+    };
+    let raw: Vec<u8> = Vec::new();
+    let ri: u64 = 0;
+    while ri < n {
+        raw.push(PTR_BYTE_AT(p, ri));
+        ri = ri + 1;
+    }
+    return Ok(ProxyUrl {
+        raw: raw,
+        kind: kind,
+        host_off: a.host_off,
+        host_len: a.host_len,
+        port: a.port,
+        has_user: a.has_user,
+        user_off: a.user_off,
+        user_len: a.user_len,
+        has_pass: a.has_pass,
+        pass_off: a.pass_off,
+        pass_len: a.pass_len,
+    });
+}
+
+fn http_proxy_kind(p: &ProxyUrl) -> u32 {
+    return p.kind;
+}
+
+fn http_proxy_port(p: &ProxyUrl) -> u32 {
+    return p.port;
+}
+
+fn http_proxy_has_user(p: &ProxyUrl) -> bool {
+    return p.has_user;
+}
+
+fn http_proxy_has_password(p: &ProxyUrl) -> bool {
+    return p.has_pass;
+}
+
+// The proxy host: a name, an IPv4 literal, or an IPv6 literal
+// without brackets.
+fn http_proxy_host(p: ProxyUrl) -> String {
+    let off: u64 = p.host_off;
+    let n: u64 = p.host_len;
+    let raw: Vec<u8> = Vec::new();
+    raw = p.raw;
+    let sl: Slice<u8> = VEC_AS_SLICE(raw);
+    return proxy_slice_str(&sl, off, n);
+}
+
+// Percent-decode the span (encoding was validated at parse).
+fn proxy_slice_percent_decode(sl: &Slice<u8>, off: u64, n: u64) -> String {
+    let dec: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = 0;
+        SLICE_GET(b, sl, off + i);
+        if b == 37 {
+            let h1: u8 = 0;
+            SLICE_GET(h1, sl, off + i + 1);
+            let h2: u8 = 0;
+            SLICE_GET(h2, sl, off + i + 2);
+            let v: u8 = ((proxy_hex_val(h1) * 16 + proxy_hex_val(h2)) as u8);
+            dec.push(v);
+            i = i + 3;
+        } else {
+            dec.push(b);
+            i = i + 1;
+        };
+    }
+    let dn: u64 = len(dec);
+    let dsl: Slice<u8> = VEC_AS_SLICE(dec);
+    return proxy_slice_str(&dsl, 0, dn);
+}
+
+// The decoded user name ("" when the URL has no userinfo).
+fn http_proxy_user(p: ProxyUrl) -> String {
+    if !p.has_user {
+        return format("");
+    };
+    let off: u64 = p.user_off;
+    let n: u64 = p.user_len;
+    let raw: Vec<u8> = Vec::new();
+    raw = p.raw;
+    let sl: Slice<u8> = VEC_AS_SLICE(raw);
+    return proxy_slice_percent_decode(&sl, off, n);
+}
+
+// The decoded password ("" when absent; http_proxy_has_password
+// distinguishes an absent password from an explicitly empty one).
+fn http_proxy_password(p: ProxyUrl) -> String {
+    if !p.has_pass {
+        return format("");
+    };
+    let off: u64 = p.pass_off;
+    let n: u64 = p.pass_len;
+    let raw: Vec<u8> = Vec::new();
+    raw = p.raw;
+    let sl: Slice<u8> = VEC_AS_SLICE(raw);
+    return proxy_slice_percent_decode(&sl, off, n);
+}
+
+// Format host:port, bracketing the host when it contains ':'
+// (an IPv6 literal).
+fn proxy_build_authority(host: String, port: u32) -> String {
+    let hp: ptr = STR_PTR(host);
+    let hn: u64 = len(host);
+    let v6: bool = proxy_find_byte(hp, hn, 0, 58) >= 0;
+    let out: String = format("");
+    if v6 {
+        out = proxy_append_byte(out, 91);
+    };
+    out = proxy_append_range(out, hp, 0, hn);
+    if v6 {
+        out = proxy_append_byte(out, 93);
+    };
+    out = proxy_append_byte(out, 58);
+    out = proxy_append_str(out, proxy_u32_str(port));
+    return out;
+}
+
+// The proxy's own authority form (for display and dialing).
+fn http_proxy_authority(p: ProxyUrl) -> String {
+    let port: u32 = p.port;
+    return proxy_build_authority(http_proxy_host(p), port);
+}
+
+// The authority form of an arbitrary target (CONNECT request
+// line and Host header).
+fn http_proxy_target_authority(host: String, port: u32) -> String {
+    return proxy_build_authority(host, port);
+}
+
+// The Proxy-Authorization value for Basic credentials:
+// "Basic " + base64(user [":" password]). The password part is
+// included exactly when has_pass, preserving the distinction
+// between "user" and "user:" (Go's url.Userinfo encoding).
+fn http_proxy_basic_auth_value(user: String, pass: String, has_pass: bool) -> String {
+    let cred: String = proxy_range_str(STR_PTR(user), 0, len(user));
+    if has_pass {
+        let c2: String = proxy_append_byte(cred, 58);
+        let c3: String = proxy_append_str(c2, pass);
+        return proxy_basic_auth_finish(c3);
+    };
+    return proxy_basic_auth_finish(cred);
+}
+
+fn proxy_basic_auth_finish(cred: String) -> String {
+    let cred_len: u64 = len(cred);
+    let h: u64 = sa_deno_btoa(STR_PTR(cred), cred_len);
+    if h == 0 {
+        return format("");
+    };
+    let bp: ptr = sa_fmt_buffer_data(h);
+    let bn: u64 = sa_fmt_buffer_len(h);
+    let enc: String = proxy_range_str(bp, 0, bn);
+    let fr: i32 = sa_fmt_buffer_free(h);
+    let out: String = format("Basic ");
+    return proxy_append_str(out, enc);
+}
+
+// ---- target URL splitting ----
+
+fn proxy_empty_target() -> ProxyTarget {
+    return ProxyTarget { kind: 0, host: Vec::new(), port: 0 };
+}
+
+// Split a target URL into (scheme kind, host, effective port).
+// Only http and https targets are supported; any other scheme is
+// SA_STD_ERR_UNSUPPORTED (a proxy decision for ftp: is a caller
+// error against this surface, stated loudly, not approximated).
+fn proxy_split_target(url: String) -> Result<ProxyTarget, i32> {
+    let p: ptr = STR_PTR(url);
+    let n: u64 = len(url);
+    let colon: i64 = proxy_find_byte(p, n, 0, 58);
+    if colon < 3 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let c: u64 = colon as u64;
+    if c + 2 >= n {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if PTR_BYTE_AT(p, c + 1) != 47 || PTR_BYTE_AT(p, c + 2) != 47 {
+        return Err(SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let kind: u32 = 0;
+    if proxy_range_eq_lower(p, 0, c, format("http")) {
+        kind = SA_HTTP_PROXY_KIND_HTTP;
+    } else {
+        if proxy_range_eq_lower(p, 0, c, format("https")) {
+            kind = SA_HTTP_PROXY_KIND_HTTPS;
+        } else {
+            return Err(SA_STD_ERR_UNSUPPORTED);
+        };
+    };
+    let auth = proxy_split_authority(p, n, c + 3, http_proxy_default_port(kind));
+    let a: ProxyAuthority = proxy_empty_authority();
+    match auth {
+        Ok(v) => {
+            a = v;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    let host: Vec<u8> = Vec::new();
+    let hi: u64 = 0;
+    while hi < a.host_len {
+        host.push(PTR_BYTE_AT(p, a.host_off + hi));
+        hi = hi + 1;
+    }
+    return Ok(ProxyTarget { kind: kind, host: host, port: a.port });
+}
+
+// Materialize a target's host bytes as a String (consumes the
+// target; read its scalar fields first).
+fn proxy_target_host_str(tg: ProxyTarget) -> String {
+    let hv: Vec<u8> = Vec::new();
+    hv = tg.host;
+    let hn: u64 = len(hv);
+    let sl: Slice<u8> = VEC_AS_SLICE(hv);
+    return proxy_slice_str(&sl, 0, hn);
+}
+
+// ---- NO_PROXY matching (Go x/net/http/httpproxy rules) ----
+
+
+// Byte equality of two ranges in (possibly) different buffers.
+fn proxy_ranges_eq(p1: ptr, off1: u64, p2: ptr, off2: u64, n: u64) -> bool {
+    let i: u64 = 0;
+    while i < n {
+        if PTR_BYTE_AT(p1, off1 + i) != PTR_BYTE_AT(p2, off2 + i) {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+// Does the host span (hp, h_off, hn) end with "." + the suffix
+// span (sp, s_off, sn)? (The subdomain test: the host itself is
+// strictly longer than the suffix and the byte before the
+// suffix tail is a dot.)
+fn proxy_dot_suffix_match(hp: ptr, h_off: u64, hn: u64, sp: ptr, s_off: u64, sn: u64) -> bool {
+    if hn <= sn {
+        return false;
+    };
+    if PTR_BYTE_AT(hp, h_off + hn - sn - 1) != 46 {
+        return false;
+    };
+    return proxy_ranges_eq(hp, h_off + hn - sn, sp, s_off, sn);
+}
+
+// Match one already-lowercased, already-trimmed NO_PROXY entry
+// against the target facts. The host span is (hp, h_off, hn).
+fn proxy_entry_matches(e: String, hp: ptr, h_off: u64, hn: u64, host_is_ip: bool, host_addr: IpAddr, port: u32) -> bool {
+    let ep: ptr = STR_PTR(e);
+    let en: u64 = len(e);
+    if en == 1 {
+        if PTR_BYTE_AT(ep, 0) == 42 {
+            return true;
+        };
+    };
+    // CIDR entry: contains '/', matches IP targets only.
+    if proxy_find_byte(ep, en, 0, 47) >= 0 {
+        if !host_is_ip {
+            return false;
+        };
+        let text: String = proxy_range_str(ep, 0, en);
+        let pr = ip_prefix_parse(text);
+        let out: bool = false;
+        match pr {
+            Some(pfx) => {
+                out = ip_prefix_contains_addr(pfx, host_addr);
+            },
+            None => {
+                out = false;
+            },
+        };
+        return out;
+    };
+    // Split the entry into host span (eh_off, eh_len) and an
+    // optional port.
+    let eh_off: u64 = 0;
+    let eh_len: u64 = en;
+    let has_eport: bool = false;
+    let eport: u32 = 0;
+    if PTR_BYTE_AT(ep, 0) == 91 {
+        let close: i64 = proxy_find_byte(ep, en, 1, 93);
+        if close < 0 {
+            return false;
+        };
+        let c: u64 = close as u64;
+        eh_off = 1;
+        eh_len = c - 1;
+        if c + 1 < en {
+            if PTR_BYTE_AT(ep, c + 1) != 58 {
+                return false;
+            };
+            if c + 2 < en {
+                let pr = proxy_parse_port(ep, c + 2, en - (c + 2));
+                match pr {
+                    Ok(v) => {
+                        has_eport = true;
+                        eport = v;
+                    },
+                    Err(e2) => {
+                        return false;
+                    },
+                };
+            };
+        };
+    } else {
+        let colons: u64 = 0;
+        let first_colon: u64 = en;
+        let i: u64 = 0;
+        while i < en {
+            if PTR_BYTE_AT(ep, i) == 58 {
+                if colons == 0 {
+                    first_colon = i;
+                };
+                colons = colons + 1;
+            };
+            i = i + 1;
+        }
+        if colons == 1 {
+            eh_off = 0;
+            eh_len = first_colon;
+            if first_colon + 1 < en {
+                let pr = proxy_parse_port(ep, first_colon + 1, en - (first_colon + 1));
+                match pr {
+                    Ok(v) => {
+                        has_eport = true;
+                        eport = v;
+                    },
+                    Err(e2) => {
+                        return false;
+                    },
+                };
+            };
+        };
+    };
+    if has_eport {
+        if eport != port {
+            return false;
+        };
+    };
+    if host_is_ip {
+        // IP targets match IP entries exactly; domain entries
+        // never match an IP target (the Go rule).
+        let text: String = proxy_range_str(ep, eh_off, eh_len);
+        let ar = ip_addr_parse(text);
+        let out: bool = false;
+        match ar {
+            Some(a) => {
+                out = ip_addr_eq(a, host_addr);
+            },
+            None => {
+                out = false;
+            },
+        };
+        return out;
+    };
+    // Domain target. A "*." entry and a "." entry both match
+    // subdomains only; a plain entry matches the domain itself
+    // and every subdomain.
+    if eh_len >= 2 {
+        if PTR_BYTE_AT(ep, eh_off) == 42 && PTR_BYTE_AT(ep, eh_off + 1) == 46 {
+            return proxy_dot_suffix_match(hp, h_off, hn, ep, eh_off + 2, eh_len - 2);
+        };
+    };
+    if eh_len >= 1 {
+        if PTR_BYTE_AT(ep, eh_off) == 46 {
+            return proxy_dot_suffix_match(hp, h_off, hn, ep, eh_off + 1, eh_len - 1);
+        };
+    };
+    if eh_len == hn {
+        if proxy_ranges_eq(ep, eh_off, hp, h_off, hn) {
+            return true;
+        };
+    };
+    return proxy_dot_suffix_match(hp, h_off, hn, ep, eh_off, eh_len);
+}
+
+// Decide whether host:port bypasses the proxy under a NO_PROXY
+// list value. host may be a name or an IP literal (brackets
+// optional for IPv6); matching is case-insensitive.
+fn http_proxy_no_proxy_matches(no_proxy: String, host: String, port: u32) -> bool {
+    // Normalize the host: lowercase, strip one pair of brackets.
+    let host_l: String = proxy_lower_str(host);
+    let hp: ptr = STR_PTR(host_l);
+    let hn_all: u64 = len(host_l);
+    let h_off: u64 = 0;
+    let hn: u64 = hn_all;
+    if hn_all >= 2 {
+        if PTR_BYTE_AT(hp, 0) == 91 && PTR_BYTE_AT(hp, hn_all - 1) == 93 {
+            h_off = 1;
+            hn = hn_all - 2;
+        };
+    };
+    // IP facts about the target.
+    let host_is_ip: bool = false;
+    let host_addr: IpAddr = ip_addr_from_ipv4(0);
+    let ip_r = ip_addr_parse(proxy_range_str(hp, h_off, hn));
+    match ip_r {
+        Some(a) => {
+            host_is_ip = true;
+            host_addr = a;
+        },
+        None => {
+        },
+    };
+    // Walk the comma-separated entries.
+    let np: ptr = STR_PTR(no_proxy);
+    let nn: u64 = len(no_proxy);
+    let pos: u64 = 0;
+    let done: bool = false;
+    while !done {
+        let e_end: u64 = pos;
+        while e_end < nn {
+            if PTR_BYTE_AT(np, e_end) == 44 {
+                break;
+            };
+            e_end = e_end + 1;
+        }
+        // Trim the entry's surrounding whitespace.
+        let lo: u64 = pos;
+        while lo < e_end {
+            if !proxy_is_space(PTR_BYTE_AT(np, lo)) {
+                break;
+            };
+            lo = lo + 1;
+        }
+        let hi: u64 = e_end;
+        while hi > lo {
+            if !proxy_is_space(PTR_BYTE_AT(np, hi - 1)) {
+                break;
+            };
+            hi = hi - 1;
+        }
+        if hi > lo {
+            let entry: String = proxy_lower_range(np, lo, hi - lo);
+            if proxy_entry_matches(entry, hp, h_off, hn, host_is_ip, host_addr, port) {
+                return true;
+            };
+        };
+        if e_end >= nn {
+            done = true;
+        } else {
+            pos = e_end + 1;
+        };
+    }
+    return false;
+}
+
+// ---- environment configuration ----
+
+// Read one environment variable into an owned String ("" when
+// unset). The env buffer handle is released before returning.
+fn proxy_env_named(name: String) -> String {
+    let buf: u64 = sa_env_get(STR_PTR(name), len(name));
+    if buf == 0 {
+        return format("");
+    };
+    let bp: ptr = sa_env_buffer_data(buf);
+    let bn: u64 = sa_env_buffer_len(buf);
+    let s: String = proxy_range_str(bp, 0, bn);
+    let fr: i32 = sa_env_buffer_free(buf);
+    return s;
+}
+
+// The configured proxy URL text for targets of the given scheme
+// kind (SA_HTTP_PROXY_KIND_HTTP / _HTTPS), following the
+// conventional lookup order: the uppercase variable first, then
+// the lowercase one; the first non-empty (after trimming) value
+// wins. Returns "" when nothing is configured. For http targets
+// the uppercase HTTP_PROXY is distrusted in a CGI environment
+// (REQUEST_METHOD present): it is skipped entirely, the
+// long-standing CGI header-injection guard -- only the lowercase
+// variable is honored there.
+fn http_proxy_env_proxy_value(target_kind: u32) -> String {
+    if target_kind == SA_HTTP_PROXY_KIND_HTTP {
+        let cgi: i32 = sa_env_has(STR_PTR("REQUEST_METHOD"), STR_LEN("REQUEST_METHOD"));
+        // sa_env_has returns a status, not a boolean (measured
+        // 2026-10-28, probe test_envhas.sla): SA_STD_OK when the
+        // variable is present, SA_STD_ERR_NOT_FOUND when absent.
+        if cgi != SA_STD_OK {
+            let upper: String = proxy_trim_str(proxy_env_named(format("HTTP_PROXY")));
+            if len(upper) > 0 {
+                return upper;
+            };
+        };
+        return proxy_trim_str(proxy_env_named(format("http_proxy")));
+    };
+    if target_kind == SA_HTTP_PROXY_KIND_HTTPS {
+        let upper: String = proxy_trim_str(proxy_env_named(format("HTTPS_PROXY")));
+        if len(upper) > 0 {
+            return upper;
+        };
+        return proxy_trim_str(proxy_env_named(format("https_proxy")));
+    };
+    return format("");
+}
+
+// The configured NO_PROXY list text (uppercase first, then
+// lowercase; "" when unset).
+fn http_proxy_env_no_proxy_value() -> String {
+    let upper: String = proxy_trim_str(proxy_env_named(format("NO_PROXY")));
+    if len(upper) > 0 {
+        return upper;
+    };
+    return proxy_trim_str(proxy_env_named(format("no_proxy")));
+}
+
+// ---- the decision ----
+
+fn proxy_empty_url() -> ProxyUrl {
+    return ProxyUrl {
+        raw: Vec::new(),
+        kind: 0,
+        host_off: 0,
+        host_len: 0,
+        port: 0,
+        has_user: false,
+        user_off: 0,
+        user_len: 0,
+        has_pass: false,
+        pass_off: 0,
+        pass_len: 0,
+    };
+}
+
+// Loopback test on a target host: the literal name "localhost"
+// (any case) or an IP literal in a loopback range (ip.sla
+// predicates: 127.0.0.0/8 and ::1).
+fn proxy_target_is_loopback(host: String) -> bool {
+    let p: ptr = STR_PTR(host);
+    let n: u64 = len(host);
+    if proxy_range_eq_lower(p, 0, n, format("localhost")) {
+        return true;
+    };
+    let r = ip_addr_parse(proxy_range_str(p, 0, n));
+    let out: bool = false;
+    match r {
+        Some(a) => {
+            out = ip_addr_is_loopback(a);
+        },
+        None => {
+            out = false;
+        },
+    };
+    return out;
+}
+
+fn proxy_empty_decision() -> ProxyDecision {
+    return ProxyDecision { use_proxy: false, reason: 0, proxy: proxy_empty_url() };
+}
+
+// The decision core, with configuration and target facts given.
+fn proxy_decide_for(proxy_value: String, no_proxy_value: String, t_kind: u32, t_host: String, t_port: u32) -> Result<ProxyDecision, i32> {
+    let pv: String = proxy_trim_str(proxy_value);
+    if len(pv) == 0 {
+        return Ok(ProxyDecision {
+            use_proxy: false,
+            reason: SA_HTTP_PROXY_DECISION_NO_PROXY_CONFIGURED,
+            proxy: proxy_empty_url(),
+        });
+    };
+    let parsed = http_proxy_parse(pv);
+    let px: ProxyUrl = proxy_empty_url();
+    match parsed {
+        Ok(v) => {
+            px = v;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    if proxy_target_is_loopback(proxy_range_str(STR_PTR(t_host), 0, len(t_host))) {
+        return Ok(ProxyDecision {
+            use_proxy: false,
+            reason: SA_HTTP_PROXY_DECISION_BYPASSED_LOOPBACK,
+            proxy: proxy_empty_url(),
+        });
+    };
+    if http_proxy_no_proxy_matches(no_proxy_value, t_host, t_port) {
+        return Ok(ProxyDecision {
+            use_proxy: false,
+            reason: SA_HTTP_PROXY_DECISION_BYPASSED_NO_PROXY,
+            proxy: proxy_empty_url(),
+        });
+    };
+    return Ok(ProxyDecision {
+        use_proxy: true,
+        reason: SA_HTTP_PROXY_DECISION_VIA_PROXY,
+        proxy: px,
+    });
+}
+
+// Decide the proxy for a target URL from explicit configuration
+// strings (the pure form; http_proxy_for_url supplies the
+// environment as the configuration). A malformed configured
+// proxy value is an error, never a silent direct connection.
+fn http_proxy_decide(proxy_value: String, no_proxy_value: String, target_url: String) -> Result<ProxyDecision, i32> {
+    let tr = proxy_split_target(target_url);
+    let tg: ProxyTarget = proxy_empty_target();
+    match tr {
+        Ok(v) => {
+            tg = v;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    let t_kind: u32 = tg.kind;
+    let t_port: u32 = tg.port;
+    let t_host: String = proxy_target_host_str(tg);
+    return proxy_decide_for(proxy_value, no_proxy_value, t_kind, t_host, t_port);
+}
+
+// Decide the proxy for a target URL from the process
+// environment (ProxyFromEnvironment): per-scheme proxy variable,
+// NO_PROXY bypass, loopback bypass.
+fn http_proxy_for_url(target_url: String) -> Result<ProxyDecision, i32> {
+    let tr = proxy_split_target(target_url);
+    let tg: ProxyTarget = proxy_empty_target();
+    match tr {
+        Ok(v) => {
+            tg = v;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    let t_kind: u32 = tg.kind;
+    let t_port: u32 = tg.port;
+    let pv: String = http_proxy_env_proxy_value(t_kind);
+    let np: String = http_proxy_env_no_proxy_value();
+    let t_host: String = proxy_target_host_str(tg);
+    return proxy_decide_for(pv, np, t_kind, t_host, t_port);
+}
+
+fn http_proxy_decision_use_proxy(d: &ProxyDecision) -> bool {
+    return d.use_proxy;
+}
+
+fn http_proxy_decision_reason(d: &ProxyDecision) -> u32 {
+    return d.reason;
+}
+
+// ---- tunnel transport (plain TCP stream or TLS handle) ----
+
+const PROXY_TRANSPORT_TCP: u32 = 1;
+const PROXY_TRANSPORT_TLS: u32 = 2;
+
+// Write all of (p, n) to a transport, looping over partial
+// writes. A TLS-family error status propagates unchanged.
+fn proxy_write_all(kind: u32, handle: u64, p: ptr, n: u64) -> i32 {
+    let off: u64 = 0;
+    while off < n {
+        let w: u64 = 0;
+        let rp: ptr = PTR_BYTE_ADD(p, off);
+        if kind == PROXY_TRANSPORT_TLS {
+            let st: i32 = sa_std_tls_client_write(handle, rp, n - off, &w);
+            if st != 0 {
+                return st;
+            };
+        } else {
+            let st: i32 = sa_std_net_tcp_stream_write(handle, rp, n - off, &w);
+            if st != SA_STD_OK {
+                return st;
+            };
+        };
+        if w == 0 {
+            return SA_STD_ERR_IO;
+        };
+        off = off + w;
+    }
+    return SA_STD_OK;
+}
+
+// Read exactly n bytes from a TCP stream into (p, ...).
+fn proxy_read_exact_tcp(stream: u64, p: ptr, n: u64) -> i32 {
+    let off: u64 = 0;
+    while off < n {
+        let got: u64 = 0;
+        let rp: ptr = PTR_BYTE_ADD(p, off);
+        let st: i32 = sa_std_net_tcp_stream_read(stream, rp, n - off, &got);
+        if st != SA_STD_OK {
+            return st;
+        };
+        if got == 0 {
+            return SA_STD_ERR_IO;
+        };
+        off = off + got;
+    }
+    return SA_STD_OK;
+}
+
+struct ProxyReadByte {
+    status: i32,
+    value: u8,
+    eof: bool,
+}
+
+// Read one byte from a transport. eof is set when the peer
+// closed cleanly with no more data.
+fn proxy_read_byte(kind: u32, handle: u64) -> ProxyReadByte {
+    let buf: [u8; 1] = [0u8; 1];
+    let bp: ptr = PTR_BYTE_ADD(&buf, 0);
+    let got: u64 = 0;
+    if kind == PROXY_TRANSPORT_TLS {
+        let st: i32 = sa_std_tls_client_read(handle, bp, 1, &got);
+        if st != 0 {
+            return ProxyReadByte { status: st, value: 0, eof: false };
+        };
+    } else {
+        let st: i32 = sa_std_net_tcp_stream_read(handle, bp, 1, &got);
+        if st != SA_STD_OK {
+            return ProxyReadByte { status: st, value: 0, eof: false };
+        };
+    };
+    if got == 0 {
+        return ProxyReadByte { status: SA_STD_OK, value: 0, eof: true };
+    };
+    return ProxyReadByte { status: SA_STD_OK, value: buf[0], eof: false };
+}
+
+fn proxy_close_transport(kind: u32, handle: u64) -> i32 {
+    if kind == PROXY_TRANSPORT_TLS {
+        let c: i32 = sa_std_tls_client_close(handle);
+        return c;
+    };
+    let c: i32 = sa_std_close(handle);
+    return c;
+}
+
+// ---- CONNECT ----
+
+struct ProxyHead {
+    status: i32,
+    http_status: u32,
+}
+
+fn proxy_head(status: i32, http_status: u32) -> ProxyHead {
+    return ProxyHead { status: status, http_status: http_status };
+}
+
+// Read one CONNECT response head, byte-wise, up to the CRLFCRLF
+// terminator (capped), and parse its status line.
+fn proxy_read_head(kind: u32, handle: u64) -> ProxyHead {
+    let head: Vec<u8> = Vec::new();
+    // Terminator progress through 13 10 13 10.
+    let matched: u64 = 0;
+    while matched < 4 {
+        let rb = proxy_read_byte(kind, handle);
+        if rb.status != SA_STD_OK {
+            return ProxyHead { status: rb.status, http_status: 0 };
+        };
+        if rb.eof {
+            return ProxyHead { status: SA_STD_ERR_IO, http_status: 0 };
+        };
+        head.push(rb.value);
+        if len(head) > SA_HTTP_PROXY_MAX_HEAD_BYTES {
+            return ProxyHead { status: SA_STD_ERR_TRUNCATED, http_status: 0 };
+        };
+        let b: u8 = rb.value;
+        if matched == 0 {
+            if b == 13 {
+                matched = 1;
+            };
+        } else {
+            if matched == 1 {
+                if b == 10 {
+                    matched = 2;
+                } else {
+                    if b != 13 {
+                        matched = 0;
+                    };
+                };
+            } else {
+                if matched == 2 {
+                    if b == 13 {
+                        matched = 3;
+                    } else {
+                        matched = 0;
+                    };
+                } else {
+                    if b == 10 {
+                        matched = 4;
+                    } else {
+                        if b == 13 {
+                            matched = 1;
+                        } else {
+                            matched = 0;
+                        };
+                    };
+                };
+            };
+        };
+    }
+    // Status line: "HTTP/1.x NNN ..." -- verify the prefix, find
+    // the first space, parse the three digits after it.
+    let hn: u64 = len(head);
+    let sl: Slice<u8> = VEC_AS_SLICE(head);
+    if hn < 12 {
+        return ProxyHead { status: SA_STD_ERR_NET, http_status: 0 };
+    };
+    // Assignment-filled for the same reason as proxy_crlf: a
+    // multi-element stack array literal reads back 0 at every
+    // index >= 1 (measured 2026-10-28, BA2), which made every
+    // CONNECT response head fail this prefix check.
+    let expect: [u8; 7] = [0u8; 7];
+    expect[0] = 72;
+    expect[1] = 84;
+    expect[2] = 84;
+    expect[3] = 80;
+    expect[4] = 47;
+    expect[5] = 49;
+    expect[6] = 46;
+    let i: u64 = 0;
+    while i < 7 {
+        let b: u8 = 0;
+        SLICE_GET(b, sl, i);
+        if b != expect[i] {
+            return ProxyHead { status: SA_STD_ERR_NET, http_status: 0 };
+        };
+        i = i + 1;
+    }
+    let sp: u64 = 0;
+    let found: bool = false;
+    while sp < hn {
+        let b: u8 = 0;
+        SLICE_GET(b, sl, sp);
+        if b == 32 {
+            found = true;
+            break;
+        };
+        sp = sp + 1;
+    }
+    if !found {
+        return ProxyHead { status: SA_STD_ERR_NET, http_status: 0 };
+    };
+    if sp + 3 >= hn {
+        return ProxyHead { status: SA_STD_ERR_NET, http_status: 0 };
+    };
+    let code: u32 = 0;
+    let d: u64 = 0;
+    while d < 3 {
+        let b: u8 = 0;
+        SLICE_GET(b, sl, sp + 1 + d);
+        if !proxy_is_digit(b) {
+            return ProxyHead { status: SA_STD_ERR_NET, http_status: 0 };
+        };
+        code = code * 10 + ((b - 48) as u32);
+        d = d + 1;
+    }
+    return ProxyHead { status: SA_STD_OK, http_status: code };
+}
+
+// Send a CONNECT request and read the final response head,
+// skipping interim 1xx responses.
+fn proxy_connect_exchange(kind: u32, handle: u64, request: String) -> ProxyHead {
+    let wst: i32 = proxy_write_all(kind, handle, STR_PTR(request), len(request));
+    if wst != SA_STD_OK {
+        return ProxyHead { status: wst, http_status: 0 };
+    };
+    let result: ProxyHead = proxy_head(SA_STD_ERR_NET, 0);
+    let interims: u32 = 0;
+    let done: bool = false;
+    while !done {
+        let h = proxy_read_head(kind, handle);
+        if h.status != SA_STD_OK {
+            result = h;
+            done = true;
+        } else {
+            if h.http_status >= 100 && h.http_status < 200 {
+                interims = interims + 1;
+                if interims > SA_HTTP_PROXY_MAX_INTERIM {
+                    result = proxy_head(SA_STD_ERR_NET, h.http_status);
+                    done = true;
+                };
+            } else {
+                result = h;
+                done = true;
+            };
+        };
+    }
+    return result;
+}
+
+struct ProxyTransport {
+    status: i32,
+    kind: u32,
+    handle: u64,
+}
+
+// Open the transport to the proxy: a plain TCP stream for http
+// and socks5 proxies; for an https proxy, the stream is upgraded
+// to TLS (default configuration) before any CONNECT bytes flow.
+fn proxy_open_transport(p_kind: u32, phost: String, p_port: u32) -> ProxyTransport {
+    let stream: u64 = 0;
+    let cst: i32 = sa_std_net_tcp_connect_timeout(STR_PTR(phost), len(phost), p_port, SA_HTTP_PROXY_TIMEOUT_NS, &stream);
+    if cst != SA_STD_OK {
+        return ProxyTransport { status: cst, kind: PROXY_TRANSPORT_TCP, handle: 0 };
+    };
+    let tst: i32 = sa_std_net_tcp_stream_set_read_timeout(stream, SA_HTTP_PROXY_TIMEOUT_NS);
+    if tst != SA_STD_OK {
+        let c: i32 = sa_std_close(stream);
+        return ProxyTransport { status: tst, kind: PROXY_TRANSPORT_TCP, handle: 0 };
+    };
+    if p_kind == SA_HTTP_PROXY_KIND_HTTPS {
+        let fd: i32 = -1;
+        let dst: i32 = sa_std_fd_into_raw(stream, &fd);
+        if dst != SA_STD_OK {
+            let c: i32 = sa_std_close(stream);
+            return ProxyTransport { status: dst, kind: PROXY_TRANSPORT_TCP, handle: 0 };
+        };
+        let th: u64 = 0;
+        let sst: i32 = sa_std_tls_client_start_tls(fd, STR_PTR(phost), len(phost), 0, &th);
+        if sst != 0 {
+            return ProxyTransport { status: sst, kind: PROXY_TRANSPORT_TLS, handle: 0 };
+        };
+        return ProxyTransport { status: SA_STD_OK, kind: PROXY_TRANSPORT_TLS, handle: th };
+    };
+    return ProxyTransport { status: SA_STD_OK, kind: PROXY_TRANSPORT_TCP, handle: stream };
+}
+
+// Build the CONNECT request head for a target.
+fn proxy_build_connect_request(target_host: String, target_port: u32, has_user: bool, user: String, pass: String, has_pass: bool) -> String {
+    let authority: String = http_proxy_target_authority(proxy_range_str(STR_PTR(target_host), 0, len(target_host)), target_port);
+    let authority2: String = http_proxy_target_authority(proxy_range_str(STR_PTR(target_host), 0, len(target_host)), target_port);
+    let req: String = format("CONNECT ");
+    req = proxy_append_str(req, authority);
+    req = proxy_append_str(req, format(" HTTP/1.1"));
+    req = proxy_append_str(req, proxy_crlf());
+    req = proxy_append_str(req, format("Host: "));
+    req = proxy_append_str(req, authority2);
+    req = proxy_append_str(req, proxy_crlf());
+    if has_user {
+        let auth: String = http_proxy_basic_auth_value(user, pass, has_pass);
+        req = proxy_append_str(req, format("Proxy-Authorization: "));
+        req = proxy_append_str(req, auth);
+        req = proxy_append_str(req, proxy_crlf());
+        req = proxy_append_str(req, proxy_crlf());
+        return req;
+    };
+    // Guard-return shape (BA2, 2026-10-28): consuming user/pass
+    // only inside a conditional branch and then merging traps
+    // PhiStateConflict at the join (measured on the sa backend,
+    // UseAfterMove on the SAB backend); the auth path returns
+    // directly instead. On this fallthrough path user/pass are
+    // simply dropped unconsumed.
+    req = proxy_append_str(req, proxy_crlf());
+    return req;
+}
+
+// Establish a tunnel to target_host:target_port through an HTTP
+// or HTTPS proxy (CONNECT), or dispatch to the SOCKS5 handshake
+// for a socks5 proxy. The returned handle is a TCP stream
+// (http/socks5 proxy) or a TLS handle (https proxy).
+fn http_proxy_tunnel(proxy: ProxyUrl, target_host: String, target_port: u32) -> ProxyTunnel {
+    if proxy.kind == SA_HTTP_PROXY_KIND_SOCKS5 {
+        return http_proxy_tunnel_socks5(proxy, target_host, target_port);
+    };
+    if proxy.kind != SA_HTTP_PROXY_KIND_HTTP && proxy.kind != SA_HTTP_PROXY_KIND_HTTPS {
+        return ProxyTunnel { status: SA_STD_ERR_INVALID_ARGUMENT, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    let p_kind: u32 = proxy.kind;
+    let p_port: u32 = proxy.port;
+    let p_has_user: bool = proxy.has_user;
+    let p_has_pass: bool = proxy.has_pass;
+    let h_off: u64 = proxy.host_off;
+    let h_len: u64 = proxy.host_len;
+    let u_off: u64 = proxy.user_off;
+    let u_len: u64 = proxy.user_len;
+    let w_off: u64 = proxy.pass_off;
+    let w_len: u64 = proxy.pass_len;
+    let raw: Vec<u8> = Vec::new();
+    raw = proxy.raw;
+    let rsl: Slice<u8> = VEC_AS_SLICE(raw);
+    let phost: String = proxy_slice_str(&rsl, h_off, h_len);
+    let user: String = format("");
+    if p_has_user {
+        user = proxy_slice_percent_decode(&rsl, u_off, u_len);
+    };
+    let pass: String = format("");
+    if p_has_pass {
+        pass = proxy_slice_percent_decode(&rsl, w_off, w_len);
+    };
+    let t = proxy_open_transport(p_kind, phost, p_port);
+    if t.status != SA_STD_OK {
+        return ProxyTunnel { status: t.status, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    let req: String = proxy_build_connect_request(target_host, target_port, p_has_user, user, pass, p_has_pass);
+    let h = proxy_connect_exchange(t.kind, t.handle, req);
+    if h.status != SA_STD_OK {
+        let c: i32 = proxy_close_transport(t.kind, t.handle);
+        return ProxyTunnel { status: h.status, http_status: h.http_status, socks_reply: 0, handle: 0 };
+    };
+    if h.http_status < 200 || h.http_status >= 300 {
+        let c: i32 = proxy_close_transport(t.kind, t.handle);
+        return ProxyTunnel { status: SA_STD_ERR_NET, http_status: h.http_status, socks_reply: 0, handle: 0 };
+    };
+    return ProxyTunnel { status: SA_STD_OK, http_status: h.http_status, socks_reply: 0, handle: t.handle };
+}
+
+// Establish a tunnel and layer TLS over it for an https target
+// (start_tls with the given tls_client configuration; config 0
+// is the default configuration). The proxy must be an http or
+// socks5 proxy: with an https proxy the transport is already a
+// TLS handle, which is not fd-detachable, so that combination
+// is SA_STD_ERR_UNSUPPORTED, stated, not approximated.
+fn http_proxy_tunnel_tls(proxy: ProxyUrl, target_host: String, target_port: u32, tls_config: u64) -> ProxyTunnel {
+    if proxy.kind == SA_HTTP_PROXY_KIND_HTTPS {
+        return ProxyTunnel { status: SA_STD_ERR_UNSUPPORTED, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    let host_copy: String = proxy_range_str(STR_PTR(target_host), 0, len(target_host));
+    let t = http_proxy_tunnel(proxy, target_host, target_port);
+    if t.status != SA_STD_OK {
+        return t;
+    };
+    let fd: i32 = -1;
+    let dst: i32 = sa_std_fd_into_raw(t.handle, &fd);
+    if dst != SA_STD_OK {
+        let c: i32 = sa_std_close(t.handle);
+        return ProxyTunnel { status: dst, http_status: t.http_status, socks_reply: t.socks_reply, handle: 0 };
+    };
+    let th: u64 = 0;
+    let sst: i32 = sa_std_tls_client_start_tls(fd, STR_PTR(host_copy), len(host_copy), tls_config, &th);
+    if sst != 0 {
+        return ProxyTunnel { status: sst, http_status: t.http_status, socks_reply: t.socks_reply, handle: 0 };
+    };
+    return ProxyTunnel { status: SA_STD_OK, http_status: t.http_status, socks_reply: t.socks_reply, handle: th };
+}
+
+// ---- SOCKS5 ----
+
+// Establish a tunnel through a SOCKS5 proxy (RFC 1928), with
+// RFC 1929 user/password authentication when the proxy URL
+// carries userinfo. Non-IP targets are sent in domain form (the
+// proxy resolves them). The returned handle is a TCP stream.
+fn http_proxy_tunnel_socks5(proxy: ProxyUrl, target_host: String, target_port: u32) -> ProxyTunnel {
+    let p_port: u32 = proxy.port;
+    let p_has_user: bool = proxy.has_user;
+    let p_has_pass: bool = proxy.has_pass;
+    let h_off: u64 = proxy.host_off;
+    let h_len: u64 = proxy.host_len;
+    let u_off: u64 = proxy.user_off;
+    let u_len: u64 = proxy.user_len;
+    let w_off: u64 = proxy.pass_off;
+    let w_len: u64 = proxy.pass_len;
+    let raw: Vec<u8> = Vec::new();
+    raw = proxy.raw;
+    let rsl: Slice<u8> = VEC_AS_SLICE(raw);
+    let phost: String = proxy_slice_str(&rsl, h_off, h_len);
+    // The credentials are decoded lazily inside the RFC 1929
+    // block below, not here: a String decoded at this point and
+    // carried across the connect + greeting exchange reads back
+    // with len 0 at the authentication block (measured on the
+    // wire 2026-10-28, BA2: the subnegotiation went out as
+    // [1, 0, 0]). rsl/raw stay alive for the whole function, so
+    // the spans remain valid at the decode point.
+    let has_user: bool = p_has_user;
+    let stream: u64 = 0;
+    let cst: i32 = sa_std_net_tcp_connect_timeout(STR_PTR(phost), len(phost), p_port, SA_HTTP_PROXY_TIMEOUT_NS, &stream);
+    if cst != SA_STD_OK {
+        return ProxyTunnel { status: cst, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    let tst: i32 = sa_std_net_tcp_stream_set_read_timeout(stream, SA_HTTP_PROXY_TIMEOUT_NS);
+    if tst != SA_STD_OK {
+        let c: i32 = sa_std_close(stream);
+        return ProxyTunnel { status: tst, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    // Greeting: version 5, offer no-auth (and user/password
+    // when credentials are configured).
+    let greet: [u8; 4] = [0u8; 4];
+    greet[0] = 5;
+    let gn: u64 = 3;
+    if has_user {
+        greet[1] = 2;
+        greet[2] = 0;
+        greet[3] = 2;
+        gn = 4;
+    } else {
+        greet[1] = 1;
+        greet[2] = 0;
+    };
+    let wst: i32 = proxy_write_all(PROXY_TRANSPORT_TCP, stream, PTR_BYTE_ADD(&greet, 0), gn);
+    if wst != SA_STD_OK {
+        let c: i32 = sa_std_close(stream);
+        return ProxyTunnel { status: wst, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    let sel: [u8; 2] = [0u8; 2];
+    let rst: i32 = proxy_read_exact_tcp(stream, PTR_BYTE_ADD(&sel, 0), 2);
+    if rst != SA_STD_OK {
+        let c: i32 = sa_std_close(stream);
+        return ProxyTunnel { status: rst, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    if sel[0] != 5 {
+        let c: i32 = sa_std_close(stream);
+        return ProxyTunnel { status: SA_STD_ERR_NET, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    let method: u8 = sel[1];
+    if method == 255 {
+        let c: i32 = sa_std_close(stream);
+        return ProxyTunnel { status: SA_STD_ERR_PERMISSION_DENIED, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    if method == 2 {
+        if !has_user {
+            let c: i32 = sa_std_close(stream);
+            return ProxyTunnel { status: SA_STD_ERR_PERMISSION_DENIED, http_status: 0, socks_reply: 0, handle: 0 };
+        };
+        // RFC 1929 subnegotiation: [1, ulen, user, plen, pass].
+        // Credentials decoded here (see the note at the top of
+        // this function); u_off/u_len/w_off/w_len are the spans.
+        let user: String = proxy_slice_percent_decode(&rsl, u_off, u_len);
+        // Decoded unconditionally (the span is empty when the
+        // URL has no password): a String conditionally reassigned
+        // inside an if reads back as the initial "" at the use
+        // site (measured on the wire 2026-10-28, BA2: plen went
+        // out as 0 while the unconditional decode above it sent
+        // the user name correctly).
+        let pass: String = proxy_slice_percent_decode(&rsl, w_off, w_len);
+        if len(user) > 255 || len(pass) > 255 {
+            let c: i32 = sa_std_close(stream);
+            return ProxyTunnel { status: SA_STD_ERR_INVALID_ARGUMENT, http_status: 0, socks_reply: 0, handle: 0 };
+        };
+        let auth: [u8; 515] = [0u8; 515];
+        auth[0] = 1;
+        auth[1] = (len(user) as u8);
+        let up: ptr = STR_PTR(user);
+        let ui: u64 = 0;
+        while ui < len(user) {
+            auth[2 + ui] = PTR_BYTE_AT(up, ui);
+            ui = ui + 1;
+        }
+        let pbase: u64 = 2 + len(user);
+        auth[pbase] = (len(pass) as u8);
+        let pp: ptr = STR_PTR(pass);
+        let pi: u64 = 0;
+        while pi < len(pass) {
+            auth[pbase + 1 + pi] = PTR_BYTE_AT(pp, pi);
+            pi = pi + 1;
+        }
+        let aw: i32 = proxy_write_all(PROXY_TRANSPORT_TCP, stream, PTR_BYTE_ADD(&auth, 0), pbase + 1 + len(pass));
+        if aw != SA_STD_OK {
+            let c: i32 = sa_std_close(stream);
+            return ProxyTunnel { status: aw, http_status: 0, socks_reply: 0, handle: 0 };
+        };
+        let ar: [u8; 2] = [0u8; 2];
+        let arst: i32 = proxy_read_exact_tcp(stream, PTR_BYTE_ADD(&ar, 0), 2);
+        if arst != SA_STD_OK {
+            let c: i32 = sa_std_close(stream);
+            return ProxyTunnel { status: arst, http_status: 0, socks_reply: 0, handle: 0 };
+        };
+        if ar[0] != 1 || ar[1] != 0 {
+            let c: i32 = sa_std_close(stream);
+            return ProxyTunnel { status: SA_STD_ERR_PERMISSION_DENIED, http_status: 0, socks_reply: 0, handle: 0 };
+        };
+    } else {
+        if method != 0 {
+            let c: i32 = sa_std_close(stream);
+            return ProxyTunnel { status: SA_STD_ERR_NET, http_status: 0, socks_reply: 0, handle: 0 };
+        };
+    };
+    // CONNECT request: [5, 1, 0, atyp, addr, port].
+    let req: [u8; 300] = [0u8; 300];
+    req[0] = 5;
+    req[1] = 1;
+    req[2] = 0;
+    let tn: u64 = 4;
+    let ip_r = ip_addr_parse(proxy_range_str(STR_PTR(target_host), 0, len(target_host)));
+    let is_ip: bool = false;
+    match ip_r {
+        Some(a) => {
+            is_ip = true;
+            if ip_addr_is_ipv4(a) {
+                req[3] = 1;
+                let bits_r = ip_addr_to_ipv4(a);
+                let bits: u32 = 0;
+                match bits_r {
+                    Some(v) => {
+                        bits = v;
+                    },
+                    None => {
+                        bits = 0;
+                    },
+                };
+                req[4] = ((bits >> 24) as u8);
+                req[5] = ((bits >> 16) as u8);
+                req[6] = ((bits >> 8) as u8);
+                req[7] = (bits as u8);
+                tn = 8;
+            } else {
+                req[3] = 4;
+                let oct: [u8; 16] = ip_addr_to_octets(a);
+                let oi: u64 = 0;
+                while oi < 16 {
+                    req[4 + oi] = oct[oi];
+                    oi = oi + 1;
+                }
+                tn = 20;
+            };
+        },
+        None => {
+            is_ip = false;
+        },
+    };
+    if !is_ip {
+        let hn: u64 = len(target_host);
+        if hn == 0 || hn > 255 {
+            let c: i32 = sa_std_close(stream);
+            return ProxyTunnel { status: SA_STD_ERR_INVALID_ARGUMENT, http_status: 0, socks_reply: 0, handle: 0 };
+        };
+        req[3] = 3;
+        req[4] = (hn as u8);
+        let tp: ptr = STR_PTR(target_host);
+        let ti: u64 = 0;
+        while ti < hn {
+            req[5 + ti] = PTR_BYTE_AT(tp, ti);
+            ti = ti + 1;
+        }
+        tn = 5 + hn;
+    };
+    req[tn] = ((target_port >> 8) as u8);
+    req[tn + 1] = (target_port as u8);
+    tn = tn + 2;
+    let rw: i32 = proxy_write_all(PROXY_TRANSPORT_TCP, stream, PTR_BYTE_ADD(&req, 0), tn);
+    if rw != SA_STD_OK {
+        let c: i32 = sa_std_close(stream);
+        return ProxyTunnel { status: rw, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    // Reply: [ver, reply, rsv, atyp, bound addr, bound port].
+    let rep: [u8; 4] = [0u8; 4];
+    let rrst: i32 = proxy_read_exact_tcp(stream, PTR_BYTE_ADD(&rep, 0), 4);
+    if rrst != SA_STD_OK {
+        let c: i32 = sa_std_close(stream);
+        return ProxyTunnel { status: rrst, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    if rep[0] != 5 {
+        let c: i32 = sa_std_close(stream);
+        return ProxyTunnel { status: SA_STD_ERR_NET, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    if rep[1] != 0 {
+        let code: u32 = rep[1] as u32;
+        let c: i32 = sa_std_close(stream);
+        return ProxyTunnel { status: SA_STD_ERR_NET, http_status: 0, socks_reply: code, handle: 0 };
+    };
+    // Skip the bound address and port.
+    let skip: u64 = 0;
+    if rep[3] == 1 {
+        skip = 4;
+    } else {
+        if rep[3] == 4 {
+            skip = 16;
+        } else {
+            if rep[3] == 3 {
+                let lb: [u8; 1] = [0u8; 1];
+                let lrst: i32 = proxy_read_exact_tcp(stream, PTR_BYTE_ADD(&lb, 0), 1);
+                if lrst != SA_STD_OK {
+                    let c: i32 = sa_std_close(stream);
+                    return ProxyTunnel { status: lrst, http_status: 0, socks_reply: 0, handle: 0 };
+                };
+                skip = lb[0] as u64;
+            } else {
+                let c: i32 = sa_std_close(stream);
+                return ProxyTunnel { status: SA_STD_ERR_NET, http_status: 0, socks_reply: 0, handle: 0 };
+            };
+        };
+    };
+    let scratch: [u8; 260] = [0u8; 260];
+    let srst: i32 = proxy_read_exact_tcp(stream, PTR_BYTE_ADD(&scratch, 0), skip + 2);
+    if srst != SA_STD_OK {
+        let c: i32 = sa_std_close(stream);
+        return ProxyTunnel { status: srst, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    return ProxyTunnel { status: SA_STD_OK, http_status: 0, socks_reply: 0, handle: stream };
+}
+
+// ---- one-call wiring ----
+
+// Dial a target URL the way a proxy-aware HTTP transport does:
+// decide from the environment, tunnel when a proxy applies,
+// connect directly otherwise, and layer TLS (with the given
+// tls_client configuration; 0 = default) for https targets.
+// This is the explicit wiring entry point of this surface; the
+// built-in http_client is not involved (see the file header).
+fn http_proxy_dial(target_url: String, tls_config: u64) -> ProxyTunnel {
+    let tr = proxy_split_target(target_url);
+    let tg: ProxyTarget = proxy_empty_target();
+    match tr {
+        Ok(v) => {
+            tg = v;
+        },
+        Err(e) => {
+            return ProxyTunnel { status: e, http_status: 0, socks_reply: 0, handle: 0 };
+        },
+    };
+    let t_kind: u32 = tg.kind;
+    let t_port: u32 = tg.port;
+    let t_host: String = proxy_target_host_str(tg);
+    let pv: String = http_proxy_env_proxy_value(t_kind);
+    let np: String = http_proxy_env_no_proxy_value();
+    let dr = proxy_decide_for(pv, np, t_kind, proxy_range_str(STR_PTR(t_host), 0, len(t_host)), t_port);
+    let dec: ProxyDecision = proxy_empty_decision();
+    match dr {
+        Ok(v) => {
+            dec = v;
+        },
+        Err(e) => {
+            return ProxyTunnel { status: e, http_status: 0, socks_reply: 0, handle: 0 };
+        },
+    };
+    if dec.use_proxy {
+        if t_kind == SA_HTTP_PROXY_KIND_HTTPS {
+            return http_proxy_tunnel_tls(dec.proxy, t_host, t_port, tls_config);
+        };
+        return http_proxy_tunnel(dec.proxy, t_host, t_port);
+    };
+    let stream: u64 = 0;
+    let cst: i32 = sa_std_net_tcp_connect_timeout(STR_PTR(t_host), len(t_host), t_port, SA_HTTP_PROXY_TIMEOUT_NS, &stream);
+    if cst != SA_STD_OK {
+        return ProxyTunnel { status: cst, http_status: 0, socks_reply: 0, handle: 0 };
+    };
+    if t_kind == SA_HTTP_PROXY_KIND_HTTPS {
+        let fd: i32 = -1;
+        let dst: i32 = sa_std_fd_into_raw(stream, &fd);
+        if dst != SA_STD_OK {
+            let c: i32 = sa_std_close(stream);
+            return ProxyTunnel { status: dst, http_status: 0, socks_reply: 0, handle: 0 };
+        };
+        let th: u64 = 0;
+        let sst: i32 = sa_std_tls_client_start_tls(fd, STR_PTR(t_host), len(t_host), tls_config, &th);
+        if sst != 0 {
+            return ProxyTunnel { status: sst, http_status: 0, socks_reply: 0, handle: 0 };
+        };
+        return ProxyTunnel { status: SA_STD_OK, http_status: 0, socks_reply: 0, handle: th };
+    };
+    return ProxyTunnel { status: SA_STD_OK, http_status: 0, socks_reply: 0, handle: stream };
+}
+
+
