@@ -12,6 +12,10 @@
 // （internal/transpile/sa_expr.go:8790-8872：0 柄守卫 + tag/载荷
 // 比较 + 布尔合并；发射器原形以 8 字节槽 join 两臂，本移植以每臂
 // return 代替槽 join，值语义完全相同）。
+// 依赖方向：ts_jsval -> ts_string（@ts_jsval_equals 串臂经
+// @ts_str_equals 内容判等；与 ts_object -> ts_string 同向，不触
+// ts_array 不反向依赖 ts_string 的禁律）。
+@import "ts_string.sa"
 
 // @ts_jsval_truthy 求 jsval 真值（JS truthiness；0 柄、undefined、
 // null 为 0；boolean/number 载荷非零为真；string 以数据指针非零为真
@@ -113,3 +117,94 @@ L_TJBF64_ENTRY:
     store h+16, val as f64
     store h+24, 0 as ptr
     return h
+
+// @ts_jsval_equals 求两 jsval 的 JS ===（严格相等；仅 ===/!== 用，
+// loose ==/!= 另需 JEV：跨类型强制转换不在此处理）。
+// 决策证据：JEV jsval_jsval_eq build_helper 1.0，scope field_and_named
+// 0.30 LOW（近 tie all_jsval_exprs 0.47，未采纳）；机制证据：tsgosa
+// 发射器通用尾对 jsval 域读发指针 eq，而 @ts_jsval_box_* 每次 alloc 32
+// 新柄、无驻留，故等值原语分柄与同一对象两次装箱皆在指针 eq 下误判
+// 不等——此 helper 以值语义代之（静默错译修正，非拒收解除）。
+// 语义（32 字节 jsval 布局见文件头；调用方传入借用句柄；纯读不分配、
+// 不转移归属，与 @ts_jsval_truthy 同纪律）：
+//   0 柄计为 undefined（与既有 null-eq 臂 missing-as-undefined 同律）：
+//   0 对 0 为 1；0 对装箱 undefined 为 1；0 对其他为 0。
+//   tag 不同为 0（无强制转换）；tag 相同：undefined(0)/null(6) 为 1；
+//   boolean(3) 比 +16 i32 载荷；number(2) 比 +16 f64 载荷（fcmp_eq，
+//   IEEE 语义：NaN != NaN，+0 == -0，与 JS === 一致）；string(1) 比
+//   +8 串柄内容（经 @ts_str_equals，永不指针直比——等值串分柄必相等，
+//   此即 handle_eq 被否决的原因）；object(4)/array(5)/function(7)
+//   比 +8 载荷指针同一性（JS 引用相等）。
+// 分支皆 return，无跨臂 join（与 @ts_jsval_truthy/box 系列同形）。
+@ts_jsval_equals(a: ptr, b: ptr) -> i32:
+L_TJE_ENTRY:
+    aNz = ne a, 0
+    br aNz -> L_TJE_ANZ, L_TJE_AZ
+L_TJE_AZ:
+    bNz = ne b, 0
+    br bNz -> L_TJE_AZ_BNZ, L_TJE_BOTH0
+L_TJE_BOTH0:
+    r0 = 1
+    return r0
+L_TJE_AZ_BNZ:
+    tagB0 = load b + 0 as i32
+    r1 = eq tagB0, 0
+    return r1
+L_TJE_ANZ:
+    bNz2 = ne b, 0
+    br bNz2 -> L_TJE_BOTHNZ, L_TJE_BNZ
+L_TJE_BNZ:
+    tagA0 = load a + 0 as i32
+    r2 = eq tagA0, 0
+    return r2
+L_TJE_BOTHNZ:
+    tagA = load a + 0 as i32
+    tagB = load b + 0 as i32
+    same = eq tagA, tagB
+    br same -> L_TJE_SAMETAG, L_TJE_DIFF
+L_TJE_DIFF:
+    r3 = 0
+    return r3
+L_TJE_SAMETAG:
+    isStr = eq tagA, 1
+    br isStr -> L_TJE_STR, L_TJE_NOTSTR
+L_TJE_NOTSTR:
+    isNum = eq tagA, 2
+    br isNum -> L_TJE_NUM, L_TJE_NOTNUM
+L_TJE_NOTNUM:
+    isBool = eq tagA, 3
+    br isBool -> L_TJE_BOOL, L_TJE_NOTBOOL
+L_TJE_NOTBOOL:
+    isObj = eq tagA, 4
+    isArr = eq tagA, 5
+    isFn = eq tagA, 7
+    objFam1 = or isObj, isArr
+    objFam = or objFam1, isFn
+    br objFam -> L_TJE_PTRID, L_TJE_UNDEFNULL
+L_TJE_UNDEFNULL:
+    r4 = 1
+    return r4
+L_TJE_PTRID:
+    pa = load a + 8 as ptr
+    pb = load b + 8 as ptr
+    r5 = eq pa, pb
+    return r5
+L_TJE_BOOL:
+    va = load a + 16 as i32
+    vb = load b + 16 as i32
+    r6 = eq va, vb
+    return r6
+L_TJE_NUM:
+    fa = load a + 16 as f64
+    fb = load b + 16 as f64
+    r7 = fcmp_eq fa, fb
+    return r7
+L_TJE_STR:
+    ha = load a + 8 as ptr
+    hb = load b + 8 as ptr
+    da = load ha + 0 as ptr
+    la = load ha + 8 as u64
+    db = load hb + 0 as ptr
+    lb = load hb + 8 as u64
+    r8 = call @ts_str_equals(da, la, db, lb)
+    return r8
