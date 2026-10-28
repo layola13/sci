@@ -51,7 +51,6 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const tio = threaded.io();
     const header = try std.Io.Dir.cwd().readFileAlloc(tio, "src/runtime/sa_std.h", allocator, .limited(8 * 1024 * 1024));
-    const linux_source = try std.Io.Dir.cwd().readFileAlloc(tio, "src/runtime/sa_std.zig", allocator, .limited(32 * 1024 * 1024));
     const windows_source = try std.Io.Dir.cwd().readFileAlloc(tio, "src/runtime/sa_std_windows.zig", allocator, .limited(32 * 1024 * 1024));
     const unsupported_source = try std.Io.Dir.cwd().readFileAlloc(tio, "docs/runtime_abi_windows_unsupported.txt", allocator, .limited(1 * 1024 * 1024));
     const extra_source = try std.Io.Dir.cwd().readFileAlloc(tio, "docs/runtime_abi_windows_extra.txt", allocator, .limited(1 * 1024 * 1024));
@@ -68,7 +67,25 @@ pub fn main(init: std.process.Init) !void {
     var plugin_provided_stats = ManifestStats.init(allocator);
 
     try collectHeaderSymbols(&header_symbols, header);
-    try collectZigSymbols(&linux_symbols, linux_source);
+    // The Linux runtime archive is built from the whole src/runtime tree:
+    // sa_std.zig is the root module and pulls the protocol runtimes
+    // (HTTP client/server, TLS, QUIC, SSH, tree-sitter, ...) in as imports,
+    // so their exports land in libsa_std.a without ever being named in the
+    // root file. Collect the Linux symbol set from every runtime source
+    // except the Windows root module, which keeps its own accounting
+    // (its export set plus the unsupported/extra manifests below).
+    {
+        var runtime_dir = try std.Io.Dir.cwd().openDir(tio, "src/runtime", .{ .iterate = true });
+        defer runtime_dir.close(tio);
+        var runtime_it = runtime_dir.iterate();
+        while (try runtime_it.next(tio)) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+            if (std.mem.eql(u8, entry.name, "sa_std_windows.zig")) continue;
+            const source = try runtime_dir.readFileAlloc(tio, entry.name, allocator, .limited(32 * 1024 * 1024));
+            try collectZigSymbols(&linux_symbols, source);
+        }
+    }
     try collectZigSymbols(&windows_symbols, windows_source);
     try collectManifestSymbols(&unsupported_windows_symbols, unsupported_source, &unsupported_stats);
     try collectManifestSymbols(&extra_windows_symbols, extra_source, &extra_stats);

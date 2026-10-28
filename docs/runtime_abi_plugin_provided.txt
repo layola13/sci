@@ -8,5 +8,9 @@
 # the runtime would shadow the real plugin implementation at link time
 # (the executable's T beats the plugin .so's U), silently breaking behavior.
 # runtime-abi-check enforces both directions.
-
-sa_http_client_resp_body_slice
+#
+# Currently no symbols are listed. The former single entry,
+# sa_http_client_resp_body_slice, was removed 2026-10-28: the HTTP client
+# is part of the standard runtime now, and the symbol is a real export of
+# the runtime (verified in the static archive), so the premise of this
+# list no longer held for it. Its header declaration is unchanged.

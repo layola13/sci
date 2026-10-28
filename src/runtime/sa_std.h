@@ -867,6 +867,514 @@ const uint8_t *sa_std_http2_buffer_data(uint64_t handle);
 uint64_t sa_std_http2_buffer_len(uint64_t handle);
 int32_t sa_std_http2_buffer_free(uint64_t handle);
 
+/* ABI expansion, 2026-10-28: the sections below declare the remaining
+ * contract surface of the standard library. Every declaration was
+ * verified against a matching export in the Linux runtime archive,
+ * and signatures mirror the library contracts: status-code returns,
+ * byte spans as pointer plus length, results through out parameters,
+ * opaque handles as integers or pointers per contract. */
+
+/* Compression. */
+const uint8_t *sa_std_compress_buffer_data(uint64_t buffer);
+int32_t sa_std_compress_buffer_free(uint64_t buffer);
+uint64_t sa_std_compress_buffer_len(uint64_t buffer);
+int32_t sa_std_compress_decode(uint32_t format, const uint8_t *data, uint64_t data_len, uint64_t *out_handle);
+int32_t sa_std_compress_encode(uint32_t format, const uint8_t *data, uint64_t data_len, uint64_t *out_handle);
+int32_t sa_std_compress_supported(uint32_t *out_flags);
+
+/* Crypto additions: bcrypt password hashing and the OS keyring. */
+int32_t sa_bcrypt_hash(const uint8_t *pw, uint64_t pw_len, uint32_t cost, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_bcrypt_verify(const uint8_t *pw, uint64_t pw_len, const uint8_t *hash, uint64_t hash_len, uint32_t *out_match);
+uint32_t sa_keyring_available(void);
+int32_t sa_keyring_get(const uint8_t *key, uint64_t key_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_keyring_remove(const uint8_t *key, uint64_t key_len);
+int32_t sa_keyring_set(const uint8_t *collection, uint64_t collection_len, const uint8_t *key, uint64_t key_len, const uint8_t *secret, uint64_t secret_len);
+
+/* DTLS. */
+const uint8_t *sa_std_dtls_buffer_data(uint64_t buffer);
+int32_t sa_std_dtls_buffer_free(uint64_t buffer);
+uint64_t sa_std_dtls_buffer_len(uint64_t buffer);
+int32_t sa_std_dtls_server_accept(uint64_t ctx, int32_t fd, uint64_t *out_ssl);
+int32_t sa_std_dtls_server_close(uint64_t ssl);
+int32_t sa_std_dtls_server_ctx_create(const uint8_t *cert_path, uint64_t cert_path_len, const uint8_t *key_path, uint64_t key_path_len, uint64_t *out_ctx);
+int32_t sa_std_dtls_server_ctx_free(uint64_t ctx);
+int32_t sa_std_dtls_server_read(uint64_t ssl, uint8_t *out, uint64_t cap, uint64_t *out_read);
+int32_t sa_std_dtls_server_write(uint64_t ssl, const uint8_t *buf, uint64_t len, uint64_t *out_written);
+int32_t sa_std_dtls_status_json(uint64_t *out_handle);
+int32_t sa_std_dtls_supported(uint32_t *out_supported);
+
+/* TOML reader. */
+int32_t sa_toml_array_get_i64(uint64_t doc, const uint8_t *path, uint64_t path_len, uint64_t index, int64_t *out_value);
+int32_t sa_toml_array_get_string(uint64_t doc, const uint8_t *path, uint64_t path_len, uint64_t index, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_toml_array_len(uint64_t doc, const uint8_t *path, uint64_t path_len, uint64_t *out_len);
+int32_t sa_toml_array_push_bool(uint64_t doc, const uint8_t *path, uint64_t path_len, uint32_t value);
+int32_t sa_toml_array_push_datetime(uint64_t doc, const uint8_t *path, uint64_t path_len, const uint8_t *value, uint64_t value_len);
+int32_t sa_toml_array_push_f64(uint64_t doc, const uint8_t *path, uint64_t path_len, double value);
+int32_t sa_toml_array_push_i64(uint64_t doc, const uint8_t *path, uint64_t path_len, int64_t value);
+int32_t sa_toml_array_push_string(uint64_t doc, const uint8_t *path, uint64_t path_len, const uint8_t *value, uint64_t value_len);
+int32_t sa_toml_array_push_table(uint64_t doc, const uint8_t *path, uint64_t path_len);
+int32_t sa_toml_free(uint64_t doc);
+int32_t sa_toml_get_bool(uint64_t doc, const uint8_t *path, uint64_t path_len, uint32_t *out_value);
+int32_t sa_toml_get_datetime(uint64_t doc, const uint8_t *path, uint64_t path_len, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_toml_get_f64(uint64_t doc, const uint8_t *path, uint64_t path_len, double *out_value);
+int32_t sa_toml_get_i64(uint64_t doc, const uint8_t *path, uint64_t path_len, int64_t *out_value);
+int32_t sa_toml_get_string(uint64_t doc, const uint8_t *path, uint64_t path_len, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_toml_kind(uint64_t doc, const uint8_t *path, uint64_t path_len, uint32_t *out_kind);
+int32_t sa_toml_last_error(const uint8_t **out_ptr, uint64_t *out_len);
+uint64_t sa_toml_new(void);
+uint64_t sa_toml_parse(const uint8_t *toml_bytes, uint64_t len);
+int32_t sa_toml_remove(uint64_t doc, const uint8_t *path, uint64_t path_len);
+int32_t sa_toml_set_bool(uint64_t doc, const uint8_t *path, uint64_t path_len, uint32_t value);
+int32_t sa_toml_set_datetime(uint64_t doc, const uint8_t *path, uint64_t path_len, const uint8_t *value, uint64_t value_len);
+int32_t sa_toml_set_f64(uint64_t doc, const uint8_t *path, uint64_t path_len, double value);
+int32_t sa_toml_set_i64(uint64_t doc, const uint8_t *path, uint64_t path_len, int64_t value);
+int32_t sa_toml_set_string(uint64_t doc, const uint8_t *path, uint64_t path_len, const uint8_t *value, uint64_t value_len);
+int32_t sa_toml_set_table(uint64_t doc, const uint8_t *path, uint64_t path_len);
+int32_t sa_toml_stringify(uint64_t doc, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_toml_table_key_at(uint64_t doc, const uint8_t *path, uint64_t path_len, uint64_t index, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_toml_table_len(uint64_t doc, const uint8_t *path, uint64_t path_len, uint64_t *out_len);
+
+/* fs additions: file-object API and the filesystem watcher. */
+int32_t sa_fs_file_close(uint64_t file);
+int32_t sa_fs_file_create(const uint8_t *path, uint64_t path_len);
+int32_t sa_fs_file_flush(uint64_t file);
+int32_t sa_fs_file_open(const uint8_t *path, uint64_t path_len, uint32_t flags);
+int32_t sa_fs_file_read(uint64_t file, uint8_t *buf, uint64_t cap);
+int32_t sa_fs_file_read_exact(uint64_t file, uint8_t *buf, uint64_t len);
+int32_t sa_fs_file_seek(uint64_t file, uint32_t whence, int64_t offset);
+int32_t sa_fs_file_write(uint64_t file, const uint8_t *buf, uint64_t len);
+int32_t sa_fs_file_write_all(uint64_t file, const uint8_t *buf, uint64_t len);
+int32_t sa_fs_watch_add(uint64_t handle, const uint8_t *path, uint64_t path_len, uint32_t mask, int32_t *out_wd);
+int32_t sa_fs_watch_close(uint64_t handle);
+int32_t sa_fs_watch_create(uint64_t *out_handle);
+int32_t sa_fs_watch_next(uint64_t handle, uint32_t *out_ready, int32_t *out_wd, uint32_t *out_mask, uint32_t *out_cookie, uint8_t *name, uint64_t name_cap, uint64_t *out_name_len);
+int32_t sa_fs_watch_poll(uint64_t handle, int32_t timeout_ms, uint32_t *out_pending);
+int32_t sa_fs_watch_remove(uint64_t handle, int32_t wd);
+
+/* http2 addition. */
+int32_t sa_std_http2_client_request_with_settings(const uint8_t *url, uint64_t url_len, const uint8_t *method, uint64_t method_len, const uint8_t *body, uint64_t body_len, const uint8_t *settings, uint64_t settings_len, uint64_t *out_handle);
+
+/* HTTP client. Handles are opaque pointers; integer returns are status codes. */
+uint32_t sa_http_client_async_cancel_v2(void *op);
+uint32_t sa_http_client_async_free(void *op);
+uint32_t sa_http_client_async_free_v2(void *op);
+uint32_t sa_http_client_async_poll(void *op, uint8_t *out_ready);
+uint32_t sa_http_client_async_poll_v2(void *op, uint32_t timeout_ms, uint8_t *out_ready);
+uint32_t sa_http_client_async_take_response(void *op, void **out_resp);
+uint32_t sa_http_client_async_take_response_v2(void *op, void **out_resp);
+uint32_t sa_http_client_body_reader_free(void *reader);
+uint32_t sa_http_client_free(void *client);
+uint32_t sa_http_client_new(uint8_t use_tls, void **out_client);
+uint32_t sa_http_client_new_v2(uint8_t use_tls, const uint8_t *ca_bundle_path, uint64_t ca_bundle_path_len, void **out_client);
+uint32_t sa_http_client_req_add_header(void *req, const uint8_t *key, uint64_t key_len, const uint8_t *val, uint64_t val_len);
+uint32_t sa_http_client_req_add_header_v2(void *req, const uint8_t *key, uint64_t key_len, const uint8_t *value, uint64_t value_len);
+uint32_t sa_http_client_req_add_openai_auth(void *req, const uint8_t *key, uint64_t key_len);
+uint32_t sa_http_client_req_free(void *req);
+uint32_t sa_http_client_req_new(void *client, uint8_t method, const uint8_t *url, uint64_t url_len, void **out_req);
+uint32_t sa_http_client_req_new_joined(void *client, uint8_t method, const uint8_t *target, uint64_t target_len, const uint8_t *path, uint64_t path_len, uint8_t preserve_base_path, void **out_req);
+uint32_t sa_http_client_req_new_v2(void *client, uint8_t method, const uint8_t *url, uint64_t url_len, void **out_req);
+uint32_t sa_http_client_req_send(void *req, void **out_resp);
+uint32_t sa_http_client_req_send_async(void *req, void **out_op);
+uint32_t sa_http_client_req_send_async_v2(void *req, void **out_op);
+uint32_t sa_http_client_req_send_v2(void *req, void **out_resp);
+uint32_t sa_http_client_req_set_body(void *req, const uint8_t *body, uint64_t body_len);
+uint32_t sa_http_client_req_set_body_v2(void *req, const uint8_t *body, uint64_t body_len);
+uint32_t sa_http_client_req_set_max_response_bytes_v2(void *req, uint64_t max_bytes);
+uint32_t sa_http_client_req_set_timeout_v2(void *req, uint32_t timeout_ms);
+uint32_t sa_http_client_req_websocket_connect_unix_v2(void *req, const uint8_t *socket_path, uint64_t socket_path_len, uint32_t timeout_ms, void **out_ws);
+uint32_t sa_http_client_req_websocket_connect_v2(void *req, uint32_t timeout_ms, void **out_ws);
+uint64_t sa_http_client_resp_body_len(void *resp);
+const uint8_t *sa_http_client_resp_body_ptr(void *resp);
+uint32_t sa_http_client_resp_body_reader(void *resp, void **out_reader);
+uint32_t sa_http_client_resp_free(void *resp);
+uint32_t sa_http_client_resp_get_header(void *resp, const uint8_t *key, uint64_t key_len, const uint8_t **out_val, uint64_t *out_len);
+uint32_t sa_http_client_resp_read_chunk(void *reader, uint8_t *buf, uint64_t cap, uint64_t *out_len);
+uint16_t sa_http_client_resp_status(void *resp);
+uint32_t sa_http_client_sse_free(void *handle);
+uint32_t sa_http_client_sse_poll(void *handle, uint8_t *out_done);
+uint32_t sa_http_client_sse_post(const uint8_t *url, uint64_t url_len, const uint8_t *body, uint64_t body_len, const uint8_t *key, uint64_t key_len, void **out_handle);
+uint32_t sa_http_client_sse_read(void *handle, uint8_t *buf, uint64_t buf_cap, uint64_t *out_len);
+uint16_t sa_http_client_sse_status(void *handle);
+uint32_t sa_http_client_sse_turn(const uint8_t *url, uint64_t url_len, const uint8_t *body, uint64_t body_len, const uint8_t *key, uint64_t key_len, uint64_t api_mode, uint8_t **out_text, uint64_t *out_text_len, uint8_t **out_calls, uint64_t *out_calls_len);
+uint32_t sa_http_client_sse_turn_ex(const uint8_t *url, uint64_t url_len, const uint8_t *body, uint64_t body_len, const uint8_t *key, uint64_t key_len, uint64_t api_mode, uint8_t **out_text, uint64_t *out_text_len, uint8_t **out_calls, uint64_t *out_calls_len, uint8_t **out_usage, uint64_t *out_usage_len, uint8_t **out_reasoning, uint64_t *out_reasoning_len);
+void sa_http_client_sse_turn_free(uint8_t *buf, uint64_t len);
+uint32_t sa_http_client_sse_turn_free_all(uint8_t *text, uint64_t text_len, uint8_t *calls, uint64_t calls_len, uint8_t *usage, uint64_t usage_len, uint8_t *reasoning, uint64_t reasoning_len);
+uint32_t sa_http_client_websocket_connect(void *client, const uint8_t *url, uint64_t url_len, void **out_ws);
+uint32_t sa_http_client_websocket_connect_unix_v2(void *client, const uint8_t *socket_path, uint64_t socket_path_len, const uint8_t *url, uint64_t url_len, uint32_t timeout_ms, void **out_ws);
+uint32_t sa_http_client_websocket_connect_v2(void *client, const uint8_t *url, uint64_t url_len, uint32_t timeout_ms, void **out_ws);
+int32_t sa_http_fetch_bytes(const uint8_t *url, uint64_t url_len, uint8_t *buf, uint64_t cap, uint64_t *out_len);
+uint32_t sa_http_websocket_close_v2(void *ws, uint16_t code, const uint8_t *reason, uint64_t reason_len);
+uint32_t sa_http_websocket_free(void *ws);
+uint32_t sa_http_websocket_free_v2(void *ws);
+uint32_t sa_http_websocket_poll_v2(void *ws, uint32_t interests, uint32_t timeout_ms, uint32_t *out_events);
+uint32_t sa_http_websocket_read(void *ws, uint64_t max_len, uint8_t *out_opcode, const uint8_t **out_ptr, uint64_t *out_len);
+uint32_t sa_http_websocket_read_v2(void *ws, uint64_t max_len, uint8_t *out_opcode, const uint8_t **out_ptr, uint64_t *out_len);
+uint32_t sa_http_websocket_write(void *ws, uint8_t opcode, const uint8_t *data, uint64_t data_len);
+uint32_t sa_http_websocket_write_v2(void *ws, uint8_t opcode, const uint8_t *data, uint64_t data_len, uint64_t *out_written);
+
+/* HTTP cookies: value layer, cookie jar, Netscape persistence. */
+int32_t sa_cookie_clear_expiry(uint64_t handle);
+int32_t sa_cookie_domain(uint64_t handle, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_cookie_domain_match(const uint8_t *domain, uint64_t domain_len, const uint8_t *host, uint64_t host_len, int32_t *out_flag);
+int32_t sa_cookie_expires(uint64_t handle, int64_t *out_unix);
+int32_t sa_cookie_flags(uint64_t handle, int32_t *out_secure, int32_t *out_http_only, int32_t *out_partitioned);
+int32_t sa_cookie_free(uint64_t handle);
+uint64_t sa_cookie_header_pair_at(const uint8_t *bytes, uint64_t len, uint64_t index);
+int32_t sa_cookie_header_pair_count(const uint8_t *bytes, uint64_t len, uint64_t *out_count);
+int32_t sa_cookie_is_expired(uint64_t handle, int64_t now, int32_t *out_flag);
+int32_t sa_cookie_is_host_only(uint64_t handle, int32_t *out_flag);
+uint64_t sa_cookie_jar_at(uint64_t jar, uint64_t index);
+int32_t sa_cookie_jar_clear(uint64_t jar);
+int32_t sa_cookie_jar_count(uint64_t jar, uint64_t *out_count);
+int32_t sa_cookie_jar_evict_expired(uint64_t jar, int64_t now, uint64_t *out_removed);
+int32_t sa_cookie_jar_free(uint64_t jar);
+int32_t sa_cookie_jar_header(uint64_t jar, const uint8_t *url, uint64_t url_len, int64_t now, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_cookie_jar_load(uint64_t jar, const uint8_t *path, uint64_t path_len, uint64_t *out_loaded);
+uint64_t sa_cookie_jar_new(void);
+int32_t sa_cookie_jar_policy(uint64_t jar, uint32_t *out_policy);
+int32_t sa_cookie_jar_request_header(uint64_t jar, const uint8_t *url, uint64_t url_len, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_cookie_jar_save(uint64_t jar, const uint8_t *path, uint64_t path_len);
+int32_t sa_cookie_jar_set_policy(uint64_t jar, uint32_t policy);
+int32_t sa_cookie_jar_store(uint64_t jar, const uint8_t *url, uint64_t url_len, const uint8_t *set_cookie, uint64_t set_cookie_len, int64_t now, uint32_t *out_result);
+int32_t sa_cookie_jar_store_response(uint64_t jar, const uint8_t *url, uint64_t url_len, const uint8_t *set_cookie, uint64_t set_cookie_len);
+int32_t sa_cookie_last_error(const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_cookie_max_age(uint64_t handle, int64_t *out_secs);
+int32_t sa_cookie_name(uint64_t handle, const uint8_t **out_ptr, uint64_t *out_len);
+uint64_t sa_cookie_new(const uint8_t *name, uint64_t name_len, const uint8_t *value, uint64_t value_len);
+uint64_t sa_cookie_parse_set_cookie(const uint8_t *bytes, uint64_t len);
+int32_t sa_cookie_path(uint64_t handle, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_cookie_path_match(const uint8_t *cookie_path, uint64_t cookie_path_len, const uint8_t *request_path, uint64_t request_path_len, int32_t *out_flag);
+int32_t sa_cookie_same_site(uint64_t handle, uint32_t *out_mode);
+int32_t sa_cookie_serialize(uint64_t handle, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_cookie_serialize_pair(uint64_t handle, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_cookie_set_domain(uint64_t handle, const uint8_t *bytes, uint64_t len);
+int32_t sa_cookie_set_expires(uint64_t handle, int64_t unix_seconds);
+int32_t sa_cookie_set_http_only(uint64_t handle, int32_t on);
+int32_t sa_cookie_set_max_age(uint64_t handle, int64_t secs);
+int32_t sa_cookie_set_partitioned(uint64_t handle, int32_t on);
+int32_t sa_cookie_set_path(uint64_t handle, const uint8_t *bytes, uint64_t len);
+int32_t sa_cookie_set_same_site(uint64_t handle, uint32_t mode);
+int32_t sa_cookie_set_secure(uint64_t handle, int32_t on);
+int32_t sa_cookie_value(uint64_t handle, const uint8_t **out_ptr, uint64_t *out_len);
+
+/* HTTP server. Handles are opaque pointers; integer returns are status codes. */
+uint32_t sa_http_server_accept(void *server, void **out_req);
+uint32_t sa_http_server_accept_v2(void *server, uint32_t timeout_ms, void **out_req);
+uint32_t sa_http_server_free(void *server);
+uint32_t sa_http_server_free_v2(void *server);
+uint32_t sa_http_server_new(void **out_server);
+uint32_t sa_http_server_new_v2(void **out_server);
+uint32_t sa_http_server_req_free(void *req);
+uint32_t sa_http_server_req_free_v2(void *req);
+uint32_t sa_http_server_req_get_body(void *req, const uint8_t **out_body, uint64_t *out_len);
+uint32_t sa_http_server_req_get_header(void *req, const uint8_t *key, uint64_t key_len, const uint8_t **out_val, uint64_t *out_len);
+uint32_t sa_http_server_req_get_method(void *req, const uint8_t **out_method, uint64_t *out_len);
+uint32_t sa_http_server_req_get_path(void *req, const uint8_t **out_path, uint64_t *out_len);
+uint32_t sa_http_server_resp_add_header_v2(void *resp, const uint8_t *name, uint64_t name_len, const uint8_t *value, uint64_t value_len);
+uint32_t sa_http_server_resp_free(void *resp);
+uint32_t sa_http_server_resp_free_v2(void *resp);
+uint32_t sa_http_server_resp_new(void *req, uint16_t status, void **out_resp);
+uint32_t sa_http_server_resp_new_v2(void *req, uint16_t status, void **out_resp);
+uint32_t sa_http_server_resp_send(void *resp, const uint8_t *body, uint64_t body_len);
+uint32_t sa_http_server_resp_send_v2(void *resp, const uint8_t *body, uint64_t body_len, uint32_t timeout_ms);
+uint32_t sa_http_server_resp_set_content_type(void *resp, const uint8_t *content_type, uint64_t content_type_len);
+uint32_t sa_http_server_resp_stream_add_header_v2(void *resp, const uint8_t *name, uint64_t name_len, const uint8_t *value, uint64_t value_len);
+uint32_t sa_http_server_resp_stream_end(void *resp);
+uint32_t sa_http_server_resp_stream_end_v2(void *resp, uint32_t timeout_ms);
+uint32_t sa_http_server_resp_stream_flush(void *resp);
+uint32_t sa_http_server_resp_stream_flush_v2(void *resp);
+uint32_t sa_http_server_resp_stream_free(void *resp);
+uint32_t sa_http_server_resp_stream_free_v2(void *resp);
+uint32_t sa_http_server_resp_stream_new(void *req, uint16_t status, void **out_resp);
+uint32_t sa_http_server_resp_stream_new_v2(void *req, uint16_t status, void **out_resp);
+uint32_t sa_http_server_resp_stream_write(void *resp, const uint8_t *body, uint64_t body_len);
+uint32_t sa_http_server_resp_stream_write_v2(void *resp, const uint8_t *body, uint64_t body_len, uint32_t timeout_ms);
+uint32_t sa_http_server_serve_threaded(void *server, uint32_t num_threads, void (*handler)(void *, void *), void *handler_ctx, uint64_t max_requests);
+uint32_t sa_http_server_set_max_body_bytes(void *server, uint64_t max_bytes);
+uint32_t sa_http_server_start(void *server, const uint8_t *host, uint64_t host_len, uint16_t port);
+uint32_t sa_http_server_start_v2(void *server, const uint8_t *host, uint64_t host_len, uint16_t port);
+uint32_t sa_http_server_stop_serving(void *server);
+uint32_t sa_http_server_websocket_close_v2(void *ws, uint16_t code, const uint8_t *reason, uint64_t reason_len);
+uint32_t sa_http_server_websocket_free(void *ws);
+uint32_t sa_http_server_websocket_free_v2(void *ws);
+uint32_t sa_http_server_websocket_poll_v2(void *ws, uint32_t interests, uint32_t timeout_ms, uint32_t *out_events);
+uint32_t sa_http_server_websocket_read(void *ws, uint64_t max_len, uint8_t *out_opcode, const uint8_t **out_data, uint64_t *out_len);
+uint32_t sa_http_server_websocket_read_v2(void *ws, uint64_t max_len, uint8_t *out_opcode, const uint8_t **out_data, uint64_t *out_len);
+uint32_t sa_http_server_websocket_upgrade(void *req, void **out_ws);
+uint32_t sa_http_server_websocket_upgrade_v2(void *req, void **out_ws);
+uint32_t sa_http_server_websocket_write(void *ws, uint8_t opcode, const uint8_t *data, uint64_t data_len);
+uint32_t sa_http_server_websocket_write_v2(void *ws, uint8_t opcode, const uint8_t *data, uint64_t data_len, uint64_t *out_written);
+
+/* Module state slots. */
+uint64_t sa_modstate_get_u64(uint64_t key);
+int32_t sa_modstate_set_u64(uint64_t key, uint64_t value);
+
+/* Multipart form data. */
+const uint8_t *sa_std_multipart_buffer_data(uint64_t buffer);
+int32_t sa_std_multipart_buffer_free(uint64_t buffer);
+uint64_t sa_std_multipart_buffer_len(uint64_t buffer);
+int32_t sa_std_multipart_builder_add_field(uint64_t handle, const uint8_t *name, uint64_t name_len, const uint8_t *value, uint64_t value_len);
+int32_t sa_std_multipart_builder_add_file(uint64_t handle, const uint8_t *name, uint64_t name_len, const uint8_t *filename, uint64_t filename_len, const uint8_t *content_type, uint64_t content_type_len, const uint8_t *data, uint64_t data_len);
+int32_t sa_std_multipart_builder_boundary(uint64_t handle, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_std_multipart_builder_content_type(uint64_t handle, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_std_multipart_builder_finish(uint64_t handle, uint64_t *out_handle);
+int32_t sa_std_multipart_builder_free(uint64_t handle);
+int32_t sa_std_multipart_builder_new(uint64_t *out_handle);
+uint64_t sa_std_multipart_count(uint64_t handle);
+int32_t sa_std_multipart_free(uint64_t handle);
+int32_t sa_std_multipart_parse(const uint8_t *body, uint64_t body_len, const uint8_t *content_type, uint64_t content_type_len, uint64_t *out_handle);
+int32_t sa_std_multipart_part_body(uint64_t handle, uint64_t index, const uint8_t **out_ptr, uint64_t *out_len);
+int32_t sa_std_multipart_part_content_type(uint64_t handle, uint64_t index, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_std_multipart_part_filename(uint64_t handle, uint64_t index, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_std_multipart_part_header(uint64_t handle, uint64_t index, const uint8_t *name, uint64_t name_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_std_multipart_part_name(uint64_t handle, uint64_t index, uint8_t *out, uint64_t cap, uint64_t *out_len);
+
+/* net additions: short-name aliases, socket option passthrough, datagram surface. */
+sa_std_fallible_u64 sa_net_tcp_connect(const uint8_t *host, uint64_t host_len, uint32_t port);
+sa_std_fallible_u64 sa_net_tcp_listener_accept(uint64_t listener);
+sa_std_fallible_u64 sa_net_tcp_listener_bind(const uint8_t *host, uint64_t host_len, uint16_t port);
+sa_std_fallible_i32 sa_net_tcp_listener_close(uint64_t listener);
+sa_std_fallible_u64 sa_net_tcp_listener_local_addr(uint64_t listener);
+sa_std_fallible_i32 sa_net_tcp_stream_close(uint64_t stream);
+int32_t sa_net_tcp_stream_flush(uint64_t stream);
+int32_t sa_net_tcp_stream_peer_addr(uint64_t stream);
+sa_std_fallible_u64 sa_net_tcp_stream_read(uint64_t stream, uint8_t *buf, uint64_t cap);
+int32_t sa_net_tcp_stream_shutdown(uint64_t stream, uint32_t how);
+int32_t sa_net_tcp_stream_write(uint64_t stream, const uint8_t *buf, uint64_t len);
+sa_std_fallible_i32 sa_net_tcp_stream_write_all(uint64_t stream, const uint8_t *buf, uint64_t len);
+int32_t sa_net_udp_bind(const uint8_t *host, uint64_t host_len, uint16_t port);
+int32_t sa_net_udp_local_addr(uint64_t socket);
+int32_t sa_net_udp_peek(uint64_t socket, uint8_t *buf, uint64_t cap);
+int32_t sa_net_udp_peek_from(uint64_t socket, uint8_t *buf, uint64_t cap, uint64_t *out_addr);
+int32_t sa_net_udp_recv_from(uint64_t socket, uint8_t *buf, uint64_t cap, uint64_t *out_addr);
+int32_t sa_net_udp_send_to(uint64_t socket, const uint8_t *buf, uint64_t len, const uint8_t *host, uint64_t host_len, uint16_t port);
+int32_t sa_std_net_addr_reverse_lookup(uint64_t addr, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_net_ja3_hash(const uint8_t *ja3, uint64_t ja3_len, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_net_ja4_hash12(const uint8_t *data, uint64_t data_len, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_net_sha256_hex(const uint8_t *input, uint64_t input_len, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_net_socket_getsockopt(uint64_t handle, int32_t level, uint32_t optname, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_net_socket_getsockopt_int(uint64_t handle, int32_t level, uint32_t optname, int32_t *out_value);
+int32_t sa_std_net_socket_setsockopt(uint64_t handle, int32_t level, uint32_t optname, const uint8_t *value, uint64_t value_len);
+int32_t sa_std_net_socket_setsockopt_int(uint64_t handle, int32_t level, uint32_t optname, int32_t value);
+int32_t sa_std_net_udp_recv_msg(uint64_t socket, uint8_t *buf, uint64_t cap, uint64_t *out_read, uint64_t *out_addr, uint64_t *out_dest_addr, uint32_t *out_ifindex, uint64_t *out_timestamp_ns, uint32_t *out_flags);
+int32_t sa_std_net_udp_recv_multi(uint64_t socket, uint8_t *buf, uint64_t buf_cap, uint64_t slot_size, uint64_t max_msgs, uint64_t *out_count, uint64_t *out_lens, uint64_t *out_addrs);
+int32_t sa_std_net_unix_datagram_peer_cred(uint64_t socket, int32_t *out_pid, uint32_t *out_uid, uint32_t *out_gid);
+int32_t sa_std_url_parse(const uint8_t *url, uint64_t url_len, uint8_t *scheme_out, uint64_t scheme_cap, uint64_t *scheme_len, uint8_t *host_out, uint64_t host_cap, uint64_t *host_len, uint8_t *path_out, uint64_t path_cap, uint64_t *path_len, uint32_t *out_port);
+int32_t sa_std_ws_accept_key(const uint8_t *key, uint64_t key_len, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_ws_frame_build(uint32_t opcode, uint32_t fin, const uint8_t *payload, uint64_t payload_len, const uint8_t *mask, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_ws_frame_build_unmasked(uint32_t opcode, uint32_t fin, const uint8_t *payload, uint64_t payload_len, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_ws_frame_parse(const uint8_t *data, uint64_t data_len, uint8_t *out_fin, uint8_t *out_opcode, uint8_t *out_masked, uint64_t *out_payload_offset, uint64_t *out_payload_len, uint64_t *out_frame_len, uint8_t *out_mask);
+int32_t sa_std_ws_unmask(uint8_t *payload, uint64_t payload_len, const uint8_t *mask);
+
+/* Network interface information. */
+int32_t sa_std_net_interface_addresses_json(uint64_t *out_handle);
+
+/* netx: io_uring reactor surface. */
+typedef struct SaNetxTicket {
+    uint32_t slot_id;
+    uint16_t op_code;
+    uint8_t proto;
+    uint8_t flags;
+    uint8_t *payload;
+    uint32_t payload_len;
+    uint32_t pad;
+} SaNetxTicket;
+
+int32_t sa_netx_broadcast(uint32_t reactor_id, const uint32_t *slot_ids, uint32_t n, const uint8_t *msg, uint32_t len);
+int32_t sa_netx_close_slot(uint32_t slot_id);
+int32_t sa_netx_init(uint64_t slot_capacity, uint32_t reactor_count);
+int32_t sa_netx_listen(const uint8_t *host, uint64_t host_len, uint16_t port);
+int32_t sa_netx_push_outbound(uint32_t reactor_id, uint32_t slot_id, const uint8_t *msg, uint32_t len);
+int32_t sa_netx_recv_ticket(uint32_t reactor_id, SaNetxTicket *out_ticket);
+int32_t sa_netx_shutdown(void);
+
+/* QUIC and HTTP/3. */
+int32_t sa_std_http3_constants_json(uint64_t *out_handle);
+int32_t sa_std_http3_request_field(uint64_t session, int64_t stream_id, const uint8_t *name, uint64_t name_len, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_http3_response_status(uint64_t session, int64_t stream_id, uint32_t *out_status);
+int32_t sa_std_http3_server_next_request(uint64_t session, int64_t *out_stream_id);
+int32_t sa_std_http3_session_bind(uint64_t session, uint64_t quic_conn);
+int32_t sa_std_http3_session_create(uint64_t *out_handle);
+int32_t sa_std_http3_session_destroy(uint64_t session);
+int32_t sa_std_http3_stream_read(uint64_t session, int64_t stream_id, uint8_t *out, uint64_t out_cap, uint64_t *out_read, uint32_t *out_fin);
+int32_t sa_std_http3_submit_request(uint64_t session, const uint8_t *method, uint64_t method_len, const uint8_t *authority, uint64_t authority_len, const uint8_t *path, uint64_t path_len, const uint8_t *body, uint64_t body_len, int64_t *out_stream_id);
+int32_t sa_std_http3_submit_response(uint64_t session, int64_t stream_id, uint32_t status, const uint8_t *body, uint64_t body_len);
+int32_t sa_std_http3_supported(uint32_t *out_supported);
+const uint8_t *sa_std_quic_buffer_data(uint64_t buffer);
+int32_t sa_std_quic_buffer_free(uint64_t buffer);
+uint64_t sa_std_quic_buffer_len(uint64_t buffer);
+int32_t sa_std_quic_capabilities_json(uint64_t *out_handle);
+int32_t sa_std_quic_client_connect(uint64_t endpoint, const uint8_t *host, uint64_t host_len, uint32_t port, const uint8_t *server_name, uint64_t server_name_len, const uint8_t *ca_file, uint64_t ca_file_len, const uint8_t *alpn, uint64_t alpn_len, uint64_t *out_conn);
+int32_t sa_std_quic_conn_close(uint64_t conn);
+int32_t sa_std_quic_conn_handshake_completed(uint64_t conn, uint32_t *out_done);
+int32_t sa_std_quic_conn_poll(uint64_t conn, uint32_t timeout_ms);
+int32_t sa_std_quic_constants_json(uint64_t *out_handle);
+int32_t sa_std_quic_endpoint_create(uint64_t *out_handle);
+int32_t sa_std_quic_endpoint_destroy(uint64_t endpoint);
+int32_t sa_std_quic_server_accept(uint64_t endpoint, uint64_t *out_conn);
+int32_t sa_std_quic_server_listen(uint64_t endpoint, uint32_t port, const uint8_t *cert_file, uint64_t cert_file_len, const uint8_t *key_file, uint64_t key_file_len);
+int32_t sa_std_quic_server_poll(uint64_t endpoint, uint32_t timeout_ms);
+int32_t sa_std_quic_stream_open(uint64_t conn, int64_t *out_stream_id);
+int32_t sa_std_quic_stream_read(uint64_t conn, int64_t stream_id, uint8_t *out, uint64_t out_cap, uint64_t *out_read, uint32_t *out_fin);
+int32_t sa_std_quic_stream_write(uint64_t conn, int64_t stream_id, const uint8_t *data, uint64_t data_len, uint32_t fin, uint64_t *out_written);
+int32_t sa_std_quic_supported(uint32_t *out_supported);
+
+/* SSH: client, server, SFTP. */
+int32_t sa_std_ssh_auth_keyfile(void *session, const uint8_t *user, uint64_t user_len, const uint8_t *pub_path, uint64_t pub_path_len, const uint8_t *priv_path, uint64_t priv_path_len, const uint8_t *passphrase, uint64_t passphrase_len);
+int32_t sa_std_ssh_auth_password(void *session, const uint8_t *user, uint64_t user_len, const uint8_t *password, uint64_t password_len);
+const uint8_t *sa_std_ssh_buffer_data(uint64_t buffer);
+int32_t sa_std_ssh_buffer_free(uint64_t buffer);
+uint64_t sa_std_ssh_buffer_len(uint64_t buffer);
+int32_t sa_std_ssh_channel_close(void *channel);
+int32_t sa_std_ssh_channel_read(void *channel, uint32_t stream, uint8_t *out, uint64_t cap, uint64_t *out_read);
+int32_t sa_std_ssh_channel_send_exit(void *channel, int32_t exit_code);
+int32_t sa_std_ssh_channel_write(void *channel, uint32_t stream, const uint8_t *data, uint64_t data_len, uint64_t *out_written);
+int32_t sa_std_ssh_client_connect(const uint8_t *host, uint64_t host_len, uint32_t port, void **out_session);
+int32_t sa_std_ssh_exec(void *session, const uint8_t *command, uint64_t command_len, uint64_t *out_stdout, uint64_t *out_stderr, int32_t *out_exit);
+int32_t sa_std_ssh_hostkey_fingerprint(void *session, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_std_ssh_server_accept(void *bind, void **out_session);
+int32_t sa_std_ssh_server_auth_accept(void *session);
+int32_t sa_std_ssh_server_auth_deny(void *session);
+int32_t sa_std_ssh_server_auth_next(void *session, uint32_t *out_kind, uint64_t *out_user, uint64_t *out_secret, int32_t *out_state);
+int32_t sa_std_ssh_server_bind_close(void *bind);
+int32_t sa_std_ssh_server_channel_accept(void *session, void **out_channel);
+int32_t sa_std_ssh_server_channel_exec(void *session, uint32_t *out_kind, uint64_t *out_command);
+int32_t sa_std_ssh_server_listen(const uint8_t *bind_addr, uint64_t bind_addr_len, uint32_t port, const uint8_t *hostkey_path, uint64_t hostkey_path_len, void **out_bind);
+int32_t sa_std_ssh_server_session_close(void *session);
+int32_t sa_std_ssh_session_close(void *session);
+int32_t sa_std_ssh_sftp_read(void *session, const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
+int32_t sa_std_ssh_sftp_stat(void *session, const uint8_t *path, uint64_t path_len, uint64_t *out_size, uint32_t *out_is_dir);
+int32_t sa_std_ssh_sftp_write(void *session, const uint8_t *path, uint64_t path_len, const uint8_t *data, uint64_t data_len);
+int32_t sa_std_ssh_supported(uint32_t *out_flags);
+
+/* Terminal additions: PTY surface. */
+typedef struct SaPtyArgvEntry {
+    const uint8_t *ptr;
+    uint64_t len;
+} SaPtyArgvEntry;
+
+int32_t sa_pty_close(uint64_t handle);
+int32_t sa_pty_kill(uint64_t handle, uint32_t sig);
+int32_t sa_pty_pid(uint64_t handle, int32_t *out_pid);
+int32_t sa_pty_poll(uint64_t handle, int32_t timeout_ms, uint32_t *out_events);
+int32_t sa_pty_read(uint64_t handle, uint8_t *buf, uint64_t cap, uint64_t *out_read);
+int32_t sa_pty_resize(uint64_t handle, uint16_t cols, uint16_t rows);
+int32_t sa_pty_spawn(const uint8_t *file, uint64_t file_len, const SaPtyArgvEntry *argv, uint64_t argv_len, uint16_t cols, uint16_t rows, uint64_t *out_handle);
+int32_t sa_pty_try_wait(uint64_t handle, uint32_t *out_done, int32_t *out_status);
+int32_t sa_pty_winsize(uint64_t handle, uint16_t *out_cols, uint16_t *out_rows);
+int32_t sa_pty_write(uint64_t handle, const uint8_t *buf, uint64_t len, uint64_t *out_written);
+
+/* Thread-local slots. */
+uint64_t *sa_thread_local_slot(uint64_t key);
+int32_t sa_thread_local_supported(uint32_t *out_supported);
+
+/* TLS client, including the shaped-profile surface. */
+int32_t sa_std_tls_client_add_ca_file(const uint8_t *path, uint64_t path_len);
+const uint8_t *sa_std_tls_client_buffer_data(uint64_t buffer);
+int32_t sa_std_tls_client_buffer_free(uint64_t buffer);
+uint64_t sa_std_tls_client_buffer_len(uint64_t buffer);
+int32_t sa_std_tls_client_close(uint64_t handle);
+int32_t sa_std_tls_client_config_add_ca_file(uint64_t config, const uint8_t *path, uint64_t path_len);
+int32_t sa_std_tls_client_config_add_ca_memory(uint64_t config, const uint8_t *pem, uint64_t pem_len);
+int32_t sa_std_tls_client_config_free(uint64_t config);
+int32_t sa_std_tls_client_config_new(uint64_t *out_config);
+int32_t sa_std_tls_client_config_set_insecure_no_verification(uint64_t config, uint32_t enabled);
+int32_t sa_std_tls_client_config_set_server_name(uint64_t config, const uint8_t *name, uint64_t name_len);
+int32_t sa_std_tls_client_config_set_verify_self_signed(uint64_t config, uint32_t enabled);
+int32_t sa_std_tls_client_connect(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t *out_handle);
+int32_t sa_std_tls_client_connect_config(const uint8_t *host, uint64_t host_len, uint32_t port, uint64_t config, uint64_t *out_handle);
+int32_t sa_std_tls_client_peer_cert_json(uint64_t handle, uint64_t *out_handle);
+int32_t sa_std_tls_client_read(uint64_t handle, uint8_t *buf, uint64_t cap, uint64_t *out_read);
+int32_t sa_std_tls_client_start_tls(int32_t fd, const uint8_t *host, uint64_t host_len, uint64_t config, uint64_t *out_handle);
+int32_t sa_std_tls_client_status_json(uint64_t *out_handle);
+int32_t sa_std_tls_client_supported(uint32_t *out_supported);
+int32_t sa_std_tls_client_write(uint64_t handle, const uint8_t *buf, uint64_t len, uint64_t *out_written);
+const uint8_t *sa_std_tls_shaped_buffer_data(uint64_t buffer);
+int32_t sa_std_tls_shaped_buffer_free(uint64_t buffer);
+uint64_t sa_std_tls_shaped_buffer_len(uint64_t buffer);
+int32_t sa_std_tls_shaped_close(uint64_t handle);
+int32_t sa_std_tls_shaped_connect(const uint8_t *host, uint64_t host_len, uint32_t port, const uint8_t *profile, uint64_t profile_len, uint64_t *out_handle);
+int32_t sa_std_tls_shaped_hello_ja3(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_tls_shaped_hello_ja3_string(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_tls_shaped_hello_ja4(uint64_t handle, uint8_t *out, uint64_t out_cap, uint64_t *out_len);
+int32_t sa_std_tls_shaped_negotiated_json(uint64_t handle, uint64_t *out_handle);
+int32_t sa_std_tls_shaped_peer_cert_chain_json(uint64_t handle, uint64_t *out_handle);
+int32_t sa_std_tls_shaped_read(uint64_t handle, uint8_t *buf, uint64_t cap, uint64_t *out_read);
+int32_t sa_std_tls_shaped_session_blob(uint64_t handle, uint64_t *out_handle);
+int32_t sa_std_tls_shaped_start_tls(int32_t fd, const uint8_t *host, uint64_t host_len, const uint8_t *profile, uint64_t profile_len, uint64_t *out_handle);
+int32_t sa_std_tls_shaped_supported(uint32_t *out_supported);
+int32_t sa_std_tls_shaped_write(uint64_t handle, const uint8_t *buf, uint64_t len, uint64_t *out_written);
+
+/* TLS server. */
+int32_t sa_std_tls_server_accept(uint64_t ctx, int32_t fd, uint64_t *out_ssl);
+const uint8_t *sa_std_tls_server_buffer_data(uint64_t buffer);
+int32_t sa_std_tls_server_buffer_free(uint64_t buffer);
+uint64_t sa_std_tls_server_buffer_len(uint64_t buffer);
+int32_t sa_std_tls_server_close(uint64_t ssl);
+int32_t sa_std_tls_server_ctx_create(const uint8_t *cert_path, uint64_t cert_path_len, const uint8_t *key_path, uint64_t key_path_len, uint64_t *out_ctx);
+int32_t sa_std_tls_server_ctx_create_memory(const uint8_t *cert_pem, uint64_t cert_pem_len, const uint8_t *key_pem, uint64_t key_pem_len, uint64_t *out_ctx);
+int32_t sa_std_tls_server_ctx_free(uint64_t ctx);
+int32_t sa_std_tls_server_ctx_require_client_cert(uint64_t ctx, const uint8_t *ca_path, uint64_t ca_path_len);
+int32_t sa_std_tls_server_ctx_set_alpn(uint64_t ctx, const uint8_t *protos, uint64_t protos_len);
+int32_t sa_std_tls_server_ctx_set_version_bounds(uint64_t ctx, uint32_t min_version, uint32_t max_version);
+int32_t sa_std_tls_server_negotiated_json(uint64_t ssl, uint64_t *out_handle);
+int32_t sa_std_tls_server_peer_cert_chain_json(uint64_t ssl, uint64_t *out_handle);
+int32_t sa_std_tls_server_read(uint64_t ssl, uint8_t *out, uint64_t cap, uint64_t *out_read);
+int32_t sa_std_tls_server_session_verify_result(uint64_t ssl, uint32_t *out_code);
+int32_t sa_std_tls_server_status_json(uint64_t *out_handle);
+int32_t sa_std_tls_server_supported(uint32_t *out_supported);
+int32_t sa_std_tls_server_write(uint64_t ssl, const uint8_t *buf, uint64_t len, uint64_t *out_written);
+
+/* Tree-sitter. */
+uint32_t sa_ts_available(void);
+int32_t sa_ts_node_byte_range(uint64_t handle, uint32_t *out_start, uint32_t *out_end);
+int32_t sa_ts_node_child(uint64_t handle, uint32_t index, uint32_t named, uint64_t *out_node);
+int32_t sa_ts_node_child_by_field(uint64_t handle, const uint8_t *field, uint64_t field_len, uint64_t *out_node);
+int32_t sa_ts_node_child_count(uint64_t handle, uint32_t *out_count);
+int32_t sa_ts_node_end_point(uint64_t handle, uint32_t *out_row, uint32_t *out_col);
+int32_t sa_ts_node_free(uint64_t handle);
+int32_t sa_ts_node_has_error(uint64_t handle, uint32_t *out_flag);
+int32_t sa_ts_node_is_missing(uint64_t handle, uint32_t *out_flag);
+int32_t sa_ts_node_is_named(uint64_t handle, uint32_t *out_flag);
+int32_t sa_ts_node_named_child_count(uint64_t handle, uint32_t *out_count);
+int32_t sa_ts_node_parent(uint64_t handle, uint64_t *out_node);
+int32_t sa_ts_node_start_point(uint64_t handle, uint32_t *out_row, uint32_t *out_col);
+int32_t sa_ts_node_text(uint64_t handle, uint8_t *buf, uint64_t cap, uint64_t *out_len);
+int32_t sa_ts_node_type(uint64_t handle, uint8_t *buf, uint64_t cap, uint64_t *out_len);
+int32_t sa_ts_parse(uint64_t handle, const uint8_t *src, uint64_t src_len, uint64_t *out_tree);
+int32_t sa_ts_parse_incremental(uint64_t handle, uint64_t old_tree, const uint8_t *src, uint64_t src_len, uint64_t *out_tree);
+int32_t sa_ts_parser_free(uint64_t handle);
+int32_t sa_ts_parser_new(uint64_t *out_handle);
+int32_t sa_ts_parser_set_language(uint64_t handle, const uint8_t *name, uint64_t name_len);
+int32_t sa_ts_query_capture_count(uint64_t handle, uint32_t *out_count);
+int32_t sa_ts_query_capture_name(uint64_t handle, uint32_t index, uint8_t *buf, uint64_t cap, uint64_t *out_len);
+int32_t sa_ts_query_cursor_free(uint64_t handle);
+int32_t sa_ts_query_cursor_new(uint64_t *out_cursor);
+int32_t sa_ts_query_exec(uint64_t cursor, uint64_t query, uint64_t node);
+int32_t sa_ts_query_free(uint64_t handle);
+int32_t sa_ts_query_match_capture(uint64_t cursor, uint32_t index, uint64_t *out_node, uint32_t *out_capture);
+int32_t sa_ts_query_new(const uint8_t *lang, uint64_t lang_len, const uint8_t *src, uint64_t src_len, uint64_t *out_query, uint32_t *out_err_offset, uint32_t *out_err_kind);
+int32_t sa_ts_query_next_match(uint64_t cursor, uint32_t *out_has, uint32_t *out_pattern, uint32_t *out_captures);
+int32_t sa_ts_query_pattern_count(uint64_t handle, uint32_t *out_count);
+int32_t sa_ts_tree_edit(uint64_t handle, uint32_t start_byte, uint32_t old_end_byte, uint32_t new_end_byte, uint32_t start_row, uint32_t start_col, uint32_t old_end_row, uint32_t old_end_col, uint32_t new_end_row, uint32_t new_end_col);
+int32_t sa_ts_tree_free(uint64_t handle);
+int32_t sa_ts_tree_root(uint64_t handle, uint64_t *out_node);
+int32_t sa_ts_tree_sexp(uint64_t handle, uint8_t *buf, uint64_t cap, uint64_t *out_len);
+
+/* WebSocket client. */
+int32_t sa_std_ws_client_add_ca_file(const uint8_t *path, uint64_t path_len);
+const uint8_t *sa_std_ws_client_buffer_data(uint64_t buffer);
+int32_t sa_std_ws_client_buffer_free(uint64_t buffer);
+uint64_t sa_std_ws_client_buffer_len(uint64_t buffer);
+int32_t sa_std_ws_client_close(uint64_t handle, uint16_t code, const uint8_t *reason, uint64_t reason_len);
+int32_t sa_std_ws_client_connect(const uint8_t *url, uint64_t url_len, uint64_t *out_handle);
+int32_t sa_std_ws_client_ping(uint64_t handle, const uint8_t *buf, uint64_t len);
+int32_t sa_std_ws_client_recv(uint64_t handle, uint32_t *out_opcode, uint64_t *out_buf_handle);
+int32_t sa_std_ws_client_send_binary(uint64_t handle, const uint8_t *buf, uint64_t len);
+int32_t sa_std_ws_client_send_text(uint64_t handle, const uint8_t *buf, uint64_t len);
+int32_t sa_std_ws_client_status_json(uint64_t *out_handle);
+int32_t sa_std_ws_client_supported(uint32_t *out_supported);
+
 #ifdef __cplusplus
 }
 #endif
