@@ -27,18 +27,18 @@
 //     the encoding). The client's last_reply_code / last_reply_text
 //     always hold the most recent reply either way.
 //
-// What is NOT delivered, stated plainly: STARTTLS. The SMTP command
-// itself is trivial, but upgrading this client's plain connection
-// is impossible from SLA today for the same reason AZ's TLS wave
-// could only lock start_tls in Zig-side tests: sa_std_tls_client_
-// start_tls takes a host-owned raw fd, the net surface hands out
-// opaque registry handles for TCP streams, and no extern exposes a
-// stream's fd. Rather than ship a start_tls that cannot upgrade,
-// this surface offers smtp_connect_tls (implicit TLS) as the
-// encrypted path and registers the missing primitive here: a
-// sa_std_net_tcp_stream raw-fd accessor (or a start_tls that takes
-// a stream handle). When it lands, STARTTLS is a small addition:
-// send the command, expect 220, upgrade, re-EHLO.
+// STARTTLS (delivered 2026-10-28, wave-3): smtp_client_starttls
+// sends the command, expects 220, upgrades the connection, and
+// re-EHLOs. The upgrade detaches the plain stream's fd with
+// sa_std_fd_into_raw (sa_std/os/fd.sai -- the accessor this header
+// originally registered as missing already existed there and is
+// what http_proxy.sla's TLS upgrade uses) and hands it to
+// sa_std_tls_client_start_tls, which takes ownership of the fd.
+// The pre-upgrade client value is consumed by the call; on an
+// upgrade failure the returned step carries the empty (closed)
+// client, because the fd has already changed hands and the plain
+// connection cannot be resumed. smtp_connect_tls (implicit TLS)
+// remains the other encrypted path.
 //
 // Model choices:
 //   - The client is threaded by value inside SmtpStep (the dns.sla
@@ -65,6 +65,7 @@
 @import "sa_std/status.sla"
 @import "sa_std/net.sai"
 @import "sa_std/tls_client.sai"
+@import "sa_std/os/fd.sai"
 
 const SA_SMTP_PORT: u32 = 25;
 const SA_SMTP_PORT_SUBMISSION: u32 = 587;
@@ -760,7 +761,60 @@ fn smtp_connect_tls(host: Vec<u8>, port: u32, config: u64, local_name: Vec<u8>) 
     return smtp_greet(checked.client, local_name);
 }
 
-// Re-issue EHLO (e.g. after a future STARTTLS upgrade) and refresh
+// Upgrade a plain connection with STARTTLS (RFC 3207): send the
+// command, expect 220, detach the stream's fd into
+// sa_std_tls_client_start_tls under the given tls_client
+// configuration (config 0 = the runtime default; server_name is
+// the SNI / verification name, normally the host smtp_connect was
+// given), then re-EHLO on the encrypted connection and refresh
+// the extension list. The plain client is consumed: on success
+// the returned client is TLS-backed; on an upgrade failure the
+// returned client is the empty (closed) client and status carries
+// the failure, because the fd has already changed hands. Calling
+// this on a closed or already-TLS client is INVALID_ARGUMENT.
+fn smtp_client_starttls(c: SmtpClient, server_name: Vec<u8>, config: u64, local_name: Vec<u8>) -> SmtpStep {
+    if c.open == false {
+        return smtp_step(c, SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if c.tls {
+        return smtp_step(c, SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    if (len(server_name) as u64) > SA_SMTP_MAX_HOST {
+        return smtp_step(c, SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let empty_arg: Vec<u8> = Vec::new();
+    let cmd = smtp_command(c, smtp_command_bytes(STR_PTR("STARTTLS"), STR_LEN("STARTTLS"), empty_arg), 220);
+    if cmd.status != SA_STD_OK {
+        return cmd;
+    };
+    let plain = cmd.client;
+    let arr: [u8; 512] = [0u8; 512];
+    let nsl: Slice<u8> = VEC_AS_SLICE(server_name);
+    let hn: u64 = len(server_name) as u64;
+    let i: u64 = 0;
+    while i < hn {
+        arr[i] = smtp_slice_byte(&nsl, i);
+        i = i + 1;
+    }
+    let name_ptr: ptr = PTR_BYTE_ADD(&arr, 0);
+    let fd: i32 = -1;
+    let dst: i32 = sa_std_fd_into_raw(plain.handle, &fd);
+    if dst != SA_STD_OK {
+        return smtp_step(plain, dst);
+    };
+    let th: u64 = 0;
+    let sst: i32 = sa_std_tls_client_start_tls(fd, name_ptr, hn, config, &th);
+    if sst != SA_STD_OK {
+        return smtp_step(smtp_empty_client(), sst);
+    };
+    let upgraded = smtp_empty_client();
+    upgraded.handle = th;
+    upgraded.tls = true;
+    upgraded.open = true;
+    return smtp_greet(upgraded, local_name);
+}
+
+// Re-issue EHLO (e.g. after a STARTTLS upgrade) and refresh
 // the stored extension list.
 fn smtp_client_ehlo(c: SmtpClient, local_name: Vec<u8>) -> SmtpStep {
     return smtp_greet(c, local_name);

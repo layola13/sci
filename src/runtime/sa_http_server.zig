@@ -1162,6 +1162,29 @@ pub const HttpResponse = struct {
         self.request.response_done = true;
     }
 
+    /// Header-only response (HEAD semantics): the caller declares
+    /// the content-length the equivalent GET would have produced and
+    /// no body bytes are written. `send` cannot express this: it
+    /// always frames content-length from the body it is handed, and
+    /// the header bag rejects a caller-set content-length. Framing
+    /// stays explicit, so keep-alive reuse works exactly as send().
+    pub fn sendHeadOnly(self: *HttpResponse, content_length: u64) !void {
+        if (self.sent) return error.ResponseAlreadySent;
+        var head: std.Io.Writer.Allocating = .init(self.allocator);
+        defer head.deinit();
+        const writer = &head.writer;
+        try writer.print("HTTP/1.1 {d} {s}\r\ncontent-length: {d}\r\n", .{ self.status, statusText(self.status), content_length });
+        try self.headers.write(writer);
+        if (self.request.keep_alive) {
+            try writer.writeAll("connection: keep-alive\r\n\r\n");
+        } else {
+            try writer.writeAll("connection: close\r\n\r\n");
+        }
+        try streamWriteAll(self.request.stream(), head.written());
+        self.sent = true;
+        self.request.response_done = true;
+    }
+
     pub fn deinit(self: *HttpResponse) void {
         self.headers.deinit();
         self.allocator.destroy(self);
@@ -2148,6 +2171,70 @@ pub export fn sa_http_server_resp_send_v2(resp: ?*anyopaque, body_ptr: ?[*]const
     return networkStatus(.ok);
 }
 
+// Header-only send (HEAD): same response object and header bag as
+// resp_send_v2, but the wire carries the caller-declared
+// content-length and zero body bytes. resp_send_v2 is unchanged.
+pub export fn sa_http_server_resp_send_head_v2(resp: ?*anyopaque, content_length: u64, timeout_ms: u32) u32 {
+    const resp_ptr = resp orelse return networkStatus(.invalid);
+    const response = @as(*HttpResponse, @ptrCast(@alignCast(resp_ptr)));
+    const poll_status = pollStream(response.request.stream().socket.handle, std.posix.POLL.OUT, timeout_ms, null);
+    if (poll_status != .ok) return networkStatus(poll_status);
+    response.sendHeadOnly(content_length) catch |err| return networkStatus(statusFromError(err));
+    return networkStatus(.ok);
+}
+
+// Peer (remote) address of a v2 request, as text + port: the access
+// log's remote field and per-request ACLs both need exactly this.
+// The address text goes to out[0..out_len): dotted quad for IPv4;
+// IPv6 in full (uncompressed) groups. If out_cap is too small the
+// call returns too_large and out_len reports the needed size (the
+// port is still written). Linux resolves via getpeername(2); other
+// native platforms use the libc call; WASM has no sockets and
+// returns invalid.
+pub export fn sa_http_server_req_peer_addr_v2(req: ?*anyopaque, out: ?[*]u8, out_cap: u64, out_len: ?*u64, out_port: ?*u32) u32 {
+    const len_slot = out_len orelse return networkStatus(.invalid);
+    const port_slot = out_port orelse return networkStatus(.invalid);
+    len_slot.* = 0;
+    port_slot.* = 0;
+    const req_ptr = req orelse return networkStatus(.invalid);
+    if (out_cap > 0 and out == null) return networkStatus(.invalid);
+    if (out_cap > std.math.maxInt(usize)) return networkStatus(.invalid);
+    const request = @as(*HttpRequest, @ptrCast(@alignCast(req_ptr)));
+    const fd = request.stream().socket.handle;
+    var storage: [128]u8 align(4) = std.mem.zeroes([128]u8);
+    var addr_len: u32 = storage.len;
+    if (comptime builtin.cpu.arch.isWasm()) {
+        return networkStatus(.invalid);
+    } else if (comptime builtin.os.tag == .linux) {
+        const rc = std.os.linux.getpeername(fd, @ptrCast(&storage), &addr_len);
+        if (std.os.linux.errno(rc) != .SUCCESS) return networkStatus(.io_error);
+    } else {
+        const getpeername_c = struct {
+            extern "c" fn getpeername(fd: std.posix.fd_t, addr: *anyopaque, len: *u32) c_int;
+        }.getpeername;
+        if (getpeername_c(fd, @ptrCast(&storage), &addr_len) != 0) return networkStatus(.io_error);
+    }
+    const family: u16 = std.mem.readInt(u16, storage[0..2], .little);
+    const port_be: u16 = std.mem.readInt(u16, storage[2..4], .big);
+    port_slot.* = port_be;
+    var text_buf: [64]u8 = undefined;
+    const text: []const u8 = switch (family) {
+        2 => std.fmt.bufPrint(&text_buf, "{d}.{d}.{d}.{d}", .{ storage[4], storage[5], storage[6], storage[7] }) catch return networkStatus(.io_error),
+        10 => blk: {
+            var groups: [8]u16 = undefined;
+            for (&groups, 0..) |*group, i| {
+                group.* = std.mem.readInt(u16, storage[8 + i * 2 ..][0..2], .big);
+            }
+            break :blk std.fmt.bufPrint(&text_buf, "{x}:{x}:{x}:{x}:{x}:{x}:{x}:{x}", .{ groups[0], groups[1], groups[2], groups[3], groups[4], groups[5], groups[6], groups[7] }) catch return networkStatus(.io_error);
+        },
+        else => return networkStatus(.invalid),
+    };
+    len_slot.* = text.len;
+    if (out_cap < text.len) return networkStatus(.too_large);
+    if (out) |dst| @memcpy(dst[0..text.len], text);
+    return networkStatus(.ok);
+}
+
 pub export fn sa_http_server_resp_free_v2(resp: ?*anyopaque) u32 {
     const resp_ptr = resp orelse return networkStatus(.invalid);
     const response = @as(*HttpResponse, @ptrCast(@alignCast(resp_ptr)));
@@ -2297,4 +2384,70 @@ pub export fn sa_http_server_websocket_free_v2(ws: ?*anyopaque) u32 {
     const handle = @as(*WebSocketHandle, @ptrCast(@alignCast(ws_ptr)));
     handle.deinit();
     return networkStatus(.ok);
+}
+
+test "v2 send_head carries declared content-length without body; peer addr is the loopback client" {
+    if (comptime builtin.os.tag != .linux) return error.SkipZigTest;
+    var server_slot: ?*anyopaque = null;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_new_v2(&server_slot));
+    const server = server_slot orelse return error.TestUnexpectedResult;
+    defer _ = sa_http_server_free_v2(server);
+    const host = "127.0.0.1";
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_start_v2(server, host.ptr, host.len, 18231));
+
+    const address = try std.Io.net.IpAddress.parse("127.0.0.1", 18231);
+    var client = try address.connect(sio.io(), .{ .mode = .stream });
+    defer client.close(sio.io());
+    try streamWriteAll(client, "HEAD /thing HTTP/1.1\r\nhost: x\r\n\r\n");
+
+    var req_slot: ?*anyopaque = null;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_accept_v2(server, 5000, &req_slot));
+    const request = req_slot orelse return error.TestUnexpectedResult;
+
+    // G2: peer address is the loopback client, port = client's own
+    // local port (cross-checked through getsockname on the client).
+    var ip_buf: [64]u8 = undefined;
+    var ip_len: u64 = 0;
+    var peer_port: u32 = 0;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_req_peer_addr_v2(request, &ip_buf, ip_buf.len, &ip_len, &peer_port));
+    try std.testing.expectEqualStrings("127.0.0.1", ip_buf[0..@intCast(ip_len)]);
+    var client_storage: [128]u8 align(4) = std.mem.zeroes([128]u8);
+    var client_len: u32 = client_storage.len;
+    const grc = std.os.linux.getsockname(client.socket.handle, @ptrCast(&client_storage), &client_len);
+    try std.testing.expect(std.os.linux.errno(grc) == .SUCCESS);
+    const client_port: u32 = std.mem.readInt(u16, client_storage[2..4], .big);
+    try std.testing.expectEqual(client_port, peer_port);
+    // Too-small buffer: too_large + needed length reported.
+    var tiny: [4]u8 = undefined;
+    var tiny_len: u64 = 0;
+    var tiny_port: u32 = 0;
+    try std.testing.expectEqual(@as(u32, 4), sa_http_server_req_peer_addr_v2(request, &tiny, tiny.len, &tiny_len, &tiny_port));
+    try std.testing.expectEqual(@as(u64, 9), tiny_len);
+
+    // G1: header-only send with a declared content-length of 1234.
+    var resp_slot: ?*anyopaque = null;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_resp_new_v2(request, 200, &resp_slot));
+    const resp = resp_slot orelse return error.TestUnexpectedResult;
+    defer _ = sa_http_server_resp_free_v2(resp);
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_resp_send_head_v2(resp, 1234, 5000));
+
+    // The client receives exactly the head: status line, the
+    // declared content-length, and no body bytes after the blank
+    // line (the connection stays open under keep-alive, so any
+    // extra byte within 300 ms would be a body leak).
+    var rbuf: [512]u8 = undefined;
+    var total: usize = 0;
+    while (std.mem.indexOf(u8, rbuf[0..total], "\r\n\r\n") == null) {
+        const rc = std.c.read(client.socket.handle, @ptrCast(rbuf[total..].ptr), rbuf.len - total);
+        if (rc <= 0) return error.TestUnexpectedResult;
+        total += @intCast(rc);
+    }
+    const head_text = rbuf[0..total];
+    try std.testing.expect(std.mem.indexOf(u8, head_text, "HTTP/1.1 200") != null);
+    try std.testing.expect(std.mem.indexOf(u8, head_text, "content-length: 1234") != null);
+    var poll_fds = [1]std.posix.pollfd{.{ .fd = client.socket.handle, .events = std.posix.POLL.IN, .revents = 0 }};
+    const ready = std.posix.poll(&poll_fds, 300) catch return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(i32, 0), ready);
+
+    _ = sa_http_server_req_free_v2(request);
 }

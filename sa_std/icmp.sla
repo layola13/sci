@@ -6,25 +6,26 @@
 // Why this file exists, and where its boundary is: the .NET std
 // census (sala 06_stdlib/26) recorded the ICMP Ping surface as
 // entirely absent from sa_std. The packet half of that surface is
-// delivered here. The transport half -- actually exchanging packets
-// and measuring the round-trip time -- is NOT, and the reason is a
-// missing primitive, stated plainly: sa_std has no raw-socket
-// creation surface at all. The complete net extern inventory
-// (sa_std/net.sai, netx.sai) offers TCP streams, UDP sockets, unix
-// sockets and from-raw-fd wrappers that adopt a host-owned fd; there
-// is no socket() creation extern for SOCK_RAW / IPPROTO_ICMP (nor
-// for the SOCK_DGRAM ping-socket form), and no way to obtain such an
-// fd from SLA. Until a raw-socket extern lands (it belongs with the
-// generic socket surface), there is deliberately no icmp_ping()
-// here: a function that cannot send would be a fake face. What an
-// exchange needs once that extern exists is exactly: build a
-// request with icmp_echo_session_build_request, send it, parse the
-// reply with icmp_parse_ipv4_packet (raw sockets deliver the full
-// IPv4 packet), match it with icmp_echo_reply_matches, and take the
-// RTT from the caller's own send/receive timestamps (sa_std time
-// surface). Privilege note for that future transport: raw ICMP
-// sockets need root or CAP_NET_RAW on Linux; the ping-socket form
-// needs the net.ipv4.ping_group_range sysctl to admit the group.
+// delivered here, and -- since the wave-3 raw-socket primitive
+// (sa_std_net_raw_socket in net.sai) landed -- the transport half
+// is delivered too: icmp_ping (bottom of this file) performs
+// exactly the exchange this header used to specify in the future
+// tense: build a request with icmp_echo_session_build_request,
+// send it, parse the reply with icmp_parse_ipv4_packet (raw
+// sockets deliver the full IPv4 packet), match it with
+// icmp_echo_reply_matches, and take the RTT from
+// sa_time_instant_ns around the send/receive pair. Privilege note:
+// raw ICMP sockets need root or CAP_NET_RAW on Linux, and a
+// refusal surfaces as the creation call's loud status, never a
+// fake success; the SOCK_DGRAM ping-socket form (admitted by the
+// creation extern, gated by net.ipv4.ping_group_range) is NOT what
+// icmp_ping uses -- the kernel rewrites a ping socket's identifier
+// and strips the IPv4 header on delivery, which breaks this
+// file's session-match contract, so the exchange is raw-form
+// only. The exchange is IPv4-only (the parser is IPv4-shaped);
+// timeout surfaces as SA_STD_ERR_IO because the runtime maps a
+// receive WouldBlock to that status today (a registered mapping
+// wart, shared with every datagram consumer).
 //
 // Model choices (sa_std house style):
 //   - Errors are i32 status codes (SA_STD_* from status.sla):
@@ -51,6 +52,8 @@
 @import "sa_std/core/slice.sa"
 @import "sa_std/ptr.sa"
 @import "sa_std/status.sla"
+@import "sa_std/net.sai"
+@import "sa_std/time.sai"
 
 const SA_ICMP_TYPE_ECHO_REPLY: u8 = 0;
 const SA_ICMP_TYPE_DESTINATION_UNREACHABLE: u8 = 3;
@@ -304,4 +307,159 @@ fn icmp_echo_session_matches(session: &IcmpEchoSession, msg: &IcmpMessage) -> bo
         return false;
     };
     return msg.identifier == session.identifier;
+}
+
+// ---- transport: raw-socket echo exchange ----
+
+// Raw-socket parameters for the exchange (the raw OS numbers
+// sa_std_net_raw_socket takes; the net.sla spellings are
+// SA_NET_AF_INET / SA_NET_SOCK_RAW / SA_NET_IPPROTO_ICMP, repeated
+// here under icmp-local names so importing icmp.sla never collides
+// with a consumer's own net.sla import).
+const SA_ICMP_AF_INET: u32 = 2;
+const SA_ICMP_SOCK_RAW: u32 = 3;
+const SA_ICMP_PROTO_ICMP: u32 = 1;
+const SA_ICMP_MAX_PACKET: u64 = 8192;
+const SA_ICMP_MAX_HOST: u64 = 512;
+// Upper bound on non-matching packets one exchange will skip
+// (other hosts' ICMP, a looped-back copy of our own request)
+// before giving up; the deadline check usually fires first.
+const SA_ICMP_MAX_SKIPS: u64 = 64;
+
+struct IcmpPingOutcome {
+    session: IcmpEchoSession,
+    status: i32,
+    answered: bool,
+    rtt_ns: u64,
+    reply: IcmpMessage,
+}
+
+fn icmp_empty_message() -> IcmpMessage {
+    let payload: Vec<u8> = Vec::new();
+    return IcmpMessage {
+        message_type: 0,
+        code: 0,
+        checksum: 0,
+        header_rest: 0,
+        identifier: 0,
+        sequence: 0,
+        payload: payload,
+    };
+}
+
+fn icmp_ping_outcome(session: IcmpEchoSession, status: i32) -> IcmpPingOutcome {
+    return IcmpPingOutcome {
+        session: session,
+        status: status,
+        answered: false,
+        rtt_ns: 0,
+        reply: icmp_empty_message(),
+    };
+}
+
+// Perform one echo exchange against host (a dotted IPv4 address or
+// a name the datagram surface resolves): build the session's next
+// request, send it on a fresh raw ICMP socket, and wait for the
+// matching reply until timeout_ns (the socket read timeout and the
+// overall deadline are the same value). On success status is
+// SA_STD_OK, answered is true, rtt_ns is the monotonic time from
+// just before the send to the matching receive, and reply is the
+// parsed message. On failure status carries the failing step's
+// code (socket creation permission refusals included) and the
+// session still advances, exactly as if the request had been sent
+// and lost. Raw sockets deliver other traffic too: parsed packets
+// that fail icmp_echo_reply_matches for this (identifier, sequence)
+// are skipped, bounded by SA_ICMP_MAX_SKIPS and the deadline.
+fn icmp_ping(session: IcmpEchoSession, host: Vec<u8>, payload: Vec<u8>, timeout_ns: u64) -> IcmpPingOutcome {
+    if (len(host) as u64) > SA_ICMP_MAX_HOST {
+        return icmp_ping_outcome(session, SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let arr: [u8; 512] = [0u8; 512];
+    let hsl: Slice<u8> = VEC_AS_SLICE(host);
+    let hn: u64 = len(host) as u64;
+    let i: u64 = 0;
+    while i < hn {
+        arr[i] = icmp_slice_byte(&hsl, i);
+        i = i + 1;
+    }
+    let host_ptr: ptr = PTR_BYTE_ADD(&arr, 0);
+    let sock: u64 = 0;
+    let cst: i32 = sa_std_net_raw_socket(SA_ICMP_AF_INET, SA_ICMP_SOCK_RAW, SA_ICMP_PROTO_ICMP, &sock);
+    if cst != SA_STD_OK {
+        return icmp_ping_outcome(session, cst);
+    };
+    let tst: i32 = sa_std_net_udp_set_read_timeout(sock, timeout_ns);
+    if tst != SA_STD_OK {
+        let cl: i32 = sa_net_udp_close(sock);
+        return icmp_ping_outcome(session, tst);
+    };
+    let built = icmp_echo_session_build_request(session, payload);
+    let advanced = built.session;
+    let sequence: u16 = built.sequence;
+    let packet: Vec<u8> = built.packet;
+    let pn: u64 = len(packet) as u64;
+    if pn > SA_ICMP_MAX_PACKET {
+        let cl: i32 = sa_net_udp_close(sock);
+        return icmp_ping_outcome(advanced, SA_STD_ERR_INVALID_ARGUMENT);
+    };
+    let psl: Slice<u8> = VEC_AS_SLICE(packet);
+    let sbuf: [u8; 8192] = [0u8; 8192];
+    let j: u64 = 0;
+    while j < pn {
+        sbuf[j] = icmp_slice_byte(&psl, j);
+        j = j + 1;
+    }
+    let send_ptr: ptr = PTR_BYTE_ADD(&sbuf, 0);
+    let start_ns: u64 = sa_time_instant_ns();
+    let written: u64 = 0;
+    let sst: i32 = sa_std_net_udp_send_to(sock, send_ptr, pn, host_ptr, hn, 0, &written);
+    if sst != SA_STD_OK {
+        let cl: i32 = sa_net_udp_close(sock);
+        return icmp_ping_outcome(advanced, sst);
+    };
+    let rbuf: [u8; 8192] = [0u8; 8192];
+    let recv_ptr: ptr = PTR_BYTE_ADD(&rbuf, 0);
+    let skips: u64 = 0;
+    while skips < SA_ICMP_MAX_SKIPS {
+        let got: u64 = 0;
+        let from_addr: u64 = 0;
+        let rst: i32 = sa_std_net_udp_recv_from(sock, recv_ptr, SA_ICMP_MAX_PACKET, &got, &from_addr);
+        if from_addr != 0 {
+            let fr: i32 = sa_net_addr_free(from_addr);
+        };
+        if rst != SA_STD_OK {
+            let cl: i32 = sa_net_udp_close(sock);
+            return icmp_ping_outcome(advanced, rst);
+        };
+        let now_ns: u64 = sa_time_instant_ns();
+        if now_ns - start_ns > timeout_ns {
+            let cl: i32 = sa_net_udp_close(sock);
+            return icmp_ping_outcome(advanced, SA_STD_ERR_IO);
+        };
+        let pkt: Vec<u8> = Vec::new();
+        let k: u64 = 0;
+        while k < got {
+            pkt.push(rbuf[k]);
+            k = k + 1;
+        }
+        let parsed = icmp_parse_ipv4_packet(pkt);
+        match parsed {
+            Ok(m) => {
+                if icmp_echo_reply_matches(&m, advanced.identifier, sequence) {
+                    let cl: i32 = sa_net_udp_close(sock);
+                    return IcmpPingOutcome {
+                        session: advanced,
+                        status: SA_STD_OK,
+                        answered: true,
+                        rtt_ns: now_ns - start_ns,
+                        reply: m,
+                    };
+                };
+            },
+            Err(e) => {},
+        };
+        skips = skips + 1;
+    }
+    let cl: i32 = sa_net_udp_close(sock);
+    return icmp_ping_outcome(advanced, SA_STD_ERR_IO);
 }

@@ -235,6 +235,31 @@
 // (pid 0), which is the no-peer sentinel, not an error.
 @extern sa_std_net_unix_datagram_peer_cred(socket: u64, &out_pid: ptr, &out_uid: ptr, &out_gid: ptr) -> i32
 
+// Raw-socket creation (wave-3 fill; the primitive the ICMP
+// transport half was blocked on). domain / sock_type / protocol are
+// the raw OS numbers (the sockopt passthrough convention):
+// AF_INET=2 / AF_INET6=10 (SA_NET_AF_* in net.sla), SOCK_RAW=3 or
+// SOCK_DGRAM=2 (the Linux ping-socket form; SOCK_STREAM and other
+// types are rejected), IPPROTO_ICMP=1 / IPPROTO_ICMPV6=58. The
+// socket is registered as a datagram-kind handle, so
+// sa_std_net_udp_send_to / udp_recv_from / udp_set_read_timeout,
+// the sockopt passthrough, sa_std_fd_into_raw and sa_std_close all
+// apply to it. Creation can fail with a permission status (root /
+// CAP_NET_RAW for SOCK_RAW, net.ipv4.ping_group_range for the ping
+// form); that is a loud status, never a fake handle. Not
+// implemented by the Windows root (ABI unsupported manifest).
+@extern sa_std_net_raw_socket(domain: u32, sock_type: u32, protocol: u32, &out_handle: ptr) -> i32
+
+// Zero-copy file-to-socket send (sendfile(2); wave-3 fill).
+// Sends up to count bytes of file starting at offset over the TCP
+// stream (the file's own position is never used or moved). out_sent
+// receives the bytes actually sent: equal to count unless the file
+// ended first (SA_STD_OK with a short count). out_next_offset may
+// be omitted; when given it receives offset + out_sent. Linux only:
+// other platforms return SA_STD_ERR_UNSUPPORTED, and the Windows
+// root does not implement it (ABI unsupported manifest).
+@extern sa_std_net_tcp_stream_send_file(stream: u64, file: u64, offset: u64, count: u64, &out_sent: ptr, &out_next_offset: ptr) -> i32
+
 @extern sa_net_tcp_connect(&host: ptr, host_len: u64, port: u32) -> u64!
 @extern sa_net_tcp_stream_read(stream: u64, &buf: ptr, cap: u64) -> u64!
 @extern sa_net_tcp_stream_peek(stream: u64, &buf: ptr, cap: u64) -> i32

@@ -1882,6 +1882,34 @@ pub export fn sa_std_version() u32 {
     return SA_STD_ABI_VERSION;
 }
 
+// --- Checked i64 arithmetic (sa_std/num.sai; mirror of sa_std.zig) -------
+// Exact-result arithmetic; overflow traps (stderr diagnostic + process
+// abort, PANIC_ARITH_OVERFLOW=9001 in the SA-level mirror) instead of
+// wrapping. Pure arithmetic, so the Windows root implements it too
+// rather than listing it as unsupported.
+fn saNumCheckedTrap(comptime symbol: []const u8, a: i64, b: i64) noreturn {
+    std.debug.print("[sa-std] {s}({d}, {d}): i64 overflow, trapping (PANIC_ARITH_OVERFLOW=9001)\n", .{ symbol, a, b });
+    std.process.abort();
+}
+
+pub export fn sa_num_add_checked(a: i64, b: i64) i64 {
+    const result = @addWithOverflow(a, b);
+    if (result[1] != 0) saNumCheckedTrap("sa_num_add_checked", a, b);
+    return result[0];
+}
+
+pub export fn sa_num_sub_checked(a: i64, b: i64) i64 {
+    const result = @subWithOverflow(a, b);
+    if (result[1] != 0) saNumCheckedTrap("sa_num_sub_checked", a, b);
+    return result[0];
+}
+
+pub export fn sa_num_mul_checked(a: i64, b: i64) i64 {
+    const result = @mulWithOverflow(a, b);
+    if (result[1] != 0) saNumCheckedTrap("sa_num_mul_checked", a, b);
+    return result[0];
+}
+
 pub export fn sa_std_last_error() i32 {
     return last_error;
 }

@@ -1,0 +1,64 @@
+// STARTTLS loopback test for sa_std/smtp.sla's
+// smtp_client_starttls, run against the TLS-capable stub in
+// tests/smtp_starttls_stub.py (TCP 127.0.0.1:25257). Use
+// tests/run_smtp_starttls_tests.sh, which generates a throwaway
+// self-signed certificate, starts the stub, runs this file, and
+// stops the stub. The client config disables verification
+// (loopback test only), so the exchange proves the upgrade path
+// itself: STARTTLS command, fd detach, TLS handshake, re-EHLO over
+// TLS, and further commands on the encrypted channel.
+
+@import "sa_std/smtp.sla"
+@import "sa_std/string.sa"
+@import "sa_std/ptr.sa"
+
+fn tb(text: ptr, text_len: u64) -> Vec<u8> {
+    let arr: [u8; 4096] = [0u8; 4096];
+    let dst: ptr = PTR_BYTE_ADD(&arr, 0);
+    PTR_COPY_BYTES(dst, text, text_len);
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < text_len {
+        out.push(arr[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+@test "smtp starttls upgrade against stub"() {
+    // Test-only TLS config: no verification (self-signed stub).
+    let config: u64 = 0;
+    let nst: i32 = sa_std_tls_client_config_new(&config);
+    if nst != 0 { panic(601); };
+    let ist: i32 = sa_std_tls_client_config_set_insecure_no_verification(config, 1);
+    if ist != 0 { panic(602); };
+
+    let host = tb(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"));
+    let local = tb(STR_PTR("tester"), STR_LEN("tester"));
+    let step = smtp_connect(host, 25257, local);
+    if step.status != 0 { panic(603); };
+    let client: SmtpClient = step.client;
+    if client.tls { panic(604); };
+    // The stub's EHLO reply must advertise STARTTLS.
+    let tls_name = tb(STR_PTR("STARTTLS"), STR_LEN("STARTTLS"));
+    let tls_sl: Slice<u8> = VEC_AS_SLICE(tls_name);
+    if smtp_client_has_extension(&client, &tls_sl) == false { panic(605); };
+
+    let server_name = tb(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"));
+    let local2 = tb(STR_PTR("tester"), STR_LEN("tester"));
+    let upgraded = smtp_client_starttls(client, server_name, config, local2);
+    if upgraded.status != 0 { panic(606); };
+    let secure: SmtpClient = upgraded.client;
+    if secure.tls == false { panic(607); };
+    if secure.open == false { panic(608); };
+
+    // Commands over the encrypted channel.
+    let noop = smtp_client_noop(secure);
+    if noop.status != 0 { panic(609); };
+    let quit = smtp_client_quit(noop.client);
+    if quit.status != 0 { panic(610); };
+
+    let fst: i32 = sa_std_tls_client_config_free(config);
+    if fst != 0 { panic(611); };
+    println("SMTP_STARTTLS_OK");
+}

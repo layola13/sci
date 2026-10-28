@@ -140,6 +140,9 @@ typedef struct sa_std_fallible_i32 {
 } sa_std_fallible_i32;
 
 uint32_t sa_std_version(void);
+int64_t sa_num_add_checked(int64_t a, int64_t b);
+int64_t sa_num_sub_checked(int64_t a, int64_t b);
+int64_t sa_num_mul_checked(int64_t a, int64_t b);
 int32_t sa_std_last_error(void);
 typedef struct sa_net_iov {
     uint8_t *base;
@@ -508,6 +511,8 @@ int32_t sa_std_net_tcp_listener_local_addr(uint64_t listener_handle, uint64_t *o
 int32_t sa_std_net_tcp_stream_read(uint64_t stream_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_tcp_stream_peek(uint64_t stream_handle, uint8_t *out, uint64_t cap, uint64_t *out_read);
 int32_t sa_std_net_tcp_stream_write(uint64_t stream_handle, const uint8_t *buf, uint64_t len, uint64_t *out_written);
+int32_t sa_std_net_raw_socket(uint32_t domain, uint32_t sock_type, uint32_t protocol, uint64_t *out_handle);
+int32_t sa_std_net_tcp_stream_send_file(uint64_t stream, uint64_t file, uint64_t offset, uint64_t count, uint64_t *out_sent, uint64_t *out_next_offset);
 int32_t sa_std_net_tcp_stream_read_vectored(uint64_t stream_handle, const sa_net_iov *iovs, uint64_t iov_count, uint64_t *out_read);
 int32_t sa_std_net_tcp_stream_write_vectored(uint64_t stream_handle, const sa_net_iov *iovs, uint64_t iov_count, uint64_t *out_written);
 int32_t sa_std_net_tcp_stream_peer_addr(uint64_t stream_handle, uint64_t *out_handle);
@@ -1077,6 +1082,8 @@ uint32_t sa_http_server_resp_new(void *req, uint16_t status, void **out_resp);
 uint32_t sa_http_server_resp_new_v2(void *req, uint16_t status, void **out_resp);
 uint32_t sa_http_server_resp_send(void *resp, const uint8_t *body, uint64_t body_len);
 uint32_t sa_http_server_resp_send_v2(void *resp, const uint8_t *body, uint64_t body_len, uint32_t timeout_ms);
+uint32_t sa_http_server_resp_send_head_v2(void *resp, uint64_t content_length, uint32_t timeout_ms);
+uint32_t sa_http_server_req_peer_addr_v2(void *req, uint8_t *out, uint64_t out_cap, uint64_t *out_len, uint32_t *out_port);
 uint32_t sa_http_server_resp_set_content_type(void *resp, const uint8_t *content_type, uint64_t content_type_len);
 uint32_t sa_http_server_resp_stream_add_header_v2(void *resp, const uint8_t *name, uint64_t name_len, const uint8_t *value, uint64_t value_len);
 uint32_t sa_http_server_resp_stream_end(void *resp);

@@ -1,0 +1,76 @@
+// Loopback transport test for sa_std/icmp.sla's icmp_ping, the
+// raw-socket exchange that lands with sa_std_net_raw_socket
+// (sa_std/net.sai, wave-3). The codec half is covered by
+// tests/icmp_codec.sla; this file proves the exchange itself
+// against 127.0.0.1, whose ICMP echo the kernel answers in-process.
+//
+// Environment gate, stated plainly: SOCK_RAW needs root or
+// CAP_NET_RAW. When creation is refused with a permission-class
+// status the test asserts the refusal shape (not answered, the
+// loud status preserved) and prints ICMP_PING_SKIP_ENV; in a
+// privileged environment the full assertions run and it prints
+// ICMP_PING_OK. The gate log line records which branch ran.
+//
+// Run from the sa_plugin_sla repo root with SA_PLUGIN_DEV=1 and
+// SA_STD_DIR pointed at this sci tree's sa_std:
+//   sa test <sci>/tests/icmp_ping_loopback.sla
+
+@import "sa_std/icmp.sla"
+@import "sa_std/string.sa"
+@import "sa_std/ptr.sa"
+
+fn tb(text: ptr, text_len: u64) -> Vec<u8> {
+    let arr: [u8; 4096] = [0u8; 4096];
+    let dst: ptr = PTR_BYTE_ADD(&arr, 0);
+    PTR_COPY_BYTES(dst, text, text_len);
+    let out: Vec<u8> = Vec::new();
+    let i: u64 = 0;
+    while i < text_len {
+        out.push(arr[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn bytes_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
+    let n: u64 = len(a) as u64;
+    if n != (len(b) as u64) {
+        return false;
+    };
+    let sa: Slice<u8> = VEC_AS_SLICE(a);
+    let sb: Slice<u8> = VEC_AS_SLICE(b);
+    let i: u64 = 0;
+    while i < n {
+        let x: u8 = 0;
+        SLICE_GET(x, sa, i);
+        let y: u8 = 0;
+        SLICE_GET(y, sb, i);
+        if x != y {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+@test "icmp ping loopback exchange"() {
+    let session = icmp_echo_session_new(17185);
+    let host = tb(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"));
+    let payload = tb(STR_PTR("ping-payload"), STR_LEN("ping-payload"));
+    let outcome = icmp_ping(session, host, payload, 5000000000);
+    if outcome.status == SA_STD_ERR_ACCESS || outcome.status == SA_STD_ERR_PERMISSION_DENIED || outcome.status == SA_STD_ERR_UNSUPPORTED {
+        if outcome.answered { panic(801); };
+        println("ICMP_PING_SKIP_ENV");
+        return;
+    };
+    if outcome.status != SA_STD_OK { panic(802); };
+    if outcome.answered == false { panic(803); };
+    if outcome.session.next_sequence != 2 { panic(804); };
+    if outcome.reply.identifier != 17185 { panic(805); };
+    if outcome.reply.sequence != 1 { panic(806); };
+    if outcome.rtt_ns == 0 { panic(807); };
+    if outcome.rtt_ns > 5000000000 { panic(808); };
+    let want = tb(STR_PTR("ping-payload"), STR_LEN("ping-payload"));
+    if bytes_eq(outcome.reply.payload, want) == false { panic(809); };
+    println("ICMP_PING_OK");
+}

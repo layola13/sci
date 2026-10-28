@@ -133,3 +133,13 @@ const SA_NET_RECV_MSG_PKTINFO: u32 = 1;
 const SA_NET_RECV_MSG_TIMESTAMP: u32 = 2;
 const SA_NET_RECV_MSG_CTRUNC: u32 = 4;
 const SA_NET_RECV_MSG_TRUNC: u32 = 8;
+
+// Socket types and protocols for sa_std_net_raw_socket (net.sai,
+// wave-3): the raw OS numbers the creation extern takes, named.
+// SOCK_STREAM is deliberately absent: the raw-socket extern rejects
+// it (stream sockets are the tcp_connect surface). IPPROTO_ICMPV6
+// pairs with SA_NET_AF_INET6.
+const SA_NET_SOCK_DGRAM: u32 = 2;
+const SA_NET_SOCK_RAW: u32 = 3;
+const SA_NET_IPPROTO_ICMP: u32 = 1;
+const SA_NET_IPPROTO_ICMPV6: u32 = 58;

@@ -366,8 +366,10 @@ comptime {
     _ = &@import("sa_http_server.zig").sa_http_server_resp_free_v2;
     _ = &@import("sa_http_server.zig").sa_http_server_resp_new;
     _ = &@import("sa_http_server.zig").sa_http_server_resp_new_v2;
+    _ = &@import("sa_http_server.zig").sa_http_server_req_peer_addr_v2;
     _ = &@import("sa_http_server.zig").sa_http_server_resp_send;
     _ = &@import("sa_http_server.zig").sa_http_server_resp_send_v2;
+    _ = &@import("sa_http_server.zig").sa_http_server_resp_send_head_v2;
     _ = &@import("sa_http_server.zig").sa_http_server_resp_set_content_type;
     _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_add_header_v2;
     _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_end;
@@ -6823,6 +6825,37 @@ pub fn fail(comptime T: type, status: i32) Fallible(T) {
 
 pub export fn sa_std_version() u32 {
     return SA_STD_ABI_VERSION;
+}
+
+// --- Checked i64 arithmetic (sa_std/num.sai) ------------------------------
+// Exact-result arithmetic with Rust `overflow-checks = true` semantics:
+// on overflow the operation traps instead of wrapping. The SA-level
+// mirror (sa_std/num.sal NUM_*_CHECKED macros) traps with
+// panic(PANIC_ARITH_OVERFLOW = 9001); a native extern has no SA panic
+// channel, so the trap here is a diagnostic on stderr plus process
+// abort -- never a wrapped result, never a silent status (the .sai
+// signature returns the bare i64 and has no status channel).
+fn saNumCheckedTrap(comptime symbol: []const u8, a: i64, b: i64) noreturn {
+    std.debug.print("[sa-std] {s}({d}, {d}): i64 overflow, trapping (PANIC_ARITH_OVERFLOW=9001)\n", .{ symbol, a, b });
+    std.process.abort();
+}
+
+pub export fn sa_num_add_checked(a: i64, b: i64) i64 {
+    const result = @addWithOverflow(a, b);
+    if (result[1] != 0) saNumCheckedTrap("sa_num_add_checked", a, b);
+    return result[0];
+}
+
+pub export fn sa_num_sub_checked(a: i64, b: i64) i64 {
+    const result = @subWithOverflow(a, b);
+    if (result[1] != 0) saNumCheckedTrap("sa_num_sub_checked", a, b);
+    return result[0];
+}
+
+pub export fn sa_num_mul_checked(a: i64, b: i64) i64 {
+    const result = @mulWithOverflow(a, b);
+    if (result[1] != 0) saNumCheckedTrap("sa_num_mul_checked", a, b);
+    return result[0];
 }
 
 pub export fn sa_std_last_error() i32 {
@@ -13960,6 +13993,112 @@ pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u
     return finish(SA_STD_OK);
 }
 
+// Raw-socket creation (wave-3 fill; the missing primitive BE
+// registered for the ICMP transport half). domain / sock_type /
+// protocol are the raw OS numbers (AF_INET=2 / AF_INET6=10,
+// SOCK_RAW=3 / SOCK_DGRAM=2, IPPROTO_ICMP=1 / IPPROTO_ICMPV6=58 on
+// Linux), the same raw-number convention as the sockopt passthrough.
+// SOCK_DGRAM is admitted alongside SOCK_RAW because that is the
+// Linux ping-socket form of an ICMP socket; SOCK_STREAM and every
+// other type are rejected loudly. The socket is registered as a
+// datagram-kind (udp_socket) handle, so the existing datagram
+// surfaces apply unchanged: udp_send_to / udp_recv_from /
+// udp_set_read_timeout, the sockopt passthrough, fd detach
+// (sa_std_fd_into_raw) and sa_std_close. Permission failures from
+// socket(2) (root / CAP_NET_RAW for SOCK_RAW, ping_group_range for
+// the ping form) surface as their loud status, never a fake handle.
+// Linux + libc platforms; WASI returns SA_STD_ERR_UNSUPPORTED and
+// the Windows root does not implement it (see
+// docs/runtime_abi_windows_unsupported.txt).
+pub export fn sa_std_net_raw_socket(domain: u32, sock_type: u32, protocol: u32, out_handle: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    handle_ptr.* = 0;
+    if (domain != AFT.INET and domain != AFT.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (sock_type != SOCKT.RAW and sock_type != SOCKT.DGRAM) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    if (protocol > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    const fd = lxSocket(domain, sock_type | SOCKT.CLOEXEC, protocol) catch |err| return finishErr(err);
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const handle = registerResourceLocked(.{ .udp_socket = fd }) catch |err| {
+        lxClose(fd);
+        return finishErr(err);
+    };
+    handle_ptr.* = handle;
+    return finish(SA_STD_OK);
+}
+
+fn lxSendfile(out_fd: std.posix.fd_t, in_fd: std.posix.fd_t, offset: *u64, count: usize) !usize {
+    if (comptime is_wasm) return error.Unsupported;
+    if (comptime is_linux) {
+        var off: i64 = @intCast(offset.*);
+        const rc = try lxCheck(std.os.linux.sendfile(out_fd, in_fd, &off, count));
+        offset.* = @intCast(off);
+        return rc;
+    }
+    return error.Unsupported;
+}
+
+// Zero-copy file-to-socket send (sendfile(2); wave-3 fill -- the
+// surface was verified absent tree-wide before this addition).
+// Sends up to `count` bytes of `file` starting at `offset` over the
+// TCP stream, looping over partial sends; the file's own position is
+// never used or moved (the offset travels in/out explicitly, so one
+// file handle can serve many sends). out_sent receives the byte
+// total actually sent: it equals `count` unless the file ended
+// first, which is data (SA_STD_OK with a short count), never a
+// silent truncation of the return contract. out_next_offset
+// (optional) receives offset + out_sent. The stream's write timeout
+// is NOT applied (sendfile has no per-call deadline here); a
+// blocking stream blocks as the kernel dictates. Linux only:
+// other platforms return SA_STD_ERR_UNSUPPORTED (the Windows root
+// does not implement it; see the ABI unsupported manifest).
+pub export fn sa_std_net_tcp_stream_send_file(stream: u64, file: u64, offset: u64, count: u64, out_sent: ?*u64, out_next_offset: ?*u64) i32 {
+    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+    if (comptime !is_linux) return finish(SA_STD_ERR_UNSUPPORTED);
+    const sent_ptr = out_sent orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
+    sent_ptr.* = 0;
+    if (out_next_offset) |slot| slot.* = offset;
+    var out_fd_opt: ?std.posix.fd_t = null;
+    var in_fd_opt: ?std.posix.fd_t = null;
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    if (getResourceLocked(stream)) |resource| {
+        switch (resource.*) {
+            .tcp_stream => |fd| out_fd_opt = fd,
+            else => {},
+        }
+    }
+    if (getResourceLocked(file)) |resource| {
+        switch (resource.*) {
+            .file => |handle| in_fd_opt = handle.inner.handle,
+            else => {},
+        }
+    }
+    registry_mutex.unlock();
+    const out_fd = out_fd_opt orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const in_fd = in_fd_opt orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    var next_offset = offset;
+    var sent_total: u64 = 0;
+    while (sent_total < count) {
+        const remaining = count - sent_total;
+        const chunk: usize = @intCast(@min(remaining, @as(u64, 0x7ffff000)));
+        const n = lxSendfile(out_fd, in_fd, &next_offset, chunk) catch |err| {
+            if (out_next_offset) |slot| slot.* = next_offset;
+            sent_ptr.* = sent_total;
+            return finishErr(err);
+        };
+        if (n == 0) break; // EOF: short send, reported via out_sent.
+        sent_total += @as(u64, @intCast(n));
+    }
+    if (out_next_offset) |slot| slot.* = next_offset;
+    sent_ptr.* = sent_total;
+    return finish(SA_STD_OK);
+}
+
 pub export fn sa_std_net_udp_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -18079,4 +18218,134 @@ test "policy gate intercepts fs open and process spawn at the std surface" {
     try std.testing.expectEqual(SA_STD_OK, sa_std_fs_open_read(path.ptr, path.len, &handle));
     try std.testing.expect(handle != 0);
     _ = sa_std_close(handle);
+}
+
+test "num checked arithmetic returns exact results incl. boundaries" {
+    // Normal cases.
+    try std.testing.expectEqual(@as(i64, 42), sa_num_add_checked(40, 2));
+    try std.testing.expectEqual(@as(i64, -1), sa_num_add_checked(-40, 39));
+    try std.testing.expectEqual(@as(i64, 38), sa_num_sub_checked(40, 2));
+    try std.testing.expectEqual(@as(i64, -42), sa_num_mul_checked(-6, 7));
+    try std.testing.expectEqual(@as(i64, 0), sa_num_mul_checked(0, 0));
+    // Boundary cases that must NOT trap.
+    const max = std.math.maxInt(i64);
+    const min = std.math.minInt(i64);
+    try std.testing.expectEqual(max, sa_num_add_checked(max, 0));
+    try std.testing.expectEqual(min, sa_num_add_checked(min, 0));
+    try std.testing.expectEqual(max, sa_num_add_checked(max - 1, 1));
+    try std.testing.expectEqual(min, sa_num_sub_checked(min, 0));
+    try std.testing.expectEqual(max, sa_num_sub_checked(max, 0));
+    try std.testing.expectEqual(@as(i64, 0), sa_num_sub_checked(min, min));
+    try std.testing.expectEqual(min, sa_num_mul_checked(min, 1));
+    try std.testing.expectEqual(max, sa_num_mul_checked(max, 1));
+    try std.testing.expectEqual(@as(i64, -9223372036854775807), sa_num_mul_checked(max, -1));
+    try std.testing.expectEqual(@as(i64, 0), sa_num_mul_checked(0, min));
+    // Largest square that fits: 3037000499^2 < i64 max < 3037000500^2.
+    try std.testing.expectEqual(@as(i64, 9223372030926249001), sa_num_mul_checked(3037000499, 3037000499));
+    // Overflow cases trap by process abort (no wrapped value can be
+    // observed); they are covered by the C probe in the delivery
+    // evidence, not by in-process tests.
+}
+
+test "raw socket creation validates shape and registers a datagram handle" {
+    var handle: u64 = 0;
+    // Shape validation happens before any syscall, so these hold in
+    // every environment: bad domain, SOCK_STREAM, oversized protocol.
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_raw_socket(99, 3, 1, &handle));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_raw_socket(2, 1, 1, &handle));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_raw_socket(2, 3, 256, &handle));
+    try std.testing.expectEqual(@as(u64, 0), handle);
+    const status = sa_std_net_raw_socket(2, 3, 1, &handle);
+    if (status == SA_STD_OK) {
+        defer _ = sa_std_close(handle);
+        try std.testing.expect(handle != 0);
+        // SO_TYPE through the passthrough reads back SOCK_RAW (3).
+        var value: i32 = 0;
+        try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_getsockopt_int(handle, 1, 3, &value));
+        try std.testing.expectEqual(@as(i32, 3), value);
+    } else {
+        // Unprivileged environments may refuse raw sockets; the
+        // refusal must be a loud status and never a fake handle.
+        try std.testing.expectEqual(@as(u64, 0), handle);
+        try std.testing.expect(status == SA_STD_ERR_ACCESS or status == SA_STD_ERR_PERMISSION_DENIED or status == SA_STD_ERR_UNSUPPORTED);
+    }
+    // The ping-socket form (SOCK_DGRAM + IPPROTO_ICMP) is admitted.
+    var ping_handle: u64 = 0;
+    const ping_status = sa_std_net_raw_socket(2, 2, 1, &ping_handle);
+    if (ping_status == SA_STD_OK) {
+        defer _ = sa_std_close(ping_handle);
+        var value: i32 = 0;
+        try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_getsockopt_int(ping_handle, 1, 3, &value));
+        try std.testing.expectEqual(@as(i32, 2), value);
+    } else {
+        try std.testing.expectEqual(@as(u64, 0), ping_handle);
+    }
+}
+
+test "tcp stream send_file moves file bytes over loopback" {
+    const host = "127.0.0.1";
+    const path = "sa_std_sendfile_probe.bin";
+    _ = sa_std_fs_remove(path.ptr, path.len);
+    var payload_buf: [528]u8 = undefined;
+    for (&payload_buf, 0..) |*byte, idx| byte.* = "sendfile-payload-0123456789abcdef"[@mod(idx, 33)];
+    const payload: []const u8 = &payload_buf;
+    var file_handle: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_fs_open_write(path.ptr, path.len, 1, &file_handle));
+    var written: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_fs_file_write(file_handle, payload.ptr, payload.len, &written));
+    try std.testing.expectEqual(@as(u64, payload.len), written);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_close(file_handle));
+    // sendfile(2) needs a readable input fd: reopen for reading.
+    try std.testing.expectEqual(SA_STD_OK, sa_std_fs_open_read(path.ptr, path.len, &file_handle));
+    defer {
+        _ = sa_std_close(file_handle);
+        _ = sa_std_fs_remove(path.ptr, path.len);
+    }
+    var listener: u64 = 0;
+    var bound_port: u32 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listen(host.ptr, host.len, 0, &listener, &bound_port));
+    defer _ = sa_std_close(listener);
+    try std.testing.expect(bound_port != 0);
+    var client: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_connect(host.ptr, host.len, bound_port, &client));
+    defer _ = sa_std_close(client);
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_read_timeout(client, 5_000_000_000));
+    var server_side: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_accept(listener, &server_side));
+    defer _ = sa_std_close(server_side);
+
+    // Full send from offset 0.
+    var sent: u64 = 0;
+    var next_offset: u64 = 0;
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_send_file(server_side, file_handle, 0, payload.len, &sent, &next_offset));
+    try std.testing.expectEqual(@as(u64, payload.len), sent);
+    try std.testing.expectEqual(@as(u64, payload.len), next_offset);
+    var received: [528]u8 = undefined;
+    var total: u64 = 0;
+    while (total < payload.len) {
+        var got: u64 = 0;
+        try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_read(client, received[total..].ptr, payload.len - total, &got));
+        try std.testing.expect(got != 0);
+        total += got;
+    }
+    try std.testing.expectEqualSlices(u8, payload, &received);
+
+    // Offset send: the file position is explicit, so a second send
+    // from offset 33 moves exactly payload[33..66].
+    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_send_file(server_side, file_handle, 33, 33, &sent, &next_offset));
+    try std.testing.expectEqual(@as(u64, 33), sent);
+    try std.testing.expectEqual(@as(u64, 66), next_offset);
+    var slice_buf: [33]u8 = undefined;
+    total = 0;
+    while (total < 33) {
+        var got: u64 = 0;
+        try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_read(client, slice_buf[total..].ptr, 33 - total, &got));
+        try std.testing.expect(got != 0);
+        total += got;
+    }
+    try std.testing.expectEqualSlices(u8, payload[33..66], &slice_buf);
+
+    // Bad handles fail loudly.
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_tcp_stream_send_file(0, file_handle, 0, 1, &sent, &next_offset));
+    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_tcp_stream_send_file(server_side, 0, 0, 1, &sent, &next_offset));
 }

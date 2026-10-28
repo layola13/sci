@@ -49,6 +49,18 @@
 @extern sa_http_server_resp_new_v2(req: ptr, status: u16, &out_resp: ptr) -> u32
 @extern sa_http_server_resp_add_header_v2(resp: ptr, &name: ptr, name_len: u64, &value: ptr, value_len: u64) -> u32
 @extern sa_http_server_resp_send_v2(resp: ptr, &body: ptr, body_len: u64, timeout_ms: u32) -> u32
+// Header-only send (HEAD): same response object as resp_send_v2,
+// but the wire carries the caller-declared content_length and zero
+// body bytes (resp_send_v2 always frames content-length from the
+// body it is handed, and the header bag rejects a caller-set
+// content-length, so HEAD had no correct shape before this).
+@extern sa_http_server_resp_send_head_v2(resp: ptr, content_length: u64, timeout_ms: u32) -> u32
+// Peer (remote) address of a v2 request as text + port (access-log
+// remote field / per-request ACL). out receives the address text
+// (dotted quad for IPv4; IPv6 in full uncompressed groups);
+// out_len receives its length. A too-small buffer returns
+// too_large (4) with out_len set to the needed size.
+@extern sa_http_server_req_peer_addr_v2(req: ptr, &out: ptr, out_cap: u64, &out_len: ptr, &out_port: ptr) -> u32
 @extern sa_http_server_resp_free_v2(resp: ptr) -> u32
 @extern sa_http_server_resp_stream_new_v2(req: ptr, status: u16, &out_resp: ptr) -> u32
 @extern sa_http_server_resp_stream_add_header_v2(resp: ptr, &name: ptr, name_len: u64, &value: ptr, value_len: u64) -> u32
