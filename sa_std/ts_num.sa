@@ -1,0 +1,674 @@
+// ts_num.sa -- number formatting ops for tsgosa mapping.
+//
+// Handle model (16 字节薄柄, 与 ts_string 串柄同模型):
+//   +0: 数据指针 ptr; +8: 长度 u64。
+// 返回柄为新分配：字节缓冲新建、由返回柄收养（join 前例：
+// @ts_arr_join_append 的缓冲数据指针作柄内容）；调用方持有返回柄，
+// 作用域出时经发射器 saOwnTemp/saReleaseOwnedTemp 释放。
+// 草稿缓冲（肢、数字、指数）一律在返回前经 ! 释放。
+// 形状证据：新造，非移植——tsgosa 发射器此前对 Number.prototype.toFixed
+// 零提及（审计 2026-10-28：88 cxu 用点）；本函数为发射器 toFixed 臂
+// 的唯一实现，发射器内不得另行内联格式化序列。
+// 舍入：ECMAScript Number.prototype.toFixed 于精确二进制值：最近
+// n/10^digits，tie 朝 +inf。实现用 u32 肢精确大整数运算，全程不用
+// f64 格式化（Zig 格式化按最短十进制远离零舍入，与 JS 在近 tie 处
+// 发散，2026-10-28 探针证实；JEV std_tofixed2 exact_bignum_sa 0.70）。
+// 依赖方向：无（不 import 任何 ts_* 文件；不新增 extern）。
+// 契约：digits 须在 0..100（发射器门保证，越界为 JS RangeError 范围；
+// 本函数对越界 digits 不作静默钳制，结果未定义）。
+
+@const tf_nan = utf8:"NaN"
+@const tf_inf = utf8:"Infinity"
+@const tf_ninf = utf8:"-Infinity"
+
+// @ts_num_tofixed(v: f64, digits: i32) -> ptr:
+//   JS Number.prototype.toFixed(v, digits) 的精确实现（见文件头舍入）。
+//   特殊形：NaN -> "NaN"；+-Inf -> "Infinity"/"-Infinity"；+0/-0 ->
+//   "0." + digits 个零；|v| >= 1e21 -> JS toString 指数形（d[.ddd]e+exp）。
+//   常规形：分解 |v| = M * 2^E'（M < 2^53 整数，E' = e - 52），经
+//   N = (2*M*10^digits + 2^-E') div (2*2^-E')（正）或
+//   N = (2*M*10^digits + 2^-E' - 1) div (2*2^-E')（负，幅值）精确求 N，
+//   再十进制渲染（N == 0 时无负号）。
+//   纯值：除返回柄与字节缓冲外无堆残留；v/digits 为值参，无借用。
+@ts_num_tofixed(v: f64, digits: i32) -> ptr:
+L_TF_ENTRY:
+    isnan = fcmp_ne v, v
+    br isnan -> L_TF_NAN, L_TF_ZERO
+L_TF_NAN:
+    hnan = alloc 16
+    store hnan+0, &tf_nan as ptr
+    store hnan+8, 3 as u64
+    return hnan
+L_TF_ZERO:
+    iszero = fcmp_eq v, 0.0
+    br iszero -> L_TF_ZEROOUT, L_TF_INF
+L_TF_ZEROOUT:
+    zb = alloc 256
+    store zb+0, 48 as u8
+    zpos = eq digits, 0
+    br zpos -> L_TF_ZERODONE, L_TF_ZEROFRAC
+L_TF_ZEROFRAC:
+    store zb+1, 46 as u8
+    zi = 0
+    jmp L_TF_ZEROTOP
+L_TF_ZEROTOP:
+    zc = slt zi, digits
+    br zc -> L_TF_ZEROBODY, L_TF_ZERODONE2
+L_TF_ZEROBODY:
+    zoff = add zi, 2
+    zaddr = add zb, zoff
+    store zaddr+0, 48 as u8
+    zinext = add zi, 1
+    zi = zinext
+    jmp L_TF_ZEROTOP
+L_TF_ZERODONE2:
+    zlen = add digits, 2
+    jmp L_TF_ZERORET
+L_TF_ZERODONE:
+    zlen = 1
+    jmp L_TF_ZERORET
+L_TF_ZERORET:
+    zh = alloc 16
+    store zh+0, zb as ptr
+    zlen64 = zext zlen as u64
+    store zh+8, zlen64 as u64
+    return zh
+L_TF_INF:
+    v2 = fmul v, 2.0
+    isinf = fcmp_eq v, v2
+    br isinf -> L_TF_INFOUT, L_TF_GE
+L_TF_INFOUT:
+    ineg = fcmp_lt v, 0.0
+    br ineg -> L_TF_NINF, L_TF_PINF
+L_TF_PINF:
+    hpinf = alloc 16
+    store hpinf+0, &tf_inf as ptr
+    store hpinf+8, 8 as u64
+    return hpinf
+L_TF_NINF:
+    hninf = alloc 16
+    store hninf+0, &tf_ninf as ptr
+    store hninf+8, 9 as u64
+    return hninf
+L_TF_GE:
+    isneg = fcmp_lt v, 0.0
+    sgnf = sitofp isneg as f64
+    neg2 = -2.0 as f64
+    mult = fmul sgnf, neg2
+    mult1 = fadd mult, 1.0
+    ax = fmul v, mult1
+    ge = fcmp_ge ax, 1000000000000000000000.0
+    br ge -> L_TF_EXPSET, L_TF_NORMSET
+L_TF_EXPSET:
+    p_eff = 0
+    expflag = 1
+    jmp L_TF_DECOMP
+L_TF_NORMSET:
+    p_eff = add digits, 0
+    expflag = 0
+    jmp L_TF_DECOMP
+L_TF_DECOMP:
+    ee = 0
+    jmp L_TF_GTTOP
+L_TF_GTTOP:
+    gc = fcmp_ge ax, 2.0
+    br gc -> L_TF_GTBODY, L_TF_LTTOP
+L_TF_GTBODY:
+    axnext = fdiv ax, 2.0
+    ax = axnext
+    eenext = add ee, 1
+    ee = eenext
+    jmp L_TF_GTTOP
+L_TF_LTTOP:
+    lc = fcmp_lt ax, 1.0
+    br lc -> L_TF_LTBODY, L_TF_M
+L_TF_LTBODY:
+    axnext2 = fmul ax, 2.0
+    ax = axnext2
+    eenext2 = sub ee, 1
+    ee = eenext2
+    jmp L_TF_LTTOP
+L_TF_M:
+    mf = fmul ax, 4503599627370496.0
+    mm = fptosi mf as u64
+    ex = sub ee, 52
+    mlo = and mm, 4294967295
+    mhi = lshr mm, 32
+    pb = alloc 128
+    pi = 0
+    jmp L_TF_PZEROTOP
+L_TF_PZEROTOP:
+    pzc = slt pi, 16
+    br pzc -> L_TF_PZEROBODY, L_TF_PONE
+L_TF_PZEROBODY:
+    poff = mul pi, 8
+    paddr = add pb, poff
+    store paddr+0, 0 as u64
+    pinext = add pi, 1
+    pi = pinext
+    jmp L_TF_PZEROTOP
+L_TF_PONE:
+    store pb+0, 1 as u64
+    pt = 0
+    jmp L_TF_PMULTOP
+L_TF_PMULTOP:
+    pmc = slt pt, p_eff
+    br pmc -> L_TF_PMULTBODY, L_TF_Y
+L_TF_PMULTBODY:
+    pcar = 0
+    pj = 0
+    jmp L_TF_PMULTIN
+L_TF_PMULTIN:
+    pmic = slt pj, 16
+    br pmic -> L_TF_PMULTSTEP, L_TF_PMULTNEXT
+L_TF_PMULTSTEP:
+    pjoff = mul pj, 8
+    pjaddr = add pb, pjoff
+    pjv = load pjaddr+0 as u64
+    pprod = mul pjv, 10
+    pprod2 = add pprod, pcar
+    pnew = and pprod2, 4294967295
+    store pjaddr+0, pnew as u64
+    pcar = lshr pprod2, 32
+    pjnext = add pj, 1
+    pj = pjnext
+    jmp L_TF_PMULTIN
+L_TF_PMULTNEXT:
+    ptnext = add pt, 1
+    pt = ptnext
+    jmp L_TF_PMULTOP
+L_TF_Y:
+    yb = alloc 144
+    ycar = 0
+    yj = 0
+    jmp L_TF_YLOTOP
+L_TF_YLOTOP:
+    ylc = slt yj, 16
+    br ylc -> L_TF_YLOSTEP, L_TF_YHI
+L_TF_YLOSTEP:
+    yjoff = mul yj, 8
+    yjaddr = add yb, yjoff
+    pjaddr2 = add pb, yjoff
+    pjv2 = load pjaddr2+0 as u64
+    yprod = mul pjv2, mlo
+    yprod2 = add yprod, ycar
+    ynew = and yprod2, 4294967295
+    store yjaddr+0, ynew as u64
+    ycar = lshr yprod2, 32
+    yjnext = add yj, 1
+    yj = yjnext
+    jmp L_TF_YLOTOP
+L_TF_YHI:
+    ab = alloc 384
+    store yb+128, 0 as u64
+    store yb+136, 0 as u64
+    tcar = 0
+    tj = 0
+    jmp L_TF_YHITOP
+L_TF_YHITOP:
+    yhc = slt tj, 16
+    br yhc -> L_TF_YHISTEP, L_TF_YADD
+L_TF_YHISTEP:
+    tjoff = mul tj, 8
+    tjaddr = add ab, tjoff
+    pjaddr3 = add pb, tjoff
+    pjv3 = load pjaddr3+0 as u64
+    tprod = mul pjv3, mhi
+    tprod2 = add tprod, tcar
+    tnew = and tprod2, 4294967295
+    store tjaddr+0, tnew as u64
+    tcar = lshr tprod2, 32
+    tjnext = add tj, 1
+    tj = tjnext
+    jmp L_TF_YHITOP
+L_TF_YADD:
+    acar = 0
+    aj = 0
+    jmp L_TF_YADDTOP
+L_TF_YADDTOP:
+    yac = slt aj, 16
+    br yac -> L_TF_YADDSTEP, L_TF_YDONE
+L_TF_YADDSTEP:
+    ajp1 = add aj, 1
+    atoff = mul ajp1, 8
+    ataddr = add yb, atoff
+    atold = load ataddr+0 as u64
+    aioff = mul aj, 8
+    aiaddr = add ab, aioff
+    ativ = load aiaddr+0 as u64
+    asum = add atold, ativ
+    asum2 = add asum, acar
+    anew = and asum2, 4294967295
+    store ataddr+0, anew as u64
+    acar = lshr asum2, 32
+    ajnext = add aj, 1
+    aj = ajnext
+    jmp L_TF_YADDTOP
+L_TF_YDONE:
+    epos = sge ex, 0
+    br epos -> L_TF_SHL, L_TF_SHR
+L_TF_SHL:
+    shw = sdiv ex, 32
+    shb = srem ex, 32
+    shi = 47
+    jmp L_TF_SHLTOP
+L_TF_SHLTOP:
+    shc = sge shi, 0
+    br shc -> L_TF_SHLSTEP, L_TF_DIGITS
+L_TF_SHLSTEP:
+    shsrc = sub shi, shw
+    shge = sge shsrc, 0
+    br shge -> L_TF_SHLHI, L_TF_SHLZERO
+L_TF_SHLHI:
+    shlt = slt shsrc, 18
+    br shlt -> L_TF_SHLLOAD, L_TF_SHLZERO
+L_TF_SHLLOAD:
+    shsoff = mul shsrc, 8
+    shsaddr = add yb, shsoff
+    shsv = load shsaddr+0 as u64
+    shb64 = zext shb as u64
+    shraw = shl shsv, shb64
+    shv1 = and shraw, 4294967295
+    shbpos = sgt shb, 0
+    br shbpos -> L_TF_SHLCARRY, L_TF_SHLCARRYDONE
+L_TF_SHLCARRY:
+    shsrcpos = sgt shsrc, 0
+    br shsrcpos -> L_TF_SHLCARRYLOAD, L_TF_SHLCARRYDONE
+L_TF_SHLCARRYLOAD:
+    shsrcm = sub shsrc, 1
+    shcmoff = mul shsrcm, 8
+    shcmaddr = add yb, shcmoff
+    shcmv = load shcmaddr+0 as u64
+    shcomp = sub 32, shb
+    shcomp64 = zext shcomp as u64
+    shcar = lshr shcmv, shcomp64
+    shvb = or shv1, shcar
+    shval = shvb
+    jmp L_TF_SHLSTORE
+L_TF_SHLCARRYDONE:
+    shval = or shv1, 0
+    jmp L_TF_SHLSTORE
+L_TF_SHLZERO:
+    shval = 0
+    jmp L_TF_SHLSTORE
+L_TF_SHLSTORE:
+    shdoff = mul shi, 8
+    shdaddr = add ab, shdoff
+    store shdaddr+0, shval as u64
+    shinext = sub shi, 1
+    shi = shinext
+    jmp L_TF_SHLTOP
+L_TF_SHR:
+    kk = sub 0, ex
+    scar = 0
+    sj = 0
+    jmp L_TF_SHRTOP
+L_TF_SHRTOP:
+    shrc = slt sj, 48
+    br shrc -> L_TF_SHRSTEP, L_TF_ADDK
+L_TF_SHRSTEP:
+    sjin = slt sj, 18
+    br sjin -> L_TF_SHRLOAD, L_TF_SHRZERO
+L_TF_SHRLOAD:
+    sjo = mul sj, 8
+    sjaddr = add yb, sjo
+    syv = load sjaddr+0 as u64
+    jmp L_TF_SHRSTORE
+L_TF_SHRZERO:
+    syv = 0
+    jmp L_TF_SHRSTORE
+L_TF_SHRSTORE:
+    sprod = shl syv, 1
+    snew = and sprod, 4294967295
+    snew2 = or snew, scar
+    sdo = mul sj, 8
+    sdaddr = add ab, sdo
+    store sdaddr+0, snew2 as u64
+    scar = lshr syv, 31
+    sjnext = add sj, 1
+    sj = sjnext
+    jmp L_TF_SHRTOP
+L_TF_ADDK:
+    kw = sdiv kk, 32
+    kb = srem kk, 32
+    kb64 = zext kb as u64
+    kone = 1 as u64
+    kpow = shl kone, kb64
+    kcar = or kpow, 0
+    kj = or kw, 0
+    jmp L_TF_ADDKTOP
+L_TF_ADDKTOP:
+    kcarpos = ne kcar, 0
+    br kcarpos -> L_TF_ADDKSTEP, L_TF_SUBNEG
+L_TF_ADDKSTEP:
+    kjok = slt kj, 48
+    br kjok -> L_TF_ADDKADD, L_TF_SUBNEG
+L_TF_ADDKADD:
+    kjo = mul kj, 8
+    kjaddr = add ab, kjo
+    kjv = load kjaddr+0 as u64
+    ksum = add kjv, kcar
+    knew = and ksum, 4294967295
+    store kjaddr+0, knew as u64
+    kcar = lshr ksum, 32
+    kjnext = add kj, 1
+    kj = kjnext
+    jmp L_TF_ADDKTOP
+L_TF_SUBNEG:
+    br isneg -> L_TF_SUBLOOP, L_TF_SHRFIN
+L_TF_SUBLOOP:
+    bj = 0
+    jmp L_TF_SUBTOP
+L_TF_SUBTOP:
+    bjo = mul bj, 8
+    bjaddr = add ab, bjo
+    bjv = load bjaddr+0 as u64
+    bjpos = ugt bjv, 0
+    br bjpos -> L_TF_SUBDONE, L_TF_SUBBORROW
+L_TF_SUBBORROW:
+    store bjaddr+0, 4294967295 as u64
+    bjnext = add bj, 1
+    bj = bjnext
+    jmp L_TF_SUBTOP
+L_TF_SUBDONE:
+    bdec = sub bjv, 1
+    store bjaddr+0, bdec as u64
+    jmp L_TF_SHRFIN
+L_TF_SHRFIN:
+    kp1 = add kk, 1
+    rw = sdiv kp1, 32
+    rb = srem kp1, 32
+    rb64 = zext rb as u64
+    rcomp = sub 32, rb
+    rcomp64 = zext rcomp as u64
+    ri = 0
+    jmp L_TF_SHRFTOP
+L_TF_SHRFTOP:
+    rfc = slt ri, 48
+    br rfc -> L_TF_SHRFSTEP, L_TF_DIGITS
+L_TF_SHRFSTEP:
+    rsrc = add ri, rw
+    rsrcok = slt rsrc, 48
+    br rsrcok -> L_TF_SHRFLOAD, L_TF_SHRFZERO
+L_TF_SHRFZERO:
+    rfval = 0
+    jmp L_TF_SHRFSTORE
+L_TF_SHRFLOAD:
+    rso = mul rsrc, 8
+    rsaddr = add ab, rso
+    rsv = load rsaddr+0 as u64
+    rval1 = lshr rsv, rb64
+    rbpos = sgt rb, 0
+    br rbpos -> L_TF_SHRFCARRY, L_TF_SHRFCARRYDONE
+L_TF_SHRFCARRY:
+    rsrcp1 = add rsrc, 1
+    rsrcp1ok = slt rsrcp1, 48
+    br rsrcp1ok -> L_TF_SHRFCARRYLOAD, L_TF_SHRFCARRYDONE
+L_TF_SHRFCARRYLOAD:
+    rco = mul rsrcp1, 8
+    rcaddr = add ab, rco
+    rcv = load rcaddr+0 as u64
+    rcsh = shl rcv, rcomp64
+    rcm = and rcsh, 4294967295
+    rval1b = or rval1, rcm
+    rfval = rval1b
+    jmp L_TF_SHRFSTORE
+L_TF_SHRFCARRYDONE:
+    rfval = or rval1, 0
+    jmp L_TF_SHRFSTORE
+L_TF_SHRFSTORE:
+    rio = mul ri, 8
+    riaddr = add ab, rio
+    store riaddr+0, rfval as u64
+    rinext = add ri, 1
+    ri = rinext
+    jmp L_TF_SHRFTOP
+L_TF_DIGITS:
+    digbuf = alloc 320
+    nd = 0
+    jmp L_TF_DIGTOP
+L_TF_DIGTOP:
+    drem = 0
+    dany = 0
+    di = 47
+    jmp L_TF_DIGIN
+L_TF_DIGIN:
+    dic = sge di, 0
+    br dic -> L_TF_DIGSTEP, L_TF_DIGAFTER
+L_TF_DIGSTEP:
+    dio = mul di, 8
+    diaddr = add ab, dio
+    div = load diaddr+0 as u64
+    dremsh = shl drem, 32
+    dcur = or dremsh, div
+    dq = udiv dcur, 10
+    dr = urem dcur, 10
+    store diaddr+0, dq as u64
+    dany = or dany, dq
+    drem = dr
+    dinext = sub di, 1
+    di = dinext
+    jmp L_TF_DIGIN
+L_TF_DIGAFTER:
+    dch = add drem, 48
+    daddr = add digbuf, nd
+    store daddr+0, dch as u8
+    ndnext = add nd, 1
+    nd = ndnext
+    dcont = ne dany, 0
+    br dcont -> L_TF_DIGTOP, L_TF_RENDER
+L_TF_RENDER:
+    exptest = ne expflag, 0
+    br exptest -> L_TF_EXP, L_TF_FIXED
+L_TF_FIXED:
+    outbuf = alloc 256
+    w = add 0, 0
+    nd1 = eq nd, 1
+    br nd1 -> L_TF_FIXNZ, L_TF_FIXSIGN
+L_TF_FIXNZ:
+    d0 = load digbuf+0 as u8
+    d0zero = eq d0, 48
+    br d0zero -> L_TF_FIXINT, L_TF_FIXSIGN
+L_TF_FIXSIGN:
+    br isneg -> L_TF_FIXNEG, L_TF_FIXINT
+L_TF_FIXNEG:
+    store outbuf+0, 45 as u8
+    w = add 0, 1
+    jmp L_TF_FIXINT
+L_TF_FIXINT:
+    intc = sub nd, p_eff
+    intpos = sgt intc, 0
+    br intpos -> L_TF_FIXINTDIG, L_TF_FIXINTZERO
+L_TF_FIXINTDIG:
+    fi = 0
+    jmp L_TF_FIXINTTOP
+L_TF_FIXINTTOP:
+    fic = slt fi, intc
+    br fic -> L_TF_FIXINTSTEP, L_TF_FIXFRAC
+L_TF_FIXINTSTEP:
+    fsrc = sub nd, 1
+    fsrc2 = sub fsrc, fi
+    fsaddr = add digbuf, fsrc2
+    fch = load fsaddr+0 as u8
+    fwaddr = add outbuf, w
+    store fwaddr+0, fch as u8
+    w = add w, 1
+    finext = add fi, 1
+    fi = finext
+    jmp L_TF_FIXINTTOP
+L_TF_FIXINTZERO:
+    fwaddr0 = add outbuf, w
+    store fwaddr0+0, 48 as u8
+    w = add w, 1
+    jmp L_TF_FIXFRAC
+L_TF_FIXFRAC:
+    ppos = sgt p_eff, 0
+    br ppos -> L_TF_FIXDOT, L_TF_FIXDONE
+L_TF_FIXDOT:
+    fwaddr1 = add outbuf, w
+    store fwaddr1+0, 46 as u8
+    w = add w, 1
+    ndgtp = sgt nd, p_eff
+    br ndgtp -> L_TF_FIXFRACDIG, L_TF_FIXFRACZERO
+L_TF_FIXFRACDIG:
+    fj = 0
+    jmp L_TF_FIXFRACTOP
+L_TF_FIXFRACTOP:
+    fjc = slt fj, p_eff
+    br fjc -> L_TF_FIXFRACSTEP, L_TF_FIXDONE
+L_TF_FIXFRACSTEP:
+    fjsrc = sub p_eff, 1
+    fjsrc2 = sub fjsrc, fj
+    fjsaddr = add digbuf, fjsrc2
+    fjch = load fjsaddr+0 as u8
+    fjwaddr = add outbuf, w
+    store fjwaddr+0, fjch as u8
+    w = add w, 1
+    fjnext = add fj, 1
+    fj = fjnext
+    jmp L_TF_FIXFRACTOP
+L_TF_FIXFRACZERO:
+    fz = sub p_eff, nd
+    fk = 0
+    jmp L_TF_FIXFRACTZTOP
+L_TF_FIXFRACTZTOP:
+    fkc = slt fk, fz
+    br fkc -> L_TF_FIXFRACTZSTEP, L_TF_FIXFRACTALL
+L_TF_FIXFRACTZSTEP:
+    fkwaddr = add outbuf, w
+    store fkwaddr+0, 48 as u8
+    w = add w, 1
+    fknext = add fk, 1
+    fk = fknext
+    jmp L_TF_FIXFRACTZTOP
+L_TF_FIXFRACTALL:
+    fl = 0
+    jmp L_TF_FIXFRACTALLTOP
+L_TF_FIXFRACTALLTOP:
+    flc = slt fl, nd
+    br flc -> L_TF_FIXFRACTALLSTEP, L_TF_FIXDONE
+L_TF_FIXFRACTALLSTEP:
+    flsrc = sub nd, 1
+    flsrc2 = sub flsrc, fl
+    flsaddr = add digbuf, flsrc2
+    flch = load flsaddr+0 as u8
+    flwaddr = add outbuf, w
+    store flwaddr+0, flch as u8
+    w = add w, 1
+    flnext = add fl, 1
+    fl = flnext
+    jmp L_TF_FIXFRACTALLTOP
+L_TF_FIXDONE:
+    outh = alloc 16
+    store outh+0, outbuf as ptr
+    wl = zext w as u64
+    store outh+8, wl as u64
+    !pb
+    !yb
+    !ab
+    !digbuf
+    return outh
+L_TF_EXP:
+    outbuf = alloc 256
+    w = add 0, 0
+    br isneg -> L_TF_EXPNEG, L_TF_EXPINT
+L_TF_EXPNEG:
+    store outbuf+0, 45 as u8
+    w = add 0, 1
+    jmp L_TF_EXPINT
+L_TF_EXPINT:
+    tz = 0
+    jmp L_TF_EXPTZTOP
+L_TF_EXPTZTOP:
+    tzc = slt tz, nd
+    br tzc -> L_TF_EXPTZSTEP, L_TF_EXPSIG
+L_TF_EXPTZSTEP:
+    tzaddr = add digbuf, tz
+    tzch = load tzaddr+0 as u8
+    tzz = eq tzch, 48
+    br tzz -> L_TF_EXPTZNEXT, L_TF_EXPSIG
+L_TF_EXPTZNEXT:
+    tznext = add tz, 1
+    tz = tznext
+    jmp L_TF_EXPTZTOP
+L_TF_EXPSIG:
+    m = sub nd, tz
+    msrc = sub nd, 1
+    msaddr = add digbuf, msrc
+    mch = load msaddr+0 as u8
+    mwaddr = add outbuf, w
+    store mwaddr+0, mch as u8
+    w = add w, 1
+    mgt1 = sgt m, 1
+    br mgt1 -> L_TF_EXPDOT, L_TF_EXPEXP
+L_TF_EXPDOT:
+    mwaddr2 = add outbuf, w
+    store mwaddr2+0, 46 as u8
+    w = add w, 1
+    ek = 0
+    erem = sub m, 1
+    jmp L_TF_EXPDOTTOP
+L_TF_EXPDOTTOP:
+    ekc = slt ek, erem
+    br ekc -> L_TF_EXPDOTSTEP, L_TF_EXPEXP
+L_TF_EXPDOTSTEP:
+    esrc = sub nd, 2
+    esrc2 = sub esrc, ek
+    esaddr = add digbuf, esrc2
+    ech = load esaddr+0 as u8
+    ewaddr = add outbuf, w
+    store ewaddr+0, ech as u8
+    w = add w, 1
+    eknext = add ek, 1
+    ek = eknext
+    jmp L_TF_EXPDOTTOP
+L_TF_EXPEXP:
+    expbuf = alloc 8
+    en = sub nd, 1
+    ed = 0
+    jmp L_TF_EXPENDTOP
+L_TF_EXPENDTOP:
+    eq10 = udiv en, 10
+    er10 = urem en, 10
+    ech10 = add er10, 48
+    eaddr10 = add expbuf, ed
+    store eaddr10+0, ech10 as u8
+    ednext = add ed, 1
+    ed = ednext
+    en = eq10
+    enpos = sgt en, 0
+    br enpos -> L_TF_EXPENDTOP, L_TF_EXPENDDONE
+L_TF_EXPENDDONE:
+    ewaddr3 = add outbuf, w
+    store ewaddr3+0, 101 as u8
+    w = add w, 1
+    ewaddr4 = add outbuf, w
+    store ewaddr4+0, 43 as u8
+    w = add w, 1
+    ej = 0
+    jmp L_TF_EXPENDCOPY
+L_TF_EXPENDCOPY:
+    ejc = slt ej, ed
+    br ejc -> L_TF_EXPENDSTEP, L_TF_EXPDONE
+L_TF_EXPENDSTEP:
+    esrc3 = sub ed, 1
+    esrc4 = sub esrc3, ej
+    esaddr3 = add expbuf, esrc4
+    ech3 = load esaddr3+0 as u8
+    ewaddr5 = add outbuf, w
+    store ewaddr5+0, ech3 as u8
+    w = add w, 1
+    ejnext = add ej, 1
+    ej = ejnext
+    jmp L_TF_EXPENDCOPY
+L_TF_EXPDONE:
+    outh2 = alloc 16
+    store outh2+0, outbuf as ptr
+    wl2 = zext w as u64
+    store outh2+8, wl2 as u64
+    !pb
+    !yb
+    !ab
+    !digbuf
+    !expbuf
+    return outh2
