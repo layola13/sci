@@ -1,6 +1,9 @@
 // SLA-facing named constants for the sa_std MySQL client surface
 // (sa_std/mysql_client.sai): the column type codes returned by
-// sa_mysql_result_column_type.
+// sa_mysql_result_column_type. Importing this file also imports the
+// extern declarations.
+
+@import "sa_std/mysql_client.sai"
 //
 // Why this file exists: the extern surface passes column types as
 // bare u8 codes (the MySQL enum_field_types registry), and without

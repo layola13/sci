@@ -1,0 +1,241 @@
+// Live tests for the sa_std MySQL client (sa_std/mysql_client.sai)
+// against a real MySQL/MariaDB server on 127.0.0.1:13306.
+//
+// Use tests/run_mysql_live_tests.sh, which initializes a throwaway
+// server (fresh datadir, loopback only), creates the accounts below,
+// warms the caching_sha2 credential cache for cache_warm (one login
+// through the official client), and runs this file. Nothing here is
+// part of the default suites: it needs a live server by design.
+//
+// Accounts (created by the runner, test-only, loopback server):
+//   native_tester / native_pw  — mysql_native_password
+//   cache_warm    / cache_pw   — caching_sha2_password, cache warm
+//   cache_cold    / cache_pw   — caching_sha2_password, never logged
+//                                in, so the server demands full auth
+// Database: sa_mysql_live.
+
+@import "sa_std/mysql_client.sla"
+
+fn bytes_is(p: ptr, n: u64, lit: ptr, lit_len: u64) -> bool {
+    if n != lit_len {
+        return false;
+    };
+    let i: u64 = 0;
+    while i < n {
+        let g: u8 = PTR_READ_U8(PTR_BYTE_ADD(p, i));
+        let w: u8 = PTR_READ_U8(PTR_BYTE_ADD(lit, i));
+        if g != w {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+fn val_is(result: u64, row: u64, col: u64, lit: ptr, lit_len: u64) -> bool {
+    let vp: ptr = STR_PTR("");
+    let vl: u64 = 0;
+    let isn: u32 = 0;
+    let st: i32 = sa_mysql_result_value(result, row, col, &vp, &vl, &isn);
+    if st != 0 {
+        return false;
+    };
+    if isn != 0 {
+        return false;
+    };
+    return bytes_is(vp, vl, lit, lit_len);
+}
+
+fn val_null(result: u64, row: u64, col: u64) -> bool {
+    let vp: ptr = STR_PTR("");
+    let vl: u64 = 0;
+    let isn: u32 = 0;
+    let st: i32 = sa_mysql_result_value(result, row, col, &vp, &vl, &isn);
+    if st != 0 {
+        return false;
+    };
+    if isn != 1 {
+        return false;
+    };
+    return vl == 0;
+}
+
+fn connect_native() -> u64 {
+    let conn: u64 = 0;
+    let st: i32 = sa_mysql_connect(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"), 13306, STR_PTR("native_tester"), STR_LEN("native_tester"), STR_PTR("native_pw"), STR_LEN("native_pw"), STR_PTR("sa_mysql_live"), STR_LEN("sa_mysql_live"), &conn);
+    if st != 0 {
+        panic(6001);
+    };
+    if conn == 0 {
+        panic(6002);
+    };
+    return conn;
+}
+
+fn run_ok(conn: u64, sql: ptr, sql_len: u64) -> u64 {
+    let res: u64 = 0;
+    let st: i32 = sa_mysql_query(conn, sql, sql_len, &res);
+    if st != 0 {
+        panic(6010);
+    };
+    return res;
+}
+
+@test "native auth: DDL, DML and typed select round trip"() {
+    let conn = connect_native();
+    let r0 = run_ok(conn, STR_PTR("DROP TABLE IF EXISTS items"), STR_LEN("DROP TABLE IF EXISTS items"));
+    if sa_mysql_result_free(r0) != 0 { panic(6101); };
+    let r1 = run_ok(conn, STR_PTR("CREATE TABLE items (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(64), price DECIMAL(10,2), score DOUBLE, created DATETIME, note TEXT)"), STR_LEN("CREATE TABLE items (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(64), price DECIMAL(10,2), score DOUBLE, created DATETIME, note TEXT)"));
+    if sa_mysql_result_has_result_set(r1) != 0 { panic(6102); };
+    if sa_mysql_result_free(r1) != 0 { panic(6103); };
+    let r2 = run_ok(conn, STR_PTR("INSERT INTO items (name, price, score, created, note) VALUES ('widget', 12.34, 2.5, '2026-10-28 20:36:51', NULL)"), STR_LEN("INSERT INTO items (name, price, score, created, note) VALUES ('widget', 12.34, 2.5, '2026-10-28 20:36:51', NULL)"));
+    if sa_mysql_affected_rows(r2) != 1 { panic(6104); };
+    if sa_mysql_last_insert_id(r2) != 1 { panic(6105); };
+    if sa_mysql_result_free(r2) != 0 { panic(6106); };
+    let r3 = run_ok(conn, STR_PTR("INSERT INTO items (name, price, score, created, note) VALUES ('gadget', 0.10, -3.75, '2000-01-01 00:00:00', 'hello')"), STR_LEN("INSERT INTO items (name, price, score, created, note) VALUES ('gadget', 0.10, -3.75, '2000-01-01 00:00:00', 'hello')"));
+    if sa_mysql_last_insert_id(r3) != 2 { panic(6107); };
+    if sa_mysql_result_free(r3) != 0 { panic(6108); };
+
+    let sel = run_ok(conn, STR_PTR("SELECT id, name, price, score, created, note FROM items ORDER BY id"), STR_LEN("SELECT id, name, price, score, created, note FROM items ORDER BY id"));
+    if sa_mysql_result_has_result_set(sel) != 1 { panic(6109); };
+    if sa_mysql_result_column_count(sel) != 6 { panic(6110); };
+    if sa_mysql_result_row_count(sel) != 2 { panic(6111); };
+    if sa_mysql_result_column_type(sel, 0) != SA_MYSQL_TYPE_LONG { panic(6112); };
+    let np: ptr = STR_PTR("");
+    let nl: u64 = 0;
+    if sa_mysql_result_column_name(sel, 2, &np, &nl) != 0 { panic(6113); };
+    if bytes_is(np, nl, STR_PTR("price"), STR_LEN("price")) != true { panic(6114); };
+    if val_is(sel, 0, 0, STR_PTR("1"), STR_LEN("1")) != true { panic(6115); };
+    if val_is(sel, 0, 1, STR_PTR("widget"), STR_LEN("widget")) != true { panic(6116); };
+    if val_is(sel, 0, 2, STR_PTR("12.34"), STR_LEN("12.34")) != true { panic(6117); };
+    if val_is(sel, 0, 3, STR_PTR("2.5"), STR_LEN("2.5")) != true { panic(6118); };
+    if val_is(sel, 0, 4, STR_PTR("2026-10-28 20:36:51"), STR_LEN("2026-10-28 20:36:51")) != true { panic(6119); };
+    if val_null(sel, 0, 5) != true { panic(6120); };
+    if val_is(sel, 1, 0, STR_PTR("2"), STR_LEN("2")) != true { panic(6121); };
+    if val_is(sel, 1, 1, STR_PTR("gadget"), STR_LEN("gadget")) != true { panic(6122); };
+    if val_is(sel, 1, 2, STR_PTR("0.10"), STR_LEN("0.10")) != true { panic(6123); };
+    if val_is(sel, 1, 3, STR_PTR("-3.75"), STR_LEN("-3.75")) != true { panic(6124); };
+    if val_is(sel, 1, 5, STR_PTR("hello"), STR_LEN("hello")) != true { panic(6125); };
+    if sa_mysql_result_free(sel) != 0 { panic(6126); };
+
+    let ru = run_ok(conn, STR_PTR("UPDATE items SET price = 13.00 WHERE id = 1"), STR_LEN("UPDATE items SET price = 13.00 WHERE id = 1"));
+    if sa_mysql_affected_rows(ru) != 1 { panic(6127); };
+    if sa_mysql_result_free(ru) != 0 { panic(6128); };
+    if sa_mysql_ping(conn) != 0 { panic(6129); };
+    if sa_mysql_close(conn) != 0 { panic(6130); };
+}
+
+@test "prepared statements: bindings and binary row decoding"() {
+    let conn = connect_native();
+    let r0 = run_ok(conn, STR_PTR("DROP TABLE IF EXISTS items2"), STR_LEN("DROP TABLE IF EXISTS items2"));
+    if sa_mysql_result_free(r0) != 0 { panic(6201); };
+    let r1 = run_ok(conn, STR_PTR("CREATE TABLE items2 (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(64), price DECIMAL(10,2), score DOUBLE, created DATETIME, note TEXT)"), STR_LEN("CREATE TABLE items2 (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(64), price DECIMAL(10,2), score DOUBLE, created DATETIME, note TEXT)"));
+    if sa_mysql_result_free(r1) != 0 { panic(6202); };
+
+    let ins: u64 = 0;
+    let pst: i32 = sa_mysql_prepare(conn, STR_PTR("INSERT INTO items2 (name, price, score, created, note) VALUES (?, ?, ?, ?, ?)"), STR_LEN("INSERT INTO items2 (name, price, score, created, note) VALUES (?, ?, ?, ?, ?)"), &ins);
+    if pst != 0 { panic(6203); };
+    if sa_mysql_stmt_param_count(ins) != 5 { panic(6204); };
+    if sa_mysql_stmt_bind_bytes(ins, 0, STR_PTR("prep"), STR_LEN("prep")) != 0 { panic(6205); };
+    if sa_mysql_stmt_bind_bytes(ins, 1, STR_PTR("9.99"), STR_LEN("9.99")) != 0 { panic(6206); };
+    if sa_mysql_stmt_bind_f64(ins, 2, 4.25) != 0 { panic(6207); };
+    if sa_mysql_stmt_bind_bytes(ins, 3, STR_PTR("2026-01-02 03:04:05"), STR_LEN("2026-01-02 03:04:05")) != 0 { panic(6208); };
+    if sa_mysql_stmt_bind_null(ins, 4) != 0 { panic(6209); };
+    let ires: u64 = 0;
+    if sa_mysql_stmt_execute(ins, &ires) != 0 { panic(6210); };
+    if sa_mysql_affected_rows(ires) != 1 { panic(6211); };
+    if sa_mysql_last_insert_id(ires) != 1 { panic(6212); };
+    if sa_mysql_result_free(ires) != 0 { panic(6213); };
+    if sa_mysql_stmt_close(ins) != 0 { panic(6214); };
+
+    let sel_stmt: u64 = 0;
+    let sst: i32 = sa_mysql_prepare(conn, STR_PTR("SELECT name, price, score, created, note FROM items2 WHERE id = ?"), STR_LEN("SELECT name, price, score, created, note FROM items2 WHERE id = ?"), &sel_stmt);
+    if sst != 0 { panic(6215); };
+    if sa_mysql_stmt_bind_i64(sel_stmt, 0, 1) != 0 { panic(6216); };
+    let sres: u64 = 0;
+    if sa_mysql_stmt_execute(sel_stmt, &sres) != 0 { panic(6217); };
+    if sa_mysql_result_has_result_set(sres) != 1 { panic(6218); };
+    if sa_mysql_result_row_count(sres) != 1 { panic(6219); };
+    if val_is(sres, 0, 0, STR_PTR("prep"), STR_LEN("prep")) != true { panic(6220); };
+    if val_is(sres, 0, 1, STR_PTR("9.99"), STR_LEN("9.99")) != true { panic(6221); };
+    if val_is(sres, 0, 2, STR_PTR("4.25"), STR_LEN("4.25")) != true { panic(6222); };
+    if val_is(sres, 0, 3, STR_PTR("2026-01-02 03:04:05"), STR_LEN("2026-01-02 03:04:05")) != true { panic(6223); };
+    if val_null(sres, 0, 4) != true { panic(6224); };
+    if sa_mysql_result_free(sres) != 0 { panic(6225); };
+    if sa_mysql_stmt_close(sel_stmt) != 0 { panic(6226); };
+
+    let one: u64 = 0;
+    let ost: i32 = sa_mysql_prepare(conn, STR_PTR("SELECT ?"), STR_LEN("SELECT ?"), &one);
+    if ost != 0 { panic(6227); };
+    if sa_mysql_stmt_bind_u64(one, 0, 18446744073709551615) != 0 { panic(6228); };
+    let ores: u64 = 0;
+    if sa_mysql_stmt_execute(one, &ores) != 0 { panic(6229); };
+    if val_is(ores, 0, 0, STR_PTR("18446744073709551615"), STR_LEN("18446744073709551615")) != true { panic(6230); };
+    if sa_mysql_result_free(ores) != 0 { panic(6231); };
+    if sa_mysql_stmt_close(one) != 0 { panic(6232); };
+    if sa_mysql_close(conn) != 0 { panic(6233); };
+}
+
+@test "server errors surface errno and sqlstate verbatim"() {
+    let conn = connect_native();
+    let res: u64 = 0;
+    let st: i32 = sa_mysql_query(conn, STR_PTR("SELECT * FROM missing_table"), STR_LEN("SELECT * FROM missing_table"), &res);
+    if st != -101 { panic(6301); };
+    if res != 0 { panic(6302); };
+    if sa_mysql_errno(conn) != 1146 { panic(6303); };
+    let sp: ptr = STR_PTR("");
+    let sl: u64 = 0;
+    if sa_mysql_sqlstate(conn, &sp, &sl) != 0 { panic(6304); };
+    if bytes_is(sp, sl, STR_PTR("42S02"), STR_LEN("42S02")) != true { panic(6305); };
+    let mp: ptr = STR_PTR("");
+    let ml: u64 = 0;
+    if sa_mysql_error_message(conn, &mp, &ml) != 0 { panic(6306); };
+    if ml == 0 { panic(6307); };
+    if sa_mysql_close(conn) != 0 { panic(6308); };
+
+    let bad_conn: u64 = 0;
+    let bst: i32 = sa_mysql_connect(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"), 13306, STR_PTR("native_tester"), STR_LEN("native_tester"), STR_PTR("wrong_pw"), STR_LEN("wrong_pw"), STR_PTR("sa_mysql_live"), STR_LEN("sa_mysql_live"), &bad_conn);
+    if bst != -101 { panic(6309); };
+    if bad_conn == 0 { panic(6310); };
+    if sa_mysql_errno(bad_conn) != 1045 { panic(6311); };
+    let sp2: ptr = STR_PTR("");
+    let sl2: u64 = 0;
+    if sa_mysql_sqlstate(bad_conn, &sp2, &sl2) != 0 { panic(6312); };
+    if bytes_is(sp2, sl2, STR_PTR("28000"), STR_LEN("28000")) != true { panic(6313); };
+    if sa_mysql_close(bad_conn) != 0 { panic(6314); };
+}
+
+@test "caching_sha2 fast path succeeds once the cache is warm"() {
+    let conn: u64 = 0;
+    let st: i32 = sa_mysql_connect(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"), 13306, STR_PTR("cache_warm"), STR_LEN("cache_warm"), STR_PTR("cache_pw"), STR_LEN("cache_pw"), STR_PTR("sa_mysql_live"), STR_LEN("sa_mysql_live"), &conn);
+    if st != 0 { panic(6401); };
+    let res = run_ok(conn, STR_PTR("SELECT 1"), STR_LEN("SELECT 1"));
+    if val_is(res, 0, 0, STR_PTR("1"), STR_LEN("1")) != true { panic(6402); };
+    if sa_mysql_result_free(res) != 0 { panic(6403); };
+    let vp: ptr = STR_PTR("");
+    let vl: u64 = 0;
+    if sa_mysql_server_version(conn, &vp, &vl) != 0 { panic(6404); };
+    if vl == 0 { panic(6405); };
+    if sa_mysql_close(conn) != 0 { panic(6406); };
+}
+
+@test "caching_sha2 cold cache demands full auth and v1 refuses with -103"() {
+    let conn: u64 = 0;
+    let st: i32 = sa_mysql_connect(STR_PTR("127.0.0.1"), STR_LEN("127.0.0.1"), 13306, STR_PTR("cache_cold"), STR_LEN("cache_cold"), STR_PTR("cache_pw"), STR_LEN("cache_pw"), STR_PTR("sa_mysql_live"), STR_LEN("sa_mysql_live"), &conn);
+    if st != -103 { panic(6501); };
+    if conn == 0 { panic(6502); };
+    if sa_mysql_close(conn) != 0 { panic(6503); };
+}
+
+@test "close and reconnect"() {
+    let conn = connect_native();
+    let res = run_ok(conn, STR_PTR("SELECT 1"), STR_LEN("SELECT 1"));
+    if val_is(res, 0, 0, STR_PTR("1"), STR_LEN("1")) != true { panic(6601); };
+    if sa_mysql_result_free(res) != 0 { panic(6602); };
+    if sa_mysql_close(conn) != 0 { panic(6603); };
+    let conn2 = connect_native();
+    let res2 = run_ok(conn2, STR_PTR("SELECT 2"), STR_LEN("SELECT 2"));
+    if val_is(res2, 0, 0, STR_PTR("2"), STR_LEN("2")) != true { panic(6604); };
+    if sa_mysql_result_free(res2) != 0 { panic(6605); };
+    if sa_mysql_close(conn2) != 0 { panic(6606); };
+}
