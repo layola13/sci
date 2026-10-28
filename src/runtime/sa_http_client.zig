@@ -20,6 +20,18 @@ const sio = @import("sio");
 // the std module carries no plugin dependency.
 const AbiStatus = enum(u32) { ok = 0, failed = 2 };
 
+// Client-owned allocations pool through malloc (the same decision the
+// server face documents at serverAllocator): the page allocator costs
+// one mmap/munmap pair per small allocation, and a client request
+// churns dozens of small allocations (header pairs, body lists, URI
+// clones), so per-request throughput collapses into syscall overhead.
+// Every HttpClient allocation flows from the allocator stored at
+// construction, so switching the two constructors switches the whole
+// request/response lifecycle consistently.
+fn clientAllocator() std.mem.Allocator {
+    return std.heap.c_allocator;
+}
+
 
 // ---- shared WS frame helpers (ex plugin sa_std_net.zig) ----
 const sa_net = @import("sa_net_primitives");
@@ -831,7 +843,7 @@ fn readAllIntoList(reader: anytype, allocator: std.mem.Allocator) !std.array_lis
 
 pub export fn sa_http_client_new(use_tls: u8, out_client: ?*?*anyopaque) u32 {
     const slot = out_client orelse return @intFromEnum(AbiStatus.failed);
-    const client = HttpClient.init(std.heap.page_allocator, .{ .use_tls = use_tls }) catch return @intFromEnum(AbiStatus.failed);
+    const client = HttpClient.init(clientAllocator(), .{ .use_tls = use_tls }) catch return @intFromEnum(AbiStatus.failed);
     slot.* = @ptrCast(client);
     return @intFromEnum(AbiStatus.ok);
 }
@@ -2584,7 +2596,7 @@ pub export fn sa_http_client_new_v2(
     const slot = out_client orelse return statusCode(.invalid);
     slot.* = null;
     const ca_path = requiredSlice(ca_bundle_path_ptr, ca_bundle_path_len) catch return statusCode(.invalid);
-    const client = HttpClient.init(std.heap.page_allocator, .{
+    const client = HttpClient.init(clientAllocator(), .{
         .use_tls = use_tls,
         .ca_bundle_path = if (ca_path.len == 0) null else ca_path,
     }) catch |err| return statusCode(statusFromOperationError(err, false));

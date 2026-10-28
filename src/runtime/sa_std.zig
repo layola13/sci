@@ -10682,12 +10682,8 @@ comptime {
         @export(&fd_open, .{ .name = "fd_open" });
         @export(&fd_read, .{ .name = "fd_read" });
         @export(&fd_close, .{ .name = "fd_close" });
-        @export(&mmap, .{ .name = "mmap", .visibility = .hidden });
-        @export(&munmap, .{ .name = "munmap", .visibility = .hidden });
-        @export(&signal, .{ .name = "signal", .visibility = .hidden });
         @export(&pthread_spawn, .{ .name = "pthread_spawn" });
         @export(&pthread_spawn_detached, .{ .name = "pthread_spawn_detached" });
-        @export(&pthread_join, .{ .name = "pthread_join", .visibility = .hidden });
         @export(&pthread_drop, .{ .name = "pthread_drop" });
         @export(&sa_thread_as_pthread_t, .{ .name = "sa_thread_as_pthread_t" });
         @export(&sa_thread_into_pthread_t, .{ .name = "sa_thread_into_pthread_t" });
@@ -10700,14 +10696,29 @@ comptime {
         // brotli/QUIC/TLS loaders degraded and SSH crashed calling the
         // cookie address from SA-produced binaries. Test builds never saw
         // it because this block is skipped under builtin.is_test.
+        //
+        // The same capture applies to every other compatibility definition
+        // whose name collides with a libc symbol, so they share the dl*
+        // gate: mmap/munmap (the page allocator's extern references bound
+        // to the no-op stub — an 8,000-request HTTP client loop issued
+        // 120,066 mmap syscalls against exactly 1 munmap, growing RSS
+        // without bound in slanginx/slaredis-class long-running
+        // executables), signal (stub installs no handler), pthread_join
+        // (handle-registry ABI, not the libc signature std.Thread joins
+        // through), and the sqlite3_* stubs (would shadow a real
+        // libsqlite3 in the same link).
         if (builtin.os.tag == .wasi or !builtin.link_libc) {
             @export(&dlopen, .{ .name = "dlopen", .visibility = .hidden });
             @export(&dlsym, .{ .name = "dlsym", .visibility = .hidden });
             @export(&dlclose, .{ .name = "dlclose", .visibility = .hidden });
+            @export(&mmap, .{ .name = "mmap", .visibility = .hidden });
+            @export(&munmap, .{ .name = "munmap", .visibility = .hidden });
+            @export(&signal, .{ .name = "signal", .visibility = .hidden });
+            @export(&pthread_join, .{ .name = "pthread_join", .visibility = .hidden });
+            @export(&sqlite3_prepare, .{ .name = "sqlite3_prepare", .visibility = .hidden });
+            @export(&sqlite3_step, .{ .name = "sqlite3_step", .visibility = .hidden });
+            @export(&sqlite3_finalize, .{ .name = "sqlite3_finalize", .visibility = .hidden });
         }
-        @export(&sqlite3_prepare, .{ .name = "sqlite3_prepare", .visibility = .hidden });
-        @export(&sqlite3_step, .{ .name = "sqlite3_step", .visibility = .hidden });
-        @export(&sqlite3_finalize, .{ .name = "sqlite3_finalize", .visibility = .hidden });
     }
 }
 
