@@ -15,6 +15,8 @@
 // Database: sa_mysql_live.
 
 @import "sa_std/mysql_client.sla"
+@import "sa_std/string.sa"
+@import "sa_std/ptr.sa"
 
 fn bytes_is(p: ptr, n: u64, lit: ptr, lit_len: u64) -> bool {
     if n != lit_len {
@@ -167,7 +169,10 @@ fn run_ok(conn: u64, sql: ptr, sql_len: u64) -> u64 {
     let one: u64 = 0;
     let ost: i32 = sa_mysql_prepare(conn, STR_PTR("SELECT ?"), STR_LEN("SELECT ?"), &one);
     if ost != 0 { panic(6227); };
-    if sa_mysql_stmt_bind_u64(one, 0, 18446744073709551615) != 0 { panic(6228); };
+    // u64 max is built arithmetically: the bare literal overflows the SLA
+    // lexer's signed literal range (error.InvalidCharacter).
+    let umax: u64 = (9223372036854775807 as u64) * 2 + 1;
+    if sa_mysql_stmt_bind_u64(one, 0, umax) != 0 { panic(6228); };
     let ores: u64 = 0;
     if sa_mysql_stmt_execute(one, &ores) != 0 { panic(6229); };
     if val_is(ores, 0, 0, STR_PTR("18446744073709551615"), STR_LEN("18446744073709551615")) != true { panic(6230); };

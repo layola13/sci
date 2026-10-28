@@ -31,15 +31,16 @@ cleanup() {
 trap cleanup EXIT
 cleanup
 
-NATIVE_FLAG=""
-if mysqld --verbose --help 2>/dev/null | grep -q "mysql-native-password"; then
-    NATIVE_FLAG="--mysql-native-password=ON"
-fi
+# Note: MySQL 8.0 ships mysql_native_password enabled by default and has no
+# --mysql-native-password startup option (that toggle exists in 8.4+; a naive
+# grep of --help false-matches mysql-native-password-proxy-users). The setup
+# SQL below uses IDENTIFIED WITH mysql_native_password, which fails loudly
+# if the plugin is ever unavailable -- no silent fallback.
 
 mysqld --initialize-insecure --datadir="$DATA" --user=root --log-error="$ERRLOG"
 mysqld --datadir="$DATA" --user=root --port=$PORT --bind-address=127.0.0.1 \
     --socket="$SOCK" --pid-file="$PIDF" --log-error="$ERRLOG" \
-    --skip-name-resolve $NATIVE_FLAG &
+    --skip-name-resolve &
 for i in $(seq 1 60); do
     if mysqladmin --socket="$SOCK" -u root ping >/dev/null 2>&1; then
         break
