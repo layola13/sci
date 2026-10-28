@@ -1,0 +1,1884 @@
+// SLA-facing URL value layer for sa_std.
+//
+// Why this file exists, and why it lives at the sa_std root: the
+// net domain's only URL surface was sa_std_url_parse (net.sai) -- a
+// one-shot extern that splits scheme/host/path/port into caller
+// buffers. Everything around it was missing at every layer (the
+// cross-language census batch verified: no percent codecs, no query
+// model, no relative resolution anywhere in sa_std): URI resolve /
+// relativize / normalize, quote / unquote families, query-string
+// parse and build, and userinfo read/write. This file is the pure
+// value layer, next to net.sa in the same root-level style as
+// time.sla and status.sla; it adds no externs and no ABI change.
+//
+// Model: Url mirrors RFC 3986 components with owned Strings.
+// Components are stored in wire form (percent-encoded, as written)
+// -- decoding is always explicit (url_unquote, url_user_name) so a
+// parse -> to_string round trip is lossless. url_parse is the full
+// component model (userinfo, query, fragment included), unlike the
+// four-field sa_std_url_parse fast path, which stays as is.
+//
+// Deliberate simplifications, registered here rather than hidden:
+//  - A trailing ':' with no digits in the authority is dropped at
+//    parse time (port absent); a non-digit or >65535 port is an
+//    error (SA_STD_ERR_INVALID_ARGUMENT), as are control bytes.
+//  - Query pairs split on '&' only (';' is data, per modern
+//    Python); pair keys/values are form-decoded ('+' is space).
+//  - There is no Vec<UrlQueryPair>: the SAB direct backend cannot
+//    index a Vec of structs, so the query API is stateless over
+//    the raw query string (count / pair_at / get / get_nth /
+//    append), the same primitive-column pattern as ip.sla's
+//    IpPrefixList.
+//  - IDN/punycode is out of scope (needs Unicode tables).
+
+@import "sa_std/string.sa"
+@import "sa_std/fmt.sai"
+@import "sa_std/string_format.sa"
+@import "sa_std/vec.sa"
+@import "sa_std/alloc/vec.sa"
+@import "sa_std/ptr.sa"
+@import "sa_std/status.sla"
+
+struct Url {
+    scheme: String,
+    has_authority: bool,
+    has_userinfo: bool,
+    userinfo: String,
+    host: String,
+    has_port: bool,
+    port: u32,
+    path: String,
+    has_query: bool,
+    query: String,
+    has_fragment: bool,
+    fragment: String,
+}
+
+struct UrlQueryPair {
+    key: String,
+    value: String,
+    has_value: bool,
+}
+
+struct UrlPairSpans {
+    found: bool,
+    key_start: u64,
+    key_end: u64,
+    val_start: u64,
+    val_end: u64,
+    has_value: bool,
+}
+
+// String building in this layer uses exactly the byte-append
+// idiom the SLA SAB path supports end to end: a one-byte array
+// collected into a String, concatenated with format!. (The
+// SA-level STRING_BUF_* macros do not link through the SAB
+// direct path -- their @sa_vec_* callees are not declared in
+// that graph.)
+
+fn url_dup_range(p: ptr, start: u64, end: u64) -> String {
+    let out: String = format("");
+    let i: u64 = start;
+    while i < end {
+        let pb_arr_0: [u8; 1] = [PTR_BYTE_AT(p, i)];
+        let pb_str_0: String = pb_arr_0.iter().collect<String>();
+        out = format("{}{}", out, pb_str_0);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn url_dup_string(s: String) -> String {
+    return url_dup_range(STR_PTR(s), 0, len(s));
+}
+
+fn url_is_alpha(b: u8) -> bool {
+    return (b >= 65 && b <= 90) || (b >= 97 && b <= 122);
+}
+
+fn url_is_digit(b: u8) -> bool {
+    return b >= 48 && b <= 57;
+}
+
+fn url_is_unreserved(b: u8) -> bool {
+    if url_is_alpha(b) || url_is_digit(b) {
+        return true;
+    };
+    return b == 45 || b == 46 || b == 95 || b == 126;
+}
+
+fn url_is_sub_delim(b: u8) -> bool {
+    return b == 33 || b == 36 || b == 38 || b == 39 || b == 40 || b == 41 || b == 42 || b == 43 || b == 44 || b == 59 || b == 61;
+}
+
+fn url_hex_val(b: u8) -> i32 {
+    if b >= 48 && b <= 57 {
+        return (b - 48) as i32;
+    };
+    if b >= 97 && b <= 102 {
+        return (b - 87) as i32;
+    };
+    if b >= 65 && b <= 70 {
+        return (b - 55) as i32;
+    };
+    return -1;
+}
+
+fn url_hex_upper(v: u64) -> u8 {
+    if v < 10 {
+        return 48 + (v as u8);
+    };
+    return 55 + (v as u8);
+}
+
+// Find the first occurrence of byte b in p[start..end]; returns
+// the index or -1.
+fn url_find_byte(p: ptr, start: u64, end: u64, b: u8) -> i64 {
+    let i: u64 = start;
+    while i < end {
+        if PTR_BYTE_AT(p, i) == b {
+            return i as i64;
+        };
+        i = i + 1;
+    }
+    return -1;
+}
+
+// Find the last occurrence of byte b in p[start..end]; -1 if none.
+fn url_rfind_byte(p: ptr, start: u64, end: u64, b: u8) -> i64 {
+    let i: u64 = end;
+    while i > start {
+        i = i - 1;
+        if PTR_BYTE_AT(p, i) == b {
+            return i as i64;
+        };
+    }
+    return -1;
+}
+
+fn url_range_eq(pa: ptr, a_start: u64, a_end: u64, sb: String) -> bool {
+    let pb: ptr = STR_PTR(sb);
+    let nb: u64 = len(sb);
+    if a_end - a_start != nb {
+        return false;
+    };
+    let i: u64 = 0;
+    while i < nb {
+        if PTR_BYTE_AT(pa, a_start + i) != PTR_BYTE_AT(pb, i) {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+fn url_strings_eq(a: String, b: String) -> bool {
+    let pa: ptr = STR_PTR(a);
+    let pb: ptr = STR_PTR(b);
+    let na: u64 = len(a);
+    if na != len(b) {
+        return false;
+    };
+    let i: u64 = 0;
+    while i < na {
+        if PTR_BYTE_AT(pa, i) != PTR_BYTE_AT(pb, i) {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+// ----------------------------------------------------------------
+// percent codecs
+//
+// Modes (the union of the Python quote family and Go's escapes):
+//   url_quote        -- Python quote with safe='/': unreserved
+//                       and '/' pass, everything else %XX.
+//   url_quote_segment-- Go PathEscape: unreserved plus sub-delims
+//                       except '/', ';', ',', '?', plus ':' '@'.
+//   url_quote_plus   -- form encoding (Python quote_plus / Go
+//                       QueryEscape): unreserved pass, space is
+//                       '+', everything else %XX.
+//   url_userinfo_escape -- Go Userinfo: unreserved plus
+//                       sub-delims plus ':'.
+// Hex digits on encode are uppercase (RFC 3986 normal form).
+// ----------------------------------------------------------------
+
+fn url_quote_mode(text: String, mode: u32) -> String {
+    let p: ptr = STR_PTR(text);
+    let n: u64 = len(text);
+    let out: String = format("");
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = PTR_BYTE_AT(p, i);
+        let keep: bool = false;
+        if url_is_unreserved(b) {
+            keep = true;
+        } else {
+            if mode == 0 && b == 47 {
+                keep = true;
+            };
+            if mode == 1 {
+                if url_is_sub_delim(b) && b != 59 && b != 44 {
+                    keep = true;
+                };
+                if b == 58 || b == 64 {
+                    keep = true;
+                };
+            };
+            if mode == 3 {
+                if url_is_sub_delim(b) || b == 58 {
+                    keep = true;
+                };
+            };
+        };
+        if mode == 2 && b == 32 {
+            let pb_arr_0: [u8; 1] = [43];
+            let pb_str_0: String = pb_arr_0.iter().collect<String>();
+            out = format("{}{}", out, pb_str_0);
+        } else {
+            if keep {
+                let pb_arr_1: [u8; 1] = [b];
+                let pb_str_1: String = pb_arr_1.iter().collect<String>();
+                out = format("{}{}", out, pb_str_1);
+            } else {
+                let pb_arr_2: [u8; 1] = [37];
+                let pb_str_2: String = pb_arr_2.iter().collect<String>();
+                out = format("{}{}", out, pb_str_2);
+                let pb_arr_3: [u8; 1] = [url_hex_upper((b >> 4) as u64)];
+                let pb_str_3: String = pb_arr_3.iter().collect<String>();
+                out = format("{}{}", out, pb_str_3);
+                let pb_arr_4: [u8; 1] = [url_hex_upper((b & 15) as u64)];
+                let pb_str_4: String = pb_arr_4.iter().collect<String>();
+                out = format("{}{}", out, pb_str_4);
+            };
+        };
+        i = i + 1;
+    }
+    return out;
+}
+
+fn url_quote(text: String) -> String {
+    return url_quote_mode(text, 0);
+}
+
+fn url_quote_segment(text: String) -> String {
+    return url_quote_mode(text, 1);
+}
+
+fn url_quote_plus(text: String) -> String {
+    return url_quote_mode(text, 2);
+}
+
+fn url_userinfo_escape(text: String) -> String {
+    return url_quote_mode(text, 3);
+}
+
+// Percent decoding. url_unquote keeps '+' literal (path-style);
+// url_unquote_plus maps '+' to space (form-style). A '%' not
+// followed by two hex digits is an error (Go semantics;
+// SA_STD_ERR_INVALID_ARGUMENT).
+fn url_unquote_mode(text: String, plus_as_space: bool) -> Result<String, i32> {
+    let p: ptr = STR_PTR(text);
+    let n: u64 = len(text);
+    let out: String = format("");
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = PTR_BYTE_AT(p, i);
+        if b == 37 {
+            if i + 2 >= n {
+                return Err(SA_STD_ERR_INVALID_ARGUMENT);
+            };
+            let hi: i32 = url_hex_val(PTR_BYTE_AT(p, i + 1));
+            let lo: i32 = url_hex_val(PTR_BYTE_AT(p, i + 2));
+            if hi < 0 || lo < 0 {
+                return Err(SA_STD_ERR_INVALID_ARGUMENT);
+            };
+            let pb_arr_0: [u8; 1] = [((hi * 16 + lo) as u8)];
+            let pb_str_0: String = pb_arr_0.iter().collect<String>();
+            out = format("{}{}", out, pb_str_0);
+            i = i + 3;
+        } else {
+            if b == 43 && plus_as_space {
+                let pb_arr_1: [u8; 1] = [32];
+                let pb_str_1: String = pb_arr_1.iter().collect<String>();
+                out = format("{}{}", out, pb_str_1);
+            } else {
+                let pb_arr_2: [u8; 1] = [b];
+                let pb_str_2: String = pb_arr_2.iter().collect<String>();
+                out = format("{}{}", out, pb_str_2);
+            };
+            i = i + 1;
+        };
+    }
+    return Ok(out);
+}
+
+fn url_unquote(text: String) -> Result<String, i32> {
+    return url_unquote_mode(text, false);
+}
+
+fn url_unquote_plus(text: String) -> Result<String, i32> {
+    return url_unquote_mode(text, true);
+}
+
+// ----------------------------------------------------------------
+// query strings (form semantics: '&'-separated key[=value] pairs,
+// keys and values percent/form decoded)
+// ----------------------------------------------------------------
+
+fn url_bytes_eq(pa: ptr, na: u64, pb: ptr, nb: u64) -> bool {
+    if na != nb {
+        return false;
+    };
+    let i: u64 = 0;
+    while i < na {
+        if PTR_BYTE_AT(pa, i) != PTR_BYTE_AT(pb, i) {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+fn url_ranges_eq(p: ptr, a_start: u64, a_len: u64, q: ptr, b_start: u64, b_len: u64) -> bool {
+    if a_len != b_len {
+        return false;
+    };
+    let i: u64 = 0;
+    while i < a_len {
+        if PTR_BYTE_AT(p, a_start + i) != PTR_BYTE_AT(q, b_start + i) {
+            return false;
+        };
+        i = i + 1;
+    }
+    return true;
+}
+
+// Form-decode, but a malformed '%' leaves the input untouched
+// (the pair-level error policy of url_query_pair_at: Go skips
+// such pairs, Python keeps them raw; this layer keeps them raw so
+// no pair is ever silently dropped).
+fn url_decode_or_raw(text: String, plus_as_space: bool) -> String {
+    let p: ptr = STR_PTR(text);
+    let n: u64 = len(text);
+    let i: u64 = 0;
+    while i < n {
+        if PTR_BYTE_AT(p, i) == 37 {
+            if i + 2 >= n {
+                return url_dup_range(p, 0, n);
+            };
+            if url_hex_val(PTR_BYTE_AT(p, i + 1)) < 0 || url_hex_val(PTR_BYTE_AT(p, i + 2)) < 0 {
+                return url_dup_range(p, 0, n);
+            };
+            i = i + 3;
+        } else {
+            i = i + 1;
+        };
+    }
+    let out: String = format("");
+    let j: u64 = 0;
+    while j < n {
+        let b: u8 = PTR_BYTE_AT(p, j);
+        if b == 37 {
+            let hi: i32 = url_hex_val(PTR_BYTE_AT(p, j + 1));
+            let lo: i32 = url_hex_val(PTR_BYTE_AT(p, j + 2));
+            let pb_arr_0: [u8; 1] = [((hi * 16 + lo) as u8)];
+            let pb_str_0: String = pb_arr_0.iter().collect<String>();
+            out = format("{}{}", out, pb_str_0);
+            j = j + 3;
+        } else {
+            if b == 43 && plus_as_space {
+                let pb_arr_1: [u8; 1] = [32];
+                let pb_str_1: String = pb_arr_1.iter().collect<String>();
+                out = format("{}{}", out, pb_str_1);
+            } else {
+                let pb_arr_2: [u8; 1] = [b];
+                let pb_str_2: String = pb_arr_2.iter().collect<String>();
+                out = format("{}{}", out, pb_str_2);
+            };
+            j = j + 1;
+        };
+    }
+    return out;
+}
+
+// Count non-empty '&'-separated segments.
+fn url_query_count(query: String) -> u64 {
+    let p: ptr = STR_PTR(query);
+    let n: u64 = len(query);
+    if n == 0 {
+        return 0;
+    };
+    let count: u64 = 0;
+    let seg_nonempty: bool = false;
+    let i: u64 = 0;
+    while i < n {
+        if PTR_BYTE_AT(p, i) == 38 {
+            if seg_nonempty {
+                count = count + 1;
+            };
+            seg_nonempty = false;
+        } else {
+            seg_nonempty = true;
+        };
+        i = i + 1;
+    }
+    if seg_nonempty {
+        count = count + 1;
+    };
+    return count;
+}
+
+fn url_query_pair_spans(p: ptr, n: u64, index: u64) -> UrlPairSpans {
+    let miss: UrlPairSpans = UrlPairSpans { found: false, key_start: 0, key_end: 0, val_start: 0, val_end: 0, has_value: false };
+    let seen: u64 = 0;
+    let seg_start: u64 = 0;
+    let i: u64 = 0;
+    while i <= n {
+        let at_end: bool = i == n;
+        let at_sep: bool = false;
+        if !at_end && PTR_BYTE_AT(p, i) == 38 {
+            at_sep = true;
+        };
+        if at_end || at_sep {
+            if i > seg_start {
+                if seen == index {
+                    let eq: i64 = url_find_byte(p, seg_start, i, 61);
+                    if eq >= 0 {
+                        return UrlPairSpans { found: true, key_start: seg_start, key_end: eq as u64, val_start: (eq as u64) + 1, val_end: i, has_value: true };
+                    };
+                    return UrlPairSpans { found: true, key_start: seg_start, key_end: i, val_start: i, val_end: i, has_value: false };
+                };
+                seen = seen + 1;
+            };
+            seg_start = i + 1;
+        };
+        i = i + 1;
+    }
+    return miss;
+}
+
+fn url_query_pair_at_pn(p: ptr, n: u64, index: u64) -> Option<UrlQueryPair> {
+    let spans: UrlPairSpans = url_query_pair_spans(p, n, index);
+    if !spans.found {
+        return None;
+    };
+    let key_raw: String = url_dup_range(p, spans.key_start, spans.key_end);
+    let key: String = url_decode_or_raw(key_raw, true);
+    if spans.has_value {
+        let val_raw: String = url_dup_range(p, spans.val_start, spans.val_end);
+        let value: String = url_decode_or_raw(val_raw, true);
+        return Some(UrlQueryPair { key: key, value: value, has_value: true });
+    };
+    return Some(UrlQueryPair { key: key, value: format(""), has_value: false });
+}
+
+fn url_query_pair_at(query: String, index: u64) -> Option<UrlQueryPair> {
+    let p: ptr = STR_PTR(query);
+    let n: u64 = len(query);
+    return url_query_pair_at_pn(p, n, index);
+}
+
+// First value for key (the key argument is the plain, decoded
+// form). None when absent; a bare key yields Some("").
+fn url_query_get(query: String, key: String) -> Option<String> {
+    return url_query_get_nth(query, key, 0);
+}
+
+fn url_query_get_nth(query: String, key: String, nth: u64) -> Option<String> {
+    let p: ptr = STR_PTR(query);
+    let n: u64 = len(query);
+    let kp: ptr = STR_PTR(key);
+    let kn: u64 = len(key);
+    let total: u64 = url_query_count(query);
+    let matches: u64 = 0;
+    let i: u64 = 0;
+    while i < total {
+        let spans: UrlPairSpans = url_query_pair_spans(p, n, i);
+        if spans.found {
+            let dkey_raw: String = url_dup_range(p, spans.key_start, spans.key_end);
+            let dkey: String = url_decode_or_raw(dkey_raw, true);
+            if url_bytes_eq(STR_PTR(dkey), len(dkey), kp, kn) {
+                if matches == nth {
+                    if spans.has_value {
+                        let vraw: String = url_dup_range(p, spans.val_start, spans.val_end);
+                        return Some(url_decode_or_raw(vraw, true));
+                    };
+                    return Some(format(""));
+                };
+                matches = matches + 1;
+            };
+        };
+        i = i + 1;
+    }
+    return None;
+}
+
+fn url_query_encode_pair(key: String, value: String, has_value: bool) -> String {
+    let out: String = format("");
+    let ek: String = url_quote_plus(key);
+    let kp: ptr = STR_PTR(ek);
+    let kn: u64 = len(ek);
+    let i: u64 = 0;
+    while i < kn {
+        let pb_arr_0: [u8; 1] = [PTR_BYTE_AT(kp, i)];
+        let pb_str_0: String = pb_arr_0.iter().collect<String>();
+        out = format("{}{}", out, pb_str_0);
+        i = i + 1;
+    }
+    if has_value {
+        let pb_arr_1: [u8; 1] = [61];
+        let pb_str_1: String = pb_arr_1.iter().collect<String>();
+        out = format("{}{}", out, pb_str_1);
+        let ev: String = url_quote_plus(value);
+        let vp: ptr = STR_PTR(ev);
+        let vn: u64 = len(ev);
+        let j: u64 = 0;
+        while j < vn {
+            let pb_arr_2: [u8; 1] = [PTR_BYTE_AT(vp, j)];
+            let pb_str_2: String = pb_arr_2.iter().collect<String>();
+            out = format("{}{}", out, pb_str_2);
+            j = j + 1;
+        }
+    };
+    return out;
+}
+
+// Append a pair to a query string under construction (the
+// urlencode / Values.Encode build direction, order-preserving).
+fn url_query_append_pair(query: String, key: String, value: String, has_value: bool) -> String {
+    let out: String = format("");
+    let qp: ptr = STR_PTR(query);
+    let qn: u64 = len(query);
+    let i: u64 = 0;
+    while i < qn {
+        let pb_arr_0: [u8; 1] = [PTR_BYTE_AT(qp, i)];
+        let pb_str_0: String = pb_arr_0.iter().collect<String>();
+        out = format("{}{}", out, pb_str_0);
+        i = i + 1;
+    }
+    if qn > 0 {
+        let pb_arr_1: [u8; 1] = [38];
+        let pb_str_1: String = pb_arr_1.iter().collect<String>();
+        out = format("{}{}", out, pb_str_1);
+    };
+    let pair: String = url_query_encode_pair(key, value, has_value);
+    let pp: ptr = STR_PTR(pair);
+    let pn: u64 = len(pair);
+    let j: u64 = 0;
+    while j < pn {
+        let pb_arr_2: [u8; 1] = [PTR_BYTE_AT(pp, j)];
+        let pb_str_2: String = pb_arr_2.iter().collect<String>();
+        out = format("{}{}", out, pb_str_2);
+        j = j + 1;
+    }
+    return out;
+}
+
+// ----------------------------------------------------------------
+// parse / recompose
+// ----------------------------------------------------------------
+
+// Full RFC 3986 component parse. Errors (SA_STD_ERR_INVALID_
+// ARGUMENT): control bytes anywhere, a non-digit port character,
+// or a port above 65535. A trailing ':' with no digits means the
+// port is absent (see the header).
+// The empty URL (all components absent) -- also the neutral
+// element url_parse starts from.
+fn url_empty() -> Url {
+    return Url {
+        scheme: format(""),
+        has_authority: false,
+        has_userinfo: false,
+        userinfo: format(""),
+        host: format(""),
+        has_port: false,
+        port: 0,
+        path: format(""),
+        has_query: false,
+        query: format(""),
+        has_fragment: false,
+        fragment: format(""),
+    };
+}
+
+// Deep copy of a Url (every component string duplicated).
+fn url_clone(u: &Url) -> Url {
+    return Url {
+        scheme: url_dup_range(STR_PTR(u.scheme), 0, len(u.scheme)),
+        has_authority: u.has_authority,
+        has_userinfo: u.has_userinfo,
+        userinfo: url_dup_range(STR_PTR(u.userinfo), 0, len(u.userinfo)),
+        host: url_dup_range(STR_PTR(u.host), 0, len(u.host)),
+        has_port: u.has_port,
+        port: u.port,
+        path: url_dup_range(STR_PTR(u.path), 0, len(u.path)),
+        has_query: u.has_query,
+        query: url_dup_range(STR_PTR(u.query), 0, len(u.query)),
+        has_fragment: u.has_fragment,
+        fragment: url_dup_range(STR_PTR(u.fragment), 0, len(u.fragment)),
+    };
+}
+
+fn url_parse(text: String) -> Result<Url, i32> {
+    let p: ptr = STR_PTR(text);
+    let n: u64 = len(text);
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = PTR_BYTE_AT(p, i);
+        if b < 32 || b == 127 {
+            return Err(SA_STD_ERR_INVALID_ARGUMENT);
+        };
+        i = i + 1;
+    }
+    // Fragment: everything after the first '#'.
+    let hash: i64 = url_find_byte(p, 0, n, 35);
+    let main_end: u64 = n;
+    let has_fragment: bool = false;
+    let fragment: String = format("");
+    if hash >= 0 {
+        main_end = hash as u64;
+        has_fragment = true;
+        fragment = url_dup_range(p, (hash as u64) + 1, n);
+    };
+    // Scheme: [A-Za-z][A-Za-z0-9+.-]* ':' before any '/', '?'.
+    let scheme: String = format("");
+    let pos: u64 = 0;
+    if n > 0 && url_is_alpha(PTR_BYTE_AT(p, 0)) {
+        let j: u64 = 1;
+        let scanning: bool = true;
+        while scanning && j < main_end {
+            let b: u8 = PTR_BYTE_AT(p, j);
+            if b == 58 {
+                scheme = url_dup_range(p, 0, j);
+                pos = j + 1;
+                scanning = false;
+            } else {
+                if url_is_alpha(b) || url_is_digit(b) || b == 43 || b == 45 || b == 46 {
+                    j = j + 1;
+                } else {
+                    scanning = false;
+                };
+            };
+        }
+    };
+    // Authority: "//" up to the next '/', '?' or the end.
+    let has_authority: bool = false;
+    let has_userinfo: bool = false;
+    let userinfo: String = format("");
+    let host: String = format("");
+    let has_port: bool = false;
+    let port: u32 = 0;
+    if pos + 1 < main_end && PTR_BYTE_AT(p, pos) == 47 && PTR_BYTE_AT(p, pos + 1) == 47 {
+        has_authority = true;
+        let auth_start: u64 = pos + 2;
+        let auth_end: u64 = auth_start;
+        while auth_end < main_end {
+            let b: u8 = PTR_BYTE_AT(p, auth_end);
+            if b == 47 || b == 63 {
+                break;
+            };
+            auth_end = auth_end + 1;
+        }
+        pos = auth_end;
+        // userinfo: up to the last '@'.
+        let hp_start: u64 = auth_start;
+        let at: i64 = url_rfind_byte(p, auth_start, auth_end, 64);
+        if at >= 0 {
+            has_userinfo = true;
+            userinfo = url_dup_range(p, auth_start, at as u64);
+            hp_start = (at as u64) + 1;
+        };
+        // host / port.
+        if hp_start < auth_end && PTR_BYTE_AT(p, hp_start) == 91 {
+            // Bracketed literal: host includes the brackets.
+            let close: i64 = url_find_byte(p, hp_start, auth_end, 93);
+            if close < 0 {
+                return Err(SA_STD_ERR_INVALID_ARGUMENT);
+            };
+            host = url_dup_range(p, hp_start, (close as u64) + 1);
+            let after: u64 = (close as u64) + 1;
+            if after < auth_end {
+                if PTR_BYTE_AT(p, after) != 58 {
+                    return Err(SA_STD_ERR_INVALID_ARGUMENT);
+                };
+                let pv = url_parse_port(p, after + 1, auth_end);
+                match pv {
+                    Ok(v) => {
+                        if v >= 0 {
+                            has_port = true;
+                            port = v as u32;
+                        };
+                    },
+                    Err(e) => {
+                        return Err(e);
+                    },
+                };
+            };
+        } else {
+            let colon: i64 = url_find_byte(p, hp_start, auth_end, 58);
+            if colon >= 0 {
+                host = url_dup_range(p, hp_start, colon as u64);
+                let pv2 = url_parse_port(p, (colon as u64) + 1, auth_end);
+                match pv2 {
+                    Ok(v) => {
+                        if v >= 0 {
+                            has_port = true;
+                            port = v as u32;
+                        };
+                    },
+                    Err(e) => {
+                        return Err(e);
+                    },
+                };
+            } else {
+                host = url_dup_range(p, hp_start, auth_end);
+            };
+        };
+    };
+    // Path up to '?', then the query.
+    let qmark: i64 = url_find_byte(p, pos, main_end, 63);
+    let path: String = format("");
+    let has_query: bool = false;
+    let query: String = format("");
+    if qmark >= 0 {
+        path = url_dup_range(p, pos, qmark as u64);
+        has_query = true;
+        query = url_dup_range(p, (qmark as u64) + 1, main_end);
+    } else {
+        path = url_dup_range(p, pos, main_end);
+    };
+    return Ok(Url {
+        scheme: scheme,
+        has_authority: has_authority,
+        has_userinfo: has_userinfo,
+        userinfo: userinfo,
+        host: host,
+        has_port: has_port,
+        port: port,
+        path: path,
+        has_query: has_query,
+        query: query,
+        has_fragment: has_fragment,
+        fragment: fragment,
+    });
+}
+
+// Port span parse: -1 for "absent" (empty span), the value, or an
+// error for non-digits / overflow.
+fn url_parse_port(p: ptr, start: u64, end: u64) -> Result<i64, i32> {
+    if start >= end {
+        return Ok(-1);
+    };
+    let value: i64 = 0;
+    let i: u64 = start;
+    while i < end {
+        let b: u8 = PTR_BYTE_AT(p, i);
+        if !url_is_digit(b) {
+            return Err(SA_STD_ERR_INVALID_ARGUMENT);
+        };
+        value = value * 10 + ((b - 48) as i64);
+        if value > 65535 {
+            return Err(SA_STD_ERR_INVALID_ARGUMENT);
+        };
+        i = i + 1;
+    }
+    return Ok(value);
+}
+
+// Decimal digits of v (u32), most significant first.
+fn url_dec_digits(v: u32) -> [u8; 10] {
+    let out: [u8; 10] = [0u8; 10];
+    let rev: [u8; 10] = [0u8; 10];
+    let x: u32 = v;
+    let n: u64 = 0;
+    if x == 0 {
+        out[0] = 48;
+        return out;
+    };
+    while x > 0 {
+        rev[n] = (48 + (x % 10)) as u8;
+        n = n + 1;
+        x = x / 10;
+    }
+    let i: u64 = 0;
+    while i < n {
+        out[i] = rev[n - 1 - i];
+        i = i + 1;
+    }
+    return out;
+}
+
+fn url_dec_len(v: u32) -> u64 {
+    if v < 10 {
+        return 1;
+    };
+    if v < 100 {
+        return 2;
+    };
+    if v < 1000 {
+        return 3;
+    };
+    if v < 10000 {
+        return 4;
+    };
+    return 5;
+}
+
+// Recompose. All appends are inline loops over field bytes: a
+// String under construction lives in exactly one frame in this
+// layer (buffers are never passed by value into a mutating
+// helper -- the header would go stale on reallocation).
+fn url_to_string(u: &Url) -> String {
+    let out: String = format("");
+    let sp: ptr = STR_PTR(u.scheme);
+    let sn: u64 = len(u.scheme);
+    if sn > 0 {
+        let i: u64 = 0;
+        while i < sn {
+            let pb_arr_0: [u8; 1] = [PTR_BYTE_AT(sp, i)];
+            let pb_str_0: String = pb_arr_0.iter().collect<String>();
+            out = format("{}{}", out, pb_str_0);
+            i = i + 1;
+        }
+        let pb_arr_1: [u8; 1] = [58];
+        let pb_str_1: String = pb_arr_1.iter().collect<String>();
+        out = format("{}{}", out, pb_str_1);
+    };
+    if u.has_authority {
+        let pb_arr_2: [u8; 1] = [47];
+        let pb_str_2: String = pb_arr_2.iter().collect<String>();
+        out = format("{}{}", out, pb_str_2);
+        let pb_arr_3: [u8; 1] = [47];
+        let pb_str_3: String = pb_arr_3.iter().collect<String>();
+        out = format("{}{}", out, pb_str_3);
+        if u.has_userinfo {
+            let up: ptr = STR_PTR(u.userinfo);
+            let un: u64 = len(u.userinfo);
+            let i: u64 = 0;
+            while i < un {
+                let pb_arr_4: [u8; 1] = [PTR_BYTE_AT(up, i)];
+                let pb_str_4: String = pb_arr_4.iter().collect<String>();
+                out = format("{}{}", out, pb_str_4);
+                i = i + 1;
+            }
+            let pb_arr_5: [u8; 1] = [64];
+            let pb_str_5: String = pb_arr_5.iter().collect<String>();
+            out = format("{}{}", out, pb_str_5);
+        };
+        let hp: ptr = STR_PTR(u.host);
+        let hn: u64 = len(u.host);
+        let i: u64 = 0;
+        while i < hn {
+            let pb_arr_6: [u8; 1] = [PTR_BYTE_AT(hp, i)];
+            let pb_str_6: String = pb_arr_6.iter().collect<String>();
+            out = format("{}{}", out, pb_str_6);
+            i = i + 1;
+        }
+        if u.has_port {
+            let pb_arr_7: [u8; 1] = [58];
+            let pb_str_7: String = pb_arr_7.iter().collect<String>();
+            out = format("{}{}", out, pb_str_7);
+            let digits: [u8; 10] = url_dec_digits(u.port);
+            let dlen: u64 = url_dec_len(u.port);
+            let j: u64 = 0;
+            while j < dlen {
+                let pb_arr_8: [u8; 1] = [digits[j]];
+                let pb_str_8: String = pb_arr_8.iter().collect<String>();
+                out = format("{}{}", out, pb_str_8);
+                j = j + 1;
+            }
+        };
+    };
+    let pp: ptr = STR_PTR(u.path);
+    let pn: u64 = len(u.path);
+    let i: u64 = 0;
+    while i < pn {
+        let pb_arr_9: [u8; 1] = [PTR_BYTE_AT(pp, i)];
+        let pb_str_9: String = pb_arr_9.iter().collect<String>();
+        out = format("{}{}", out, pb_str_9);
+        i = i + 1;
+    }
+    if u.has_query {
+        let pb_arr_10: [u8; 1] = [63];
+        let pb_str_10: String = pb_arr_10.iter().collect<String>();
+        out = format("{}{}", out, pb_str_10);
+        let qp: ptr = STR_PTR(u.query);
+        let qn: u64 = len(u.query);
+        let j: u64 = 0;
+        while j < qn {
+            let pb_arr_11: [u8; 1] = [PTR_BYTE_AT(qp, j)];
+            let pb_str_11: String = pb_arr_11.iter().collect<String>();
+            out = format("{}{}", out, pb_str_11);
+            j = j + 1;
+        }
+    };
+    if u.has_fragment {
+        let pb_arr_12: [u8; 1] = [35];
+        let pb_str_12: String = pb_arr_12.iter().collect<String>();
+        out = format("{}{}", out, pb_str_12);
+        let fp: ptr = STR_PTR(u.fragment);
+        let fn2: u64 = len(u.fragment);
+        let j: u64 = 0;
+        while j < fn2 {
+            let pb_arr_13: [u8; 1] = [PTR_BYTE_AT(fp, j)];
+            let pb_str_13: String = pb_arr_13.iter().collect<String>();
+            out = format("{}{}", out, pb_str_13);
+            j = j + 1;
+        }
+    };
+    return out;
+}
+
+fn url_is_abs(u: &Url) -> bool {
+    return len(u.scheme) > 0;
+}
+
+// The host without brackets (for a bracketed IPv6 literal) --
+// what Python calls hostname and Go calls Hostname().
+fn url_host_name(u: &Url) -> String {
+    let p: ptr = STR_PTR(u.host);
+    let n: u64 = len(u.host);
+    if n >= 2 && PTR_BYTE_AT(p, 0) == 91 && PTR_BYTE_AT(p, n - 1) == 93 {
+        return url_dup_range(p, 1, n - 1);
+    };
+    return url_dup_range(p, 0, n);
+}
+
+// Well-known default ports; 0 when the scheme has none here.
+fn url_default_port(scheme: String) -> u32 {
+    let p: ptr = STR_PTR(scheme);
+    let n: u64 = len(scheme);
+    if url_range_eq(p, 0, n, format("http")) {
+        return 80;
+    };
+    if url_range_eq(p, 0, n, format("https")) {
+        return 443;
+    };
+    if url_range_eq(p, 0, n, format("ws")) {
+        return 80;
+    };
+    if url_range_eq(p, 0, n, format("wss")) {
+        return 443;
+    };
+    if url_range_eq(p, 0, n, format("ftp")) {
+        return 21;
+    };
+    return 0;
+}
+
+// ----------------------------------------------------------------
+// dot-segment removal (RFC 3986 5.2.4, the literal input-buffer
+// algorithm) -- also the engine inside resolve and normalize.
+// ----------------------------------------------------------------
+
+// Remove the last segment (and its preceding '/') from the
+// output byte vector under construction: pop until the '/' at
+// the segment boundary has been popped (or the vector is
+// empty). Equivalent to truncating at the last '/' index.
+// Remove the last segment (and its preceding '/') from the
+// output buffer under construction. Returns the new buffer:
+// the buffer is rebuilt because a String under construction
+// cannot be truncated in place through this layer's
+// primitives.
+fn url_pop_last_segment(out: String) -> String {
+    let p: ptr = STR_PTR(out);
+    let n: u64 = len(out);
+    let slash: i64 = url_rfind_byte(p, 0, n, 47);
+    if slash < 0 {
+        return format("");
+    };
+    return url_dup_range(p, 0, slash as u64);
+}
+
+fn url_remove_dot_segments(path: String) -> String {
+    let p: ptr = STR_PTR(path);
+    let n: u64 = len(path);
+    let out: String = format("");
+    let i: u64 = 0;
+    while i < n {
+        // "../" and "./" prefixes are dropped.
+        if i + 2 < n && PTR_BYTE_AT(p, i) == 46 && PTR_BYTE_AT(p, i + 1) == 46 && PTR_BYTE_AT(p, i + 2) == 47 {
+            i = i + 3;
+            continue;
+        };
+        if i + 1 < n && PTR_BYTE_AT(p, i) == 46 && PTR_BYTE_AT(p, i + 1) == 47 {
+            i = i + 2;
+            continue;
+        };
+        // "/./" collapses to "/"; a trailing "/." becomes "/".
+        if i + 2 < n && PTR_BYTE_AT(p, i) == 47 && PTR_BYTE_AT(p, i + 1) == 46 && PTR_BYTE_AT(p, i + 2) == 47 {
+            i = i + 2;
+            continue;
+        };
+        if i + 1 == n - 1 && PTR_BYTE_AT(p, i) == 47 && PTR_BYTE_AT(p, i + 1) == 46 {
+            let pb_arr_0: [u8; 1] = [47];
+            let pb_str_0: String = pb_arr_0.iter().collect<String>();
+            out = format("{}{}", out, pb_str_0);
+            i = n;
+            continue;
+        };
+        // "/../" collapses to "/" and pops; trailing "/.." same.
+        if i + 3 < n && PTR_BYTE_AT(p, i) == 47 && PTR_BYTE_AT(p, i + 1) == 46 && PTR_BYTE_AT(p, i + 2) == 46 && PTR_BYTE_AT(p, i + 3) == 47 {
+            out = url_pop_last_segment(out);
+            i = i + 3;
+            continue;
+        };
+        if i + 2 == n - 1 && PTR_BYTE_AT(p, i) == 47 && PTR_BYTE_AT(p, i + 1) == 46 && PTR_BYTE_AT(p, i + 2) == 46 {
+            out = url_pop_last_segment(out);
+            let pb_arr_1: [u8; 1] = [47];
+            let pb_str_1: String = pb_arr_1.iter().collect<String>();
+            out = format("{}{}", out, pb_str_1);
+            i = n;
+            continue;
+        };
+        // "." and ".." as the whole remainder are dropped.
+        if i + 1 == n && PTR_BYTE_AT(p, i) == 46 {
+            i = n;
+            continue;
+        };
+        if i + 2 == n && PTR_BYTE_AT(p, i) == 46 && PTR_BYTE_AT(p, i + 1) == 46 {
+            i = n;
+            continue;
+        };
+        // Move the first segment: optional leading '/', then up
+        // to (not including) the next '/'.
+        let seg_start: u64 = i;
+        if PTR_BYTE_AT(p, i) == 47 {
+            i = i + 1;
+        };
+        while i < n && PTR_BYTE_AT(p, i) != 47 {
+            i = i + 1;
+        }
+        let k: u64 = seg_start;
+        while k < i {
+            let pb_arr_2: [u8; 1] = [PTR_BYTE_AT(p, k)];
+            let pb_str_2: String = pb_arr_2.iter().collect<String>();
+            out = format("{}{}", out, pb_str_2);
+            k = k + 1;
+        }
+    }
+    return out;
+}
+
+// ----------------------------------------------------------------
+// userinfo
+// ----------------------------------------------------------------
+
+// Decoded user name (the part of userinfo before the first
+// ':'), URL-decoded without the form '+' rule. None when the
+// URL carries no userinfo.
+fn url_user_name(u: &Url) -> Option<String> {
+    if !u.has_userinfo {
+        return None;
+    };
+    let p: ptr = STR_PTR(u.userinfo);
+    let n: u64 = len(u.userinfo);
+    let colon: i64 = url_find_byte(p, 0, n, 58);
+    let raw: String = format("");
+    if colon >= 0 {
+        raw = url_dup_range(p, 0, colon as u64);
+    } else {
+        raw = url_dup_range(p, 0, n);
+    };
+    return Some(url_decode_or_raw(raw, false));
+}
+
+// Decoded password (after the first ':'). None when there is
+// no userinfo or no ':' inside it.
+fn url_user_password(u: &Url) -> Option<String> {
+    if !u.has_userinfo {
+        return None;
+    };
+    let p: ptr = STR_PTR(u.userinfo);
+    let n: u64 = len(u.userinfo);
+    let colon: i64 = url_find_byte(p, 0, n, 58);
+    if colon < 0 {
+        return None;
+    };
+    let raw: String = url_dup_range(p, (colon as u64) + 1, n);
+    return Some(url_decode_or_raw(raw, false));
+}
+
+// Build a raw userinfo component from plain user / password
+// values (the write direction; both are userinfo-escaped).
+fn url_userinfo(user: String, password: Option<String>) -> String {
+    let out: String = format("");
+    let eu: String = url_userinfo_escape(user);
+    let ep: ptr = STR_PTR(eu);
+    let en: u64 = len(eu);
+    let i: u64 = 0;
+    while i < en {
+        let pb_arr_0: [u8; 1] = [PTR_BYTE_AT(ep, i)];
+        let pb_str_0: String = pb_arr_0.iter().collect<String>();
+        out = format("{}{}", out, pb_str_0);
+        i = i + 1;
+    }
+    let has_pw: bool = false;
+    let pw_plain: String = format("");
+    match password {
+        Some(pw) => {
+            has_pw = true;
+            pw_plain = pw;
+        },
+        None => {},
+    };
+    if has_pw {
+        let pb_arr_1: [u8; 1] = [58];
+        let pb_str_1: String = pb_arr_1.iter().collect<String>();
+        out = format("{}{}", out, pb_str_1);
+        let ew: String = url_userinfo_escape(pw_plain);
+        let wp: ptr = STR_PTR(ew);
+        let wn: u64 = len(ew);
+        let j: u64 = 0;
+        while j < wn {
+            let pb_arr_2: [u8; 1] = [PTR_BYTE_AT(wp, j)];
+            let pb_str_2: String = pb_arr_2.iter().collect<String>();
+            out = format("{}{}", out, pb_str_2);
+            j = j + 1;
+        }
+    };
+    return out;
+}
+
+// A copy of u with its userinfo replaced by the given plain
+// user / password.
+fn url_with_userinfo(u: &Url, user: String, password: Option<String>) -> Url {
+    let info: String = url_userinfo(user, password);
+    return Url {
+        scheme: url_dup_range(STR_PTR(u.scheme), 0, len(u.scheme)),
+        has_authority: u.has_authority,
+        has_userinfo: true,
+        userinfo: info,
+        host: url_dup_range(STR_PTR(u.host), 0, len(u.host)),
+        has_port: u.has_port,
+        port: u.port,
+        path: url_dup_range(STR_PTR(u.path), 0, len(u.path)),
+        has_query: u.has_query,
+        query: url_dup_range(STR_PTR(u.query), 0, len(u.query)),
+        has_fragment: u.has_fragment,
+        fragment: url_dup_range(STR_PTR(u.fragment), 0, len(u.fragment)),
+    };
+}
+
+// ----------------------------------------------------------------
+// derived strings
+// ----------------------------------------------------------------
+
+// Go's URL.Redacted: the URL string with any password replaced
+// by "xxxxx" (safe to log).
+fn url_redacted(u: &Url) -> String {
+    if !u.has_userinfo {
+        return url_to_string(u);
+    };
+    let p: ptr = STR_PTR(u.userinfo);
+    let n: u64 = len(u.userinfo);
+    let colon: i64 = url_find_byte(p, 0, n, 58);
+    if colon < 0 {
+        return url_to_string(u);
+    };
+    let out: String = format("");
+    let sp: ptr = STR_PTR(u.scheme);
+    let sn: u64 = len(u.scheme);
+    if sn > 0 {
+        let i: u64 = 0;
+        while i < sn {
+            let pb_arr_0: [u8; 1] = [PTR_BYTE_AT(sp, i)];
+            let pb_str_0: String = pb_arr_0.iter().collect<String>();
+            out = format("{}{}", out, pb_str_0);
+            i = i + 1;
+        }
+        let pb_arr_1: [u8; 1] = [58];
+        let pb_str_1: String = pb_arr_1.iter().collect<String>();
+        out = format("{}{}", out, pb_str_1);
+    };
+    if u.has_authority {
+        let pb_arr_2: [u8; 1] = [47];
+        let pb_str_2: String = pb_arr_2.iter().collect<String>();
+        out = format("{}{}", out, pb_str_2);
+        let pb_arr_3: [u8; 1] = [47];
+        let pb_str_3: String = pb_arr_3.iter().collect<String>();
+        out = format("{}{}", out, pb_str_3);
+        let ui_end: u64 = colon as u64;
+        let i: u64 = 0;
+        while i < ui_end {
+            let pb_arr_4: [u8; 1] = [PTR_BYTE_AT(p, i)];
+            let pb_str_4: String = pb_arr_4.iter().collect<String>();
+            out = format("{}{}", out, pb_str_4);
+            i = i + 1;
+        }
+        let pb_arr_5: [u8; 1] = [58];
+        let pb_str_5: String = pb_arr_5.iter().collect<String>();
+        out = format("{}{}", out, pb_str_5);
+        let pb_arr_6: [u8; 1] = [120];
+        let pb_str_6: String = pb_arr_6.iter().collect<String>();
+        out = format("{}{}", out, pb_str_6);
+        let pb_arr_7: [u8; 1] = [120];
+        let pb_str_7: String = pb_arr_7.iter().collect<String>();
+        out = format("{}{}", out, pb_str_7);
+        let pb_arr_8: [u8; 1] = [120];
+        let pb_str_8: String = pb_arr_8.iter().collect<String>();
+        out = format("{}{}", out, pb_str_8);
+        let pb_arr_9: [u8; 1] = [120];
+        let pb_str_9: String = pb_arr_9.iter().collect<String>();
+        out = format("{}{}", out, pb_str_9);
+        let pb_arr_10: [u8; 1] = [120];
+        let pb_str_10: String = pb_arr_10.iter().collect<String>();
+        out = format("{}{}", out, pb_str_10);
+        let pb_arr_11: [u8; 1] = [64];
+        let pb_str_11: String = pb_arr_11.iter().collect<String>();
+        out = format("{}{}", out, pb_str_11);
+        let hp: ptr = STR_PTR(u.host);
+        let hn: u64 = len(u.host);
+        let j: u64 = 0;
+        while j < hn {
+            let pb_arr_12: [u8; 1] = [PTR_BYTE_AT(hp, j)];
+            let pb_str_12: String = pb_arr_12.iter().collect<String>();
+            out = format("{}{}", out, pb_str_12);
+            j = j + 1;
+        }
+        if u.has_port {
+            let pb_arr_13: [u8; 1] = [58];
+            let pb_str_13: String = pb_arr_13.iter().collect<String>();
+            out = format("{}{}", out, pb_str_13);
+            let digits: [u8; 10] = url_dec_digits(u.port);
+            let dlen: u64 = url_dec_len(u.port);
+            let k: u64 = 0;
+            while k < dlen {
+                let pb_arr_14: [u8; 1] = [digits[k]];
+                let pb_str_14: String = pb_arr_14.iter().collect<String>();
+                out = format("{}{}", out, pb_str_14);
+                k = k + 1;
+            }
+        };
+    };
+    let pp: ptr = STR_PTR(u.path);
+    let pn: u64 = len(u.path);
+    let i: u64 = 0;
+    while i < pn {
+        let pb_arr_15: [u8; 1] = [PTR_BYTE_AT(pp, i)];
+        let pb_str_15: String = pb_arr_15.iter().collect<String>();
+        out = format("{}{}", out, pb_str_15);
+        i = i + 1;
+    }
+    if u.has_query {
+        let pb_arr_16: [u8; 1] = [63];
+        let pb_str_16: String = pb_arr_16.iter().collect<String>();
+        out = format("{}{}", out, pb_str_16);
+        let qp: ptr = STR_PTR(u.query);
+        let qn: u64 = len(u.query);
+        let j: u64 = 0;
+        while j < qn {
+            let pb_arr_17: [u8; 1] = [PTR_BYTE_AT(qp, j)];
+            let pb_str_17: String = pb_arr_17.iter().collect<String>();
+            out = format("{}{}", out, pb_str_17);
+            j = j + 1;
+        }
+    };
+    if u.has_fragment {
+        let pb_arr_18: [u8; 1] = [35];
+        let pb_str_18: String = pb_arr_18.iter().collect<String>();
+        out = format("{}{}", out, pb_str_18);
+        let fp: ptr = STR_PTR(u.fragment);
+        let fn2: u64 = len(u.fragment);
+        let j: u64 = 0;
+        while j < fn2 {
+            let pb_arr_19: [u8; 1] = [PTR_BYTE_AT(fp, j)];
+            let pb_str_19: String = pb_arr_19.iter().collect<String>();
+            out = format("{}{}", out, pb_str_19);
+            j = j + 1;
+        }
+    };
+    return out;
+}
+
+// The request target: path ("/" when empty) plus "?query".
+fn url_request_uri(u: &Url) -> String {
+    let out: String = format("");
+    let pp: ptr = STR_PTR(u.path);
+    let pn: u64 = len(u.path);
+    if pn == 0 {
+        let pb_arr_0: [u8; 1] = [47];
+        let pb_str_0: String = pb_arr_0.iter().collect<String>();
+        out = format("{}{}", out, pb_str_0);
+    } else {
+        let i: u64 = 0;
+        while i < pn {
+            let pb_arr_1: [u8; 1] = [PTR_BYTE_AT(pp, i)];
+            let pb_str_1: String = pb_arr_1.iter().collect<String>();
+            out = format("{}{}", out, pb_str_1);
+            i = i + 1;
+        }
+    };
+    if u.has_query {
+        let pb_arr_2: [u8; 1] = [63];
+        let pb_str_2: String = pb_arr_2.iter().collect<String>();
+        out = format("{}{}", out, pb_str_2);
+        let qp: ptr = STR_PTR(u.query);
+        let qn: u64 = len(u.query);
+        let j: u64 = 0;
+        while j < qn {
+            let pb_arr_3: [u8; 1] = [PTR_BYTE_AT(qp, j)];
+            let pb_str_3: String = pb_arr_3.iter().collect<String>();
+            out = format("{}{}", out, pb_str_3);
+            j = j + 1;
+        }
+    };
+    return out;
+}
+
+// ----------------------------------------------------------------
+// resolve (RFC 3986 5.2, strict)
+// ----------------------------------------------------------------
+
+// RFC merge: base path up to and including its last '/', then
+// the reference path; "/"+ref when the base has an authority
+// but an empty path.
+fn url_merge_paths(base: &Url, ref_path: String) -> String {
+    let out: String = format("");
+    let rp: ptr = STR_PTR(ref_path);
+    let rn: u64 = len(ref_path);
+    let bp: ptr = STR_PTR(base.path);
+    let bn: u64 = len(base.path);
+    if base.has_authority && bn == 0 {
+        let pb_arr_0: [u8; 1] = [47];
+        let pb_str_0: String = pb_arr_0.iter().collect<String>();
+        out = format("{}{}", out, pb_str_0);
+    } else {
+        let slash: i64 = url_rfind_byte(bp, 0, bn, 47);
+        if slash >= 0 {
+            let end: u64 = (slash as u64) + 1;
+            let i: u64 = 0;
+            while i < end {
+                let pb_arr_1: [u8; 1] = [PTR_BYTE_AT(bp, i)];
+                let pb_str_1: String = pb_arr_1.iter().collect<String>();
+                out = format("{}{}", out, pb_str_1);
+                i = i + 1;
+            }
+        };
+    };
+    let j: u64 = 0;
+    while j < rn {
+        let pb_arr_2: [u8; 1] = [PTR_BYTE_AT(rp, j)];
+        let pb_str_2: String = pb_arr_2.iter().collect<String>();
+        out = format("{}{}", out, pb_str_2);
+        j = j + 1;
+    }
+    return out;
+}
+
+fn url_resolve(base: &Url, ref_text: String) -> Result<Url, i32> {
+    let parsed = url_parse(ref_text);
+    let r: Url = url_empty();
+    match parsed {
+        Ok(rv) => {
+            r = rv;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    // Every field of the result is built from duplicated
+    // strings: the SAB referee rejects struct literals that
+    // move fields out of `r` on code paths merged from
+    // branches where other fields were already moved.
+    // Absolute reference: stands alone, path cleaned.
+    if len(r.scheme) > 0 {
+        let cleaned: String = url_remove_dot_segments(url_dup_range(STR_PTR(r.path), 0, len(r.path)));
+        return Ok(Url {
+            scheme: url_dup_range(STR_PTR(r.scheme), 0, len(r.scheme)),
+            has_authority: r.has_authority,
+            has_userinfo: r.has_userinfo,
+            userinfo: url_dup_range(STR_PTR(r.userinfo), 0, len(r.userinfo)),
+            host: url_dup_range(STR_PTR(r.host), 0, len(r.host)),
+            has_port: r.has_port,
+            port: r.port,
+            path: cleaned,
+            has_query: r.has_query,
+            query: url_dup_range(STR_PTR(r.query), 0, len(r.query)),
+            has_fragment: r.has_fragment,
+            fragment: url_dup_range(STR_PTR(r.fragment), 0, len(r.fragment)),
+        });
+    };
+    // Network-path reference: inherits only the scheme.
+    if r.has_authority {
+        let cleaned2: String = url_remove_dot_segments(url_dup_range(STR_PTR(r.path), 0, len(r.path)));
+        return Ok(Url {
+            scheme: url_dup_range(STR_PTR(base.scheme), 0, len(base.scheme)),
+            has_authority: true,
+            has_userinfo: r.has_userinfo,
+            userinfo: url_dup_range(STR_PTR(r.userinfo), 0, len(r.userinfo)),
+            host: url_dup_range(STR_PTR(r.host), 0, len(r.host)),
+            has_port: r.has_port,
+            port: r.port,
+            path: cleaned2,
+            has_query: r.has_query,
+            query: url_dup_range(STR_PTR(r.query), 0, len(r.query)),
+            has_fragment: r.has_fragment,
+            fragment: url_dup_range(STR_PTR(r.fragment), 0, len(r.fragment)),
+        });
+    };
+    // Same-authority reference.
+    let t_path: String = format("");
+    let t_has_query: bool = false;
+    let t_query: String = format("");
+    let rp: ptr = STR_PTR(r.path);
+    let rn: u64 = len(r.path);
+    if rn == 0 {
+        t_path = url_dup_range(STR_PTR(base.path), 0, len(base.path));
+        if r.has_query {
+            t_has_query = true;
+            t_query = url_dup_range(STR_PTR(r.query), 0, len(r.query));
+        } else {
+            t_has_query = base.has_query;
+            t_query = url_dup_range(STR_PTR(base.query), 0, len(base.query));
+        };
+    } else {
+        if PTR_BYTE_AT(rp, 0) == 47 {
+            t_path = url_remove_dot_segments(url_dup_range(STR_PTR(r.path), 0, len(r.path)));
+        } else {
+            let rel_copy: String = url_dup_range(STR_PTR(r.path), 0, len(r.path));
+            let merged: String = url_merge_paths(base, rel_copy);
+            t_path = url_remove_dot_segments(merged);
+        };
+        t_has_query = r.has_query;
+        t_query = url_dup_range(STR_PTR(r.query), 0, len(r.query));
+    };
+    return Ok(Url {
+        scheme: url_dup_range(STR_PTR(base.scheme), 0, len(base.scheme)),
+        has_authority: base.has_authority,
+        has_userinfo: base.has_userinfo,
+        userinfo: url_dup_range(STR_PTR(base.userinfo), 0, len(base.userinfo)),
+        host: url_dup_range(STR_PTR(base.host), 0, len(base.host)),
+        has_port: base.has_port,
+        port: base.port,
+        path: t_path,
+        has_query: t_has_query,
+        query: t_query,
+        has_fragment: r.has_fragment,
+        fragment: url_dup_range(STR_PTR(r.fragment), 0, len(r.fragment)),
+    });
+}
+
+// Parse both sides and resolve to a string (Go's
+// url.URL.ResolveReference + String, Java's resolve).
+fn url_join(base_text: String, ref_text: String) -> Result<String, i32> {
+    let parsed_base = url_parse(base_text);
+    let b: Url = url_empty();
+    match parsed_base {
+        Ok(bv) => {
+            b = bv;
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+    let resolved = url_resolve(&b, ref_text);
+    match resolved {
+        Ok(t) => {
+            return Ok(url_to_string(&t));
+        },
+        Err(e) => {
+            return Err(e);
+        },
+    };
+}
+
+// ----------------------------------------------------------------
+// normalize (RFC 3986 6.2 syntax-based)
+// ----------------------------------------------------------------
+
+fn url_lower_dup(s: String) -> String {
+    let p: ptr = STR_PTR(s);
+    let n: u64 = len(s);
+    let out: String = format("");
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = PTR_BYTE_AT(p, i);
+        if b >= 65 && b <= 90 {
+            let pb_arr_0: [u8; 1] = [b + 32];
+            let pb_str_0: String = pb_arr_0.iter().collect<String>();
+            out = format("{}{}", out, pb_str_0);
+        } else {
+            let pb_arr_1: [u8; 1] = [b];
+            let pb_str_1: String = pb_arr_1.iter().collect<String>();
+            out = format("{}{}", out, pb_str_1);
+        };
+        i = i + 1;
+    }
+    return out;
+}
+
+// Percent normalization: decode %XX whose byte is unreserved,
+// uppercase the hex of the rest; malformed '%' passes through.
+fn url_pct_normalize(s: String) -> String {
+    let p: ptr = STR_PTR(s);
+    let n: u64 = len(s);
+    let out: String = format("");
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = PTR_BYTE_AT(p, i);
+        if b == 37 && i + 2 < n {
+            let hi: i32 = url_hex_val(PTR_BYTE_AT(p, i + 1));
+            let lo: i32 = url_hex_val(PTR_BYTE_AT(p, i + 2));
+            if hi >= 0 && lo >= 0 {
+                let v: u8 = (hi * 16 + lo) as u8;
+                if url_is_unreserved(v) {
+                    let pb_arr_0: [u8; 1] = [v];
+                    let pb_str_0: String = pb_arr_0.iter().collect<String>();
+                    out = format("{}{}", out, pb_str_0);
+                } else {
+                    let pb_arr_1: [u8; 1] = [37];
+                    let pb_str_1: String = pb_arr_1.iter().collect<String>();
+                    out = format("{}{}", out, pb_str_1);
+                    let pb_arr_2: [u8; 1] = [url_hex_upper((v >> 4) as u64)];
+                    let pb_str_2: String = pb_arr_2.iter().collect<String>();
+                    out = format("{}{}", out, pb_str_2);
+                    let pb_arr_3: [u8; 1] = [url_hex_upper((v & 15) as u64)];
+                    let pb_str_3: String = pb_arr_3.iter().collect<String>();
+                    out = format("{}{}", out, pb_str_3);
+                };
+                i = i + 3;
+                continue;
+            };
+        };
+        let pb_arr_4: [u8; 1] = [b];
+        let pb_str_4: String = pb_arr_4.iter().collect<String>();
+        out = format("{}{}", out, pb_str_4);
+        i = i + 1;
+    }
+    return out;
+}
+
+// Case, percent and dot-segment normalization, default-port
+// removal, and "/" for an empty path beside an authority. The
+// host is ASCII-case-folded as a whole span.
+fn url_normalize(u: &Url) -> Url {
+    let scheme_raw: String = url_dup_range(STR_PTR(u.scheme), 0, len(u.scheme));
+    let scheme: String = url_lower_dup(scheme_raw);
+    let host_raw: String = url_dup_range(STR_PTR(u.host), 0, len(u.host));
+    let host: String = url_lower_dup(host_raw);
+    let userinfo_raw: String = url_dup_range(STR_PTR(u.userinfo), 0, len(u.userinfo));
+    let userinfo: String = url_pct_normalize(userinfo_raw);
+    let path_raw: String = url_dup_range(STR_PTR(u.path), 0, len(u.path));
+    let path_norm: String = url_pct_normalize(path_raw);
+    let path: String = url_remove_dot_segments(path_norm);
+    let query_raw: String = url_dup_range(STR_PTR(u.query), 0, len(u.query));
+    let query: String = url_pct_normalize(query_raw);
+    let fragment_raw: String = url_dup_range(STR_PTR(u.fragment), 0, len(u.fragment));
+    let fragment: String = url_pct_normalize(fragment_raw);
+    let has_port: bool = u.has_port;
+    if u.has_port {
+        let scheme_copy: String = url_dup_range(STR_PTR(scheme), 0, len(scheme));
+        let def: u32 = url_default_port(scheme_copy);
+        if def != 0 && def == u.port {
+            has_port = false;
+        };
+    };
+    let path_empty: bool = len(path) == 0;
+    let final_path: String = path;
+    if u.has_authority && path_empty {
+        final_path = format("/");
+    };
+    return Url {
+        scheme: scheme,
+        has_authority: u.has_authority,
+        has_userinfo: u.has_userinfo,
+        userinfo: userinfo,
+        host: host,
+        has_port: has_port,
+        port: u.port,
+        path: final_path,
+        has_query: u.has_query,
+        query: query,
+        has_fragment: u.has_fragment,
+        fragment: fragment,
+    };
+}
+
+// ----------------------------------------------------------------
+// relativize (Java URI.relativize / Go's inverse of resolve for
+// the same scheme+authority case): produce a reference R with
+// resolve(base, R) == target whenever the scheme and authority
+// match; otherwise R is the absolute or network-path form.
+// ----------------------------------------------------------------
+
+fn url_relativize(base: &Url, target: &Url) -> String {
+    // Work on owned clones and plain locals extracted from
+    // them: the segment math below holds raw pointers into
+    // the path strings across many calls, which the SAB
+    // borrow referee rejects when the pointers derive from
+    // the caller's borrowed structs (and intermittently even
+    // from a clone's fields).
+    let base_owned: Url = url_clone(base);
+    let target_owned: Url = url_clone(target);
+    let b_scheme: String = url_dup_range(STR_PTR(base_owned.scheme), 0, len(base_owned.scheme));
+    let b_has_authority: bool = base_owned.has_authority;
+    let b_has_userinfo: bool = base_owned.has_userinfo;
+    let b_userinfo: String = url_dup_range(STR_PTR(base_owned.userinfo), 0, len(base_owned.userinfo));
+    let b_host: String = url_dup_range(STR_PTR(base_owned.host), 0, len(base_owned.host));
+    let b_has_port: bool = base_owned.has_port;
+    let b_port: u32 = base_owned.port;
+    let b_path: String = url_dup_range(STR_PTR(base_owned.path), 0, len(base_owned.path));
+    let b_has_query: bool = base_owned.has_query;
+    let b_query: String = url_dup_range(STR_PTR(base_owned.query), 0, len(base_owned.query));
+    let b_has_fragment: bool = base_owned.has_fragment;
+    let b_fragment: String = url_dup_range(STR_PTR(base_owned.fragment), 0, len(base_owned.fragment));
+    let t_scheme: String = url_dup_range(STR_PTR(target_owned.scheme), 0, len(target_owned.scheme));
+    let t_has_authority: bool = target_owned.has_authority;
+    let t_has_userinfo: bool = target_owned.has_userinfo;
+    let t_userinfo: String = url_dup_range(STR_PTR(target_owned.userinfo), 0, len(target_owned.userinfo));
+    let t_host: String = url_dup_range(STR_PTR(target_owned.host), 0, len(target_owned.host));
+    let t_has_port: bool = target_owned.has_port;
+    let t_port: u32 = target_owned.port;
+    let t_path: String = url_dup_range(STR_PTR(target_owned.path), 0, len(target_owned.path));
+    let t_has_query: bool = target_owned.has_query;
+    let t_query: String = url_dup_range(STR_PTR(target_owned.query), 0, len(target_owned.query));
+    let t_has_fragment: bool = target_owned.has_fragment;
+    let t_fragment: String = url_dup_range(STR_PTR(target_owned.fragment), 0, len(target_owned.fragment));
+    // Scheme differs: the absolute form is the only reference.
+    if !url_bytes_eq(STR_PTR(b_scheme), len(b_scheme), STR_PTR(t_scheme), len(t_scheme)) {
+        return url_to_string(&target_owned);
+    };
+    // Authority differs: a network-path reference when the
+    // target has an authority, else the absolute form.
+    let auth_diff: bool = false;
+    if b_has_authority != t_has_authority {
+        auth_diff = true;
+    };
+    if b_has_userinfo != t_has_userinfo {
+        auth_diff = true;
+    };
+    if !url_bytes_eq(STR_PTR(b_userinfo), len(b_userinfo), STR_PTR(t_userinfo), len(t_userinfo)) {
+        auth_diff = true;
+    };
+    if !url_bytes_eq(STR_PTR(b_host), len(b_host), STR_PTR(t_host), len(t_host)) {
+        auth_diff = true;
+    };
+    if b_has_port != t_has_port || b_port != t_port {
+        auth_diff = true;
+    };
+    if auth_diff {
+        if t_has_authority {
+            let netref: Url = Url {
+                scheme: format(""),
+                has_authority: true,
+                has_userinfo: t_has_userinfo,
+                userinfo: url_dup_range(STR_PTR(t_userinfo), 0, len(t_userinfo)),
+                host: url_dup_range(STR_PTR(t_host), 0, len(t_host)),
+                has_port: t_has_port,
+                port: t_port,
+                path: url_dup_range(STR_PTR(t_path), 0, len(t_path)),
+                has_query: t_has_query,
+                query: url_dup_range(STR_PTR(t_query), 0, len(t_query)),
+                has_fragment: t_has_fragment,
+                fragment: url_dup_range(STR_PTR(t_fragment), 0, len(t_fragment)),
+            };
+            return url_to_string(&netref);
+        };
+        return url_to_string(&target_owned);
+    };
+    // Same scheme and authority. Non-absolute paths: fall back
+    // to a path-absolute reference when possible.
+    let bp: ptr = STR_PTR(b_path);
+    let bn: u64 = len(b_path);
+    let tp: ptr = STR_PTR(t_path);
+    let tn: u64 = len(t_path);
+    let base_abs: bool = bn > 0 && PTR_BYTE_AT(bp, 0) == 47;
+    let target_abs: bool = tn > 0 && PTR_BYTE_AT(tp, 0) == 47;
+    if !base_abs || !target_abs {
+        if target_abs {
+            let pathref: Url = Url {
+                scheme: format(""),
+                has_authority: false,
+                has_userinfo: false,
+                userinfo: format(""),
+                host: format(""),
+                has_port: false,
+                port: 0,
+                path: url_dup_range(tp, 0, tn),
+                has_query: t_has_query,
+                query: url_dup_range(STR_PTR(t_query), 0, len(t_query)),
+                has_fragment: t_has_fragment,
+                fragment: url_dup_range(STR_PTR(t_fragment), 0, len(t_fragment)),
+            };
+            return url_to_string(&pathref);
+        };
+        return url_to_string(&target_owned);
+    };
+    // Same path: the difference is at most query and fragment.
+    if url_bytes_eq(bp, bn, tp, tn) {
+        let query_diff: bool = false;
+        if b_has_query != t_has_query {
+            query_diff = true;
+        };
+        if !url_bytes_eq(STR_PTR(b_query), len(b_query), STR_PTR(t_query), len(t_query)) {
+            query_diff = true;
+        };
+        if query_diff {
+            let qref: Url = Url {
+                scheme: format(""),
+                has_authority: false,
+                has_userinfo: false,
+                userinfo: format(""),
+                host: format(""),
+                has_port: false,
+                port: 0,
+                path: format(""),
+                has_query: true,
+                query: url_dup_range(STR_PTR(t_query), 0, len(t_query)),
+                has_fragment: t_has_fragment,
+                fragment: url_dup_range(STR_PTR(t_fragment), 0, len(t_fragment)),
+            };
+            return url_to_string(&qref);
+        };
+        let fref: Url = Url {
+            scheme: format(""),
+            has_authority: false,
+            has_userinfo: false,
+            userinfo: format(""),
+            host: format(""),
+            has_port: false,
+            port: 0,
+            path: format(""),
+            has_query: false,
+            query: format(""),
+            has_fragment: t_has_fragment,
+            fragment: url_dup_range(STR_PTR(t_fragment), 0, len(t_fragment)),
+        };
+        return url_to_string(&fref);
+    };
+    // Segment math: strip the longest common leading run of
+    // directory segments of the base against target segments,
+    // then climb out of the remaining base directories.
+    let base_dir_end: u64 = 0;
+    let last_slash: i64 = url_rfind_byte(bp, 0, bn, 47);
+    if last_slash >= 0 {
+        base_dir_end = (last_slash as u64) + 1;
+    };
+    let bcur: u64 = 1;
+    let tcur: u64 = 1;
+    let climbing: bool = true;
+    while climbing {
+        // next base dir segment [bcur, bnext) content [bcur, bslash)
+        if bcur >= base_dir_end {
+            climbing = false;
+            break;
+        };
+        let bs: i64 = url_find_byte(bp, bcur, base_dir_end, 47);
+        if bs < 0 {
+            climbing = false;
+            break;
+        };
+        let ts: i64 = url_find_byte(tp, tcur, tn, 47);
+        if ts < 0 {
+            climbing = false;
+            break;
+        };
+        if !url_ranges_eq(bp, bcur, (bs as u64) - bcur, tp, tcur, (ts as u64) - tcur) {
+            climbing = false;
+            break;
+        };
+        bcur = (bs as u64) + 1;
+        tcur = (ts as u64) + 1;
+    }
+    // Count base directory segments beyond the common prefix.
+    let ups: u64 = 0;
+    let scan: u64 = bcur;
+    while scan < base_dir_end {
+        if PTR_BYTE_AT(bp, scan) == 47 {
+            ups = ups + 1;
+        };
+        scan = scan + 1;
+    }
+    let out: String = format("");
+    let u2: u64 = 0;
+    while u2 < ups {
+        let pb_arr_0: [u8; 1] = [46];
+        let pb_str_0: String = pb_arr_0.iter().collect<String>();
+        out = format("{}{}", out, pb_str_0);
+        let pb_arr_1: [u8; 1] = [46];
+        let pb_str_1: String = pb_arr_1.iter().collect<String>();
+        out = format("{}{}", out, pb_str_1);
+        let pb_arr_2: [u8; 1] = [47];
+        let pb_str_2: String = pb_arr_2.iter().collect<String>();
+        out = format("{}{}", out, pb_str_2);
+        u2 = u2 + 1;
+    }
+    // Append the target remainder starting at its common offset
+    // (tcur is the offset just past the last common segment).
+    let rem_start: u64 = tcur;
+    let rem_len: u64 = tn - rem_start;
+    if ups == 0 && rem_len == 0 {
+        let pb_arr_3: [u8; 1] = [46];
+        let pb_str_3: String = pb_arr_3.iter().collect<String>();
+        out = format("{}{}", out, pb_str_3);
+        let pb_arr_4: [u8; 1] = [47];
+        let pb_str_4: String = pb_arr_4.iter().collect<String>();
+        out = format("{}{}", out, pb_str_4);
+    } else {
+        let i: u64 = 0;
+        while i < rem_len {
+            let pb_arr_5: [u8; 1] = [PTR_BYTE_AT(tp, rem_start + i)];
+            let pb_str_5: String = pb_arr_5.iter().collect<String>();
+            out = format("{}{}", out, pb_str_5);
+            i = i + 1;
+        }
+    };
+    // A ':' in the first segment would reparse as a scheme.
+    let outp: ptr = STR_PTR(out);
+    let outn: u64 = len(out);
+    let colon_pos: i64 = url_find_byte(outp, 0, outn, 58);
+    let slash_pos: i64 = url_find_byte(outp, 0, outn, 47);
+    let needs_prefix: bool = false;
+    if colon_pos >= 0 && (slash_pos < 0 || colon_pos < slash_pos) {
+        needs_prefix = true;
+    };
+    let result: String = format("");
+    if needs_prefix {
+        let pb_arr_6: [u8; 1] = [46];
+        let pb_str_6: String = pb_arr_6.iter().collect<String>();
+        result = format("{}{}", result, pb_str_6);
+        let pb_arr_7: [u8; 1] = [47];
+        let pb_str_7: String = pb_arr_7.iter().collect<String>();
+        result = format("{}{}", result, pb_str_7);
+    };
+    let i: u64 = 0;
+    while i < outn {
+        let pb_arr_8: [u8; 1] = [PTR_BYTE_AT(outp, i)];
+        let pb_str_8: String = pb_arr_8.iter().collect<String>();
+        result = format("{}{}", result, pb_str_8);
+        i = i + 1;
+    }
+    if t_has_query {
+        let pb_arr_9: [u8; 1] = [63];
+        let pb_str_9: String = pb_arr_9.iter().collect<String>();
+        result = format("{}{}", result, pb_str_9);
+        let qp: ptr = STR_PTR(t_query);
+        let qn: u64 = len(t_query);
+        let j: u64 = 0;
+        while j < qn {
+            let pb_arr_10: [u8; 1] = [PTR_BYTE_AT(qp, j)];
+            let pb_str_10: String = pb_arr_10.iter().collect<String>();
+            result = format("{}{}", result, pb_str_10);
+            j = j + 1;
+        }
+    };
+    if t_has_fragment {
+        let pb_arr_11: [u8; 1] = [35];
+        let pb_str_11: String = pb_arr_11.iter().collect<String>();
+        result = format("{}{}", result, pb_str_11);
+        let fp: ptr = STR_PTR(t_fragment);
+        let fn2: u64 = len(t_fragment);
+        let j: u64 = 0;
+        while j < fn2 {
+            let pb_arr_12: [u8; 1] = [PTR_BYTE_AT(fp, j)];
+            let pb_str_12: String = pb_arr_12.iter().collect<String>();
+            result = format("{}{}", result, pb_str_12);
+            j = j + 1;
+        }
+    };
+    return result;
+}
