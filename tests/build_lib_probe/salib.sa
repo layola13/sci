@@ -1,0 +1,13 @@
+@export sa_add(a: i64, b: i64) -> i64:
+L_ENTRY:
+    r = add a, b
+    !a
+    !b
+    return r
+
+@export sa_mul(a: i64, b: i64) -> i64:
+L_ENTRY:
+    r = mul a, b
+    !a
+    !b
+    return r

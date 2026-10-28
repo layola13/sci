@@ -1,0 +1,11 @@
+// Export contract for the build-lib acceptance probe library (blib.sla).
+//
+// One @export line per public C-ABI function. `sa build-lib` reads this
+// file and generates, from it alone: the C header (<stem>.h), the
+// function-pointer API table + <stem>_get_api entry compiled into the
+// artifact, and the linker export control (version script / .def /
+// exported-symbols list). Functions not listed here stay hidden in the
+// shared artifact (default zero exports).
+@export bl_add(a: i64, b: i64) -> i64
+@export bl_checksum(buf: ptr, len: u64) -> u64
+@export bl_answer(&out: ptr) -> i32

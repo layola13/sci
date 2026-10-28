@@ -1,0 +1,28 @@
+@import "sa_std/ptr.sa"
+
+// Minimal SLA library for the build-lib acceptance probe.
+// Three C-ABI-shaped functions: scalar in/out, {ptr,len} buffer in,
+// status code + out-param.
+
+fn bl_add(a: i64, b: i64) -> i64 {
+    return a + b;
+}
+
+fn bl_checksum(buf: ptr, len: u64) -> u64 {
+    let sum: u64 = 0;
+    let i: u64 = 0;
+    while i < len {
+        let dp: ptr = PTR_NULL();
+        PTR_BYTE_ADD(dp, buf, i);
+        let b: u8 = 0;
+        PTR_READ_U8(b, dp);
+        sum = sum + (b as u64);
+        i = i + 1;
+    }
+    return sum;
+}
+
+fn bl_answer(out: ptr) -> i32 {
+    PTR_WRITE_U64(out, 42);
+    return 0;
+}
