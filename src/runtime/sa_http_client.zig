@@ -4005,6 +4005,224 @@ test "http client v2: POST echo over loopback" {
     try testing.expectEqualStrings("POST /v2 v2-body", out_body.?[0..out_len]);
 }
 
+// ---- no_proxy bypass coverage (v1 anchor + v2 regression) ----
+//
+// Each case runs in a forked child that sets the proxy env for
+// itself. Mutating the env in the suite process instead would
+// corrupt the environ block snapshot captured at process start:
+// std's Io.Threaded.scanEnviron unwraps every slot of that
+// block on the first subprocess spawn, and unsetenv in-process
+// shifts the live array underneath it (observed: the SSE test
+// later in this suite panicking with "attempt to use null
+// value" inside scanEnviron when these tests used setenv /
+// unsetenv directly in an environment that had proxy variables
+// set). The child inherits a private copy of the environment,
+// so it can set and unset freely; it reports the outcome via
+// its exit code. The proxy configuration is loaded at client
+// init (HttpClient.init -> initDefaultProxies, which consults
+// http_proxy/HTTP_PROXY/all_proxy/ALL_PROXY for http) and the
+// bypass reads no_proxy at request time, so the child sets all
+// of them before creating its client. The "dead proxy" is an
+// ephemeral loopback port bound and immediately closed, so any
+// request routed to it is refused at connect.
+
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+extern "c" fn _exit(status: c_int) noreturn;
+
+fn proxyEnvSet(key: [:0]const u8, value: ?[:0]const u8) void {
+    if (value) |v| {
+        _ = setenv(key, v, 1);
+    } else {
+        _ = unsetenv(key);
+    }
+}
+
+fn unlistenedLoopbackPort() u16 {
+    const rc = linux.socket(std.posix.AF.INET, linux.SOCK.STREAM | linux.SOCK.CLOEXEC, std.posix.IPPROTO.TCP);
+    const fd: i32 = @intCast(rc);
+    var addr = std.posix.sockaddr.in{ .family = std.posix.AF.INET, .port = 0, .addr = @bitCast([4]u8{ 127, 0, 0, 1 }) };
+    _ = linux.bind(fd, @ptrCast(&addr), @sizeOf(std.posix.sockaddr.in));
+    var alen: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.in);
+    _ = linux.getsockname(fd, @ptrCast(&addr), &alen);
+    const port = std.mem.bigToNative(u16, addr.port);
+    _ = linux.close(fd);
+    return port;
+}
+
+// TestServer accepts exactly one connection; when a request
+// never reaches it (proxy misroute), release the pending accept
+// with a dummy connection carrying a minimal well-formed
+// request (the echo handler panics on an empty request line) so
+// join() cannot hang.
+fn releaseTestServerAccept(port: u16) void {
+    const rc = linux.socket(std.posix.AF.INET, linux.SOCK.STREAM | linux.SOCK.CLOEXEC, std.posix.IPPROTO.TCP);
+    if (sysErr(rc)) return;
+    const fd: i32 = @intCast(rc);
+    defer _ = linux.close(fd);
+    var addr = std.posix.sockaddr.in{ .family = std.posix.AF.INET, .port = std.mem.nativeToBig(u16, port), .addr = @bitCast([4]u8{ 127, 0, 0, 1 }) };
+    if (sysErr(linux.connect(fd, @ptrCast(&addr), @sizeOf(std.posix.sockaddr.in)))) return;
+    sockWriteAll(fd, "GET / HTTP/1.0\r\n\r\n");
+}
+
+fn deadProxyUrl(buf: []u8) ![:0]u8 {
+    const slice = try std.fmt.bufPrint(buf, "http://127.0.0.1:{d}", .{unlistenedLoopbackPort()});
+    return testing.allocator.dupeSentinel(u8, slice, 0);
+}
+
+const ProxyCase = struct {
+    proxy_url: [:0]const u8,
+    no_proxy: ?[:0]const u8,
+    url: []const u8,
+    body: []const u8,
+    expected_echo: []const u8,
+    use_v2: bool,
+    expect_success: bool,
+};
+
+// Child side of a proxy case. Returns 0 when the observed
+// outcome matches the expectation, else a stage code: 21 client
+// creation, 22 request creation, 23 body set, 24 send outcome
+// mismatch, 25 status, 26 body slice, 27 body content.
+fn proxyCaseChild(case: ProxyCase) i32 {
+    proxyEnvSet("http_proxy", case.proxy_url);
+    proxyEnvSet("HTTP_PROXY", case.proxy_url);
+    proxyEnvSet("https_proxy", case.proxy_url);
+    proxyEnvSet("HTTPS_PROXY", case.proxy_url);
+    proxyEnvSet("all_proxy", case.proxy_url);
+    proxyEnvSet("ALL_PROXY", case.proxy_url);
+    proxyEnvSet("no_proxy", case.no_proxy);
+    proxyEnvSet("NO_PROXY", null);
+
+    var client: ?*anyopaque = null;
+    const new_ok = if (case.use_v2)
+        sa_http_client_new_v2(0, null, 0, &client) == 0
+    else
+        sa_http_client_new(0, &client) == @intFromEnum(AbiStatus.ok);
+    if (!new_ok) return 21;
+    defer _ = sa_http_client_free(client);
+    var req: ?*anyopaque = null;
+    const req_ok = if (case.use_v2)
+        sa_http_client_req_new_v2(client, 2, case.url.ptr, case.url.len, &req) == 0
+    else
+        sa_http_client_req_new(client, 2, case.url.ptr, case.url.len, &req) == @intFromEnum(AbiStatus.ok);
+    if (!req_ok) return 22;
+    defer _ = sa_http_client_req_free(req);
+    const body_ok = if (case.use_v2)
+        sa_http_client_req_set_body_v2(req, case.body.ptr, case.body.len) == 0
+    else
+        sa_http_client_req_set_body(req, case.body.ptr, case.body.len) == @intFromEnum(AbiStatus.ok);
+    if (!body_ok) return 23;
+    var resp: ?*anyopaque = null;
+    const send_rc = if (case.use_v2)
+        sa_http_client_req_send_v2(req, &resp)
+    else
+        sa_http_client_req_send(req, &resp);
+    const send_ok = if (case.use_v2) send_rc == 0 else send_rc == @intFromEnum(AbiStatus.ok);
+    if (send_ok != case.expect_success) return 24;
+    if (!case.expect_success) return 0;
+    defer _ = sa_http_client_resp_free(resp);
+    if (sa_http_client_resp_status(resp) != 200) return 25;
+    var out_body: ?[*]const u8 = null;
+    var out_len: u64 = 0;
+    if (sa_http_client_resp_body_slice(resp, &out_body, &out_len) != @intFromEnum(AbiStatus.ok)) return 26;
+    if (!std.mem.eql(u8, out_body.?[0..out_len], case.expected_echo)) return 27;
+    return 0;
+}
+
+// Parent side: fork the case and wait with a watchdog. Returns
+// the child's exit code, 100 if it died by signal, or 101 on
+// watchdog timeout.
+fn runProxyCase(case: ProxyCase) !i32 {
+    const fork_rc = linux.fork();
+    if (sysErr(fork_rc)) return error.ForkFailed;
+    const pid: i32 = @intCast(fork_rc);
+    if (pid == 0) {
+        _exit(proxyCaseChild(case));
+    }
+    var status: i32 = 0;
+    var waited_ms: u32 = 0;
+    while (waited_ms < 30000) {
+        const w = linux.waitpid(pid, &status, 1); // 1 = WNOHANG (stable Linux ABI value; this std exposes no named constant)
+        if (!sysErr(w) and w != 0) {
+            if ((status & 0x7f) == 0) return @intCast((status >> 8) & 0xff);
+            return 100;
+        }
+        sio.io().sleep(.fromMilliseconds(50), .awake) catch {};
+        waited_ms += 50;
+    }
+    _ = linux.kill(pid, linux.SIG.KILL);
+    _ = linux.waitpid(pid, &status, 0);
+    return 101;
+}
+
+test "http client v2: no_proxy host bypasses configured proxy (loopback)" {
+    var proxy_buf: [64]u8 = undefined;
+    const proxy_url = try deadProxyUrl(&proxy_buf);
+    defer testing.allocator.free(proxy_url);
+    const srv = try TestServer.start(httpEchoHandler);
+    var url_buf: [128]u8 = undefined;
+    const url = try std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/v2", .{srv.port});
+    const rc = try runProxyCase(.{
+        .proxy_url = proxy_url,
+        .no_proxy = "127.0.0.1",
+        .url = url,
+        .body = "v2-body",
+        .expected_echo = "POST /v2 v2-body",
+        .use_v2 = true,
+        .expect_success = true,
+    });
+    if (rc != 0) releaseTestServerAccept(srv.port);
+    srv.join();
+    // Pre-fix the v2 path ignored no_proxy and routed into the
+    // dead proxy, so the child send failed at connect (rc 24).
+    try testing.expectEqual(@as(i32, 0), rc);
+}
+
+test "http client v1: no_proxy host bypasses configured proxy (loopback)" {
+    // Semantics anchor: the v1 bypass the v2 fix mirrors. This
+    // test passes before and after the v2 fix.
+    var proxy_buf: [64]u8 = undefined;
+    const proxy_url = try deadProxyUrl(&proxy_buf);
+    defer testing.allocator.free(proxy_url);
+    const srv = try TestServer.start(httpEchoHandler);
+    var url_buf: [128]u8 = undefined;
+    const url = try std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/echo", .{srv.port});
+    const rc = try runProxyCase(.{
+        .proxy_url = proxy_url,
+        .no_proxy = "127.0.0.1",
+        .url = url,
+        .body = "hello-std",
+        .expected_echo = "POST /echo hello-std",
+        .use_v2 = false,
+        .expect_success = true,
+    });
+    if (rc != 0) releaseTestServerAccept(srv.port);
+    srv.join();
+    try testing.expectEqual(@as(i32, 0), rc);
+}
+
+test "http client v2: host outside no_proxy still uses configured proxy" {
+    var proxy_buf: [64]u8 = undefined;
+    const proxy_url = try deadProxyUrl(&proxy_buf);
+    defer testing.allocator.free(proxy_url);
+    var url_buf: [128]u8 = undefined;
+    const url = try std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/v2", .{unlistenedLoopbackPort()});
+    const rc = try runProxyCase(.{
+        .proxy_url = proxy_url,
+        .no_proxy = "example.invalid",
+        .url = url,
+        .body = "v2-body",
+        .expected_echo = "",
+        .use_v2 = true,
+        .expect_success = false,
+    });
+    // 127.0.0.1 does not match the no_proxy entry, so the
+    // request must still go to the (dead) proxy and fail at
+    // connect: the bypass must not become "never use a proxy".
+    try testing.expectEqual(@as(i32, 0), rc);
+}
+
 fn httpHeadHandler(fd: i32) void {
     var buf: [8192]u8 = undefined;
     _ = readRequest(fd, &buf);
