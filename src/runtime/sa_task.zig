@@ -1135,11 +1135,8 @@ const NetWaiter = struct {
     linked: bool = false,
 };
 
-// Phase B/C hooks (real implementations land with their phases).
-fn selectTimeoutFire(sel: *SelectWaiter, gen: u64) void {
-    _ = sel;
-    _ = gen;
-}
+// Phase C hooks (real implementations in the net section below).
+fn placeholderNetHook() void {}
 
 fn netTimeoutFire(nw: *NetWaiter, gen: u64) void {
     _ = nw;
@@ -1469,4 +1466,961 @@ test "sa_task.test.sched: join cycle reaches guard quiescence" {
         _ = linux.nanosleep(&ts, null);
     }
     try testing.expect(systemQuiescent());
+}
+
+// ---------------------------------------------------------------------
+// Phase B: channels (Go semantics) + select.
+//
+// Payload is one fixed 16-byte Slot {a, b} at this layer; typed
+// surfaces belong to later layers. Channel close semantics follow
+// Go: send on a closed channel is a trap (including a blocked
+// send woken by close, and a select send case claimed by close),
+// close of a closed channel is a trap, receivers drain remaining
+// buffered values and then observe closed. Closing is also the
+// broadcast primitive behind the context-cancellation idiom (a
+// shared cap-0 Done channel closed once wakes every receiver and
+// every select case waiting on it).
+//
+// Select cases are evaluated in order (a documented refinement:
+// Go chooses pseudo-randomly among ready cases; in-order is a
+// legal single choice and is deterministic). A blocked select
+// registers one wait node per case in the channels' own queues —
+// multi-way wait is native to the park queues, not a poll loop.
+
+pub const SA_CHAN_CLOSED: i32 = 101;
+pub const SA_TASK_TRAP_CLOSE_OF_CLOSED: i32 = 4;
+pub const SA_CHAN_OP_RECV: u32 = 0;
+pub const SA_CHAN_OP_SEND: u32 = 1;
+
+const WAKE_SEND_ON_CLOSED: i32 = -7;
+const WAKE_RECHECK: i32 = -8;
+const WAKE_DESTROYED: i32 = -9;
+
+const Channel = struct {
+    mu: Mutex = .{},
+    cap: u32 = 0,
+    buf: []Slot = &.{},
+    head: usize = 0,
+    count: usize = 0,
+    closed: bool = false,
+    sendq_head: ?*WaitNode = null,
+    sendq_tail: ?*WaitNode = null,
+    recvq_head: ?*WaitNode = null,
+    recvq_tail: ?*WaitNode = null,
+    slot_idx: u32 = 0,
+    gen: u32 = 0,
+    dead: bool = false,
+    refs: std.atomic.Value(u32) = .init(1),
+
+    fn handle(ch: *const Channel) u64 {
+        return (@as(u64, ch.gen) << 32) | @as(u64, ch.slot_idx);
+    }
+};
+
+var chan_registry_mu: Mutex = .{};
+var chan_slots: std.ArrayList(?*Channel) = .empty;
+// Generations live OUTSIDE the Channel struct: the struct is
+// freed when its last pin drops, which can happen before the
+// slot is reused, so make must never read gen from a dead struct.
+var chan_gens: std.ArrayList(u32) = .empty;
+var chan_free: std.ArrayList(u32) = .empty;
+
+fn chanLookup(handle: u64) ?*Channel {
+    const idx: u32 = @truncate(handle);
+    const gen: u32 = @truncate(handle >> 32);
+    chan_registry_mu.lock();
+    defer chan_registry_mu.unlock();
+    if (idx >= chan_slots.items.len) return null;
+    const ch = chan_slots.items[idx] orelse return null;
+    if (ch.gen != gen or ch.dead) return null;
+    _ = ch.refs.fetchAdd(1, .seq_cst);
+    return ch;
+}
+
+fn chanRelease(ch: *Channel) void {
+    if (ch.refs.fetchSub(1, .seq_cst) == 1) {
+        // Last pin dropped after destroy: free memory.
+        if (ch.buf.len > 0) alloc.free(ch.buf);
+        alloc.destroy(ch);
+    }
+}
+
+fn queuePush(head: *?*WaitNode, tail: *?*WaitNode, node: *WaitNode) void {
+    node.next = null;
+    node.linked = true;
+    if (tail.*) |t| {
+        t.next = node;
+    } else {
+        head.* = node;
+    }
+    tail.* = node;
+}
+
+fn queueRemove(head: *?*WaitNode, tail: *?*WaitNode, node: *WaitNode) bool {
+    var prev: ?*WaitNode = null;
+    var cur = head.*;
+    while (cur) |n| {
+        if (n == node) {
+            if (prev) |p| {
+                p.next = n.next;
+            } else {
+                head.* = n.next;
+            }
+            if (tail.* == n) tail.* = prev;
+            n.next = null;
+            n.linked = false;
+            return true;
+        }
+        prev = n;
+        cur = n.next;
+    }
+    return false;
+}
+
+fn wakeSelectOwner(sel: *SelectWaiter) void {
+    if (sel.owner_g) |g| {
+        g.wake_status = sel.wake_status;
+        unpark(g);
+    }
+    if (sel.owner_os) |os| {
+        os.status = sel.wake_status;
+        os.fire();
+    }
+}
+
+fn selectRelease(sel: *SelectWaiter) void {
+    if (sel.refs.fetchSub(1, .seq_cst) == 1) alloc.destroy(sel);
+}
+
+/// Attempt to claim a select waiter for case `index`. On success
+/// the caller (holding the channel lock) completes the payload
+/// move, detaches the node, then calls wakeSelectOwner.
+fn selectTryClaim(sel: *SelectWaiter, index: u32, closed_result: bool, wake_status: i32) bool {
+    sel.mu.lock();
+    defer sel.mu.unlock();
+    if (sel.claimed) return false;
+    sel.claimed = true;
+    sel.chosen = @intCast(index);
+    sel.closed_result = closed_result;
+    sel.wake_status = wake_status;
+    return true;
+}
+
+fn selectTimeoutFire(sel: *SelectWaiter, gen: u64) void {
+    sel.mu.lock();
+    if (!sel.claimed and sel.gen == gen) {
+        sel.claimed = true;
+        sel.chosen = -2;
+        sel.wake_status = SA_TASK_OK;
+        sel.mu.unlock();
+        wakeSelectOwner(sel);
+    } else {
+        sel.mu.unlock();
+    }
+    selectRelease(sel);
+}
+
+/// Deliver `val` to the head receive waiter, if any. Channel lock
+/// held. Stale select nodes (already claimed via another case)
+/// are detached and skipped; their owner frees them.
+fn chanDeliverToReceiver(ch: *Channel, val: Slot) bool {
+    while (ch.recvq_head) |node| {
+        if (node.sel) |sel| {
+            if (!selectTryClaim(sel, node.sel_index, false, SA_TASK_OK)) {
+                _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
+                continue;
+            }
+            node.slot.?.* = val;
+            _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
+            wakeSelectOwner(sel);
+            return true;
+        }
+        node.slot.?.* = val;
+        _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
+        fireNode(node, SA_TASK_OK);
+        return true;
+    }
+    return false;
+}
+
+/// Take a value from the buffer, or directly from a head send
+/// waiter. Channel lock held.
+fn chanTakeFromSender(ch: *Channel, out: *Slot) enum { got, empty } {
+    if (ch.count > 0) {
+        out.* = ch.buf[ch.head];
+        ch.head = (ch.head + 1) % ch.buf.len;
+        ch.count -= 1;
+        // A blocked sender may now refill the buffer slot.
+        if (ch.sendq_head) |node| {
+            if (node.sel) |sel| {
+                if (selectTryClaim(sel, node.sel_index, false, SA_TASK_OK)) {
+                    const v = node.slot.?.*;
+                    _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
+                    ch.buf[(ch.head + ch.count) % ch.buf.len] = v;
+                    ch.count += 1;
+                    wakeSelectOwner(sel);
+                }
+            } else {
+                const v = node.slot.?.*;
+                _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
+                ch.buf[(ch.head + ch.count) % ch.buf.len] = v;
+                ch.count += 1;
+                fireNode(node, SA_TASK_OK);
+            }
+        }
+        return .got;
+    }
+    while (ch.sendq_head) |node| {
+        if (node.sel) |sel| {
+            if (!selectTryClaim(sel, node.sel_index, false, SA_TASK_OK)) {
+                _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
+                continue;
+            }
+            out.* = node.slot.?.*;
+            _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
+            wakeSelectOwner(sel);
+            return .got;
+        }
+        out.* = node.slot.?.*;
+        _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
+        fireNode(node, SA_TASK_OK);
+        return .got;
+    }
+    return .empty;
+}
+
+/// Send attempt without blocking. Channel lock held; caller has
+/// already handled the closed trap. Returns true if the value was
+/// accepted (receiver handoff or buffered).
+fn chanTrySend(ch: *Channel, val: Slot) bool {
+    if (chanDeliverToReceiver(ch, val)) return true;
+    if (ch.count < ch.cap) {
+        ch.buf[(ch.head + ch.count) % ch.buf.len] = val;
+        ch.count += 1;
+        return true;
+    }
+    return false;
+}
+
+/// Close-time firing of every waiter. Channel lock held; queues
+/// are emptied. Send waiters observe the send-on-closed trap on
+/// wake (Go parity); plain receive waiters re-check state (drain
+/// or closed), select receive cases are claimed immediately.
+fn chanFireAllOnClose(ch: *Channel) void {
+    while (ch.sendq_head) |node| {
+        _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
+        if (node.sel) |sel| {
+            if (selectTryClaim(sel, node.sel_index, false, WAKE_SEND_ON_CLOSED)) {
+                wakeSelectOwner(sel);
+            }
+        } else {
+            fireNode(node, WAKE_SEND_ON_CLOSED);
+        }
+    }
+    while (ch.recvq_head) |node| {
+        _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
+        if (node.sel) |sel| {
+            // Claim BEFORE touching channel state: a lost claim
+            // must not consume a buffered value.
+            if (ch.count > 0) {
+                if (selectTryClaim(sel, node.sel_index, false, SA_TASK_OK)) {
+                    var v: Slot = undefined;
+                    _ = chanTakeFromSender(ch, &v);
+                    node.slot.?.* = v;
+                    wakeSelectOwner(sel);
+                }
+            } else {
+                if (selectTryClaim(sel, node.sel_index, true, SA_TASK_OK)) {
+                    wakeSelectOwner(sel);
+                }
+            }
+        } else {
+            fireNode(node, WAKE_RECHECK);
+        }
+    }
+}
+
+fn chanFireAllOnDestroy(ch: *Channel) void {
+    while (ch.sendq_head) |node| {
+        _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
+        if (node.sel) |sel| {
+            if (selectTryClaim(sel, node.sel_index, false, WAKE_DESTROYED)) wakeSelectOwner(sel);
+        } else {
+            fireNode(node, WAKE_DESTROYED);
+        }
+    }
+    while (ch.recvq_head) |node| {
+        _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
+        if (node.sel) |sel| {
+            if (selectTryClaim(sel, node.sel_index, false, WAKE_DESTROYED)) wakeSelectOwner(sel);
+        } else {
+            fireNode(node, WAKE_DESTROYED);
+        }
+    }
+}
+
+pub export fn sa_chan_make(capacity: u32, out_handle: ?*u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const out = out_handle orelse return ERR_INVALID;
+    out.* = 0;
+    if (!ensureInit()) return ERR_UNSUPPORTED;
+    if (capacity > (1 << 22)) return ERR_INVALID; // 64 MiB payload cap
+    const ch = alloc.create(Channel) catch return ERR_NOMEM;
+    ch.* = .{ .cap = capacity };
+    if (capacity > 0) {
+        ch.buf = alloc.alloc(Slot, capacity) catch {
+            alloc.destroy(ch);
+            return ERR_NOMEM;
+        };
+    }
+    chan_registry_mu.lock();
+    if (chan_free.pop()) |idx| {
+        ch.slot_idx = idx;
+        ch.gen = chan_gens.items[idx] +% 1;
+        if (ch.gen == 0) ch.gen = 1;
+        chan_gens.items[idx] = ch.gen;
+        chan_slots.items[idx] = ch;
+    } else {
+        ch.slot_idx = @intCast(chan_slots.items.len);
+        ch.gen = 1;
+        chan_slots.append(alloc, ch) catch {
+            chan_registry_mu.unlock();
+            if (ch.buf.len > 0) alloc.free(ch.buf);
+            alloc.destroy(ch);
+            return ERR_NOMEM;
+        };
+        chan_gens.append(alloc, 1) catch {
+            _ = chan_slots.pop();
+            chan_registry_mu.unlock();
+            if (ch.buf.len > 0) alloc.free(ch.buf);
+            alloc.destroy(ch);
+            return ERR_NOMEM;
+        };
+    }
+    chan_registry_mu.unlock();
+    out.* = ch.handle();
+    return SA_TASK_OK;
+}
+
+pub export fn sa_chan_destroy(handle: u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const idx: u32 = @truncate(handle);
+    const gen: u32 = @truncate(handle >> 32);
+    chan_registry_mu.lock();
+    if (idx >= chan_slots.items.len) {
+        chan_registry_mu.unlock();
+        return ERR_INVALID_HANDLE;
+    }
+    const ch = chan_slots.items[idx] orelse {
+        chan_registry_mu.unlock();
+        return ERR_INVALID_HANDLE;
+    };
+    if (ch.gen != gen or ch.dead) {
+        chan_registry_mu.unlock();
+        return ERR_INVALID_HANDLE;
+    }
+    ch.dead = true;
+    chan_registry_mu.unlock();
+    ch.mu.lock();
+    chanFireAllOnDestroy(ch);
+    ch.mu.unlock();
+    chan_registry_mu.lock();
+    chan_slots.items[idx] = null;
+    chan_free.append(alloc, idx) catch {};
+    chan_registry_mu.unlock();
+    chanRelease(ch); // drop the handle's base reference
+    return SA_TASK_OK;
+}
+
+pub export fn sa_chan_close(handle: u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const ch = chanLookup(handle) orelse return ERR_INVALID_HANDLE;
+    defer chanRelease(ch);
+    ch.mu.lock();
+    if (ch.closed) {
+        ch.mu.unlock();
+        raiseTrap(SA_TASK_TRAP_CLOSE_OF_CLOSED, "close of closed channel");
+    }
+    ch.closed = true;
+    chanFireAllOnClose(ch);
+    ch.mu.unlock();
+    return SA_TASK_OK;
+}
+
+pub export fn sa_chan_send(handle: u64, value_ptr: ?*const Slot) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const val_ptr = value_ptr orelse return ERR_INVALID;
+    const ch = chanLookup(handle) orelse return ERR_INVALID_HANDLE;
+    defer chanRelease(ch);
+    ch.mu.lock();
+    if (ch.closed) {
+        ch.mu.unlock();
+        raiseTrap(SA_TASK_TRAP_SEND_ON_CLOSED, "send on closed channel");
+    }
+    if (chanTrySend(ch, val_ptr.*)) {
+        ch.mu.unlock();
+        return SA_TASK_OK;
+    }
+    // Block: register a wait node and park.
+    const node = alloc.create(WaitNode) catch {
+        ch.mu.unlock();
+        return ERR_NOMEM;
+    };
+    node.* = .{ .slot = @constCast(val_ptr) };
+    var os_waiter: OsWaiter = .{};
+    if (current_g) |me| {
+        node.g = me;
+        me.wait_kind = .chan_send;
+    } else {
+        node.os = &os_waiter;
+    }
+    queuePush(&ch.sendq_head, &ch.sendq_tail, node);
+    if (current_g) |_| parkBegin();
+    ch.mu.unlock();
+    if (current_g) |me| {
+        parkSwitch();
+        me.wait_kind = .none;
+        return chanSendWakeStatus(me.wake_status);
+    }
+    os_waiter.wait();
+    return chanSendWakeStatus(os_waiter.status);
+}
+
+fn chanSendWakeStatus(status: i32) i32 {
+    if (status == WAKE_SEND_ON_CLOSED) {
+        raiseTrap(SA_TASK_TRAP_SEND_ON_CLOSED, "send on closed channel");
+    }
+    if (status == WAKE_DESTROYED) return ERR_INVALID_HANDLE;
+    return status;
+}
+
+pub export fn sa_chan_recv(handle: u64, out_value: ?*Slot, out_closed: ?*u32) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const out = out_value orelse return ERR_INVALID;
+    if (out_closed) |oc| oc.* = 0;
+    const ch = chanLookup(handle) orelse return ERR_INVALID_HANDLE;
+    defer chanRelease(ch);
+    while (true) {
+        ch.mu.lock();
+        var v: Slot = undefined;
+        if (chanTakeFromSender(ch, &v) == .got) {
+            ch.mu.unlock();
+            out.* = v;
+            return SA_TASK_OK;
+        }
+        if (ch.closed) {
+            ch.mu.unlock();
+            if (out_closed) |oc| oc.* = 1;
+            out.* = .{};
+            return SA_TASK_OK;
+        }
+        const node = alloc.create(WaitNode) catch {
+            ch.mu.unlock();
+            return ERR_NOMEM;
+        };
+        node.* = .{ .slot = out };
+        var os_waiter: OsWaiter = .{};
+        if (current_g) |me| {
+            node.g = me;
+            me.wait_kind = .chan_recv;
+        } else {
+            node.os = &os_waiter;
+        }
+        queuePush(&ch.recvq_head, &ch.recvq_tail, node);
+        if (current_g) |_| parkBegin();
+        ch.mu.unlock();
+        var status: i32 = undefined;
+        if (current_g) |me| {
+            parkSwitch();
+            me.wait_kind = .none;
+            status = me.wake_status;
+        } else {
+            os_waiter.wait();
+            status = os_waiter.status;
+        }
+        if (status == WAKE_DESTROYED) return ERR_INVALID_HANDLE;
+        if (status == WAKE_RECHECK) continue; // closed while parked: re-evaluate
+        // Value already delivered into `out` by the sender side.
+        return SA_TASK_OK;
+    }
+}
+
+pub export fn sa_chan_len(handle: u64, out_len: ?*u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const out = out_len orelse return ERR_INVALID;
+    const ch = chanLookup(handle) orelse return ERR_INVALID_HANDLE;
+    defer chanRelease(ch);
+    ch.mu.lock();
+    out.* = ch.count;
+    ch.mu.unlock();
+    return SA_TASK_OK;
+}
+
+pub export fn sa_chan_cap(handle: u64, out_cap: ?*u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const out = out_cap orelse return ERR_INVALID;
+    const ch = chanLookup(handle) orelse return ERR_INVALID_HANDLE;
+    defer chanRelease(ch);
+    out.* = ch.cap;
+    return SA_TASK_OK;
+}
+
+var select_gen_counter: std.atomic.Value(u64) = .init(0);
+
+pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[*]Slot, count: u64, has_default: u32, timeout_ns: i64, out_index: ?*i64, out_closed: ?*u32) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const oi = out_index orelse return ERR_INVALID;
+    oi.* = -1;
+    if (out_closed) |oc| oc.* = 0;
+    if (count > 0) {
+        if (cases == null or ops == null or slots == null) return ERR_INVALID;
+        if (count > 4096) return ERR_INVALID;
+    }
+    if (!ensureInit()) return ERR_UNSUPPORTED;
+    const n: usize = @intCast(count);
+    const case_ptrs = if (n > 0) cases.?[0..n] else &.{};
+    const op_ptrs = if (n > 0) ops.?[0..n] else &.{};
+    var empty_slots = [_]Slot{};
+    const slot_ptrs: []Slot = if (n > 0) slots.?[0..n] else &empty_slots;
+
+    // Resolve all channels first (pins them for the whole call).
+    const chans = alloc.alloc(?*Channel, n) catch return ERR_NOMEM;
+    defer {
+        for (chans) |c| if (c) |ch| chanRelease(ch);
+        alloc.free(chans);
+    }
+    for (case_ptrs, 0..) |h, i| {
+        chans[i] = chanLookup(h);
+        if (chans[i] == null) return ERR_INVALID_HANDLE;
+        if (op_ptrs[i] != SA_CHAN_OP_RECV and op_ptrs[i] != SA_CHAN_OP_SEND) return ERR_INVALID;
+    }
+
+    // Phase 1: in-order immediate evaluation.
+    for (0..n) |i| {
+        const ch = chans[i].?;
+        ch.mu.lock();
+        if (op_ptrs[i] == SA_CHAN_OP_SEND) {
+            if (ch.closed) {
+                ch.mu.unlock();
+                raiseTrap(SA_TASK_TRAP_SEND_ON_CLOSED, "send on closed channel");
+            }
+            if (chanTrySend(ch, slot_ptrs[i])) {
+                ch.mu.unlock();
+                oi.* = @intCast(i);
+                return SA_TASK_OK;
+            }
+        } else {
+            var v: Slot = undefined;
+            if (chanTakeFromSender(ch, &v) == .got) {
+                ch.mu.unlock();
+                slot_ptrs[i] = v;
+                oi.* = @intCast(i);
+                return SA_TASK_OK;
+            }
+            if (ch.closed) {
+                ch.mu.unlock();
+                slot_ptrs[i] = .{};
+                if (out_closed) |oc| oc.* = 1;
+                oi.* = @intCast(i);
+                return SA_TASK_OK;
+            }
+        }
+        ch.mu.unlock();
+    }
+    if (has_default != 0) {
+        oi.* = -1;
+        return SA_TASK_OK;
+    }
+
+    // Phase 2: register one node per case and park.
+    const sel = alloc.create(SelectWaiter) catch return ERR_NOMEM;
+    sel.* = .{};
+    sel.gen = select_gen_counter.fetchAdd(1, .seq_cst) + 1;
+    var os_waiter: OsWaiter = .{};
+    if (current_g) |me| {
+        sel.owner_g = me;
+        me.wait_kind = .select;
+    } else {
+        sel.owner_os = &os_waiter;
+    }
+    const nodes = alloc.alloc(?*WaitNode, n) catch {
+        selectRelease(sel);
+        return ERR_NOMEM;
+    };
+    for (nodes) |*nd| nd.* = null;
+    // Mark parked BEFORE registering any case: a peer completing
+    // a case during registration fires the waiter, and that wake
+    // must find state == parked (see parkBegin). If a claim lands
+    // during registration we cancel the park instead of switching.
+    if (current_g != null) parkBegin();
+    var registered: usize = 0;
+    var self_claimed = false;
+    for (0..n) |i| {
+        const node = alloc.create(WaitNode) catch break;
+        node.* = .{ .slot = &slot_ptrs[i], .sel = sel, .sel_index = @intCast(i) };
+        nodes[i] = node;
+        const ch = chans[i].?;
+        ch.mu.lock();
+        if (op_ptrs[i] == SA_CHAN_OP_SEND) {
+            queuePush(&ch.sendq_head, &ch.sendq_tail, node);
+        } else {
+            queuePush(&ch.recvq_head, &ch.recvq_tail, node);
+        }
+        registered += 1;
+        // Re-check readiness under the same lock hold: a case
+        // that became ready between phase 1 and registration
+        // must claim us now, or the wakeup would be lost (the
+        // peer already came and went).
+        if (op_ptrs[i] == SA_CHAN_OP_SEND) {
+            if (!ch.closed and chanTrySend(ch, slot_ptrs[i])) {
+                _ = selectTryClaim(sel, @intCast(i), false, SA_TASK_OK);
+                // Detach our own node while still holding the
+                // lock: the value already moved via chanTrySend,
+                // and a queued node would deliver it a second
+                // time to a later receiver.
+                _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
+                self_claimed = true;
+            }
+        } else {
+            var v: Slot = undefined;
+            if (chanTakeFromSender(ch, &v) == .got) {
+                if (selectTryClaim(sel, @intCast(i), false, SA_TASK_OK)) {
+                    slot_ptrs[i] = v;
+                    _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
+                    self_claimed = true;
+                }
+            } else if (ch.closed) {
+                if (selectTryClaim(sel, @intCast(i), true, SA_TASK_OK)) {
+                    slot_ptrs[i] = .{};
+                    _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
+                    self_claimed = true;
+                }
+            }
+        }
+        ch.mu.unlock();
+        if (self_claimed) break;
+    }
+    if (registered < n and !self_claimed) {
+        // Node allocation failed mid-registration: unwind.
+        for (0..n) |i| {
+            const node = nodes[i] orelse continue;
+            const ch = chans[i].?;
+            ch.mu.lock();
+            if (node.linked) {
+                if (op_ptrs[i] == SA_CHAN_OP_SEND) {
+                    _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
+                } else {
+                    _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
+                }
+            }
+            ch.mu.unlock();
+            alloc.destroy(node);
+        }
+        alloc.free(nodes);
+        selectRelease(sel);
+        if (current_g) |me| {
+            parkCancel();
+            me.wait_kind = .none;
+        }
+        return ERR_NOMEM;
+    }
+    sel.mu.lock();
+    const claimed_now = self_claimed or sel.claimed;
+    sel.mu.unlock();
+    if (timeout_ns >= 0 and !claimed_now) {
+        _ = sel.refs.fetchAdd(1, .seq_cst);
+        const deadline = monotonicNs() + timeout_ns;
+        if (!timerAdd(deadline, .{ .sel = sel }, sel.gen)) {
+            _ = sel.refs.fetchSub(1, .seq_cst);
+        }
+    }
+    if (claimed_now) {
+        if (current_g) |me| {
+            parkCancel();
+            me.wait_kind = .none;
+        }
+    } else {
+        if (current_g) |me| {
+            parkSwitch();
+            me.wait_kind = .none;
+        } else {
+            os_waiter.wait();
+        }
+    }
+    // Read the outcome.
+    sel.mu.lock();
+    const chosen = sel.chosen;
+    const closed_result = sel.closed_result;
+    const wake_status = sel.wake_status;
+    sel.mu.unlock();
+    // Cleanup: detach any nodes still queued and free them.
+    for (0..n) |i| {
+        const node = nodes[i] orelse continue;
+        const ch = chans[i].?;
+        ch.mu.lock();
+        if (node.linked) {
+            if (op_ptrs[i] == SA_CHAN_OP_SEND) {
+                _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
+            } else {
+                _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
+            }
+        }
+        ch.mu.unlock();
+        alloc.destroy(node);
+    }
+    alloc.free(nodes);
+    selectRelease(sel);
+    if (wake_status == WAKE_SEND_ON_CLOSED) {
+        raiseTrap(SA_TASK_TRAP_SEND_ON_CLOSED, "send on closed channel");
+    }
+    if (wake_status == WAKE_DESTROYED) return ERR_INVALID_HANDLE;
+    oi.* = chosen;
+    if (closed_result and out_closed != null) out_closed.?.* = 1;
+    return SA_TASK_OK;
+}
+
+// ---------------------------------------------------------------------
+// Phase B tests.
+
+fn pingPongProducer(arg: ?*anyopaque) callconv(.c) void {
+    const ch: u64 = @intFromPtr(arg.?);
+    var i: u64 = 0;
+    while (i < 100) : (i += 1) {
+        var v: Slot = .{ .a = i, .b = i * 7 };
+        _ = sa_chan_send(ch, &v);
+    }
+    _ = sa_chan_close(ch);
+}
+
+test "sa_task.test.chan: unbuffered ping-pong ordering and close" {
+    if (!supported) return error.SkipZigTest;
+    var ch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &ch));
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&pingPongProducer, @ptrFromInt(@as(usize, @intCast(ch))), &h));
+    var i: u64 = 0;
+    while (i < 100) : (i += 1) {
+        var out: Slot = undefined;
+        var closed: u32 = 99;
+        try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, &closed));
+        try testing.expectEqual(@as(u32, 0), closed);
+        try testing.expectEqual(i, out.a);
+        try testing.expectEqual(i * 7, out.b);
+    }
+    var out: Slot = undefined;
+    var closed: u32 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, &closed));
+    try testing.expectEqual(@as(u32, 1), closed);
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+}
+
+var block_send_done: std.atomic.Value(bool) = .init(false);
+
+fn blockedSender(arg: ?*anyopaque) callconv(.c) void {
+    const ch: u64 = @intFromPtr(arg.?);
+    var v: Slot = .{ .a = 44, .b = 0 };
+    _ = sa_chan_send(ch, &v);
+    block_send_done.store(true, .release);
+}
+
+test "sa_task.test.chan: buffered full and empty edges" {
+    if (!supported) return error.SkipZigTest;
+    var ch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(3, &ch));
+    for (0..3) |i| {
+        var v: Slot = .{ .a = @intCast(i + 1), .b = 0 };
+        try testing.expectEqual(SA_TASK_OK, sa_chan_send(ch, &v));
+    }
+    var ln: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_len(ch, &ln));
+    try testing.expectEqual(@as(u64, 3), ln);
+    // Fourth send blocks (buffer full).
+    block_send_done.store(false, .release);
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&blockedSender, @ptrFromInt(@as(usize, @intCast(ch))), &h));
+    _ = sa_task_sleep_ms(60);
+    try testing.expect(!block_send_done.load(.acquire));
+    // Freeing one slot lets it through; FIFO order preserved.
+    var out: Slot = undefined;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, null));
+    try testing.expectEqual(@as(u64, 1), out.a);
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    try testing.expect(block_send_done.load(.acquire));
+    for (0..3) |i| {
+        try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, null));
+        const expected: u64 = if (i == 2) 44 else @intCast(i + 2);
+        try testing.expectEqual(expected, out.a);
+    }
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+}
+
+const ProdCons = struct {
+    ch: u64 = 0,
+    total: std.atomic.Value(u64) = .init(0),
+    count: std.atomic.Value(u64) = .init(0),
+};
+var prodcons: ProdCons = .{};
+
+fn pcProducer(arg: ?*anyopaque) callconv(.c) void {
+    const pid: u64 = @intFromPtr(arg.?) - 1;
+    var i: u64 = 0;
+    while (i < 250) : (i += 1) {
+        var v: Slot = .{ .a = pid * 1000 + i, .b = 0 };
+        _ = sa_chan_send(prodcons.ch, &v);
+    }
+}
+
+fn pcConsumer(_: ?*anyopaque) callconv(.c) void {
+    while (true) {
+        var out: Slot = undefined;
+        var closed: u32 = 0;
+        _ = sa_chan_recv(prodcons.ch, &out, &closed);
+        if (closed != 0) return;
+        _ = prodcons.total.fetchAdd(out.a, .seq_cst);
+        _ = prodcons.count.fetchAdd(1, .seq_cst);
+    }
+}
+
+test "sa_task.test.chan: producer-consumer sum oracle" {
+    if (!supported) return error.SkipZigTest;
+    prodcons = .{};
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(16, &prodcons.ch));
+    var cons: [3]u64 = undefined;
+    for (&cons) |*h| try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&pcConsumer, null, h));
+    var prods: [4]u64 = undefined;
+    for (&prods, 0..) |*h, i| {
+        try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&pcProducer, @ptrFromInt(@as(usize, i + 1)), h));
+    }
+    for (prods) |h| try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_close(prodcons.ch));
+    for (cons) |h| try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    var expected: u64 = 0;
+    for (0..4) |p| {
+        for (0..250) |i| expected += @as(u64, p * 1000 + i);
+    }
+    try testing.expectEqual(expected, prodcons.total.load(.seq_cst));
+    try testing.expectEqual(@as(u64, 1000), prodcons.count.load(.seq_cst));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(prodcons.ch));
+}
+
+test "sa_task.test.select: timeout, default, and ready case" {
+    if (!supported) return error.SkipZigTest;
+    var ch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &ch));
+    var chans = [1]u64{ch};
+    var ops = [1]u32{SA_CHAN_OP_RECV};
+    var slots = [1]Slot{.{}};
+    var idx: i64 = -99;
+    // Default: returns immediately with -1.
+    var t0 = monotonicNs();
+    try testing.expectEqual(SA_TASK_OK, sa_chan_select(&chans, &ops, &slots, 1, 1, -1, &idx, null));
+    try testing.expectEqual(@as(i64, -1), idx);
+    try testing.expect(monotonicNs() - t0 < 20 * std.time.ns_per_ms);
+    // Timeout: returns -2 after roughly the timeout.
+    idx = -99;
+    t0 = monotonicNs();
+    try testing.expectEqual(SA_TASK_OK, sa_chan_select(&chans, &ops, &slots, 1, 0, 60 * std.time.ns_per_ms, &idx, null));
+    try testing.expectEqual(@as(i64, -2), idx);
+    try testing.expect(monotonicNs() - t0 >= 50 * std.time.ns_per_ms);
+    // Ready case beats the timeout.
+    var ch2: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(1, &ch2));
+    var v: Slot = .{ .a = 777, .b = 0 };
+    try testing.expectEqual(SA_TASK_OK, sa_chan_send(ch2, &v));
+    var chans2 = [2]u64{ ch, ch2 };
+    var ops2 = [2]u32{ SA_CHAN_OP_RECV, SA_CHAN_OP_RECV };
+    var slots2 = [2]Slot{ .{}, .{} };
+    idx = -99;
+    t0 = monotonicNs();
+    try testing.expectEqual(SA_TASK_OK, sa_chan_select(&chans2, &ops2, &slots2, 2, 0, 5 * std.time.ns_per_s, &idx, null));
+    try testing.expectEqual(@as(i64, 1), idx);
+    try testing.expectEqual(@as(u64, 777), slots2[1].a);
+    try testing.expect(monotonicNs() - t0 < 1000 * std.time.ns_per_ms);
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch2));
+}
+
+var sink_send_closed_code: std.atomic.Value(i32) = .init(0);
+
+fn sendClosedSink(_: u64, code: i32, _: [*]const u8, _: u64, _: ?*anyopaque) callconv(.c) void {
+    sink_send_closed_code.store(code, .release);
+}
+
+fn sendOnClosedWorker(arg: ?*anyopaque) callconv(.c) void {
+    const ch: u64 = @intFromPtr(arg.?);
+    setTrapSink(&sendClosedSink, null);
+    var v: Slot = .{ .a = 1, .b = 0 };
+    _ = sa_chan_send(ch, &v);
+}
+
+test "sa_task.test.chan: send on closed channel traps at the boundary" {
+    if (!supported) return error.SkipZigTest;
+    sink_send_closed_code.store(0, .release);
+    var ch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(1, &ch));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_close(ch));
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&sendOnClosedWorker, @ptrFromInt(@as(usize, @intCast(ch))), &h));
+    try testing.expectEqual(SA_TASK_TRAPPED, sa_task_join(h));
+    try testing.expectEqual(SA_TASK_TRAP_SEND_ON_CLOSED, sink_send_closed_code.load(.acquire));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+}
+
+const DoneFan = struct {
+    done: u64 = 0,
+    work: u64 = 0,
+    woke: std.atomic.Value(u64) = .init(0),
+    done_case: std.atomic.Value(u64) = .init(0),
+};
+var donefan: DoneFan = .{};
+
+fn doneWaiter(_: ?*anyopaque) callconv(.c) void {
+    var chans = [2]u64{ donefan.work, donefan.done };
+    var ops = [2]u32{ SA_CHAN_OP_RECV, SA_CHAN_OP_RECV };
+    var slots = [2]Slot{ .{}, .{} };
+    var idx: i64 = -1;
+    var closed: u32 = 0;
+    _ = sa_chan_select(&chans, &ops, &slots, 2, 0, -1, &idx, &closed);
+    if (idx == 1) _ = donefan.done_case.fetchAdd(1, .seq_cst);
+    _ = donefan.woke.fetchAdd(1, .seq_cst);
+}
+
+test "sa_task.test.select: closing a Done channel broadcasts to all waiters" {
+    if (!supported) return error.SkipZigTest;
+    donefan = .{};
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &donefan.done));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &donefan.work));
+    var hs: [8]u64 = undefined;
+    for (&hs) |*h| try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&doneWaiter, null, h));
+    _ = sa_task_sleep_ms(80); // let all waiters park in select
+    try testing.expectEqual(SA_TASK_OK, sa_chan_close(donefan.done));
+    for (hs) |h| try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    try testing.expectEqual(@as(u64, 8), donefan.woke.load(.seq_cst));
+    try testing.expectEqual(@as(u64, 8), donefan.done_case.load(.seq_cst));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(donefan.done));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(donefan.work));
+}
+
+test "sa_task.test.chan: receivers drain buffered values after close" {
+    if (!supported) return error.SkipZigTest;
+    var ch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(3, &ch));
+    for (0..3) |i| {
+        var v: Slot = .{ .a = @intCast(10 + i), .b = 0 };
+        try testing.expectEqual(SA_TASK_OK, sa_chan_send(ch, &v));
+    }
+    try testing.expectEqual(SA_TASK_OK, sa_chan_close(ch));
+    for (0..3) |i| {
+        var out: Slot = undefined;
+        var closed: u32 = 99;
+        try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, &closed));
+        try testing.expectEqual(@as(u32, 0), closed);
+        try testing.expectEqual(@as(u64, 10 + i), out.a);
+    }
+    var out: Slot = undefined;
+    var closed: u32 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, &closed));
+    try testing.expectEqual(@as(u32, 1), closed);
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
 }
