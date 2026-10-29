@@ -295,6 +295,13 @@ const Goroutine = struct {
     // record then stays un-recycled until sa_task_trap_info
     // consumes it.
     trap_held: bool = false,
+    // Set by sa_task_trap_info when it consumes the trap record.
+    // The slot's own reap is two-phase and may lag the consume
+    // (registryRecycle only requests the reap while the exit
+    // handoff is pending), so consumption is recorded on the
+    // record itself: later trap_info / join calls observe it and
+    // report ERR_INVALID_HANDLE instead of replaying the record.
+    trap_consumed: bool = false,
     // Monitor subscriptions (companion): channels to notify at
     // goroutineExit; list head guarded by sched_mu.
     monitors: ?*MonitorSub = null,
@@ -382,6 +389,7 @@ fn registryAlloc(entry: EntryFn, arg: ?*anyopaque) ?*Goroutine {
     g.trap_code = 0;
     g.trap_msg_len = 0;
     g.trap_held = false;
+    g.trap_consumed = false;
     g.monitors = null;
     g.exit_handed_off = false;
     g.reap_requested = false;
@@ -1292,10 +1300,24 @@ pub export fn sa_task_trap_info(handle: u64, out_code: ?*i32, out_msg_ptr: ?*?*c
     const omp = out_msg_ptr orelse return ERR_INVALID;
     const oml = out_msg_len orelse return ERR_INVALID;
     const g = registryLookup(handle) orelse return ERR_INVALID_HANDLE;
-    if (g.state.load(.acquire) != .done or !g.trapped or !g.trap_held) return ERR_INVALID;
+    if (g.state.load(.acquire) != .done) return ERR_INVALID;
+    // Done but no held trap record (clean exit, already consumed,
+    // or never held by a TRAPPED join): for this API the handle
+    // has no record to give, which the handle-validity family
+    // reports as ERR_INVALID_HANDLE — the same answer a fully
+    // reaped handle gets from registryLookup above.
+    if (g.trap_consumed or !g.trapped or !g.trap_held) return ERR_INVALID_HANDLE;
     oc.* = g.trap_code;
     omp.* = @as(*const u8, @ptrCast(g.trap_msg[0..].ptr));
     oml.* = @intCast(g.trap_msg_len);
+    // Consume the record NOW, on the record itself. The slot reap
+    // inside registryRecycle is two-phase: while the exit
+    // handoff is still pending it only requests the reap and the
+    // slot stays lookup-able with `trapped` set (a later join
+    // still reads the exit fact from it). trap_consumed is what
+    // makes the handle invalid from this point on.
+    g.trap_consumed = true;
+    g.trap_held = false;
     registryRecycle(g, g.gen);
     return SA_TASK_OK;
 }
@@ -1391,6 +1413,11 @@ pub export fn sa_task_sleep_ms(ms: u64) i32 {
 /// held for sa_task_trap_info (join keeps returning
 /// SA_TASK_TRAPPED until the info call consumes it).
 fn joinFinish(g: *Goroutine, gen: u32, status: i32) i32 {
+    // A trap record already consumed by sa_task_trap_info leaves
+    // the handle invalid: report that instead of replaying the
+    // trap (or a clean status read from the not-yet-reaped
+    // record). The consuming call already requested the reap.
+    if (g.trap_consumed) return ERR_INVALID_HANDLE;
     if (status == SA_TASK_TRAPPED and g.trap_sink != null) {
         g.trap_held = true;
         return status;
