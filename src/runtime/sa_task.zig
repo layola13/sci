@@ -1054,6 +1054,19 @@ fn carrierMain(c: *Carrier) void {
             const cap: u64 = 10 * std.time.ns_per_ms;
             timeout_ns = if (timeout_ns) |t| @min(t, cap) else cap;
         }
+        if (deadlock_armed.load(.acquire)) {
+            // The quiescence predicate includes a 250 ms
+            // no-progress grace window, but an idle carrier
+            // with no timers and no net waiters would otherwise
+            // sleep indefinitely and never re-evaluate it after
+            // the window lapses — the armed guard could never
+            // fire in a real process (a subprocess scenario
+            // caught this; the unit tests poll the predicate
+            // from the test thread, which masked it). Bound the
+            // wait while armed so carriers re-check.
+            const cap: u64 = 50 * std.time.ns_per_ms;
+            timeout_ns = if (timeout_ns) |t| @min(t, cap) else cap;
+        }
         futexWait(&wake_word, w, timeout_ns);
     }
 }
