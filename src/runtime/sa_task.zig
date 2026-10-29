@@ -2449,19 +2449,27 @@ test "sa_task.test.chan: receivers drain buffered values after close" {
 // parked set and wake the waiters whose masks came back nonzero.
 // Timeouts ride the phase-A timer heap.
 //
-// The poll face itself is reached through a hook: sa_std.zig
-// registers sa_std_net_poll_wait at load time (an .init_array
-// constructor), because a direct extern reference from this
-// module would be undefined in standalone module tests. With no
-// hook registered, net waits return SA_STD_ERR_UNSUPPORTED —
-// explicit, never a silent park. Unit tests install a fake hook
-// to drive the machinery deterministically.
+// The poll face is the existing sa_std_net_poll_wait, declared
+// here as a plain extern: in every sa_std-rooted build (unit,
+// static, shared) sa_std.zig's own export satisfies it in the
+// same compilation, and SA-built binaries link both objects
+// from the archive. An .init_array constructor registration
+// was tried first and is deliberately NOT used: SA-built test
+// binaries segfault at startup when the archive carries an
+// .init_array entry (verified by bisection: import-only test,
+// zero calls, still signal 11; ctor removed -> all pass).
+// Standalone module tests link through sa_task_test_root.zig,
+// which provides a loud UNSUPPORTED stub for the symbol; the
+// poll hook below remains as a test override so unit tests can
+// drive the machinery with a deterministic fake poller.
 
 pub const SA_TASK_NET_READ: u32 = 1;
 pub const SA_TASK_NET_WRITE: u32 = 2;
 pub const SA_TASK_NET_ERROR: u32 = 4;
 
 pub const PollFn = *const fn (handles: ?[*]const u64, interests: ?[*]const u32, count: u64, timeout_ms: i32, ready: ?[*]u32, out_ready_count: ?*u64) callconv(.c) i32;
+
+extern fn sa_std_net_poll_wait(handles: ?[*]const u64, interests: ?[*]const u32, count: u64, timeout_ms: i32, ready: ?[*]u32, out_ready_count: ?*u64) i32;
 
 var poll_hook: ?PollFn = null;
 
@@ -2470,8 +2478,8 @@ pub fn setPollHook(f: PollFn) void {
 }
 
 fn pollWait(handles: ?[*]const u64, interests: ?[*]const u32, count: u64, timeout_ms: i32, ready: ?[*]u32, out_count: ?*u64) i32 {
-    const hook = poll_hook orelse return ERR_UNSUPPORTED;
-    return hook(handles, interests, count, timeout_ms, ready, out_count);
+    if (poll_hook) |hook| return hook(handles, interests, count, timeout_ms, ready, out_count);
+    return sa_std_net_poll_wait(handles, interests, count, timeout_ms, ready, out_count);
 }
 
 var net_mu: Mutex = .{};
