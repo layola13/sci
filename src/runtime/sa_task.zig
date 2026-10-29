@@ -1348,6 +1348,18 @@ pub export fn sa_task_monitor(handle: u64, out_chan: ?*u64) i32 {
     sub.* = .{ .chan_handle = chan_h };
     sched_mu.lock();
     if (g.state.load(.acquire) == .done) {
+        // A trap record already consumed by sa_task_trap_info
+        // leaves the handle invalid even while the two-phase
+        // slot reap is still pending: subscribing must report
+        // ERR_INVALID_HANDLE (the contract above), not resurrect
+        // the exit as a fresh delivery. Roll back the channel
+        // and subscription allocated for this call.
+        if (g.trap_consumed) {
+            sched_mu.unlock();
+            _ = sa_chan_destroy(chan_h);
+            alloc.destroy(sub);
+            return ERR_INVALID_HANDLE;
+        }
         sched_mu.unlock();
         deliverMonitor(sub, handle, g.trapped, g.trap_code);
         alloc.destroy(sub);
@@ -3740,4 +3752,23 @@ test "sa_task.companion: monitor rejects invalid handle" {
     if (!supported) return error.SkipZigTest;
     var mch: u64 = 0;
     try testing.expectEqual(ERR_INVALID_HANDLE, sa_task_monitor(0xdeadbeef, &mch));
+}
+
+test "sa_task.companion: monitor on consumed trap handle is rejected" {
+    if (!supported) return error.SkipZigTest;
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn_supervised(&supervisedTrapWorker, null, null, null, &h));
+    try testing.expectEqual(SA_TASK_TRAPPED, sa_task_join(h));
+    var code: i32 = 0;
+    var msg_ptr: ?*const u8 = null;
+    var msg_len: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_trap_info(h, &code, &msg_ptr, &msg_len));
+    // The trap record is consumed: the handle is invalid even
+    // while the two-phase slot reap is still pending. A monitor
+    // subscription must be rejected with ERR_INVALID_HANDLE and
+    // must not hand out a channel, so no exit message can be
+    // delivered for the consumed record.
+    var mch: u64 = 0;
+    try testing.expectEqual(ERR_INVALID_HANDLE, sa_task_monitor(h, &mch));
+    try testing.expectEqual(@as(u64, 0), mch);
 }
