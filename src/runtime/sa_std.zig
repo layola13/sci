@@ -7,6 +7,7 @@ const sio = @import("sio");
 // sa_std build/test graph. Interception wiring lands separately.
 pub const sa_policy = @import("sa_policy.zig");
 pub const sa_globals = @import("sa_globals.zig");
+pub const sa_task = @import("sa_task.zig");
 pub const sa_identity = @import("sa_identity.zig");
 
 /// Runtime permission gate (sala 16_policy): checked at resource
@@ -660,6 +661,7 @@ comptime {
     _ = &@import("sa_quic.zig").sa_std_quic_client_connect;
     _ = &@import("sa_quic.zig").sa_std_http3_session_bind;
     _ = &@import("sa_thread_local.zig").sa_thread_local_supported;
+    _ = &@import("sa_task.zig").sa_task_spawn;
     _ = &@import("sa_pg.zig").sa_pg_connect;
     _ = &@import("sa_pg.zig").sa_pg_exec;
     _ = &@import("sa_pg.zig").sa_pg_prepare;

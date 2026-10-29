@@ -119,6 +119,7 @@ pub fn build(b: *std.Build) void {
     // NOTE: lib re-exports runtime/sa_std.zig (swizzle/pthread C shims).
     addHostThreadShimToModule(b, lib_module, target.result.os.tag);
     addB64SwizzleToModule(b, lib_module);
+    addTaskCtxToModule(b, lib_module, target.result);
     if (target.result.os.tag == .linux) {
         lib_module.linkSystemLibrary("dl", .{});
     }
@@ -141,6 +142,7 @@ pub fn build(b: *std.Build) void {
     sa_std_static_module.addImport("sa_ws_stream", sa_ws_stream_module);
     addHostThreadShimToModule(b, sa_std_static_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_std_static_module);
+    addTaskCtxToModule(b, sa_std_static_module, target.result);
     if (target.result.os.tag == .linux) {
         // Unicode normalization (ICU) for sa_unicode_normalize.
         sa_std_static_module.linkSystemLibrary("icuuc", .{});
@@ -166,6 +168,7 @@ pub fn build(b: *std.Build) void {
     sa_std_shared_module.addImport("sa_ws_stream", sa_ws_stream_module);
     addHostThreadShimToModule(b, sa_std_shared_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_std_shared_module);
+    addTaskCtxToModule(b, sa_std_shared_module, target.result);
     if (target.result.os.tag == .linux) {
         // Unicode normalization (ICU) for sa_unicode_normalize.
         sa_std_shared_module.linkSystemLibrary("icuuc", .{});
@@ -665,6 +668,7 @@ pub fn build(b: *std.Build) void {
     // compiling it directly must link them (like the sa_std lib modules).
     addHostThreadShimToModule(b, sa_std_unit_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_std_unit_module);
+    addTaskCtxToModule(b, sa_std_unit_module, target.result);
     if (target.result.os.tag == .linux) {
         // Unicode normalization (ICU) for sa_unicode_normalize.
         sa_std_unit_module.linkSystemLibrary("icuuc", .{});
@@ -888,6 +892,7 @@ pub fn build(b: *std.Build) void {
     // NOTE: imports sa_std.zig (swizzle/pthread C shims); link them here too.
     addHostThreadShimToModule(b, sa_net_uring_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_net_uring_module);
+    addTaskCtxToModule(b, sa_net_uring_module, target.result);
     const sa_net_uring_tests = b.addTest(.{
         .root_module = sa_net_uring_module,
     });
@@ -1438,6 +1443,16 @@ fn addHostThreadShimToModule(b: *std.Build, module: *std.Build.Module, os_tag: s
     switch (os_tag) {
         .windows => {},
         else => module.addCSourceFile(.{ .file = b.path("src/runtime/sa_pthread_host.c"), .flags = &.{"-fno-sanitize=all"} }),
+    }
+}
+
+fn addTaskCtxToModule(b: *std.Build, module: *std.Build.Module, target: std.Target) void {
+    // Goroutine context primitives (sa_task_ctx.s) exist only for
+    // x86_64 Linux in this phase (goroutine scope ruling S5);
+    // sa_task reports UNSUPPORTED on other targets and its code
+    // paths to these symbols are not exercised there.
+    if (target.cpu.arch == .x86_64 and target.os.tag == .linux) {
+        module.addAssemblyFile(b.path("src/runtime/sa_task_ctx.s"));
     }
 }
 
