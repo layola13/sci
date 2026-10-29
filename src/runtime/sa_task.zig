@@ -290,6 +290,14 @@ const Goroutine = struct {
     trap_code: i32 = 0,
     trap_msg: [160]u8 = std.mem.zeroes([160]u8),
     trap_msg_len: usize = 0,
+    // SLA goroutine syntax batch (companion): set when a join has
+    // reported SA_TASK_TRAPPED for a supervised goroutine; the
+    // record then stays un-recycled until sa_task_trap_info
+    // consumes it.
+    trap_held: bool = false,
+    // Monitor subscriptions (companion): channels to notify at
+    // goroutineExit; list head guarded by sched_mu.
+    monitors: ?*MonitorSub = null,
     // lifecycle: two-phase reap. A join that observes .done only
     // sets reap_requested; the slot is actually recycled by the
     // carrier AFTER the exit handoff completes (final switch done
@@ -303,6 +311,15 @@ const Goroutine = struct {
     fn handle(g: *const Goroutine) u64 {
         return (@as(u64, g.gen) << 32) | @as(u64, g.slot);
     }
+};
+
+/// One monitor subscription (companion): a channel handle to
+/// deliver the watched goroutine's exit message to. Allocated at
+/// sa_task_monitor, freed at delivery (goroutineExit or the
+/// immediate already-exited path).
+const MonitorSub = struct {
+    chan_handle: u64 = 0,
+    next: ?*MonitorSub = null,
 };
 
 const WaitNode = struct {
@@ -364,6 +381,8 @@ fn registryAlloc(entry: EntryFn, arg: ?*anyopaque) ?*Goroutine {
     g.trapped = false;
     g.trap_code = 0;
     g.trap_msg_len = 0;
+    g.trap_held = false;
+    g.monitors = null;
     g.exit_handed_off = false;
     g.reap_requested = false;
     g.reaped = false;
@@ -852,12 +871,27 @@ fn parkCancel() void {
     sched_mu.unlock();
 }
 
+fn deliverMonitor(sub: *MonitorSub, watched: u64, trapped: bool, trap_code: i32) void {
+    const ch = chanLookup(sub.chan_handle) orelse return;
+    defer chanRelease(ch);
+    const code: u64 = if (trapped) @bitCast(@as(i64, trap_code)) else 0;
+    ch.mu.lock();
+    _ = chanTrySend(ch, .{ .a = watched, .b = code });
+    ch.mu.unlock();
+}
+
 fn goroutineExit() noreturn {
     const g = current_g orelse unreachable;
     // Fire join waiters.
     sched_mu.lock();
     const waiters = g.join_waiters;
     g.join_waiters = null;
+    // Monitor subscriptions snapshot under the same lock that
+    // publishes .done: a registration that misses this snapshot
+    // observes .done and delivers immediately, so every
+    // subscription is delivered exactly once.
+    const subs = g.monitors;
+    g.monitors = null;
     g.state.store(.done, .release);
     sched_mu.unlock();
     // Deposit the stack with our carrier for post-switch freeing
@@ -867,6 +901,15 @@ fn goroutineExit() noreturn {
     // goroutine must already be out of the live count.
     _ = live_count.fetchSub(1, .seq_cst);
     noteProgress();
+    // Monitor delivery: after the trap record is final, before
+    // join waiters fire (DESIGN/monitor contract).
+    var sub = subs;
+    while (sub) |s| {
+        const next_sub = s.next;
+        deliverMonitor(s, g.handle(), g.trapped, g.trap_code);
+        alloc.destroy(s);
+        sub = next_sub;
+    }
     var n = waiters;
     while (n) |node| {
         const next = node.next;
@@ -1199,6 +1242,102 @@ pub export fn sa_task_spawn(entry: ?*const anyopaque, arg: ?*anyopaque, out_hand
     return SA_TASK_OK;
 }
 
+/// Builtin record-only trap sink selected when a supervised
+/// spawn passes a null sink: the trap stays in the goroutine's
+/// record for join + sa_task_trap_info; the process lives.
+fn recordOnlySink(_: u64, _: i32, _: [*]const u8, _: u64, _: ?*anyopaque) callconv(.c) void {}
+
+/// Supervised spawn (companion for the SLA goroutine syntax
+/// batch): like sa_task_spawn, but the goroutine's boundary trap
+/// sink is registered at creation. A trapped supervised
+/// goroutine records {code, message} and exits; sa_task_join
+/// returns SA_TASK_TRAPPED and HOLDS the record (repeated joins
+/// keep returning SA_TASK_TRAPPED) until sa_task_trap_info
+/// consumes it.
+pub export fn sa_task_spawn_supervised(entry: ?*const anyopaque, arg: ?*anyopaque, sink: ?*const anyopaque, sink_ctx: ?*anyopaque, out_handle: ?*u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const out = out_handle orelse return ERR_INVALID;
+    out.* = 0;
+    const e: EntryFn = @ptrCast(@alignCast(entry orelse return ERR_INVALID));
+    if (!ensureInit()) return ERR_UNSUPPORTED;
+    const g = registryAlloc(e, arg) orelse return ERR_NOMEM;
+    if (sink) |s| {
+        g.trap_sink = @ptrCast(@alignCast(s));
+    } else {
+        g.trap_sink = &recordOnlySink;
+    }
+    g.trap_ctx = sink_ctx;
+    const region = allocStack(g.handle()) orelse {
+        g.state.store(.done, .release);
+        registryRecycle(g, g.gen);
+        return ERR_NOMEM;
+    };
+    g.region = region;
+    initStackFrame(g);
+    _ = live_count.fetchAdd(1, .seq_cst);
+    noteProgress();
+    out.* = g.handle();
+    enqueueRunnable(g);
+    return SA_TASK_OK;
+}
+
+/// Read back a supervised goroutine's trap record after a join
+/// returned SA_TASK_TRAPPED: fills the trap code and a pointer
+/// to the recorded message (the pointer borrows the record;
+/// copy the bytes before any further spawn or join), then
+/// CONSUMES the record — the handle becomes invalid.
+pub export fn sa_task_trap_info(handle: u64, out_code: ?*i32, out_msg_ptr: ?*?*const u8, out_msg_len: ?*u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const oc = out_code orelse return ERR_INVALID;
+    const omp = out_msg_ptr orelse return ERR_INVALID;
+    const oml = out_msg_len orelse return ERR_INVALID;
+    const g = registryLookup(handle) orelse return ERR_INVALID_HANDLE;
+    if (g.state.load(.acquire) != .done or !g.trapped or !g.trap_held) return ERR_INVALID;
+    oc.* = g.trap_code;
+    omp.* = @as(*const u8, @ptrCast(g.trap_msg[0..].ptr));
+    oml.* = @intCast(g.trap_msg_len);
+    registryRecycle(g, g.gen);
+    return SA_TASK_OK;
+}
+
+/// Register an exit monitor (companion): creates a dedicated
+/// capacity-1 channel and subscribes it to the watched
+/// goroutine's exit. Exactly one message is delivered, at the
+/// exit convergence point after the trap record is final and
+/// before join waiters fire: slot.a = watched handle, slot.b =
+/// trap code (0 for a normal exit). Subscribing to an
+/// already-exited (but not yet consumed) goroutine delivers
+/// immediately. The subscriber owns the channel and destroys
+/// it. Subscribing with an invalid or already-consumed handle
+/// reports ERR_INVALID_HANDLE.
+pub export fn sa_task_monitor(handle: u64, out_chan: ?*u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const out = out_chan orelse return ERR_INVALID;
+    out.* = 0;
+    if (!ensureInit()) return ERR_UNSUPPORTED;
+    const g = registryLookup(handle) orelse return ERR_INVALID_HANDLE;
+    var chan_h: u64 = 0;
+    const rc = sa_chan_make(1, &chan_h);
+    if (rc != SA_TASK_OK) return rc;
+    const sub = alloc.create(MonitorSub) catch {
+        _ = sa_chan_destroy(chan_h);
+        return ERR_NOMEM;
+    };
+    sub.* = .{ .chan_handle = chan_h };
+    sched_mu.lock();
+    if (g.state.load(.acquire) == .done) {
+        sched_mu.unlock();
+        deliverMonitor(sub, handle, g.trapped, g.trap_code);
+        alloc.destroy(sub);
+    } else {
+        sub.next = g.monitors;
+        g.monitors = sub;
+        sched_mu.unlock();
+    }
+    out.* = chan_h;
+    return SA_TASK_OK;
+}
+
 pub export fn sa_task_yield() i32 {
     if (!supported) return ERR_UNSUPPORTED;
     const g = current_g orelse {
@@ -1247,6 +1386,19 @@ pub export fn sa_task_sleep_ms(ms: u64) i32 {
     return sa_task_sleep_ns(ms * std.time.ns_per_ms);
 }
 
+/// Finish a join that observed a status: recycle the record,
+/// EXCEPT for a trapped supervised goroutine, whose record is
+/// held for sa_task_trap_info (join keeps returning
+/// SA_TASK_TRAPPED until the info call consumes it).
+fn joinFinish(g: *Goroutine, gen: u32, status: i32) i32 {
+    if (status == SA_TASK_TRAPPED and g.trap_sink != null) {
+        g.trap_held = true;
+        return status;
+    }
+    registryRecycle(g, gen);
+    return status;
+}
+
 pub export fn sa_task_join(handle: u64) i32 {
     if (!supported) return ERR_UNSUPPORTED;
     if (!ensureInit()) return ERR_UNSUPPORTED;
@@ -1254,8 +1406,7 @@ pub export fn sa_task_join(handle: u64) i32 {
     if (current_g == g) return ERR_INVALID;
     if (g.state.load(.acquire) == .done) {
         const status: i32 = if (g.trapped) SA_TASK_TRAPPED else SA_TASK_OK;
-        registryRecycle(g, g.gen);
-        return status;
+        return joinFinish(g, g.gen, status);
     }
     const node = alloc.create(WaitNode) catch return ERR_NOMEM;
     node.* = .{};
@@ -1272,8 +1423,7 @@ pub export fn sa_task_join(handle: u64) i32 {
         sched_mu.unlock();
         alloc.destroy(node);
         const status: i32 = if (g.trapped) SA_TASK_TRAPPED else SA_TASK_OK;
-        registryRecycle(g, target_gen);
-        return status;
+        return joinFinish(g, target_gen, status);
     }
     node.next = g.join_waiters;
     g.join_waiters = node;
@@ -1287,13 +1437,11 @@ pub export fn sa_task_join(handle: u64) i32 {
         parkSwitch();
         me.wait_kind = .none;
         const status = me.wake_status;
-        registryRecycle(g, target_gen);
-        return status;
+        return joinFinish(g, target_gen, status);
     }
     os_waiter.wait();
     const status = os_waiter.status;
-    registryRecycle(g, target_gen);
-    return status;
+    return joinFinish(g, target_gen, status);
 }
 
 pub export fn sa_task_current(out_handle: ?*u64) i32 {
@@ -3429,4 +3577,140 @@ test "sa_task.test.net: park on poll readiness and timeout" {
     try testing.expectEqual(SA_TASK_OK, r2.rc);
     try testing.expectEqual(@as(u32, 0), r2.bits);
     try testing.expect(r2.elapsed >= 45 * std.time.ns_per_ms);
+}
+
+// ---------------------------------------------------------------------
+// SLA goroutine syntax batch companion: supervised spawn, trap
+// record readback, and exit monitors.
+
+fn supervisedTrapWorker(_: ?*anyopaque) callconv(.c) void {
+    var ch: u64 = 0;
+    _ = sa_chan_make(0, &ch);
+    _ = sa_chan_close(ch);
+    _ = sa_chan_close(ch); // boundary trap: close of closed channel
+}
+
+fn supervisedSendClosedWorker(_: ?*anyopaque) callconv(.c) void {
+    var ch: u64 = 0;
+    _ = sa_chan_make(1, &ch);
+    _ = sa_chan_close(ch);
+    var v: Slot = .{ .a = 1 };
+    _ = sa_chan_send(ch, &v); // boundary trap: send on closed channel
+}
+
+fn supervisedCleanWorker(arg: ?*anyopaque) callconv(.c) void {
+    const p: *std.atomic.Value(u64) = @ptrCast(@alignCast(arg.?));
+    _ = p.fetchAdd(1, .seq_cst);
+}
+
+test "sa_task.companion: supervised trap held until trap_info consumes" {
+    if (!supported) return error.SkipZigTest;
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn_supervised(&supervisedTrapWorker, null, null, null, &h));
+    try testing.expect(h != 0);
+    try testing.expectEqual(SA_TASK_TRAPPED, sa_task_join(h));
+    // Held: a repeated join reports the trap again.
+    try testing.expectEqual(SA_TASK_TRAPPED, sa_task_join(h));
+    var code: i32 = 0;
+    var msg_ptr: ?*const u8 = null;
+    var msg_len: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_trap_info(h, &code, &msg_ptr, &msg_len));
+    try testing.expectEqual(SA_TASK_TRAP_CLOSE_OF_CLOSED, code);
+    const msg: [*]const u8 = @ptrCast(msg_ptr.?);
+    try testing.expectEqualStrings("close of closed channel", msg[0..@intCast(msg_len)]);
+    // Consumed: the handle is invalid now.
+    try testing.expectEqual(ERR_INVALID_HANDLE, sa_task_trap_info(h, &code, &msg_ptr, &msg_len));
+    try testing.expectEqual(ERR_INVALID_HANDLE, sa_task_join(h));
+}
+
+test "sa_task.companion: supervised clean exit leaves no record" {
+    if (!supported) return error.SkipZigTest;
+    var counter: std.atomic.Value(u64) = .init(0);
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn_supervised(&supervisedCleanWorker, &counter, null, null, &h));
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    try testing.expectEqual(@as(u64, 1), counter.load(.seq_cst));
+    var code: i32 = 0;
+    var msg_ptr: ?*const u8 = null;
+    var msg_len: u64 = 0;
+    try testing.expectEqual(ERR_INVALID_HANDLE, sa_task_trap_info(h, &code, &msg_ptr, &msg_len));
+}
+
+test "sa_task.companion: custom sink invoked at the boundary" {
+    if (!supported) return error.SkipZigTest;
+    sink_seen_code.store(0, .release);
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn_supervised(&supervisedTrapWorker, null, &recordingSink, null, &h));
+    try testing.expectEqual(SA_TASK_TRAPPED, sa_task_join(h));
+    try testing.expectEqual(SA_TASK_TRAP_CLOSE_OF_CLOSED, sink_seen_code.load(.acquire));
+    var code: i32 = 0;
+    var msg_ptr: ?*const u8 = null;
+    var msg_len: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_trap_info(h, &code, &msg_ptr, &msg_len));
+}
+
+test "sa_task.companion: monitor delivers normal exit" {
+    if (!supported) return error.SkipZigTest;
+    var counter: std.atomic.Value(u64) = .init(0);
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&supervisedCleanWorker, &counter, &h));
+    var mch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_monitor(h, &mch));
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    var slot: Slot = .{};
+    var closed: u32 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_recv(mch, &slot, &closed));
+    try testing.expectEqual(h, slot.a);
+    try testing.expectEqual(@as(u64, 0), slot.b);
+    try testing.expectEqual(@as(u32, 0), closed);
+    _ = sa_chan_destroy(mch);
+}
+
+test "sa_task.companion: monitor delivers trapped exit code" {
+    if (!supported) return error.SkipZigTest;
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn_supervised(&supervisedSendClosedWorker, null, null, null, &h));
+    var mch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_monitor(h, &mch));
+    try testing.expectEqual(SA_TASK_TRAPPED, sa_task_join(h));
+    var slot: Slot = .{};
+    var closed: u32 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_recv(mch, &slot, &closed));
+    try testing.expectEqual(h, slot.a);
+    try testing.expectEqual(@as(u64, @intCast(SA_TASK_TRAP_SEND_ON_CLOSED)), slot.b);
+    _ = sa_chan_destroy(mch);
+    var code: i32 = 0;
+    var msg_ptr: ?*const u8 = null;
+    var msg_len: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_trap_info(h, &code, &msg_ptr, &msg_len));
+    try testing.expectEqual(SA_TASK_TRAP_SEND_ON_CLOSED, code);
+}
+
+test "sa_task.companion: monitor after exit delivers immediately" {
+    if (!supported) return error.SkipZigTest;
+    var counter: std.atomic.Value(u64) = .init(0);
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&supervisedCleanWorker, &counter, &h));
+    var spins: usize = 0;
+    while (spins < 100000) : (spins += 1) {
+        var n: u64 = 0;
+        _ = sa_task_live_count(&n);
+        if (n == 0) break;
+        _ = sa_task_yield();
+    }
+    var mch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_monitor(h, &mch));
+    var slot: Slot = .{};
+    var closed: u32 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_recv(mch, &slot, &closed));
+    try testing.expectEqual(h, slot.a);
+    try testing.expectEqual(@as(u64, 0), slot.b);
+    _ = sa_chan_destroy(mch);
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+}
+
+test "sa_task.companion: monitor rejects invalid handle" {
+    if (!supported) return error.SkipZigTest;
+    var mch: u64 = 0;
+    try testing.expectEqual(ERR_INVALID_HANDLE, sa_task_monitor(0xdeadbeef, &mch));
 }

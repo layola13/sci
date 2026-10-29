@@ -1,0 +1,66 @@
+// sa_std/supervisor.sla — one-for-one supervision over supervised
+// goroutines (goroutine syntax batch, std first-class piece).
+//
+// supervise(entry, arg, policy, notify) runs ONE child at a time
+// via `go supervised entry(arg)`:
+//   - normal exit: notify receives (handle, 0); supervise
+//     returns 0.
+//   - boundary trap: the trap record is read back with
+//     sa_task_trap_info, notify receives (handle, trap_code),
+//     and the child is restarted while the restart budget lasts.
+//   - budget exhausted (more than max_restarts traps inside
+//     window_ms): notify receives (handle, -1) as the give-up
+//     marker; supervise returns 100 (SA_TASK_TRAPPED).
+//
+// The notify channel payload is (u64, i32) = (child handle,
+// code). supervise blocks its caller; spawn it with `go` (via a
+// one-argument Box shim) when a background supervisor is wanted.
+// One-for-all / multi-child trees are explicitly out of scope
+// for this batch.
+
+@import "sa_std/task.sai"
+@import "sa_std/time.sai"
+@import "sa_std/ptr.sa"
+
+struct SupervisePolicy {
+    max_restarts: u32,
+    window_ms: u64,
+}
+
+// Constructor: writing a struct literal for an imported struct
+// is not accepted by every pipeline, so callers build policies
+// through this function instead.
+fn supervise_policy(max_restarts: u32, window_ms: u64) -> SupervisePolicy {
+    return SupervisePolicy { max_restarts: max_restarts, window_ms: window_ms };
+}
+
+fn supervise(entry: fn(u64), arg: u64, policy: SupervisePolicy, notify: Chan<(u64, i32)>) -> i32 {
+    let window_start: u64 = sa_time_instant_ns();
+    let restarts: u32 = 0;
+    while true {
+        let h = go supervised entry(arg);
+        let status = sa_task_join(h);
+        if status == 0 {
+            notify.send((h, 0));
+            return 0;
+        };
+        if status != 100 { panic(60931); };
+        let code: i32 = 0;
+        let msg_ptr: ptr = PTR_NULL();
+        let msg_len: u64 = 0;
+        let irc = sa_task_trap_info(h, &code, &msg_ptr, &msg_len);
+        if irc != 0 { panic(60932); };
+        notify.send((h, code));
+        let now: u64 = sa_time_instant_ns();
+        if now - window_start > policy.window_ms * 1000000 {
+            window_start = now;
+            restarts = 0;
+        };
+        restarts = restarts + 1;
+        if restarts > policy.max_restarts {
+            notify.send((h, -1));
+            return 100;
+        };
+    }
+    return 100;
+}

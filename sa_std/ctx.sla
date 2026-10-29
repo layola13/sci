@@ -1,0 +1,34 @@
+// sa_std/ctx.sla — context cancellation as the Done-channel
+// idiom (goroutine syntax batch; no new syntax).
+//
+// A Done context is a Chan<u64> that is CLOSED to broadcast
+// cancellation and never sent on:
+//
+//   let done: Chan<u64> = done_new();
+//   ... pass `done` to workers (it is a copyable handle) ...
+//   done_signal(done);              // cancel everything
+//   if is_done(done) { ... }        // non-blocking probe
+//
+// Workers typically park in a select with a `case (v, closed) =
+// done.recv()` arm next to their work arms: closing the channel
+// makes that arm fire with closed=true in every worker at once.
+
+fn done_new() -> Chan<u64> {
+    let ch: Chan<u64> = Chan::new(0);
+    return ch;
+}
+
+fn done_signal(done: Chan<u64>) {
+    done.close();
+}
+
+fn is_done(done: Chan<u64>) -> bool {
+    select {
+        case let (v, closed) = done.recv() {
+            return true;
+        }
+        default {
+            return false;
+        }
+    }
+}

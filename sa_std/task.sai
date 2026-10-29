@@ -6,6 +6,9 @@
 @extern sa_task_current(&out_handle: ptr) -> i32
 @extern sa_task_live_count(&out_count: ptr) -> i32
 @extern sa_task_deadlock_guard_arm() -> i32
+@extern sa_task_spawn_supervised(*entry: ptr, arg: ptr, *sink: ptr, *sink_ctx: ptr, &out_handle: ptr) -> i32
+@extern sa_task_trap_info(handle: u64, &out_code: ptr, &out_msg_ptr: ptr, &out_msg_len: ptr) -> i32
+@extern sa_task_monitor(handle: u64, &out_chan: ptr) -> i32
 @extern sa_chan_make(capacity: u32, &out_handle: ptr) -> i32
 @extern sa_chan_destroy(handle: u64) -> i32
 @extern sa_chan_close(handle: u64) -> i32
