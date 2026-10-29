@@ -14,3 +14,57 @@
 @extern sa_chan_len(handle: u64, &out_len: ptr) -> i32
 @extern sa_chan_cap(handle: u64, &out_cap: ptr) -> i32
 @extern sa_chan_select(*cases: ptr, *ops: ptr, *slots: ptr, count: u64, has_default: u32, timeout_ns: i64, &out_index: ptr, &out_closed: ptr) -> i32
+@extern sa_task_net_wait(handle: u64, interest: u32, timeout_ns: i64, &out_ready: ptr) -> i32
+@extern sa_sync_mutex_new(&out_handle: ptr) -> i32
+@extern sa_sync_mutex_lock(handle: u64) -> i32
+@extern sa_sync_mutex_try_lock(handle: u64, &out_acquired: ptr) -> i32
+@extern sa_sync_mutex_unlock(handle: u64) -> i32
+@extern sa_sync_rwlock_new(&out_handle: ptr) -> i32
+@extern sa_sync_rwlock_rlock(handle: u64) -> i32
+@extern sa_sync_rwlock_runlock(handle: u64) -> i32
+@extern sa_sync_rwlock_lock(handle: u64) -> i32
+@extern sa_sync_rwlock_unlock(handle: u64) -> i32
+@extern sa_sync_waitgroup_new(&out_handle: ptr) -> i32
+@extern sa_sync_waitgroup_add(handle: u64, delta: i64) -> i32
+@extern sa_sync_waitgroup_done(handle: u64) -> i32
+@extern sa_sync_waitgroup_wait(handle: u64) -> i32
+@extern sa_sync_once_new(&out_handle: ptr) -> i32
+@extern sa_sync_once_do(handle: u64, *entry: ptr, arg: ptr) -> i32
+@extern sa_sync_destroy(handle: u64) -> i32
+
+# Reserved API shapes for the SLA goroutine syntax batch (the
+# runtime mechanisms exist in this phase; the registration
+# externs land with the syntax batch so the runtime needs no
+# rework):
+#
+# 1. Boundary trap catch point (panic/recover supervision
+#    semantics): every goroutine runs under a trampoline that
+#    arms a rescue frame before invoking the entry point.
+#    Runtime-raised traps (send on closed channel, negative
+#    WaitGroup counter, double close) record {code, message} in
+#    the goroutine and resume the rescue frame instead of
+#    unwinding; the boundary then invokes the goroutine's trap
+#    sink (or the default process trap when none is registered),
+#    and sa_task_join reports SA_TASK_TRAPPED (100). The syntax
+#    batch adds: a spawn variant taking a trap-sink function
+#    pointer + context, and sa_task_trap_info(handle, &code,
+#    &msg_ptr, &msg_len) to read the record back after join.
+#    Stack overflow is NOT boundary-recoverable (the stack is
+#    gone); it stays a loud process trap.
+#
+# 2. Monitor (Erlang-style exit notification): goroutine exit —
+#    normal or trapped — converges on a single lifecycle point
+#    in the runtime, after the trap record is final and before
+#    join waiters fire. That is the production point for exit
+#    notifications: a subscription registered on a goroutine
+#    gets a {handle, exit kind, trap code} message enqueued to
+#    the subscriber's channel there, receivable through ordinary
+#    channel/select waits. The syntax batch adds the
+#    subscription extern (spawn-monitored / monitor-register)
+#    mirroring the trap-sink shape.
+#
+# 3. Context-style cancellation is a std idiom, not a mechanism:
+#    a capacity-0 channel closed to broadcast "done" — closing
+#    wakes every blocked receiver and every select case on it,
+#    so a Done channel can be selected on alongside work
+#    channels and passed down a call chain.

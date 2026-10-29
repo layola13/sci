@@ -8,6 +8,22 @@ const sio = @import("sio");
 pub const sa_policy = @import("sa_policy.zig");
 pub const sa_globals = @import("sa_globals.zig");
 pub const sa_task = @import("sa_task.zig");
+
+// Goroutine netpoller glue: register the real poll face with
+// sa_task at load time. sa_task reaches the poller only through
+// this hook so the module also links standalone (its unit tests
+// install a fake hook). x86_64 Linux is the goroutine phase-1
+// target; elsewhere sa_task reports UNSUPPORTED and no hook is
+// needed.
+const sa_task_poll_ctor = if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux) struct {
+    export const entry: *const fn () callconv(.c) void linksection(".init_array") = &install;
+    fn install() callconv(.c) void {
+        sa_task.setPollHook(&sa_std_net_poll_wait);
+    }
+} else struct {};
+comptime {
+    _ = sa_task_poll_ctor;
+}
 pub const sa_identity = @import("sa_identity.zig");
 
 /// Runtime permission gate (sala 16_policy): checked at resource
@@ -662,6 +678,12 @@ comptime {
     _ = &@import("sa_quic.zig").sa_std_http3_session_bind;
     _ = &@import("sa_thread_local.zig").sa_thread_local_supported;
     _ = &@import("sa_task.zig").sa_task_spawn;
+    _ = &@import("sa_task.zig").sa_chan_make;
+    _ = &@import("sa_task.zig").sa_chan_select;
+    _ = &@import("sa_task.zig").sa_task_net_wait;
+    _ = &@import("sa_task.zig").sa_sync_mutex_new;
+    _ = &@import("sa_task.zig").sa_sync_waitgroup_new;
+    _ = &@import("sa_task.zig").sa_sync_once_new;
     _ = &@import("sa_pg.zig").sa_pg_connect;
     _ = &@import("sa_pg.zig").sa_pg_exec;
     _ = &@import("sa_pg.zig").sa_pg_prepare;

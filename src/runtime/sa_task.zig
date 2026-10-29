@@ -68,6 +68,21 @@
 //! read-back after join) is the reserved API shape for the syntax
 //! batch and lands with it, so the runtime does not need rework.
 //!
+//! Monitor reservation (Erlang-style exit notification, adopted
+//! per Jev erl_candidates 0.81; runtime half reserved into v1 at
+//! 0.58): goroutineExit() is the single convergence point of the
+//! goroutine lifecycle — normal return and boundary trap both end
+//! there, after the trap record is final and before join waiters
+//! fire. That is the production point for exit notifications: a
+//! monitor subscription registered on a goroutine would have its
+//! notification (handle, exit kind, trap code) enqueued to the
+//! subscriber's channel at exactly that point, deliverable through
+//! ordinary channel/select waits. The delivery point needs no
+//! scheduler surgery, so v1 only reserves the shape: the SLA
+//! syntax batch adds the subscription surface (spawn-monitored +
+//! a monitor registration extern mirroring the trap-sink shape);
+//! no monitor extern ships in this phase.
+//!
 //! Context-style cancellation convention (std idiom over this
 //! surface, no extra mechanism): a cancellation signal is an
 //! ordinary sa_chan channel with capacity 0 that is closed to
@@ -303,6 +318,11 @@ const WaitNode = struct {
     sel: ?*SelectWaiter = null,
     sel_index: u32 = 0,
     linked: bool = false, // currently in a channel wait queue
+    // sync primitives (phase C): ownership key of the waiter
+    // (mutex handoff transfers ownership to the head waiter) and
+    // a kind-specific flag (rwlock: 1 = writer).
+    owner_key: u64 = 0,
+    flag: u32 = 0,
 };
 
 pub const Slot = extern struct { a: u64 = 0, b: u64 = 0 };
@@ -1133,21 +1153,14 @@ const NetWaiter = struct {
     status: i32 = SA_TASK_OK,
     gen: u64 = 0,
     linked: bool = false,
+    done: bool = false,
+    // Refcounted because a timeout timer may hold the pointer
+    // after the owner has woken and returned.
+    refs: std.atomic.Value(u32) = .init(1),
 };
 
-// Phase C hooks (real implementations in the net section below).
-fn placeholderNetHook() void {}
-
-fn netTimeoutFire(nw: *NetWaiter, gen: u64) void {
-    _ = nw;
-    _ = gen;
-}
-
-fn pollNetOnce() void {}
-
-fn netWaiterCount() usize {
-    return 0;
-}
+// netTimeoutFire / pollNetOnce / netWaiterCount are implemented
+// in the Phase C section at the end of this file.
 
 // ---------------------------------------------------------------------
 // Phase A externs: spawn / yield / sleep / join / current.
@@ -2423,4 +2436,976 @@ test "sa_task.test.chan: receivers drain buffered values after close" {
     try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, &closed));
     try testing.expectEqual(@as(u32, 1), closed);
     try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+}
+
+// ---------------------------------------------------------------------
+// Phase C: netpoller glue + sync primitives.
+//
+// Net: sa_task_net_wait parks the caller until a socket handle
+// (an sa_std socket-resource handle) signals readiness, without
+// occupying a carrier thread: registration is validated eagerly
+// with a zero-timeout poll (an invalid handle fails the call
+// immediately, never silently parks), then idle carriers poll the
+// parked set and wake the waiters whose masks came back nonzero.
+// Timeouts ride the phase-A timer heap.
+//
+// The poll face itself is reached through a hook: sa_std.zig
+// registers sa_std_net_poll_wait at load time (an .init_array
+// constructor), because a direct extern reference from this
+// module would be undefined in standalone module tests. With no
+// hook registered, net waits return SA_STD_ERR_UNSUPPORTED —
+// explicit, never a silent park. Unit tests install a fake hook
+// to drive the machinery deterministically.
+
+pub const SA_TASK_NET_READ: u32 = 1;
+pub const SA_TASK_NET_WRITE: u32 = 2;
+pub const SA_TASK_NET_ERROR: u32 = 4;
+
+pub const PollFn = *const fn (handles: ?[*]const u64, interests: ?[*]const u32, count: u64, timeout_ms: i32, ready: ?[*]u32, out_ready_count: ?*u64) callconv(.c) i32;
+
+var poll_hook: ?PollFn = null;
+
+pub fn setPollHook(f: PollFn) void {
+    poll_hook = f;
+}
+
+fn pollWait(handles: ?[*]const u64, interests: ?[*]const u32, count: u64, timeout_ms: i32, ready: ?[*]u32, out_count: ?*u64) i32 {
+    const hook = poll_hook orelse return ERR_UNSUPPORTED;
+    return hook(handles, interests, count, timeout_ms, ready, out_count);
+}
+
+var net_mu: Mutex = .{};
+var net_list: ?*NetWaiter = null;
+var net_count: usize = 0;
+var net_gen_counter: std.atomic.Value(u64) = .init(0);
+
+fn netRelease(nw: *NetWaiter) void {
+    if (nw.refs.fetchSub(1, .seq_cst) == 1) alloc.destroy(nw);
+}
+
+fn netUnlinkLocked(nw: *NetWaiter) void {
+    var prev: ?*NetWaiter = null;
+    var cur = net_list;
+    while (cur) |n| {
+        if (n == nw) {
+            if (prev) |p| {
+                p.next = n.next;
+            } else {
+                net_list = n.next;
+            }
+            n.next = null;
+            n.linked = false;
+            net_count -= 1;
+            return;
+        }
+        prev = n;
+        cur = n.next;
+    }
+}
+
+fn netFireLocked(nw: *NetWaiter, bits: u32, status: i32) void {
+    // Caller holds net_mu and has already unlinked nw.
+    nw.done = true;
+    nw.status = status;
+    if (nw.ready_out) |ro| ro.* = bits;
+    if (nw.g) |g| {
+        g.wake_status = status;
+        unpark(g);
+    }
+    if (nw.os) |os| {
+        os.status = status;
+        os.fire();
+    }
+}
+
+fn netTimeoutFire(nw: *NetWaiter, gen: u64) void {
+    net_mu.lock();
+    if (nw.linked and nw.gen == gen and !nw.done) {
+        netUnlinkLocked(nw);
+        netFireLocked(nw, 0, SA_TASK_OK); // timeout: zero ready bits
+    }
+    net_mu.unlock();
+    netRelease(nw);
+}
+
+fn netWaiterCount() usize {
+    net_mu.lock();
+    defer net_mu.unlock();
+    return net_count;
+}
+
+fn pollNetOnce() void {
+    net_mu.lock();
+    const n = net_count;
+    if (n == 0) {
+        net_mu.unlock();
+        return;
+    }
+    const waiters = alloc.alloc(*NetWaiter, n) catch {
+        net_mu.unlock();
+        return;
+    };
+    defer alloc.free(waiters);
+    const handles = alloc.alloc(u64, n) catch {
+        net_mu.unlock();
+        return;
+    };
+    defer alloc.free(handles);
+    const interests = alloc.alloc(u32, n) catch {
+        net_mu.unlock();
+        return;
+    };
+    defer alloc.free(interests);
+    const ready = alloc.alloc(u32, n) catch {
+        net_mu.unlock();
+        return;
+    };
+    defer alloc.free(ready);
+    var i: usize = 0;
+    var cur = net_list;
+    while (cur) |nw| {
+        // Pin while polling unlocked: a timeout may fire (and the
+        // owner may return and drop its own pin) mid-poll.
+        _ = nw.refs.fetchAdd(1, .seq_cst);
+        waiters[i] = nw;
+        handles[i] = nw.handle;
+        interests[i] = nw.interest;
+        ready[i] = 0;
+        i += 1;
+        cur = nw.next;
+    }
+    net_mu.unlock();
+    defer {
+        for (waiters) |nw| netRelease(nw);
+    }
+    var out_count: u64 = 0;
+    const rc = pollWait(handles.ptr, interests.ptr, @intCast(n), 0, ready.ptr, &out_count);
+    if (rc != SA_TASK_OK or out_count == 0) return;
+    net_mu.lock();
+    for (0..n) |k| {
+        if (ready[k] != 0) {
+            const nw = waiters[k];
+            if (nw.linked and !nw.done) {
+                netUnlinkLocked(nw);
+                netFireLocked(nw, ready[k], SA_TASK_OK);
+            }
+        }
+    }
+    net_mu.unlock();
+}
+
+/// Park until `handle` is ready for `interest` (SA_TASK_NET_*
+/// bits) or the timeout elapses. timeout_ns < 0 waits forever.
+/// On return, ready_out receives the readiness mask (0 on
+/// timeout). An invalid handle is rejected by the validation
+/// poll before any parking happens.
+pub export fn sa_task_net_wait(handle: u64, interest: u32, timeout_ns: i64, ready_out: ?*u32) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const ro = ready_out orelse return ERR_INVALID;
+    ro.* = 0;
+    if (interest == 0 or (interest & ~@as(u32, 7)) != 0) return ERR_INVALID;
+    if (!ensureInit()) return ERR_UNSUPPORTED;
+    // Eager validation + already-ready fast path.
+    var h_arr = [1]u64{handle};
+    var i_arr = [1]u32{interest};
+    var r_arr = [1]u32{0};
+    var oc: u64 = 0;
+    const vrc = pollWait(&h_arr, &i_arr, 1, 0, &r_arr, &oc);
+    if (vrc != SA_TASK_OK) return vrc;
+    if (oc > 0) {
+        ro.* = r_arr[0];
+        return SA_TASK_OK;
+    }
+    if (timeout_ns == 0) return SA_TASK_OK;
+    const nw = alloc.create(NetWaiter) catch return ERR_NOMEM;
+    nw.* = .{
+        .handle = handle,
+        .interest = interest,
+        .ready_out = ro,
+        .gen = net_gen_counter.fetchAdd(1, .seq_cst) + 1,
+    };
+    var os_waiter: OsWaiter = .{};
+    if (current_g) |me| {
+        nw.g = me;
+        me.wait_kind = .net;
+        parkBegin();
+    } else {
+        nw.os = &os_waiter;
+    }
+    net_mu.lock();
+    nw.next = net_list;
+    net_list = nw;
+    nw.linked = true;
+    net_count += 1;
+    net_mu.unlock();
+    if (timeout_ns > 0) {
+        _ = nw.refs.fetchAdd(1, .seq_cst);
+        const deadline = monotonicNs() + timeout_ns;
+        if (!timerAdd(deadline, .{ .net = nw }, nw.gen)) {
+            _ = nw.refs.fetchSub(1, .seq_cst);
+        }
+    }
+    var status: i32 = SA_TASK_OK;
+    if (current_g) |me| {
+        parkSwitch();
+        me.wait_kind = .none;
+        status = me.wake_status;
+    } else {
+        os_waiter.wait();
+        status = os_waiter.status;
+    }
+    netRelease(nw);
+    return status;
+}
+
+// ---------------------------------------------------------------------
+// Phase C: sync primitives on the park queues (Mutex / RwLock /
+// WaitGroup / Once). One registry, kind-tagged objects; every
+// operation validates the kind — a mismatched handle is an
+// explicit error, never a silent reinterpretation.
+//
+// Mutexes are non-reentrant: a lock attempt by the current owner
+// returns INVALID_ARGUMENT immediately (Go's sync.Mutex would
+// deadlock; the explicit error is the documented deviation, in
+// line with this runtime's no-silent-failure rule). Unlock by a
+// non-owner is likewise INVALID_ARGUMENT. Handoff is direct:
+// unlock transfers ownership to the head waiter, so wake order
+// is FIFO and a woken waiter never re-competes.
+//
+// RwLock prefers writers once one is queued (later readers queue
+// behind it) so writers cannot starve; reader batches at the
+// queue head wake together.
+//
+// WaitGroup: a negative counter traps at the goroutine boundary
+// (Go panic parity).
+//
+// Once: the function runs on the first caller's goroutine;
+// concurrent callers park until it completes. If the function
+// traps at the goroutine boundary, the Once stays in the running
+// state — the component is considered failed and supervision
+// restarts it wholesale; that is registered here rather than
+// papered over.
+
+const SyncKind = enum(u8) { mutex, rwlock, waitgroup, once };
+
+const SyncObj = struct {
+    kind: SyncKind,
+    mu: Mutex = .{},
+    slot_idx: u32 = 0,
+    gen: u32 = 0,
+    dead: bool = false,
+    refs: std.atomic.Value(u32) = .init(1),
+    // mutex + rwlock writer ownership
+    locked: bool = false,
+    owner_key: u64 = 0,
+    waitq_head: ?*WaitNode = null,
+    waitq_tail: ?*WaitNode = null,
+    // rwlock
+    readers: u32 = 0,
+    // waitgroup
+    counter: i64 = 0,
+    // once
+    once_done: bool = false,
+    once_running: bool = false,
+
+    fn handle(o: *const SyncObj) u64 {
+        return (@as(u64, o.gen) << 32) | @as(u64, o.slot_idx);
+    }
+};
+
+var sync_registry_mu: Mutex = .{};
+var sync_slots: std.ArrayList(?*SyncObj) = .empty;
+// Generations live outside the struct (same UAF lesson as
+// channels): the struct is freed at the last pin drop.
+var sync_gens: std.ArrayList(u32) = .empty;
+var sync_free: std.ArrayList(u32) = .empty;
+
+fn syncPin(handle: u64) ?*SyncObj {
+    const idx: u32 = @truncate(handle);
+    const gen: u32 = @truncate(handle >> 32);
+    sync_registry_mu.lock();
+    defer sync_registry_mu.unlock();
+    if (idx >= sync_slots.items.len) return null;
+    const o = sync_slots.items[idx] orelse return null;
+    if (o.gen != gen or o.dead) return null;
+    _ = o.refs.fetchAdd(1, .seq_cst);
+    return o;
+}
+
+fn syncRelease(o: *SyncObj) void {
+    if (o.refs.fetchSub(1, .seq_cst) == 1) alloc.destroy(o);
+}
+
+fn syncNew(kind: SyncKind, out_handle: ?*u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const out = out_handle orelse return ERR_INVALID;
+    out.* = 0;
+    if (!ensureInit()) return ERR_UNSUPPORTED;
+    const o = alloc.create(SyncObj) catch return ERR_NOMEM;
+    o.* = .{ .kind = kind };
+    sync_registry_mu.lock();
+    if (sync_free.pop()) |idx| {
+        o.slot_idx = idx;
+        o.gen = sync_gens.items[idx] +% 1;
+        if (o.gen == 0) o.gen = 1;
+        sync_gens.items[idx] = o.gen;
+        sync_slots.items[idx] = o;
+    } else {
+        o.slot_idx = @intCast(sync_slots.items.len);
+        o.gen = 1;
+        sync_slots.append(alloc, o) catch {
+            sync_registry_mu.unlock();
+            alloc.destroy(o);
+            return ERR_NOMEM;
+        };
+        sync_gens.append(alloc, 1) catch {
+            _ = sync_slots.pop();
+            sync_registry_mu.unlock();
+            alloc.destroy(o);
+            return ERR_NOMEM;
+        };
+    }
+    sync_registry_mu.unlock();
+    out.* = o.handle();
+    return SA_TASK_OK;
+}
+
+pub export fn sa_sync_mutex_new(out_handle: ?*u64) i32 {
+    return syncNew(.mutex, out_handle);
+}
+
+pub export fn sa_sync_rwlock_new(out_handle: ?*u64) i32 {
+    return syncNew(.rwlock, out_handle);
+}
+
+pub export fn sa_sync_waitgroup_new(out_handle: ?*u64) i32 {
+    return syncNew(.waitgroup, out_handle);
+}
+
+pub export fn sa_sync_once_new(out_handle: ?*u64) i32 {
+    return syncNew(.once, out_handle);
+}
+
+pub export fn sa_sync_destroy(handle: u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const idx: u32 = @truncate(handle);
+    const gen: u32 = @truncate(handle >> 32);
+    sync_registry_mu.lock();
+    if (idx >= sync_slots.items.len) {
+        sync_registry_mu.unlock();
+        return ERR_INVALID_HANDLE;
+    }
+    const o = sync_slots.items[idx] orelse {
+        sync_registry_mu.unlock();
+        return ERR_INVALID_HANDLE;
+    };
+    if (o.gen != gen or o.dead) {
+        sync_registry_mu.unlock();
+        return ERR_INVALID_HANDLE;
+    }
+    o.dead = true;
+    sync_slots.items[idx] = null;
+    sync_free.append(alloc, idx) catch {};
+    sync_registry_mu.unlock();
+    o.mu.lock();
+    while (o.waitq_head) |node| {
+        _ = queueRemove(&o.waitq_head, &o.waitq_tail, node);
+        fireNode(node, WAKE_DESTROYED);
+    }
+    o.mu.unlock();
+    syncRelease(o);
+    return SA_TASK_OK;
+}
+
+threadlocal var os_owner_seq: u64 = 0;
+var os_owner_counter: std.atomic.Value(u64) = .init(0);
+
+/// Identity of the calling execution context for lock ownership:
+/// goroutines use their handle; OS threads use a stable
+/// per-thread key in a reserved high range.
+fn ownerKey() u64 {
+    if (current_g) |g| return g.handle();
+    if (os_owner_seq == 0) {
+        os_owner_seq = os_owner_counter.fetchAdd(1, .seq_cst) + 1;
+    }
+    return (@as(u64, 1) << 63) | os_owner_seq;
+}
+
+/// Append a waiter for the caller. Caller holds o.mu; the node's
+/// owner slot is filled BEFORE the node becomes visible, so a
+/// fire can never observe a half-initialized node.
+fn syncEnqueue(o: *SyncObj, os_waiter: ?*OsWaiter, is_writer: bool) ?*WaitNode {
+    const node = alloc.create(WaitNode) catch return null;
+    node.* = .{ .owner_key = ownerKey(), .flag = if (is_writer) 1 else 0 };
+    if (current_g) |me| {
+        node.g = me;
+    } else {
+        node.os = os_waiter;
+    }
+    queuePush(&o.waitq_head, &o.waitq_tail, node);
+    return node;
+}
+
+/// Complete a park started under o.mu (parkBegin was called by
+/// the caller before releasing o.mu on the goroutine path).
+fn syncPark(kind: WaitKind, os_waiter: *OsWaiter) i32 {
+    if (current_g) |me| {
+        me.wait_kind = kind;
+        parkSwitch();
+        me.wait_kind = .none;
+        const s = me.wake_status;
+        return if (s == WAKE_DESTROYED) ERR_INVALID_HANDLE else s;
+    }
+    os_waiter.wait();
+    const s = os_waiter.status;
+    return if (s == WAKE_DESTROYED) ERR_INVALID_HANDLE else s;
+}
+
+// --- Mutex -----------------------------------------------------------
+
+pub export fn sa_sync_mutex_lock(handle: u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const o = syncPin(handle) orelse return ERR_INVALID_HANDLE;
+    defer syncRelease(o);
+    if (o.kind != .mutex) return ERR_INVALID;
+    const key = ownerKey();
+    o.mu.lock();
+    if (!o.locked) {
+        o.locked = true;
+        o.owner_key = key;
+        o.mu.unlock();
+        return SA_TASK_OK;
+    }
+    if (o.owner_key == key) {
+        o.mu.unlock();
+        return ERR_INVALID; // non-reentrant (documented above)
+    }
+    var os_waiter: OsWaiter = .{};
+    const node = syncEnqueue(o, &os_waiter, false) orelse {
+        o.mu.unlock();
+        return ERR_NOMEM;
+    };
+    _ = node;
+    if (current_g != null) parkBegin();
+    o.mu.unlock();
+    return syncPark(.mutex, &os_waiter);
+}
+
+pub export fn sa_sync_mutex_try_lock(handle: u64, out_acquired: ?*u32) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const out = out_acquired orelse return ERR_INVALID;
+    out.* = 0;
+    const o = syncPin(handle) orelse return ERR_INVALID_HANDLE;
+    defer syncRelease(o);
+    if (o.kind != .mutex) return ERR_INVALID;
+    o.mu.lock();
+    if (!o.locked) {
+        o.locked = true;
+        o.owner_key = ownerKey();
+        out.* = 1;
+    }
+    o.mu.unlock();
+    return SA_TASK_OK;
+}
+
+pub export fn sa_sync_mutex_unlock(handle: u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const o = syncPin(handle) orelse return ERR_INVALID_HANDLE;
+    defer syncRelease(o);
+    if (o.kind != .mutex) return ERR_INVALID;
+    const key = ownerKey();
+    o.mu.lock();
+    if (!o.locked or o.owner_key != key) {
+        o.mu.unlock();
+        return ERR_INVALID;
+    }
+    if (o.waitq_head) |node| {
+        _ = queueRemove(&o.waitq_head, &o.waitq_tail, node);
+        o.owner_key = node.owner_key; // direct handoff, stays locked
+        o.mu.unlock();
+        fireNode(node, SA_TASK_OK);
+        return SA_TASK_OK;
+    }
+    o.locked = false;
+    o.owner_key = 0;
+    o.mu.unlock();
+    return SA_TASK_OK;
+}
+
+// --- RwLock ----------------------------------------------------------
+
+fn rwWakeLocked(o: *SyncObj) void {
+    // Caller holds o.mu. Wake the head waiter if admissible:
+    // a writer needs exclusivity; readers go as a batch.
+    const head = o.waitq_head orelse return;
+    if (head.flag == 1) {
+        if (o.locked or o.readers != 0) return;
+        _ = queueRemove(&o.waitq_head, &o.waitq_tail, head);
+        o.locked = true;
+        o.owner_key = head.owner_key;
+        fireNode(head, SA_TASK_OK);
+        return;
+    }
+    if (o.locked) return;
+    var n = o.waitq_head;
+    while (n) |node| {
+        if (node.flag == 1) break;
+        const next = node.next;
+        _ = queueRemove(&o.waitq_head, &o.waitq_tail, node);
+        o.readers += 1;
+        fireNode(node, SA_TASK_OK);
+        n = next;
+    }
+}
+
+pub export fn sa_sync_rwlock_rlock(handle: u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const o = syncPin(handle) orelse return ERR_INVALID_HANDLE;
+    defer syncRelease(o);
+    if (o.kind != .rwlock) return ERR_INVALID;
+    o.mu.lock();
+    // Writer preference: any queued writer blocks new readers.
+    var writer_queued = false;
+    var scan = o.waitq_head;
+    while (scan) |sn| {
+        if (sn.flag == 1) {
+            writer_queued = true;
+            break;
+        }
+        scan = sn.next;
+    }
+    if (!o.locked and !writer_queued) {
+        o.readers += 1;
+        o.mu.unlock();
+        return SA_TASK_OK;
+    }
+    var os_waiter: OsWaiter = .{};
+    _ = syncEnqueue(o, &os_waiter, false) orelse {
+        o.mu.unlock();
+        return ERR_NOMEM;
+    };
+    if (current_g != null) parkBegin();
+    o.mu.unlock();
+    return syncPark(.rwlock, &os_waiter);
+}
+
+pub export fn sa_sync_rwlock_runlock(handle: u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const o = syncPin(handle) orelse return ERR_INVALID_HANDLE;
+    defer syncRelease(o);
+    if (o.kind != .rwlock) return ERR_INVALID;
+    o.mu.lock();
+    if (o.readers == 0) {
+        o.mu.unlock();
+        return ERR_INVALID;
+    }
+    o.readers -= 1;
+    if (o.readers == 0) rwWakeLocked(o);
+    o.mu.unlock();
+    return SA_TASK_OK;
+}
+
+pub export fn sa_sync_rwlock_lock(handle: u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const o = syncPin(handle) orelse return ERR_INVALID_HANDLE;
+    defer syncRelease(o);
+    if (o.kind != .rwlock) return ERR_INVALID;
+    const key = ownerKey();
+    o.mu.lock();
+    if (!o.locked and o.readers == 0 and o.waitq_head == null) {
+        o.locked = true;
+        o.owner_key = key;
+        o.mu.unlock();
+        return SA_TASK_OK;
+    }
+    if (o.locked and o.owner_key == key) {
+        o.mu.unlock();
+        return ERR_INVALID; // non-reentrant, incl. read-to-write upgrade
+    }
+    var os_waiter: OsWaiter = .{};
+    _ = syncEnqueue(o, &os_waiter, true) orelse {
+        o.mu.unlock();
+        return ERR_NOMEM;
+    };
+    if (current_g != null) parkBegin();
+    o.mu.unlock();
+    return syncPark(.rwlock, &os_waiter);
+}
+
+pub export fn sa_sync_rwlock_unlock(handle: u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const o = syncPin(handle) orelse return ERR_INVALID_HANDLE;
+    defer syncRelease(o);
+    if (o.kind != .rwlock) return ERR_INVALID;
+    const key = ownerKey();
+    o.mu.lock();
+    if (!o.locked or o.owner_key != key) {
+        o.mu.unlock();
+        return ERR_INVALID;
+    }
+    o.locked = false;
+    o.owner_key = 0;
+    rwWakeLocked(o);
+    o.mu.unlock();
+    return SA_TASK_OK;
+}
+
+// --- WaitGroup -------------------------------------------------------
+
+pub export fn sa_sync_waitgroup_add(handle: u64, delta: i64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const o = syncPin(handle) orelse return ERR_INVALID_HANDLE;
+    defer syncRelease(o);
+    if (o.kind != .waitgroup) return ERR_INVALID;
+    o.mu.lock();
+    const next = o.counter + delta;
+    if (next < 0) {
+        o.mu.unlock();
+        // Go panics on a negative WaitGroup counter; here it is a
+        // boundary trap (process trap when raised on an OS thread).
+        raiseTrap(SA_TASK_TRAP_WAITGROUP_NEGATIVE, "sync: negative WaitGroup counter");
+    }
+    o.counter = next;
+    if (next == 0) {
+        const waiters = o.waitq_head;
+        o.waitq_head = null;
+        o.waitq_tail = null;
+        o.mu.unlock();
+        var n = waiters;
+        while (n) |node| {
+            const nx = node.next;
+            node.linked = false;
+            fireNode(node, SA_TASK_OK);
+            n = nx;
+        }
+        return SA_TASK_OK;
+    }
+    o.mu.unlock();
+    return SA_TASK_OK;
+}
+
+pub export fn sa_sync_waitgroup_done(handle: u64) i32 {
+    return sa_sync_waitgroup_add(handle, -1);
+}
+
+pub export fn sa_sync_waitgroup_wait(handle: u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const o = syncPin(handle) orelse return ERR_INVALID_HANDLE;
+    defer syncRelease(o);
+    if (o.kind != .waitgroup) return ERR_INVALID;
+    o.mu.lock();
+    if (o.counter == 0) {
+        o.mu.unlock();
+        return SA_TASK_OK;
+    }
+    var os_waiter: OsWaiter = .{};
+    _ = syncEnqueue(o, &os_waiter, false) orelse {
+        o.mu.unlock();
+        return ERR_NOMEM;
+    };
+    if (current_g != null) parkBegin();
+    o.mu.unlock();
+    return syncPark(.waitgroup, &os_waiter);
+}
+
+// --- Once ------------------------------------------------------------
+
+pub export fn sa_sync_once_do(handle: u64, entry: ?*const anyopaque, arg: ?*anyopaque) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const o = syncPin(handle) orelse return ERR_INVALID_HANDLE;
+    defer syncRelease(o);
+    if (o.kind != .once) return ERR_INVALID;
+    const f: EntryFn = @ptrCast(@alignCast(entry orelse return ERR_INVALID));
+    o.mu.lock();
+    if (o.once_done) {
+        o.mu.unlock();
+        return SA_TASK_OK;
+    }
+    if (o.once_running) {
+        var os_waiter: OsWaiter = .{};
+        _ = syncEnqueue(o, &os_waiter, false) orelse {
+            o.mu.unlock();
+            return ERR_NOMEM;
+        };
+        if (current_g != null) parkBegin();
+        o.mu.unlock();
+        return syncPark(.once, &os_waiter);
+    }
+    o.once_running = true;
+    o.mu.unlock();
+    f(arg);
+    o.mu.lock();
+    o.once_done = true;
+    o.once_running = false;
+    const waiters = o.waitq_head;
+    o.waitq_head = null;
+    o.waitq_tail = null;
+    o.mu.unlock();
+    var n = waiters;
+    while (n) |node| {
+        const nx = node.next;
+        node.linked = false;
+        fireNode(node, SA_TASK_OK);
+        n = nx;
+    }
+    return SA_TASK_OK;
+}
+
+// ---------------------------------------------------------------------
+// Phase C tests.
+
+var c_mutex_handle: u64 = 0;
+var c_counter: u64 = 0; // guarded by c_mutex_handle; deliberately non-atomic
+
+fn mutexWorker(_: ?*anyopaque) callconv(.c) void {
+    var i: usize = 0;
+    while (i < 5000) : (i += 1) {
+        _ = sa_sync_mutex_lock(c_mutex_handle);
+        const p: *u64 = &c_counter;
+        p.* += 1;
+        _ = sa_sync_mutex_unlock(c_mutex_handle);
+    }
+}
+
+test "sa_task.test.sync: mutex count race oracle" {
+    if (!supported) return error.SkipZigTest;
+    try testing.expectEqual(SA_TASK_OK, sa_sync_mutex_new(&c_mutex_handle));
+    c_counter = 0;
+    var hs: [8]u64 = undefined;
+    for (&hs) |*h| try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&mutexWorker, null, h));
+    for (hs) |h| try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    try testing.expectEqual(@as(u64, 8 * 5000), c_counter);
+    try testing.expectEqual(SA_TASK_OK, sa_sync_destroy(c_mutex_handle));
+}
+
+test "sa_task.test.sync: mutex ownership rules are explicit" {
+    if (!supported) return error.SkipZigTest;
+    var m: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_sync_mutex_new(&m));
+    try testing.expectEqual(SA_TASK_OK, sa_sync_mutex_lock(m));
+    // Non-reentrant: the owner re-locking is an explicit error,
+    // not a silent deadlock.
+    try testing.expectEqual(ERR_INVALID, sa_sync_mutex_lock(m));
+    var acq: u32 = 99;
+    try testing.expectEqual(SA_TASK_OK, sa_sync_mutex_try_lock(m, &acq));
+    try testing.expectEqual(@as(u32, 0), acq);
+    try testing.expectEqual(SA_TASK_OK, sa_sync_mutex_unlock(m));
+    try testing.expectEqual(ERR_INVALID, sa_sync_mutex_unlock(m));
+    try testing.expectEqual(SA_TASK_OK, sa_sync_mutex_try_lock(m, &acq));
+    try testing.expectEqual(@as(u32, 1), acq);
+    try testing.expectEqual(SA_TASK_OK, sa_sync_mutex_unlock(m));
+    // Wrong-kind handles are rejected, not reinterpreted.
+    var rw: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_sync_rwlock_new(&rw));
+    try testing.expectEqual(ERR_INVALID, sa_sync_mutex_lock(rw));
+    try testing.expectEqual(SA_TASK_OK, sa_sync_destroy(rw));
+    try testing.expectEqual(SA_TASK_OK, sa_sync_destroy(m));
+    try testing.expectEqual(ERR_INVALID_HANDLE, sa_sync_mutex_lock(m));
+}
+
+var c_readers_now: std.atomic.Value(i32) = .init(0);
+var c_readers_max: std.atomic.Value(i32) = .init(0);
+var c_rwlock_handle: u64 = 0;
+
+fn readerWorker(_: ?*anyopaque) callconv(.c) void {
+    _ = sa_sync_rwlock_rlock(c_rwlock_handle);
+    const now = c_readers_now.fetchAdd(1, .seq_cst) + 1;
+    var cur_max = c_readers_max.load(.seq_cst);
+    while (now > cur_max) {
+        if (c_readers_max.cmpxchgWeak(cur_max, now, .seq_cst, .seq_cst)) |old| {
+            cur_max = old;
+        } else break;
+    }
+    _ = sa_task_sleep_ms(40);
+    _ = c_readers_now.fetchSub(1, .seq_cst);
+    _ = sa_sync_rwlock_runlock(c_rwlock_handle);
+}
+
+test "sa_task.test.sync: rwlock readers overlap, writer excludes" {
+    if (!supported) return error.SkipZigTest;
+    try testing.expectEqual(SA_TASK_OK, sa_sync_rwlock_new(&c_rwlock_handle));
+    c_readers_now.store(0, .seq_cst);
+    c_readers_max.store(0, .seq_cst);
+    // Main holds a read lock; goroutine readers must still enter.
+    try testing.expectEqual(SA_TASK_OK, sa_sync_rwlock_rlock(c_rwlock_handle));
+    var hs: [3]u64 = undefined;
+    for (&hs) |*h| try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&readerWorker, null, h));
+    for (hs) |h| try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    try testing.expectEqual(SA_TASK_OK, sa_sync_rwlock_runlock(c_rwlock_handle));
+    try testing.expect(c_readers_max.load(.seq_cst) >= 2);
+    // Writer excludes readers.
+    var entered: std.atomic.Value(bool) = .init(false);
+    const ReaderFlag = struct {
+        fn run(arg: ?*anyopaque) callconv(.c) void {
+            const flag: *std.atomic.Value(bool) = @ptrCast(@alignCast(arg.?));
+            _ = sa_sync_rwlock_rlock(c_rwlock_handle);
+            flag.store(true, .release);
+            _ = sa_sync_rwlock_runlock(c_rwlock_handle);
+        }
+    };
+    try testing.expectEqual(SA_TASK_OK, sa_sync_rwlock_lock(c_rwlock_handle));
+    var rh: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&ReaderFlag.run, &entered, &rh));
+    _ = sa_task_sleep_ms(60);
+    try testing.expect(!entered.load(.acquire));
+    try testing.expectEqual(SA_TASK_OK, sa_sync_rwlock_unlock(c_rwlock_handle));
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(rh));
+    try testing.expect(entered.load(.acquire));
+    try testing.expectEqual(SA_TASK_OK, sa_sync_destroy(c_rwlock_handle));
+}
+
+var c_wg_handle: u64 = 0;
+var c_wg_mask: std.atomic.Value(u32) = .init(0);
+
+fn wgWorker(arg: ?*anyopaque) callconv(.c) void {
+    const bit: *u32 = @ptrCast(@alignCast(arg.?));
+    _ = sa_task_sleep_ms(10);
+    _ = c_wg_mask.fetchOr(@as(u32, 1) << @as(u5, @intCast(bit.*)), .seq_cst);
+    _ = sa_sync_waitgroup_done(c_wg_handle);
+}
+
+test "sa_task.test.sync: waitgroup reaches zero" {
+    if (!supported) return error.SkipZigTest;
+    try testing.expectEqual(SA_TASK_OK, sa_sync_waitgroup_new(&c_wg_handle));
+    c_wg_mask.store(0, .seq_cst);
+    try testing.expectEqual(SA_TASK_OK, sa_sync_waitgroup_add(c_wg_handle, 16));
+    var bits: [16]u32 = undefined;
+    var hs: [16]u64 = undefined;
+    for (0..16) |i| {
+        bits[i] = @intCast(i);
+        try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&wgWorker, &bits[i], &hs[i]));
+    }
+    try testing.expectEqual(SA_TASK_OK, sa_sync_waitgroup_wait(c_wg_handle));
+    try testing.expectEqual(@as(u32, 0xFFFF), c_wg_mask.load(.seq_cst));
+    // Already zero: wait returns immediately.
+    try testing.expectEqual(SA_TASK_OK, sa_sync_waitgroup_wait(c_wg_handle));
+    for (hs) |h| try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    try testing.expectEqual(SA_TASK_OK, sa_sync_destroy(c_wg_handle));
+}
+
+var c_sink_code: std.atomic.Value(i32) = .init(0);
+
+fn cRecordingSink(_: u64, code: i32, _: [*]const u8, _: u64, _: ?*anyopaque) callconv(.c) void {
+    c_sink_code.store(code, .seq_cst);
+}
+
+fn wgNegativeWorker(arg: ?*anyopaque) callconv(.c) void {
+    setTrapSink(&cRecordingSink, null);
+    const wg: *u64 = @ptrCast(@alignCast(arg.?));
+    _ = sa_sync_waitgroup_done(wg.*); // counter 0 -> -1: boundary trap
+}
+
+test "sa_task.test.sync: waitgroup negative counter traps" {
+    if (!supported) return error.SkipZigTest;
+    var wg: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_sync_waitgroup_new(&wg));
+    c_sink_code.store(0, .seq_cst);
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&wgNegativeWorker, &wg, &h));
+    try testing.expectEqual(SA_TASK_TRAPPED, sa_task_join(h));
+    try testing.expectEqual(SA_TASK_TRAP_WAITGROUP_NEGATIVE, c_sink_code.load(.seq_cst));
+    try testing.expectEqual(SA_TASK_OK, sa_sync_destroy(wg));
+}
+
+var c_once_handle: u64 = 0;
+var c_once_runs: std.atomic.Value(u64) = .init(0);
+
+fn onceFn(_: ?*anyopaque) callconv(.c) void {
+    _ = sa_task_sleep_ms(20);
+    _ = c_once_runs.fetchAdd(1, .seq_cst);
+}
+
+fn onceWorker(_: ?*anyopaque) callconv(.c) void {
+    _ = sa_sync_once_do(c_once_handle, &onceFn, null);
+}
+
+test "sa_task.test.sync: once runs exactly once" {
+    if (!supported) return error.SkipZigTest;
+    try testing.expectEqual(SA_TASK_OK, sa_sync_once_new(&c_once_handle));
+    c_once_runs.store(0, .seq_cst);
+    var hs: [16]u64 = undefined;
+    for (&hs) |*h| try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&onceWorker, null, h));
+    for (hs) |h| try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    try testing.expectEqual(@as(u64, 1), c_once_runs.load(.seq_cst));
+    // After completion, calls return without running the fn.
+    try testing.expectEqual(SA_TASK_OK, sa_sync_once_do(c_once_handle, &onceFn, null));
+    try testing.expectEqual(@as(u64, 1), c_once_runs.load(.seq_cst));
+    try testing.expectEqual(SA_TASK_OK, sa_sync_destroy(c_once_handle));
+}
+
+// Fake poller for the net tests: handle 4242 becomes readable
+// 30 ms after installation; 9999 never becomes ready; anything
+// else is an invalid handle (status 1), mirroring the real
+// poller's rejection of unknown handles.
+var c_fake_poll_start: i64 = 0;
+
+fn fakePoll(handles: ?[*]const u64, interests: ?[*]const u32, count: u64, timeout_ms: i32, ready: ?[*]u32, out_ready_count: ?*u64) callconv(.c) i32 {
+    _ = timeout_ms;
+    const hs = handles orelse return ERR_INVALID;
+    const ins = interests orelse return ERR_INVALID;
+    const rd = ready orelse return ERR_INVALID;
+    const oc = out_ready_count orelse return ERR_INVALID;
+    oc.* = 0;
+    const elapsed = monotonicNs() - c_fake_poll_start;
+    for (0..@intCast(count)) |i| {
+        rd[i] = 0;
+        if (hs[i] == 4242) {
+            if (elapsed >= 30 * std.time.ns_per_ms) {
+                rd[i] = ins[i] & SA_TASK_NET_READ;
+                if (rd[i] != 0) oc.* += 1;
+            }
+        } else if (hs[i] == 9999) {
+            // never ready
+        } else {
+            return ERR_INVALID;
+        }
+    }
+    return SA_TASK_OK;
+}
+
+const NetResult = struct {
+    rc: i32 = -1,
+    bits: u32 = 0,
+    elapsed: i64 = 0,
+};
+
+fn netWaitWorker(arg: ?*anyopaque) callconv(.c) void {
+    const res: *NetResult = @ptrCast(@alignCast(arg.?));
+    var bits: u32 = 0;
+    const t0 = monotonicNs();
+    res.rc = sa_task_net_wait(4242, SA_TASK_NET_READ, 5 * std.time.ns_per_s, &bits);
+    res.elapsed = monotonicNs() - t0;
+    res.bits = bits;
+}
+
+fn netTimeoutWorker(arg: ?*anyopaque) callconv(.c) void {
+    const res: *NetResult = @ptrCast(@alignCast(arg.?));
+    var bits: u32 = 0;
+    const t0 = monotonicNs();
+    res.rc = sa_task_net_wait(9999, SA_TASK_NET_READ, 60 * std.time.ns_per_ms, &bits);
+    res.elapsed = monotonicNs() - t0;
+    res.bits = bits;
+}
+
+test "sa_task.test.net: park on poll readiness and timeout" {
+    if (!supported) return error.SkipZigTest;
+    setPollHook(&fakePoll);
+    c_fake_poll_start = monotonicNs();
+    var r1: NetResult = .{};
+    var r2: NetResult = .{};
+    var h1: u64 = 0;
+    var h2: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&netWaitWorker, &r1, &h1));
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&netTimeoutWorker, &r2, &h2));
+    // Invalid handles are rejected eagerly by the validation
+    // poll, before any parking.
+    var bits: u32 = 0;
+    try testing.expectEqual(ERR_INVALID, sa_task_net_wait(13, SA_TASK_NET_READ, std.time.ns_per_s, &bits));
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h1));
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h2));
+    try testing.expectEqual(SA_TASK_OK, r1.rc);
+    try testing.expectEqual(SA_TASK_NET_READ, r1.bits);
+    try testing.expectEqual(SA_TASK_OK, r2.rc);
+    try testing.expectEqual(@as(u32, 0), r2.bits);
+    try testing.expect(r2.elapsed >= 45 * std.time.ns_per_ms);
 }
