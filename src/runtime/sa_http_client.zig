@@ -2857,6 +2857,21 @@ fn executeRequestV2(request: *HttpRequest, tracker: ?*V2AsyncOp) V2Error!*HttpRe
     const deadline = Deadline.request(request.timeout_ms);
     if (requestCancelled(tracker)) return error.Closed;
     const uri = std.Uri.parse(request.url) catch |err| return mapHttpError(err, deadline, tracker);
+    // Mirror the v1 path (httpRequestExecOnce): under the
+    // client-wide request mutex, drop the configured proxies for
+    // this request when the target host matches no_proxy, and
+    // restore them before returning. v2 previously skipped this
+    // entirely, so in proxied deployments requests to no_proxy
+    // hosts were routed into the proxy (slanginx line finding).
+    while (!request.client.request_mutex.tryLock()) std.atomic.spinLoopHint();
+    defer request.client.request_mutex.unlock();
+    const saved_http_proxy = request.client.client.http_proxy;
+    const saved_https_proxy = request.client.client.https_proxy;
+    defer {
+        request.client.client.http_proxy = saved_http_proxy;
+        request.client.client.https_proxy = saved_https_proxy;
+    }
+    maybeBypassProxy(request, uri);
     // NOTE(Zig 0.17): proxy CONNECT tunnels are handled natively by
     // std.http.Client now; the manual-tunnel path was removed.
     var redirect_buffer: [16 * 1024]u8 = undefined;
