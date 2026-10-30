@@ -4,8 +4,16 @@
 //! is unchanged (frozen base); everything here is a library surface
 //! of externs declared in sa_std/task.sai. Scope ruled by Jev
 //! (2026-10-29, goroutine_scope_ruling.json):
-//!   S1 fixed virtual stacks + guard page + explicit trap on
-//!      overflow; NO copying stack growth in this phase.
+//!   S1 virtual stacks + guard page + explicit trap on
+//!      overflow; NO copying stack growth. DEF-R2 (2026-10-30,
+//!      Jev def_r2_ruling: reserve_commit_grow 0.97): each task
+//!      RESERVES a large virtual region (per-task cap, default
+//!      64 MiB) and COMMITS pages on demand — when a running
+//!      stack descends past its committed edge, the SIGSEGV
+//!      handler commits the reserved span in place, so addresses
+//!      never move and &local / out-param views stay valid.
+//!      Exceeding the cap lands in the hard guard page and keeps
+//!      the loud overflow abort.
 //!   S2 cooperative preemption only: yield points are the explicit
 //!      sa_task_yield extern plus every blocking runtime call; a
 //!      compute-bound goroutine that never reaches a yield point
@@ -31,7 +39,9 @@
 //!     sa_std_net_poll_wait face; network I/O never needs to block
 //!     a carrier.
 //!   - Stack overflow is a loud trap: a SIGSEGV handler registered
-//!     by the runtime recognizes goroutine guard pages, prints
+//!     by the runtime first commits reserved pages on
+//!     reserve-zone faults (DEF-R2 growth); a fault that reaches
+//!     the hard guard page — the cap — is recognized, prints
 //!     "sa_task: goroutine <id> stack overflow" and aborts. It is
 //!     NOT boundary-recoverable in this phase (the stack is gone);
 //!     boundary recover (below) covers runtime-raised traps only.
@@ -451,26 +461,85 @@ fn registryRecycle(g: *Goroutine, gen: u32) void {
 }
 
 // ---------------------------------------------------------------------
-// Stack allocation: [guard PROT_NONE][usable RW], grows down.
+// Stack allocation (DEF-R2 reserve/commit): one mapping per task,
+//   [hard guard PROT_NONE][reserve PROT_NONE][committed RW]
+// growing down. At spawn only the top cfg_stack_initial bytes are
+// committed (mprotect RW); the rest of the per-task cap is a
+// PROT_NONE reservation (MAP_NORESERVE: virtual only, no commit
+// charge, no RSS until touched). When execution descends past
+// the committed edge, the SIGSEGV handler commits the next span
+// in place — addresses never move, so pointers to stack locals
+// (out-params, borrowed views) stay valid across growth.
+// Descending past the reserve bottom lands in the hard guard
+// and aborts (cap exceeded): the same loud path as the old
+// fixed-stack overflow.
+//
+// Why fault-driven commit instead of scheduler-checkpoint
+// watermarks: between two checkpoints (yield / chan / select /
+// poll / task switch) a goroutine can descend an UNBOUNDED
+// amount — giant frames live inside a single call chain between
+// chan ops (the validate_kb worker shape) and pure recursion
+// has no checkpoints at all. A watermark scheme would need the
+// initial commit to cover the worst inter-checkpoint depth,
+// which is unknowable; in practice it degenerates into a bigger
+// guessed constant. The protection boundary is a per-page check
+// that fires on every descent path at zero cost on
+// non-faulting paths; it plays exactly the role the DEF-R2
+// ruling reserved for compiler stack checks at large-frame
+// entries, with no new extern and no codegen change on either
+// SLA backend. A single frame larger than the committed span
+// faults at its first touch below the edge and the handler
+// commits down to the faulting page, so frames of any size up
+// to the cap work.
+//
+// Env semantics (explicit, DEF-R2 — a deliberate redefinition,
+// not a silent one):
+//   SA_TASK_STACK_KIB — was: total usable stack per task.
+//     Now: the INITIAL COMMIT per task, and the guaranteed
+//     floor (at least this much is always mapped RW at spawn).
+//     Programs that raised it to make deep workloads pass keep
+//     working (they pre-commit more; the cap still sits above);
+//     it no longer caps total growth — that is the cap env's
+//     job. Clamp [64, 8192] KiB, as before.
+//   SA_TASK_STACK_CAP_KIB — NEW: the per-task reserve cap, the
+//     hard ceiling whose crossing aborts. Default 64 MiB:
+//     16x the largest measured natural need ((2MiB, 4MiB] for
+//     validate_kb), while the VA cost is negligible (10k tasks
+//     x 64 MiB = 640 GiB of the 128 TiB user space) and
+//     uncommitted pages cost no RSS. Clamp [1024, 1048576] KiB;
+//     raised to the initial commit when configured smaller.
 
 pub const DEFAULT_STACK_USABLE_KIB: u64 = 256;
+pub const DEFAULT_STACK_CAP_KIB: u64 = 64 * 1024;
 pub const GUARD_KIB: u64 = 64;
+/// Growth granularity: a reserve fault commits at least this
+/// much beyond the faulting page (bounded by the reserve).
+pub const STACK_GROW_QUANTUM: usize = 256 * 1024;
 
-var cfg_stack_usable: usize = DEFAULT_STACK_USABLE_KIB * 1024;
+var cfg_stack_initial: usize = DEFAULT_STACK_USABLE_KIB * 1024;
+var cfg_stack_cap: usize = DEFAULT_STACK_CAP_KIB * 1024;
 var cfg_carriers: usize = 0;
 
+/// Reserve-fault growth events so far (telemetry; the unit
+/// tests use it to prove growth happened in place rather than
+/// passing via a larger constant).
+var stack_grow_events: std.atomic.Value(u64) = .init(0);
+
 fn allocStack(id: u64) ?[]align(4096) u8 {
-    const total = cfg_stack_usable + GUARD_KIB * 1024;
-    const rc = linux.mmap(null, total, linux.PROT{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
+    const total = GUARD_KIB * 1024 + cfg_stack_cap;
+    const rc = linux.mmap(null, total, linux.PROT{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0);
     if (@as(isize, @bitCast(rc)) < 0) return null;
     const base: [*]align(4096) u8 = @ptrFromInt(rc);
-    // Guard: lowest GUARD_KIB becomes PROT_NONE.
-    const grc = linux.mprotect(base, GUARD_KIB * 1024, linux.PROT{});
-    if (@as(isize, @bitCast(grc)) < 0) {
+    const top = @intFromPtr(base) + total;
+    // Initial commit: the top cfg_stack_initial bytes become RW;
+    // guard and reserve stay PROT_NONE.
+    const committed_lo = top - cfg_stack_initial;
+    const crc = linux.mprotect(@ptrFromInt(committed_lo), cfg_stack_initial, linux.PROT{ .READ = true, .WRITE = true });
+    if (@as(isize, @bitCast(crc)) < 0) {
         _ = linux.munmap(base, total);
         return null;
     }
-    guardRegister(@intFromPtr(base), @intFromPtr(base) + GUARD_KIB * 1024, id);
+    guardRegister(@intFromPtr(base), top, committed_lo, id);
     return base[0..total];
 }
 
@@ -493,25 +562,33 @@ fn initStackFrame(g: *Goroutine) void {
     g.sp = @intFromPtr(frame);
 }
 
-// Guard registry for the SIGSEGV overflow trap: fixed table,
-// lock-free reads from the signal handler.
+// Stack registry for the SIGSEGV handler (overflow trap +
+// DEF-R2 growth): fixed table, lock-free reads from the signal
+// handler. Each live entry describes one task mapping:
+// [lo, lo+GUARD) hard guard, [lo+GUARD, committed_lo) reserve,
+// [committed_lo, top) committed RW. committed_lo only ever
+// decreases (growth is monotonic; pages are never uncommitted).
 const GUARD_SLOTS = 16384;
 const GuardEntry = struct {
     live: std.atomic.Value(bool) = .init(false),
     lo: usize = 0,
-    hi: usize = 0,
+    hi: usize = 0, // guard zone end: lo + GUARD_KIB
+    top: usize = 0, // mapping end (stack top)
+    committed_lo: std.atomic.Value(usize) = .init(0),
     id: u64 = 0,
 };
 var guard_table: [GUARD_SLOTS]GuardEntry = std.mem.zeroes([GUARD_SLOTS]GuardEntry);
 var guard_hint: std.atomic.Value(usize) = .init(0);
 
-fn guardRegister(lo: usize, hi: usize, id: u64) void {
+fn guardRegister(lo: usize, top: usize, committed_lo: usize, id: u64) void {
     var i: usize = 0;
     while (i < GUARD_SLOTS) : (i += 1) {
         const idx = (guard_hint.load(.monotonic) + i) % GUARD_SLOTS;
         if (guard_table[idx].live.cmpxchgStrong(false, true, .acq_rel, .monotonic) == null) {
             guard_table[idx].lo = lo;
-            guard_table[idx].hi = hi;
+            guard_table[idx].hi = lo + GUARD_KIB * 1024;
+            guard_table[idx].top = top;
+            guard_table[idx].committed_lo.store(committed_lo, .monotonic);
             guard_table[idx].id = id;
             guard_hint.store(idx + 1, .monotonic);
             return;
@@ -528,11 +605,55 @@ fn guardUnregister(lo: usize) void {
     }
 }
 
+/// Guard-zone lookup (the overflow trap's range; also what the
+/// unit tests pin): only the hard guard resolves here.
 fn guardLookup(addr: usize) ?u64 {
     for (&guard_table) |*e| {
         if (e.live.load(.acquire) and addr >= e.lo and addr < e.hi) return e.id;
     }
     return null;
+}
+
+/// Full-mapping lookup for the fault handler: any address
+/// inside a live task mapping (guard, reserve or committed).
+fn stackEntryLookup(addr: usize) ?*GuardEntry {
+    for (&guard_table) |*e| {
+        if (e.live.load(.acquire) and addr >= e.lo and addr < e.top) return e;
+    }
+    return null;
+}
+
+/// DEF-R2 growth: commit the reserved span covering a fault at
+/// `addr` in entry `e`. Signal-handler context: raw syscalls
+/// and atomics only, no allocation, no locks. Returns true when
+/// the fault is covered now (the handler returns and the
+/// faulting instruction re-executes); false when the fault is
+/// not a growable reserve fault (hard guard = cap exceeded, or
+/// already-committed memory).
+fn stackGrowForFault(e: *GuardEntry, addr: usize) bool {
+    const reserve_lo = e.lo + GUARD_KIB * 1024;
+    if (addr < reserve_lo) return false; // hard guard: cap exceeded
+    const committed = e.committed_lo.load(.monotonic);
+    if (addr >= committed) return false; // already RW
+    // Commit at least STACK_GROW_QUANTUM past the committed
+    // edge, or down to the faulting page when a single frame
+    // jumps further than that; never below the reserve bottom.
+    var target = addr & ~@as(usize, 4095);
+    const quantum_edge = committed -| STACK_GROW_QUANTUM;
+    if (target > quantum_edge) target = quantum_edge;
+    if (target < reserve_lo) target = reserve_lo;
+    if (target >= committed) return true; // a racing grow covered it
+    const rc = linux.mprotect(@ptrFromInt(target), committed - target, linux.PROT{ .READ = true, .WRITE = true });
+    if (@as(isize, @bitCast(rc)) < 0) return false;
+    // Publish monotonically: committed_lo only ever decreases.
+    var cur = e.committed_lo.load(.monotonic);
+    while (target < cur) {
+        if (e.committed_lo.cmpxchgWeak(cur, target, .monotonic, .monotonic)) |prev| {
+            cur = prev;
+        } else break;
+    }
+    _ = stack_grow_events.fetchAdd(1, .monotonic);
+    return true;
 }
 
 // ---------------------------------------------------------------------
@@ -553,35 +674,47 @@ fn segvHandler(sig: linux.SIG, info: *const linux.siginfo_t, ctx: ?*anyopaque) c
     _ = sig;
     _ = ctx;
     const addr = @intFromPtr(info.fields.sigfault.addr);
-    if (guardLookup(addr)) |id| {
-        // Format "sa_task: goroutine <id> stack overflow (fixed stack,
-        // no growth in this phase)\n" without any libc/alloc calls.
-        var buf: [128]u8 = undefined;
-        const prefix = "sa_task: goroutine ";
-        const suffix = " stack overflow (fixed stack, no growth in this phase)\n";
-        @memcpy(buf[0..prefix.len], prefix);
-        var n = prefix.len;
-        var v = id;
-        var digits: [20]u8 = undefined;
-        var dn: usize = 0;
-        if (v == 0) {
-            digits[0] = '0';
-            dn = 1;
-        } else {
-            while (v > 0) : (v /= 10) {
-                digits[dn] = @intCast('0' + (v % 10));
-                dn += 1;
+    if (stackEntryLookup(addr)) |e| {
+        if (addr < e.committed_lo.load(.monotonic)) {
+            // DEF-R2: a fault in this task's own reserved-but-
+            // uncommitted zone is a growth event, not an
+            // overflow: commit the span and return — the
+            // faulting instruction re-executes against the
+            // now-RW pages.
+            if (stackGrowForFault(e, addr)) return;
+            // Growth refused (hard guard = cap exceeded, or the
+            // commit syscall failed): the loud overflow trap.
+            // Format "sa_task: goroutine <id> stack overflow
+            // (task stack cap reached)\n" without any libc/alloc
+            // calls.
+            const id = e.id;
+            var buf: [128]u8 = undefined;
+            const prefix = "sa_task: goroutine ";
+            const suffix = " stack overflow (task stack cap reached)\n";
+            @memcpy(buf[0..prefix.len], prefix);
+            var n = prefix.len;
+            var v = id;
+            var digits: [20]u8 = undefined;
+            var dn: usize = 0;
+            if (v == 0) {
+                digits[0] = '0';
+                dn = 1;
+            } else {
+                while (v > 0) : (v /= 10) {
+                    digits[dn] = @intCast('0' + (v % 10));
+                    dn += 1;
+                }
             }
+            var i: usize = 0;
+            while (i < dn) : (i += 1) {
+                buf[n] = digits[dn - 1 - i];
+                n += 1;
+            }
+            @memcpy(buf[n .. n + suffix.len], suffix);
+            n += suffix.len;
+            _ = linux.write(2, &buf, n);
+            std.process.abort();
         }
-        var i: usize = 0;
-        while (i < dn) : (i += 1) {
-            buf[n] = digits[dn - 1 - i];
-            n += 1;
-        }
-        @memcpy(buf[n .. n + suffix.len], suffix);
-        n += suffix.len;
-        _ = linux.write(2, &buf, n);
-        std.process.abort();
     }
     // Not one of ours: restore the default disposition and re-raise
     // by returning — the faulting instruction re-executes and the
@@ -1184,9 +1317,16 @@ fn envUsize(name: []const u8) ?usize {
 
 fn initScheduler() void {
     if (envUsize("SA_TASK_STACK_KIB")) |kib| {
+        // DEF-R2: initial commit per task (see the stack
+        // allocation section for the redefinition note).
         const clamped = std.math.clamp(kib, 64, 8192);
-        cfg_stack_usable = clamped * 1024;
+        cfg_stack_initial = clamped * 1024;
     }
+    if (envUsize("SA_TASK_STACK_CAP_KIB")) |kib| {
+        const clamped = std.math.clamp(kib, 1024, 1024 * 1024);
+        cfg_stack_cap = clamped * 1024;
+    }
+    if (cfg_stack_cap < cfg_stack_initial) cfg_stack_cap = cfg_stack_initial;
     const cpu = std.Thread.getCpuCount() catch 1;
     var want = envUsize("SA_TASK_CARRIERS") orelse cpu;
     want = std.math.clamp(want, 1, 128);
@@ -1686,6 +1826,95 @@ test "sa_task.test.sched: guard range registered while goroutine lives" {
         std.Thread.yield() catch {};
     }
     try testing.expect(guardLookup(lo + 1) == null);
+}
+
+// ---------------------------------------------------------------------
+// DEF-R2 reserve/commit tests.
+
+var r2_sum: std.atomic.Value(u64) = .init(0);
+var r2_deepest_committed: std.atomic.Value(usize) = .init(0);
+var r2_deepest_top: std.atomic.Value(usize) = .init(0);
+
+fn r2Descend(n: usize) u64 {
+    var frame: [16 * 1024]u8 = undefined;
+    for (&frame, 0..) |*b, i| b.* = @truncate(n + i);
+    var sum: u64 = 0;
+    if (n == 0) {
+        var marker: u8 = 0;
+        if (stackEntryLookup(@intFromPtr(&marker))) |e| {
+            r2_deepest_committed.store(e.committed_lo.load(.monotonic), .release);
+            r2_deepest_top.store(e.top, .release);
+        }
+    } else {
+        sum +%= r2Descend(n - 1);
+    }
+    for (frame) |b| sum +%= b;
+    return sum;
+}
+
+fn r2GrowWorker(arg: ?*anyopaque) callconv(.c) void {
+    const depth: usize = @intCast(@intFromPtr(arg.?));
+    r2_sum.store(r2Descend(depth), .release);
+}
+
+test "sa_task.test.sched: reserve/commit grows in place for a deep descent (DEF-R2)" {
+    if (!supported) return error.SkipZigTest;
+    // 192 levels x ~16 KiB frames ~= 3 MiB of descent: far past
+    // the 256 KiB initial commit, far below the 64 MiB cap.
+    const depth: usize = 192;
+    const events0 = stack_grow_events.load(.monotonic);
+    r2_deepest_committed.store(0, .release);
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&r2GrowWorker, @ptrFromInt(depth), &h));
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    var expect: u64 = 0;
+    var k: usize = 0;
+    while (k <= depth) : (k += 1) {
+        var i: usize = 0;
+        while (i < 16 * 1024) : (i += 1) expect +%= @as(u8, @truncate(k + i));
+    }
+    try testing.expectEqual(expect, r2_sum.load(.acquire));
+    // Growth actually happened (in place — not a silently
+    // larger fixed stack):
+    try testing.expect(stack_grow_events.load(.monotonic) > events0);
+    // And by the deepest point the committed span had grown
+    // well past the initial commit.
+    try testing.expect(r2_deepest_top.load(.acquire) - r2_deepest_committed.load(.acquire) > 2 * 1024 * 1024);
+}
+
+var r2_release: std.atomic.Value(bool) = .init(false);
+
+fn r2ParkWorker(_: ?*anyopaque) callconv(.c) void {
+    while (!r2_release.load(.acquire)) _ = sa_task_sleep_ms(5);
+}
+
+test "sa_task.test.sched: parked shallow tasks keep commit at the initial quantum (DEF-R2)" {
+    if (!supported) return error.SkipZigTest;
+    r2_release.store(false, .release);
+    const N = 256;
+    var handles: [N]u64 = undefined;
+    for (&handles) |*h| try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&r2ParkWorker, null, h));
+    // Let the workers start and park.
+    var ts: linux.timespec = .{ .sec = 0, .nsec = 50 * std.time.ns_per_ms };
+    _ = linux.nanosleep(&ts, null);
+    var total_committed: usize = 0;
+    var found: usize = 0;
+    for (&guard_table) |*e| {
+        if (!e.live.load(.acquire)) continue;
+        for (handles) |h| {
+            if (e.id == h) {
+                total_committed += e.top - e.committed_lo.load(.monotonic);
+                found += 1;
+            }
+        }
+    }
+    try testing.expectEqual(@as(usize, N), found);
+    // Committed stays at the initial quantum per task (plus a
+    // small slack) — NOT the 64 MiB reserve: idle tasks do not
+    // commit their reservation.
+    try testing.expect(total_committed <= N * (cfg_stack_initial + 64 * 1024));
+    r2_release.store(true, .release);
+    for (handles) |h| try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
 }
 
 var cycle_handles: [2]u64 = .{ 0, 0 };
