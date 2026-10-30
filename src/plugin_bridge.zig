@@ -72,6 +72,7 @@ fn cloneFunctionSigForSymbolTable(
         .llvm_name = null,
         .ignored = source.ignored,
         .should_panic = source.should_panic,
+        .is_variadic = source.is_variadic,
     };
     errdefer out.deinit(allocator);
 

@@ -1600,6 +1600,9 @@ fn mapInstKind(form: InstructionForm) InstKind {
         .raw_cast => .raw_cast,
         .assume_safe => .assume_safe,
         .assume_borrow => .assume_borrow,
+        .va_start => .va_start,
+        .va_arg => .va_arg,
+        .va_end => .va_end,
         .unknown => .native,
     };
 }
@@ -1758,6 +1761,22 @@ fn emitParsedLine(
                     const dst = try symbols.intern(classified.parts[0]);
                     inst.operands[0] = .{ .reg = dst };
                     inst.operands[1] = try resolveSizeOperandText(allocator, dict, owned_text, symbols, classified.parts[1]);
+                },
+                .va_start => {
+                    const dst = try symbols.intern(classified.parts[0]);
+                    inst.operands[0] = .{ .reg = dst };
+                },
+                .va_arg => {
+                    const dst = try symbols.intern(classified.parts[0]);
+                    const ap = try symbols.intern(classified.parts[1]);
+                    const ty = common_signature.parsePrimType(classified.parts[2]) catch return error.InvalidSyntax;
+                    inst.operands[0] = .{ .reg = dst };
+                    inst.operands[1] = .{ .reg = ap };
+                    inst.operands[2] = .{ .ty = @intFromEnum(ty) };
+                },
+                .va_end => {
+                    const ap = try symbols.intern(classified.parts[0]);
+                    inst.operands[0] = .{ .reg = ap };
                 },
                 .atomic_load => {
                     const parsed = atomic.parseLoad(raw_line) catch |err| switch (err) {
@@ -3698,6 +3717,7 @@ fn cloneRemappedFunctionSig(
         .llvm_name = null,
         .ignored = source_sig.ignored,
         .should_panic = source_sig.should_panic,
+        .is_variadic = source_sig.is_variadic,
     };
     errdefer out.deinit(allocator);
 
@@ -3739,6 +3759,7 @@ fn cloneExactFunctionSig(allocator: std.mem.Allocator, source_sig: FunctionSig) 
         .llvm_name = null,
         .ignored = source_sig.ignored,
         .should_panic = source_sig.should_panic,
+        .is_variadic = source_sig.is_variadic,
     };
     errdefer out.deinit(allocator);
 

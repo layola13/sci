@@ -8,7 +8,7 @@ const const_decl = @import("common/const_decl.zig");
 const sio = @import("sio");
 
 pub const EmitOptions = emit_options.EmitOptions;
-pub const CEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, OutOfMemory };
+pub const CEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, UnsupportedVariadic, OutOfMemory };
 
 /// Last instruction raw text seen by the emitter (diagnostics only).
 pub threadlocal var last_c_inst: []const u8 = "";
@@ -8414,6 +8414,13 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
 }
 
 pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, c_opt: CEmitOptions) ![]u8 {
+    // Extern variadic batch: the C emitter's uniform-arity model has no
+    // C-ABI variadic call/define mechanism (externs resolve through a
+    // hand-written binding catalogue). Reject loudly instead of falling
+    // back to a trap stub.
+    for (verified.function_sigs) |fs| {
+        if (fs.is_variadic) return error.UnsupportedVariadic;
+    }
     var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
     const writer = &out.writer;

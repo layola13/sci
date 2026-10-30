@@ -644,6 +644,7 @@ fn writeFunctionSigs(writer: *std.Io.Writer, function_sigs: []const sig.Function
         try writer.writeByte(if (item.is_ffi_wrapper) 1 else 0);
         try writer.writeByte(if (item.ignored) 1 else 0);
         try writer.writeByte(if (item.should_panic) 1 else 0);
+        try writer.writeByte(if (item.is_variadic) 1 else 0);
         try writeOptionalPoolText(writer, pool, item.upstream_file);
         try writeOptionalUpstreamLoc(writer, pool, item.upstream_loc);
         try writeOptionalPoolText(writer, pool, item.llvm_name);
@@ -692,6 +693,7 @@ fn readFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u8, p
         const is_ffi_wrapper = (try cursor.readByte()) == 1;
         const ignored = (try cursor.readByte()) == 1;
         const should_panic = (try cursor.readByte()) == 1;
+        const is_variadic = (try cursor.readByte()) == 1;
         var upstream_file: ?[]u8 = null;
         errdefer if (upstream_file) |file| allocator.free(file);
         var upstream_loc: ?upstream.UpstreamLoc = null;
@@ -748,6 +750,7 @@ fn readFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u8, p
             .llvm_name = llvm_name,
             .ignored = ignored,
             .should_panic = should_panic,
+            .is_variadic = is_variadic,
         };
         upstream_file = null;
         upstream_loc = null;
@@ -783,6 +786,7 @@ fn readTestFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u
         const is_ffi_wrapper = (try cursor.readByte()) == 1;
         const ignored = (try cursor.readByte()) == 1;
         const should_panic = (try cursor.readByte()) == 1;
+        const is_variadic = (try cursor.readByte()) == 1;
 
         var upstream_file: ?[]u8 = null;
         errdefer if (upstream_file) |file| allocator.free(file);
@@ -844,6 +848,7 @@ fn readTestFunctionSigs(allocator: std.mem.Allocator, symbols: []const []const u
             .llvm_name = llvm_name,
             .ignored = ignored,
             .should_panic = should_panic,
+            .is_variadic = is_variadic,
         });
         upstream_file = null;
         upstream_loc = null;

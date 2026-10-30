@@ -310,6 +310,9 @@ fn structuredInstForm(kind: inst.InstKind) ?classifier.InstructionForm {
         .raw_cast => .raw_cast,
         .assume_safe => .assume_safe,
         .assume_borrow => .assume_borrow,
+        .va_start => .va_start,
+        .va_arg => .va_arg,
+        .va_end => .va_end,
         else => null,
     };
 }
@@ -396,6 +399,15 @@ fn classifyStructuredInstruction(item: inst.Instruction, symbol_names: []const [
             addStructuredPart(&out, 1, operandName(symbol_names, item.operands[1]));
         },
         .native => addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0])),
+        .va_start => addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0])),
+        .va_arg => {
+            addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
+            addStructuredPart(&out, 1, operandName(symbol_names, item.operands[1]));
+            if (item.operands[2] == .ty) {
+                if (sig.primTypeFromTag(item.operands[2].ty)) |ty| addStructuredPart(&out, 2, sig.primTypeName(ty));
+            }
+        },
+        .va_end => addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0])),
         else => {},
     }
     return out;
@@ -626,7 +638,7 @@ fn isTerminator(kind: inst.InstKind) bool {
 
 fn isExecKind(kind: inst.InstKind) bool {
     return switch (kind) {
-        .alloc, .stack_alloc, .load, .store, .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw, .fence, .borrow, .move_, .release, .assign, .op, .ptr_add, .jmp, .br, .br_null, .call, .call_indirect, .try_, .early_return, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow, .native => true,
+        .alloc, .stack_alloc, .load, .store, .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw, .fence, .borrow, .move_, .release, .assign, .op, .ptr_add, .jmp, .br, .br_null, .call, .call_indirect, .try_, .early_return, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow, .native, .va_start, .va_arg, .va_end => true,
         else => false,
     };
 }
@@ -2406,6 +2418,16 @@ fn collectMetadata(
             .alloc, .stack_alloc => {
                 _ = try symbols.intern(classified.parts[0]);
             },
+            .va_start => {
+                _ = try symbols.intern(classified.parts[0]);
+            },
+            .va_arg => {
+                _ = try symbols.intern(classified.parts[0]);
+                _ = try symbols.intern(classified.parts[1]);
+            },
+            .va_end => {
+                _ = try symbols.intern(classified.parts[0]);
+            },
             .move_, .release, .raw_cast, .assume_safe, .assume_borrow => {
                 _ = try symbols.intern(classified.parts[0]);
                 if (classified.part_count > 1 and isIdentLike(classified.parts[1])) {
@@ -2573,6 +2595,7 @@ fn clonePredecodedFunctionSig(allocator: std.mem.Allocator, source: sig.Function
         .llvm_name = llvm_name,
         .ignored = source.ignored,
         .should_panic = source.should_panic,
+        .is_variadic = source.is_variadic,
     };
 }
 
@@ -3834,10 +3857,19 @@ fn verifyBody(
 
                 if (!parsed.is_indirect) {
                     if (sig_match) |resolved| {
-                        if (resolved.params.len != parsed.args.len) {
+                        // Extern variadic batch: a variadic callee takes
+                        // at least its fixed parameters; trailing
+                        // arguments carry no ParamSpec contract and are
+                        // not prefix-checked (their discipline is the
+                        // language checker's promotion rules).
+                        if (resolved.is_variadic) {
+                            if (parsed.args.len < resolved.params.len) {
+                                return trapReport(.capability_mismatch, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "call-site capability prefix does not match the callee contract", null);
+                            }
+                        } else if (resolved.params.len != parsed.args.len) {
                             return trapReport(.capability_mismatch, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "call-site capability prefix does not match the callee contract", null);
                         }
-                        for (parsed.args, resolved.params) |arg, param| {
+                        for (parsed.args[0..resolved.params.len], resolved.params) |arg, param| {
                             if (!callPrefixMatchesParam(param, arg.prefix)) {
                                 return trapReport(.capability_mismatch, item, current_function_text, current_is_ffi_wrapper, parsed.dest, null, null, "call-site capability prefix does not match the callee contract", null);
                             }
@@ -4092,6 +4124,23 @@ fn verifyBody(
                     }
                 }
                 terminated = true;
+            },
+            .va_start => {
+                // Extern variadic batch: the destination receives a
+                // fresh raw pointer to this function's va_list object
+                // (host-managed storage, no ownership payload), mirroring
+                // the load-of-pointer state shape.
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
+                flags[@intCast(item.operands[0].reg)] = regFlagRawPointer;
+            },
+            .va_arg => {
+                if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
+                if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
+                const read_ty: sig.PrimType = if (item.operands[2] == .ty) (sig.primTypeFromTag(item.operands[2].ty) orelse .i64) else .i64;
+                flags[@intCast(item.operands[0].reg)] = if (read_ty == .ptr) regFlagRawPointer else regFlagEphemeralScalar;
+            },
+            .va_end => {
+                if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
             },
             else => {},
         }

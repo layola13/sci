@@ -8,7 +8,7 @@ const const_decl = @import("common/const_decl.zig");
 const sio = @import("sio");
 
 pub const EmitOptions = emit_options.EmitOptions;
-pub const JsEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, UnsupportedNpmBinding, UnsupportedDtsType, OutOfMemory };
+pub const JsEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, UnsupportedVariadic, UnsupportedNpmBinding, UnsupportedDtsType, OutOfMemory };
 
 /// Last instruction raw text seen by the emitter (diagnostics only).
 pub threadlocal var last_js_inst: []const u8 = "";
@@ -2056,6 +2056,14 @@ fn useFastU32(lhs: inst.Operand, rhs: inst.Operand, widths: *const WidthMap, che
 /// stale entry can never feed a wrong mask.
 fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype, base: inst.Instruction) void {
     switch (base.kind) {
+        // Extern variadic batch: JS rejects variadic signatures at
+        // entry; should a hand-written va instruction still arrive,
+        // drop width knowledge for its destination (never guess).
+        .va_start, .va_arg => {
+            if (base.operands[0] != .reg) return;
+            _ = widths.remove(base.operands[0].reg);
+        },
+        .va_end => {},
         .load, .take, .atomic_load => {
             if (base.operands[0] != .reg) return;
             if (packWidth(memPrimType(base))) |w| {
@@ -11909,6 +11917,11 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
     // in one process).
     last_js_inst = "";
     last_js_func = "";
+    // Extern variadic batch: no variadic extern mechanism on the JS
+    // target; reject loudly.
+    for (verified.function_sigs) |fs| {
+        if (fs.is_variadic) return error.UnsupportedVariadic;
+    }
     var out: std.Io.Writer.Allocating = .init(allocator);
     errdefer out.deinit();
     const writer = &out.writer;

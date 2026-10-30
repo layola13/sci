@@ -34,6 +34,7 @@ pub const RunError = error{
     CallStackOverflow,
     MissingIndirectCallProvenance,
     UnsupportedExtern,
+    UnsupportedVariadic,
     UnsupportedInstruction,
     UnsupportedSysIntrinsic,
     PolicyDenied,
@@ -1779,6 +1780,7 @@ const Interpreter = struct {
         defer self.call_depth -= 1;
 
         const fsig = self.program.function_sigs[sig_index];
+        if (fsig.is_variadic) return RunError.UnsupportedVariadic;
         if (fsig.kind == .external) {
             self.stderr.print(
                 "sa run unsupported extern: {s}; native build may work if the providing plugin or library is installed, but the interpreter has no broker/FFI bridge for this symbol yet\n",
@@ -2144,6 +2146,7 @@ const Interpreter = struct {
                         } orelse return RunError.MissingIndirectCallProvenance;
                         const callee_index = self.findFunctionIndex(target_name) orelse return RunError.UnknownFunction;
                         const target_sig = self.program.function_sigs[callee_index];
+                        if (target_sig.is_variadic) return RunError.UnsupportedVariadic;
                         if (parsed.args.len != target_sig.params.len) return RunError.InvalidOperand;
                         const args = try self.collectArgs(range, parsed, &regs, target_sig.params);
                         defer self.allocator.free(args);
@@ -2174,6 +2177,7 @@ const Interpreter = struct {
                         .not_syscall => {
                             const callee_sig_index = self.findFunctionIndex(parsed.callee) orelse return RunError.UnknownFunction;
                             const callee_sig = self.program.function_sigs[callee_sig_index];
+                            if (callee_sig.is_variadic) return RunError.UnsupportedVariadic;
                             const args = try self.collectArgs(range, parsed, &regs, callee_sig.params);
                             defer self.allocator.free(args);
                             const ret = try self.execFunction(callee_sig_index, args);
@@ -2219,6 +2223,11 @@ const Interpreter = struct {
                     }
                     const value = try resolveOperandValue(self, range, &regs, base.operands[0]);
                     return try self.coerce(value, ret_ty);
+                },
+                .va_start, .va_arg, .va_end => {
+                    // Extern variadic batch: the interpreter has no
+                    // va_list model; fail loudly instead of skipping.
+                    return RunError.UnsupportedVariadic;
                 },
                 .native => {
                     // Native escape is not supported by the interpreter.

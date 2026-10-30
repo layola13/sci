@@ -17,7 +17,7 @@ extern fn sa_llvmc_emit_module_bitcode(module: *const CModule, opt_level: c_int,
 extern fn sa_llvmc_emit_module_object(module: *const CModule, out_path: [*:0]const u8, opt_level: c_int, out_error: *?[*:0]u8) callconv(.c) i32;
 extern fn sa_llvmc_emit_module_artifacts(module: *const CModule, out_bitcode_path: [*:0]const u8, out_object_path: [*:0]const u8, opt_level: c_int, out_error: *?[*:0]u8) callconv(.c) i32;
 
-pub const LlvmcError = error{ Failed, InvalidOperand, UnsupportedType, UnknownFunction, UnsupportedInstruction };
+pub const LlvmcError = error{ Failed, InvalidOperand, UnsupportedType, UnknownFunction, UnsupportedInstruction, UnsupportedVariadic };
 pub const EmitOptions = emit_options.EmitOptions;
 
 threadlocal var last_error_buf: [512]u8 = undefined;
@@ -46,7 +46,7 @@ pub fn lastErrorMessage() ?[]const u8 {
 
 const CType = enum(c_int) { void = 0, i1 = 1, i8 = 2, i16 = 3, i32 = 4, i64 = 5, f32 = 6, f64 = 7, ptr = 8, u8 = 9, u16 = 10, u32 = 11, u64 = 12 };
 const CFuncKind = enum(c_int) { normal = 0, external = 1, exported = 2, test_func = 3 };
-const COp = enum(c_int) { none = 0, label = 1, alloc = 2, stack_alloc = 3, load = 4, store = 5, op = 6, ptr_add = 7, jmp = 8, br = 9, call = 10, ret = 11, panic = 12, panic_msg = 13, atomic_load = 14, atomic_store = 15, atomic_rmw = 16, cmpxchg = 17, fence = 18, try_ = 19, call_indirect = 20, assign = 21, release = 22, take = 23 };
+const COp = enum(c_int) { none = 0, label = 1, alloc = 2, stack_alloc = 3, load = 4, store = 5, op = 6, ptr_add = 7, jmp = 8, br = 9, call = 10, ret = 11, panic = 12, panic_msg = 13, atomic_load = 14, atomic_store = 15, atomic_rmw = 16, cmpxchg = 17, fence = 18, try_ = 19, call_indirect = 20, assign = 21, release = 22, take = 23, va_start = 24, va_arg = 25, va_end = 26 };
 const COperandKind = enum(c_int) { none = 0, reg = 1, imm_i64 = 2, imm_u64 = 3, const_ptr = 4, imm_f64 = 5 };
 const CBinaryOp = enum(c_int) { add = 0, sub = 1, mul = 2, sdiv = 3, udiv = 4, srem = 5, urem = 6, band = 7, bor = 8, xor = 9, shl = 10, lshr = 11, ashr = 12, eq = 13, ne = 14, slt = 15, sle = 16, sgt = 17, sge = 18, ult = 19, ule = 20, ugt = 21, uge = 22, fadd = 23, fsub = 24, fmul = 25, fdiv = 26, fcmp_eq = 27, fcmp_ne = 28, fcmp_lt = 29, fcmp_le = 30, fcmp_gt = 31, fcmp_ge = 32 };
 const CAtomicOrdering = enum(c_int) { relaxed = 0, acquire = 1, release = 2, acq_rel = 3, seq_cst = 4 };
@@ -99,6 +99,7 @@ const CFunction = extern struct {
     debug_vars: [*]const CDebugVar,
     debug_var_count: usize,
     emit_main_wrapper: bool,
+    is_variadic: bool,
 };
 const CModule = extern struct {
     size_bits: u16,
@@ -1119,6 +1120,9 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
             const call_fallible = if (resolved) |resolved_sig| resolved_sig.return_fallible else false;
             break :blk .{ .op = .call, .dst = dst, .operand0 = none, .operand1 = none, .operand2 = none, .ty = call_ty, .binary_op = .add, .label = null, .false_label = null, .callee = callee.ptr, .args = args.ptr, .arg_count = args.len, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = parsed.dest != null, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = call_fallible, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
         },
+        .va_start => .{ .op = .va_start, .dst = try state.regSlot(base.operands[0].reg), .operand0 = none, .operand1 = none, .operand2 = none, .ty = .ptr, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
+        .va_arg => .{ .op = .va_arg, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = try cType(sig.primTypeFromTag(base.operands[2].ty) orelse return error.InvalidOperand), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
+        .va_end => .{ .op = .va_end, .dst = 0, .operand0 = try state.operand(base.operands[0]), .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = false, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .try_, .early_return => .{ .op = .try_, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = try cType(returnTypeForSig(state.fsig.return_cap, state.fsig.return_ty)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => blk: {
             const value = try assignOperand(state, base);
@@ -1320,12 +1324,21 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
             .debug_vars = debug_vars.ptr,
             .debug_var_count = if (context.options.debug) debug_vars.len else 0,
             .emit_main_wrapper = task.emit_main_wrapper,
+            .is_variadic = fsig.is_variadic,
         };
     }
 }
 
 fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: ?*const flattener.DefDict, loc_table: upstream.LocTable, source_path: []const u8, size_bits: u16, options: EmitOptions, obj_path: ?[]const u8, opt_level: u8) ![]const u8 {
     _ = def_dict;
+    // Extern variadic batch: the shim's va_list layout is the x86_64
+    // SysV __va_list_tag; the wasm target has a different va_list model
+    // and stays loudly unsupported in this batch.
+    if (options.wasm_compat) {
+        for (verified.function_sigs) |fsig| {
+            if (fsig.is_variadic) return error.UnsupportedVariadic;
+        }
+    }
     if (options.debug and loc_table.len != verified.annotated.len) return error.InvalidOperand;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();

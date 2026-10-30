@@ -47,6 +47,8 @@ pub const FunctionSig = struct {
     return_fallible: bool = false,
     entry_inst_idx: u32,
     is_ffi_wrapper: bool,
+    /// Extern variadic batch: see src/common/signature.zig.
+    is_variadic: bool = false,
     upstream_file: ?[]const u8 = null,
     upstream_loc: ?upstream.UpstreamLoc = null,
     param_ids: []const u32 = &.{},
@@ -211,6 +213,36 @@ fn parseParam(allocator: std.mem.Allocator, fragment: []const u8) ParseError!Par
     };
 }
 
+const ParamList = struct {
+    params: []const ParamSpec,
+    is_variadic: bool,
+};
+
+fn parseParamList(allocator: std.mem.Allocator, params_text: []const u8) ParseError!ParamList {
+    var param_list = std.array_list.Managed(ParamSpec).init(allocator);
+    errdefer {
+        for (param_list.items) |param| allocator.free(param.name);
+        param_list.deinit();
+    }
+
+    var is_variadic = false;
+    if (params_text.len != 0) {
+        var iterator = std.mem.splitScalar(u8, params_text, ',');
+        while (iterator.next()) |fragment| {
+            const trimmed = std.mem.trim(u8, fragment, " \t\r");
+            if (std.mem.eql(u8, trimmed, "...")) {
+                if (iterator.rest().len != 0) return ParseError.InvalidFunctionSig;
+                if (param_list.items.len == 0) return ParseError.InvalidFunctionSig;
+                is_variadic = true;
+                break;
+            }
+            try param_list.append(try parseParam(allocator, fragment));
+        }
+    }
+
+    return .{ .params = try param_list.toOwnedSlice(), .is_variadic = is_variadic };
+}
+
 const TestModifiers = struct {
     ignored: bool = false,
     should_panic: bool = false,
@@ -292,22 +324,15 @@ pub fn parseFunctionSig(
         }
     }
 
-    var param_list = std.array_list.Managed(ParamSpec).init(allocator);
+    const parsed_params = try parseParamList(allocator, params_text);
     errdefer {
-        for (param_list.items) |param| allocator.free(param.name);
-        param_list.deinit();
-    }
-
-    if (params_text.len != 0) {
-        var iterator = std.mem.splitScalar(u8, params_text, ',');
-        while (iterator.next()) |fragment| {
-            try param_list.append(try parseParam(allocator, fragment));
-        }
+        for (parsed_params.params) |param| allocator.free(param.name);
+        allocator.free(parsed_params.params);
     }
 
     const name = try allocator.dupe(u8, name_text);
     errdefer allocator.free(name);
-    const params = try param_list.toOwnedSlice();
+    const params = parsed_params.params;
 
     return .{
         .id = id,
@@ -319,6 +344,7 @@ pub fn parseFunctionSig(
         .return_fallible = return_fallible,
         .entry_inst_idx = entry_inst_idx,
         .is_ffi_wrapper = false,
+        .is_variadic = parsed_params.is_variadic,
         .upstream_file = null,
         .upstream_loc = null,
     };
@@ -405,22 +431,15 @@ pub fn parseFunctionHeader(
         }
     }
 
-    var param_list = std.array_list.Managed(ParamSpec).init(allocator);
+    const parsed_params = try parseParamList(allocator, params_text);
     errdefer {
-        for (param_list.items) |param| allocator.free(param.name);
-        param_list.deinit();
-    }
-
-    if (params_text.len != 0) {
-        var iterator = std.mem.splitScalar(u8, params_text, ',');
-        while (iterator.next()) |fragment| {
-            try param_list.append(try parseParam(allocator, fragment));
-        }
+        for (parsed_params.params) |param| allocator.free(param.name);
+        allocator.free(parsed_params.params);
     }
 
     const name = try allocator.dupe(u8, name_text);
     errdefer allocator.free(name);
-    const params = try param_list.toOwnedSlice();
+    const params = parsed_params.params;
     const llvm_name = if (kind == .test_func) try testLLVMName(allocator, id) else null;
 
     return .{
@@ -433,6 +452,7 @@ pub fn parseFunctionHeader(
         .return_fallible = return_fallible,
         .entry_inst_idx = entry_inst_idx,
         .is_ffi_wrapper = kind == .ffi_wrapper,
+        .is_variadic = parsed_params.is_variadic,
         .upstream_file = null,
         .upstream_loc = null,
         .llvm_name = llvm_name,
@@ -646,6 +666,15 @@ pub fn writeFunctionHeader(writer: anytype, sig: FunctionSig) !void {
         if (param.cap != .by_value) try writer.writeAll(capText(param.cap));
         try writer.print("{s}: {s}", .{ param.name, primTypeName(param.ty) });
     }
+    // Extern variadic batch: the trailing marker is part of the shared
+    // declaration surface; dropping it here would silently de-variadise
+    // any signature that round-trips through its text form (the SAB
+    // reader synthesises decl raw_text with this writer and the
+    // verifier re-parses it).
+    if (sig.is_variadic) {
+        if (sig.params.len != 0) try writer.writeAll(", ");
+        try writer.writeAll("...");
+    }
     try writer.writeByte(')');
     if (sig.return_ty != .void) {
         try writer.writeAll(" -> ");
@@ -666,6 +695,7 @@ fn expectSigEqual(expected: FunctionSig, actual: FunctionSig) !void {
     try std.testing.expectEqual(expected.is_ffi_wrapper, actual.is_ffi_wrapper);
     try std.testing.expectEqual(expected.ignored, actual.ignored);
     try std.testing.expectEqual(expected.should_panic, actual.should_panic);
+    try std.testing.expectEqual(expected.is_variadic, actual.is_variadic);
     try std.testing.expectEqualStrings(expected.name, actual.name);
     try std.testing.expectEqual(expected.params.len, actual.params.len);
     for (expected.params, actual.params) |lhs, rhs| {

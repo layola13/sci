@@ -298,6 +298,11 @@ pub const InstKind = enum(u8) {
     assume_safe,
     assume_borrow,
     native,
+    // Extern variadic batch (appended last: SAB encodes the kind as a
+    // raw byte, so existing values must not move).
+    va_start,
+    va_arg,
+    va_end,
 };
 
 pub const Instruction = struct {

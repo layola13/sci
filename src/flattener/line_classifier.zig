@@ -58,6 +58,9 @@ pub const InstructionForm = enum {
     raw_cast,
     assume_safe,
     assume_borrow,
+    va_start,
+    va_arg,
+    va_end,
     unknown,
 };
 
@@ -553,6 +556,24 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         return true;
     }
 
+    if (std.mem.eql(u8, simple_rhs, "va_start")) {
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .va_start;
+        addPart(line, 0, lhs);
+        return true;
+    }
+
+    if (std.mem.startsWith(u8, simple_rhs, "va_arg ")) {
+        const rest = std.mem.trim(u8, simple_rhs["va_arg ".len..], " \t");
+        const pair = parseCommaPair(rest) orelse return false;
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .va_arg;
+        addPart(line, 0, lhs);
+        addPart(line, 1, pair.left);
+        addPart(line, 2, pair.right);
+        return true;
+    }
+
     if (std.mem.startsWith(u8, simple_rhs, "stack_alloc ")) {
         const size = std.mem.trim(u8, simple_rhs["stack_alloc ".len..], " \t");
         if (size.len == 0) return false;
@@ -787,6 +808,15 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
         if (rest.len == 0) return false;
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .panic;
+        addPart(line, 0, rest);
+        return true;
+    }
+
+    if (startsWithWord(trimmed, "va_end")) {
+        const rest = std.mem.trimStart(u8, trimmed["va_end".len..], " \t");
+        if (rest.len == 0) return false;
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .va_end;
         addPart(line, 0, rest);
         return true;
     }

@@ -5059,6 +5059,7 @@ fn cloneSabFunctionSig(allocator: std.mem.Allocator, source: flattener.FunctionS
         .llvm_name = llvm_name,
         .ignored = source.ignored,
         .should_panic = source.should_panic,
+        .is_variadic = source.is_variadic,
     };
 }
 

@@ -36,7 +36,7 @@ void LLVMDisposeTargetData(LLVMTargetDataRef target_data);
 
 typedef enum { SA_T_VOID=0, SA_T_I1=1, SA_T_I8=2, SA_T_I16=3, SA_T_I32=4, SA_T_I64=5, SA_T_F32=6, SA_T_F64=7, SA_T_PTR=8, SA_T_U8=9, SA_T_U16=10, SA_T_U32=11, SA_T_U64=12 } SaType;
 typedef enum { SA_F_NORMAL=0, SA_F_EXTERNAL=1, SA_F_EXPORTED=2, SA_F_TEST=3 } SaFuncKind;
-typedef enum { SA_OP_NONE=0, SA_OP_LABEL=1, SA_OP_ALLOC=2, SA_OP_STACK_ALLOC=3, SA_OP_LOAD=4, SA_OP_STORE=5, SA_OP_BINOP=6, SA_OP_PTR_ADD=7, SA_OP_JMP=8, SA_OP_BR=9, SA_OP_CALL=10, SA_OP_RET=11, SA_OP_PANIC=12, SA_OP_PANIC_MSG=13, SA_OP_ATOMIC_LOAD=14, SA_OP_ATOMIC_STORE=15, SA_OP_ATOMIC_RMW=16, SA_OP_CMPXCHG=17, SA_OP_FENCE=18, SA_OP_TRY=19, SA_OP_CALL_INDIRECT=20, SA_OP_ASSIGN=21, SA_OP_RELEASE=22, SA_OP_TAKE=23 } SaOp;
+typedef enum { SA_OP_NONE=0, SA_OP_LABEL=1, SA_OP_ALLOC=2, SA_OP_STACK_ALLOC=3, SA_OP_LOAD=4, SA_OP_STORE=5, SA_OP_BINOP=6, SA_OP_PTR_ADD=7, SA_OP_JMP=8, SA_OP_BR=9, SA_OP_CALL=10, SA_OP_RET=11, SA_OP_PANIC=12, SA_OP_PANIC_MSG=13, SA_OP_ATOMIC_LOAD=14, SA_OP_ATOMIC_STORE=15, SA_OP_ATOMIC_RMW=16, SA_OP_CMPXCHG=17, SA_OP_FENCE=18, SA_OP_TRY=19, SA_OP_CALL_INDIRECT=20, SA_OP_ASSIGN=21, SA_OP_RELEASE=22, SA_OP_TAKE=23, SA_OP_VA_START=24, SA_OP_VA_ARG=25, SA_OP_VA_END=26 } SaOp;
 typedef enum { SA_OPER_NONE=0, SA_OPER_REG=1, SA_OPER_IMM_I64=2, SA_OPER_IMM_U64=3, SA_OPER_CONST_PTR=4, SA_OPER_IMM_F64=5 } SaOperandKind;
 typedef enum { SA_BIN_ADD=0, SA_BIN_SUB=1, SA_BIN_MUL=2, SA_BIN_SDIV=3, SA_BIN_UDIV=4, SA_BIN_SREM=5, SA_BIN_UREM=6, SA_BIN_AND=7, SA_BIN_OR=8, SA_BIN_XOR=9, SA_BIN_SHL=10, SA_BIN_LSHR=11, SA_BIN_ASHR=12, SA_BIN_EQ=13, SA_BIN_NE=14, SA_BIN_SLT=15, SA_BIN_SLE=16, SA_BIN_SGT=17, SA_BIN_SGE=18, SA_BIN_ULT=19, SA_BIN_ULE=20, SA_BIN_UGT=21, SA_BIN_UGE=22, SA_BIN_FADD=23, SA_BIN_FSUB=24, SA_BIN_FMUL=25, SA_BIN_FDIV=26, SA_BIN_FCMP_EQ=27, SA_BIN_FCMP_NE=28, SA_BIN_FCMP_LT=29, SA_BIN_FCMP_LE=30, SA_BIN_FCMP_GT=31, SA_BIN_FCMP_GE=32 } SaBinaryOp;
 typedef enum { SA_ATOMIC_RELAXED=0, SA_ATOMIC_ACQUIRE=1, SA_ATOMIC_RELEASE=2, SA_ATOMIC_ACQ_REL=3, SA_ATOMIC_SEQ_CST=4 } SaAtomicOrdering;
@@ -96,6 +96,7 @@ typedef struct {
     const SaDebugVar *debug_vars;
     size_t debug_var_count;
     unsigned char emit_main_wrapper;
+    unsigned char is_variadic;
 } SaFunction;
 typedef struct {
     unsigned short size_bits;
@@ -131,6 +132,10 @@ typedef struct {
     LLVMValueRef free_fn;
     LLVMValueRef stacksave_fn;
     LLVMValueRef stackrestore_fn;
+    LLVMValueRef va_start_fn;
+    LLVMValueRef va_end_fn;
+    LLVMTypeRef va_start_ty;
+    LLVMTypeRef va_list_ty;
     LLVMTypeRef stacksave_ty;
     LLVMTypeRef stackrestore_ty;
     LLVMValueRef write_fn;
@@ -582,7 +587,7 @@ static LLVMTypeRef fn_type_for(EmitCtx *e, const SaFunction *f) {
         if (sret) params[idx++] = LLVMPointerType(fallible_type_of(e, f->ret_ty), 0);
         for (size_t i = 0; i < f->param_count; i++) params[idx++] = type_of(e, f->params[i].ty);
     }
-    LLVMTypeRef ty = LLVMFunctionType(return_type_for(e, f), params, (unsigned)total, 0);
+    LLVMTypeRef ty = LLVMFunctionType(return_type_for(e, f), params, (unsigned)total, f->is_variadic ? 1 : 0);
     free(params);
     return ty;
 }
@@ -600,6 +605,12 @@ static int sa_type_can_coerce(SaType from, SaType to) {
 
 static unsigned int infer_indirect_sig_index(EmitCtx *e, const SaInstruction *in, const SaType *arg_tys) {
     unsigned int chosen = UINT_MAX;
+    // Extern variadic batch: several variadic candidates can share the
+    // same fixed prefix (e.g. (i32, ...) -> i64 and (i32, ...) -> f64);
+    // first-match would mistype the call. Among variadic candidates,
+    // prefer one whose return type matches the call's result type.
+    unsigned int chosen_variadic_ret = UINT_MAX;
+    int chosen_is_variadic = 0;
 
     for (size_t i = 0; i < e->function_count; i++) {
         const SaFunction *candidate = &e->functions[i];
@@ -613,10 +624,17 @@ static unsigned int infer_indirect_sig_index(EmitCtx *e, const SaInstruction *in
         if (in->has_dst && candidate->ret_ty == SA_T_VOID && !candidate->return_fallible) continue;
 
         size_t param_count = in->indirect_param_count != 0 ? in->indirect_param_count : candidate->param_count;
-        if (param_count != in->arg_count) continue;
+        // Extern variadic batch: a variadic candidate accepts any
+        // arg_count >= its fixed parameter count; only the fixed
+        // prefix carries parameter types to check.
+        if (in->indirect_param_count == 0 && candidate->is_variadic) {
+            if (in->arg_count < param_count) continue;
+        } else if (param_count != in->arg_count) continue;
 
         int ok = 1;
-        for (size_t a = 0; a < in->arg_count; a++) {
+        size_t check_count = in->arg_count;
+        if (in->indirect_param_count == 0 && candidate->is_variadic && check_count > param_count) check_count = param_count;
+        for (size_t a = 0; a < check_count; a++) {
             SaType param_ty = in->indirect_param_count != 0 ? in->indirect_param_tys[a] : candidate->params[a].ty;
             if (!sa_type_can_coerce(arg_tys[a], param_ty)) {
                 ok = 0;
@@ -625,11 +643,18 @@ static unsigned int infer_indirect_sig_index(EmitCtx *e, const SaInstruction *in
         }
         if (!ok) continue;
 
+        if (in->indirect_param_count == 0 && candidate->is_variadic && in->has_dst && candidate->ret_ty == in->ty) {
+            if (chosen_variadic_ret == UINT_MAX) chosen_variadic_ret = (unsigned int)i;
+        }
         if (chosen == UINT_MAX) {
             chosen = (unsigned int)i;
+            chosen_is_variadic = (in->indirect_param_count == 0 && candidate->is_variadic) ? 1 : 0;
         }
     }
 
+    if (chosen_variadic_ret != UINT_MAX && (chosen == UINT_MAX || chosen_is_variadic)) {
+        return chosen_variadic_ret;
+    }
     return chosen;
 }
 
@@ -646,7 +671,7 @@ static LLVMTypeRef indirect_fn_type_for(EmitCtx *e, const SaFunction *sig, const
         }
     }
     LLVMTypeRef ret_ty = return_type_for(e, sig);
-    LLVMTypeRef ty = LLVMFunctionType(ret_ty, params, (unsigned)param_count, 0);
+    LLVMTypeRef ty = LLVMFunctionType(ret_ty, params, (unsigned)param_count, sig->is_variadic ? 1 : 0);
     free(params);
     return ty;
 }
@@ -907,6 +932,30 @@ static int ensure_stack_rewind_intrinsics(EmitCtx *e) {
     e->stackrestore_fn = LLVMGetNamedFunction(e->module, "llvm.stackrestore");
     if (e->stackrestore_fn == NULL) e->stackrestore_fn = LLVMAddFunction(e->module, "llvm.stackrestore", e->stackrestore_ty);
     return (e->stacksave_fn != NULL && e->stackrestore_fn != NULL) ? 0 : 1;
+}
+
+/* Extern variadic batch: llvm.va_start / llvm.va_end take a pointer to a
+ * va_list object; on x86_64 SysV that object is one __va_list_tag struct
+ * { i32, i32, ptr, ptr }. The SA va_start instruction materialises it with
+ * an alloca in the current block (SLA emits it in the function prologue,
+ * before any branch). */
+static int ensure_va_intrinsics(EmitCtx *e) {
+    if (e->va_start_fn != NULL && e->va_end_fn != NULL) return 0;
+    /* The va_list layout below is x86_64 SysV only; other targets fail
+     * loudly here rather than miscompiling (registered gap). A NULL
+     * triple means the native default target of this build host. */
+    if (e->target_triple != NULL && e->target_triple[0] != '\0' && strstr(e->target_triple, "x86_64") == NULL) return 1;
+    LLVMTypeRef field_tys[4] = { e->i32_ty, e->i32_ty, e->ptr_ty, e->ptr_ty };
+    /* The va_list object is an ARRAY of one __va_list_tag, exactly the
+     * shape clang allocates ([1 x %struct.__va_list_tag]); the backend's
+     * va_arg lowering keys off that array form. */
+    e->va_list_ty = LLVMArrayType(LLVMStructTypeInContext(e->ctx, field_tys, 4, 0), 1);
+    e->va_start_ty = LLVMFunctionType(LLVMVoidTypeInContext(e->ctx), &e->ptr_ty, 1, 0);
+    e->va_start_fn = LLVMGetNamedFunction(e->module, "llvm.va_start");
+    if (e->va_start_fn == NULL) e->va_start_fn = LLVMAddFunction(e->module, "llvm.va_start", e->va_start_ty);
+    e->va_end_fn = LLVMGetNamedFunction(e->module, "llvm.va_end");
+    if (e->va_end_fn == NULL) e->va_end_fn = LLVMAddFunction(e->module, "llvm.va_end", e->va_start_ty);
+    return (e->va_start_fn != NULL && e->va_end_fn != NULL) ? 0 : 1;
 }
 
 static void emit_stack_restore(EmitCtx *e, LLVMValueRef save_slot) {
@@ -1284,6 +1333,64 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 LLVMSetAlignment(stack_mem, 16);
                 if (reg_store(e, regs, reg_count, in->dst, stack_mem, SA_T_PTR, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
                 break;
+            case SA_OP_VA_START: {
+                if (ensure_va_intrinsics(e)) { free(regs); free(labels); return 1; }
+                LLVMValueRef ap_mem = LLVMBuildAlloca(e->builder, e->va_list_ty, "va_list");
+                LLVMSetAlignment(ap_mem, 8);
+                LLVMValueRef ap_ptr = LLVMBuildPointerCast(e->builder, ap_mem, e->ptr_ty, "va_list_ptr");
+                LLVMBuildCall2(e->builder, e->va_start_ty, e->va_start_fn, &ap_ptr, 1, "");
+                if (reg_store(e, regs, reg_count, in->dst, ap_ptr, SA_T_PTR, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
+                break;
+            }
+            case SA_OP_VA_ARG: {
+                /* Extern variadic batch, form 2: the x86_64 SysV va_arg
+                 * read expanded inline (the same shape modern clang
+                 * emits in its frontend), instead of the legacy `va_arg`
+                 * IR instruction — that instruction's backend lowering
+                 * loses the va_list address when it arrives through the
+                 * SA register slots (ptrtoint/inttoptr round-trip) and
+                 * dereferences an uninitialised spill slot at runtime.
+                 * The expansion is branchless (select-based) so it fits
+                 * this emitter's linear instruction stream:
+                 *   tag = { gp_offset:i32, fp_offset:i32,
+                 *           overflow_arg_area:ptr, reg_save_area:ptr }
+                 * GP class (all integer/pointer reads): an 8-byte slot
+                 * from reg_save_area+gp_offset while gp_offset <= 40,
+                 * else from overflow_arg_area (which then advances 8).
+                 * FP class (f64): a 16-byte slot from
+                 * reg_save_area+fp_offset while fp_offset <= 160, else
+                 * overflow (advances 8). */
+                if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
+                v0 = coerce(e, v0, t0, SA_T_PTR);
+                LLVMTypeRef read_ty = type_of(e, in->ty);
+                const int is_fp = (in->ty == SA_T_F64);
+                /* Base pointer as i8*: field addresses via GEP. */
+                LLVMValueRef gp_slot = LLVMBuildPointerCast(e->builder, LLVMBuildGEP2(e->builder, e->i8_ty, v0, &((LLVMValueRef){LLVMConstInt(e->i64_ty, is_fp ? 4 : 0, 0)}), 1, "va_off_slot_raw"), LLVMPointerType(e->i32_ty, 0), "va_off_slot");
+                LLVMValueRef off = LLVMBuildLoad2(e->builder, e->i32_ty, gp_slot, "va_off");
+                LLVMValueRef ovf_slot = LLVMBuildGEP2(e->builder, e->i8_ty, v0, &((LLVMValueRef){LLVMConstInt(e->i64_ty, 8, 0)}), 1, "va_ovf_slot");
+                LLVMValueRef ovf = LLVMBuildLoad2(e->builder, e->ptr_ty, LLVMBuildPointerCast(e->builder, ovf_slot, LLVMPointerType(e->ptr_ty, 0), "va_ovf_pp"), "va_ovf");
+                LLVMValueRef rsa_slot = LLVMBuildGEP2(e->builder, e->i8_ty, v0, &((LLVMValueRef){LLVMConstInt(e->i64_ty, 16, 0)}), 1, "va_rsa_slot");
+                LLVMValueRef rsa = LLVMBuildLoad2(e->builder, e->ptr_ty, LLVMBuildPointerCast(e->builder, rsa_slot, LLVMPointerType(e->ptr_ty, 0), "va_rsa_pp"), "va_rsa");
+                LLVMValueRef off64 = LLVMBuildZExt(e->builder, off, e->i64_ty, "va_off64");
+                LLVMValueRef reg_addr = LLVMBuildGEP2(e->builder, e->i8_ty, rsa, &off64, 1, "va_reg_addr");
+                LLVMValueRef fits = LLVMBuildICmp(e->builder, LLVMIntULE, off, LLVMConstInt(e->i32_ty, is_fp ? 160 : 40, 0), "va_fits");
+                LLVMValueRef addr = LLVMBuildSelect(e->builder, fits, reg_addr, ovf, "va_addr");
+                LLVMValueRef argv = LLVMBuildLoad2(e->builder, read_ty, LLVMBuildPointerCast(e->builder, addr, LLVMPointerType(read_ty, 0), "va_arg_pp"), "va_arg");
+                LLVMSetAlignment(argv, align_of(in->ty));
+                LLVMValueRef new_off = LLVMBuildSelect(e->builder, fits, LLVMBuildAdd(e->builder, off, LLVMConstInt(e->i32_ty, is_fp ? 16 : 8, 0), "va_off_next"), off, "va_off_new");
+                LLVMBuildStore(e->builder, new_off, gp_slot);
+                LLVMValueRef new_ovf = LLVMBuildSelect(e->builder, fits, ovf, LLVMBuildGEP2(e->builder, e->i8_ty, ovf, &((LLVMValueRef){LLVMConstInt(e->i64_ty, 8, 0)}), 1, "va_ovf_next"), "va_ovf_new");
+                LLVMBuildStore(e->builder, new_ovf, LLVMBuildPointerCast(e->builder, ovf_slot, LLVMPointerType(e->ptr_ty, 0), "va_ovf_pp2"));
+                if (reg_store(e, regs, reg_count, in->dst, argv, in->ty, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
+                break;
+            }
+            case SA_OP_VA_END: {
+                if (ensure_va_intrinsics(e)) { free(regs); free(labels); return 1; }
+                if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
+                v0 = coerce(e, v0, t0, SA_T_PTR);
+                LLVMBuildCall2(e->builder, e->va_start_ty, e->va_end_fn, &v0, 1, "");
+                break;
+            }
             case SA_OP_TAKE:
             case SA_OP_LOAD:
                 if (operand_addressable_value(e, &in->operand0, regs, reg_count, &v0, &t0) || operand_value(e, &in->operand1, regs, reg_count, &v1, &t1)) { free(regs); free(labels); return 1; }

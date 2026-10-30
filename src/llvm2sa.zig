@@ -544,12 +544,24 @@ fn appendParamList(out: *std.array_list.Managed(u8), allocator: std.mem.Allocato
     const params = try splitTopLevelComma(allocator, params_text);
     defer allocator.free(params);
 
-    for (params, 0..) |param_text, idx| {
-        if (std.mem.eql(u8, trim(param_text), "...")) continue;
-        if (idx != 0) try out.appendSlice(", ");
-        const param = try parseParam(allocator, param_text, idx);
+    var wrote_any = false;
+    var named_idx: usize = 0;
+    for (params) |param_text| {
+        // Extern variadic batch: preserve the trailing `...` marker
+        // instead of silently dropping it (the SA declaration gains the
+        // shared is_variadic flag when sci parses it back).
+        if (std.mem.eql(u8, trim(param_text), "...")) {
+            if (wrote_any) try out.appendSlice(", ");
+            try out.appendSlice("...");
+            wrote_any = true;
+            continue;
+        }
+        if (wrote_any) try out.appendSlice(", ");
+        const param = try parseParam(allocator, param_text, named_idx);
+        named_idx += 1;
         defer allocator.free(param.name);
         try out.print("{s}: {s}", .{ param.name, param.ty });
+        wrote_any = true;
     }
 }
 
