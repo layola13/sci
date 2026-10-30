@@ -394,12 +394,21 @@ fn synthesizeRawText(
 ) !void {
     const raw = switch (item.kind) {
         .call, .call_indirect => blk: {
+            // C2 sab_carried_indirect_sig: re-attach the carried
+            // fn-pointer signature (operands[3]) to the synthesised
+            // raw text so referee parsing sees it exactly as in the
+            // SA text form.
+            const carried_suffix = if (item.kind == .call_indirect and item.operands[3] == .text and item.operands[3].text.len != 0)
+                try std.fmt.allocPrint(allocator, " : {s}", .{item.operands[3].text})
+            else
+                try allocator.dupe(u8, "");
+            defer allocator.free(carried_suffix);
             if (item.operands[0] == .reg) {
                 const body = if (item.operands[1] == .text) item.operands[1].text else return;
                 break :blk try std.fmt.allocPrint(
                     allocator,
-                    "{s} = {s} {s}",
-                    .{ try operandRegName(symbols, item.operands[0]), if (item.kind == .call) "call" else "call_indirect", body },
+                    "{s} = {s} {s}{s}",
+                    .{ try operandRegName(symbols, item.operands[0]), if (item.kind == .call) "call" else "call_indirect", body, carried_suffix },
                 );
             }
             const body = if (item.operands[0] == .text)
@@ -410,8 +419,8 @@ fn synthesizeRawText(
                 return;
             break :blk try std.fmt.allocPrint(
                 allocator,
-                "{s} {s}",
-                .{ if (item.kind == .call) "call" else "call_indirect", body },
+                "{s} {s}{s}",
+                .{ if (item.kind == .call) "call" else "call_indirect", body, carried_suffix },
             );
         },
         .panic, .panic_msg => blk: {

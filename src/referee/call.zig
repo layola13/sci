@@ -19,6 +19,12 @@ pub const ParsedCall = struct {
     callee: []const u8,
     args: []ParsedArg,
     is_indirect: bool,
+    /// Extern variadic fnptr follow-up (C2 sab_carried_indirect_sig):
+    /// the fn-pointer type's full signature carried by a call_indirect,
+    /// either as a ` : (params, ...) -> ret` suffix on the text body or
+    /// in the instruction's operands[3] text slot. The host emitter
+    /// trusts it over signature inference for indirect calls.
+    carried_sig_text: ?[]const u8 = null,
 
     pub fn deinit(self: *ParsedCall, allocator: std.mem.Allocator) void {
         if (self.dest) |dest| allocator.free(dest);
@@ -27,6 +33,7 @@ pub const ParsedCall = struct {
             allocator.free(arg.text);
         }
         allocator.free(self.args);
+        if (self.carried_sig_text) |text| allocator.free(text);
         self.* = undefined;
     }
 };
@@ -149,14 +156,66 @@ fn splitCallArgs(allocator: std.mem.Allocator, text: []const u8) ![]const []cons
     return try segments.toOwnedSlice();
 }
 
+/// Index of the ')' that balances the '(' at `open`, scanning with the
+/// same string/escape awareness as splitCallArgs. Null when unbalanced.
+fn balancedCloseIndex(text: []const u8, open: usize) ?usize {
+    var paren_depth: usize = 0;
+    var in_string = false;
+    var escape = false;
+    for (text[open..], 0..) |c, offset| {
+        if (in_string) {
+            if (escape) {
+                escape = false;
+                continue;
+            }
+            switch (c) {
+                '\\' => escape = true,
+                '"' => in_string = false,
+                else => {},
+            }
+            continue;
+        }
+        switch (c) {
+            '"' => in_string = true,
+            '(' => paren_depth += 1,
+            ')' => {
+                paren_depth -= 1;
+                if (paren_depth == 0) return open + offset;
+            },
+            else => {},
+        }
+    }
+    return null;
+}
+
 fn parseCallBody(allocator: std.mem.Allocator, body: []const u8, is_indirect: bool) !ParsedCall {
     const trimmed = std.mem.trim(u8, body, " \t");
     if (trimmed.len == 0) return CallError.InvalidCallSyntax;
 
     const open = std.mem.indexOfScalar(u8, trimmed, '(') orelse return CallError.InvalidCallSyntax;
-    const close = std.mem.lastIndexOfScalar(u8, trimmed, ')') orelse return CallError.InvalidCallSyntax;
+    // C2 sab_carried_indirect_sig: a call_indirect body may carry the
+    // fn-pointer signature as a suffix after the argument list's
+    // balancing close paren: `%f(args) : (i32, ...) -> f64`. The suffix
+    // contains its own parentheses, so the plain lastIndexOf(')') would
+    // land inside it; locate the balancing close first and split the
+    // suffix off. Direct calls keep the historical strict shape.
+    var carried_sig_text: ?[]const u8 = null;
+    errdefer if (carried_sig_text) |text| allocator.free(text);
+    const close = if (is_indirect) blk: {
+        const balanced = balancedCloseIndex(trimmed, open) orelse return CallError.InvalidCallSyntax;
+        const tail = std.mem.trim(u8, trimmed[balanced + 1 ..], " \t");
+        if (tail.len == 0) break :blk balanced;
+        if (tail[0] != ':') return CallError.InvalidCallSyntax;
+        const sig_text = std.mem.trim(u8, tail[1..], " \t");
+        if (sig_text.len == 0 or sig_text[0] != '(') return CallError.InvalidCallSyntax;
+        carried_sig_text = try allocator.dupe(u8, sig_text);
+        break :blk balanced;
+    } else blk: {
+        const last = std.mem.lastIndexOfScalar(u8, trimmed, ')') orelse return CallError.InvalidCallSyntax;
+        if (std.mem.trim(u8, trimmed[last + 1 ..], " \t").len != 0) return CallError.InvalidCallSyntax;
+        break :blk last;
+    };
     if (close < open) return CallError.InvalidCallSyntax;
-    if (std.mem.trim(u8, trimmed[close + 1 ..], " \t").len != 0) return CallError.InvalidCallSyntax;
 
     const callee_text = std.mem.trim(u8, trimmed[0..open], " \t");
     if (callee_text.len == 0) return CallError.InvalidCallSyntax;
@@ -182,6 +241,7 @@ fn parseCallBody(allocator: std.mem.Allocator, body: []const u8, is_indirect: bo
         .callee = try allocator.dupe(u8, callee_name),
         .args = try args_list.toOwnedSlice(),
         .is_indirect = is_indirect,
+        .carried_sig_text = carried_sig_text,
     };
 }
 
@@ -294,6 +354,15 @@ pub fn parseInstructionCall(allocator: std.mem.Allocator, item: common_instructi
             errdefer parsed.deinit(allocator);
             if (has_dest) {
                 parsed.dest = try allocator.dupe(u8, operandTextFromInstruction(item.operands[0], symbols) orelse return CallError.InvalidCallSyntax);
+            }
+            // C2 sab_carried_indirect_sig: the SAB form carries the
+            // fn-pointer signature in operands[3] of a call_indirect
+            // (the text form carries it as a body suffix, extracted by
+            // parseCallBody above). Surface it uniformly.
+            if (item.kind == .call_indirect and parsed.carried_sig_text == null) {
+                if (operandTextFromInstruction(item.operands[3], symbols)) |sig_text| {
+                    parsed.carried_sig_text = try allocator.dupe(u8, sig_text);
+                }
             }
             break :blk parsed;
         },

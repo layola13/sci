@@ -77,6 +77,12 @@ typedef struct {
     unsigned char return_fallible;
     unsigned int indirect_sig_index;
     unsigned char is_malloc;
+    /* C2 sab_carried_indirect_sig: mirrors the trailing fields of the
+       Zig CInstruction. indirect_param_tys/count above then hold the
+       carried signature's FIXED parameter types. */
+    SaType indirect_ret_ty;
+    unsigned char indirect_is_variadic;
+    unsigned char indirect_has_carried_sig;
 } SaInstruction;
 typedef struct {
     const char *name;
@@ -597,6 +603,24 @@ static const SaFunction *function_by_index(EmitCtx *e, unsigned int index) {
     return &e->functions[index];
 }
 
+/* C2 sab_carried_indirect_sig: does any variadic definition in the
+   module shape-match this record-less indirect call under the same
+   arity-only rules infer_indirect_sig_index uses? If so, resolving
+   the call by fallback inference is ambiguous about variadicness —
+   the first arity match may be an unrelated fixed-arity function —
+   and must not happen silently. */
+static int variadic_candidate_matches(EmitCtx *e, const SaInstruction *in) {
+    for (size_t i = 0; i < e->function_count; i++) {
+        const SaFunction *candidate = &e->functions[i];
+        if (candidate->kind == SA_F_EXTERNAL) continue;
+        if (!candidate->is_variadic) continue;
+        if (in->has_dst && candidate->ret_ty == SA_T_VOID && !candidate->return_fallible) continue;
+        if (in->arg_count < candidate->param_count) continue;
+        return 1;
+    }
+    return 0;
+}
+
 static int sa_type_can_coerce(SaType from, SaType to) {
     if (from == to) return 1;
     if (from == SA_T_PTR || to == SA_T_PTR) return 1;
@@ -672,6 +696,26 @@ static LLVMTypeRef indirect_fn_type_for(EmitCtx *e, const SaFunction *sig, const
     }
     LLVMTypeRef ret_ty = return_type_for(e, sig);
     LLVMTypeRef ty = LLVMFunctionType(ret_ty, params, (unsigned)param_count, sig->is_variadic ? 1 : 0);
+    free(params);
+    return ty;
+}
+
+/* C2 sab_carried_indirect_sig: build the call's function type purely
+   from the signature the frontend carried on the instruction (fixed
+   params in indirect_param_tys, return in indirect_ret_ty). Carried
+   signatures are never fallible, so the plain return type applies. */
+static LLVMTypeRef indirect_fn_type_for_carried(EmitCtx *e, const SaInstruction *in) {
+    size_t param_count = in->indirect_param_count;
+    if (param_count > UINT_MAX) return NULL;
+    LLVMTypeRef *params = NULL;
+    if (param_count != 0) {
+        params = (LLVMTypeRef *)malloc(sizeof(LLVMTypeRef) * param_count);
+        if (params == NULL) return NULL;
+        for (size_t i = 0; i < param_count; i++) {
+            params[i] = type_of(e, in->indirect_param_tys[i]);
+        }
+    }
+    LLVMTypeRef ty = LLVMFunctionType(type_of(e, in->indirect_ret_ty), params, (unsigned)param_count, in->indirect_is_variadic ? 1 : 0);
     free(params);
     return ty;
 }
@@ -1601,6 +1645,15 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                     sig_index = regs[in->operand0.reg].indirect_sig_index;
                 }
                 const SaFunction *target_sig = function_by_index(e, sig_index);
+                /* C2 sab_carried_indirect_sig: an instruction-carried
+                   signature outranks both provenance and inference;
+                   remember which path resolved the target so a
+                   variadic signature reached by fallback inference can
+                   be rejected loudly below. */
+                const int from_provenance = target_sig != NULL;
+                int from_inference = 0;
+                const int have_carried = in->indirect_has_carried_sig != 0;
+                (void)from_provenance;
                 LLVMValueRef *args = NULL;
                 SaType *arg_tys = NULL;
                 if (in->arg_count != 0) {
@@ -1620,17 +1673,21 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                     arg_tys[a] = aty;
                 }
 
-                if (target_sig == NULL) {
+                if (target_sig == NULL && !have_carried) {
                     sig_index = infer_indirect_sig_index(e, in, arg_tys);
+                    from_inference = 1;
                     target_sig = function_by_index(e, sig_index);
                 }
-                if (target_sig == NULL) { free(arg_tys); free(args); free(regs); free(labels); return fail_body(e, f, in, i, "indirect callee missing signature provenance"); }
+                if (target_sig == NULL && !have_carried) { free(arg_tys); free(args); free(regs); free(labels); return fail_body(e, f, in, i, "indirect callee missing signature provenance"); }
+                if (!have_carried && from_inference && (target_sig->is_variadic || variadic_candidate_matches(e, in))) { free(arg_tys); free(args); free(regs); free(labels); return fail_body(e, f, in, i, "UnsupportedVariadicIndirectCall: variadic indirect call without a carried signature"); }
 
-                LLVMTypeRef fn_ty = indirect_fn_type_for(e, target_sig, in);
-                if (fn_ty == NULL) { free(regs); free(labels); return fail_body(e, f, in, i, "indirect function type failed"); }
+                const SaType eff_ret_ty = have_carried ? in->indirect_ret_ty : target_sig->ret_ty;
+                const unsigned char eff_fallible = have_carried ? 0 : target_sig->return_fallible;
+                const size_t eff_param_count = have_carried ? in->indirect_param_count : target_sig->param_count;
+                LLVMTypeRef fn_ty = have_carried ? indirect_fn_type_for_carried(e, in) : indirect_fn_type_for(e, target_sig, in);
+                if (fn_ty == NULL) { free(arg_tys); free(args); free(regs); free(labels); return fail_body(e, f, in, i, "indirect function type failed"); }
                 for (size_t a = 0; a < in->arg_count; a++) {
-                    SaType param_ty = a < target_sig->param_count ? target_sig->params[a].ty : arg_tys[a];
-                    if (a < in->indirect_param_count) param_ty = in->indirect_param_tys[a];
+                    SaType param_ty = a < eff_param_count ? (a < in->indirect_param_count ? in->indirect_param_tys[a] : target_sig->params[a].ty) : arg_tys[a];
                     args[a] = coerce(e, args[a], arg_tys[a], param_ty);
                 }
                 free(arg_tys);
@@ -1638,7 +1695,7 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 callee = LLVMBuildPointerCast(e->builder, callee, LLVMPointerType(fn_ty, 0), "indirect_fn");
                 LLVMValueRef callv = LLVMBuildCall2(e->builder, fn_ty, callee, args, (unsigned)in->arg_count, in->has_dst ? "call_indirect" : "");
                 if (in->has_dst) {
-                    if (reg_store(e, regs, reg_count, in->dst, callv, target_sig->ret_ty, target_sig->return_fallible, UINT_MAX)) { free(args); free(regs); free(labels); return 1; }
+                    if (reg_store(e, regs, reg_count, in->dst, callv, eff_ret_ty, eff_fallible, UINT_MAX)) { free(args); free(regs); free(labels); return 1; }
                     regs[in->dst].is_malloc = (in->ty == SA_T_PTR) ? in->is_malloc : 0;
                 }
                 free(args);

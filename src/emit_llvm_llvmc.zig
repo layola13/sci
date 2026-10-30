@@ -80,6 +80,14 @@ const CInstruction = extern struct {
     return_fallible: bool,
     indirect_sig_index: u32,
     is_malloc: bool = false,
+    // C2 sab_carried_indirect_sig: when the frontend carried the
+    // fn-pointer type's full signature on a call_indirect, the shim
+    // trusts it over provenance/inference. indirect_param_tys above
+    // then holds the FIXED parameter types; these fields add the
+    // return type and variadic flag.
+    indirect_ret_ty: CType = .void,
+    indirect_is_variadic: bool = false,
+    indirect_has_carried_sig: bool = false,
 };
 const CFunction = extern struct {
     name: [*:0]const u8,
@@ -144,6 +152,50 @@ fn cType(ty: sig.PrimType) !CType {
         .ptr => .ptr,
         else => error.UnsupportedType,
     };
+}
+
+const CarriedIndirectSig = struct {
+    params: []CType,
+    ret_ty: CType,
+    is_variadic: bool,
+};
+
+/// C2 sab_carried_indirect_sig: parse a carried fn-pointer signature
+/// `(i32, ...) -> f64` into shim-ready types. Parameters are SA
+/// primitive names; a trailing `...` marks the signature variadic. The
+/// return accepts the pointer decorations parseFunctionSig allows
+/// (`*` / `&` / `^`); a fallible `!` return is not expressible in this
+/// record and fails the conversion.
+fn parseCarriedIndirectSig(allocator: std.mem.Allocator, text: []const u8) !CarriedIndirectSig {
+    const trimmed = std.mem.trim(u8, text, " \t");
+    if (trimmed.len == 0 or trimmed[0] != '(') return error.InvalidOperand;
+    const close = std.mem.indexOfScalar(u8, trimmed, ')') orelse return error.InvalidOperand;
+    const tail = std.mem.trim(u8, trimmed[close + 1 ..], " \t");
+    if (!std.mem.startsWith(u8, tail, "->")) return error.InvalidOperand;
+    const ret_text = std.mem.trim(u8, tail[2..], " \t");
+    if (ret_text.len == 0 or std.mem.indexOfScalar(u8, ret_text, '!') != null) return error.InvalidOperand;
+    const ret_prim: sig.PrimType = if (ret_text[0] == '*' or ret_text[0] == '&' or ret_text[0] == '^')
+        .ptr
+    else
+        sig.parsePrimType(ret_text) catch return error.InvalidOperand;
+    var params = std.array_list.Managed(CType).init(allocator);
+    errdefer params.deinit();
+    var is_variadic = false;
+    const params_text = std.mem.trim(u8, trimmed[1..close], " \t");
+    if (params_text.len != 0) {
+        var it = std.mem.splitScalar(u8, params_text, ',');
+        while (it.next()) |raw_part| {
+            const part = std.mem.trim(u8, raw_part, " \t");
+            if (part.len == 0) continue;
+            if (std.mem.eql(u8, part, "...")) {
+                is_variadic = true;
+                continue;
+            }
+            const prim = sig.parsePrimType(part) catch return error.InvalidOperand;
+            try params.append(try cType(prim));
+        }
+    }
+    return .{ .params = try params.toOwnedSlice(), .ret_ty = try cType(ret_prim), .is_variadic = is_variadic };
 }
 
 fn valueTypeForPrefix(prefix: inst.CapPrefix, ty: sig.PrimType) sig.PrimType {
@@ -1112,7 +1164,22 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
             }
             if (parsed.is_indirect) {
                 const callee_op = try state.textOperand(parsed.callee);
-                break :blk .{ .op = .call_indirect, .dst = dst, .operand0 = callee_op, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = args.ptr, .arg_count = args.len, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = parsed.dest != null, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
+                // C2 sab_carried_indirect_sig: when the frontend
+                // carried the fn-pointer signature on this call, hand
+                // its fixed params / return / variadic flag to the
+                // shim, which trusts them over inference.
+                var carried_param_tys: []const CType = &.{};
+                var carried_ret_ty: CType = .void;
+                var carried_is_variadic = false;
+                var has_carried_sig = false;
+                if (parsed.carried_sig_text) |carried_text| {
+                    const carried = parseCarriedIndirectSig(allocator, carried_text) catch return error.InvalidOperand;
+                    carried_param_tys = carried.params;
+                    carried_ret_ty = carried.ret_ty;
+                    carried_is_variadic = carried.is_variadic;
+                    has_carried_sig = true;
+                }
+                break :blk .{ .op = .call_indirect, .dst = dst, .operand0 = callee_op, .operand1 = none, .operand2 = none, .ty = .void, .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = args.ptr, .arg_count = args.len, .indirect_param_tys = carried_param_tys.ptr, .indirect_param_count = carried_param_tys.len, .has_dst = parsed.dest != null, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val, .indirect_ret_ty = carried_ret_ty, .indirect_is_variadic = carried_is_variadic, .indirect_has_carried_sig = has_carried_sig };
             }
             const callee_name = if (resolved) |resolved_sig| emittedFunctionName(resolved_sig) else parsed.callee;
             const callee = try allocator.dupeSentinel(u8, callee_name, 0);

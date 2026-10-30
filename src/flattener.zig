@@ -2000,6 +2000,22 @@ fn emitParsedLine(
                         const source = try symbols.intern(classified.parts[1]);
                         inst.operands[0] = .{ .reg = dst };
                         inst.operands[1] = .{ .reg = source };
+                    } else if (classified.inst_form == .call_indirect and classified.has_carried_sig and classified.part_count == 3) {
+                        // C2 sab_carried_indirect_sig (dst form): the
+                        // carried fn-pointer signature rides operands[3].
+                        const dst = try symbols.intern(classified.parts[0]);
+                        inst.operands[0] = .{ .reg = dst };
+                        const folded = try ownFoldedText(allocator, dict, owned_text, classified.parts[1]);
+                        inst.operands[1] = .{ .text = folded };
+                        const sig_folded = try ownFoldedText(allocator, dict, owned_text, classified.parts[2]);
+                        inst.operands[3] = .{ .text = sig_folded };
+                    } else if (classified.inst_form == .call_indirect and classified.has_carried_sig and classified.part_count == 2) {
+                        // C2 sab_carried_indirect_sig (no-dst form):
+                        // operands[0] is the body, operands[3] the sig.
+                        const folded = try ownFoldedText(allocator, dict, owned_text, classified.parts[0]);
+                        inst.operands[0] = .{ .text = folded };
+                        const sig_folded = try ownFoldedText(allocator, dict, owned_text, classified.parts[1]);
+                        inst.operands[3] = .{ .text = sig_folded };
                     } else if (classified.part_count == 2) {
                         const dst = try symbols.intern(classified.parts[0]);
                         inst.operands[0] = .{ .reg = dst };

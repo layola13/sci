@@ -71,6 +71,11 @@ pub const ClassifiedLine = struct {
     trimmed: []const u8,
     parts: [6][]const u8 = .{ "", "", "", "", "", "" },
     part_count: u8 = 0,
+    /// C2 sab_carried_indirect_sig: a call_indirect line carried a
+    /// ` : (params, ...) -> ret` signature suffix; the suffix text is
+    /// the last part (index 2 in the dst form, index 1 in the no-dst
+    /// form) and routes to operands[3].
+    has_carried_sig: bool = false,
 };
 
 fn isIdentStart(c: u8) bool {
@@ -147,6 +152,48 @@ fn addPart(line: *ClassifiedLine, index: usize, value: []const u8) void {
     line.parts[index] = value;
     const count: u8 = @intCast(index + 1);
     if (line.part_count < count) line.part_count = count;
+}
+
+/// C2 sab_carried_indirect_sig: split a trailing ` : (params, ...) -> ret`
+/// signature suffix off a call_indirect body. The suffix starts after the
+/// argument list's balancing close paren; anything else leaves the body
+/// untouched (the referee parser rejects trailing junk downstream).
+fn splitIndirectSigSuffix(rest: []const u8) struct { body: []const u8, sig: ?[]const u8 } {
+    const open = std.mem.indexOfScalar(u8, rest, '(') orelse return .{ .body = rest, .sig = null };
+    var depth: usize = 0;
+    var in_string = false;
+    var escape = false;
+    for (rest[open..], 0..) |c, offset| {
+        if (in_string) {
+            if (escape) {
+                escape = false;
+                continue;
+            }
+            switch (c) {
+                '\\' => escape = true,
+                '"' => in_string = false,
+                else => {},
+            }
+            continue;
+        }
+        switch (c) {
+            '"' => in_string = true,
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if (depth == 0) {
+                    const close = open + offset;
+                    const tail = std.mem.trim(u8, rest[close + 1 ..], " \t");
+                    if (tail.len < 2 or tail[0] != ':') return .{ .body = rest, .sig = null };
+                    const sig_text = std.mem.trim(u8, tail[1..], " \t");
+                    if (sig_text.len == 0 or sig_text[0] != '(') return .{ .body = rest, .sig = null };
+                    return .{ .body = std.mem.trimEnd(u8, rest[0 .. close + 1], " \t"), .sig = sig_text };
+                }
+            },
+            else => {},
+        }
+    }
+    return .{ .body = rest, .sig = null };
 }
 
 fn splitFirstWord(text: []const u8) struct { word: []const u8, rest: []const u8 } {
@@ -449,10 +496,18 @@ fn classifyAssignment(line: *ClassifiedLine, lhs_text: []const u8, rhs_text: []c
         } else {
             const rest = std.mem.trimStart(u8, after, " \t");
             if (rest.len == 0) return false;
+            // C2 sab_carried_indirect_sig: a carried fn-pointer
+            // signature suffix becomes its own part (flattener routes
+            // it to operands[3]).
+            const split = splitIndirectSigSuffix(rest);
             line.* = makeLine(.instruction, line.raw, line.trimmed);
             line.inst_form = .call_indirect;
             addPart(line, 0, lhs);
-            addPart(line, 1, rest);
+            addPart(line, 1, split.body);
+            if (split.sig) |sig_text| {
+                addPart(line, 2, sig_text);
+                line.has_carried_sig = true;
+            }
             return true;
         }
     }
@@ -770,9 +825,15 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
     if (startsWithWord(trimmed, "call_indirect")) {
         const rest = std.mem.trimStart(u8, trimmed["call_indirect".len..], " \t");
         if (rest.len == 0) return false;
+        // C2 sab_carried_indirect_sig: see the assignment form above.
+        const split = splitIndirectSigSuffix(rest);
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .call_indirect;
-        addPart(line, 0, rest);
+        addPart(line, 0, split.body);
+        if (split.sig) |sig_text| {
+            addPart(line, 1, sig_text);
+            line.has_carried_sig = true;
+        }
         return true;
     }
 
