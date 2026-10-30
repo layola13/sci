@@ -114,7 +114,7 @@ typedef struct {
     const char *target_triple;
 } SaModule;
 
-typedef struct { const char *name; LLVMBasicBlockRef block; } LabelEntry;
+typedef struct { const char *name; LLVMBasicBlockRef block; long inst_index; unsigned char is_header; LLVMValueRef sp_save_slot; LLVMBasicBlockRef rewind_block; } LabelEntry;
 typedef struct { LLVMValueRef slot; LLVMValueRef value; LLVMValueRef fallible_slot; SaType ty; unsigned char fallible; unsigned char initialized; unsigned int indirect_sig_index; unsigned char is_malloc; } RegValue;
 typedef struct {
     LLVMContextRef ctx;
@@ -129,6 +129,10 @@ typedef struct {
     LLVMTypeRef ptr_ty;
     LLVMValueRef malloc_fn;
     LLVMValueRef free_fn;
+    LLVMValueRef stacksave_fn;
+    LLVMValueRef stackrestore_fn;
+    LLVMTypeRef stacksave_ty;
+    LLVMTypeRef stackrestore_ty;
     LLVMValueRef write_fn;
     LLVMValueRef exit_fn;
     LLVMValueRef panic_fn;
@@ -874,6 +878,60 @@ static LLVMBasicBlockRef label_block(LabelEntry *labels, size_t label_count, con
     return NULL;
 }
 
+static LabelEntry *label_entry(LabelEntry *labels, size_t label_count, const char *name) {
+    if (name == NULL) return NULL;
+    for (size_t i = 0; i < label_count; i++) if (strcmp(labels[i].name, name) == 0) return &labels[i];
+    return NULL;
+}
+
+/* DEF-4: loop-body stack_alloc rewind at back-edges.
+ * A stack_alloc emitted inside a loop body lowers to a dynamic alloca that
+ * bumps the stack pointer on every execution, so an unbounded loop grows
+ * the native stack until it hits the limit (the DEF-4 ratchet). The fix
+ * stays entirely in this host lowering: a label that is the target of a
+ * backward jump (target instruction index < jump instruction index) is a
+ * loop header; on every arrival at a header we llvm.stacksave() into a
+ * dedicated entry-block slot, and on every backward edge we
+ * llvm.stackrestore() that saved pointer before branching, reclaiming the
+ * iteration's dynamic allocas. This is the same save/restore pattern clang
+ * uses for VLAs. Forward edges into a header never restore: the save slot
+ * is (re)written by the header itself before any back-edge can execute.
+ * Disabled for wasm_compat modules, whose stack model differs. */
+static int ensure_stack_rewind_intrinsics(EmitCtx *e) {
+    if (e->stacksave_fn != NULL && e->stackrestore_fn != NULL) return 0;
+    LLVMTypeRef ptr_i8 = LLVMPointerType(e->i8_ty, 0);
+    e->stacksave_ty = LLVMFunctionType(ptr_i8, NULL, 0, 0);
+    e->stackrestore_ty = LLVMFunctionType(LLVMVoidTypeInContext(e->ctx), &ptr_i8, 1, 0);
+    e->stacksave_fn = LLVMGetNamedFunction(e->module, "llvm.stacksave");
+    if (e->stacksave_fn == NULL) e->stacksave_fn = LLVMAddFunction(e->module, "llvm.stacksave", e->stacksave_ty);
+    e->stackrestore_fn = LLVMGetNamedFunction(e->module, "llvm.stackrestore");
+    if (e->stackrestore_fn == NULL) e->stackrestore_fn = LLVMAddFunction(e->module, "llvm.stackrestore", e->stackrestore_ty);
+    return (e->stacksave_fn != NULL && e->stackrestore_fn != NULL) ? 0 : 1;
+}
+
+static void emit_stack_restore(EmitCtx *e, LLVMValueRef save_slot) {
+    LLVMTypeRef ptr_i8 = LLVMPointerType(e->i8_ty, 0);
+    LLVMValueRef sp = LLVMBuildLoad2(e->builder, ptr_i8, save_slot, "def4_sp");
+    LLVMValueRef args[1] = { sp };
+    LLVMBuildCall2(e->builder, e->stackrestore_ty, e->stackrestore_fn, args, 1, "");
+}
+
+/* Resolve the block a branch edge should target: backward edges to a loop
+ * header route through a per-header rewind block that restores the saved
+ * stack pointer first. `cur` is the block the branch itself is emitted in;
+ * the builder is restored to it before returning. */
+static LLVMBasicBlockRef br_edge_block(EmitCtx *e, LabelEntry *le, long inst_index, LLVMBasicBlockRef cur, LLVMValueRef fn) {
+    if (le->sp_save_slot == NULL || le->inst_index >= inst_index) return le->block;
+    if (le->rewind_block == NULL) {
+        le->rewind_block = LLVMAppendBasicBlockInContext(e->ctx, fn, "def4_rewind");
+        LLVMPositionBuilderAtEnd(e->builder, le->rewind_block);
+        emit_stack_restore(e, le->sp_save_slot);
+        LLVMBuildBr(e->builder, le->block);
+        LLVMPositionBuilderAtEnd(e->builder, cur);
+    }
+    return le->rewind_block;
+}
+
 static int current_has_terminator(EmitCtx *e) {
     LLVMBasicBlockRef bb = LLVMGetInsertBlock(e->builder);
     return bb != NULL && LLVMGetBasicBlockTerminator(bb) != NULL;
@@ -1153,7 +1211,40 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
         if (f->instructions[i].op == SA_OP_LABEL && f->instructions[i].label != NULL) {
             labels[label_count].name = f->instructions[i].label;
             labels[label_count].block = LLVMAppendBasicBlockInContext(e->ctx, fn, f->instructions[i].label);
+            labels[label_count].inst_index = (long)i;
             label_count++;
+        }
+    }
+    /* DEF-4: mark loop headers (targets of backward jumps) and give each a
+     * stacksave slot in the entry block. The builder is still positioned at
+     * the end of the entry block here, so these allocas are static frame
+     * slots. No header in this function -> no slots, no intrinsics, and the
+     * emitted code is unchanged. */
+    if (!e->wasm_compat) {
+        int any_header = 0;
+        for (size_t i = 0; i < f->instruction_count; i++) {
+            const SaInstruction *ji = &f->instructions[i];
+            const char *targets[2];
+            int n_targets = 0;
+            if (ji->op == SA_OP_JMP && ji->label != NULL) {
+                targets[n_targets++] = ji->label;
+            } else if (ji->op == SA_OP_BR) {
+                if (ji->label != NULL) targets[n_targets++] = ji->label;
+                if (ji->false_label != NULL) targets[n_targets++] = ji->false_label;
+            }
+            for (int t = 0; t < n_targets; t++) {
+                LabelEntry *le = label_entry(labels, label_count, targets[t]);
+                if (le != NULL && le->inst_index < (long)i && !le->is_header) { le->is_header = 1; any_header = 1; }
+            }
+        }
+        if (any_header) {
+            if (ensure_stack_rewind_intrinsics(e)) { free(regs); free(labels); return 1; }
+            LLVMTypeRef ptr_i8 = LLVMPointerType(e->i8_ty, 0);
+            for (size_t k = 0; k < label_count; k++) {
+                if (!labels[k].is_header) continue;
+                labels[k].sp_save_slot = LLVMBuildAlloca(e->builder, ptr_i8, "def4_sp_save");
+                LLVMBuildStore(e->builder, LLVMConstPointerNull(ptr_i8), labels[k].sp_save_slot);
+            }
         }
     }
 
@@ -1165,10 +1256,17 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
         debug_set_location(e, debug_scope, f, i);
         switch (in->op) {
             case SA_OP_LABEL: {
-                LLVMBasicBlockRef bb = label_block(labels, label_count, in->label);
-                if (bb == NULL) { free(regs); free(labels); return 1; }
+                LabelEntry *le = label_entry(labels, label_count, in->label);
+                if (le == NULL) { free(regs); free(labels); return 1; }
+                LLVMBasicBlockRef bb = le->block;
                 if (!current_has_terminator(e)) LLVMBuildBr(e->builder, bb);
                 LLVMPositionBuilderAtEnd(e->builder, bb);
+                /* DEF-4: loop header arrival -> save the stack pointer for
+                 * this iteration; backward edges restore it (see JMP/BR). */
+                if (le->sp_save_slot != NULL) {
+                    LLVMValueRef sp = LLVMBuildCall2(e->builder, e->stacksave_ty, e->stacksave_fn, NULL, 0, "def4_sp_save");
+                    LLVMBuildStore(e->builder, sp, le->sp_save_slot);
+                }
                 break;
             }
             case SA_OP_ALLOC:
@@ -1303,18 +1401,28 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 break;
             }
             case SA_OP_JMP: {
-                LLVMBasicBlockRef bb = label_block(labels, label_count, in->label);
-                if (bb == NULL) { free(regs); free(labels); return 1; }
-                LLVMBuildBr(e->builder, bb);
+                LabelEntry *le = label_entry(labels, label_count, in->label);
+                if (le == NULL) { free(regs); free(labels); return 1; }
+                /* DEF-4: backward edge -> rewind this iteration's dynamic
+                 * allocas before re-entering the loop header. */
+                if (le->sp_save_slot != NULL && le->inst_index < (long)i) emit_stack_restore(e, le->sp_save_slot);
+                LLVMBuildBr(e->builder, le->block);
                 break;
             }
             case SA_OP_BR: {
                 if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
                 v0 = coerce(e, v0, t0, SA_T_I64);
                 LLVMValueRef cond = LLVMBuildICmp(e->builder, LLVMIntNE, v0, LLVMConstInt(e->i64_ty, 0, 0), "cond");
-                LLVMBasicBlockRef tb = label_block(labels, label_count, in->label);
-                LLVMBasicBlockRef fb = label_block(labels, label_count, in->false_label);
-                if (tb == NULL || fb == NULL) { free(regs); free(labels); return 1; }
+                LabelEntry *tle = label_entry(labels, label_count, in->label);
+                LabelEntry *fle = label_entry(labels, label_count, in->false_label);
+                if (tle == NULL || fle == NULL) { free(regs); free(labels); return 1; }
+                /* DEF-4: a backward conditional edge restores only on the
+                 * taken path, via a per-header rewind block. */
+                LLVMBasicBlockRef cur = LLVMGetInsertBlock(e->builder);
+                LLVMValueRef cur_fn = LLVMGetBasicBlockParent(cur);
+                LLVMBasicBlockRef tb = br_edge_block(e, tle, (long)i, cur, cur_fn);
+                LLVMBasicBlockRef fb = br_edge_block(e, fle, (long)i, cur, cur_fn);
+                LLVMPositionBuilderAtEnd(e->builder, cur);
                 LLVMBuildCondBr(e->builder, cond, tb, fb);
                 break;
             }
