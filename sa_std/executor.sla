@@ -59,8 +59,9 @@ struct ExecReq {
 }
 
 // Stop block: shares the leading op field with ExecReq (the loop
-// reads op through ExecReq, then re-reads the block as ExecStop),
-// but its reply carries the handed-back state ptr.
+// reads op through ExecReq, then derives the ExecStop view from
+// that same typed pointer), but its reply carries the
+// handed-back state ptr.
 struct ExecStop {
     op: u64,
     reply: Chan<ptr>,
@@ -89,7 +90,7 @@ fn exec_loop(arg: ptr) {
         let req: *ExecReq = msg as *ExecReq;
         let op: u64 = (*req).op;
         if op == exec_op_stop() {
-            let stop: *ExecStop = msg as *ExecStop;
+            let stop: *ExecStop = req as *ExecStop;
             let reply_ptr: Chan<ptr> = (*stop).reply;
             reply_ptr.send((*ctl).state);
             let stop_box = unsafe { Box::from_raw(stop) };
