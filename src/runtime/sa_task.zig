@@ -2087,6 +2087,24 @@ fn selectTryClaim(sel: *SelectWaiter, index: u32, closed_result: bool, wake_stat
     return true;
 }
 
+/// Release a claim taken by selectTryClaim during phase-2
+/// registration when the readiness re-check that motivated it
+/// turns out empty after all (every queued peer was a stale
+/// select node). Only the registering owner calls this, while
+/// holding the case channel's lock and before the timeout
+/// timer is armed: peers that met the claimed flag in the
+/// meantime only skipped and detached this select's nodes
+/// (never consumed a value for it, never woke the owner), so
+/// restoring the unclaimed state is invisible to them.
+fn selectUnclaim(sel: *SelectWaiter) void {
+    sel.mu.lock();
+    defer sel.mu.unlock();
+    sel.claimed = false;
+    sel.chosen = -1;
+    sel.closed_result = false;
+    sel.wake_status = SA_TASK_OK;
+}
+
 fn selectTimeoutFire(sel: *SelectWaiter, gen: u64) void {
     sel.mu.lock();
     if (!sel.claimed and sel.gen == gen) {
@@ -2553,26 +2571,62 @@ pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[
         // must claim us now, or the wakeup would be lost (the
         // peer already came and went).
         if (op_ptrs[i] == SA_CHAN_OP_SEND) {
-            if (!ch.closed and chanTrySend(ch, slot_ptrs[i])) {
-                _ = selectTryClaim(sel, @intCast(i), false, SA_TASK_OK);
-                // Detach our own node while still holding the
-                // lock: the value already moved via chanTrySend,
-                // and a queued node would deliver it a second
-                // time to a later receiver.
-                _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
-                self_claimed = true;
+            // Claim BEFORE moving the value (DEF-R4): moving it
+            // first and claiming second delivers the payload even
+            // when a peer case claimed this select in between --
+            // a phantom send the program never observes. The
+            // readiness peek is exact under ch.mu except for
+            // queues whose nodes are all stale select waiters;
+            // that corner surfaces as a failed move after the
+            // claim and is rolled back with selectUnclaim.
+            if (!ch.closed and (ch.count < ch.cap or ch.recvq_head != null)) {
+                if (selectTryClaim(sel, @intCast(i), false, SA_TASK_OK)) {
+                    if (chanTrySend(ch, slot_ptrs[i])) {
+                        // Detach our own node while still holding
+                        // the lock: the value already moved via
+                        // chanTrySend, and a queued node would
+                        // deliver it a second time to a later
+                        // receiver.
+                        _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
+                        self_claimed = true;
+                    } else {
+                        selectUnclaim(sel);
+                    }
+                } else {
+                    // A peer case already claimed this select and
+                    // carries its outcome; stop registering.
+                    _ = queueRemove(&ch.sendq_head, &ch.sendq_tail, node);
+                    self_claimed = true;
+                }
             }
         } else {
-            var v: Slot = undefined;
-            if (chanTakeFromSender(ch, &v) == .got) {
+            if (ch.count > 0 or ch.sendq_head != null) {
+                // Claim BEFORE taking the value (DEF-R4): taking
+                // first fires the sender, and if a peer case then
+                // wins the claim the payload has nowhere to go --
+                // it vanished between a completed send and a
+                // receive that never happens (the slanginx
+                // generation-drain wedge: workers exited, their
+                // completions lost, in_flight never reached 0).
                 if (selectTryClaim(sel, @intCast(i), false, SA_TASK_OK)) {
-                    slot_ptrs[i] = v;
+                    var v: Slot = undefined;
+                    if (chanTakeFromSender(ch, &v) == .got) {
+                        slot_ptrs[i] = v;
+                        _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
+                        self_claimed = true;
+                    } else {
+                        selectUnclaim(sel);
+                    }
+                } else {
                     _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
                     self_claimed = true;
                 }
             } else if (ch.closed) {
                 if (selectTryClaim(sel, @intCast(i), true, SA_TASK_OK)) {
                     slot_ptrs[i] = .{};
+                    _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
+                    self_claimed = true;
+                } else {
                     _ = queueRemove(&ch.recvq_head, &ch.recvq_tail, node);
                     self_claimed = true;
                 }
