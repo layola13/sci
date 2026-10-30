@@ -3326,24 +3326,6 @@ fn killAndWaitChild(pid: std.posix.pid_t) void {
     _ = lxWaitpid(pid, 0);
 }
 
-fn writeHandleLocked(handle: u64, data: []const u8) !usize {
-    return switch (handle) {
-        SA_STD_STDOUT => try sio.getStdOut().write(data),
-        SA_STD_STDERR => try sio.getStdErr().write(data),
-        SA_STD_STDIN => error.InvalidHandle,
-        else => {
-            const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
-            return switch (resource.*) {
-                .file => |file| try file.write(data),
-                .tcp_stream => |stream| try lxWrite(stream, data),
-                .owned_fd => |fd| try lxWrite(fd.fd, data),
-                .terminal_session => |session| try lxWrite(session.fd, data),
-                else => error.InvalidHandle,
-            };
-        },
-    };
-}
-
 fn readHandleLocked(handle: u64, buffer: []u8) !usize {
     return switch (handle) {
         SA_STD_STDIN => try sio.getStdIn().read(buffer),
@@ -3383,6 +3365,157 @@ fn readHandleLocked(handle: u64, buffer: []u8) !usize {
             };
         },
     };
+}
+
+// DEF-R5: the registry mutex guards the handle table only; it
+// must never be held across a syscall that can block. The data
+// path classifies a handle under the lock, snapshots the OS fd
+// (or notes an in-memory kind), drops the lock, and only then
+// performs the blocking read/write -- the same snapshot pattern
+// sa_std_close and sa_std_net_tcp_accept already use in this
+// file. Before this split, one goroutine parked in a blocking
+// sa_std_read held the registry mutex for the whole wait, so
+// every other goroutine's net IO (and every other registry
+// user: poll_wait validation, writes, accepts, closes) stalled
+// or spun behind it: with >= 2 goroutines blocked in net reads
+// only the mutex holder was ever serviced, regardless of
+// carrier count (slaredis registration A). In-memory kinds
+// (.buffer/.process) never block and keep the locked path.
+const IoPlan = union(enum) {
+    fd: std.posix.fd_t,
+    file_fd: std.posix.fd_t,
+    std_in,
+    std_out,
+    std_err,
+    locked,
+    invalid,
+};
+
+fn lockRegistry() void {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+}
+
+fn ioPlanLocked(handle: u64, is_write: bool) IoPlan {
+    if (is_write) {
+        return switch (handle) {
+            SA_STD_STDOUT => .std_out,
+            SA_STD_STDERR => .std_err,
+            SA_STD_STDIN => .invalid,
+            else => blk: {
+                const resource = getResourceLocked(handle) orelse break :blk .invalid;
+                break :blk switch (resource.*) {
+                    .file => |file| IoPlan{ .file_fd = file.inner.handle },
+                    .tcp_stream => |stream| IoPlan{ .fd = stream },
+                    .owned_fd => |fd| IoPlan{ .fd = fd.fd },
+                    .terminal_session => |session| IoPlan{ .fd = session.fd },
+                    else => .invalid,
+                };
+            },
+        };
+    }
+    return switch (handle) {
+        SA_STD_STDIN => .std_in,
+        SA_STD_STDOUT, SA_STD_STDERR => .invalid,
+        else => blk: {
+            const resource = getResourceLocked(handle) orelse break :blk .invalid;
+            break :blk switch (resource.*) {
+                .file => |file| IoPlan{ .file_fd = file.inner.handle },
+                .tcp_stream => |stream| IoPlan{ .fd = stream },
+                .owned_fd => |fd| IoPlan{ .fd = fd.fd },
+                .terminal_session => |session| IoPlan{ .fd = session.fd },
+                .buffer, .process => .locked,
+                else => .invalid,
+            };
+        },
+    };
+}
+
+/// DEF-R5: snapshot a tcp_stream / udp_socket fd under the
+/// registry lock and drop the lock before any blocking syscall
+/// (see the IoPlan note above).
+fn tcpStreamFd(handle: u64) ?std.posix.fd_t {
+    lockRegistry();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return null;
+    return switch (resource.*) {
+        .tcp_stream => |s| s,
+        else => null,
+    };
+}
+
+fn udpSocketFd(handle: u64) ?std.posix.fd_t {
+    lockRegistry();
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(handle) orelse return null;
+    return switch (resource.*) {
+        .udp_socket => |fd| fd,
+        else => null,
+    };
+}
+
+/// Read once from a handle without holding the registry mutex
+/// across a blocking syscall (see the IoPlan note above).
+fn readHandle(handle: u64, buffer: []u8) !usize {
+    lockRegistry();
+    switch (ioPlanLocked(handle, false)) {
+        .fd, .file_fd => |fd| {
+            registry_mutex.unlock();
+            return lxRead(fd, buffer);
+        },
+        .std_in => {
+            registry_mutex.unlock();
+            return sio.getStdIn().read(buffer);
+        },
+        .locked => {
+            defer registry_mutex.unlock();
+            return readHandleLocked(handle, buffer);
+        },
+        .invalid => {
+            registry_mutex.unlock();
+            return error.InvalidHandle;
+        },
+        .std_out, .std_err => unreachable,
+    }
+}
+
+/// Write to a handle without holding the registry mutex across
+/// a blocking syscall. Per-kind semantics preserve the previous
+/// locked implementation: fd writes are a single write(2),
+/// while file writes write all bytes (sio.File.write is
+/// writeAll).
+fn writeHandle(handle: u64, data: []const u8) !usize {
+    lockRegistry();
+    switch (ioPlanLocked(handle, true)) {
+        .fd => |fd| {
+            registry_mutex.unlock();
+            return lxWrite(fd, data);
+        },
+        .file_fd => |fd| {
+            registry_mutex.unlock();
+            var off: usize = 0;
+            while (off < data.len) {
+                const n = try lxWrite(fd, data[off..]);
+                if (n == 0) return error.Io;
+                off += n;
+            }
+            return data.len;
+        },
+        .std_out => {
+            registry_mutex.unlock();
+            return sio.getStdOut().write(data);
+        },
+        .std_err => {
+            registry_mutex.unlock();
+            return sio.getStdErr().write(data);
+        },
+        .invalid => {
+            registry_mutex.unlock();
+            return error.InvalidHandle;
+        },
+        .std_in, .locked => unreachable,
+    }
 }
 
 fn statusName(code: i32) []const u8 {
@@ -10356,11 +10489,7 @@ pub export fn sa_time_sleep_ms(ms: u64) i32 {
 pub export fn sa_std_write(handle: u64, data: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
     if (out_written) |ptr| ptr.* = 0;
     const bytes = constBytes(data, len) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const written = writeHandleLocked(handle, bytes) catch |err| return finishErr(err);
+    const written = writeHandle(handle, bytes) catch |err| return finishErr(err);
     if (out_written) |ptr| ptr.* = @as(u64, @intCast(written));
     return finish(SA_STD_OK);
 }
@@ -10368,11 +10497,7 @@ pub export fn sa_std_write(handle: u64, data: ?[*]const u8, len: u64, out_writte
 pub export fn sa_std_read(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
     if (out_read) |ptr| ptr.* = 0;
     const buffer = mutBytes(out, out_cap) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const read = readHandleLocked(handle, buffer) catch |err| return finishErr(err);
+    const read = readHandle(handle, buffer) catch |err| return finishErr(err);
     if (out_read) |ptr| ptr.* = @as(u64, @intCast(read));
     return finish(SA_STD_OK);
 }
@@ -10396,18 +10521,13 @@ pub export fn sa_io_read_line(handle: u64, max_bytes: u64, out_handle: ?*u64) i3
     handle_ptr.* = 0;
     const limit = lenAsUsize(max_bytes) catch |err| return finishErr(err);
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-
     var list = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer list.deinit();
 
     var count: usize = 0;
     while (count < limit) {
         var ch: [1]u8 = undefined;
-        const read = readHandleLocked(handle, ch[0..]) catch |err| return finishErr(err);
+        const read = readHandle(handle, ch[0..]) catch |err| return finishErr(err);
         if (read == 0) break;
         if (ch[0] == '\n') break;
         if (ch[0] == '\r') continue;
@@ -10418,6 +10538,8 @@ pub export fn sa_io_read_line(handle: u64, max_bytes: u64, out_handle: ?*u64) i3
     const bytes = list.toOwnedSlice() catch |err| return finishErr(err);
     errdefer std.heap.page_allocator.free(bytes);
     const resource = Resource{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } };
+    lockRegistry();
+    defer registry_mutex.unlock();
     const buf_handle = registerResourceLocked(resource) catch |err| {
         std.heap.page_allocator.free(bytes);
         return finishErr(err);
@@ -13584,16 +13706,8 @@ pub export fn sa_std_net_tcp_stream_read_vectored(stream: u64, iovs: [*]const sa
     const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const slices = iovs[0..count];
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
 
-    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .tcp_stream => |s| s,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
+    const fd = tcpStreamFd(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
 
     var ziovec: [SA_NET_IOV_MAX]std.posix.iovec = undefined;
     var filled: usize = 0;
@@ -13616,16 +13730,8 @@ pub export fn sa_std_net_tcp_stream_write_vectored(stream: u64, iovs: [*]const s
     const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const slices = iovs[0..count];
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
 
-    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .tcp_stream => |s| s,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
+    const fd = tcpStreamFd(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
 
     var ziovec: [SA_NET_IOV_MAX]std.posix.iovec_const = undefined;
     var filled: usize = 0;
@@ -14522,16 +14628,8 @@ pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_l
     const port16 = portFromU32(port) catch |err| return finishErr(err);
     const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
 
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .udp_socket => |fd| fd,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
+    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     lxConnect(fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
@@ -14592,20 +14690,30 @@ pub export fn sa_net_udp_leave_multicast_v6(socket: u64, multi_host_ptr: ?[*]con
 
 pub export fn sa_std_net_udp_connect_addr(socket: u64, addr_handle: u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const socket_resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    lockRegistry();
+    const socket_resource = getResourceLocked(socket) orelse {
+        registry_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
     const fd = switch (socket_resource.*) {
         .udp_socket => |value| value,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+        else => {
+            registry_mutex.unlock();
+            return finish(SA_STD_ERR_INVALID_HANDLE);
+        },
     };
-    const addr_resource = getResourceLocked(addr_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const addr_resource = getResourceLocked(addr_handle) orelse {
+        registry_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
     const address = switch (addr_resource.*) {
         .net_addr => |value| value.addr,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+        else => {
+            registry_mutex.unlock();
+            return finish(SA_STD_ERR_INVALID_HANDLE);
+        },
     };
+    registry_mutex.unlock();
     lxConnect(fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
@@ -14930,16 +15038,8 @@ pub export fn sa_std_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64, out_
     written_ptr.* = 0;
     const bytes = constBytes(buf, len) catch |err| return finishErr(err);
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
 
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .udp_socket => |fd| fd,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
+    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const written = lxSend(fd, bytes, 0) catch |err| return finishErr(err);
     written_ptr.* = @as(u64, @intCast(written));
     return finish(SA_STD_OK);
@@ -14950,16 +15050,8 @@ pub export fn sa_std_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64, out_read: 
     read_ptr.* = 0;
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
 
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .udp_socket => |fd| fd,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
+    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const read = lxRecv(fd, buffer, 0) catch |err| return finishErr(err);
     read_ptr.* = @as(u64, @intCast(read));
     return finish(SA_STD_OK);
@@ -14971,16 +15063,8 @@ pub export fn sa_std_net_udp_peek(socket: u64, out: ?[*]u8, cap: u64, out_read: 
     read_ptr.* = 0;
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
 
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .udp_socket => |fd| fd,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
+    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
     const read = lxRecv(fd, buffer, msg_peek) catch |err| return finishErr(err);
     read_ptr.* = @as(u64, @intCast(read));
     return finish(SA_STD_OK);
@@ -14994,11 +15078,12 @@ pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, h
     const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
     const port16 = portFromU32(port) catch |err| return finishErr(err);
     const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const fd = handleToFd(socket) catch |err| return finishErr(err);
+    lockRegistry();
+    const fd = handleToFd(socket) catch |err| {
+        registry_mutex.unlock();
+        return finishErr(err);
+    };
+    registry_mutex.unlock();
     const written = lxSendto(fd, bytes, 0, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
     written_ptr.* = @as(u64, @intCast(written));
     return finish(SA_STD_OK);
@@ -15008,11 +15093,12 @@ pub export fn sa_std_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_r
     const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     read_ptr.* = 0;
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const fd = handleToFd(socket) catch |err| return finishErr(err);
+    lockRegistry();
+    const fd = handleToFd(socket) catch |err| {
+        registry_mutex.unlock();
+        return finishErr(err);
+    };
+    registry_mutex.unlock();
     var addr = NetAddress{};
     var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
     const read = lxRecvfrom(fd, buffer, 0, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
@@ -15020,7 +15106,7 @@ pub export fn sa_std_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_r
     read_ptr.* = @as(u64, @intCast(read));
     if (out_addr) |ptr| {
         var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
-        const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+        const handle = registerResource(.{ .net_addr = net_addr }) catch |err| {
             net_addr.deinit();
             return finishErr(err);
         };
@@ -15034,11 +15120,12 @@ pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_r
     const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     read_ptr.* = 0;
     const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const fd = handleToFd(socket) catch |err| return finishErr(err);
+    lockRegistry();
+    const fd = handleToFd(socket) catch |err| {
+        registry_mutex.unlock();
+        return finishErr(err);
+    };
+    registry_mutex.unlock();
     var addr = NetAddress{};
     var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
     const read = lxRecvfrom(fd, buffer, msg_peek, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
@@ -15046,7 +15133,7 @@ pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_r
     read_ptr.* = @as(u64, @intCast(read));
     if (out_addr) |ptr| {
         var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
-        const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+        const handle = registerResource(.{ .net_addr = net_addr }) catch |err| {
             net_addr.deinit();
             return finishErr(err);
         };
@@ -15063,16 +15150,8 @@ pub export fn sa_std_net_udp_send_vectored(socket: u64, iovs: [*]const sa_net_io
     const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const slices = iovs[0..count];
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
 
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .udp_socket => |fd| fd,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
+    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
 
     var ziovec: [SA_NET_IOV_MAX]std.posix.iovec_const = undefined;
     var filled: usize = 0;
@@ -15099,16 +15178,8 @@ pub export fn sa_std_net_udp_send_to_vectored(socket: u64, iovs: [*]const sa_net
     const port16 = portFromU32(port) catch |err| return finishErr(err);
     const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
 
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .udp_socket => |fd| fd,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
+    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
 
     var ziovec: [SA_NET_IOV_MAX]std.posix.iovec_const = undefined;
     var filled: usize = 0;
@@ -15138,16 +15209,8 @@ pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_n
     const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const slices = iovs[0..count];
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
 
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .udp_socket => |fd| fd,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
+    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
 
     var ziovec: [SA_NET_IOV_MAX]std.posix.iovec = undefined;
     var filled: usize = 0;
@@ -15169,7 +15232,7 @@ pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_n
     read_ptr.* = @as(u64, @intCast(read_n));
     if (out_addr) |ptr| {
         var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
-        const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
+        const handle = registerResource(.{ .net_addr = net_addr }) catch |err| {
             net_addr.deinit();
             return finishErr(err);
         };
@@ -16686,17 +16749,29 @@ pub export fn sa_fmt_buffer_len(buffer: u64) u64 {
 }
 
 pub export fn sa_fmt_buffer_write_to(buffer: u64, writer: u64) i32 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(buffer) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    // Snapshot the formatted bytes under the lock (the slice
+    // points into the fmt resource), then write unlocked via
+    // the DEF-R5 data path: the write itself can block.
+    lockRegistry();
+    const resource = getResourceLocked(buffer) orelse {
+        registry_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
     const bytes = switch (resource.*) {
         .fmt => |fmt| fmt.bytes,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
+        else => {
+            registry_mutex.unlock();
+            return finish(SA_STD_ERR_INVALID_HANDLE);
+        },
     };
-    const written = writeHandleLocked(writer, bytes) catch |err| return finishErr(err);
-    if (written != bytes.len) return finish(SA_STD_ERR_IO);
+    const copy = std.heap.page_allocator.dupe(u8, bytes) catch {
+        registry_mutex.unlock();
+        return finish(SA_STD_ERR_NO_MEMORY);
+    };
+    registry_mutex.unlock();
+    defer std.heap.page_allocator.free(copy);
+    const written = writeHandle(writer, copy) catch |err| return finishErr(err);
+    if (written != copy.len) return finish(SA_STD_ERR_IO);
     return finish(SA_STD_OK);
 }
 
