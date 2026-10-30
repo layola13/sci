@@ -969,6 +969,8 @@ int32_t sa_rsa_pkcs1_verify(const uint8_t *key_der, uint64_t key_len, uint32_t h
 int32_t sa_rsa_pkcs1_sign(const uint8_t *key_der, uint64_t key_len, uint32_t hash_alg, const uint8_t *digest, uint64_t digest_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
 int32_t sa_rsa_jwk_to_spki(const uint8_t *n_b64, uint64_t n_len, const uint8_t *e_b64, uint64_t e_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
 int32_t sa_rsa_oaep_sha256_decrypt(const uint8_t *key_der, uint64_t key_len, const uint8_t *label, uint64_t label_len, const uint8_t *ct, uint64_t ct_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
+int32_t sa_rsa_generate_keypair(uint32_t bits, uint8_t *pub_out, uint64_t pub_cap, uint64_t *pub_len, uint8_t *priv_out, uint64_t priv_cap, uint64_t *priv_len);
+int32_t sa_rsa_spki_to_jwk(const uint8_t *key_der, uint64_t key_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
 int32_t sa_pem_decode(const uint8_t *pem, uint64_t pem_len, const uint8_t *label, uint64_t label_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
 int32_t sa_x509_spki(const uint8_t *cert, uint64_t cert_len, uint8_t *out, uint64_t cap, uint64_t *out_len);
 int32_t sa_x509_subject(const uint8_t *cert, uint64_t cert_len, uint8_t *out, uint64_t cap, uint64_t *out_len);

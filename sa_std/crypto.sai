@@ -121,6 +121,21 @@
 @extern sa_rsa_jwk_to_spki(&n_b64: ptr, n_len: u64, &e_b64: ptr, e_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
 @extern sa_rsa_oaep_sha256_decrypt(&key_der: ptr, key_len: u64, &label: ptr, label_len: u64, &ct: ptr, ct_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
 
+// RSA keypair generation (GAP-18): mints a fresh pair with
+// e = 65537 by Miller-Rabin prime search. bits must be even and
+// within [1024, 4096] (status 1 otherwise). The public half is
+// written as SPKI DER, the private half as PKCS#8 DER wrapping a
+// full PKCS#1 key (CRT fields included), so the pair feeds the
+// sign / verify / OAEP-decrypt calls above directly. Both
+// out_lens are always set to the needed sizes first; when either
+// cap is too small the status is 9 and nothing is written.
+// Generation is schoolbook and takes seconds at 2048+ bits.
+// sa_rsa_spki_to_jwk is the inverse of sa_rsa_jwk_to_spki: it
+// renders {"kty":"RSA","n":...,"e":...} (base64url, no padding)
+// from an SPKI or bare PKCS#1 public key.
+@extern sa_rsa_generate_keypair(bits: u32, &pub_out: ptr, pub_cap: u64, &pub_len: ptr, &priv_out: ptr, priv_cap: u64, &priv_len: ptr) -> i32
+@extern sa_rsa_spki_to_jwk(&key_der: ptr, key_len: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+
 // PEM: decodes the first block whose label matches (e.g.
 // "PUBLIC KEY", "PRIVATE KEY", "CERTIFICATE"); RFC 1421 header
 // lines inside the block are skipped. Status 3 when no block

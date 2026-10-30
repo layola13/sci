@@ -654,6 +654,8 @@ comptime {
     _ = &@import("sa_crypto_asym.zig").sa_rsa_pkcs1_sign;
     _ = &@import("sa_crypto_asym.zig").sa_rsa_jwk_to_spki;
     _ = &@import("sa_crypto_asym.zig").sa_rsa_oaep_sha256_decrypt;
+    _ = &@import("sa_crypto_asym.zig").sa_rsa_generate_keypair;
+    _ = &@import("sa_crypto_asym.zig").sa_rsa_spki_to_jwk;
     _ = &@import("sa_crypto_asym.zig").sa_pem_decode;
     _ = &@import("sa_crypto_asym.zig").sa_x509_spki;
     _ = &@import("sa_crypto_asym.zig").sa_x509_subject;
