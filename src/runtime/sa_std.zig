@@ -512,6 +512,9 @@ comptime {
     _ = &@import("sa_dtls.zig").sa_std_dtls_supported;
     _ = &@import("sa_quic.zig").sa_std_quic_supported;
     _ = &@import("sa_http_client.zig").sa_http_client_new;
+    _ = &@import("sa_http_client.zig").sa_http_client_new_with_profile;
+    _ = &@import("sa_http_client.zig").sa_http_client_new_with_proxy;
+    _ = &@import("sa_http_client.zig").sa_http_client_new_with_profile_proxy;
     _ = &@import("sa_compress.zig").sa_std_compress_encode;
     _ = &@import("sa_multipart.zig").sa_std_multipart_parse;
     _ = &@import("sa_multipart.zig").sa_std_multipart_builder_new;

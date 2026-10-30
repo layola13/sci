@@ -4,6 +4,27 @@
 // this surface with framework conveniences.
 
 @extern sa_http_client_new(use_tls: u8, &out_client: ptr) -> u32
+// GAP-17: like sa_http_client_new, plus a shaped-TLS profile
+// (the sa_tls_shaped JSON document). https:// requests of this
+// client run over the shaped TLS stack (v1 request path,
+// including req_send_async), so the ClientHello carries the
+// profile's fingerprint; http:// is unaffected. The profile is
+// parsed and resolved at construction -- a malformed document
+// or an unsupported facing fails here, not at first request.
+// The v2 send path (req_send_v2 / request_send_v2) and
+// WebSocket connects reject https/wss on a profile client
+// loudly rather than falling back to std TLS.
+@extern sa_http_client_new_with_profile(use_tls: u8, &profile: ptr, profile_len: u64, &out_client: ptr) -> u32
+// GAP-25: like sa_http_client_new, plus an explicit proxy URL
+// (http://[user:password@]host[:port] or https://...), applied
+// to BOTH schemes and overriding the http_proxy/https_proxy
+// environment for this client; no_proxy bypass still applies.
+// SOCKS schemes are rejected (std.http.Client has no SOCKS
+// support; there is no silent direct fallback). The shaped path
+// honours the proxy with CONNECT + shaped_start_tls.
+@extern sa_http_client_new_with_proxy(use_tls: u8, &proxy_url: ptr, proxy_url_len: u64, &out_client: ptr) -> u32
+// GAP-17+25 composed: profile and explicit proxy together.
+@extern sa_http_client_new_with_profile_proxy(use_tls: u8, &profile: ptr, profile_len: u64, &proxy_url: ptr, proxy_url_len: u64, &out_client: ptr) -> u32
 @extern sa_http_client_req_new(client: ptr, method: u8, &url: ptr, url_len: u64, &out_req: ptr) -> u32
 @extern sa_http_client_req_new_joined(client: ptr, method: u8, &target: ptr, target_len: u64, &path: ptr, path_len: u64, preserve_base_path: u8, &out_req: ptr) -> u32
 @extern sa_http_client_req_add_header(req: ptr, &key: ptr, key_len: u64, &val: ptr, val_len: u64) -> u32

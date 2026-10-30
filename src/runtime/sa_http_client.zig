@@ -15,6 +15,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const sio = @import("sio");
+const shaped = @import("sa_tls_shaped.zig");
 
 // AbiStatus mirrors the plugin ABI enum (ok=0, failed=2), localized so
 // the std module carries no plugin dependency.
@@ -202,6 +203,18 @@ pub const HttpMethod = enum(u8) {
 pub const HttpClientConfig = struct {
     use_tls: u8,
     ca_bundle_path: ?[]const u8 = null,
+    // GAP-17: shaped-TLS profile JSON (the sa_tls_shaped profile
+    // document). When set, https:// requests execute over the
+    // shaped TLS stack instead of std.http.Client's TLS, so the
+    // ClientHello carries the profile's fingerprint. Validated at
+    // construction; plain http:// requests are unaffected.
+    tls_profile: ?[]const u8 = null,
+    // GAP-25: explicit proxy URL (http:// or https://, optional
+    // user:password@ authority). Overrides the proxy environment
+    // for BOTH schemes on this client. SOCKS URLs are rejected:
+    // std.http.Client has no SOCKS support and a silent direct
+    // fallback would be a lie.
+    proxy_url: ?[]const u8 = null,
 };
 
 pub const HttpRequestConfig = struct {
@@ -220,6 +233,9 @@ pub const HttpClient = struct {
     // Serializes request execution so per-request proxy bypass (no_proxy)
     // can temporarily clear client.http_proxy/https_proxy safely.
     request_mutex: std.atomic.Mutex = .unlocked,
+    // Owned copy of the GAP-17 shaped-TLS profile JSON, or null
+    // for the default (std TLS) face.
+    tls_profile: ?[]u8 = null,
 
     pub fn init(allocator: std.mem.Allocator, cfg: HttpClientConfig) !*HttpClient {
         const self = try allocator.create(HttpClient);
@@ -239,7 +255,52 @@ pub const HttpClient = struct {
             self.client.initDefaultProxies(self.proxy_arena.allocator(), &owned_env) catch {};
         } else |_| {}
         try self.configureHttpsTrust(cfg);
+        if (cfg.tls_profile) |profile| {
+            // Fail at construction, not at first request: the
+            // profile document is parsed and resolved exactly as
+            // the shaped connect path would.
+            if (shaped.shapedProfileCheck(profile) != 0) return error.InvalidTlsProfile;
+            self.tls_profile = try allocator.dupe(u8, profile);
+        }
+        errdefer if (self.tls_profile) |profile| allocator.free(profile);
+        if (cfg.proxy_url) |proxy_url| {
+            try self.applyExplicitProxy(proxy_url);
+        }
         return self;
+    }
+
+    /// GAP-25: parse an explicit proxy URL and install it for
+    /// both schemes, replacing whatever the environment provided.
+    /// Mirrors std's createProxyFromEnvVar construction (which is
+    /// private): http:// and https:// proxies only -- a socks*
+    /// scheme makes Protocol.fromUri return null and the caller
+    /// fails loudly instead of silently going direct.
+    fn applyExplicitProxy(self: *HttpClient, proxy_url: []const u8) !void {
+        const a = self.proxy_arena.allocator();
+        const uri = std.Uri.parse(proxy_url) catch
+            (std.Uri.parseAfterScheme("http", proxy_url) catch return error.InvalidProxyUrl);
+        const protocol = std.http.Client.Protocol.fromUri(uri) orelse return error.InvalidProxyUrl;
+        var host_buf: [std.Io.net.HostName.max_len]u8 = undefined;
+        const raw_host = std.Io.net.HostName.fromUri(uri, &host_buf) catch return error.InvalidProxyUrl;
+        if (raw_host.bytes.len == 0) return error.InvalidProxyUrl;
+        const authorization: ?[]const u8 = if (uri.user != null or uri.password != null) blk: {
+            const s = try a.alloc(u8, std.http.Client.basic_authorization.valueLengthFromUri(uri));
+            std.debug.assert(std.http.Client.basic_authorization.value(uri, s).len == s.len);
+            break :blk s;
+        } else null;
+        const proxy = try a.create(std.http.Client.Proxy);
+        proxy.* = .{
+            .protocol = protocol,
+            .host = .{ .bytes = try a.dupe(u8, raw_host.bytes) },
+            .authorization = authorization,
+            .port = uri.port orelse switch (protocol) {
+                .plain => 80,
+                .tls => 443,
+            },
+            .supports_connect = true,
+        };
+        self.client.http_proxy = proxy;
+        self.client.https_proxy = proxy;
     }
 
     fn configureHttpsTrust(self: *HttpClient, cfg: HttpClientConfig) !void {
@@ -277,6 +338,7 @@ pub const HttpClient = struct {
         if (!destroy) return;
         self.client.deinit();
         self.proxy_arena.deinit();
+        if (self.tls_profile) |profile| self.allocator.free(profile);
         self.allocator.destroy(self);
     }
 };
@@ -741,8 +803,322 @@ fn backoffSecs(attempt: u32) u64 {
 }
 
 /// Single attempt without retry. See httpRequestExec for the retry wrapper.
+// ---- GAP-17 shaped-TLS execution path ----
+//
+// When the client carries a tls_profile, https:// requests run
+// here instead of through std.http.Client: the connection is
+// established by the shaped TLS stack (sa_tls_shaped) so the
+// ClientHello on the wire is the profile's, and HTTP/1.1 is
+// spoken directly over it. Semantics mirror httpRequestExecOnce
+// where the face promises them: request headers/body in,
+// status/headers/body out, Accept-Encoding: identity unless the
+// caller set one, Connection: close, no redirect following (the
+// std path also leaves redirects unhandled), response size cap
+// from req.max_response_bytes. The client's configured https
+// proxy (explicit GAP-25 URL or environment-provided) is
+// honoured with a CONNECT tunnel + shaped_start_tls, and the
+// no_proxy bypass applies exactly as on the std path. Transport
+// failures are plain errors, so the v1 retry wrapper treats
+// them like std transport errors.
+
+fn shapedNoProxyBypass(req: *HttpRequest, host: []const u8, port: u16) bool {
+    const no_proxy = sio.getEnvVarOwned(req.allocator, "no_proxy") catch
+        (sio.getEnvVarOwned(req.allocator, "NO_PROXY") catch return false);
+    defer req.allocator.free(no_proxy);
+    return hostMatchesNoProxy(host, port, no_proxy);
+}
+
+fn shapedWriteAll(handle: u64, bytes: []const u8) !void {
+    var off: usize = 0;
+    while (off < bytes.len) {
+        var written: u64 = 0;
+        if (shaped.sa_std_tls_shaped_write(handle, bytes[off..].ptr, bytes.len - off, &written) != 0) return error.Io;
+        if (written == 0) return error.Io;
+        off += @intCast(written);
+    }
+}
+
+/// Speak CONNECT to the proxy over `stream` and require a 200.
+/// Reads one byte at a time from the raw fd so no byte past the
+/// response head is consumed (everything after it is TLS). The
+/// head is capped at 16 KiB.
+fn proxyConnect(stream: std.Io.net.Stream, proxy: *std.http.Client.Proxy, host: []const u8, port: u16, allocator: std.mem.Allocator) !void {
+    var head = std.array_list.Managed(u8).init(allocator);
+    defer head.deinit();
+    var port_buf: [8]u8 = undefined;
+    const port_s = std.fmt.bufPrint(&port_buf, "{d}", .{port}) catch unreachable;
+    try head.appendSlice("CONNECT ");
+    try head.appendSlice(host);
+    try head.append(':');
+    try head.appendSlice(port_s);
+    try head.appendSlice(" HTTP/1.1\r\nHost: ");
+    try head.appendSlice(host);
+    try head.append(':');
+    try head.appendSlice(port_s);
+    try head.appendSlice("\r\n");
+    if (proxy.authorization) |auth| {
+        try head.appendSlice("Proxy-Authorization: ");
+        try head.appendSlice(auth);
+        try head.appendSlice("\r\n");
+    }
+    try head.appendSlice("\r\n");
+    var wbuf: [4096]u8 = undefined;
+    var w = stream.writer(sio.io(), &wbuf);
+    try w.interface.writeAll(head.items);
+    try w.interface.flush();
+
+    var resp = std.array_list.Managed(u8).init(allocator);
+    defer resp.deinit();
+    var byte: [1]u8 = undefined;
+    while (!std.mem.endsWith(u8, resp.items, "\r\n\r\n")) {
+        if (resp.items.len > 16 * 1024) return error.ProxyConnect;
+        const n = std.posix.read(stream.socket.handle, &byte) catch return error.ProxyConnect;
+        if (n == 0) return error.ProxyConnect;
+        try resp.append(byte[0]);
+    }
+    if (resp.items.len < 12 or !std.mem.startsWith(u8, resp.items, "HTTP/1.") or
+        !std.mem.eql(u8, resp.items[9..12], "200")) return error.ProxyConnect;
+}
+
+/// Find a header value in a raw response head (case-insensitive
+/// name match); the head excludes the terminating CRLFCRLF.
+fn rawHeadHeader(head: []const u8, name: []const u8) ?[]const u8 {
+    var lines = std.mem.splitSequence(u8, head, "\r\n");
+    _ = lines.next(); // status line
+    while (lines.next()) |line| {
+        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        if (std.ascii.eqlIgnoreCase(std.mem.trim(u8, line[0..colon], " \t"), name)) {
+            return std.mem.trim(u8, line[colon + 1 ..], " \t");
+        }
+    }
+    return null;
+}
+
+/// Scan a chunked body: returns the decoded length once the
+/// terminal chunk and its closing CRLF are fully present, or
+/// null while more bytes are needed / the framing is malformed.
+fn chunkedComplete(body: []const u8) ?usize {
+    var pos: usize = 0;
+    var total: usize = 0;
+    while (true) {
+        const line_end = std.mem.indexOfPos(u8, body, pos, "\r\n") orelse return null;
+        var size_field = body[pos..line_end];
+        if (std.mem.indexOfScalar(u8, size_field, ';')) |semi| size_field = size_field[0..semi];
+        const size = std.fmt.parseInt(usize, std.mem.trim(u8, size_field, " \t"), 16) catch return null;
+        pos = line_end + 2;
+        if (size == 0) {
+            // Trailer part runs to an empty line; the minimal
+            // form is a single CRLF right here.
+            if (body.len - pos >= 2 and std.mem.eql(u8, body[pos..][0..2], "\r\n")) return total;
+            if (std.mem.indexOfPos(u8, body, pos, "\r\n\r\n") != null) return total;
+            return null;
+        }
+        if (body.len - pos < size + 2) return null;
+        if (!std.mem.eql(u8, body[pos + size ..][0..2], "\r\n")) return null;
+        total += size;
+        pos += size + 2;
+    }
+}
+
+fn dechunkBody(allocator: std.mem.Allocator, body: []const u8) ![]u8 {
+    var out = std.array_list.Managed(u8).init(allocator);
+    errdefer out.deinit();
+    var pos: usize = 0;
+    while (true) {
+        const line_end = std.mem.indexOfPos(u8, body, pos, "\r\n") orelse return error.InvalidResponse;
+        var size_field = body[pos..line_end];
+        if (std.mem.indexOfScalar(u8, size_field, ';')) |semi| size_field = size_field[0..semi];
+        const size = std.fmt.parseInt(usize, std.mem.trim(u8, size_field, " \t"), 16) catch return error.InvalidResponse;
+        pos = line_end + 2;
+        if (size == 0) break;
+        if (body.len - pos < size + 2) return error.InvalidResponse;
+        try out.appendSlice(body[pos .. pos + size]);
+        pos += size + 2;
+    }
+    return out.toOwnedSlice();
+}
+
+/// True when `raw` already holds a complete response under its
+/// own framing (status line + head + body), so the reader can
+/// stop before EOF. Close-delimited bodies are never "complete"
+/// early -- EOF ends them.
+fn shapedFramingComplete(raw: []const u8, method: std.http.Method) bool {
+    const head_end = std.mem.indexOf(u8, raw, "\r\n\r\n") orelse return false;
+    const head = raw[0..head_end];
+    const first_sp = std.mem.indexOfScalar(u8, head, ' ') orelse return false;
+    if (head.len < first_sp + 4) return false;
+    const status = std.fmt.parseInt(u16, head[first_sp + 1 ..][0..3], 10) catch return false;
+    if ((status >= 100 and status < 200) or status == 204 or status == 304 or !method.responseHasBody()) return true;
+    const body = raw[head_end + 4 ..];
+    if (rawHeadHeader(head, "transfer-encoding")) |te| {
+        if (indexOfIgnoreCase(te, "chunked") != null) return chunkedComplete(body) != null;
+    }
+    if (rawHeadHeader(head, "content-length")) |cl| {
+        const want = std.fmt.parseInt(usize, std.mem.trim(u8, cl, " \t"), 10) catch return false;
+        return body.len >= want;
+    }
+    return false;
+}
+
+fn parseShapedResponse(req: *HttpRequest, raw: []const u8) !*HttpResponse {
+    const a = req.allocator;
+    var rest = raw;
+    // Skip interim 1xx heads (except 101, which this client
+    // never negotiates and is treated as final garbage below).
+    while (true) {
+        const head_end = std.mem.indexOf(u8, rest, "\r\n\r\n") orelse return error.InvalidResponse;
+        const head = rest[0..head_end];
+        const first_sp = std.mem.indexOfScalar(u8, head, ' ') orelse return error.InvalidResponse;
+        if (head.len < first_sp + 4) return error.InvalidResponse;
+        const status = std.fmt.parseInt(u16, head[first_sp + 1 ..][0..3], 10) catch return error.InvalidResponse;
+        if (status >= 100 and status < 200 and status != 101) {
+            rest = rest[head_end + 4 ..];
+            continue;
+        }
+        var headers = std.array_list.Managed(std.http.Header).init(a);
+        errdefer {
+            for (headers.items) |header| {
+                a.free(header.name);
+                a.free(header.value);
+            }
+            headers.deinit();
+        }
+        var lines = std.mem.splitSequence(u8, head, "\r\n");
+        _ = lines.next(); // status line
+        while (lines.next()) |line| {
+            if (line.len == 0) continue;
+            const colon = std.mem.indexOfScalar(u8, line, ':') orelse return error.InvalidResponse;
+            try headers.append(.{
+                .name = try a.dupe(u8, std.mem.trim(u8, line[0..colon], " \t")),
+                .value = try a.dupe(u8, std.mem.trim(u8, line[colon + 1 ..], " \t")),
+            });
+        }
+        var body_slice = rest[head_end + 4 ..];
+        var body: []u8 = undefined;
+        if ((status >= 100 and status < 200) or status == 204 or status == 304 or !req.method.responseHasBody()) {
+            body = try a.alloc(u8, 0);
+        } else if (rawHeadHeader(head, "transfer-encoding") != null and indexOfIgnoreCase(rawHeadHeader(head, "transfer-encoding").?, "chunked") != null) {
+            body = try dechunkBody(a, body_slice);
+        } else if (rawHeadHeader(head, "content-length")) |cl| {
+            const want = std.fmt.parseInt(usize, std.mem.trim(u8, cl, " \t"), 10) catch return error.InvalidResponse;
+            if (body_slice.len < want) return error.InvalidResponse;
+            body = try a.dupe(u8, body_slice[0..want]);
+        } else {
+            body = try a.dupe(u8, body_slice);
+        }
+        errdefer a.free(body);
+        if (body.len > req.max_response_bytes) return error.StreamTooLong;
+        return try makeStatusResponse(a, status, try headers.toOwnedSlice(), body);
+    }
+}
+
+fn httpRequestExecShaped(req: *HttpRequest, uri: std.Uri) !*HttpResponse {
+    const a = req.allocator;
+    const host_comp = uri.host orelse return error.InvalidUrl;
+    const host: []const u8 = switch (host_comp) {
+        .raw => |r| r,
+        .percent_encoded => |p| p,
+    };
+    const port: u16 = uri.port orelse 443;
+    const profile = req.client.tls_profile orelse return error.InvalidUrl;
+
+    // Serialize on the client request mutex: the CONNECT path
+    // reads the shared std-client proxy fields, mirroring the
+    // std path's discipline around them.
+    while (!req.client.request_mutex.tryLock()) std.atomic.spinLoopHint();
+    defer req.client.request_mutex.unlock();
+
+    var handle: u64 = 0;
+    const proxy = req.client.client.https_proxy;
+    if (proxy != null and !shapedNoProxyBypass(req, host, port)) {
+        const p = proxy.?;
+        var stream = try dialHost(p.host.bytes, p.port);
+        var handed_off = false;
+        defer if (!handed_off) stream.close(sio.io());
+        try proxyConnect(stream, p, host, port, a);
+        // start_tls takes the fd on success and on failure.
+        const rc = shaped.sa_std_tls_shaped_start_tls(stream.socket.handle, host.ptr, host.len, profile.ptr, profile.len, &handle);
+        handed_off = true;
+        if (rc != 0) return error.TlsHandshake;
+    } else {
+        if (shaped.sa_std_tls_shaped_connect(host.ptr, host.len, port, profile.ptr, profile.len, &handle) != 0)
+            return error.TlsHandshake;
+    }
+    defer _ = shaped.sa_std_tls_shaped_close(handle);
+
+    // ---- serialize the request ----
+    var out = std.array_list.Managed(u8).init(a);
+    defer out.deinit();
+    try out.appendSlice(@tagName(req.method));
+    try out.append(' ');
+    const path: []const u8 = switch (uri.path) {
+        .raw => |r| r,
+        .percent_encoded => |p| p,
+    };
+    if (path.len == 0) {
+        try out.appendSlice("/");
+    } else {
+        try out.appendSlice(path);
+    }
+    if (uri.query) |q| {
+        try out.append('?');
+        try out.appendSlice(switch (q) {
+            .raw => |r| r,
+            .percent_encoded => |p| p,
+        });
+    }
+    try out.appendSlice(" HTTP/1.1\r\nHost: ");
+    try out.appendSlice(host);
+    if (port != 443) {
+        var port_buf: [8]u8 = undefined;
+        const port_s = std.fmt.bufPrint(&port_buf, ":{d}", .{port}) catch unreachable;
+        try out.appendSlice(port_s);
+    }
+    try out.appendSlice("\r\n");
+    var has_ae = false;
+    var has_cl = false;
+    var has_conn = false;
+    for (req.headers.items) |h| {
+        if (std.ascii.eqlIgnoreCase(h.name, "accept-encoding")) has_ae = true;
+        if (std.ascii.eqlIgnoreCase(h.name, "content-length")) has_cl = true;
+        if (std.ascii.eqlIgnoreCase(h.name, "connection")) has_conn = true;
+        try out.appendSlice(h.name);
+        try out.appendSlice(": ");
+        try out.appendSlice(h.value);
+        try out.appendSlice("\r\n");
+    }
+    if (req.body != null and !has_cl) {
+        var cl_buf: [48]u8 = undefined;
+        const cl_s = std.fmt.bufPrint(&cl_buf, "Content-Length: {d}\r\n", .{req.body.?.len}) catch unreachable;
+        try out.appendSlice(cl_s);
+    }
+    if (!has_ae) try out.appendSlice("Accept-Encoding: identity\r\n");
+    if (!has_conn) try out.appendSlice("Connection: close\r\n");
+    try out.appendSlice("\r\n");
+    if (req.body) |body| try out.appendSlice(body);
+    try shapedWriteAll(handle, out.items);
+
+    // ---- read the response ----
+    var raw = std.array_list.Managed(u8).init(a);
+    defer raw.deinit();
+    var chunk: [8192]u8 = undefined;
+    while (!shapedFramingComplete(raw.items, req.method)) {
+        var n: u64 = 0;
+        if (shaped.sa_std_tls_shaped_read(handle, &chunk, chunk.len, &n) != 0) return error.Io;
+        if (n == 0) break; // clean EOF
+        try raw.appendSlice(chunk[0..@intCast(n)]);
+        if (raw.items.len > req.max_response_bytes + 64 * 1024) return error.StreamTooLong;
+    }
+    return parseShapedResponse(req, raw.items);
+}
+
 fn httpRequestExecOnce(req: *HttpRequest) !*HttpResponse {
     const uri = try std.Uri.parse(req.url);
+    // GAP-17 routing: a profiled client's https:// requests run
+    // over the shaped TLS stack. http:// is unaffected.
+    if (req.client.tls_profile != null and std.mem.eql(u8, uri.scheme, "https")) {
+        return httpRequestExecShaped(req, uri);
+    }
     while (!req.client.request_mutex.tryLock()) std.atomic.spinLoopHint();
     defer req.client.request_mutex.unlock();
     // Save proxies; maybeBypassProxy may clear them for no_proxy hosts.
@@ -854,6 +1230,53 @@ fn readAllIntoList(reader: anytype, allocator: std.mem.Allocator) !std.array_lis
 pub export fn sa_http_client_new(use_tls: u8, out_client: ?*?*anyopaque) u32 {
     const slot = out_client orelse return @intFromEnum(AbiStatus.failed);
     const client = HttpClient.init(clientAllocator(), .{ .use_tls = use_tls }) catch return @intFromEnum(AbiStatus.failed);
+    slot.* = @ptrCast(client);
+    return @intFromEnum(AbiStatus.ok);
+}
+
+// ---- GAP-17 / GAP-25 client variants ----
+//
+// Same lifecycle and status convention as sa_http_client_new;
+// the returned handle is an ordinary client usable with the
+// whole v1 surface (req_new / req_send / async / request_*),
+// with two loud exceptions: the v2 send path and WebSocket
+// connects reject https/wss on profile clients instead of
+// silently using std TLS.
+
+pub export fn sa_http_client_new_with_profile(use_tls: u8, profile_ptr: ?[*]const u8, profile_len: u64, out_client: ?*?*anyopaque) u32 {
+    const slot = out_client orelse return @intFromEnum(AbiStatus.failed);
+    const profile = profile_ptr orelse return @intFromEnum(AbiStatus.failed);
+    if (profile_len == 0) return @intFromEnum(AbiStatus.failed);
+    const client = HttpClient.init(clientAllocator(), .{
+        .use_tls = use_tls,
+        .tls_profile = profile[0..@intCast(profile_len)],
+    }) catch return @intFromEnum(AbiStatus.failed);
+    slot.* = @ptrCast(client);
+    return @intFromEnum(AbiStatus.ok);
+}
+
+pub export fn sa_http_client_new_with_proxy(use_tls: u8, proxy_ptr: ?[*]const u8, proxy_len: u64, out_client: ?*?*anyopaque) u32 {
+    const slot = out_client orelse return @intFromEnum(AbiStatus.failed);
+    const proxy = proxy_ptr orelse return @intFromEnum(AbiStatus.failed);
+    if (proxy_len == 0) return @intFromEnum(AbiStatus.failed);
+    const client = HttpClient.init(clientAllocator(), .{
+        .use_tls = use_tls,
+        .proxy_url = proxy[0..@intCast(proxy_len)],
+    }) catch return @intFromEnum(AbiStatus.failed);
+    slot.* = @ptrCast(client);
+    return @intFromEnum(AbiStatus.ok);
+}
+
+pub export fn sa_http_client_new_with_profile_proxy(use_tls: u8, profile_ptr: ?[*]const u8, profile_len: u64, proxy_ptr: ?[*]const u8, proxy_len: u64, out_client: ?*?*anyopaque) u32 {
+    const slot = out_client orelse return @intFromEnum(AbiStatus.failed);
+    const profile = profile_ptr orelse return @intFromEnum(AbiStatus.failed);
+    const proxy = proxy_ptr orelse return @intFromEnum(AbiStatus.failed);
+    if (profile_len == 0 or proxy_len == 0) return @intFromEnum(AbiStatus.failed);
+    const client = HttpClient.init(clientAllocator(), .{
+        .use_tls = use_tls,
+        .tls_profile = profile[0..@intCast(profile_len)],
+        .proxy_url = proxy[0..@intCast(proxy_len)],
+    }) catch return @intFromEnum(AbiStatus.failed);
     slot.* = @ptrCast(client);
     return @intFromEnum(AbiStatus.ok);
 }
@@ -1342,6 +1765,8 @@ pub export fn sa_http_client_websocket_connect(client: ?*anyopaque, url_ptr: ?[*
     };
     const use_tls = std.mem.eql(u8, uri.scheme, "wss") or std.mem.eql(u8, uri.scheme, "https");
     if (!use_tls and !std.mem.eql(u8, uri.scheme, "ws") and !std.mem.eql(u8, uri.scheme, "http")) return fail();
+    // GAP-17: no shaped-TLS WebSocket variant; fail loudly.
+    if (use_tls and cli.tls_profile != null) return fail();
     const port: u16 = uri.port orelse if (use_tls) 443 else 80;
 
     // Request target: path + optional query.
@@ -2857,6 +3282,9 @@ fn executeRequestV2(request: *HttpRequest, tracker: ?*V2AsyncOp) V2Error!*HttpRe
     const deadline = Deadline.request(request.timeout_ms);
     if (requestCancelled(tracker)) return error.Closed;
     const uri = std.Uri.parse(request.url) catch |err| return mapHttpError(err, deadline, tracker);
+    // GAP-17: the v2 send path has no shaped-TLS variant; a
+    // profiled client must not silently fall back to std TLS.
+    if (request.client.tls_profile != null and std.mem.eql(u8, uri.scheme, "https")) return error.Invalid;
     // Mirror the v1 path (httpRequestExecOnce): under the
     // client-wide request mutex, drop the configured proxies for
     // this request when the target host matches no_proxy, and
@@ -3317,6 +3745,9 @@ fn websocketConnect(
     if (unix_socket_path != null and !std.mem.startsWith(u8, logical_url, "ws://")) return error.Invalid;
     const use_tls = std.mem.startsWith(u8, logical_url, "wss://");
     if (!use_tls and !std.mem.startsWith(u8, logical_url, "ws://")) return error.Invalid;
+    // GAP-17: WebSocket has no shaped-TLS variant; reject wss on
+    // a profiled client instead of falling back to std TLS.
+    if (use_tls and client.tls_profile != null) return error.Invalid;
     const normalized_url = try normalizedWebSocketUrl(client.allocator, logical_url);
     defer client.allocator.free(normalized_url);
     const uri = std.Uri.parse(normalized_url) catch return error.Invalid;
@@ -3994,6 +4425,107 @@ test "http client v1: POST echo over loopback" {
     var out_len: u64 = 0;
     try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_resp_body_slice(resp, &out_body, &out_len));
     try testing.expectEqualStrings("POST /echo hello-std", out_body.?[0..out_len]);
+}
+
+// ---- GAP-17 / GAP-25 variant constructors ----
+
+test "http client variants: profile and proxy validation" {
+    // Profile documents are resolved at construction time.
+    var client: ?*anyopaque = null;
+    const good_profile = "{\"preset\":\"chrome\"}";
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_new_with_profile(1, good_profile.ptr, good_profile.len, &client));
+    const http_client: *HttpClient = @ptrCast(@alignCast(client.?));
+    try testing.expect(http_client.tls_profile != null);
+    try testing.expectEqualStrings(good_profile, http_client.tls_profile.?);
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_free(client));
+
+    client = null;
+    const bad_preset = "{\"preset\":\"netscape\"}";
+    try testing.expectEqual(@intFromEnum(AbiStatus.failed), sa_http_client_new_with_profile(1, bad_preset.ptr, bad_preset.len, &client));
+    const grease = "{\"grease\":true}";
+    try testing.expectEqual(@intFromEnum(AbiStatus.failed), sa_http_client_new_with_profile(1, grease.ptr, grease.len, &client));
+    try testing.expectEqual(@intFromEnum(AbiStatus.failed), sa_http_client_new_with_profile(1, good_profile.ptr, 0, &client));
+
+    // Explicit proxy: installed for both schemes, overriding env.
+    const proxy_url = "http://127.0.0.1:18080";
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_new_with_proxy(1, proxy_url.ptr, proxy_url.len, &client));
+    const proxy_client: *HttpClient = @ptrCast(@alignCast(client.?));
+    try testing.expect(proxy_client.client.http_proxy != null);
+    try testing.expect(proxy_client.client.https_proxy != null);
+    try testing.expect(proxy_client.client.http_proxy == proxy_client.client.https_proxy);
+    try testing.expectEqual(@as(u16, 18080), proxy_client.client.http_proxy.?.port);
+    try testing.expectEqualStrings("127.0.0.1", proxy_client.client.http_proxy.?.host.bytes);
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_free(client));
+
+    client = null;
+    const socks = "socks5://127.0.0.1:1080";
+    try testing.expectEqual(@intFromEnum(AbiStatus.failed), sa_http_client_new_with_proxy(1, socks.ptr, socks.len, &client));
+    const no_host = "http://";
+    try testing.expectEqual(@intFromEnum(AbiStatus.failed), sa_http_client_new_with_proxy(1, no_host.ptr, no_host.len, &client));
+
+    // Composed constructor.
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_new_with_profile_proxy(1, good_profile.ptr, good_profile.len, proxy_url.ptr, proxy_url.len, &client));
+    const both: *HttpClient = @ptrCast(@alignCast(client.?));
+    try testing.expect(both.tls_profile != null and both.client.https_proxy != null);
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_free(client));
+}
+
+var proxy_first_line_buf: [512]u8 = undefined;
+var proxy_first_line_len: usize = 0;
+
+fn sockReadHead(fd: i32, buf: []u8) []u8 {
+    var total: usize = 0;
+    while (total < buf.len) {
+        const n = sockRead(fd, buf[total..]);
+        if (n == 0) break;
+        total += n;
+        if (std.mem.indexOf(u8, buf[0..total], "\r\n\r\n") != null) break;
+    }
+    return buf[0..total];
+}
+
+fn recordingProxyHandler(fd: i32) void {
+    var head_buf: [4096]u8 = undefined;
+    const head = sockReadHead(fd, &head_buf);
+    const line_end = std.mem.indexOf(u8, head, "\r\n") orelse head.len;
+    const line = head[0..line_end];
+    @memcpy(proxy_first_line_buf[0..line.len], line);
+    proxy_first_line_len = line.len;
+    if (std.mem.startsWith(u8, line, "CONNECT ")) {
+        sockWriteAll(fd, "HTTP/1.1 200 Connection Established\r\n\r\n");
+        // Play the origin inside the tunnel.
+        var inner_buf: [4096]u8 = undefined;
+        _ = sockReadHead(fd, &inner_buf);
+    }
+    sockWriteAll(fd, "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nPROXY");
+}
+
+test "http client explicit proxy: request transits the proxy" {
+    const srv = try TestServer.start(recordingProxyHandler);
+    defer srv.join();
+    var proxy_buf: [64]u8 = undefined;
+    const proxy_url = try std.fmt.bufPrint(&proxy_buf, "http://127.0.0.1:{d}", .{srv.port});
+
+    var client: ?*anyopaque = null;
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_new_with_proxy(0, proxy_url.ptr, proxy_url.len, &client));
+    defer _ = sa_http_client_free(client);
+    // Port 9 on the target is closed: the request can only
+    // succeed by transiting the configured proxy.
+    const url = "http://duck.test:9/acc";
+    var req: ?*anyopaque = null;
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_req_new(client, 1, url.ptr, url.len, &req));
+    defer _ = sa_http_client_req_free(req);
+    var resp: ?*anyopaque = null;
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_req_send(req, &resp));
+    defer _ = sa_http_client_resp_free(resp);
+    try testing.expectEqual(@as(u16, 200), sa_http_client_resp_status(resp));
+    var out_body: ?[*]const u8 = null;
+    var out_len: u64 = 0;
+    try testing.expectEqual(@intFromEnum(AbiStatus.ok), sa_http_client_resp_body_slice(resp, &out_body, &out_len));
+    try testing.expectEqualStrings("PROXY", out_body.?[0..out_len]);
+    // The proxy saw the target authority (CONNECT) or the
+    // absolute-form request line -- either proves transit.
+    try testing.expect(std.mem.indexOf(u8, proxy_first_line_buf[0..proxy_first_line_len], "duck.test:9") != null);
 }
 
 test "http client v2: POST echo over loopback" {
