@@ -79,8 +79,7 @@ const SslApi = struct {
     ctx_free: *const fn (?*SslCtx) callconv(.c) void,
     ctx_set_ciphersuites: *const fn (?*SslCtx, [*:0]const u8) callconv(.c) c_int,
     ctx_set_cipher_list: *const fn (?*SslCtx, [*:0]const u8) callconv(.c) c_int,
-    ctx_set1_groups_list: *const fn (?*SslCtx, [*:0]const u8) callconv(.c) c_int,
-    ctx_set1_sigalgs_list: *const fn (?*SslCtx, [*:0]const u8) callconv(.c) c_int,
+    // (groups/sigalgs list setters are ctrl macros -- no fields)
     ctx_ctrl: *const fn (?*SslCtx, c_int, c_long, ?*anyopaque) callconv(.c) c_long,
     ctx_set_default_verify_paths: *const fn (?*SslCtx) callconv(.c) c_int,
     ctx_load_verify_locations: *const fn (?*SslCtx, [*:0]const u8, ?[*:0]const u8) callconv(.c) c_int,
@@ -91,7 +90,7 @@ const SslApi = struct {
     ctrl: *const fn (?*Ssl, c_int, c_long, ?*anyopaque) callconv(.c) c_long,
     set_alpn_protos: *const fn (?*Ssl, [*]const u8, c_uint) callconv(.c) c_int,
     set_msg_callback: *const fn (?*Ssl, MsgCallback) callconv(.c) void,
-    set_msg_callback_arg: *const fn (?*Ssl, ?*anyopaque) callconv(.c) void,
+    // (msg-callback-arg setter is a ctrl macro -- no field)
     set1_host: *const fn (?*Ssl, [*:0]const u8) callconv(.c) c_int,
     connect: *const fn (?*Ssl) callconv(.c) c_int,
     read: *const fn (?*Ssl, [*]u8, c_int) callconv(.c) c_int,
@@ -166,8 +165,12 @@ fn loadSslApiNative() ?*SslApi {
         .ctx_free = l.lookup(*const fn (?*SslCtx) callconv(.c) void, "SSL_CTX_free") orelse return null,
         .ctx_set_ciphersuites = l.lookup(*const fn (?*SslCtx, [*:0]const u8) callconv(.c) c_int, "SSL_CTX_set_ciphersuites") orelse return null,
         .ctx_set_cipher_list = l.lookup(*const fn (?*SslCtx, [*:0]const u8) callconv(.c) c_int, "SSL_CTX_set_cipher_list") orelse return null,
-        .ctx_set1_groups_list = l.lookup(*const fn (?*SslCtx, [*:0]const u8) callconv(.c) c_int, "SSL_CTX_set1_groups_list") orelse return null,
-        .ctx_set1_sigalgs_list = l.lookup(*const fn (?*SslCtx, [*:0]const u8) callconv(.c) c_int, "SSL_CTX_set1_sigalgs_list") orelse return null,
+        // SSL_CTX_set1_groups_list / SSL_CTX_set1_sigalgs_list are
+        // NOT exported symbols: openssl/ssl.h defines them as
+        // macros over SSL_CTX_ctrl (SET_GROUPS_LIST=92,
+        // SET_SIGALGS_LIST=98). The call sites below issue those
+        // ctrls directly; hard-looking the names up made the whole
+        // API table fail to load on every conforming OpenSSL 3.
         .ctx_ctrl = l.lookup(*const fn (?*SslCtx, c_int, c_long, ?*anyopaque) callconv(.c) c_long, "SSL_CTX_ctrl") orelse return null,
         .ctx_set_default_verify_paths = l.lookup(*const fn (?*SslCtx) callconv(.c) c_int, "SSL_CTX_set_default_verify_paths") orelse return null,
         .ctx_load_verify_locations = l.lookup(*const fn (?*SslCtx, [*:0]const u8, ?[*:0]const u8) callconv(.c) c_int, "SSL_CTX_load_verify_locations") orelse return null,
@@ -178,7 +181,8 @@ fn loadSslApiNative() ?*SslApi {
         .ctrl = l.lookup(*const fn (?*Ssl, c_int, c_long, ?*anyopaque) callconv(.c) c_long, "SSL_ctrl") orelse return null,
         .set_alpn_protos = l.lookup(*const fn (?*Ssl, [*]const u8, c_uint) callconv(.c) c_int, "SSL_set_alpn_protos") orelse return null,
         .set_msg_callback = l.lookup(*const fn (?*Ssl, MsgCallback) callconv(.c) void, "SSL_set_msg_callback") orelse return null,
-        .set_msg_callback_arg = l.lookup(*const fn (?*Ssl, ?*anyopaque) callconv(.c) void, "SSL_set_msg_callback_arg") orelse return null,
+        // SSL_set_msg_callback_arg is likewise a header macro
+        // (SSL_ctrl SET_MSG_CALLBACK_ARG=16); see the call site.
         .set1_host = l.lookup(*const fn (?*Ssl, [*:0]const u8) callconv(.c) c_int, "SSL_set1_host") orelse return null,
         .connect = l.lookup(*const fn (?*Ssl) callconv(.c) c_int, "SSL_connect") orelse return null,
         .read = l.lookup(*const fn (?*Ssl, [*]u8, c_int) callconv(.c) c_int, "SSL_read") orelse return null,
@@ -219,6 +223,10 @@ fn loadSslApiNative() ?*SslApi {
 
 // SSL_CTRL_SET_TLSEXT_HOSTNAME / TLSEXT_NAMETYPE_host_name
 const SSL_CTRL_SET_TLSEXT_HOSTNAME: c_int = 55;
+// openssl/ssl.h macro bodies (the *_list / *_arg setters):
+const SSL_CTRL_SET_MSG_CALLBACK_ARG: c_int = 16;
+const SSL_CTRL_SET_GROUPS_LIST: c_int = 92;
+const SSL_CTRL_SET_SIGALGS_LIST: c_int = 98;
 // SSL_CTX ctrl ids for proto version bounds
 const SSL_CTRL_SET_MIN_PROTO_VERSION: c_int = 123;
 const SSL_CTRL_SET_MAX_PROTO_VERSION: c_int = 124;
@@ -465,6 +473,28 @@ pub export fn sa_std_tls_shaped_connect(host_ptr: ?[*]const u8, host_len: u64, p
 
 const ConnectError = error{ InvalidArgument, OutOfMemory, TlsVerify, Unsupported, Io };
 
+/// Validate a profile JSON document exactly as connect would
+/// (parse + resolve), without dialing. Returns SA_STD_OK for an
+/// acceptable profile (including the empty document, which means
+/// the default profile) or the same status the connect path
+/// would produce for the document. Lets callers that store a
+/// profile for later use fail at configuration time instead of
+/// at first connect.
+pub fn shapedProfileCheck(profile_json: []const u8) i32 {
+    if (profile_json.len == 0) return SA_STD_OK;
+    var parsed = std.json.parseFromSlice(Profile, std.heap.page_allocator, profile_json, .{ .ignore_unknown_fields = false }) catch {
+        return SA_STD_ERR_INVALID_ARGUMENT;
+    };
+    defer parsed.deinit();
+    switch (effectiveFromProfile(&parsed.value)) {
+        .ok => |eff| {
+            if (eff.session_der) |d| std.heap.page_allocator.free(d);
+            return SA_STD_OK;
+        },
+        .err => |code| return code,
+    }
+}
+
 /// Load every certificate in a PEM blob into the ctx trust store. Returns
 /// false when the blob yields no usable certificate (loud failure at the
 /// call site, never a silent empty store).
@@ -511,12 +541,12 @@ fn doConnectOnStream(api: *SslApi, stream: std.Io.net.Stream, host_slice: []cons
     if (eff.groups) |v| {
         const z = toZ(alloc, v) orelse return ConnectError.OutOfMemory;
         defer alloc.free(z);
-        if (api.ctx_set1_groups_list(ctx, z.ptr) != 1) return ConnectError.InvalidArgument;
+        if (api.ctx_ctrl(ctx, SSL_CTRL_SET_GROUPS_LIST, 0, @ptrCast(z.ptr)) != 1) return ConnectError.InvalidArgument;
     }
     if (eff.sigalgs) |v| {
         const z = toZ(alloc, v) orelse return ConnectError.OutOfMemory;
         defer alloc.free(z);
-        if (api.ctx_set1_sigalgs_list(ctx, z.ptr) != 1) return ConnectError.InvalidArgument;
+        if (api.ctx_ctrl(ctx, SSL_CTRL_SET_SIGALGS_LIST, 0, @ptrCast(z.ptr)) != 1) return ConnectError.InvalidArgument;
     }
     // Client certificate presentation (mutual TLS): both files or neither
     // (validated in effectiveFromProfile).
@@ -615,7 +645,7 @@ fn doConnectOnStream(api: *SslApi, stream: std.Io.net.Stream, host_slice: []cons
         .hello_buf = hello_buf,
     };
     api.set_msg_callback(ssl, &msgCallback);
-    api.set_msg_callback_arg(ssl, h);
+    _ = api.ctrl(ssl, SSL_CTRL_SET_MSG_CALLBACK_ARG, 0, h);
 
     if (api.connect(ssl) != 1) {
         if (eff.insecure_skip_verify) return ConnectError.Io;
@@ -1351,7 +1381,7 @@ test "profile validation rejects bad documents before any dial" {
     // unknown key
     try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_tls_shaped_connect(host.ptr, host.len, 1, "{\"bogus\":1}".ptr, 11, &h));
     // grease is honestly unsupported on the OpenSSL backend
-    try testing.expectEqual(@as(i32, SA_STD_ERR_UNSUPPORTED), sa_std_tls_shaped_connect(host.ptr, host.len, 1, "{\"grease\":true}".ptr, 16, &h));
+    try testing.expectEqual(@as(i32, SA_STD_ERR_UNSUPPORTED), sa_std_tls_shaped_connect(host.ptr, host.len, 1, "{\"grease\":true}".ptr, 15, &h));
     // unknown preset
     try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_tls_shaped_connect(host.ptr, host.len, 1, "{\"preset\":\"netscape\"}".ptr, 21, &h));
     // unknown version
