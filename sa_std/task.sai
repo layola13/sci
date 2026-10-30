@@ -3,6 +3,7 @@
 @extern sa_task_sleep_ns(ns: u64) -> i32
 @extern sa_task_sleep_ms(ms: u64) -> i32
 @extern sa_task_join(handle: u64) -> i32
+@extern sa_task_detach(handle: u64) -> i32
 @extern sa_task_current(&out_handle: ptr) -> i32
 @extern sa_task_live_count(&out_count: ptr) -> i32
 @extern sa_task_deadlock_guard_arm() -> i32

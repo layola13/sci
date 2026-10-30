@@ -314,6 +314,13 @@ const Goroutine = struct {
     exit_handed_off: bool = false,
     reap_requested: bool = false,
     reaped: bool = false, // completion record consumed by a join
+    // DEF-R1: set by sa_task_detach when the spawner declares the
+    // handle will never be used (SLA bare `go` statements). A
+    // detached record is reaped by the runtime itself once the
+    // exit handoff completes — without it, every detached spawn
+    // retained its completion record (one page_allocator page per
+    // Goroutine struct) forever, ~4,231 B/spawn of unbounded RSS.
+    detached: bool = false,
 
     fn handle(g: *const Goroutine) u64 {
         return (@as(u64, g.gen) << 32) | @as(u64, g.slot);
@@ -394,6 +401,7 @@ fn registryAlloc(entry: EntryFn, arg: ?*anyopaque) ?*Goroutine {
     g.exit_handed_off = false;
     g.reap_requested = false;
     g.reaped = false;
+    g.detached = false;
     g.transition = false;
     g.unpark_pending = false;
     g.yield_requeue = false;
@@ -419,22 +427,27 @@ fn registryLookup(handle: u64) ?*Goroutine {
 /// reports INVALID_HANDLE. Unjoined completions keep a small
 /// record (the struct; the stack is freed at exit regardless),
 /// exactly like zombie processes wait for wait().
-fn registryRecycle(g: *Goroutine, gen: u32) void {
-    registry_mu.lock();
-    defer registry_mu.unlock();
-    if (g.gen != gen) return; // slot already recycled and reused
+/// Reap a finished record if the exit handoff has completed.
+/// Caller must hold registry_mu. When the handoff is still
+/// pending, registering the request is enough — runGoroutine
+/// completes the reap after the final switch.
+fn reapIfReadyLocked(g: *Goroutine) void {
     if (g.reaped) return;
     if (g.state.load(.acquire) != .done) return;
     if (!g.exit_handed_off) {
-        // The exiting carrier has not finished the handoff; it
-        // completes the reap after the final switch (see
-        // runGoroutine). Registering the request is enough.
         g.reap_requested = true;
         return;
     }
     g.reaped = true;
     g.state.store(.empty, .release);
     registry_free.append(alloc, g.slot) catch {};
+}
+
+fn registryRecycle(g: *Goroutine, gen: u32) void {
+    registry_mu.lock();
+    defer registry_mu.unlock();
+    if (g.gen != gen) return; // slot already recycled and reused
+    reapIfReadyLocked(g);
 }
 
 // ---------------------------------------------------------------------
@@ -1031,11 +1044,10 @@ fn runGoroutine(c: *Carrier, g: *Goroutine) void {
         freeStack(region);
         registry_mu.lock();
         g.exit_handed_off = true;
-        if (g.reap_requested and !g.reaped and g.state.load(.acquire) == .done) {
-            g.reaped = true;
-            g.state.store(.empty, .release);
-            registry_free.append(alloc, g.slot) catch {};
-        }
+        // A reap a join already requested completes here; a
+        // detached record (DEF-R1) is reaped here unconditionally
+        // — no join will ever consume it.
+        if (g.reap_requested or g.detached) reapIfReadyLocked(g);
         registry_mu.unlock();
     }
 }
@@ -1300,6 +1312,7 @@ pub export fn sa_task_trap_info(handle: u64, out_code: ?*i32, out_msg_ptr: ?*?*c
     const omp = out_msg_ptr orelse return ERR_INVALID;
     const oml = out_msg_len orelse return ERR_INVALID;
     const g = registryLookup(handle) orelse return ERR_INVALID_HANDLE;
+    if (g.detached) return ERR_INVALID_HANDLE;
     if (g.state.load(.acquire) != .done) return ERR_INVALID;
     // Done but no held trap record (clean exit, already consumed,
     // or never held by a TRAPPED join): for this API the handle
@@ -1443,6 +1456,10 @@ pub export fn sa_task_join(handle: u64) i32 {
     if (!ensureInit()) return ERR_UNSUPPORTED;
     const g = registryLookup(handle) orelse return ERR_INVALID_HANDLE;
     if (current_g == g) return ERR_INVALID;
+    // A detached handle is dead by declaration (DEF-R1): joining
+    // it is an invalid-handle use, exactly like joining a handle
+    // whose record a previous join already consumed.
+    if (g.detached) return ERR_INVALID_HANDLE;
     if (g.state.load(.acquire) == .done) {
         const status: i32 = if (g.trapped) SA_TASK_TRAPPED else SA_TASK_OK;
         return joinFinish(g, g.gen, status);
@@ -1481,6 +1498,28 @@ pub export fn sa_task_join(handle: u64) i32 {
     os_waiter.wait();
     const status = os_waiter.status;
     return joinFinish(g, target_gen, status);
+}
+
+/// Declare a spawn handle dead: the spawner will never join,
+/// read trap info, or otherwise use it (DEF-R1; the SLA bare
+/// `go` statement form). The completion record is then reaped
+/// by the runtime itself once the goroutine exits and its exit
+/// handoff completes, instead of being retained as an unjoined
+/// zombie record forever. Monitor subscriptions registered
+/// before the detach still fire at exit. Joining or reading
+/// trap info through a detached handle reports
+/// ERR_INVALID_HANDLE; detaching an unknown or consumed handle
+/// does the same. Detach is idempotent while the record lives.
+pub export fn sa_task_detach(handle: u64) i32 {
+    if (!supported) return ERR_UNSUPPORTED;
+    const g = registryLookup(handle) orelse return ERR_INVALID_HANDLE;
+    registry_mu.lock();
+    defer registry_mu.unlock();
+    if (g.gen != @as(u32, @truncate(handle >> 32))) return ERR_INVALID_HANDLE;
+    if (g.state.load(.acquire) == .empty) return ERR_INVALID_HANDLE;
+    g.detached = true;
+    reapIfReadyLocked(g);
+    return SA_TASK_OK;
 }
 
 pub export fn sa_task_current(out_handle: ?*u64) i32 {

@@ -668,6 +668,7 @@ comptime {
     _ = &@import("sa_quic.zig").sa_std_http3_session_bind;
     _ = &@import("sa_thread_local.zig").sa_thread_local_supported;
     _ = &@import("sa_task.zig").sa_task_spawn;
+    _ = &@import("sa_task.zig").sa_task_detach;
     _ = &@import("sa_task.zig").sa_chan_make;
     _ = &@import("sa_task.zig").sa_chan_select;
     _ = &@import("sa_task.zig").sa_task_net_wait;
