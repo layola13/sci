@@ -1,0 +1,142 @@
+// sa_std/executor.sla — single-owner executor goroutine skeleton
+// (OTP skeleton batch, Jev ruling sa_std_idiom: the executor /
+// supervision skeletons live in sa_std as .sla idioms).
+//
+// executor_start(handler, state, inbox_cap) spawns ONE goroutine
+// that exclusively owns `state` (an opaque ptr, typically a Box
+// pointer to the real state struct; the handler recovers the typed
+// pointer with `state as *State`). Callers submit requests with
+// executor_call(ex, op, arg); the owner runs them strictly one at
+// a time through handler(state, op, arg) -> u64 and replies with
+// the handler's return value. Ownership replaces locks: while the
+// executor is alive, ONLY the owner goroutine may touch the state
+// behind the ptr — callers reach it exclusively through requests.
+//
+// Contract:
+//   - op is consumer-defined; EXEC_OP_STOP (2^63 - 1) is reserved
+//     for executor_stop and must not be used as a request op.
+//   - Requests are processed in inbox FIFO order. executor_stop
+//     enqueues the stop request behind everything already queued,
+//     so stop DRAINS: every call submitted before the stop is
+//     executed before the owner exits. stop returns the final
+//     state ptr (ownership hands back to the caller) after joining
+//     the owner. Calling executor_call on a stopped executor is a
+//     caller error (the request is never answered).
+//   - The handler must report failures as return values, not
+//     traps: a trapped handler kills the owner goroutine and its
+//     pending callers block forever. The owner's task handle is
+//     public (Executor.task) precisely so consumers can compose
+//     monitor() on it and treat owner death as service-fatal, the
+//     way supervised writers do. Restarting an executor is NOT
+//     part of this skeleton — pair with supervisor.sla when a
+//     restart policy is wanted around a whole service.
+//   - The compiler inserts no yield points: a CPU-dense handler
+//     must chunk its work and call sa_task_yield() itself, or it
+//     starves sibling goroutines until it blocks.
+//   - Payloads are (op, arg) u64 pairs plus the state ptr. Richer
+//     requests/results travel as caller-allocated Box blocks whose
+//     ptr is passed in `arg`, following the block discipline: the
+//     channel carries the token, the block carries the data; who
+//     frees the block is part of the consumer's op contract.
+//
+// This skeleton is generic on purpose: it names no consumer's
+// types. The db access layer's batching writer and the redis
+// executor-owned Store are the reference consumers.
+
+@import "sa_std/task.sai"
+@import "sa_std/core/box.sa"
+
+fn exec_op_stop() -> u64 {
+    return 9223372036854775807;
+}
+
+// Request block for normal calls. The executor frees the block
+// after replying; executor_call never touches it after the send.
+struct ExecReq {
+    op: u64,
+    arg: u64,
+    reply: Chan<u64>,
+}
+
+// Stop block: shares the leading op field with ExecReq (the loop
+// reads op through ExecReq, then re-reads the block as ExecStop),
+// but its reply carries the handed-back state ptr.
+struct ExecStop {
+    op: u64,
+    reply: Chan<ptr>,
+}
+
+struct ExecCtl {
+    handler: fn(ptr, u64, u64) -> u64,
+    state: ptr,
+    inbox: Chan<ptr>,
+}
+
+struct Executor {
+    inbox: Chan<ptr>,
+    task: u64,
+    ctl: ptr,
+}
+
+fn exec_loop(arg: ptr) {
+    let ctl: *ExecCtl = arg as *ExecCtl;
+    let inbox: Chan<ptr> = (*ctl).inbox;
+    while true {
+        let (msg, closed) = inbox.recv();
+        if closed {
+            break;
+        };
+        let req: *ExecReq = msg as *ExecReq;
+        let op: u64 = (*req).op;
+        if op == exec_op_stop() {
+            let stop: *ExecStop = msg as *ExecStop;
+            let reply_ptr: Chan<ptr> = (*stop).reply;
+            reply_ptr.send((*ctl).state);
+            let stop_box = unsafe { Box::from_raw(stop) };
+            break;
+        };
+        let rarg: u64 = (*req).arg;
+        let reply: Chan<u64> = (*req).reply;
+        let h: fn(ptr, u64, u64) -> u64 = (*ctl).handler;
+        let result: u64 = h((*ctl).state, op, rarg);
+        reply.send(result);
+        let done_box = unsafe { Box::from_raw(req) };
+    }
+}
+
+fn executor_start(handler: fn(ptr, u64, u64) -> u64, state: ptr, inbox_cap: u32) -> Executor {
+    let inbox: Chan<ptr> = Chan::new(inbox_cap);
+    let ctl = Box::new(ExecCtl { handler: handler, state: state, inbox: inbox });
+    let ctl_ptr = Box::into_raw(ctl);
+    let task = go exec_loop(ctl_ptr as ptr);
+    return Executor { inbox: inbox, task: task, ctl: ctl_ptr as ptr };
+}
+
+// Mint another handle to the same owner. Handles are how callers
+// multiply: each caller goroutine holds its own handle value, all
+// requests land in the one inbox and serialize on the one owner.
+// Stopping through any one handle is terminal for all of them.
+fn executor_share(ex: &Executor) -> Executor {
+    return Executor { inbox: ex.inbox, task: ex.task, ctl: ex.ctl };
+}
+
+fn executor_call(ex: &Executor, op: u64, arg: u64) -> u64 {
+    let reply: Chan<u64> = Chan::new(1);
+    let req = Box::new(ExecReq { op: op, arg: arg, reply: reply });
+    ex.inbox.send(Box::into_raw(req) as ptr);
+    let (result, closed) = reply.recv();
+    reply.destroy();
+    return result;
+}
+
+fn executor_stop(ex: Executor) -> ptr {
+    let reply: Chan<ptr> = Chan::new(1);
+    let stop = Box::new(ExecStop { op: exec_op_stop(), reply: reply });
+    ex.inbox.send(Box::into_raw(stop) as ptr);
+    let (final_state, closed) = reply.recv();
+    reply.destroy();
+    let st = sa_task_join(ex.task);
+    ex.inbox.destroy();
+    let ctl_box = unsafe { Box::from_raw(ex.ctl as *ExecCtl) };
+    return final_state;
+}

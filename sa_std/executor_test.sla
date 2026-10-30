@@ -1,0 +1,98 @@
+// Tests for sa_std/executor.sla — the single-owner executor
+// goroutine skeleton. Run with the sla test runner against this
+// sa_std tree (SA_STD_DIR pointing here).
+
+@import "sa_std/executor.sla"
+@import "sa_std/task.sai"
+@import "sa_std/core/box.sa"
+
+struct ExecCounter {
+    n: u64,
+}
+
+fn counter_handler(state: ptr, op: u64, arg: u64) -> u64 {
+    let s: *ExecCounter = state as *ExecCounter;
+    if op == 1 {
+        (*s).n = (*s).n + arg;
+        return (*s).n;
+    };
+    if op == 2 {
+        return (*s).n;
+    };
+    if op == 3 {
+        (*s).n = (*s).n * arg;
+        return (*s).n;
+    };
+    return 999999999999;
+}
+
+struct CallJob {
+    ex: Executor,
+    adds: u64,
+}
+
+fn call_worker(job: *CallJob) {
+    let ex = (*job).ex;
+    let i: u64 = 0;
+    while i < (*job).adds {
+        let r = executor_call(&ex, 1, 1);
+        i = i + 1;
+    }
+}
+
+@test "executor serializes concurrent callers"() {
+    let state = Box::into_raw(Box::new(ExecCounter { n: 0 }));
+    let ex = executor_start(counter_handler, state as ptr, 64);
+    let job1 = Box::into_raw(Box::new(CallJob { ex: executor_share(&ex), adds: 25 }));
+    let h1 = go call_worker(job1);
+    let job2 = Box::into_raw(Box::new(CallJob { ex: executor_share(&ex), adds: 25 }));
+    let h2 = go call_worker(job2);
+    let job3 = Box::into_raw(Box::new(CallJob { ex: executor_share(&ex), adds: 25 }));
+    let h3 = go call_worker(job3);
+    let job4 = Box::into_raw(Box::new(CallJob { ex: executor_share(&ex), adds: 25 }));
+    let h4 = go call_worker(job4);
+    let st1 = sa_task_join(h1);
+    if st1 != 0 { panic(9301); };
+    let st2 = sa_task_join(h2);
+    if st2 != 0 { panic(9301); };
+    let st3 = sa_task_join(h3);
+    if st3 != 0 { panic(9301); };
+    let st4 = sa_task_join(h4);
+    if st4 != 0 { panic(9301); };
+    let total = executor_call(&ex, 2, 0);
+    if total != 100 { panic(9302); };
+    let final_state = executor_stop(ex);
+    if final_state != state as ptr { panic(9303); };
+    let fs: *ExecCounter = final_state as *ExecCounter;
+    if (*fs).n != 100 { panic(9304); };
+    let sb = unsafe { Box::from_raw(fs) };
+}
+
+@test "executor stop drains and hands state back"() {
+    let state = Box::into_raw(Box::new(ExecCounter { n: 0 }));
+    let ex = executor_start(counter_handler, state as ptr, 8);
+    let r1 = executor_call(&ex, 1, 40);
+    if r1 != 40 { panic(9311); };
+    let r2 = executor_call(&ex, 3, 2);
+    if r2 != 80 { panic(9312); };
+    let final_state = executor_stop(ex);
+    let fs: *ExecCounter = final_state as *ExecCounter;
+    if (*fs).n != 80 { panic(9313); };
+    let sb = unsafe { Box::from_raw(fs) };
+}
+
+@test "executor owner exit is monitorable"() {
+    let state = Box::into_raw(Box::new(ExecCounter { n: 0 }));
+    let ex = executor_start(counter_handler, state as ptr, 8);
+    let m = monitor(ex.task);
+    let task_h: u64 = ex.task;
+    let r = executor_call(&ex, 1, 7);
+    if r != 7 { panic(9321); };
+    let final_state = executor_stop(ex);
+    let (msg, closed) = m.recv();
+    if closed { panic(9322); };
+    if msg.0 != task_h { panic(9323); };
+    if msg.1 != 0 { panic(9324); };
+    m.destroy();
+    let sb = unsafe { Box::from_raw(final_state as *ExecCounter) };
+}
