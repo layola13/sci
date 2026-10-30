@@ -4,7 +4,23 @@ const cli = @import("cli.zig");
 const cli_util = @import("cli_util.zig");
 const sio = @import("sio");
 
+/// DEF-R7: the host process installs the same SIGPIPE policy as every
+/// SA-built program (ignore from startup; see runtime/sa_std.zig):
+/// user code executed in-process (interp `sa run`, test driving) and
+/// the host's own writes to closed pipes/sockets must surface EPIPE
+/// class errors instead of killing the host. Only SIGPIPE is touched.
+fn installSigpipeIgnore() void {
+    if (comptime builtin.os.tag != .linux) return;
+    const act: std.posix.Sigaction = .{
+        .handler = .{ .handler = std.posix.SIG.IGN },
+        .mask = std.posix.sigemptyset(),
+        .flags = 0,
+    };
+    std.posix.sigaction(std.posix.SIG.PIPE, &act, null);
+}
+
 pub fn main(init: std.process.Init) !void {
+    installSigpipeIgnore();
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
 

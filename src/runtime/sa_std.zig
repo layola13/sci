@@ -143,7 +143,59 @@ fn installPolicyText(allocator: std.mem.Allocator, text: []const u8) void {
 
 var policy_bootstrap_attempted: bool = false;
 
+// ---------------------------------------------------------------------
+// DEF-R7: SIGPIPE policy (Jev ruling 2026-10-31:
+// ignore_at_startup_surface_epipe / host_startup_all). Every SA-built
+// program ignores SIGPIPE from startup, before user code runs, so a
+// write to a closed peer surfaces through the existing status
+// discipline (error.BrokenPipe -> SA_STD_ERR_IO on the fd/tcp faces,
+// NetworkStatus.closed on the http faces) instead of killing the
+// whole process. Before this, the only protection was incidental:
+// std.Io.Threaded.init installs a do-nothing SIGPIPE handler the
+// first time sio.io() is called — any write path reached before that
+// init (or after a Threaded deinit restores SIG_DFL, or on the
+// single-threaded Io variant, which installs nothing) died with
+// signal 13. Installation rides the existing policy-bootstrap ELF
+// constructor (.init_array below), which runs before main in every
+// produced binary that links this archive object; the host process
+// installs the same disposition at its own main (src/main.zig).
+// Only SIGPIPE is touched; no other signal's disposition changes.
+
+var sigpipe_ignore_installed: bool = false;
+
+fn applySigpipeIgnore() void {
+    // NOTE: do NOT gate this on @hasDecl(std.posix.SIG, "PIPE") —
+    // that is false on this Zig version (PIPE is an enum member, not
+    // a declaration), which is exactly why the http server's earlier
+    // attempt at this install (sa_http_server.zig) never took effect.
+    if (comptime !is_linux) return;
+    const act: std.posix.Sigaction = .{
+        .handler = .{ .handler = std.posix.SIG.IGN },
+        .mask = std.posix.sigemptyset(),
+        .flags = 0,
+    };
+    std.posix.sigaction(std.posix.SIG.PIPE, &act, null);
+}
+
+fn installSigpipeIgnore() void {
+    if (sigpipe_ignore_installed) return;
+    sigpipe_ignore_installed = true;
+    applySigpipeIgnore();
+}
+
+/// DEF-R7 startup entry called by every generated program main
+/// wrapper (LLVM shim + C backend) before user code runs. This is
+/// the coverage backbone: a plain reference from the wrapper extracts
+/// this archive object at link time even for programs that reference
+/// no other sa_std symbol, where the .init_array constructor alone
+/// would never be linked in. Exported on all targets; the install
+/// itself no-ops where SIGPIPE does not exist (wasm/windows).
+pub export fn sa_install_sigpipe_ignore() void {
+    installSigpipeIgnore();
+}
+
 fn policyBootstrap() callconv(.c) void {
+    installSigpipeIgnore();
     if (policy_bootstrap_attempted) return;
     policy_bootstrap_attempted = true;
     const allocator = std.heap.page_allocator;
@@ -200,6 +252,29 @@ comptime {
         @export(&policyBootstrap, .{ .name = "sa_policy_bootstrap" });
         @export(&policy_bootstrap_init_entry, .{ .name = "__sa_policy_bootstrap_init" });
     }
+}
+
+test "DEF-R7: SIGPIPE ignored at startup; closed-pipe write surfaces BrokenPipe" {
+    if (comptime is_wasm or builtin.os.tag != .linux) return error.SkipZigTest;
+    // Apply directly (not the one-shot install): the unit runner
+    // shuffles test order by seed, and peer tests may have installed
+    // and later restored a different disposition before this test.
+    applySigpipeIgnore();
+    // The disposition itself is the policy: SIG_IGN, not a handler and
+    // not SIG_DFL.
+    var current: std.posix.Sigaction = undefined;
+    std.posix.sigaction(std.posix.SIG.PIPE, null, &current);
+    try std.testing.expectEqual(std.posix.SIG.IGN, current.handler.handler);
+    // A write to a pipe with no readers must surface error.BrokenPipe
+    // (mapped by callers to SA_STD_ERR_IO) — and the test process
+    // surviving to evaluate this expectation is itself the assertion
+    // that SIGPIPE did not kill it.
+    var fds: [2]std.posix.fd_t = undefined;
+    if (std.c.pipe(&fds) != 0) return error.Unexpected;
+    defer _ = std.c.close(fds[1]);
+    _ = std.c.close(fds[0]);
+    const rc = std.os.linux.write(fds[1], "x", 1);
+    try std.testing.expectEqual(std.os.linux.E.PIPE, std.os.linux.errno(rc));
 }
 
 // wasm32-wasi compat (stage1: archive must compile; sockets/process/dlopen

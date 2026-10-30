@@ -8940,7 +8940,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         }
         try writer.writeAll("); }\n}\n");
     }
-    try writer.writeAll("int main(void) { sa_init_consts();\n");
+    try writer.writeAll("int main(void) { extern void sa_install_sigpipe_ignore(void); sa_install_sigpipe_ignore(); sa_init_consts();\n");
     if (c_opt.gas) {
         // Keeps `sa_gas` referenced even for (degenerate) programs whose
         // functions were all elided; normally the SA_GAS_CHECKs do that.

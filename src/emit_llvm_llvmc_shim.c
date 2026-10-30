@@ -3142,6 +3142,22 @@ int sa_llvmc_make_minimal_module_bitcode(unsigned char **out_bytes, size_t *out_
     return 0;
 }
 
+/* DEF-R7: every generated program main (ordinary and test harness)
+ * calls sa_install_sigpipe_ignore() from libsa_std before any user
+ * code runs, so SIGPIPE is ignored from startup and writes to closed
+ * peers surface EPIPE-class statuses instead of killing the process.
+ * The reference also forces the linker to extract the sa_std archive
+ * object carrying the definition (and its .init_array policy
+ * bootstrap) even for programs that use no other sa_std symbol. */
+static void emit_startup_sigpipe_call(EmitCtx *e) {
+    LLVMValueRef fn = LLVMGetNamedFunction(e->module, "sa_install_sigpipe_ignore");
+    if (fn == NULL) {
+        fn = LLVMAddFunction(e->module, "sa_install_sigpipe_ignore",
+            LLVMFunctionType(LLVMVoidTypeInContext(e->ctx), NULL, 0, 0));
+    }
+    LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(fn), fn, NULL, 0, "");
+}
+
 static void emit_test_harness_main(EmitCtx *e, const SaModule *m) {
     LLVMValueRef getenv_fn = LLVMGetNamedFunction(e->module, "getenv");
     if (getenv_fn == NULL) {
@@ -3166,6 +3182,7 @@ static void emit_test_harness_main(EmitCtx *e, const SaModule *m) {
     if (test_count == 0) {
         LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlockInContext(e->ctx, main_fn, "entry");
         LLVMPositionBuilderAtEnd(e->builder, entry_bb);
+        emit_startup_sigpipe_call(e);
         LLVMBuildRet(e->builder, LLVMConstInt(e->i32_ty, 0, 0));
         return;
     }
@@ -3177,6 +3194,7 @@ static void emit_test_harness_main(EmitCtx *e, const SaModule *m) {
     LLVMPositionBuilderAtEnd(e->builder, entry_bb);
     LLVMBuildStore(e->builder, LLVMGetParam(main_fn, 0), e->saasm_argc_global);
     LLVMBuildStore(e->builder, LLVMGetParam(main_fn, 1), e->saasm_argv_global);
+    emit_startup_sigpipe_call(e);
     LLVMValueRef env_ptr = const_c_string(e, ".sa_test_name_env", "SA_TEST_NAME");
     LLVMValueRef filter = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(getenv_fn), getenv_fn, &env_ptr, 1, "filter");
     LLVMValueRef has_filter = LLVMBuildICmp(e->builder, LLVMIntNE, filter, LLVMConstPointerNull(e->ptr_ty), "has_filter");
@@ -3361,6 +3379,7 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
             LLVMPositionBuilderAtEnd(e->builder, bb);
             LLVMBuildStore(e->builder, LLVMGetParam(main_fn, 0), e->saasm_argc_global);
             LLVMBuildStore(e->builder, LLVMGetParam(main_fn, 1), e->saasm_argv_global);
+            emit_startup_sigpipe_call(e);
             LLVMValueRef target = find_function(e, m->functions[i].name);
             LLVMValueRef res = LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(target), target, NULL, 0,
                 m->functions[i].ret_ty == SA_T_VOID && !m->functions[i].return_fallible ? "" : "res");

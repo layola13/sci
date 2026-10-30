@@ -11,14 +11,20 @@ const sio = @import("sio");
 var sigpipe_installed = false;
 var sigpipe_mu: std.atomic.Mutex = .unlocked;
 
-fn noopSigpipe(_: i32) callconv(.c) void {}
-
 fn installSigpipeHandler() void {
-    if (comptime builtin.cpu.arch.isWasm()) {
+    // DEF-R7: the process-wide policy is SIG_IGN, installed at host
+    // startup by sa_std's bootstrap constructor (see sa_std.zig). This
+    // lazy re-install keeps the same disposition — SIG_IGN, not a
+    // do-nothing handler — for contexts where this module is reached
+    // without that constructor having run. (The pre-DEF-R7 version of
+    // this install was dead code: its @hasDecl(std.posix.SIG, "PIPE")
+    // gate is false for enum members on this Zig version, so the
+    // sigaction was never executed.)
+    if (comptime builtin.cpu.arch.isWasm() or builtin.os.tag != .linux) {
         return;
-    } else if (comptime @hasDecl(std.posix.SIG, "PIPE")) {
+    } else {
         const act: std.posix.Sigaction = .{
-            .handler = .{ .handler = noopSigpipe },
+            .handler = .{ .handler = std.posix.SIG.IGN },
             .mask = std.posix.sigemptyset(),
             .flags = 0,
         };
