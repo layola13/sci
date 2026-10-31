@@ -1,0 +1,116 @@
+// sa_std/vec_packed.sla -- packed export helpers for Vec<T>
+// (DEF-8 / STRIDE-1; direction ruling: packed export helper surface,
+// internal word-slot representation unchanged).
+//
+// CONTRACT -- read this before handing a Vec to any extern:
+//
+//   A Vec's raw data pointer (VEC_AS_PTR / VEC_AS_SLICE +
+//   SLICE_AS_PTR) is NOT a packed array of elements. Elements live
+//   in word-sized slots: the slot stride is
+//   max(abi_size(T), 8) bytes (the compiler passes that stride as
+//   elem_size to every sa_vec_* runtime entry, and the std slice
+//   macros hard-code the same 8-byte minimum). For Vec<u8> holding
+//   [104, 105], raw byte 0 is 104 but raw byte 1 is padding -- the
+//   second element starts at raw byte 8.
+//
+//   Therefore a C-shaped extern that takes (ptr, len) and reads
+//   packed T values must NEVER be handed a Vec's raw data pointer
+//   directly. Export through this file first: the helpers below
+//   copy the elements into a caller-supplied byte buffer at their
+//   packed ABI size (little-endian in-memory representation, i.e.
+//   exactly the bytes a same-platform C consumer reads back as T).
+//
+// API (one wrapper per element type; all share one core):
+//
+//   sa_vec_export_packed_u8 (v: &Vec<u8>,  dst: ptr, dst_cap: u64) -> (i32, u64)
+//   sa_vec_export_packed_u16(v: &Vec<u16>, dst: ptr, dst_cap: u64) -> (i32, u64)
+//   sa_vec_export_packed_i32(v: &Vec<i32>, dst: ptr, dst_cap: u64) -> (i32, u64)
+//   sa_vec_export_packed_f64(v: &Vec<f64>, dst: ptr, dst_cap: u64) -> (i32, u64)
+//
+//   Return (status, bytes):
+//     status 0: the packed image (len * abi_size(T) bytes) was
+//               written to dst; bytes = that count.
+//     status 1: dst_cap too small. NOTHING was written (dst is
+//               untouched) and bytes = the required capacity, so
+//               the caller can size a buffer and retry -- the
+//               failure is loud and recoverable, never a silent
+//               truncation.
+//   An empty Vec exports as (0, 0) and dst may be null.
+//
+//   Packed sizes: u8 = 1, u16 = 2, i32 = 4, f64 = 8. For f64 the
+//   packed size equals the slot size, so the export is a straight
+//   copy -- it is included so call sites can use one uniform
+//   boundary idiom for every element type. CAVEAT for f64: the
+//   helper faithfully exports the slot image, but Vec<f64>
+//   element storage is a known upstream defect (sla demos
+//   POTENTIAL_ISSUES #24): push() numerically converts the value
+//   at the sa_vec_push u64 boundary instead of storing its bits,
+//   so until that fix lands the exported bytes are the slot
+//   image, not the logical values' IEEE-754 image. Integer
+//   element types are unaffected (their slots hold the value's
+//   low bytes exactly). To cover another
+//   primitive T, add a one-line wrapper over
+//   sa_vec_export_packed_core with slot = max(abi_size(T), 8) and
+//   packed = abi_size(T). Aggregate element types are out of
+//   scope: their slot holds a handle/pointer word, not the
+//   element's bytes, so there is no packed image to export.
+
+@import "sa_std/vec.sa"
+@import "sa_std/ptr.sa"
+@import "sa_std/core/slice.sa"
+
+// Core byte mover: copies `n` elements from the word-slot image at
+// `src` (element i at src + i*slot) into `dst` packed (element i at
+// dst + i*packed), byte by byte. Byte-wise copying out of the slot
+// is what makes this correct for every primitive width at once:
+// the low `packed` bytes of a slot are the element's little-endian
+// representation for integers and floats alike.
+fn sa_vec_export_packed_core(src: ptr, n: u64, slot: u64, packed: u64, dst: ptr, dst_cap: u64) -> (i32, u64) {
+    let need: u64 = n * packed;
+    if dst_cap < need {
+        return (1, need);
+    };
+    let i: u64 = 0;
+    while i < n {
+        let b: u64 = 0;
+        while b < packed {
+            let soff: u64 = i * slot + b;
+            let doff: u64 = i * packed + b;
+            let byte: u8 = PTR_BYTE_AT(src, soff);
+            let dp: ptr = PTR_NULL();
+            PTR_BYTE_ADD(dp, dst, doff);
+            PTR_WRITE_U8(dp, byte);
+            b = b + 1;
+        }
+        i = i + 1;
+    }
+    return (0, need);
+}
+
+fn sa_vec_export_packed_u8(v: &Vec<u8>, dst: ptr, dst_cap: u64) -> (i32, u64) {
+    let sl: Slice<u8> = VEC_AS_SLICE(v);
+    let p: ptr = PTR_NULL();
+    SLICE_AS_PTR(p, sl);
+    return sa_vec_export_packed_core(p, len(v), 8, 1, dst, dst_cap);
+}
+
+fn sa_vec_export_packed_u16(v: &Vec<u16>, dst: ptr, dst_cap: u64) -> (i32, u64) {
+    let sl: Slice<u16> = VEC_AS_SLICE(v);
+    let p: ptr = PTR_NULL();
+    SLICE_AS_PTR(p, sl);
+    return sa_vec_export_packed_core(p, len(v), 8, 2, dst, dst_cap);
+}
+
+fn sa_vec_export_packed_i32(v: &Vec<i32>, dst: ptr, dst_cap: u64) -> (i32, u64) {
+    let sl: Slice<i32> = VEC_AS_SLICE(v);
+    let p: ptr = PTR_NULL();
+    SLICE_AS_PTR(p, sl);
+    return sa_vec_export_packed_core(p, len(v), 8, 4, dst, dst_cap);
+}
+
+fn sa_vec_export_packed_f64(v: &Vec<f64>, dst: ptr, dst_cap: u64) -> (i32, u64) {
+    let sl: Slice<f64> = VEC_AS_SLICE(v);
+    let p: ptr = PTR_NULL();
+    SLICE_AS_PTR(p, sl);
+    return sa_vec_export_packed_core(p, len(v), 8, 8, dst, dst_cap);
+}
