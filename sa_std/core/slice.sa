@@ -416,7 +416,7 @@ L_SLICE_TRY_GET_TYPED_F32_HIT_%out_ok:
     !__slice_len_%out_ok
     jmp L_SLICE_TRY_GET_TYPED_F32_END_%out_ok
 L_SLICE_TRY_GET_TYPED_F32_MISS_%out_ok:
-    %out_value = 0.0
+    %out_value = bitcast 0 as f32
     %out_ok = add 0, 0
     !__slice_in_bounds_%out_ok
     !__slice_len_%out_ok
