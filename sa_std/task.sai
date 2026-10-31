@@ -72,3 +72,23 @@
 //    wakes every blocked receiver and every select case on it,
 //    so a Done channel can be selected on alongside work
 //    channels and passed down a call chain.
+
+// ---------------------------------------------------------------------
+// Cooperative track (wasm): the three externs below exist ONLY in
+// the cooperative runtime (src/runtime/sa_task_coop.zig, selected
+// by sa_std.zig on wasm in place of sa_task.zig). The SLA plugin's
+// coop lowering (build-wasm) rewrites goroutine functions into
+// heap-frame state machines and drives them through this surface;
+// a coop-compiled program linked against the native runtime fails
+// loudly at link time (missing symbols), never silently.
+//
+// Blocking protocol: a blocking extern above (chan send/recv/
+// select, join, sleep, mutex/rwlock write+read waits, waitgroup
+// wait, once_do, yield) returns SA_COOP_BLOCKED = 0x40000000
+// exactly when it suspends the calling task; the call is never
+// re-executed — at wake, outputs are written through the original
+// out-pointers and the final status is delivered via
+// sa_coop_take_result.
+@extern sa_coop_take_result(&out_status: ptr) -> i32
+@extern sa_coop_finish() -> void
+@extern sa_coop_run_main(*entry: ptr, arg: ptr) -> i32

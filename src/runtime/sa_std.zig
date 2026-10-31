@@ -7,7 +7,11 @@ const sio = @import("sio");
 // sa_std build/test graph. Interception wiring lands separately.
 pub const sa_policy = @import("sa_policy.zig");
 pub const sa_globals = @import("sa_globals.zig");
-pub const sa_task = @import("sa_task.zig");
+// Goroutine runtime: the native stack-switching implementation
+// everywhere except wasm, where the cooperative CPS/state-machine
+// runtime (sa_task_coop.zig) provides the same task.sai extern
+// surface — the native mechanism cannot lower to wasm.
+pub const sa_task = if (is_wasm) @import("sa_task_coop.zig") else @import("sa_task.zig");
 
 // Goroutine netpoller glue: sa_task declares sa_std_net_poll_wait
 // as a plain extern and this module's export below satisfies it
@@ -747,14 +751,14 @@ comptime {
     _ = &@import("sa_quic.zig").sa_std_quic_client_connect;
     _ = &@import("sa_quic.zig").sa_std_http3_session_bind;
     _ = &@import("sa_thread_local.zig").sa_thread_local_supported;
-    _ = &@import("sa_task.zig").sa_task_spawn;
-    _ = &@import("sa_task.zig").sa_task_detach;
-    _ = &@import("sa_task.zig").sa_chan_make;
-    _ = &@import("sa_task.zig").sa_chan_select;
-    _ = &@import("sa_task.zig").sa_task_net_wait;
-    _ = &@import("sa_task.zig").sa_sync_mutex_new;
-    _ = &@import("sa_task.zig").sa_sync_waitgroup_new;
-    _ = &@import("sa_task.zig").sa_sync_once_new;
+    _ = &sa_task.sa_task_spawn;
+    _ = &sa_task.sa_task_detach;
+    _ = &sa_task.sa_chan_make;
+    _ = &sa_task.sa_chan_select;
+    _ = &sa_task.sa_task_net_wait;
+    _ = &sa_task.sa_sync_mutex_new;
+    _ = &sa_task.sa_sync_waitgroup_new;
+    _ = &sa_task.sa_sync_once_new;
     _ = &@import("sa_pg.zig").sa_pg_connect;
     _ = &@import("sa_pg.zig").sa_pg_exec;
     _ = &@import("sa_pg.zig").sa_pg_prepare;
