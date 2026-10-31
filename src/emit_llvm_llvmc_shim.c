@@ -36,7 +36,7 @@ void LLVMDisposeTargetData(LLVMTargetDataRef target_data);
 
 typedef enum { SA_T_VOID=0, SA_T_I1=1, SA_T_I8=2, SA_T_I16=3, SA_T_I32=4, SA_T_I64=5, SA_T_F32=6, SA_T_F64=7, SA_T_PTR=8, SA_T_U8=9, SA_T_U16=10, SA_T_U32=11, SA_T_U64=12 } SaType;
 typedef enum { SA_F_NORMAL=0, SA_F_EXTERNAL=1, SA_F_EXPORTED=2, SA_F_TEST=3 } SaFuncKind;
-typedef enum { SA_OP_NONE=0, SA_OP_LABEL=1, SA_OP_ALLOC=2, SA_OP_STACK_ALLOC=3, SA_OP_LOAD=4, SA_OP_STORE=5, SA_OP_BINOP=6, SA_OP_PTR_ADD=7, SA_OP_JMP=8, SA_OP_BR=9, SA_OP_CALL=10, SA_OP_RET=11, SA_OP_PANIC=12, SA_OP_PANIC_MSG=13, SA_OP_ATOMIC_LOAD=14, SA_OP_ATOMIC_STORE=15, SA_OP_ATOMIC_RMW=16, SA_OP_CMPXCHG=17, SA_OP_FENCE=18, SA_OP_TRY=19, SA_OP_CALL_INDIRECT=20, SA_OP_ASSIGN=21, SA_OP_RELEASE=22, SA_OP_TAKE=23, SA_OP_VA_START=24, SA_OP_VA_ARG=25, SA_OP_VA_END=26 } SaOp;
+typedef enum { SA_OP_NONE=0, SA_OP_LABEL=1, SA_OP_ALLOC=2, SA_OP_STACK_ALLOC=3, SA_OP_LOAD=4, SA_OP_STORE=5, SA_OP_BINOP=6, SA_OP_PTR_ADD=7, SA_OP_JMP=8, SA_OP_BR=9, SA_OP_CALL=10, SA_OP_RET=11, SA_OP_PANIC=12, SA_OP_PANIC_MSG=13, SA_OP_ATOMIC_LOAD=14, SA_OP_ATOMIC_STORE=15, SA_OP_ATOMIC_RMW=16, SA_OP_CMPXCHG=17, SA_OP_FENCE=18, SA_OP_TRY=19, SA_OP_CALL_INDIRECT=20, SA_OP_ASSIGN=21, SA_OP_RELEASE=22, SA_OP_TAKE=23, SA_OP_VA_START=24, SA_OP_VA_ARG=25, SA_OP_VA_END=26, SA_OP_BITCAST=27 } SaOp;
 typedef enum { SA_OPER_NONE=0, SA_OPER_REG=1, SA_OPER_IMM_I64=2, SA_OPER_IMM_U64=3, SA_OPER_CONST_PTR=4, SA_OPER_IMM_F64=5 } SaOperandKind;
 typedef enum { SA_BIN_ADD=0, SA_BIN_SUB=1, SA_BIN_MUL=2, SA_BIN_SDIV=3, SA_BIN_UDIV=4, SA_BIN_SREM=5, SA_BIN_UREM=6, SA_BIN_AND=7, SA_BIN_OR=8, SA_BIN_XOR=9, SA_BIN_SHL=10, SA_BIN_LSHR=11, SA_BIN_ASHR=12, SA_BIN_EQ=13, SA_BIN_NE=14, SA_BIN_SLT=15, SA_BIN_SLE=16, SA_BIN_SGT=17, SA_BIN_SGE=18, SA_BIN_ULT=19, SA_BIN_ULE=20, SA_BIN_UGT=21, SA_BIN_UGE=22, SA_BIN_FADD=23, SA_BIN_FSUB=24, SA_BIN_FMUL=25, SA_BIN_FDIV=26, SA_BIN_FCMP_EQ=27, SA_BIN_FCMP_NE=28, SA_BIN_FCMP_LT=29, SA_BIN_FCMP_LE=30, SA_BIN_FCMP_GT=31, SA_BIN_FCMP_GE=32 } SaBinaryOp;
 typedef enum { SA_ATOMIC_RELAXED=0, SA_ATOMIC_ACQUIRE=1, SA_ATOMIC_RELEASE=2, SA_ATOMIC_ACQ_REL=3, SA_ATOMIC_SEQ_CST=4 } SaAtomicOrdering;
@@ -738,6 +738,48 @@ static LLVMValueRef coerce(EmitCtx *e, LLVMValueRef v, SaType from, SaType to) {
     unsigned to_bits = type_bits(to);
     if (from_bits < to_bits) return type_is_signed_int(from) ? LLVMBuildSExt(e->builder, v, dst, "sext") : LLVMBuildZExt(e->builder, v, dst, "zext");
     if (from_bits > to_bits) return LLVMBuildTrunc(e->builder, v, dst, "trunc");
+    return v;
+}
+
+/* DEF-12: true bitcast (bit-pattern reinterpretation), the native
+ * counterpart of interp's bitcastValue. NOT coerce(): coerce performs
+ * numeric conversion (fptosi/sitofp/uitofp/fpext/fptrunc), which is the
+ * semantics of the other conversion ops only. The verifier guarantees
+ * equal-width source/target; immediates may still arrive as i64/f64
+ * constants, so integer widths are normalized by trunc/zext (exact for
+ * immediate bit patterns) before the reinterpretation. */
+static LLVMValueRef bitcast_value(EmitCtx *e, LLVMValueRef v, SaType from, SaType to) {
+    if (from == to) return v;
+    LLVMTypeRef dst = type_of(e, to);
+    if (from == SA_T_F32 || from == SA_T_F64) {
+        LLVMTypeRef int_ty = from == SA_T_F32 ? e->i32_ty : e->i64_ty;
+        v = LLVMBuildBitCast(e->builder, v, int_ty, "bitcast_bits");
+        from = from == SA_T_F32 ? SA_T_U32 : SA_T_U64;
+    } else if (from == SA_T_PTR) {
+        v = LLVMBuildPtrToInt(e->builder, v, e->i64_ty, "bitcast_ptr_int");
+        from = SA_T_U64;
+    }
+    if (to == SA_T_PTR) return LLVMBuildIntToPtr(e->builder, v, dst, "bitcast_int_ptr");
+    if (to == SA_T_F32 || to == SA_T_F64) {
+        /* Integer registers may hold an i64 LLVM value even when the
+           SA type is narrower (slot loads materialize as i64); an
+           LLVM bitcast requires exactly equal widths, so normalize
+           the actual integer width to the target's bit width first.
+           For verifier-legal bitcasts the SA source width equals the
+           target width, so this trunc/zext only drops the register
+           model's padding bits (or restores them), never value bits. */
+        unsigned want = type_bits(to);
+        unsigned have = LLVMGetIntTypeWidth(LLVMTypeOf(v));
+        if (have > want) v = LLVMBuildTrunc(e->builder, v, want == 32 ? e->i32_ty : e->i64_ty, "bitcast_norm");
+        else if (have < want) v = LLVMBuildZExt(e->builder, v, want == 32 ? e->i32_ty : e->i64_ty, "bitcast_norm");
+        return LLVMBuildBitCast(e->builder, v, dst, "bitcast");
+    }
+    {
+        unsigned from_bits = LLVMGetIntTypeWidth(LLVMTypeOf(v));
+        unsigned to_bits = type_bits(to);
+        if (from_bits > to_bits) v = LLVMBuildTrunc(e->builder, v, dst, "bitcast_trunc");
+        else if (from_bits < to_bits) v = LLVMBuildZExt(e->builder, v, dst, "bitcast_zext");
+    }
     return v;
 }
 
@@ -1531,6 +1573,13 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 v0 = coerce(e, v0, t0, SA_T_PTR); v1 = coerce(e, v1, t1, SA_T_I64);
                 if (reg_store(e, regs, reg_count, in->dst, LLVMBuildGEP2(e->builder, e->i8_ty, v0, &v1, 1, "ptradd"), SA_T_PTR, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
                 break;
+            case SA_OP_BITCAST: {
+                if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
+                LLVMValueRef bv = bitcast_value(e, v0, t0, in->ty);
+                if (bv == NULL) { free(regs); free(labels); return fail_body(e, f, in, i, "bitcast failed"); }
+                if (reg_store(e, regs, reg_count, in->dst, bv, in->ty, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
+                break;
+            }
             case SA_OP_ASSIGN: {
                 if (in->dst >= reg_count) { free(regs); free(labels); return fail_body(e, f, in, i, "assign destination out of range"); }
                 if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return fail_body(e, f, in, i, "assign operand unavailable"); }

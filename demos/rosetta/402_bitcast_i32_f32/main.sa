@@ -3,9 +3,10 @@
 @const OUT = utf8:"402\n"
 
 // 402 - bitcast i32 bits to f32 reinterprets (0x3F800000 is 1.0f).
-// KNOWN LLVM-BACKEND BUG (not JS): `sa run` prints 402 but the
-// `sa build-exe` binary exits 1 -- the int->float bitcast does not
-// reinterpret bits there (same f32-register fidelity gap as 400).
+// DEF-12 (fixed): the LLVM backend used to route bitcast through
+// the numeric assign+coerce path, so `sa build-exe` binaries exited
+// 1 here while `sa run` printed 402; bitcast now has its own
+// lowering (COp.bitcast / SA_OP_BITCAST) and both agree.
 @main() -> i32:
 L_ENTRY:
     big = 1065353216 as u64

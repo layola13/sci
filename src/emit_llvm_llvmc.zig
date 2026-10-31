@@ -46,7 +46,7 @@ pub fn lastErrorMessage() ?[]const u8 {
 
 const CType = enum(c_int) { void = 0, i1 = 1, i8 = 2, i16 = 3, i32 = 4, i64 = 5, f32 = 6, f64 = 7, ptr = 8, u8 = 9, u16 = 10, u32 = 11, u64 = 12 };
 const CFuncKind = enum(c_int) { normal = 0, external = 1, exported = 2, test_func = 3 };
-const COp = enum(c_int) { none = 0, label = 1, alloc = 2, stack_alloc = 3, load = 4, store = 5, op = 6, ptr_add = 7, jmp = 8, br = 9, call = 10, ret = 11, panic = 12, panic_msg = 13, atomic_load = 14, atomic_store = 15, atomic_rmw = 16, cmpxchg = 17, fence = 18, try_ = 19, call_indirect = 20, assign = 21, release = 22, take = 23, va_start = 24, va_arg = 25, va_end = 26 };
+const COp = enum(c_int) { none = 0, label = 1, alloc = 2, stack_alloc = 3, load = 4, store = 5, op = 6, ptr_add = 7, jmp = 8, br = 9, call = 10, ret = 11, panic = 12, panic_msg = 13, atomic_load = 14, atomic_store = 15, atomic_rmw = 16, cmpxchg = 17, fence = 18, try_ = 19, call_indirect = 20, assign = 21, release = 22, take = 23, va_start = 24, va_arg = 25, va_end = 26, bitcast = 27 };
 const COperandKind = enum(c_int) { none = 0, reg = 1, imm_i64 = 2, imm_u64 = 3, const_ptr = 4, imm_f64 = 5 };
 const CBinaryOp = enum(c_int) { add = 0, sub = 1, mul = 2, sdiv = 3, udiv = 4, srem = 5, urem = 6, band = 7, bor = 8, xor = 9, shl = 10, lshr = 11, ashr = 12, eq = 13, ne = 14, slt = 15, sle = 16, sgt = 17, sge = 18, ult = 19, ule = 20, ugt = 21, uge = 22, fadd = 23, fsub = 24, fmul = 25, fdiv = 26, fcmp_eq = 27, fcmp_ne = 28, fcmp_lt = 29, fcmp_le = 30, fcmp_gt = 31, fcmp_ge = 32 };
 const CAtomicOrdering = enum(c_int) { relaxed = 0, acquire = 1, release = 2, acq_rel = 3, seq_cst = 4 };
@@ -1040,6 +1040,16 @@ fn isFloatOp(opcode: inst.OpKind) bool {
     };
 }
 
+/// DEF-12: `bitcast` is a bit-pattern reinterpretation, not a numeric
+/// conversion. Routing it through `.assign` made the shim apply its
+/// numeric `coerce` (fptosi/sitofp/...), so `bitcast 1.5 as u64`
+/// compiled to 1 instead of the IEEE bits. bitcast therefore gets its
+/// own op so the shim emits a true LLVM bitcast; every other
+/// conversion keeps the assign+coerce path and its numeric semantics.
+fn conversionOp(opcode: inst.OpKind) COp {
+    return if (opcode == .bitcast) .bitcast else .assign;
+}
+
 fn opConversionTy(base: inst.Instruction) !CType {
     if (base.operands[2] != .ty) return error.InvalidOperand;
     return try cType(sig.primTypeFromTag(base.operands[2].ty) orelse return error.InvalidOperand);
@@ -1115,7 +1125,7 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
         .op => blk: {
             const opcode = base.op_kind orelse return error.InvalidOperand;
             if (inst.isTypeConversionOpKind(opcode)) {
-                break :blk .{ .op = .assign, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = try opConversionTy(base), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
+                break :blk .{ .op = conversionOp(opcode), .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = try opConversionTy(base), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
             }
             if (opcode == .fneg) {
                 break :blk .{ .op = .op, .dst = try state.regSlot(base.operands[0].reg), .operand0 = .{ .kind = .imm_f64, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = 0.0, .ty = .f64, .name = null }, .operand1 = try state.operand(base.operands[1]), .operand2 = none, .ty = .f64, .binary_op = try binaryOp(opcode), .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) };
@@ -2066,4 +2076,24 @@ test "llvmc backend can construct and write bitcode in memory" {
     defer if (out_bytes) |ptr| sa_llvmc_free(ptr);
     try std.testing.expect(out_bytes != null);
     try std.testing.expect(out_len > 0);
+}
+
+test "DEF-12: bitcast lowers to the bitcast op, true conversions stay assign" {
+    // Regression for the float<->int bitcast defect: the conversion
+    // branch of lowerInstruction used to send EVERY conversion op
+    // (bitcast included) to `.assign`, whose shim-side numeric
+    // `coerce` then numerically converted float<->int bitcasts
+    // (bitcast 1.5 as u64 compiled to 1). conversionOp is the exact
+    // predicate lowerInstruction uses; the end-to-end behavior is
+    // pinned by demos/rosetta/410_bitcast_f64_u64_roundtrip and the
+    // DEF-12 SA probe set.
+    try std.testing.expectEqual(COp.bitcast, conversionOp(.bitcast));
+    try std.testing.expectEqual(COp.assign, conversionOp(.fptosi));
+    try std.testing.expectEqual(COp.assign, conversionOp(.sitofp));
+    try std.testing.expectEqual(COp.assign, conversionOp(.uitofp));
+    try std.testing.expectEqual(COp.assign, conversionOp(.fpext));
+    try std.testing.expectEqual(COp.assign, conversionOp(.fptrunc));
+    try std.testing.expectEqual(COp.assign, conversionOp(.trunc));
+    try std.testing.expectEqual(COp.assign, conversionOp(.zext));
+    try std.testing.expectEqual(COp.assign, conversionOp(.sext));
 }
