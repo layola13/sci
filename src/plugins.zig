@@ -1938,6 +1938,139 @@ pub const Runtime = struct {
         }
     }
 
+    /// ZOZI-4 (manifest_native_link): symbol-probing link collection
+    /// with native_link resolution. Plugin libraries and their rpaths
+    /// are appended exactly as in appendLibrariesExportingAny; for
+    /// every matched plugin that declares permissions.native_link
+    /// entries, the declared real libraries are additionally appended
+    /// as direct link inputs — but only when the declaration is in
+    /// effect for this invocation (see nativeLinkDeclarationInEffect).
+    /// An unconfirmed declaration or a declared library that cannot
+    /// be found returns an allocated denial string naming the plugin
+    /// and the remedies; nothing is ever skipped silently.
+    pub fn appendNativeLinkInputsForExterns(
+        self: *Runtime,
+        link_inputs: *std.array_list.Managed([]const u8),
+        owned_link_inputs: *std.array_list.Managed([]const u8),
+        symbol_names: []const []const u8,
+    ) !?[]u8 {
+        if (symbol_names.len == 0) return null;
+        for (self.plugins.items) |*loaded| {
+            if (!try loaded.exportsAny(self.allocator, symbol_names)) continue;
+            try appendLinkInput(self.allocator, link_inputs, owned_link_inputs, loaded.path);
+            if (std.fs.path.dirname(loaded.path)) |dir| {
+                try appendLinkInputFmt(self.allocator, link_inputs, owned_link_inputs, "-Wl,-rpath,{s}", .{dir});
+            }
+            if (try self.appendDeclaredNativeLinks(link_inputs, owned_link_inputs, loaded)) |denial| return denial;
+        }
+        return null;
+    }
+
+    fn appendDeclaredNativeLinks(
+        self: *Runtime,
+        link_inputs: *std.array_list.Managed([]const u8),
+        owned_link_inputs: *std.array_list.Managed([]const u8),
+        loaded: *LoadedPlugin,
+    ) !?[]u8 {
+        const allocator = self.allocator;
+        const plugin_dir = std.fs.path.dirname(loaded.path) orelse return null;
+        const sap_path = try std.fs.path.join(allocator, &.{ plugin_dir, "sap.json" });
+        defer allocator.free(sap_path);
+        if (!fileExistsAbsolute(sap_path)) return null;
+        var manifest = parseSapManifest(allocator, sap_path) catch |err| {
+            return try std.fmt.allocPrint(allocator, "plugin manifest at {s} could not be parsed while collecting native link inputs: {s} [SA-PLUGIN-NATIVE-LINK-MANIFEST-UNREADABLE]\n  remedy: reinstall the plugin from its source directory so its manifest and confirmation are regenerated; never hand-edit the installed sap.json", .{ sap_path, @errorName(err) });
+        };
+        defer manifest.deinit(allocator);
+        if (manifest.native_link.len == 0) return null;
+
+        if (!try self.nativeLinkDeclarationInEffect(plugin_dir, manifest)) {
+            var summary = std.array_list.Managed(u8).init(allocator);
+            defer summary.deinit();
+            for (manifest.native_link, 0..) |entry, idx| {
+                if (idx != 0) try summary.appendSlice(", ");
+                try summary.appendSlice(entry.name);
+            }
+            return try std.fmt.allocPrint(allocator, "plugin {s} declares native_link libraries ({s}) that are not covered by its install confirmation [SA-PLUGIN-NATIVE-LINK-UNCONFIRMED]\n  dev remedy (trusted development only): run the build with SA_PLUGIN_DEV=1, or install the plugin in dev mode (SA_PLUGIN_DEV=1 sa plugin install --dev <plugin-source-dir>)\n  formal remedy: run `sa plugin confirm {s}` to review and confirm the declared native libraries (writes permissions.lock; --yes is the explicit non-interactive form), then rebuild; never hand-write permissions.lock", .{ manifest.name, summary.items, manifest.name });
+        }
+
+        for (manifest.native_link) |entry| {
+            switch (entry.kind) {
+                .lib => {
+                    var resolved_dirs = std.array_list.Managed([]u8).init(allocator);
+                    defer {
+                        for (resolved_dirs.items) |dir| allocator.free(dir);
+                        resolved_dirs.deinit();
+                    }
+                    var found = entry.dirs.len == 0;
+                    for (entry.dirs) |dir| {
+                        const resolved_dir = try resolvePluginRootPath(allocator, manifest.root_dir, dir);
+                        errdefer allocator.free(resolved_dir);
+                        try resolved_dirs.append(resolved_dir);
+                        if (!found) {
+                            const candidate = try std.fmt.allocPrint(allocator, "{s}/lib{s}.so", .{ resolved_dir, entry.name });
+                            defer allocator.free(candidate);
+                            if (fileExistsAbsolute(candidate)) found = true;
+                        }
+                    }
+                    if (!found) {
+                        var dirs_csv = std.array_list.Managed(u8).init(allocator);
+                        defer dirs_csv.deinit();
+                        for (entry.dirs, 0..) |dir, idx| {
+                            if (idx != 0) try dirs_csv.appendSlice(", ");
+                            try dirs_csv.appendSlice(dir);
+                        }
+                        return try std.fmt.allocPrint(allocator, "plugin {s} declares native_link lib '{s}' but lib{s}.so was not found in any declared search directory ({s}) [SA-PLUGIN-NATIVE-LINK-LIBRARY-MISSING]\n  remedy: provide the library at one of the declared directories, or fix the declaration in the plugin's sap.json (permissions.native_link) and reinstall + re-confirm the plugin", .{ manifest.name, entry.name, entry.name, dirs_csv.items });
+                    }
+                    for (resolved_dirs.items) |resolved_dir| {
+                        try appendLinkInputFmt(allocator, link_inputs, owned_link_inputs, "-L{s}", .{resolved_dir});
+                        try appendLinkInputFmt(allocator, link_inputs, owned_link_inputs, "-Wl,-rpath,{s}", .{resolved_dir});
+                    }
+                    try appendLinkInputFmt(allocator, link_inputs, owned_link_inputs, "-l{s}", .{entry.name});
+                },
+                .path => {
+                    const resolved = try resolvePluginRootPath(allocator, manifest.root_dir, entry.name);
+                    defer allocator.free(resolved);
+                    if (!fileExistsAbsolute(resolved)) {
+                        return try std.fmt.allocPrint(allocator, "plugin {s} declares native_link path '{s}' (resolved to {s}) but the file does not exist [SA-PLUGIN-NATIVE-LINK-LIBRARY-MISSING]\n  remedy: provide the library at the declared path, or fix the declaration in the plugin's sap.json (permissions.native_link) and reinstall + re-confirm the plugin", .{ manifest.name, entry.name, resolved });
+                    }
+                    try appendLinkInput(allocator, link_inputs, owned_link_inputs, resolved);
+                    if (std.fs.path.dirname(resolved)) |dir| {
+                        try appendLinkInputFmt(allocator, link_inputs, owned_link_inputs, "-Wl,-rpath,{s}", .{dir});
+                    }
+                },
+            }
+        }
+        return null;
+    }
+
+    /// Whether a plugin's native_link declaration may take effect for
+    /// this invocation. The link-path runtime is constructed with
+    /// dev_mode=true so plugin library collection stays ungated (see
+    /// appendNativePluginLinkInputs in cli.zig), so this gate reads
+    /// the invocation's real confirmation state instead of
+    /// host_authorization.dev_mode: a dev invocation (SA_PLUGIN_DEV),
+    /// a workspace-declared plugin directory, or an install
+    /// confirmation whose permissions digest covers the current
+    /// manifest (permissions.lock with confirmed=true, not a dev
+    /// install).
+    fn nativeLinkDeclarationInEffect(self: *Runtime, plugin_dir: []const u8, manifest: SapManifest) !bool {
+        if (pluginDevMode(self.allocator)) return true;
+        for (self.workspace_plugin_dirs.items) |staged| {
+            if (std.mem.eql(u8, staged, plugin_dir)) return true;
+        }
+        const lock_path = try std.fs.path.join(self.allocator, &.{ plugin_dir, "permissions.lock" });
+        defer self.allocator.free(lock_path);
+        const lock_text = readFileAbsoluteAlloc(self.allocator, lock_path, 1 << 20) catch |err| switch (err) {
+            error.FileNotFound => return false,
+            else => return err,
+        };
+        defer self.allocator.free(lock_text);
+        if (!lockHasLine(lock_text, "confirmed=true")) return false;
+        if (lockHasKeyValue(lock_text, "dev_install", "true")) return false;
+        const digest_hex = std.fmt.bytesToHex(manifest.permission_digest, .lower);
+        return lockHasKeyValue(lock_text, "permissions_sha256", digest_hex[0..]);
+    }
+
     /// Invokes one loaded plugin's command handler. Returns the exit
     /// code when the plugin handled the command (failures are
     /// reported here and also yield a code), or null when the plugin
@@ -2556,6 +2689,44 @@ pub const Runtime = struct {
     }
 };
 
+/// Appends one link argument to both the borrowed link-input list
+/// and the owning list (the pattern used for plugin library inputs).
+fn appendLinkInput(
+    allocator: std.mem.Allocator,
+    link_inputs: *std.array_list.Managed([]const u8),
+    owned_link_inputs: *std.array_list.Managed([]const u8),
+    text: []const u8,
+) !void {
+    const owned = try allocator.dupe(u8, text);
+    link_inputs.append(owned) catch |err| {
+        allocator.free(owned);
+        return err;
+    };
+    owned_link_inputs.append(owned) catch |err| {
+        allocator.free(owned);
+        return err;
+    };
+}
+
+fn appendLinkInputFmt(
+    allocator: std.mem.Allocator,
+    link_inputs: *std.array_list.Managed([]const u8),
+    owned_link_inputs: *std.array_list.Managed([]const u8),
+    comptime fmt: []const u8,
+    args: anytype,
+) !void {
+    const text = try std.fmt.allocPrint(allocator, fmt, args);
+    defer allocator.free(text);
+    try appendLinkInput(allocator, link_inputs, owned_link_inputs, text);
+}
+
+/// Resolves a declared native_link path/dir: absolute paths are used
+/// as declared; relative ones resolve against the plugin root.
+fn resolvePluginRootPath(allocator: std.mem.Allocator, root_dir: []const u8, path: []const u8) ![]u8 {
+    if (std.fs.path.isAbsolute(path)) return try allocator.dupe(u8, path);
+    return try std.fs.path.join(allocator, &.{ root_dir, path });
+}
+
 fn invalidDynamicLibraryHeader(allocator: std.mem.Allocator, path: []const u8) !?[]const u8 {
     _ = allocator;
     if (@import("builtin").os.tag != .windows) return null;
@@ -2616,6 +2787,7 @@ const SapManifest = struct {
     net_permissions: []NetPermission,
     process_spawn: bool,
     process_exec_permissions: []ProcessExecPermission,
+    native_link: []NativeLinkEntry,
     permission_digest: [32]u8,
     external_urls: [][]u8,
     requires_sandbox: bool,
@@ -2623,6 +2795,7 @@ const SapManifest = struct {
     has_net_permission: bool,
     has_env_permission: bool,
     has_process_permission: bool,
+    has_native_link_permission: bool,
     kind: SapPluginKind,
     language_extensions: [][]u8,
     commands: [][]u8,
@@ -2647,6 +2820,8 @@ const SapManifest = struct {
         allocator.free(self.net_permissions);
         for (self.process_exec_permissions) |*entry| entry.deinit(allocator);
         allocator.free(self.process_exec_permissions);
+        for (self.native_link) |*entry| entry.deinit(allocator);
+        allocator.free(self.native_link);
         for (self.external_urls) |url| allocator.free(url);
         allocator.free(self.external_urls);
         for (self.language_extensions) |ext| allocator.free(ext);
@@ -2708,6 +2883,30 @@ const PluginDependency = struct {
         allocator.free(self.symbols);
         if (self.path) |path| allocator.free(path);
         if (self.url) |url| allocator.free(url);
+        self.* = undefined;
+    }
+};
+
+const NativeLinkKind = enum {
+    lib,
+    path,
+};
+
+/// One declared native library input (sap.json `permissions.native_link`,
+/// ZOZI-4 manifest_native_link): either a linker library name resolved
+/// through `dirs`, or a direct library file path. Relative paths and
+/// dirs resolve against the plugin root directory. The declaration is
+/// part of the permissions object, so the permission digest covers it
+/// and the install confirmation confirms exactly these entries.
+const NativeLinkEntry = struct {
+    kind: NativeLinkKind,
+    name: []u8,
+    dirs: [][]u8,
+
+    fn deinit(self: *NativeLinkEntry, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        for (self.dirs) |dir| allocator.free(dir);
+        allocator.free(self.dirs);
         self.* = undefined;
     }
 };
@@ -3064,6 +3263,25 @@ fn renderPermissionsLock(allocator: std.mem.Allocator, manifest: SapManifest, co
             if (dep.path) |path| try w.print(" path={s}", .{path});
             if (dep.url) |url| try w.print(" url={s}", .{url});
             try w.writeByte('\n');
+        }
+    }
+    if (manifest.native_link.len != 0) {
+        try w.writeAll("native_link\n");
+        for (manifest.native_link) |entry| {
+            switch (entry.kind) {
+                .lib => {
+                    try w.print("- lib={s}", .{entry.name});
+                    if (entry.dirs.len != 0) {
+                        try w.writeAll(" dirs=");
+                        for (entry.dirs, 0..) |dir, idx| {
+                            if (idx != 0) try w.writeByte(',');
+                            try w.writeAll(dir);
+                        }
+                    }
+                    try w.writeByte('\n');
+                },
+                .path => try w.print("- path={s}\n", .{entry.name}),
+            }
         }
     }
     return try aw.toOwnedSlice();
@@ -3922,6 +4140,7 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
         .net_permissions = try permission_info.net_permissions.toOwnedSlice(),
         .process_spawn = permission_info.process_spawn,
         .process_exec_permissions = try permission_info.process_exec_permissions.toOwnedSlice(),
+        .native_link = try permission_info.native_link.toOwnedSlice(),
         .permission_digest = permission_info.digest,
         .external_urls = try permission_info.urls.toOwnedSlice(),
         .requires_sandbox = permission_info.requires_sandbox,
@@ -3929,6 +4148,7 @@ fn parseSapManifest(allocator: std.mem.Allocator, input_path: []const u8) !SapMa
         .has_net_permission = permission_info.has_net_permission,
         .has_env_permission = permission_info.has_env_permission,
         .has_process_permission = permission_info.has_process_permission,
+        .has_native_link_permission = permission_info.has_native_link_permission,
         .kind = kind,
         .language_extensions = language_extensions,
         .commands = commands,
@@ -4767,10 +4987,12 @@ const PermissionInfo = struct {
     net_permissions: std.array_list.Managed(NetPermission),
     process_spawn: bool,
     process_exec_permissions: std.array_list.Managed(ProcessExecPermission),
+    native_link: std.array_list.Managed(NativeLinkEntry),
     has_fs_permission: bool,
     has_net_permission: bool,
     has_env_permission: bool,
     has_process_permission: bool,
+    has_native_link_permission: bool,
 
     fn deinit(self: *PermissionInfo, allocator: std.mem.Allocator) void {
         for (self.urls.items) |url| allocator.free(url);
@@ -4783,6 +5005,8 @@ const PermissionInfo = struct {
         self.net_permissions.deinit();
         for (self.process_exec_permissions.items) |*entry| entry.deinit(allocator);
         self.process_exec_permissions.deinit();
+        for (self.native_link.items) |*entry| entry.deinit(allocator);
+        self.native_link.deinit();
         self.* = undefined;
     }
 };
@@ -4805,12 +5029,14 @@ fn validatePermissions(allocator: std.mem.Allocator, value: std.json.Value) !Per
     var has_net_permission = false;
     var has_env_permission = false;
     var has_process_permission = false;
+    var has_native_link_permission = false;
     var urls = std.array_list.Managed([]u8).init(allocator);
     var env_permissions = std.array_list.Managed([]u8).init(allocator);
     var fs_permissions = std.array_list.Managed(FsPermission).init(allocator);
     var net_permissions = std.array_list.Managed(NetPermission).init(allocator);
     var process_spawn = false;
     var process_exec_permissions = std.array_list.Managed(ProcessExecPermission).init(allocator);
+    var native_link = std.array_list.Managed(NativeLinkEntry).init(allocator);
     errdefer {
         for (urls.items) |url| allocator.free(url);
         urls.deinit();
@@ -4822,6 +5048,8 @@ fn validatePermissions(allocator: std.mem.Allocator, value: std.json.Value) !Per
         net_permissions.deinit();
         for (process_exec_permissions.items) |*entry| entry.deinit(allocator);
         process_exec_permissions.deinit();
+        for (native_link.items) |*entry| entry.deinit(allocator);
+        native_link.deinit();
     }
 
     if (obj.get("fs")) |fs_value| switch (fs_value) {
@@ -4882,6 +5110,17 @@ fn validatePermissions(allocator: std.mem.Allocator, value: std.json.Value) !Per
             else => return error.InvalidPluginPermission,
         } else return error.InvalidPluginPermission;
     } else return error.InvalidPluginPermission;
+    // native_link is the one optional permissions key: existing
+    // manifests do not declare it, and absence means "no native
+    // libraries" (the permission digest is unchanged for them).
+    if (obj.get("native_link")) |native_link_value| switch (native_link_value) {
+        .array => |arr| {
+            has_native_link_permission = arr.items.len != 0;
+            if (arr.items.len != 0) requires_sandbox = true;
+            for (arr.items) |item| try native_link.append(try parseNativeLinkEntry(allocator, item));
+        },
+        else => return error.InvalidPluginPermission,
+    };
     return .{
         .requires_sandbox = requires_sandbox,
         .digest = digest,
@@ -4891,15 +5130,84 @@ fn validatePermissions(allocator: std.mem.Allocator, value: std.json.Value) !Per
         .net_permissions = net_permissions,
         .process_spawn = process_spawn,
         .process_exec_permissions = process_exec_permissions,
+        .native_link = native_link,
         .has_fs_permission = has_fs_permission,
         .has_net_permission = has_net_permission,
         .has_env_permission = has_env_permission,
         .has_process_permission = has_process_permission,
+        .has_native_link_permission = has_native_link_permission,
     };
 }
 
 fn validatePermissionKeys(obj: std.json.ObjectMap) !void {
-    try rejectUnknownKeys(obj, &.{ "fs", "net", "env", "process" });
+    try rejectUnknownKeys(obj, &.{ "fs", "net", "env", "process", "native_link" });
+}
+
+/// Relative native_link paths/dirs follow the project-relative rule
+/// (no absolute form, no empty/dot/dotdot components); absolute forms
+/// are accepted as declared, confirmation-covered content.
+fn validNativeLinkPath(path: []const u8) bool {
+    if (path.len == 0) return false;
+    if (std.fs.path.isAbsolute(path)) return true;
+    var it = std.mem.splitScalar(u8, path, '/');
+    while (it.next()) |part| {
+        if (part.len == 0 or std.mem.eql(u8, part, ".") or std.mem.eql(u8, part, "..")) return false;
+    }
+    return true;
+}
+
+fn parseNativeLinkEntry(allocator: std.mem.Allocator, value: std.json.Value) !NativeLinkEntry {
+    const obj = switch (value) {
+        .object => |o| o,
+        else => return error.InvalidPluginPermission,
+    };
+    try rejectUnknownKeys(obj, &.{ "lib", "path", "dirs" });
+    const lib_value = obj.get("lib");
+    const path_value = obj.get("path");
+    if ((lib_value == null) == (path_value == null)) return error.InvalidPluginPermission;
+
+    var dirs = std.array_list.Managed([]u8).init(allocator);
+    errdefer {
+        for (dirs.items) |dir| allocator.free(dir);
+        dirs.deinit();
+    }
+    if (obj.get("dirs")) |dirs_value| {
+        // Search directories qualify a `lib` name lookup; a direct
+        // `path` entry already names its file, so dirs with path is
+        // an ambiguous declaration and is rejected loudly.
+        if (path_value != null) return error.InvalidPluginPermission;
+        const arr = switch (dirs_value) {
+            .array => |a| a,
+            else => return error.InvalidPluginPermission,
+        };
+        for (arr.items) |item| {
+            const dir = try jsonString(item);
+            if (!validNativeLinkPath(dir)) return error.InvalidPluginPermission;
+            try dirs.append(try allocator.dupe(u8, dir));
+        }
+    }
+
+    if (lib_value) |lib_item| {
+        const name = try jsonString(lib_item);
+        // A lib entry is handed to the linker as -l<name>: reject
+        // anything that could break out of that shape (path
+        // separators, a leading '-' that would read as a flag).
+        if (name.len == 0) return error.InvalidPluginPermission;
+        if (name[0] == '-') return error.InvalidPluginPermission;
+        if (std.mem.indexOfAny(u8, name, "/\\") != null) return error.InvalidPluginPermission;
+        return .{
+            .kind = .lib,
+            .name = try allocator.dupe(u8, name),
+            .dirs = try dirs.toOwnedSlice(),
+        };
+    }
+    const path = try jsonString(path_value.?);
+    if (!validNativeLinkPath(path)) return error.InvalidPluginPermission;
+    return .{
+        .kind = .path,
+        .name = try allocator.dupe(u8, path),
+        .dirs = try dirs.toOwnedSlice(),
+    };
 }
 
 fn rejectUnknownKeys(obj: std.json.ObjectMap, allowed: []const []const u8) !void {
@@ -5109,6 +5417,136 @@ test "plugin network permission URLs reject remote http and bare remote IPs" {
     try std.testing.expect(!allowedPermissionUrl("http://localhost.evil.example/api"));
 }
 
+fn validatePermissionsForTest(allocator: std.mem.Allocator, permissions_json: []const u8) !PermissionInfo {
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, permissions_json, .{});
+    defer parsed.deinit();
+    return try validatePermissions(allocator, parsed.value);
+}
+
+test "native_link permissions parse into entries and require confirmation" {
+    const allocator = std.testing.allocator;
+    var info = try validatePermissionsForTest(allocator,
+        \\{"fs":[],"net":[],"env":[],"process":{"spawn":false,"exec":[]},"native_link":[{"lib":"nlmath","dirs":["/opt/nl/lib","libs"]},{"path":"libs/libextra.so"}]}
+    );
+    defer info.deinit(allocator);
+    try std.testing.expect(info.has_native_link_permission);
+    try std.testing.expect(info.requires_sandbox);
+    try std.testing.expectEqual(@as(usize, 2), info.native_link.items.len);
+    try std.testing.expectEqual(NativeLinkKind.lib, info.native_link.items[0].kind);
+    try std.testing.expectEqualStrings("nlmath", info.native_link.items[0].name);
+    try std.testing.expectEqual(@as(usize, 2), info.native_link.items[0].dirs.len);
+    try std.testing.expectEqual(NativeLinkKind.path, info.native_link.items[1].kind);
+    try std.testing.expectEqualStrings("libs/libextra.so", info.native_link.items[1].name);
+    try std.testing.expectEqual(@as(usize, 0), info.native_link.items[1].dirs.len);
+}
+
+test "native_link is optional and empty declarations change nothing" {
+    const allocator = std.testing.allocator;
+    var absent = try validatePermissionsForTest(allocator,
+        \\{"fs":[],"net":[],"env":[],"process":{"spawn":false,"exec":[]}}
+    );
+    defer absent.deinit(allocator);
+    try std.testing.expect(!absent.has_native_link_permission);
+    try std.testing.expect(!absent.requires_sandbox);
+    try std.testing.expectEqual(@as(usize, 0), absent.native_link.items.len);
+
+    var empty = try validatePermissionsForTest(allocator,
+        \\{"fs":[],"net":[],"env":[],"process":{"spawn":false,"exec":[]},"native_link":[]}
+    );
+    defer empty.deinit(allocator);
+    try std.testing.expect(!empty.has_native_link_permission);
+    try std.testing.expect(!empty.requires_sandbox);
+    try std.testing.expectEqual(@as(usize, 0), empty.native_link.items.len);
+}
+
+test "native_link entries join the permission digest" {
+    const allocator = std.testing.allocator;
+    // The digest covers the whole permissions object, so a declared
+    // entry is confirmation-covered: changing the declared library
+    // changes the digest and invalidates earlier confirmations.
+    var declared_a = try validatePermissionsForTest(allocator,
+        \\{"fs":[],"net":[],"env":[],"process":{"spawn":false,"exec":[]},"native_link":[{"lib":"nlmath"}]}
+    );
+    defer declared_a.deinit(allocator);
+    var declared_b = try validatePermissionsForTest(allocator,
+        \\{"fs":[],"net":[],"env":[],"process":{"spawn":false,"exec":[]},"native_link":[{"lib":"otherlib"}]}
+    );
+    defer declared_b.deinit(allocator);
+    try std.testing.expect(!std.mem.eql(u8, declared_a.digest[0..], declared_b.digest[0..]));
+    var declared_a_again = try validatePermissionsForTest(allocator,
+        \\{"fs":[],"net":[],"env":[],"process":{"spawn":false,"exec":[]},"native_link":[{"lib":"nlmath"}]}
+    );
+    defer declared_a_again.deinit(allocator);
+    try std.testing.expectEqual(declared_a.digest, declared_a_again.digest);
+}
+
+test "native_link rejects malformed entries" {
+    const allocator = std.testing.allocator;
+    const base_prefix = "{\"fs\":[],\"net\":[],\"env\":[],\"process\":{\"spawn\":false,\"exec\":[]},\"native_link\":";
+    const bad_declarations = [_][]const u8{
+        "[{\"lib\":\"x\",\"path\":\"y.so\"}]",
+        "[{\"dirs\":[]}]",
+        "[{\"lib\":\"a/b\"}]",
+        "[{\"lib\":\"-lm\"}]",
+        "[{\"lib\":\"\"}]",
+        "[{\"path\":\"../libx.so\"}]",
+        "[{\"path\":\"libx.so\",\"dirs\":[\"/tmp\"]}]",
+        "[{\"lib\":\"x\",\"bogus\":1}]",
+        "[{\"lib\":\"x\",\"dirs\":[\"a/../b\"]}]",
+        "{}",
+    };
+    for (bad_declarations) |decl| {
+        const text = try std.fmt.allocPrint(allocator, "{s}{s}}}", .{ base_prefix, decl });
+        defer allocator.free(text);
+        try std.testing.expectError(error.InvalidPluginPermission, validatePermissionsForTest(allocator, text));
+    }
+}
+
+test "permissions lock rendering lists native_link entries" {
+    const allocator = std.testing.allocator;
+    const lib_dirs = try allocator.alloc([]u8, 1);
+    lib_dirs[0] = try allocator.dupe(u8, "/opt/nl/lib");
+    const native_link = try allocator.alloc(NativeLinkEntry, 2);
+    native_link[0] = .{ .kind = .lib, .name = try allocator.dupe(u8, "nlmath"), .dirs = lib_dirs };
+    native_link[1] = .{ .kind = .path, .name = try allocator.dupe(u8, "libs/libextra.so"), .dirs = try allocator.alloc([]u8, 0) };
+    var manifest = SapManifest{
+        .root_dir = try allocator.dupe(u8, "/tmp/zozi4-test"),
+        .sap_path = try allocator.dupe(u8, "/tmp/zozi4-test/sap.json"),
+        .name = try allocator.dupe(u8, "zozi4_nl"),
+        .version = try allocator.dupe(u8, "0.1.0"),
+        .abi_plugin = 1,
+        .artifact_rel = try allocator.dupe(u8, "zig-out/lib/libzozi4_nl.so"),
+        .artifact_sha256 = null,
+        .interface_files = try allocator.alloc(InterfaceFile, 0),
+        .asset_files = try allocator.alloc(AssetFile, 0),
+        .dependencies = try allocator.alloc(PluginDependency, 0),
+        .env_permissions = try allocator.alloc([]u8, 0),
+        .fs_permissions = try allocator.alloc(FsPermission, 0),
+        .net_permissions = try allocator.alloc(NetPermission, 0),
+        .process_spawn = false,
+        .process_exec_permissions = try allocator.alloc(ProcessExecPermission, 0),
+        .native_link = native_link,
+        .permission_digest = [_]u8{0} ** 32,
+        .external_urls = try allocator.alloc([]u8, 0),
+        .requires_sandbox = true,
+        .has_fs_permission = false,
+        .has_net_permission = false,
+        .has_env_permission = false,
+        .has_process_permission = false,
+        .has_native_link_permission = true,
+        .kind = .command,
+        .language_extensions = try allocator.alloc([]u8, 0),
+        .commands = try allocator.alloc([]u8, 0),
+    };
+    defer manifest.deinit(allocator);
+    const text = try renderPermissionsLock(allocator, manifest, true, false, false);
+    defer allocator.free(text);
+    try std.testing.expect(std.mem.indexOf(u8, text, "native_link\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "- lib=nlmath dirs=/opt/nl/lib") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "- path=libs/libextra.so") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "requires_confirmation=true") != null);
+}
+
 fn pluginDevMode(allocator: std.mem.Allocator) bool {
     const value = sio.getEnvVarOwned(allocator, "SA_PLUGIN_DEV") catch return false;
     defer allocator.free(value);
@@ -5139,6 +5577,25 @@ fn confirmPrivilegedPluginInstall(stdout: anytype, manifest: SapManifest) !bool 
             dep.abi,
             if (dep.optional) "true" else "false",
         });
+    }
+    if (manifest.native_link.len != 0) {
+        try stdout.writeAll("native libraries linked into consumer programs:\n");
+        for (manifest.native_link) |entry| {
+            switch (entry.kind) {
+                .lib => {
+                    try stdout.print("- lib={s}", .{entry.name});
+                    if (entry.dirs.len != 0) {
+                        try stdout.writeAll(" dirs=");
+                        for (entry.dirs, 0..) |dir, idx| {
+                            if (idx != 0) try stdout.writeByte(',');
+                            try stdout.writeAll(dir);
+                        }
+                    }
+                    try stdout.writeAll("\n");
+                },
+                .path => try stdout.print("- path={s}\n", .{entry.name}),
+            }
+        }
     }
     try stdout.print("Type the exact plugin name to continue: ", .{});
     var buffer: [256]u8 = undefined;

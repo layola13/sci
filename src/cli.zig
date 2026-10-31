@@ -5619,15 +5619,22 @@ fn collectExternalSymbolNames(allocator: std.mem.Allocator, verified: *const ref
     return try names.toOwnedSlice();
 }
 
+/// Collects native link inputs for a program's extern symbols:
+/// plugin libraries matched by symbol probing, plus the real
+/// libraries those plugins declare via permissions.native_link
+/// (ZOZI-4). Returns false when a native_link declaration is denied
+/// (unconfirmed declaration or missing declared library); the denial
+/// is printed to stderr and the caller fails the build.
 fn appendNativePluginLinkInputs(
     allocator: std.mem.Allocator,
     link_inputs: *std.array_list.Managed([]const u8),
     owned_link_inputs: *std.array_list.Managed([]const u8),
     verified: *const referee.VerifyOk,
-) !void {
+    stderr: anytype,
+) !bool {
     const extern_names = try collectExternalSymbolNames(allocator, verified);
     defer allocator.free(extern_names);
-    if (extern_names.len == 0) return;
+    if (extern_names.len == 0) return true;
 
     // Native linking only needs plugin metadata and exported symbols. Do not
     // apply runtime sandbox gating here, or privileged plugins such as HTTP
@@ -5637,32 +5644,12 @@ fn appendNativePluginLinkInputs(
     });
     defer plugin_runtime.deinit();
 
-    var plugin_libs = std.array_list.Managed([]const u8).init(allocator);
-    defer plugin_libs.deinit();
-    try plugin_runtime.appendLibrariesExportingAny(&plugin_libs, extern_names);
-
-    for (plugin_libs.items) |lib_path| {
-        const owned_lib_path = try allocator.dupe(u8, lib_path);
-        link_inputs.append(owned_lib_path) catch |err| {
-            allocator.free(owned_lib_path);
-            return err;
-        };
-        owned_link_inputs.append(owned_lib_path) catch |err| {
-            allocator.free(owned_lib_path);
-            return err;
-        };
-        if (std.fs.path.dirname(lib_path)) |dir| {
-            const rpath_arg = try std.fmt.allocPrint(allocator, "-Wl,-rpath,{s}", .{dir});
-            link_inputs.append(rpath_arg) catch |err| {
-                allocator.free(rpath_arg);
-                return err;
-            };
-            owned_link_inputs.append(rpath_arg) catch |err| {
-                allocator.free(rpath_arg);
-                return err;
-            };
-        }
+    if (try plugin_runtime.appendNativeLinkInputsForExterns(link_inputs, owned_link_inputs, extern_names)) |denial| {
+        defer allocator.free(denial);
+        try stderr.print("error: {s}\n", .{denial});
+        return false;
     }
+    return true;
 }
 
 fn deriveOutputPath(allocator: std.mem.Allocator, source_path: []const u8, suffix: []const u8) ![]const u8 {
@@ -7377,7 +7364,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                         return 1;
                     }
                 } else {
-                    try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+                    if (!try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified, stderr)) return 1;
                 }
 
                 const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
@@ -7426,7 +7413,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                         return 1;
                     }
                 } else {
-                    try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+                    if (!try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified, stderr)) return 1;
                 }
                 driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, link_inputs.items, debug, stderr, compile_options.target_triple) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
@@ -9106,7 +9093,7 @@ fn executeTestInner(
                 for (owned_link_inputs.items) |arg| allocator.free(arg);
                 owned_link_inputs.deinit();
             }
-            try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified);
+            if (!try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified, stderr)) return 1;
 
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
