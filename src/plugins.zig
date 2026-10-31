@@ -5526,7 +5526,7 @@ test "permissions lock rendering lists native_link entries" {
         .process_spawn = false,
         .process_exec_permissions = try allocator.alloc(ProcessExecPermission, 0),
         .native_link = native_link,
-        .permission_digest = [_]u8{0} ** 32,
+        .permission_digest = std.mem.zeroes([32]u8),
         .external_urls = try allocator.alloc([]u8, 0),
         .requires_sandbox = true,
         .has_fs_permission = false,
