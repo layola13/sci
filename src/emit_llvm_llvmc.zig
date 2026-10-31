@@ -1227,7 +1227,13 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
             .operand0 = try state.operand(base.operands[0]),
             .operand1 = none,
             .operand2 = none,
-            .ty = .void,
+            // DEF-R8: the shim's SA_OP_RELEASE emits `free` only when the
+            // instruction type is SA_T_PTR (provenance is then decided by
+            // the per-register is_malloc flag). Release operands are
+            // registers holding owned values; hardcoding .void here made
+            // the shim's free path unreachable, so every SA-level `alloc`
+            // released with `!reg` leaked on the native LLVM backend.
+            .ty = if (base.operands[0] == .reg) .ptr else .void,
             .binary_op = .add,
             .label = null,
             .false_label = null,
