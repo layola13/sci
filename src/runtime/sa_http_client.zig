@@ -872,7 +872,7 @@ fn proxyConnect(stream: std.Io.net.Stream, proxy: *std.http.Client.Proxy, host: 
     var byte: [1]u8 = undefined;
     while (!std.mem.endsWith(u8, resp.items, "\r\n\r\n")) {
         if (resp.items.len > 16 * 1024) return error.ProxyConnect;
-        const n = std.posix.read(stream.socket.handle, &byte) catch return error.ProxyConnect;
+        const n = if (comptime builtin.os.tag == .wasi) return error.ProxyConnect else std.posix.read(stream.socket.handle, &byte) catch return error.ProxyConnect;
         if (n == 0) return error.ProxyConnect;
         try resp.append(byte[0]);
     }
