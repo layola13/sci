@@ -61,12 +61,11 @@ fn collectFuncTasks(allocator: std.mem.Allocator, verified: anytype) ![]FuncTask
 
 fn isCReserved(name: []const u8) bool {
     const reserved = [_][]const u8{
-        "auto", "break", "case", "char", "const", "continue", "default", "do",
-        "double", "else", "enum", "extern", "float", "for", "goto", "if",
-        "inline", "int", "long", "register", "restrict", "return", "short",
-        "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
-        "unsigned", "void", "volatile", "while", "_Bool", "_Complex",
-        "_Imaginary", "sa_mem", "sa_brk",
+        "auto",     "break",  "case",   "char",     "const",      "continue", "default",  "do",
+        "double",   "else",   "enum",   "extern",   "float",      "for",      "goto",     "if",
+        "inline",   "int",    "long",   "register", "restrict",   "return",   "short",    "signed",
+        "sizeof",   "static", "struct", "switch",   "typedef",    "union",    "unsigned", "void",
+        "volatile", "while",  "_Bool",  "_Complex", "_Imaginary", "sa_mem",   "sa_brk",
     };
     for (reserved) |word| {
         if (std.mem.eql(u8, name, word)) return true;
@@ -680,15 +679,31 @@ fn emitNarrowLshr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_
 
 fn emitCvtExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, opcode: inst.OpKind, tgt: sig.PrimType, src_op: inst.Operand, widths: *const WidthMap) !void {
     const sfx: []const u8 = switch (tgt) {
-        .i1 => "i1", .i8 => "i8", .i16 => "i16", .i32 => "i32", .i64 => "i64",
-        .u8 => "u8", .u16 => "u16", .u32 => "u32", .u64 => "u64", .blob_handle => "u64",
-        .ptr => "ptr", .f32 => "f32", .f64 => "f64",
+        .i1 => "i1",
+        .i8 => "i8",
+        .i16 => "i16",
+        .i32 => "i32",
+        .i64 => "i64",
+        .u8 => "u8",
+        .u16 => "u16",
+        .u32 => "u32",
+        .u64 => "u64",
+        .blob_handle => "u64",
+        .ptr => "ptr",
+        .f32 => "f32",
+        .f64 => "f64",
         else => return CEmitError.InvalidOperand,
     };
     const opname: []const u8 = switch (opcode) {
-        .trunc => "trunc", .zext => "zext", .sext => "sext", .fptosi => "fptosi",
-        .sitofp => "sitofp", .uitofp => "uitofp", .fptrunc => "fptrunc",
-        .fpext => "fpext", .bitcast => "bitcast",
+        .trunc => "trunc",
+        .zext => "zext",
+        .sext => "sext",
+        .fptosi => "fptosi",
+        .sitofp => "sitofp",
+        .uitofp => "uitofp",
+        .fptrunc => "fptrunc",
+        .fpext => "fpext",
+        .bitcast => "bitcast",
         else => return CEmitError.InvalidOperand,
     };
     const tgt_is_64 = switch (tgt) {
@@ -977,20 +992,42 @@ fn emitOpExpr(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_glob
         else => {},
     }
     const name: []const u8 = switch (opcode) {
-        .add => "sa_add", .sub => "sa_sub", .mul => "sa_mul",
-        .sdiv => "sa_sdiv", .udiv => "sa_udiv", .srem => "sa_srem", .urem => "sa_urem",
-        .@"and" => "sa_band", .@"or" => "sa_bor", .xor => "sa_bxor",
-        .shl => "sa_shl", .lshr => "sa_lshr", .ashr => "sa_ashr",
+        .add => "sa_add",
+        .sub => "sa_sub",
+        .mul => "sa_mul",
+        .sdiv => "sa_sdiv",
+        .udiv => "sa_udiv",
+        .srem => "sa_srem",
+        .urem => "sa_urem",
+        .@"and" => "sa_band",
+        .@"or" => "sa_bor",
+        .xor => "sa_bxor",
+        .shl => "sa_shl",
+        .lshr => "sa_lshr",
+        .ashr => "sa_ashr",
         .not => "sa_bnot",
         .neg => "sa_neg",
-        .eq => "sa_eq", .ne => "sa_ne",
-        .slt => "sa_slt", .sle => "sa_sle", .sgt => "sa_sgt", .sge => "sa_sge",
-        .ult => "sa_ult", .ule => "sa_ule", .ugt => "sa_ugt", .uge => "sa_uge",
-        .fadd => "sa_fadd", .fsub => "sa_fsub", .fmul => "sa_fmul", .fdiv => "sa_fdiv",
+        .eq => "sa_eq",
+        .ne => "sa_ne",
+        .slt => "sa_slt",
+        .sle => "sa_sle",
+        .sgt => "sa_sgt",
+        .sge => "sa_sge",
+        .ult => "sa_ult",
+        .ule => "sa_ule",
+        .ugt => "sa_ugt",
+        .uge => "sa_uge",
+        .fadd => "sa_fadd",
+        .fsub => "sa_fsub",
+        .fmul => "sa_fmul",
+        .fdiv => "sa_fdiv",
         .fneg => "sa_fneg",
-        .fcmp_eq => "sa_fcmp_eq", .fcmp_ne => "sa_fcmp_ne",
-        .fcmp_lt => "sa_fcmp_lt", .fcmp_le => "sa_fcmp_le",
-        .fcmp_gt => "sa_fcmp_gt", .fcmp_ge => "sa_fcmp_ge",
+        .fcmp_eq => "sa_fcmp_eq",
+        .fcmp_ne => "sa_fcmp_ne",
+        .fcmp_lt => "sa_fcmp_lt",
+        .fcmp_le => "sa_fcmp_le",
+        .fcmp_gt => "sa_fcmp_gt",
+        .fcmp_ge => "sa_fcmp_ge",
         else => return CEmitError.InvalidOperand,
     };
     if (opcode == .not or opcode == .neg or opcode == .fneg) {
@@ -1817,7 +1854,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  { sa_u64 h = sa_nb_buf_new(oa, pos); if (h == 0) return 5; sa_store_u64(out_slot, h); }
     \\  return 0;
     \\}
-    , .deps = &.{"sa_nb_buf_find", "sa_nb_buf_new", "sa_nb_crc32", "sa_nb_adler32", "sa_alloc", "sa_store_u64"} },
+    , .deps = &.{ "sa_nb_buf_find", "sa_nb_buf_new", "sa_nb_crc32", "sa_nb_adler32", "sa_alloc", "sa_store_u64" } },
     .{ .name = "sa_nb_inflate_stream", .code =
     \\typedef struct { uint32_t addr; sa_u64 len; sa_u64 pos; uint32_t bitbuf; int bitcnt; } sa_nb_bits_t;
     \\static int sa_nb_getbit(sa_nb_bits_t *b) { if (b->bitcnt == 0) { if (b->pos >= b->len) return -1; b->bitbuf = sa_mem[b->addr + b->pos]; b->pos++; b->bitcnt = 8; } { int v = (int)(b->bitbuf & 1u); b->bitbuf >>= 1; b->bitcnt--; return v; } }
@@ -1972,7 +2009,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  sa_store_u64(out_slot, h);
     \\  return 0;
     \\}
-    , .deps = &.{"sa_nb_buf_find", "sa_nb_buf_new", "sa_nb_inflate_stream", "sa_nb_crc32", "sa_nb_adler32", "sa_store_u64"} },
+    , .deps = &.{ "sa_nb_buf_find", "sa_nb_buf_new", "sa_nb_inflate_stream", "sa_nb_crc32", "sa_nb_adler32", "sa_store_u64" } },
     .{ .name = "sa_mp_find", .code =
     \\typedef struct { sa_u64 h; int kind; uint32_t body_a; sa_u64 body_n; uint8_t bnd[96]; sa_u64 bnd_n; uint32_t acc_a; sa_u64 acc_n; sa_u64 acc_cap; } sa_mp_t;
     \\static sa_mp_t sa_mp_tab[32];
@@ -2098,7 +2135,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\    return 0;
     \\  }
     \\}
-    , .deps = &.{"sa_mp_find", "sa_store_u64"} },
+    , .deps = &.{ "sa_mp_find", "sa_store_u64" } },
     .{ .name = "sa_mp_field", .code =
     \\static int sa_mp_field(sa_u64 h, sa_u64 idx, int kind, sa_u64 ov, sa_u64 ol, sa_u64 cap) {
     \\  sa_mp_t *mp = sa_mp_find(h); sa_u64 so, sn, bo, bn, va, vn;
@@ -2111,7 +2148,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\    if (!sa_mp_param(va, vn, kind == 0 ? "name" : "filename", &pa, &pn)) return 100;
     \\    return sa_mp_writeout((uint32_t)pa, pn, ov, ol, cap); }
     \\}
-    , .deps = &.{"sa_mp_find", "sa_mp_seek", "sa_mp_split", "sa_mp_hdr", "sa_mp_param", "sa_mp_writeout"} },
+    , .deps = &.{ "sa_mp_find", "sa_mp_seek", "sa_mp_split", "sa_mp_hdr", "sa_mp_param", "sa_mp_writeout" } },
     .{ .name = "sa_mp_header", .code =
     \\static int sa_mp_header(sa_u64 h, sa_u64 idx, sa_u64 na, sa_u64 nn, sa_u64 ov, sa_u64 ol, sa_u64 cap) {
     \\  sa_mp_t *mp = sa_mp_find(h); sa_u64 so, sn, bo, bn, va, vn;
@@ -2121,7 +2158,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  if (!sa_mp_hdr_guest(mp, so, bo - so, (uint32_t)na, nn, &va, &vn)) return 100;
     \\  return sa_mp_writeout((uint32_t)va, vn, ov, ol, cap);
     \\}
-    , .deps = &.{"sa_mp_find", "sa_mp_seek", "sa_mp_split", "sa_mp_hdr", "sa_mp_writeout"} },
+    , .deps = &.{ "sa_mp_find", "sa_mp_seek", "sa_mp_split", "sa_mp_hdr", "sa_mp_writeout" } },
     .{ .name = "sa_mp_part_body", .code =
     \\static int sa_mp_part_body(sa_u64 h, sa_u64 idx, sa_u64 op, sa_u64 ol) {
     \\  sa_mp_t *mp = sa_mp_find(h); sa_u64 so, sn, bo, bn;
@@ -2131,7 +2168,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  sa_store_u64(op, mp->body_a + bo); sa_store_u64(ol, bn);
     \\  return 0;
     \\}
-    , .deps = &.{"sa_mp_find", "sa_mp_seek", "sa_mp_split", "sa_store_u64"} },
+    , .deps = &.{ "sa_mp_find", "sa_mp_seek", "sa_mp_split", "sa_store_u64" } },
     .{ .name = "sa_mp_acc", .code =
     \\static int sa_mp_reserve(sa_mp_t *mp, sa_u64 extra) {
     \\  if (mp->acc_n + extra > mp->acc_cap) { uint32_t na; sa_u64 nc = mp->acc_cap ? mp->acc_cap : 1024, i; while (nc < mp->acc_n + extra) nc *= 2; na = (uint32_t)sa_alloc(nc); for (i = 0; i < mp->acc_n; i++) sa_mem[na + i] = sa_mem[mp->acc_a + i]; mp->acc_a = na; mp->acc_cap = nc; }
@@ -2140,7 +2177,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\static int sa_mp_acc(sa_mp_t *mp, uint32_t a, sa_u64 n) { sa_u64 i; sa_mp_reserve(mp, n); for (i = 0; i < n; i++) sa_mem[mp->acc_a + mp->acc_n + i] = sa_mem[a + i]; mp->acc_n += n; return 0; }
     \\static int sa_mp_accs(sa_mp_t *mp, const char *s) { sa_u64 i, n = 0; while (s[n]) n++; sa_mp_reserve(mp, n); for (i = 0; i < n; i++) sa_mem[mp->acc_a + mp->acc_n + i] = (uint8_t)s[i]; mp->acc_n += n; return 0; }
     \\static int sa_mp_accb(sa_mp_t *mp) { sa_u64 i; sa_mp_reserve(mp, mp->bnd_n); for (i = 0; i < mp->bnd_n; i++) sa_mem[mp->acc_a + mp->acc_n + i] = mp->bnd[i]; mp->acc_n += mp->bnd_n; return 0; }
-    , .deps = &.{"sa_mp_find", "sa_alloc"} },
+    , .deps = &.{ "sa_mp_find", "sa_alloc" } },
     .{ .name = "sa_mp_builder_new", .code =
     \\static int sa_mp_builder_new(sa_u64 bnd_a, sa_u64 bnd_n, sa_u64 out_slot) {
     \\  sa_mp_t *mp = sa_mp_slot(); sa_u64 i;
@@ -2161,7 +2198,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  sa_store_u64(out_slot, mp->h);
     \\  return 0;
     \\}
-    , .deps = &.{"sa_mp_find", "sa_mp_acc", "sa_store_u64"} },
+    , .deps = &.{ "sa_mp_find", "sa_mp_acc", "sa_store_u64" } },
     .{ .name = "sa_mp_add_field", .code =
     \\static int sa_mp_add_field(sa_u64 h, sa_u64 na, sa_u64 nn, sa_u64 va, sa_u64 vn, int is_file, sa_u64 fa, sa_u64 fnn, sa_u64 ca, sa_u64 cn, sa_u64 da, sa_u64 dn) {
     \\  sa_mp_t *mp = sa_mp_find(h);
@@ -2176,7 +2213,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  sa_mp_acc(mp, is_file ? (uint32_t)da : (uint32_t)va, is_file ? dn : vn);
     \\  return 0;
     \\}
-    , .deps = &.{"sa_mp_find", "sa_mp_acc"} },
+    , .deps = &.{ "sa_mp_find", "sa_mp_acc" } },
     .{ .name = "sa_mp_builder_finish", .code =
     \\static int sa_mp_builder_finish(sa_u64 h, sa_u64 out_slot) {
     \\  sa_mp_t *mp = sa_mp_find(h); sa_u64 bh;
@@ -2188,14 +2225,14 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  sa_store_u64(out_slot, bh);
     \\  return 0;
     \\}
-    , .deps = &.{"sa_mp_find", "sa_mp_acc", "sa_nb_buf_find", "sa_nb_buf_new", "sa_store_u64"} },
+    , .deps = &.{ "sa_mp_find", "sa_mp_acc", "sa_nb_buf_find", "sa_nb_buf_new", "sa_store_u64" } },
     .{ .name = "sa_mp_bnd_out", .code =
     \\static int sa_mp_bnd_out(sa_u64 h, sa_u64 ov, sa_u64 ol, sa_u64 cap) {
     \\  sa_mp_t *mp = sa_mp_find(h);
     \\  if (!mp) return 3;
     \\  return sa_mp_writeout_host(mp->bnd, mp->bnd_n, ov, ol, cap);
     \\}
-    , .deps = &.{"sa_mp_find", "sa_mp_writeout"} },
+    , .deps = &.{ "sa_mp_find", "sa_mp_writeout" } },
     .{ .name = "sa_mp_ctype_out", .code =
     \\static int sa_mp_ctype_out(sa_u64 h, sa_u64 ov, sa_u64 ol, sa_u64 cap) {
     \\  sa_mp_t *mp = sa_mp_find(h); const char *pfx = "multipart/form-data; boundary="; sa_u64 pn = 0, total, i; uint32_t t;
@@ -2209,7 +2246,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  for (i = 0; i < mp->bnd_n; i++) sa_mem[t + pn + i] = mp->bnd[i];
     \\  return 0;
     \\}
-    , .deps = &.{"sa_mp_find", "sa_store_u64"} },
+    , .deps = &.{ "sa_mp_find", "sa_store_u64" } },
     .{ .name = "sa_nb_ws_opcode_get", .code =
     \\typedef struct { sa_u64 h; int opcode; int closed; } sa_nb_ws_t;
     \\static sa_nb_ws_t sa_nb_ws_tab[32];
@@ -2283,7 +2320,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  for (i = 0; i < 64; i++) { uint32_t S1 = SA_ROTR32(e,6)^SA_ROTR32(e,11)^SA_ROTR32(e,25); uint32_t ch = (e&f)^(~e&g); uint32_t t1 = h+S1+ch+sa_sha256_k[i]+w[i]; uint32_t S0 = SA_ROTR32(a,2)^SA_ROTR32(a,13)^SA_ROTR32(a,22); uint32_t mj = (a&b)^(a&c)^(b&c); uint32_t t2 = S0+mj; h=g; g=f; f=e; e=d+t1; d=c; c=b; b=a; a=t1+t2; }
     \\  st[0]+=a; st[1]+=b; st[2]+=c; st[3]+=d; st[4]+=e; st[5]+=f; st[6]+=g; st[7]+=h;
     \\}
-    , .deps = &.{ "SA_ROTR32" } },
+    , .deps = &.{"SA_ROTR32"} },
     .{ .name = "sa_sha256", .code =
     \\static void sa_sha256(const uint8_t *msg, size_t len, uint8_t out[32]) {
     \\  uint32_t st[8] = {0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19};
@@ -2299,7 +2336,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  sa_sha256_block(st, blk);
     \\  for (i = 0; i < 8; i++) { out[i*4] = (uint8_t)(st[i] >> 24); out[i*4+1] = (uint8_t)(st[i] >> 16); out[i*4+2] = (uint8_t)(st[i] >> 8); out[i*4+3] = (uint8_t)st[i]; }
     \\}
-    , .deps = &.{ "sa_sha256_block"} },
+    , .deps = &.{"sa_sha256_block"} },
     .{ .name = "sa_sha512_block", .code =
     \\static void sa_sha512_block(uint64_t st[8], const uint8_t *p) {
     \\  static const uint64_t sa_sha512_k[80] = {
@@ -2320,7 +2357,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  for (i = 0; i < 80; i++) { uint64_t S1 = SA_ROTR64(e,14)^SA_ROTR64(e,18)^SA_ROTR64(e,41); uint64_t ch = (e&f)^(~e&g); uint64_t t1 = h+S1+ch+sa_sha512_k[i]+w[i]; uint64_t S0 = SA_ROTR64(a,28)^SA_ROTR64(a,34)^SA_ROTR64(a,39); uint64_t mj = (a&b)^(a&c)^(b&c); uint64_t t2 = S0+mj; h=g; g=f; f=e; e=d+t1; d=c; c=b; b=a; a=t1+t2; }
     \\  st[0]+=a; st[1]+=b; st[2]+=c; st[3]+=d; st[4]+=e; st[5]+=f; st[6]+=g; st[7]+=h;
     \\}
-    , .deps = &.{ "SA_ROTR64" } },
+    , .deps = &.{"SA_ROTR64"} },
     .{ .name = "sa_sha512", .code =
     \\static void sa_sha512(const uint8_t *msg, size_t len, uint8_t out[64]) {
     \\  uint64_t st[8] = {0x6a09e667f3bcc908ULL,0xbb67ae8584caa73bULL,0x3c6ef372fe94f82bULL,0xa54ff53a5f1d36f1ULL,0x510e527fade682d1ULL,0x9b05688c2b3e6c1fULL,0x1f83d9abfb41bd6bULL,0x5be0cd19137e2179ULL};
@@ -2337,7 +2374,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  sa_sha512_block(st, blk);
     \\  for (i = 0; i < 8; i++) { int j; for (j = 0; j < 8; j++) out[i*8+j] = (uint8_t)(st[i] >> (56 - j * 8)); }
     \\}
-    , .deps = &.{ "sa_sha512_block"} },
+    , .deps = &.{"sa_sha512_block"} },
     .{ .name = "sa_sha1_block", .code =
     \\static void sa_sha1_block(uint32_t st[5], const uint8_t *p) {
     \\  uint32_t w[80]; int i;
@@ -2347,7 +2384,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  for (i = 0; i < 80; i++) { uint32_t f, k; if (i < 20) { f = (b&c)|(~b&d); k = 0x5a827999; } else if (i < 40) { f = b^c^d; k = 0x6ed9eba1; } else if (i < 60) { f = (b&c)|(b&d)|(c&d); k = 0x8f1bbcdc; } else { f = b^c^d; k = 0xca62c1d6; } uint32_t t = SA_ROTL32(a,5)+f+e+k+w[i]; e=d; d=c; c=SA_ROTL32(b,30); b=a; a=t; }
     \\  st[0]+=a; st[1]+=b; st[2]+=c; st[3]+=d; st[4]+=e;
     \\}
-    , .deps = &.{ "SA_ROTL32" } },
+    , .deps = &.{"SA_ROTL32"} },
     .{ .name = "sa_sha1", .code =
     \\static void sa_sha1(const uint8_t *msg, size_t len, uint8_t out[20]) {
     \\  uint32_t st[5] = {0x67452301,0xefcdab89,0x98badcfe,0x10325476,0xc3d2e1f0};
@@ -2363,7 +2400,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  sa_sha1_block(st, blk);
     \\  for (i = 0; i < 5; i++) { out[i*4] = (uint8_t)(st[i] >> 24); out[i*4+1] = (uint8_t)(st[i] >> 16); out[i*4+2] = (uint8_t)(st[i] >> 8); out[i*4+3] = (uint8_t)st[i]; }
     \\}
-    , .deps = &.{ "sa_sha1_block"} },
+    , .deps = &.{"sa_sha1_block"} },
     .{ .name = "sa_md5_block", .code =
     \\static void sa_md5_block(uint32_t st[4], const uint8_t *p) {
     \\  static const uint32_t s[64] = {7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21};
@@ -2374,7 +2411,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  for (i = 0; i < 64; i++) { uint32_t f; int g; if (i < 16) { f = (b&c)|(~b&d); g = i; } else if (i < 32) { f = (d&b)|(~d&c); g = (5*i+1)%16; } else if (i < 48) { f = b^c^d; g = (3*i+5)%16; } else { f = c^(b|~d); g = (7*i)%16; } f = f + a + K[i] + M[g]; a = d; d = c; c = b; b = b + SA_ROTL32(f, s[i]); }
     \\  st[0]+=a; st[1]+=b; st[2]+=c; st[3]+=d;
     \\}
-    , .deps = &.{ "SA_ROTL32" } },
+    , .deps = &.{"SA_ROTL32"} },
     .{ .name = "sa_md5", .code =
     \\static void sa_md5(const uint8_t *msg, size_t len, uint8_t out[16]) {
     \\  uint32_t st[4] = {0x67452301,0xefcdab89,0x98badcfe,0x10325476};
@@ -2390,7 +2427,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  sa_md5_block(st, blk);
     \\  for (i = 0; i < 4; i++) { out[i*4] = (uint8_t)st[i]; out[i*4+1] = (uint8_t)(st[i] >> 8); out[i*4+2] = (uint8_t)(st[i] >> 16); out[i*4+3] = (uint8_t)(st[i] >> 24); }
     \\}
-    , .deps = &.{ "sa_md5_block"} },
+    , .deps = &.{"sa_md5_block"} },
     .{ .name = "sa_owned_drop", .code =
     \\static void sa_owned_drop(sa_u64 h) { sa_owned_buf_t *o = sa_owned_find(h); if (o != 0) o->h = 0; }
     , .deps = &.{"sa_owned_find"} },
@@ -2587,7 +2624,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\    while (m->next != 0) m = &sa_json_nodes[m->next - 1];
     \\    m->next = (sa_u64)(child - sa_json_nodes) + 1; }
     \\}
-    , .deps = &.{  } },
+    , .deps = &.{} },
     .{ .name = "sa_json_child_named", .code =
     \\static sa_json_node_t *sa_json_child_named(sa_json_node_t *obj, uint32_t k, sa_u64 klen) {
     \\  sa_u64 ci = obj->first;
@@ -2605,7 +2642,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  }
     \\  return 0;
     \\}
-    , .deps = &.{ "sa_checked_addr" } },
+    , .deps = &.{"sa_checked_addr"} },
     .{ .name = "sa_json_unlink_child", .code =
     \\static void sa_json_unlink_child(sa_json_node_t *parent, sa_json_node_t *child) {
     \\  sa_u64 want = (sa_u64)(child - sa_json_nodes) + 1;
@@ -2625,7 +2662,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\      ci = m->next;
     \\    } }
     \\}
-    , .deps = &.{  } },
+    , .deps = &.{} },
     .{ .name = "sa_json_retire_subtree", .code =
     \\static void sa_json_retire_subtree(sa_json_node_t *nd) {
     \\  sa_u64 ci = nd->first;
@@ -2637,7 +2674,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  }
     \\  nd->h = 0;
     \\}
-    , .deps = &.{  } },
+    , .deps = &.{} },
     .{ .name = "sa_json_clone_node", .code =
     \\static sa_json_node_t *sa_json_clone_node(sa_json_node_t *src) {
     \\  sa_json_node_t *nd = sa_json_new();
@@ -2673,7 +2710,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  pm[0].rm_eo = (regoff_t)tl;
     \\  return regexec(&r->rx, (const char *)&sa_mem[td], (size_t)n, pm, REG_STARTEND);
     \\}
-    , .deps = &.{ "sa_checked_addr" } },
+    , .deps = &.{"sa_checked_addr"} },
     .{ .name = "sa_rb_put", .code =
     \\static void sa_rb_put(sa_u64 *base, sa_u64 *len, sa_u64 *cap, const uint8_t *sp, sa_u64 n) {
     \\  if (n == 0) return;
@@ -2702,7 +2739,7 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  sa_rb_put(base, len, cap, &sa_mem[td + (sa_u64)pm[idx].rm_so],
     \\    (sa_u64)(pm[idx].rm_eo - pm[idx].rm_so));
     \\}
-    , .deps = &.{ "sa_rb_put" } },
+    , .deps = &.{"sa_rb_put"} },
     .{ .name = "sa_regex_expand_into", .code =
     \\/* Template expansion mirroring sa_std regexExpandInto. Byte codes:
     \\   36='$' 38='&' 96=backtick 39=quote 48..57 digits. */
@@ -3205,7 +3242,18 @@ fn collectUsedHelpers(allocator: std.mem.Allocator, body_text: []const u8) !std.
 /// sa_call_indirect): programs calling them force need_indirect so the
 /// dispatcher+ftable are emitted even without a call_indirect inst.
 fn bindingNeedsDispatcher(norm_name: []const u8) bool {
-    return std.mem.eql(u8, norm_name, "pthread_spawn");
+    return std.mem.eql(u8, norm_name, "pthread_spawn") or bindingNeedsTaskEntry(norm_name);
+}
+
+/// True for the goroutine bindings whose host side runs guest code
+/// (spawn / supervised spawn / once_do): their C1 glue trampolines
+/// call sa_call_indirect, so programs calling them force
+/// need_indirect exactly like pthread_spawn, and the emit pass adds
+/// the trampoline block (see the need_task_entry emission).
+fn bindingNeedsTaskEntry(norm_name: []const u8) bool {
+    return std.mem.eql(u8, norm_name, "sa_task_spawn") or
+        std.mem.eql(u8, norm_name, "sa_task_spawn_supervised") or
+        std.mem.eql(u8, norm_name, "sa_sync_once_do");
 }
 
 /// Staged host bindings for well-known externs (fd/mmap/signal/npm).
@@ -3223,6 +3271,16 @@ fn bindingNeedsDispatcher(norm_name: []const u8) bool {
 /// include libsa_std.a.
 fn isStdlinkExtern(norm_name: []const u8) bool {
     if (std.mem.startsWith(u8, norm_name, "sa_cookie_")) return true;
+    // Goroutine family (C1): the whole task.sai surface — sa_task_*,
+    // sa_chan_*, sa_sync_* — is real in libsa_std.a, so these bind
+    // for real instead of trap-stubbing. Delimitation: the binding
+    // renderer below covers exactly the 36 names declared in
+    // sa_std/task.sai (locked by the C1 unit test); the archive's
+    // task runtime itself only supports x86_64 Linux hosts, so on
+    // other hosts the calls surface the runtime's ERR_UNSUPPORTED.
+    if (std.mem.startsWith(u8, norm_name, "sa_task_")) return true;
+    if (std.mem.startsWith(u8, norm_name, "sa_chan_")) return true;
+    if (std.mem.startsWith(u8, norm_name, "sa_sync_")) return true;
     const names = [_][]const u8{
         "sa_std_tls_client_config_new",
         "sa_std_tls_client_config_free",
@@ -3612,6 +3670,21 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         proc_id,
         proc_user_id,
         net_unsupported8,
+        task_out0,
+        task_handle_ret,
+        task_noargs_ret,
+        task_handle_out1,
+        task_chan_make,
+        task_chan_send,
+        task_chan_recv,
+        task_spawn,
+        task_spawn_supervised,
+        task_trap_info,
+        task_net_wait,
+        task_try_lock,
+        task_wg_add,
+        task_once_do,
+        task_select,
     } };
     const all_void: u64 = ~@as(u64, 0);
     const b: ?Binding = if (std.mem.eql(u8, name, "fd_open"))
@@ -4386,6 +4459,81 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void, .tag = .proc_id }
     else if (std.mem.eql(u8, name, "sa_std_process_user_id"))
         .{ .voids = all_void, .tag = .proc_user_id }
+        // Goroutine family (C1): exactly the 36 externs of sa_std/task.sai.
+    else if (std.mem.eql(u8, name, "sa_task_spawn"))
+        .{ .voids = all_void ^ 0b111, .tag = .task_spawn }
+    else if (std.mem.eql(u8, name, "sa_task_spawn_supervised"))
+        .{ .voids = all_void ^ 0b11111, .tag = .task_spawn_supervised }
+    else if (std.mem.eql(u8, name, "sa_task_trap_info"))
+        .{ .voids = all_void ^ 0b1111, .tag = .task_trap_info }
+    else if (std.mem.eql(u8, name, "sa_task_monitor"))
+        .{ .voids = all_void ^ 0b11, .tag = .task_handle_out1 }
+    else if (std.mem.eql(u8, name, "sa_task_yield"))
+        .{ .voids = all_void, .tag = .task_noargs_ret }
+    else if (std.mem.eql(u8, name, "sa_task_sleep_ns"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_task_sleep_ms"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_task_join"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_task_detach"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_task_current"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_out0 }
+    else if (std.mem.eql(u8, name, "sa_task_live_count"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_out0 }
+    else if (std.mem.eql(u8, name, "sa_task_deadlock_guard_arm"))
+        .{ .voids = all_void, .tag = .task_noargs_ret }
+    else if (std.mem.eql(u8, name, "sa_task_net_wait"))
+        .{ .voids = all_void ^ 0b1111, .tag = .task_net_wait }
+    else if (std.mem.eql(u8, name, "sa_chan_make"))
+        .{ .voids = all_void ^ 0b11, .tag = .task_chan_make }
+    else if (std.mem.eql(u8, name, "sa_chan_destroy"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_chan_close"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_chan_send"))
+        .{ .voids = all_void ^ 0b11, .tag = .task_chan_send }
+    else if (std.mem.eql(u8, name, "sa_chan_recv"))
+        .{ .voids = all_void ^ 0b111, .tag = .task_chan_recv }
+    else if (std.mem.eql(u8, name, "sa_chan_len"))
+        .{ .voids = all_void ^ 0b11, .tag = .task_handle_out1 }
+    else if (std.mem.eql(u8, name, "sa_chan_cap"))
+        .{ .voids = all_void ^ 0b11, .tag = .task_handle_out1 }
+    else if (std.mem.eql(u8, name, "sa_chan_select"))
+        .{ .voids = all_void ^ 0b11111111, .tag = .task_select }
+    else if (std.mem.eql(u8, name, "sa_sync_mutex_new"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_out0 }
+    else if (std.mem.eql(u8, name, "sa_sync_rwlock_new"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_out0 }
+    else if (std.mem.eql(u8, name, "sa_sync_waitgroup_new"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_out0 }
+    else if (std.mem.eql(u8, name, "sa_sync_once_new"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_out0 }
+    else if (std.mem.eql(u8, name, "sa_sync_destroy"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_sync_mutex_lock"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_sync_mutex_try_lock"))
+        .{ .voids = all_void ^ 0b11, .tag = .task_try_lock }
+    else if (std.mem.eql(u8, name, "sa_sync_mutex_unlock"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_sync_rwlock_rlock"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_sync_rwlock_runlock"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_sync_rwlock_lock"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_sync_rwlock_unlock"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_sync_waitgroup_add"))
+        .{ .voids = all_void ^ 0b11, .tag = .task_wg_add }
+    else if (std.mem.eql(u8, name, "sa_sync_waitgroup_done"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_sync_waitgroup_wait"))
+        .{ .voids = all_void ^ 0b1, .tag = .task_handle_ret }
+    else if (std.mem.eql(u8, name, "sa_sync_once_do"))
+        .{ .voids = all_void ^ 0b111, .tag = .task_once_do }
     else
         null;
     const binding = b orelse return false;
@@ -6954,6 +7102,77 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .net_unsupported8 => {
             try writer.writeAll(" { return 8; } }\n");
         },
+        // Goroutine family (C1): real forwards into libsa_std.a.
+        // Handles and scalars pass through as values; guest pointers
+        // convert through the sa_glue adapters (payloads are the
+        // runtime's opaque 16-byte slots). Spawn-shaped calls go
+        // through the sa_glue_task_* trampolines emitted by the
+        // need_task_entry block, because the archive runtime calls
+        // host function pointers while guest functions are ftable
+        // indices in this backend's uniform convention.
+        .task_out0 => {
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = ");
+            try writer.writeAll(name);
+            try writer.writeAll("(&v); sa_store_u64(a0, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .task_handle_ret => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)");
+            try writer.writeAll(name);
+            try writer.writeAll("(a0); }\n");
+        },
+        .task_noargs_ret => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)");
+            try writer.writeAll(name);
+            try writer.writeAll("(); }\n");
+        },
+        .task_handle_out1 => {
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = ");
+            try writer.writeAll(name);
+            try writer.writeAll("(a0, &v); sa_store_u64(a1, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .task_chan_make => {
+            try writer.writeAll(" { uint64_t v = 0; int32_t st = sa_chan_make((uint32_t)a0, &v); sa_store_u64(a1, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .task_chan_send => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_chan_send(a0, sa_glue_mptr(a1, 16)); }\n");
+        },
+        .task_chan_recv => {
+            try writer.writeAll(" { uint32_t cl = 0; int32_t st = sa_chan_recv(a0, sa_glue_mptr(a1, 16), &cl); sa_store_u32(a2, (sa_u64)cl); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .task_spawn => {
+            try writer.writeAll(" { sa_glue_task_ctx *c = (sa_glue_task_ctx *)malloc(sizeof(sa_glue_task_ctx)); uint64_t v = 0; int32_t st; c->entry = a0; c->arg = a1; st = sa_task_spawn(sa_glue_task_entry, c, &v); if (st != 0) { free(c); } sa_store_u64(a2, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .task_spawn_supervised => {
+            try writer.writeAll(" { sa_glue_task_ctx *c = (sa_glue_task_ctx *)malloc(sizeof(sa_glue_task_ctx)); uint64_t v = 0; int32_t st; c->entry = a0; c->arg = a1; c->sink = a2; c->sink_ctx = a3; st = sa_task_spawn_supervised(sa_glue_task_entry_keep, c, sa_glue_trap_sink, c, &v); if (st != 0) { free(c); } sa_store_u64(a4, v); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .task_trap_info => {
+            try writer.writeAll(" { int32_t code = 0; const uint8_t *hp = 0; uint64_t hn = 0; int32_t st = sa_task_trap_info(a0, &code, &hp, &hn); sa_store_u32(a1, (sa_u64)(uint32_t)code); sa_glue_out_str(a2, a3, hp, hn); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .task_net_wait => {
+            try writer.writeAll(" { uint32_t r = 0; int32_t st = sa_task_net_wait(a0, (uint32_t)a1, (sa_i64)a2, &r); sa_store_u32(a3, (sa_u64)r); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .task_try_lock => {
+            try writer.writeAll(" { uint32_t r = 0; int32_t st = sa_sync_mutex_try_lock(a0, &r); sa_store_u32(a1, (sa_u64)r); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .task_wg_add => {
+            try writer.writeAll(" return (sa_u64)(sa_i64)sa_sync_waitgroup_add(a0, (sa_i64)a1); }\n");
+        },
+        .task_once_do => {
+            // The entry trampoline frees the context record when the
+            // once actually runs; if the once was already done, the
+            // entry never runs and the tiny record leaks (host glue).
+            try writer.writeAll(" { sa_glue_task_ctx *c = (sa_glue_task_ctx *)malloc(sizeof(sa_glue_task_ctx)); int32_t st; c->entry = a1; c->arg = a2; st = sa_sync_once_do(a0, sa_glue_task_entry, c); return (sa_u64)(sa_i64)st; } }\n");
+        },
+        .task_select => {
+            // Guest case/op/slot arrays are copied into host scratch;
+            // the slot array is copied back (recv cases write into
+            // it). Slot contents stay guest values end to end.
+            try writer.writeAll(" { uint64_t n = a3; size_t cb = (size_t)n * 8; size_t ob = (size_t)n * 4; size_t sb = (size_t)n * 16; uint8_t *buf = (uint8_t *)malloc(cb + ob + sb == 0 ? 1 : cb + ob + sb); uint64_t *cases_h = (uint64_t *)(void *)buf; uint32_t *ops_h = (uint32_t *)(void *)(buf + cb); uint8_t *slots_h = buf + cb + ob; int64_t idx = -1; uint32_t cl = 0; int32_t st;");
+            try writer.writeAll(" if (n != 0) { memcpy(cases_h, sa_glue_mptr(a0, cb), cb); memcpy(ops_h, sa_glue_mptr(a1, ob), ob); memcpy(slots_h, sa_glue_mptr(a2, sb), sb); }");
+            try writer.writeAll(" st = sa_chan_select(cases_h, ops_h, slots_h, n, (uint32_t)a4, (sa_i64)a5, &idx, &cl);");
+            try writer.writeAll(" if (n != 0) { memcpy(sa_glue_mptr(a2, sb), slots_h, sb); }");
+            try writer.writeAll(" sa_store_u64(a6, (sa_u64)idx); sa_store_u32(a7, (sa_u64)cl); free(buf); return (sa_u64)(sa_i64)st; } }\n");
+        },
         .http_server_new => {
             try writer.writeAll(" { sa_u64 h = sa_alloc(8);");
             try writer.writeAll(" sa_http_obj_t *s = sa_http_slot(sa_http_objs);");
@@ -7292,6 +7511,43 @@ fn writePreamble(
             \\int32_t sa_std_net_unix_datagram_unbound(uint64_t *);
             \\uint32_t sa_std_process_id(void);
             \\uint32_t sa_std_process_user_id(void);
+            \\int32_t sa_task_spawn(void (*)(void *), void *, uint64_t *);
+            \\int32_t sa_task_spawn_supervised(void (*)(void *), void *, void (*)(uint64_t, int32_t, const uint8_t *, uint64_t, void *), void *, uint64_t *);
+            \\int32_t sa_task_trap_info(uint64_t, int32_t *, const uint8_t **, uint64_t *);
+            \\int32_t sa_task_monitor(uint64_t, uint64_t *);
+            \\int32_t sa_task_yield(void);
+            \\int32_t sa_task_sleep_ns(uint64_t);
+            \\int32_t sa_task_sleep_ms(uint64_t);
+            \\int32_t sa_task_join(uint64_t);
+            \\int32_t sa_task_detach(uint64_t);
+            \\int32_t sa_task_current(uint64_t *);
+            \\int32_t sa_task_live_count(uint64_t *);
+            \\int32_t sa_task_deadlock_guard_arm(void);
+            \\int32_t sa_task_net_wait(uint64_t, uint32_t, int64_t, uint32_t *);
+            \\int32_t sa_chan_make(uint32_t, uint64_t *);
+            \\int32_t sa_chan_destroy(uint64_t);
+            \\int32_t sa_chan_close(uint64_t);
+            \\int32_t sa_chan_send(uint64_t, const void *);
+            \\int32_t sa_chan_recv(uint64_t, void *, uint32_t *);
+            \\int32_t sa_chan_len(uint64_t, uint64_t *);
+            \\int32_t sa_chan_cap(uint64_t, uint64_t *);
+            \\int32_t sa_chan_select(const uint64_t *, const uint32_t *, void *, uint64_t, uint32_t, int64_t, int64_t *, uint32_t *);
+            \\int32_t sa_sync_mutex_new(uint64_t *);
+            \\int32_t sa_sync_rwlock_new(uint64_t *);
+            \\int32_t sa_sync_waitgroup_new(uint64_t *);
+            \\int32_t sa_sync_once_new(uint64_t *);
+            \\int32_t sa_sync_destroy(uint64_t);
+            \\int32_t sa_sync_mutex_lock(uint64_t);
+            \\int32_t sa_sync_mutex_try_lock(uint64_t, uint32_t *);
+            \\int32_t sa_sync_mutex_unlock(uint64_t);
+            \\int32_t sa_sync_rwlock_rlock(uint64_t);
+            \\int32_t sa_sync_rwlock_runlock(uint64_t);
+            \\int32_t sa_sync_rwlock_lock(uint64_t);
+            \\int32_t sa_sync_rwlock_unlock(uint64_t);
+            \\int32_t sa_sync_waitgroup_add(uint64_t, int64_t);
+            \\int32_t sa_sync_waitgroup_done(uint64_t);
+            \\int32_t sa_sync_waitgroup_wait(uint64_t);
+            \\int32_t sa_sync_once_do(uint64_t, void (*)(void *), void *);
             \\static __attribute__((unused)) const uint8_t *sa_glue_cptr(sa_u64 p, sa_u64 n) { return (const uint8_t *)&sa_mem[sa_checked_addr(p, (size_t)n)]; }
             \\static __attribute__((unused)) uint8_t *sa_glue_mptr(sa_u64 p, sa_u64 n) { return (uint8_t *)&sa_mem[sa_checked_addr(p, (size_t)n)]; }
             \\static __attribute__((unused)) void sa_glue_out_str(sa_u64 op, sa_u64 ol, const uint8_t *hp, uint64_t n) { sa_u64 g = sa_alloc(n == 0 ? 1 : n); uint32_t d = sa_checked_addr(g, (size_t)(n == 0 ? 1 : n)); if (n != 0 && hp != 0) memcpy(&sa_mem[d], hp, (size_t)n); sa_store_u64(op, g); sa_store_u64(ol, n); }
@@ -8215,16 +8471,22 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             switch (lb.kind) {
                 .jmp => {
                     const id: u32 = switch (lb.operands[1]) {
-                        .label => |v| v, .symbol => |v| v, else => continue,
+                        .label => |v| v,
+                        .symbol => |v| v,
+                        else => continue,
                     };
                     label_refs.put(id, {}) catch {};
                 },
                 .br, .br_null => {
                     const t: u32 = switch (lb.operands[1]) {
-                        .label => |v| v, .symbol => |v| v, else => continue,
+                        .label => |v| v,
+                        .symbol => |v| v,
+                        else => continue,
                     };
                     const f: u32 = switch (lb.operands[3]) {
-                        .label => |v| v, .symbol => |v| v, else => continue,
+                        .label => |v| v,
+                        .symbol => |v| v,
+                        else => continue,
                     };
                     label_refs.put(t, {}) catch {};
                     label_refs.put(f, {}) catch {};
@@ -8336,7 +8598,9 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             },
             .label => {
                 const id: u32 = switch (base.operands[0]) {
-                    .label => |v| v, .symbol => |v| v, else => 0,
+                    .label => |v| v,
+                    .symbol => |v| v,
+                    else => 0,
                 };
                 // Join point: merges are untracked, drop widths (sound
                 // fallback; mirrors the JS backend clearing at labels).
@@ -8363,16 +8627,22 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             },
             .jmp => {
                 const id: u32 = switch (base.operands[1]) {
-                    .label => |v| v, .symbol => |v| v, else => return CEmitError.InvalidOperand,
+                    .label => |v| v,
+                    .symbol => |v| v,
+                    else => return CEmitError.InvalidOperand,
                 };
                 try writer.print("  goto SA_L_{d};\n", .{id});
             },
             .br => {
                 const t: u32 = switch (base.operands[1]) {
-                    .label => |v| v, .symbol => |v| v, else => return CEmitError.InvalidOperand,
+                    .label => |v| v,
+                    .symbol => |v| v,
+                    else => return CEmitError.InvalidOperand,
                 };
                 const f: u32 = switch (base.operands[3]) {
-                    .label => |v| v, .symbol => |v| v, else => return CEmitError.InvalidOperand,
+                    .label => |v| v,
+                    .symbol => |v| v,
+                    else => return CEmitError.InvalidOperand,
                 };
                 if (t == f) {
                     try writer.print("  goto SA_L_{d};\n", .{t});
@@ -8384,10 +8654,14 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             },
             .br_null => {
                 const t: u32 = switch (base.operands[1]) {
-                    .label => |v| v, .symbol => |v| v, else => return CEmitError.InvalidOperand,
+                    .label => |v| v,
+                    .symbol => |v| v,
+                    else => return CEmitError.InvalidOperand,
                 };
                 const f: u32 = switch (base.operands[3]) {
-                    .label => |v| v, .symbol => |v| v, else => return CEmitError.InvalidOperand,
+                    .label => |v| v,
+                    .symbol => |v| v,
+                    else => return CEmitError.InvalidOperand,
                 };
                 if (t == f) {
                     try writer.print("  goto SA_L_{d};\n", .{t});
@@ -8669,6 +8943,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     var need_time_clock = false;
     var need_json = false;
     var need_stdlink = false;
+    var need_task_entry = false;
     var need_sys_stat = false;
     var need_mem_direct = false;
     for (tasks) |task| {
@@ -8681,6 +8956,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         if (!try writeExternBinding(&tmp.writer, efsig.name, uniform_arity, c_opt.gas)) continue;
         const rendered_norm = sigNormName(efsig.name);
         if (isStdlinkExtern(rendered_norm)) need_stdlink = true;
+        if (bindingNeedsTaskEntry(rendered_norm)) need_task_entry = true;
         if (std.mem.startsWith(u8, rendered_norm, "sa_http_")) need_http = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_owned_") != null) need_owned = true;
         if (std.mem.indexOf(u8, tmp.writer.buffered(), "sa_modstate_") != null) need_modstate = true;
@@ -8785,6 +9061,34 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
             try writer.print(", sa_u64 a{d}", .{k});
         }
         try writer.writeAll(");\n");
+    }
+    // Goroutine glue trampolines (C1): the archive task runtime calls
+    // host function pointers, while guest functions are ftable indices
+    // here. The spawn / once_do bindings hand the runtime these
+    // trampolines plus a small host-side record carrying the guest
+    // entry index and the guest argument value. The plain entry
+    // trampoline frees the record; the supervised path keeps it (the
+    // trap sink may fire later and frees it there; a supervised task
+    // that never traps leaks its one small record — host glue only).
+    if (need_task_entry) {
+        try writer.writeAll("typedef struct { sa_u64 entry; sa_u64 arg; sa_u64 sink; sa_u64 sink_ctx; } sa_glue_task_ctx;\n");
+        try writer.writeAll("static void sa_glue_task_entry(void *p) { sa_glue_task_ctx *c = (sa_glue_task_ctx *)p; sa_u64 e = c->entry; sa_u64 a = c->arg; free(c); (void)sa_call_indirect(e, a");
+        for (1..uniform_arity) |_| {
+            try writer.writeAll(", 0");
+        }
+        try writer.writeAll("); }\n");
+        try writer.writeAll("static void sa_glue_task_entry_keep(void *p) { sa_glue_task_ctx *c = (sa_glue_task_ctx *)p; (void)sa_call_indirect(c->entry, c->arg");
+        for (1..uniform_arity) |_| {
+            try writer.writeAll(", 0");
+        }
+        try writer.writeAll("); }\n");
+        try writer.writeAll("static void sa_glue_trap_sink(sa_u64 h, int32_t code, const uint8_t *mp, sa_u64 ml, void *p) { sa_glue_task_ctx *c = (sa_glue_task_ctx *)p; sa_u64 g = 0; if (ml != 0 && mp != 0) { g = sa_alloc(ml); { uint32_t d = sa_checked_addr(g, (size_t)ml); memcpy(&sa_mem[d], mp, (size_t)ml); } } (void)sa_call_indirect(c->sink, h, (sa_u64)(sa_i64)code, g, ml, c->sink_ctx");
+        if (uniform_arity > 5) {
+            for (5..uniform_arity) |_| {
+                try writer.writeAll(", 0");
+            }
+        }
+        try writer.writeAll("); free(c); }\n");
     }
     // forward declarations for extern trap stubs (defined at the end):
     // without these, calls to externs hit implicit-declaration errors.
@@ -9007,10 +9311,10 @@ test "c memPrimType untyped fallbacks match reference widths" {
     try std.testing.expectEqual(sig.PrimType.i64, memPrimType(store));
     var atomic = inst.makeInstruction(.atomic_load, 0, 0, null, "");
     try std.testing.expectEqual(sig.PrimType.i64, memPrimType(atomic));
-    atomic.atomic_value_ty = @intFromEnum(sig.PrimType.u8);
+    atomic.atomic_value_ty = @backingInt(sig.PrimType.u8);
     try std.testing.expectEqual(sig.PrimType.u8, memPrimType(atomic));
     var typed = inst.makeInstruction(.load, 0, 0, null, "");
-    typed.operands[3] = .{ .ty = @intFromEnum(sig.PrimType.u16) };
+    typed.operands[3] = .{ .ty = @backingInt(sig.PrimType.u16) };
     try std.testing.expectEqual(sig.PrimType.u16, memPrimType(typed));
 }
 
@@ -9111,6 +9415,60 @@ test "c stdlink bindings cover the cookie/tls/sockopt gap lists" {
     }
 }
 
+test "c stdlink bindings cover the goroutine task family (C1)" {
+    // The whole sa_std/task.sai surface (36 names) must render a real
+    // direct-link binding into libsa_std.a instead of falling through
+    // to the trap stub, and every rendered body must stay balanced
+    // with all uniform-arity parameters covered.
+    const names = [_][]const u8{
+        "sa_task_spawn",
+        "sa_task_spawn_supervised",
+        "sa_task_trap_info",
+        "sa_task_monitor",
+        "sa_task_yield",
+        "sa_task_sleep_ns",
+        "sa_task_sleep_ms",
+        "sa_task_join",
+        "sa_task_detach",
+        "sa_task_current",
+        "sa_task_live_count",
+        "sa_task_deadlock_guard_arm",
+        "sa_task_net_wait",
+        "sa_chan_make",
+        "sa_chan_destroy",
+        "sa_chan_close",
+        "sa_chan_send",
+        "sa_chan_recv",
+        "sa_chan_len",
+        "sa_chan_cap",
+        "sa_chan_select",
+        "sa_sync_mutex_new",
+        "sa_sync_rwlock_new",
+        "sa_sync_waitgroup_new",
+        "sa_sync_once_new",
+        "sa_sync_destroy",
+        "sa_sync_mutex_lock",
+        "sa_sync_mutex_try_lock",
+        "sa_sync_mutex_unlock",
+        "sa_sync_rwlock_rlock",
+        "sa_sync_rwlock_runlock",
+        "sa_sync_rwlock_lock",
+        "sa_sync_rwlock_unlock",
+        "sa_sync_waitgroup_add",
+        "sa_sync_waitgroup_done",
+        "sa_sync_waitgroup_wait",
+        "sa_sync_once_do",
+    };
+    for (names) |n| {
+        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer aw.deinit();
+        try std.testing.expect(try writeExternBinding(&aw.writer, n, 12, false));
+        try std.testing.expect(isStdlinkExtern(n));
+        try std.testing.expect(cBodyBalanced(aw.writer.buffered()));
+        try std.testing.expect(cParamsCovered(aw.writer.buffered(), 12));
+    }
+}
+
 /// True iff every param a0..aN in a rendered binding body occurs at
 /// least twice (declaration plus a (void) cast or real use), so no
 /// -Wunused-parameter can fire. Enforces voids-mask precision forever.
@@ -9156,10 +9514,28 @@ fn cBracesBalanced(t: []const u8) bool {
     var esc = false;
     for (t) |c| {
         if (in_str) {
-            if (esc) { esc = false; } else if (c == '\\') { esc = true; } else if (c == '"') { in_str = false; }
+            if (esc) {
+                esc = false;
+            } else if (c == '\\') {
+                esc = true;
+            } else if (c == '"') {
+                in_str = false;
+            }
         } else if (in_chr) {
-            if (esc) { esc = false; } else if (c == '\\') { esc = true; } else if (c == '\'') { in_chr = false; }
-        } else if (c == '"') { in_str = true; } else if (c == '\'') { in_chr = true; } else if (c == '{') { depth += 1; } else if (c == '}') {
+            if (esc) {
+                esc = false;
+            } else if (c == '\\') {
+                esc = true;
+            } else if (c == '\'') {
+                in_chr = false;
+            }
+        } else if (c == '"') {
+            in_str = true;
+        } else if (c == '\'') {
+            in_chr = true;
+        } else if (c == '{') {
+            depth += 1;
+        } else if (c == '}') {
             depth -= 1;
             if (depth < 0) return false;
         }
