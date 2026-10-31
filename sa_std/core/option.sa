@@ -422,6 +422,7 @@ L_OPTION_OK_OR_ELSE_END_%out_res:
 L_OPTION_UNWRAP_OR_SOME_%out_value:
     %out_value = load %opt_reg+Option_value as u64
     !__option_tag_%out_value
+    !%default_value
     jmp L_OPTION_UNWRAP_OR_END_%out_value
 L_OPTION_UNWRAP_OR_NONE_%out_value:
     %out_value = add %default_value, 0

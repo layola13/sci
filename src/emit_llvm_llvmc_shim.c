@@ -51,7 +51,7 @@ void LLVMInitializeX86AsmPrinter(void);
 
 typedef struct { const char *name; const unsigned char *data; size_t len; } SaConst;
 typedef struct { const char *name; const char *const *funcs; size_t func_count; } SaVTable;
-typedef struct { const char *name; SaType ty; unsigned int slot; } SaParam;
+typedef struct { const char *name; SaType ty; unsigned int slot; unsigned char is_malloc; } SaParam;
 typedef struct { unsigned int line; unsigned int col; } SaDebugLoc;
 typedef struct { const char *name; SaType ty; unsigned int slot; unsigned char is_param; unsigned int line; unsigned int col; } SaDebugVar;
 typedef struct { SaOperandKind kind; unsigned int reg; long long i64_value; unsigned long long u64_value; double f64_value; SaType ty; const char *name; } SaOperand;
@@ -1340,6 +1340,9 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
     for (size_t i = 0; i < f->param_count; i++) {
         if (f->params[i].slot < reg_count) {
             reg_store(e, regs, reg_count, f->params[i].slot, LLVMGetParam(fn, (unsigned)i), f->params[i].ty, 0, UINT_MAX);
+            /* DEF-R8-FIX (F1b): reg_store clears is_malloc; re-seed it
+             * for move-cap pointer params (see converter side). */
+            if (f->params[i].is_malloc) regs[f->params[i].slot].is_malloc = 1;
         }
     }
     for (size_t i = 0; i < f->instruction_count; i++) {

@@ -54,7 +54,7 @@ const CAtomicRmwOp = enum(c_int) { add = 0, sub = 1, band = 2, bor = 3, xor = 4,
 
 const CConst = extern struct { name: [*:0]const u8, data: [*]const u8, len: usize };
 const CVTable = extern struct { name: [*:0]const u8, funcs: [*]const [*:0]const u8, func_count: usize };
-const CParam = extern struct { name: [*:0]const u8, ty: CType, slot: u32 };
+const CParam = extern struct { name: [*:0]const u8, ty: CType, slot: u32, is_malloc: bool };
 const CDebugLoc = extern struct { line: u32, col: u32 };
 const CDebugVar = extern struct { name: [*:0]const u8, ty: CType, slot: u32, is_param: bool, line: u32, col: u32 };
 const COperand = extern struct { kind: COperandKind, reg: u32, i64_value: i64, u64_value: u64, f64_value: f64, ty: CType, name: ?[*:0]const u8 };
@@ -1334,10 +1334,21 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
                 return;
             };
             const reg_id = fsig.param_ids[pidx];
+            // DEF-R8-FIX (F1b): a `^` (move-cap) pointer parameter takes
+            // ownership of the caller's heap allocation (e.g. a Box cell
+            // or a struct materialisation). The callee's bare release of
+            // that register is the intended free, but the shim's
+            // per-function provenance starts every parameter slot as
+            // non-malloc, so the free was unreachable for parameters
+            // exactly as it was for locals before F1. Seed is_malloc for
+            // move-cap pointer params only: by-value pointer params are
+            // ambiguous at the signature layer (an owned aggregate and
+            // a raw `*T` view share cap/ty), and borrow/raw params are
+            // non-owning by construction.
             params[pidx] = .{ .name = pname.ptr, .ty = cType(valueTypeForPrefix(param.cap, param.ty)) catch |err| {
                 job.err = err;
                 return;
-            }, .slot = fsig.slotOf(reg_id) orelse @intCast(pidx) };
+            }, .slot = fsig.slotOf(reg_id) orelse @intCast(pidx), .is_malloc = param.cap == .move and param.ty == .ptr };
         }
 
         const debug_vars = if (context.options.debug and task.decl_kind != .extern_decl)

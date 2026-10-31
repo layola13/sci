@@ -188,6 +188,7 @@ L_RESULT_ERR_AND_END_%out_bool:
 L_RESULT_UNWRAP_OR_OK_%out_value:
     %out_value = load %res_reg+Result_ok as u64
     !__result_tag_%out_value
+    !%default_value
     jmp L_RESULT_UNWRAP_OR_END_%out_value
 L_RESULT_UNWRAP_OR_ERR_%out_value:
     %out_value = add %default_value, 0
