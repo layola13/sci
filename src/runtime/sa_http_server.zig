@@ -304,6 +304,12 @@ const ConnState = struct {
     /// Bytes in read_buffer[request_start..read_len] are buffered pipelined data.
     read_len: usize = 0,
     request_start: usize = 0,
+    /// def-accept form 2: per-connection claim flag. A pooled
+    /// connection is parsed by exactly one acceptor at a time — the
+    /// one that wins the CAS — while every other acceptor works on
+    /// other connections in parallel. Set under claim, cleared when
+    /// the connection is pushed back into the pool.
+    claimed: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 };
 
 /// Cap on idle keep-alive connections held in the pool (each pins an 8KB
@@ -381,7 +387,13 @@ pub const HttpServer = struct {
     max_body_len: usize = 2 * 1024 * 1024,
     /// Idle keep-alive connections waiting for their next request.
     recycled: std.array_list.Managed(*ConnState),
-    recycled_mutex: std.atomic.Mutex = .unlocked,
+    /// def-accept F4: a blocking Io.Mutex, not the old yield-spin
+    /// atomic mutex. Under multi-acceptor load the spin form convoys:
+    /// every accept takes this lock 3-4 times and every response
+    /// recycle once, and a yield-reschedule on a saturated box costs
+    /// tens of us per handoff, which lands directly in the accept
+    /// path. The futex form parks instead of burning scheduler slots.
+    recycled_mutex: std.Io.Mutex = .init,
     /// Self-pipe: pushRecycled writes a byte so an accept loop blocked in
     /// poll() wakes up immediately. Recycling is asynchronous (handler
     /// threads recycle after the accept loop snapshotted the pool), so
@@ -463,7 +475,7 @@ pub const HttpServer = struct {
             switch (pr.status) {
                 .ok => {
                     if (pr.recycled_ready) {
-                        if (self.drainRecycled(self.max_body_len, null)) |req| return req;
+                        if (self.claimRecycled(self.max_body_len, null)) |req| return req;
                     }
                     if (pr.listener_ready) {
                         if (try self.acceptFresh(self.max_body_len, worker_head_parse_timeout_ms, null, true)) |req| return req;
@@ -565,9 +577,12 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         var fds: [max_recycled_conns + 2]std.posix.pollfd = undefined;        var nfds: usize = 0;
         var nrec: usize = 0;
         {
-            while (!self.recycled_mutex.tryLock()) std.Thread.yield() catch {};
-            defer self.recycled_mutex.unlock();
+            self.recycled_mutex.lockUncancelable(sio.io());
+            defer self.recycled_mutex.unlock(sio.io());
             for (self.recycled.items) |conn| {
+                // Claimed connections are being parsed by another
+                // acceptor: invisible to this poll.
+                if (conn.claimed.load(.acquire)) continue;
                 // Pipelined bytes already buffered: no need to poll.
                 if (conn.read_len > conn.request_start) {
                     return .{ .status = .ok, .recycled_ready = true, .listener_ready = false };
@@ -603,7 +618,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         // Drain the wake pipe (a recycle happened); it counts as pool activity.
         // A dead pooled fd (POLLERR/POLLNVAL, e.g. a keep-alive connection
         // whose TCP state fully died while pooled) must NEVER poison the
-        // poll: mark the pool for sweeping and let drainRecycled reap the
+        // poll: mark the pool for sweeping and let claimRecycled reap the
         // dead connection. Returning .io_error here used to wedge the accept
         // loop permanently (host spins on the failed accept). Only the
         // listener's health is fatal.
@@ -651,7 +666,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
             switch (pr.status) {
                 .ok => {
                     if (pr.recycled_ready) {
-                        if (self.drainRecycled(max_body_len, null)) |req| return req;
+                        if (self.claimRecycled(max_body_len, null)) |req| return req;
                     }
                     if (pr.listener_ready) {
                         if (try self.acceptFresh(max_body_len, null, null, true)) |req| return req;
@@ -679,7 +694,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
             switch (pr.status) {
                 .ok => {
                     if (pr.recycled_ready) {
-                        if (self.drainRecycled(max_body_len, timeout_ms)) |req| return req;
+                        if (self.claimRecycled(max_body_len, timeout_ms)) |req| return req;
                     }
                     if (pr.listener_ready) {
                         if (try self.acceptFresh(max_body_len, remaining, timeout_ms, true)) |req| return req;
@@ -692,65 +707,123 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         }
     }
 
-    /// Non-blocking sweep over idle keep-alive connections. Returns the first
-    /// connection that yields a complete request; unready connections are
-    /// pushed back, dead ones closed. Never blocks. Takes the pool lock only
-    /// twice (swap-out, push-back) and uses a single poll(2) over the whole
-    /// batch, so the cost stays flat no matter how many idle connections sit
-    /// in the pool.
-    fn drainRecycled(self: *HttpServer, max_body_len: usize, post_parse_timeout: ?u32) ?*HttpRequest {
-        var conns = std.array_list.Managed(*ConnState).init(self.allocator);
-        {
-            while (!self.recycled_mutex.tryLock()) std.Thread.yield() catch {};
-            defer self.recycled_mutex.unlock();
-            std.mem.swap(std.array_list.Managed(*ConnState), &self.recycled, &conns);
+    /// Remove a connection from the idle pool (claim path). The
+    /// caller must own the connection's claim.
+    fn removeFromPool(self: *HttpServer, conn: *ConnState) void {
+        self.recycled_mutex.lockUncancelable(sio.io());
+        defer self.recycled_mutex.unlock(sio.io());
+        for (self.recycled.items, 0..) |item, idx| {
+            if (item == conn) {
+                _ = self.recycled.swapRemove(idx);
+                return;
+            }
         }
-        var keep = std.array_list.Managed(*ConnState).init(self.allocator);
-        defer keep.deinit();
-        var result: ?*HttpRequest = null;
+    }
 
-        // One poll over the whole batch instead of one syscall per conn.
+    /// Claim a pooled connection iff it is still in the pool.
+    /// Claiming under the pool lock is what makes lock-free
+    /// snapshots safe: a connection leaves the pool only through
+    /// its claim owner (or deinit, when no acceptors run), so a
+    /// presence check + CAS under the lock guarantees a peer
+    /// cannot free the connection before the claim lands. After a
+    /// successful claim the caller owns the connection and may
+    /// dereference it without holding the lock.
+    fn tryClaimPooled(self: *HttpServer, conn: *ConnState) bool {
+        self.recycled_mutex.lockUncancelable(sio.io());
+        defer self.recycled_mutex.unlock(sio.io());
+        var present = false;
+        for (self.recycled.items) |item| {
+            if (item == conn) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) return false;
+        return conn.claimed.cmpxchgStrong(false, true, .acquire, .monotonic) == null;
+    }
+
+    /// Parallel claim sweep over idle keep-alive connections
+    /// (def-accept form 2; replaces the swap-out drain). Snapshots
+    /// (pointer, fd, buffered flag) VALUES under a brief lock hold
+    /// — pointers are never dereferenced from the snapshot alone —
+    /// polls the copied fds once, then claims each ready connection
+    /// via tryClaimPooled: the winner parses it outside any lock
+    /// while other acceptors claim and parse other connections
+    /// concurrently. Dead connections are claimed and reaped the
+    /// same way. Returns the first connection that yields a
+    /// complete request, or null when every ready connection was
+    /// claimed by a peer or none was ready; never blocks.
+    fn claimRecycled(self: *HttpServer, max_body_len: usize, post_parse_timeout: ?u32) ?*HttpRequest {
+        const Snapshot = struct {
+            conn: *ConnState,
+            fd: std.posix.fd_t,
+            has_buffered: bool,
+        };
+        var snap: [max_recycled_conns]Snapshot = undefined;
+        var nsnap: usize = 0;
+        {
+            self.recycled_mutex.lockUncancelable(sio.io());
+            defer self.recycled_mutex.unlock(sio.io());
+            for (self.recycled.items) |conn| {
+                snap[nsnap] = .{
+                    .conn = conn,
+                    .fd = conn.stream.socket.handle,
+                    .has_buffered = conn.read_len > conn.request_start,
+                };
+                nsnap += 1;
+            }
+        }
+
+        // One poll over the whole snapshot instead of one syscall
+        // per connection.
         var pfds: [max_recycled_conns]std.posix.pollfd = undefined;
-        for (conns.items, 0..) |conn, i| {
+        for (snap[0..nsnap], 0..) |entry, i| {
             pfds[i] = .{
-                .fd = conn.stream.socket.handle,
+                .fd = entry.fd,
                 .events = std.posix.POLL.IN,
                 .revents = 0,
             };
         }
-        const npoll = conns.items.len;
-        if (npoll > 0) {
-            _ = std.posix.poll(pfds[0..npoll], 0) catch {};
+        if (nsnap > 0) {
+            _ = std.posix.poll(pfds[0..nsnap], 0) catch {};
         }
 
-        for (conns.items, 0..) |conn, i| {
-            if (result != null) {
-                keep.append(conn) catch self.destroyConn(conn, true);
-                continue;
-            }
-            const stream = conn.stream;
-            const has_buffered = conn.read_len > conn.request_start;
-            const rev: i16 = if (npoll > 0) pfds[i].revents else 0;
+        for (snap[0..nsnap], 0..) |entry, i| {
+            const rev: i16 = pfds[i].revents;
             const dead = rev & (std.posix.POLL.ERR | std.posix.POLL.NVAL) != 0;
             // HUP without IN (or with nothing readable) also means the peer
             // is gone; IN means either data or EOF, decided by the parse.
-            const readable = !dead and (has_buffered or (rev & std.posix.POLL.IN) != 0);
+            const readable = !dead and (entry.has_buffered or (rev & std.posix.POLL.IN) != 0);
             if (!readable) {
                 if (dead or (rev & std.posix.POLL.HUP) != 0) {
-                    self.destroyConn(conn, true);
-                } else {
-                    keep.append(conn) catch self.destroyConn(conn, true);
+                    // Reap a dead pooled connection; the claim keeps
+                    // a peer sweep from double-freeing it.
+                    if (self.tryClaimPooled(entry.conn)) {
+                        self.removeFromPool(entry.conn);
+                        self.destroyConn(entry.conn, true);
+                    }
                 }
                 continue;
             }
-            if (!has_buffered) {
+            if (!self.tryClaimPooled(entry.conn)) {
+                // A peer acceptor owns this one (or it left the
+                // pool); try the next.
+                continue;
+            }
+            // This acceptor owns the connection until it leaves the
+            // pool (parsed into a request, or dropped below).
+            const conn = entry.conn;
+            const stream = conn.stream;
+            if (!entry.has_buffered) {
                 // Readable: give the head parse a short bounded wait so a
                 // head+body split across TCP segments still completes.
                 setBlocking(stream) catch {
+                    self.removeFromPool(conn);
                     self.destroyConn(conn, true);
                     continue;
                 };
                 setReceiveTimeout(stream, probe_parse_timeout_ms) catch {
+                    self.removeFromPool(conn);
                     self.destroyConn(conn, true);
                     continue;
                 };
@@ -761,37 +834,30 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                 // because std.http keeps a stale next_request_start across
                 // attempts, which would discard already-read bytes and
                 // mis-parse the remainder. The client simply reconnects.
+                self.removeFromPool(conn);
                 self.destroyConn(conn, true);
                 continue;
             };
             // Normalize the socket mode for the handler.
             if (post_parse_timeout) |ms| {
                 setReceiveTimeout(stream, ms) catch {
+                    // req.deinit() destroys the conn; just unlink it
+                    // from the pool first (pointer stays valid here).
+                    self.removeFromPool(conn);
                     req.deinit();
                     continue;
                 };
             } else {
                 setBlocking(stream) catch {
+                    self.removeFromPool(conn);
                     req.deinit();
                     continue;
                 };
             }
-            result = req;
+            self.removeFromPool(conn);
+            return req;
         }
-        conns.deinit();
-
-        // Push the survivors back under a single lock hold. No wake-pipe
-        // byte: these were already in the pool before this sweep.
-        while (!self.recycled_mutex.tryLock()) std.Thread.yield() catch {};
-        defer self.recycled_mutex.unlock();
-        for (keep.items) |conn| {
-            if (self.recycled.items.len >= max_recycled_conns) {
-                self.destroyConn(conn, true);
-            } else {
-                self.recycled.append(conn) catch self.destroyConn(conn, true);
-            }
-        }
-        return result;
+        return null;
     }
 
     /// Accept one NEW tcp connection (never a recycled one). With
@@ -1005,8 +1071,8 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
     }
 
     fn popRecycled(self: *HttpServer) ?*ConnState {
-        while (!self.recycled_mutex.tryLock()) std.Thread.yield() catch {};
-        defer self.recycled_mutex.unlock();
+        self.recycled_mutex.lockUncancelable(sio.io());
+        defer self.recycled_mutex.unlock(sio.io());
         if (self.recycled.items.len == 0) return null;
         return self.recycled.pop();
     }
@@ -1048,12 +1114,16 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
     /// though recycling happens on a handler thread.
     pub fn pushRecycled(self: *HttpServer, conn: *ConnState) void {
         {
-            while (!self.recycled_mutex.tryLock()) std.Thread.yield() catch {};
-            defer self.recycled_mutex.unlock();
+            self.recycled_mutex.lockUncancelable(sio.io());
+            defer self.recycled_mutex.unlock(sio.io());
             if (self.recycled.items.len >= max_recycled_conns) {
                 self.destroyConn(conn, true);
                 return;
             }
+            // The pushing thread exclusively owns the connection
+            // here; clear any claim before it becomes visible in
+            // the pool.
+            conn.claimed.store(false, .release);
             self.recycled.append(conn) catch {
                 self.destroyConn(conn, true);
                 return;
@@ -2685,4 +2755,93 @@ test "v2 resp_send_file streams the file body kernel-side (G3')" {
     const hend = std.mem.indexOf(u8, got, "\r\n\r\n") orelse return error.TestUnexpectedResult;
     try std.testing.expect(std.mem.indexOf(u8, got[0..hend], "content-length: 24") != null);
     try std.testing.expectEqualStrings(content, got[hend + 4 ..][0..content.len]);
+}
+
+test "v2 accept: concurrent acceptors receive each request exactly once (def-accept claim)" {
+    if (comptime builtin.os.tag != .linux) return error.SkipZigTest;
+    var server_slot: ?*anyopaque = null;
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_new_v2(&server_slot));
+    const server = server_slot orelse return error.TestUnexpectedResult;
+    defer _ = sa_http_server_free_v2(server);
+    const host = "127.0.0.1";
+    try std.testing.expectEqual(@as(u32, 0), sa_http_server_start_v2(server, host.ptr, host.len, 18251));
+
+    const Ctx = struct {
+        server: *anyopaque,
+        stop_at: usize,
+        got: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+        failed: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+        fn worker(ctx: *@This()) void {
+            while (ctx.got.load(.acquire) < ctx.stop_at) {
+                var slot: ?*anyopaque = null;
+                const st = sa_http_server_accept_v2(ctx.server, 3000, &slot);
+                if (st != 0) {
+                    // Quota filled while this acceptor was parked:
+                    // a timeout then is a clean exit, not a failure.
+                    if (ctx.got.load(.acquire) >= ctx.stop_at) return;
+                    _ = ctx.failed.fetchAdd(1, .monotonic);
+                    return;
+                }
+                const req = slot orelse {
+                    _ = ctx.failed.fetchAdd(1, .monotonic);
+                    return;
+                };
+                _ = ctx.got.fetchAdd(1, .monotonic);
+                var resp_slot: ?*anyopaque = null;
+                if (sa_http_server_resp_new_v2(req, 200, &resp_slot) == 0) {
+                    const resp = resp_slot.?;
+                    const body = "ok";
+                    _ = sa_http_server_resp_send_v2(resp, body.ptr, body.len, 5000);
+                    _ = sa_http_server_resp_free_v2(resp);
+                }
+                _ = sa_http_server_req_free_v2(req);
+            }
+        }
+        fn readResponse(client: std.Io.net.Stream) !void {
+            var buf: [512]u8 = undefined;
+            var total: usize = 0;
+            while (std.mem.indexOf(u8, buf[0..total], "\r\n\r\n") == null) {
+                const rc = std.c.read(client.socket.handle, @ptrCast(buf[total..].ptr), buf.len - total);
+                if (rc <= 0) return error.TestUnexpectedResult;
+                total += @intCast(rc);
+            }
+            const head_end = std.mem.indexOf(u8, buf[0..total], "\r\n\r\n").? + 4;
+            var body_got: usize = total - head_end;
+            while (body_got < 2) {
+                const rc = std.c.read(client.socket.handle, @ptrCast(buf[total..].ptr), buf.len - total);
+                if (rc <= 0) return error.TestUnexpectedResult;
+                total += @intCast(rc);
+                body_got += @intCast(rc);
+            }
+        }
+    };
+
+    // 36 requests total: phase 1 = 12 keep-alive connections x 2
+    // requests (second accept comes out of the recycled pool, i.e.
+    // the claim path), phase 2 = 12 fresh connections x 1 request.
+    var ctx = Ctx{ .server = server, .stop_at = 36 };
+    var threads: [8]std.Thread = undefined;
+    for (&threads) |*t| t.* = try std.Thread.spawn(.{}, Ctx.worker, .{&ctx});
+    const address = try std.Io.net.IpAddress.parse("127.0.0.1", 18251);
+    var c1: usize = 0;
+    while (c1 < 12) : (c1 += 1) {
+        var client = try address.connect(sio.io(), .{ .mode = .stream });
+        defer client.close(sio.io());
+        try setReceiveTimeout(client, 10000);
+        try streamWriteAll(client, "GET /a HTTP/1.1\r\nhost: x\r\n\r\n");
+        try Ctx.readResponse(client);
+        try streamWriteAll(client, "GET /b HTTP/1.1\r\nhost: x\r\nconnection: close\r\n\r\n");
+        try Ctx.readResponse(client);
+    }
+    var c2: usize = 0;
+    while (c2 < 12) : (c2 += 1) {
+        var client = try address.connect(sio.io(), .{ .mode = .stream });
+        defer client.close(sio.io());
+        try setReceiveTimeout(client, 10000);
+        try streamWriteAll(client, "GET /c HTTP/1.1\r\nhost: x\r\nconnection: close\r\n\r\n");
+        try Ctx.readResponse(client);
+    }
+    for (&threads) |*t| t.join();
+    try std.testing.expectEqual(@as(usize, 0), ctx.failed.load(.acquire));
+    try std.testing.expectEqual(@as(usize, 36), ctx.got.load(.acquire));
 }
