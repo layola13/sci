@@ -22,7 +22,27 @@
 //! Status codes mirror sa_std.zig.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const sio = @import("sio");
+
+/// WASI has no dynamic loading (std.DynLib does not exist there),
+/// which otherwise breaks the whole sa_std archive build for
+/// wasm32-wasi. The stub type keeps every use site compiling; its
+/// open always fails, so the module reports the library missing
+/// through its existing surface (sa_ts_available() == 0, parser_new
+/// -> SA_STD_ERR_UNSUPPORTED) — loud, never a fake success.
+const dynlib_supported = builtin.os.tag != .wasi;
+const DynLib = if (dynlib_supported) std.DynLib else struct {
+    pub fn open(_: []const u8) error{Unsupported}!@This() {
+        return error.Unsupported;
+    }
+
+    pub fn lookup(_: *@This(), comptime T: type, _: [:0]const u8) ?T {
+        return null;
+    }
+
+    pub fn close(_: *@This()) void {}
+};
 
 const OK: i32 = 0;
 const ERR_INVALID: i32 = 1;
@@ -135,10 +155,10 @@ const Fns = struct {
 
 var load_mu = std.Io.Mutex.init;
 var load_state: enum { unloaded, ready, missing } = .unloaded;
-var core_lib: ?std.DynLib = null;
+var core_lib: ?DynLib = null;
 var core_dir: ?[]u8 = null; // owned; set when the core came from a directory
 var fns: Fns = undefined;
-var grammar_libs: std.AutoHashMapUnmanaged(u64, std.DynLib) = .empty;
+var grammar_libs: std.AutoHashMapUnmanaged(u64, DynLib) = .empty;
 var grammar_langs: std.AutoHashMapUnmanaged(u64, *const anyopaque) = .empty;
 
 fn nameHash(name: []const u8) u64 {
@@ -151,7 +171,7 @@ fn ensureLoaded() bool {
     if (load_state != .unloaded) return load_state == .ready;
     load_state = .missing;
     const alloc = std.heap.page_allocator;
-    var lib: ?std.DynLib = null;
+    var lib: ?DynLib = null;
     if (std.c.getenv("SA_TREE_SITTER_DIR")) |dir_z| {
         const dir = std.mem.span(dir_z);
         if (dir.len > 0) {
@@ -160,14 +180,14 @@ fn ensureLoaded() bool {
             const path_z = alloc.allocSentinel(u8, path.len, 0) catch return false;
             defer alloc.free(path_z);
             @memcpy(path_z[0..path.len], path);
-            lib = std.DynLib.open(path_z) catch null;
+            lib = DynLib.open(path_z) catch null;
             if (lib != null) {
                 core_dir = alloc.dupe(u8, dir) catch null;
             }
         }
     }
     if (lib == null) {
-        lib = std.DynLib.open("libtree-sitter.so") catch return false;
+        lib = DynLib.open("libtree-sitter.so") catch return false;
     }
     var l = lib.?;
     const table = Fns{
@@ -216,14 +236,14 @@ fn loadLanguageLocked(name: []const u8) !*const anyopaque {
     const key = nameHash(name);
     if (grammar_langs.get(key)) |lang| return lang;
     const alloc = std.heap.page_allocator;
-    var lib: ?std.DynLib = null;
+    var lib: ?DynLib = null;
     if (core_dir) |dir| {
         const path = try std.fmt.allocPrint(alloc, "{s}/libtree-sitter-{s}.so", .{ dir, name });
         defer alloc.free(path);
         const path_z = try alloc.allocSentinel(u8, path.len, 0);
         defer alloc.free(path_z);
         @memcpy(path_z[0..path.len], path);
-        lib = std.DynLib.open(path_z) catch null;
+        lib = DynLib.open(path_z) catch null;
     }
     if (lib == null) {
         const bare = try std.fmt.allocPrint(alloc, "libtree-sitter-{s}.so", .{name});
@@ -231,7 +251,7 @@ fn loadLanguageLocked(name: []const u8) !*const anyopaque {
         const bare_z = try alloc.allocSentinel(u8, bare.len, 0);
         defer alloc.free(bare_z);
         @memcpy(bare_z[0..bare.len], bare);
-        lib = std.DynLib.open(bare_z) catch return error.NotFound;
+        lib = DynLib.open(bare_z) catch return error.NotFound;
     }
     var l = lib.?;
     const sym = try std.fmt.allocPrint(alloc, "tree_sitter_{s}", .{name});

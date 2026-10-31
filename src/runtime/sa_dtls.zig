@@ -12,6 +12,22 @@ const std = @import("std");
 const builtin = @import("builtin");
 const sio = @import("sio");
 
+/// WASI has no dynamic loading (std.DynLib does not exist there);
+/// the stub keeps the OpenSSL loader compiling and its open
+/// always fails, so DTLS reports itself unavailable (loader ->
+/// null) — loud, never a fake success.
+const DynLib = if (builtin.os.tag != .wasi) std.DynLib else struct {
+    pub fn open(_: []const u8) error{Unsupported}!@This() {
+        return error.Unsupported;
+    }
+
+    pub fn lookup(_: *@This(), comptime T: type, _: [:0]const u8) ?T {
+        return null;
+    }
+
+    pub fn close(_: *@This()) void {}
+};
+
 const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
 const SA_STD_ERR_UNSUPPORTED: i32 = -1;
@@ -53,7 +69,7 @@ const SSL_FILETYPE_PEM: c_int = 1;
 const BIO_CLOSE: c_int = 0x00;
 
 const DtlsApi = struct {
-    lib: if (builtin.cpu.arch.isWasm()) void else std.DynLib,
+    lib: if (builtin.cpu.arch.isWasm()) void else DynLib,
     method_new: SslMethodNew,
     ctx_new: SslCtxNew,
     ctx_free: SslCtxFree,
@@ -93,9 +109,9 @@ fn loadDtlsApiNative() ?*DtlsApi {
         "/usr/lib/x86_64-linux-gnu/libssl.so.3",
         "libssl.so.3",
     };
-    var l: ?std.DynLib = null;
+    var l: ?DynLib = null;
     for (ssl_candidates) |c| {
-        if (std.DynLib.open(c)) |ok| {
+        if (DynLib.open(c)) |ok| {
             l = ok;
             break;
         } else |_| {}

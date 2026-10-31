@@ -21,7 +21,24 @@
 //! Status codes mirror sa_std.zig.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const sio = @import("sio");
+
+/// WASI has no dynamic loading (std.DynLib does not exist there);
+/// the stub keeps the libcrypt/libsecret loaders compiling and
+/// its open always fails, so both features report themselves
+/// missing (ERR_UNSUPPORTED) — loud, never a fake success.
+const DynLib = if (builtin.os.tag != .wasi) std.DynLib else struct {
+    pub fn open(_: []const u8) error{Unsupported}!@This() {
+        return error.Unsupported;
+    }
+
+    pub fn lookup(_: *@This(), comptime T: type, _: [:0]const u8) ?T {
+        return null;
+    }
+
+    pub fn close(_: *@This()) void {}
+};
 
 const OK: i32 = 0;
 const ERR_INVALID: i32 = 1;
@@ -39,7 +56,7 @@ const FnGensaltRn = *const fn ([*:0]const u8, c_ulong, ?[*]const u8, c_int, [*]u
 
 var crypt_mu = std.Io.Mutex.init;
 var crypt_state: enum { unloaded, ready, missing } = .unloaded;
-var crypt_lib: ?std.DynLib = null;
+var crypt_lib: ?DynLib = null;
 var crypt_r_fn: FnCryptR = undefined;
 var gensalt_fn: FnGensaltRn = undefined;
 
@@ -48,7 +65,7 @@ fn ensureCrypt() bool {
     defer crypt_mu.unlock(sio.io());
     if (crypt_state != .unloaded) return crypt_state == .ready;
     crypt_state = .missing;
-    var lib = std.DynLib.open("libcrypt.so.1") catch return false;
+    var lib = DynLib.open("libcrypt.so.1") catch return false;
     crypt_r_fn = lib.lookup(FnCryptR, "crypt_r") orelse return false;
     gensalt_fn = lib.lookup(FnGensaltRn, "crypt_gensalt_rn") orelse return false;
     crypt_lib = lib;
@@ -174,7 +191,7 @@ const FnFree = *const fn (?*anyopaque) callconv(.c) void;
 
 var secret_mu = std.Io.Mutex.init;
 var secret_state: enum { unloaded, ready, missing } = .unloaded;
-var secret_lib: ?std.DynLib = null;
+var secret_lib: ?DynLib = null;
 var store_fn: FnStoreSync = undefined;
 var lookup_fn: FnLookupSync = undefined;
 var clear_fn: FnClearSync = undefined;
@@ -186,14 +203,14 @@ fn ensureSecret() bool {
     defer secret_mu.unlock(sio.io());
     if (secret_state != .unloaded) return secret_state == .ready;
     secret_state = .missing;
-    var lib = std.DynLib.open("libsecret-1.so.0") catch return false;
+    var lib = DynLib.open("libsecret-1.so.0") catch return false;
     store_fn = lib.lookup(FnStoreSync, "secret_password_store_sync") orelse return false;
     lookup_fn = lib.lookup(FnLookupSync, "secret_password_lookup_sync") orelse return false;
     clear_fn = lib.lookup(FnClearSync, "secret_password_clear_sync") orelse return false;
     // g_error_free / g_free live in libglib, a hard dependency of
     // libsecret; dlsym on the libsecret handle searches its dependency
     // tree, and an explicit glib handle is the fallback.
-    var glib = std.DynLib.open("libglib-2.0.so.0") catch null;
+    var glib = DynLib.open("libglib-2.0.so.0") catch null;
     error_free_fn = lib.lookup(FnErrorFree, "g_error_free") orelse blk: {
         if (glib) |*g| break :blk g.lookup(FnErrorFree, "g_error_free") orelse return false;
         return false;

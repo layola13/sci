@@ -793,7 +793,7 @@ pub export fn sa_std_tls_server_session_verify_result(ssl_handle: u64, out_code:
     if (ssl_handle == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     const api = loadSslApi() orelse return SA_STD_ERR_UNSUPPORTED;
     const rc = api.get_verify_result(ptrFromU64(Ssl, ssl_handle));
-    slot.* = @intCast(@as(u64, @bitCast(rc)));
+    slot.* = @intCast(@as(u64, @bitCast(@as(i64, rc))));
     return SA_STD_OK;
 }
 

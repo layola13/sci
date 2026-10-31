@@ -12,6 +12,22 @@ const std = @import("std");
 const builtin = @import("builtin");
 const sio = @import("sio");
 
+/// WASI has no dynamic loading (std.DynLib does not exist there);
+/// the stub keeps the brotli loader compiling and its open always
+/// fails, so brotli reports itself missing (loadBrotli -> null ->
+/// error.Unsupported) — loud, never a fake success.
+const DynLib = if (builtin.os.tag != .wasi) std.DynLib else struct {
+    pub fn open(_: []const u8) error{Unsupported}!@This() {
+        return error.Unsupported;
+    }
+
+    pub fn lookup(_: *@This(), comptime T: type, _: [:0]const u8) ?T {
+        return null;
+    }
+
+    pub fn close(_: *@This()) void {}
+};
+
 const OK: i32 = 0;
 const ERR_INVALID: i32 = 1;
 const ERR_NOMEM: i32 = 5;
@@ -96,8 +112,8 @@ fn loadBrotliNative() ?BrotliApi {
     if (brotli_api) |a| return a;
     if (brotli_tried) return null;
     brotli_tried = true;
-    var enc_lib = std.DynLib.open("libbrotlienc.so.1") catch return null;
-    var dec_lib = std.DynLib.open("libbrotlidec.so.1") catch return null;
+    var enc_lib = DynLib.open("libbrotlienc.so.1") catch return null;
+    var dec_lib = DynLib.open("libbrotlidec.so.1") catch return null;
     const api = BrotliApi{
         .enc_max_size = enc_lib.lookup(*const fn (usize) callconv(.c) usize, "BrotliEncoderMaxCompressedSize") orelse return null,
         .enc_compress = enc_lib.lookup(*const fn (c_int, c_int, c_int, usize, [*]const u8, *usize, [*]u8) callconv(.c) c_int, "BrotliEncoderCompress") orelse return null,

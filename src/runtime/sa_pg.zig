@@ -26,6 +26,7 @@
 //! text is readable through the generic cell accessors).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const sio = @import("sio");
 
 const OK: i32 = 0;
@@ -765,12 +766,19 @@ fn copyOut(text: []const u8, out: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
 }
 
 fn setSockTimeouts(fd: std.posix.fd_t, timeout_ms: u32) void {
-    const tv = std.posix.timeval{
-        .sec = @intCast(timeout_ms / 1000),
-        .usec = @intCast((timeout_ms % 1000) * 1000),
-    };
-    std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&tv)) catch {};
-    std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, std.mem.asBytes(&tv)) catch {};
+    // WASI has no socket layer in std.posix (SOL is a void
+    // placeholder there); the helper is best-effort everywhere
+    // (its callers ignore failures), and a WASI build cannot open
+    // sockets in the first place, so skipping is the whole
+    // behaviour there.
+    if (comptime builtin.os.tag != .wasi) {
+        const tv = std.posix.timeval{
+            .sec = @intCast(timeout_ms / 1000),
+            .usec = @intCast((timeout_ms % 1000) * 1000),
+        };
+        std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&tv)) catch {};
+        std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, std.mem.asBytes(&tv)) catch {};
+    }
 }
 
 // ---------------------------------------------------------------------

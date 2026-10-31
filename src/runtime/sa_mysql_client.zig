@@ -1159,17 +1159,17 @@ fn executeStmt(stmt: *Stmt) QueryError!*Result {
 
 fn connFrom(handle: u64) ?*Conn {
     if (handle == 0) return null;
-    return @ptrFromInt(handle);
+    return @ptrFromInt(@as(usize, @intCast(handle)));
 }
 
 fn resultFrom(handle: u64) ?*Result {
     if (handle == 0) return null;
-    return @ptrFromInt(handle);
+    return @ptrFromInt(@as(usize, @intCast(handle)));
 }
 
 fn stmtFrom(handle: u64) ?*Stmt {
     if (handle == 0) return null;
-    return @ptrFromInt(handle);
+    return @ptrFromInt(@as(usize, @intCast(handle)));
 }
 
 pub export fn sa_mysql_supported(out_supported: ?*u32) i32 {

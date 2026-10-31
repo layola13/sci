@@ -9865,7 +9865,7 @@ pub export fn sa_unicode_normalize(text: ?[*]const u8, text_len: u64, form: i32,
     // UTF-8 -> UTF-16. UTF-16 units never exceed UTF-8 bytes (1-byte char
     // -> 1 unit; 4-byte char -> 2 units), so text_len units always suffice.
     const utf16_cap: c_int = @intCast(text_len);
-    const utf16 = alloc.alloc(u16, text_len) catch @panic("sa_unicode_normalize: alloc failed");
+    const utf16 = alloc.alloc(u16, @as(usize, @intCast(text_len))) catch @panic("sa_unicode_normalize: alloc failed");
     var utf16_len: c_int = 0;
     var err: c_int = 0;
     _ = u_strFromUTF8_74(utf16.ptr, utf16_cap, &utf16_len, input.ptr, utf16_cap, &err);
@@ -12898,9 +12898,12 @@ fn mkdirPathWithMode(path: []const u8, mode: std.posix.mode_t) !void {
         if (next > 0) {
             const prefix = path[0..next];
             if (prefix.len != 0 and !(prefix.len == 1 and prefix[0] == '/')) {
-                lxMkdirat(std.posix.AT.FDCWD, prefix, mode) catch |err| switch (err) {
-                    error.PathAlreadyExists => {},
-                    else => return err,
+                // Compared, not switched on: lxMkdirat's inferred
+                // error set on wasm lacks PathAlreadyExists (its
+                // wasm branch returns only error.Unsupported), and a
+                // catch-switch arm must name a set member.
+                lxMkdirat(std.posix.AT.FDCWD, prefix, mode) catch |err| {
+                    if (err != error.PathAlreadyExists) return err;
                 };
             }
         }
@@ -13382,12 +13385,13 @@ pub export fn sa_fs_make_dir_mode(path_ptr: ?[*]const u8, path_len: u64, mode: u
 /// reports PathAlreadyExists (final segment) or fails the next
 /// segment with NotDir; neither is a silent success.
 fn mkdirPOne(prefix: []const u8) !void {
-    lxMkdirat(std.posix.AT.FDCWD, prefix, 0o777) catch |err| switch (err) {
-        error.PathAlreadyExists => {
+    // Compared, not switched on: see the wasm error-set note at the
+    // other lxMkdirat call site.
+    lxMkdirat(std.posix.AT.FDCWD, prefix, 0o777) catch |err| {
+        if (err == error.PathAlreadyExists) {
             const stat = try sio.cwd().statFile(prefix);
             if (stat.kind != .directory) return error.PathAlreadyExists;
-        },
-        else => return err,
+        } else return err;
     };
 }
 
@@ -13756,7 +13760,7 @@ pub export fn sa_std_net_addr_reverse_lookup(addr_handle: u64, out: ?[*]u8, out_
     }
     var name_buf: [1025]u8 = undefined;
     const rc = std.c.getnameinfo(address.sockAddr(), address.getOsSockLen(), &name_buf, name_buf.len, null, 0, .{ .NAMEREQD = true });
-    if (@intFromEnum(rc) != 0) return finish(SA_STD_ERR_IO);
+    if (@backingInt(rc) != 0) return finish(SA_STD_ERR_IO);
     const name = std.mem.sliceTo(&name_buf, 0);
     return writeFormattedInto(out, out_cap, out_len, name);
 }
