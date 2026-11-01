@@ -8365,7 +8365,743 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
     }
 }
 
-fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anytype, task: FuncTask, const_addrs: anytype, fn_idx: anytype, c_opt: CEmitOptions, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32) !void {
+// ------------------------------------------------------------------
+// @gpu task-form (fork-parallel) emission — TASKFORM_DESIGN.md.
+// Only @gpu functions in the task-formed set T (the downward closure
+// of the recursive @gpu SCCs) are emitted as a step function plus a
+// wrapper over the sa_tf_* machinery; every other function keeps the
+// historical emission byte-for-byte. The machinery text is emitted
+// only when T is non-empty, so programs without recursive @gpu call
+// graphs are completely unaffected.
+
+const TfSyncInfo = struct {
+    id: u32,
+    reload: []const u32,
+};
+
+const TfFnCtx = struct {
+    prog: *const TfProgram,
+    fnid: u32,
+};
+
+const TfProgram = struct {
+    fnid_of_fsig: std.AutoHashMap(usize, u32),
+    fnid_by_name: std.StringHashMap(u32),
+    fsig_of_fnid: []usize = &.{},
+    may_store: [][]bool = &.{},
+    may_store_any: []bool = &.{},
+
+    fn count(self: *const TfProgram) usize {
+        return self.fsig_of_fnid.len;
+    }
+
+    fn deinit(self: *TfProgram, allocator: std.mem.Allocator) void {
+        self.fnid_of_fsig.deinit();
+        self.fnid_by_name.deinit();
+        if (self.fsig_of_fnid.len > 0) allocator.free(self.fsig_of_fnid);
+        for (self.may_store) |row| {
+            if (row.len > 0) allocator.free(row);
+        }
+        if (self.may_store.len > 0) allocator.free(self.may_store);
+        if (self.may_store_any.len > 0) allocator.free(self.may_store_any);
+    }
+};
+
+fn tfTaskOf(tasks: []FuncTask, fsig_index: usize) ?FuncTask {
+    for (tasks) |t| {
+        if (t.fsig_index == fsig_index) return t;
+    }
+    return null;
+}
+
+// Provenance sentinel: a pointer slot that may alias ANY parameter.
+const TF_PROV_ANY: u32 = 0xFFFFFFFF;
+
+fn tfMarkStore(prog: *TfProgram, fid: usize, p: u32) bool {
+    if (p == TF_PROV_ANY) {
+        var flipped = false;
+        for (prog.may_store[fid]) |*b| {
+            if (!b.*) {
+                b.* = true;
+                flipped = true;
+            }
+        }
+        return flipped;
+    }
+    if (!prog.may_store[fid][p]) {
+        prog.may_store[fid][p] = true;
+        return true;
+    }
+    return false;
+}
+
+// One may-store summary pass over a single task-formed function.
+// Returns true when any summary bit flipped (fixpoint driver).
+fn tfScanMayStore(allocator: std.mem.Allocator, verified: anytype, tasks: []FuncTask, fidx: usize, prog: *TfProgram) !bool {
+    const fsig = verified.function_sigs[fidx];
+    const task = tfTaskOf(tasks, fidx) orelse return false;
+    const use_global = taskUsesGlobalRegIds(fsig, verified, task);
+    const my_fid = prog.fnid_of_fsig.get(fidx).?;
+    // Pointer provenance: slot -> param index (or TF_PROV_ANY). Over-
+    // approximates the set of parameters a pointer value may alias.
+    var prov = std.AutoHashMap(u32, u32).init(allocator);
+    defer prov.deinit();
+    for (fsig.param_ids, 0..) |pid, pi| {
+        if (pi >= fsig.params.len) break;
+        if (fsig.slotOf(pid)) |slot| try prov.put(slot, @intCast(pi));
+    }
+    var defs = std.array_list.Managed(u32).init(allocator);
+    defer defs.deinit();
+    var uses = std.array_list.Managed(u32).init(allocator);
+    defer uses.deinit();
+    var flipped = false;
+    var i: usize = task.start_idx + 1;
+    while (i < task.end_idx) : (i += 1) {
+        const base = verified.annotated[i].base;
+        defs.clearRetainingCapacity();
+        uses.clearRetainingCapacity();
+        collectDefUse(allocator, verified, fsig, use_global, base, &defs, &uses) catch continue;
+        switch (base.kind) {
+            .store, .atomic_store, .atomic_rmw, .cmpxchg => {
+                // Write-through: the address base is operands[0].
+                if (base.operands.len > 0) {
+                    if (readSlotOf(fsig, use_global, verified, base.operands[0])) |bs| {
+                        if (prov.get(bs)) |p| {
+                            if (tfMarkStore(prog, my_fid, p)) flipped = true;
+                        }
+                    }
+                }
+            },
+            .call => {
+                if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                    var parsed = pc.*;
+                    defer parsed.deinit(allocator);
+                    if (!parsed.is_indirect) {
+                        if (prog.fnid_by_name.get(sigNormName(parsed.callee))) |cfid| {
+                            const cfsig = verified.function_sigs[prog.fsig_of_fnid[cfid]];
+                            const lim = @min(parsed.args.len, cfsig.params.len);
+                            for (parsed.args[0..lim], 0..) |arg, j| {
+                                if (!prog.may_store[cfid][j]) continue;
+                                const aname = std.mem.trim(u8, arg.text, " \t");
+                                if (verified.symbols.findId(aname)) |aid| {
+                                    if (fsig.slotOf(aid)) |aslot| {
+                                        if (prov.get(aslot)) |p| {
+                                            if (tfMarkStore(prog, my_fid, p)) flipped = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else |_| {}
+            },
+            else => {},
+        }
+        // Provenance flow into the defined slot(s).
+        if (defs.items.len == 1) {
+            const dest = defs.items[0];
+            var newp: ?u32 = null;
+            switch (base.kind) {
+                // A loaded value may itself be a chased pointer.
+                .load, .take, .atomic_load => newp = TF_PROV_ANY,
+                else => {
+                    var seen_p: ?u32 = null;
+                    var multi = false;
+                    for (uses.items) |us| {
+                        if (prov.get(us)) |p| {
+                            if (seen_p == null) {
+                                seen_p = p;
+                            } else if (seen_p.? != p) {
+                                multi = true;
+                            }
+                        }
+                    }
+                    if (multi) {
+                        newp = TF_PROV_ANY;
+                    } else if (seen_p) |p| {
+                        newp = p;
+                    }
+                },
+            }
+            if (newp) |p| {
+                try prov.put(dest, p);
+            } else {
+                _ = prov.remove(dest);
+            }
+        } else {
+            for (defs.items) |d| _ = prov.remove(d);
+        }
+    }
+    return flipped;
+}
+
+fn buildTfProgram(allocator: std.mem.Allocator, verified: anytype, tasks: []FuncTask, reachable: *const std.AutoHashMap(usize, void)) !TfProgram {
+    var prog = TfProgram{
+        .fnid_of_fsig = std.AutoHashMap(usize, u32).init(allocator),
+        .fnid_by_name = std.StringHashMap(u32).init(allocator),
+    };
+    // Candidate set G: reachable @gpu definitions with a body.
+    var gset = std.AutoHashMap(usize, void).init(allocator);
+    defer gset.deinit();
+    for (tasks) |task| {
+        if (task.kind == .extern_decl) continue;
+        if (reachable.get(task.fsig_index) == null) continue;
+        const fs = verified.function_sigs[task.fsig_index];
+        if (fs.kind != .gpu) continue;
+        if (task.end_idx <= task.start_idx + 1) continue;
+        try gset.put(task.fsig_index, {});
+    }
+    if (gset.count() == 0) return prog;
+    // Direct-call edges within G.
+    var edges = std.AutoHashMap(usize, std.array_list.Managed(usize)).init(allocator);
+    defer {
+        var eit = edges.iterator();
+        while (eit.next()) |e| e.value_ptr.deinit();
+        edges.deinit();
+    }
+    {
+        var git = gset.iterator();
+        while (git.next()) |e| {
+            const src = e.key_ptr.*;
+            const task = tfTaskOf(tasks, src).?;
+            var list = std.array_list.Managed(usize).init(allocator);
+            var i: usize = task.start_idx + 1;
+            while (i < task.end_idx) : (i += 1) {
+                const base = verified.annotated[i].base;
+                if (base.kind != .call) continue;
+                if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                    var parsed = pc.*;
+                    defer parsed.deinit(allocator);
+                    if (parsed.is_indirect) continue;
+                    if (taskIndexByName(tasks, verified, sigNormName(parsed.callee))) |ci| {
+                        if (gset.get(ci) != null) try list.append(ci);
+                    }
+                } else |_| {}
+            }
+            try edges.put(src, list);
+        }
+    }
+    // Cyclic nodes: v with a path v ->+ v.
+    var cyclic = std.AutoHashMap(usize, void).init(allocator);
+    defer cyclic.deinit();
+    {
+        var git = gset.iterator();
+        while (git.next()) |e| {
+            const v = e.key_ptr.*;
+            var seen = std.AutoHashMap(usize, void).init(allocator);
+            defer seen.deinit();
+            var stack = std.array_list.Managed(usize).init(allocator);
+            defer stack.deinit();
+            if (edges.get(v)) |lst| {
+                for (lst.items) |w| try stack.append(w);
+            }
+            while (stack.items.len > 0) {
+                const x = stack.pop() orelse break;
+                if (x == v) {
+                    try cyclic.put(v, {});
+                    break;
+                }
+                if (seen.get(x) != null) continue;
+                try seen.put(x, {});
+                if (edges.get(x)) |lst| {
+                    for (lst.items) |w| try stack.append(w);
+                }
+            }
+        }
+    }
+    if (cyclic.count() == 0) return prog;
+    // T = downward closure of the cyclic nodes over call edges.
+    var tset = std.AutoHashMap(usize, void).init(allocator);
+    defer tset.deinit();
+    {
+        var stack = std.array_list.Managed(usize).init(allocator);
+        defer stack.deinit();
+        var cit = cyclic.iterator();
+        while (cit.next()) |e| try stack.append(e.key_ptr.*);
+        while (stack.items.len > 0) {
+            const x = stack.pop() orelse break;
+            if (tset.get(x) != null) continue;
+            try tset.put(x, {});
+            if (edges.get(x)) |lst| {
+                for (lst.items) |w| try stack.append(w);
+            }
+        }
+    }
+    // fnids in task order: deterministic emission.
+    var fsigs = std.array_list.Managed(usize).init(allocator);
+    defer fsigs.deinit();
+    for (tasks) |task| {
+        if (tset.get(task.fsig_index) == null) continue;
+        if (prog.fnid_of_fsig.get(task.fsig_index) != null) continue;
+        const fid: u32 = @intCast(fsigs.items.len);
+        try prog.fnid_of_fsig.put(task.fsig_index, fid);
+        try fsigs.append(task.fsig_index);
+        try prog.fnid_by_name.put(sigNormName(verified.function_sigs[task.fsig_index].name), fid);
+    }
+    prog.fsig_of_fnid = try fsigs.toOwnedSlice();
+    // May-store-through-parameter summaries over T (fixpoint).
+    const n = prog.fsig_of_fnid.len;
+    prog.may_store = try allocator.alloc([]bool, n);
+    prog.may_store_any = try allocator.alloc(bool, n);
+    for (prog.fsig_of_fnid, 0..) |fidx, fid| {
+        const np = verified.function_sigs[fidx].params.len;
+        prog.may_store[fid] = try allocator.alloc(bool, np);
+        @memset(prog.may_store[fid], false);
+        prog.may_store_any[fid] = false;
+    }
+    var changed = true;
+    var rounds: usize = 0;
+    while (changed and rounds < 4096) : (rounds += 1) {
+        changed = false;
+        for (prog.fsig_of_fnid, 0..) |fidx, fid| {
+            _ = fid;
+            if (try tfScanMayStore(allocator, verified, tasks, fidx, &prog)) changed = true;
+        }
+    }
+    if (changed) {
+        // Fixpoint cap exhausted (not expected: every round flips at
+        // least one bit of a finite lattice). Degrade to the sound
+        // over-approximation: everything may store.
+        for (prog.may_store) |row| @memset(row, true);
+    }
+    for (prog.may_store, 0..) |row, fid| {
+        for (row) |b| {
+            if (b) {
+                prog.may_store_any[fid] = true;
+                break;
+            }
+        }
+    }
+    return prog;
+}
+
+fn tfIdent(writer: anytype, fsig: sig.FunctionSig) !void {
+    try cIdent(writer, sigNormName(fsig.name));
+}
+
+fn writeTfHeader(rw: anytype, verified: anytype, prog: *const TfProgram) !void {
+    try rw.writeAll(
+        \\/* ---- @gpu task-form machinery (TASKFORM_DESIGN.md) ---- */
+        \\#define SA_TF_HDR 48
+        \\#define SA_TF_OFF_FNID 0
+        \\#define SA_TF_OFF_RESUME 4
+        \\#define SA_TF_OFF_STATE 8
+        \\#define SA_TF_OFF_JOIN 12
+        \\#define SA_TF_OFF_PARENT 16
+        \\#define SA_TF_OFF_RREG 24
+        \\#define SA_TF_OFF_SIZE 28
+        \\#define SA_TF_OFF_RESULT 32
+        \\#define SA_TF_OFF_FREENEXT 40
+        \\#define SA_TF_OFF_QNEXT 44
+        \\#define SA_TF_REGOFF(i) (SA_TF_HDR + (sa_u64)(i) * 8ULL)
+        \\#define SA_TF_NOREG 0xFFFFFFFFu
+        \\#define SA_TF_STATE_RUNNING 0u
+        \\#define SA_TF_STATE_SUSPENDED 1u
+        \\#define SA_TF_STATE_DONE 2u
+        \\#define SA_TF_NQ 1024
+        \\#define SA_TF_DONATE_AT 32u
+        \\#define SA_TF_DONATE_N 16u
+        \\
+    );
+    try rw.print("#define SA_TF_NTF {d}\n", .{prog.count()});
+    for (prog.fsig_of_fnid, 0..) |fidx, fid| {
+        try rw.writeAll("#define SA_TF_FN_");
+        try tfIdent(rw, verified.function_sigs[fidx]);
+        try rw.print(" {d}\n", .{fid});
+    }
+    for (prog.fsig_of_fnid) |fidx| {
+        try rw.writeAll("static void sa_tf_step_");
+        try tfIdent(rw, verified.function_sigs[fidx]);
+        try rw.writeAll("(sa_u64 fr);\n");
+    }
+    try rw.writeAll(
+        \\static sa_u64 sa_tf_ld64(sa_u64 addr);
+        \\static void sa_tf_st64(sa_u64 addr, sa_u64 v);
+        \\static uint32_t sa_tf_ld32(sa_u64 addr);
+        \\static void sa_tf_st32(sa_u64 addr, uint32_t v);
+        \\static sa_u64 sa_tf_frame_new(uint32_t fnid, sa_u64 parent, uint32_t result_reg);
+        \\static void sa_tf_queue_push(uint32_t fr);
+        \\static void sa_tf_lq_push(uint32_t fr);
+        \\static int sa_tf_sync_wait(sa_u64 fr);
+        \\static void sa_tf_complete(sa_u64 fr, sa_u64 result);
+        \\static void sa_tf_drive(void);
+        \\static sa_u64 sa_tf_frame_result(sa_u64 fr);
+        \\
+    );
+}
+
+fn writeTfMachinery(rw: anytype, verified: anytype, prog: *const TfProgram) !void {
+    // Atomic helpers and frame accessors come first: their host bodies
+    // are single-line plain read/modify/write forms BY CONTRACT with
+    // extract_device6.py (R13/R13b replace them, shape-asserted, in
+    // the device TU). Do not reformat these lines.
+    try rw.writeAll(
+        \\/* ---- @gpu task-form machinery definitions ---- */
+        \\static uint32_t sa_tf_at_add_u32(uint32_t *p, uint32_t v) { uint32_t o = *p; *p = (uint32_t)(o + v); return o; }
+        \\static uint32_t sa_tf_at_exch_u32(uint32_t *p, uint32_t v) { uint32_t o = *p; *p = v; return o; }
+        \\static uint32_t sa_tf_at_load_u32(uint32_t *p) { return *p; }
+        \\static sa_u64 sa_tf_at_cas_u64(sa_u64 *p, sa_u64 c, sa_u64 v) { sa_u64 o = *p; if (o == c) *p = v; return o; }
+        \\static sa_u64 sa_tf_at_load_u64(sa_u64 *p) { return *p; }
+        \\static uint32_t sa_tf_at_add_m32(sa_u64 addr, uint32_t v) { uint32_t o = (uint32_t)sa_load_u32(addr); sa_store_u32(addr, o + v); return o; }
+        \\static uint32_t sa_tf_at_exch_m32(sa_u64 addr, uint32_t v) { uint32_t o = (uint32_t)sa_load_u32(addr); sa_store_u32(addr, v); return o; }
+        \\static uint32_t sa_tf_at_load_m32(sa_u64 addr) { return (uint32_t)sa_load_u32(addr); }
+        \\static void sa_tf_at_store_m32(sa_u64 addr, uint32_t v) { sa_store_u32(addr, v); }
+        \\static sa_u64 sa_tf_ld64(sa_u64 addr) { return sa_load_u64(addr); }
+        \\static void sa_tf_st64(sa_u64 addr, sa_u64 v) { sa_store_u64(addr, v); }
+        \\static uint32_t sa_tf_ld32(sa_u64 addr) { return (uint32_t)sa_load_u32(addr); }
+        \\static void sa_tf_st32(sa_u64 addr, uint32_t v) { sa_store_u32(addr, v); }
+        \\static uint32_t sa_tf_at_add_u32_lq(uint32_t *p, uint32_t v) { uint32_t o = *p; *p = (uint32_t)(o + v); return o; }
+        \\static sa_u64 sa_tf_at_cas_u64_lq(sa_u64 *p, sa_u64 c, sa_u64 v) { sa_u64 o = *p; if (o == c) *p = v; return o; }
+        \\static sa_u64 sa_tf_at_load_u64_lq(sa_u64 *p) { return *p; }
+        \\static sa_u64 sa_tf_qtop_packed = 0;
+        \\static uint32_t sa_tf_alive = 0;
+        \\static sa_u64 sa_tf_free_head[SA_TF_NTF];
+        \\static sa_u64 sa_tf_lq_packed[SA_TF_NQ];
+        \\static uint32_t sa_tf_lq_len[SA_TF_NQ];
+        \\static uint32_t sa_tf_qid_next = 0;
+        \\
+    );
+    try rw.writeAll("static uint32_t sa_tf_fn_nregs(uint32_t fnid) {\n  switch (fnid) {\n");
+    for (prog.fsig_of_fnid, 0..) |fidx, fid| {
+        try rw.print("    case {d}: return {d};\n", .{ fid, verified.function_sigs[fidx].reg_ids.len });
+    }
+    try rw.writeAll("    default: sa_trap(\"sa_tf: bad fnid\"); return 0;\n  }\n}\n");
+    try rw.writeAll(
+        \\static sa_u64 sa_tf_frame_new(uint32_t fnid, sa_u64 parent, uint32_t result_reg) {
+        \\  sa_u64 fr = 0;
+        \\  for (;;) {
+        \\    sa_u64 hd = sa_tf_at_load_u64(&sa_tf_free_head[fnid]);
+        \\    uint32_t head = (uint32_t)hd;
+        \\    sa_u64 nx;
+        \\    if (head == 0) break;
+        \\    nx = sa_tf_ld64((sa_u64)head + SA_TF_OFF_FREENEXT);
+        \\    if (sa_tf_at_cas_u64(&sa_tf_free_head[fnid], hd, (((hd >> 32) + 1) << 32) | (nx & 0xFFFFFFFFULL)) == hd) { fr = (sa_u64)head; break; }
+        \\  }
+        \\  if (fr == 0) fr = sa_alloc(SA_TF_HDR + (sa_u64)sa_tf_fn_nregs(fnid) * 8ULL);
+        \\  { uint32_t n = sa_tf_fn_nregs(fnid); uint32_t i; for (i = 0; i < n; i++) sa_tf_st64(fr + SA_TF_REGOFF(i), 0); }
+        \\  sa_tf_st32(fr + SA_TF_OFF_FNID, fnid);
+        \\  sa_tf_st32(fr + SA_TF_OFF_RESUME, 0);
+        \\  sa_tf_at_store_m32(fr + SA_TF_OFF_STATE, SA_TF_STATE_RUNNING);
+        \\  sa_tf_at_store_m32(fr + SA_TF_OFF_JOIN, 0);
+        \\  sa_tf_st64(fr + SA_TF_OFF_PARENT, parent);
+        \\  sa_tf_st32(fr + SA_TF_OFF_RREG, result_reg);
+        \\  sa_tf_st32(fr + SA_TF_OFF_QNEXT, 0);
+        \\  sa_tf_st32(fr + SA_TF_OFF_SIZE, SA_TF_HDR + sa_tf_fn_nregs(fnid) * 8u);
+        \\  sa_tf_st64(fr + SA_TF_OFF_RESULT, 0);
+        \\  if (parent != 0) (void)sa_tf_at_add_m32(parent + SA_TF_OFF_JOIN, 1);
+        \\  (void)sa_tf_at_add_u32(&sa_tf_alive, 1);
+        \\  return fr;
+        \\}
+        \\static void sa_tf_free_push(sa_u64 fr) {
+        \\  uint32_t fnid = (uint32_t)sa_tf_ld32(fr + SA_TF_OFF_FNID);
+        \\  for (;;) {
+        \\    sa_u64 hd = sa_tf_at_load_u64(&sa_tf_free_head[fnid]);
+        \\    sa_tf_st64(fr + SA_TF_OFF_FREENEXT, (sa_u64)(uint32_t)hd);
+        \\    if (sa_tf_at_cas_u64(&sa_tf_free_head[fnid], hd, (((hd >> 32) + 1) << 32) | (fr & 0xFFFFFFFFULL)) == hd) break;
+        \\  }
+        \\}
+        \\static void sa_tf_queue_push(uint32_t fr) {
+        \\  for (;;) {
+        \\    sa_u64 hd = sa_tf_at_load_u64(&sa_tf_qtop_packed);
+        \\    sa_tf_st32(fr + SA_TF_OFF_QNEXT, (uint32_t)hd);
+        \\    if (sa_tf_at_cas_u64(&sa_tf_qtop_packed, hd, (((hd >> 32) + 1) << 32) | (fr & 0xFFFFFFFFULL)) == hd) break;
+        \\  }
+        \\}
+        \\static uint32_t sa_tf_queue_pop(void) {
+        \\  for (;;) {
+        \\    sa_u64 hd = sa_tf_at_load_u64(&sa_tf_qtop_packed);
+        \\    uint32_t head = (uint32_t)hd;
+        \\    uint32_t nx;
+        \\    if (head == 0) return 0;
+        \\    nx = (uint32_t)sa_tf_ld32((sa_u64)head + SA_TF_OFF_QNEXT);
+        \\    if (sa_tf_at_cas_u64(&sa_tf_qtop_packed, hd, (((hd >> 32) + 1) << 32) | (nx & 0xFFFFFFFFULL)) == hd) return head;
+        \\  }
+        \\}
+        \\static uint32_t sa_tf_qid(void) {
+        \\  static __thread int32_t sa_tf_my_qid = -1;
+        \\  if (sa_tf_my_qid < 0) sa_tf_my_qid = (int32_t)sa_tf_at_add_u32(&sa_tf_qid_next, 1u);
+        \\  return (uint32_t)sa_tf_my_qid % SA_TF_NQ;
+        \\}
+        \\static void sa_tf_donate(uint32_t me) {
+        \\  for (;;) {
+        \\    sa_u64 hd = sa_tf_at_load_u64_lq(&sa_tf_lq_packed[me]);
+        \\    uint32_t head = (uint32_t)hd;
+        \\    uint32_t tail = 0;
+        \\    uint32_t rest = 0;
+        \\    uint32_t cur;
+        \\    uint32_t k = 0;
+        \\    if (head == 0) return;
+        \\    cur = head;
+        \\    while (k < SA_TF_DONATE_N) {
+        \\      uint32_t nx = (uint32_t)sa_tf_ld32((sa_u64)cur + SA_TF_OFF_QNEXT);
+        \\      k++;
+        \\      tail = cur;
+        \\      rest = nx;
+        \\      if (nx == 0) break;
+        \\      cur = nx;
+        \\    }
+        \\    if (sa_tf_at_cas_u64_lq(&sa_tf_lq_packed[me], hd, (((hd >> 32) + 1) << 32) | (rest & 0xFFFFFFFFULL)) == hd) {
+        \\      for (;;) {
+        \\        sa_u64 g = sa_tf_at_load_u64(&sa_tf_qtop_packed);
+        \\        sa_tf_st32((sa_u64)tail + SA_TF_OFF_QNEXT, (uint32_t)g);
+        \\        if (sa_tf_at_cas_u64(&sa_tf_qtop_packed, g, (((g >> 32) + 1) << 32) | (head & 0xFFFFFFFFULL)) == g) break;
+        \\      }
+        \\      (void)sa_tf_at_add_u32_lq(&sa_tf_lq_len[me], (uint32_t)(-(int32_t)k));
+        \\      return;
+        \\    }
+        \\  }
+        \\}
+        \\static void sa_tf_lq_push(uint32_t fr) {
+        \\  uint32_t me = sa_tf_qid();
+        \\  for (;;) {
+        \\    sa_u64 hd = sa_tf_at_load_u64_lq(&sa_tf_lq_packed[me]);
+        \\    sa_tf_st32(fr + SA_TF_OFF_QNEXT, (uint32_t)hd);
+        \\    if (sa_tf_at_cas_u64_lq(&sa_tf_lq_packed[me], hd, (((hd >> 32) + 1) << 32) | (fr & 0xFFFFFFFFULL)) == hd) break;
+        \\  }
+        \\  if (sa_tf_at_add_u32_lq(&sa_tf_lq_len[me], 1u) + 1u >= SA_TF_DONATE_AT) sa_tf_donate(me);
+        \\}
+        \\static uint32_t sa_tf_lq_pop(uint32_t me) {
+        \\  for (;;) {
+        \\    sa_u64 hd = sa_tf_at_load_u64_lq(&sa_tf_lq_packed[me]);
+        \\    uint32_t head = (uint32_t)hd;
+        \\    uint32_t nx;
+        \\    if (head == 0) return 0;
+        \\    nx = (uint32_t)sa_tf_ld32((sa_u64)head + SA_TF_OFF_QNEXT);
+        \\    if (sa_tf_at_cas_u64_lq(&sa_tf_lq_packed[me], hd, (((hd >> 32) + 1) << 32) | (nx & 0xFFFFFFFFULL)) == hd) {
+        \\      (void)sa_tf_at_add_u32_lq(&sa_tf_lq_len[me], (uint32_t)-1);
+        \\      return head;
+        \\    }
+        \\  }
+        \\}
+        \\static int sa_tf_sync_wait(sa_u64 fr) {
+        \\  if (sa_tf_at_load_m32(fr + SA_TF_OFF_JOIN) == 0) return 0;
+        \\  (void)sa_tf_at_exch_m32(fr + SA_TF_OFF_STATE, SA_TF_STATE_SUSPENDED);
+        \\  if (sa_tf_at_load_m32(fr + SA_TF_OFF_JOIN) == 0) {
+        \\    if (sa_tf_at_exch_m32(fr + SA_TF_OFF_STATE, SA_TF_STATE_RUNNING) == SA_TF_STATE_SUSPENDED) return 0;
+        \\    return 1;
+        \\  }
+        \\  return 1;
+        \\}
+        \\static void sa_tf_child_done(sa_u64 parent) {
+        \\  uint32_t old = sa_tf_at_add_m32(parent + SA_TF_OFF_JOIN, (uint32_t)-1);
+        \\  if (old == 1) {
+        \\    if (sa_tf_at_exch_m32(parent + SA_TF_OFF_STATE, SA_TF_STATE_RUNNING) == SA_TF_STATE_SUSPENDED)
+        \\      sa_tf_lq_push((uint32_t)parent);
+        \\  }
+        \\}
+        \\static void sa_tf_complete(sa_u64 fr, sa_u64 result) {
+        \\  sa_u64 parent = sa_tf_ld64(fr + SA_TF_OFF_PARENT);
+        \\  uint32_t rreg = (uint32_t)sa_tf_ld32(fr + SA_TF_OFF_RREG);
+        \\  sa_tf_st64(fr + SA_TF_OFF_RESULT, result);
+        \\  sa_tf_at_store_m32(fr + SA_TF_OFF_STATE, SA_TF_STATE_DONE);
+        \\  if (parent != 0) {
+        \\    if (rreg != SA_TF_NOREG) sa_tf_st64(parent + SA_TF_REGOFF(rreg), result);
+        \\    sa_tf_child_done(parent);
+        \\  }
+        \\  (void)sa_tf_at_add_u32(&sa_tf_alive, (uint32_t)-1);
+        \\  if (parent != 0) sa_tf_free_push(fr);
+        \\}
+        \\static sa_u64 sa_tf_frame_result(sa_u64 fr) { return sa_tf_ld64(fr + SA_TF_OFF_RESULT); }
+        \\
+    );
+    try rw.writeAll("static void sa_tf_dispatch(sa_u64 fr) {\n  switch ((uint32_t)sa_tf_ld32(fr + SA_TF_OFF_FNID)) {\n");
+    for (prog.fsig_of_fnid) |fidx| {
+        try rw.writeAll("    case SA_TF_FN_");
+        try tfIdent(rw, verified.function_sigs[fidx]);
+        try rw.writeAll(": sa_tf_step_");
+        try tfIdent(rw, verified.function_sigs[fidx]);
+        try rw.writeAll("(fr); return;\n");
+    }
+    try rw.writeAll(
+        \\    default: sa_trap("sa_tf: bad fnid"); return;
+        \\  }
+        \\}
+        \\static void sa_tf_drive(void) {
+        \\  uint32_t me = sa_tf_qid();
+        \\  while (sa_tf_at_load_u32(&sa_tf_alive) != 0) {
+        \\    uint32_t fr = sa_tf_lq_pop(me);
+        \\    if (fr == 0) fr = sa_tf_queue_pop();
+        \\    if (fr != 0) sa_tf_dispatch(fr);
+        \\  }
+        \\}
+        \\
+    );
+}
+
+fn tfListHas(list: []const u32, v: u32) bool {
+    for (list) |x| {
+        if (x == v) return true;
+    }
+    return false;
+}
+
+fn tfListHasU64(list: []const u64, v: u64) bool {
+    for (list) |x| {
+        if (x == v) return true;
+    }
+    return false;
+}
+
+// Identity of a spawn argument for the R4 shared-argument rule: the
+// caller slot when the argument is a plain register; otherwise a
+// tagged FNV-1a hash of the argument text (deterministic, so equal
+// texts always map to equal identities).
+fn tfArgIdentity(symbols: anytype, fsig: sig.FunctionSig, arg_text: []const u8) u64 {
+    const t = std.mem.trim(u8, arg_text, " \t");
+    if (symbols.findId(t)) |id| {
+        if (fsig.slotOf(id)) |slot| return @as(u64, slot);
+    }
+    var h: u64 = 14695981039346656037;
+    for (t) |c| {
+        h ^= c;
+        h *= 1099511628211;
+    }
+    return h | (@as(u64, 1) << 63);
+}
+
+fn emitTfSyncBlock(writer: anytype, declared: []const u32, sinfo: TfSyncInfo) !void {
+    // Save-before-mark discipline: the register save and the resume
+    // point are published BEFORE sa_tf_sync_wait performs the atomic
+    // RUNNING->SUSPENDED mark. Queueing of this frame can only happen
+    // after that mark (the waker must win the exchange against it), so
+    // a woken frame is always dispatched with a complete save — the
+    // earlier save-after-verdict shape let the waker enqueue the frame
+    // while this lane was still saving, and the late save could land
+    // on a completed/recycled frame (host MT sim: sums biased low).
+    try writer.print("SA_TF_SYNC_{d}:\n", .{sinfo.id});
+    for (declared) |s| {
+        // Outstanding result slots are owned by completing children
+        // (they store into fr + REGOFF(dest) from sa_tf_complete);
+        // the suspension save must never write them — a stale local
+        // copy landing after a child's write-back would clobber the
+        // result (found by the host MT sim: sums biased low under
+        // concurrency). They are reloaded from the slots after the
+        // sync passes (sinfo.reload), so skipping them is lossless.
+        var is_result_slot = false;
+        for (sinfo.reload) |rs| {
+            if (rs == s) {
+                is_result_slot = true;
+                break;
+            }
+        }
+        if (is_result_slot) continue;
+        try writer.print("  sa_tf_st64(fr + SA_TF_REGOFF({d}), r{d});\n", .{ s, s });
+    }
+    try writer.print("  sa_tf_st32(fr + SA_TF_OFF_RESUME, {d});\n", .{sinfo.id});
+    try writer.writeAll("  if (sa_tf_sync_wait(fr)) {\n    return;\n  }\n");
+    for (sinfo.reload) |s| {
+        try writer.print("  r{d} = sa_tf_ld64(fr + SA_TF_REGOFF({d}));\n", .{ s, s });
+    }
+}
+
+fn emitTfWrapper(writer: anytype, fsig: sig.FunctionSig, ctx: TfFnCtx, uniform_arity: usize) !void {
+    try writer.writeAll("static sa_u64 ");
+    try cFuncName(writer, fsig.name);
+    try writer.writeAll("(");
+    if (uniform_arity == 0) {
+        try writer.writeAll("void");
+    } else {
+        for (0..uniform_arity) |pi| {
+            if (pi != 0) try writer.writeAll(", ");
+            try writer.print("sa_u64 a{d}", .{pi});
+        }
+    }
+    try writer.writeAll(") {\n");
+    try writer.print("  sa_u64 fr = sa_tf_frame_new({d}, 0, SA_TF_NOREG);\n", .{ctx.fnid});
+    for (fsig.param_ids, 0..) |pid, pi| {
+        if (pi >= fsig.params.len) break;
+        if (fsig.slotOf(pid)) |slot| {
+            try writer.print("  sa_tf_st64(fr + SA_TF_REGOFF({d}), a{d});\n", .{ slot, pi });
+        }
+    }
+    for (0..uniform_arity) |pi| {
+        try writer.print("  (void)a{d};\n", .{pi});
+    }
+    try writer.writeAll("  sa_tf_queue_push((uint32_t)fr);\n  sa_tf_drive();\n  return sa_tf_frame_result(fr);\n}\n");
+}
+
+// Task-form call emission: a direct call to a task-formed callee
+// becomes frame_new + argument stores + queue_push (the callee runs
+// as a task; the caller's dry walk placed suspension points so the
+// sequential semantics are preserved). Any other call keeps the
+// historical emission via emitLinearInstruction.
+fn emitTfCall(writer: anytype, allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: anytype, widths: *WidthMap, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32, dead: *const std.AutoHashMap(u32, void), ctx: TfFnCtx) !void {
+    const symbols = verified.symbols;
+    if (base.kind == .call) {
+        if (call.parseInstructionCall(allocator, base, symbols)) |*pc| {
+            var parsed = pc.*;
+            defer parsed.deinit(allocator);
+            if (!parsed.is_indirect) {
+                if (ctx.prog.fnid_by_name.get(sigNormName(parsed.callee))) |cfid| {
+                    const cfsig = verified.function_sigs[ctx.prog.fsig_of_fnid[cfid]];
+                    trackWidths(widths, allocator, symbols, fsig, use_global, base);
+                    var dest_slot: ?u32 = null;
+                    if (parsed.dest) |dname| {
+                        if (symbols.findId(dname)) |did| {
+                            if (fsig.slotOf(did)) |slot| {
+                                if (dead.get(slot) == null) dest_slot = slot;
+                            }
+                        }
+                    }
+                    try writer.print("  {{ sa_u64 sa_tf_ch = sa_tf_frame_new({d}, fr, ", .{cfid});
+                    if (dest_slot) |slot| {
+                        try writer.print("{d}", .{slot});
+                    } else {
+                        try writer.writeAll("SA_TF_NOREG");
+                    }
+                    try writer.writeAll(");\n");
+                    const lim = @min(@min(parsed.args.len, cfsig.params.len), cfsig.param_ids.len);
+                    for (parsed.args[0..lim], 0..) |arg, j| {
+                        if (cfsig.slotOf(cfsig.param_ids[j])) |pslot| {
+                            var abuf: std.Io.Writer.Allocating = .init(allocator);
+                            defer abuf.deinit();
+                            try resolveTextToC(&abuf.writer, symbols, fsig, const_addrs, arg.text);
+                            try writer.print("    sa_tf_st64(sa_tf_ch + SA_TF_REGOFF({d}), ({s}));\n", .{ pslot, abuf.writer.buffered() });
+                        }
+                    }
+                    try writer.writeAll("    sa_tf_lq_push((uint32_t)sa_tf_ch); }\n");
+                    // Mirror emitLinearInstruction's width sharpening
+                    // for the call destination.
+                    if (parsed.dest) |dname| {
+                        if (symbols.findId(dname)) |did| {
+                            if (fsig.slotOf(did)) |slot| {
+                                if (sigReturnWidth(sigmap, parsed.callee)) |w| widths.put(slot, w) catch {};
+                            }
+                        }
+                    }
+                    return;
+                }
+            }
+        } else |_| {}
+    }
+    try emitLinearInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, widths, sigmap, uniform_arity, indirect_ret_width, dead);
+}
+
+fn emitTfReturn(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: anytype, widths: *WidthMap) !void {
+    // Mirror emitLinearInstruction's width tracking so the width
+    // state evolves identically to the direct-form emission.
+    trackWidths(widths, allocator, symbols, fsig, use_global, base);
+    const operand = base.operands[0];
+    if (fsig.return_fallible) {
+        switch (operand) {
+            .none => try writer.writeAll("  sa_tf_complete(fr, sa_ok_none()); return;\n"),
+            else => {
+                try writer.writeAll("  sa_tf_complete(fr, sa_ok_val((");
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, operand);
+                try writer.writeAll("))); return;\n");
+            },
+        }
+    } else switch (operand) {
+        .none => try writer.writeAll("  sa_tf_complete(fr, 0); return;\n"),
+        else => {
+            try writer.writeAll("  sa_tf_complete(fr, (");
+            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, operand);
+            try writer.writeAll(")); return;\n");
+        },
+    }
+}
+
+fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anytype, task: FuncTask, const_addrs: anytype, fn_idx: anytype, c_opt: CEmitOptions, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32, tf: ?TfFnCtx) !void {
     const fsig = verified.function_sigs[task.fsig_index];
     const use_global = taskUsesGlobalRegIds(fsig, verified, task);
     last_c_func = fsig.name;
@@ -8495,6 +9231,174 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             }
         }
     }
+    // Task-form pre-pass (only for functions in the task-formed set):
+    // compute the declared-slot list (frame load/save set) and assign
+    // suspension points by a dry walk over the body. A suspension is
+    // required before any instruction that may observe or overwrite
+    // an outstanding spawn result, before any control transfer while
+    // spawns are outstanding, before a parent memory write while
+    // spawns are outstanding, before a parent memory read while a
+    // possibly-writing child is outstanding, and before a spawn that
+    // shares a may-store argument with a live spawn (TASKFORM_DESIGN
+    // sections 6-7). The dry walk mirrors the emission walk exactly
+    // (same elide set), so every assigned point exists in the output.
+    var tf_declared = std.array_list.Managed(u32).init(allocator);
+    defer tf_declared.deinit();
+    var tf_const_slots = std.array_list.Managed(u32).init(allocator);
+    defer tf_const_slots.deinit();
+    var tf_const_names = std.array_list.Managed([]const u8).init(allocator);
+    defer tf_const_names.deinit();
+    var tf_syncs = std.AutoHashMap(usize, TfSyncInfo).init(allocator);
+    defer tf_syncs.deinit();
+    var tf_sync_list = std.array_list.Managed(TfSyncInfo).init(allocator);
+    defer tf_sync_list.deinit();
+    var tf_tail: ?TfSyncInfo = null;
+    if (tf) |tc| {
+        {
+            var s: usize = 0;
+            while (s < fsig.reg_ids.len) : (s += 1) {
+                const slot32: u32 = @intCast(s);
+                // Same predicate as the declaration block below.
+                if (reads_complete and liveK.get(slot32) == null) continue;
+                try tf_declared.append(slot32);
+                const gid = fsig.reg_ids[s];
+                if (verified.symbols.lookupName(gid)) |gname| {
+                    if (const_addrs.get(gname) != null) {
+                        try tf_const_slots.append(slot32);
+                        try tf_const_names.append(gname);
+                    }
+                }
+            }
+        }
+        var out_slots = std.array_list.Managed(u32).init(allocator);
+        defer out_slots.deinit();
+        var out_count: u32 = 0;
+        var out_writer = false;
+        var group_args = std.array_list.Managed(std.array_list.Managed(u64)).init(allocator);
+        defer {
+            for (group_args.items) |*g| g.deinit();
+            group_args.deinit();
+        }
+        var next_id: u32 = 1;
+        var wi: usize = task.start_idx + 1;
+        while (wi < task.end_idx) : (wi += 1) {
+            if (elide.get(wi) != null) continue;
+            const wb = verified.annotated[wi].base;
+            wdefs.clearRetainingCapacity();
+            wuses.clearRetainingCapacity();
+            // Unlike the liveness analyses above, sync placement must
+            // not degrade silently on an analysis failure: a missed
+            // use is a missed suspension. Fail the emission loudly.
+            collectDefUse(allocator, verified, fsig, use_global, wb, &wdefs, &wuses) catch return CEmitError.Failed;
+            // Call analysis first (spawn transition data + whether the
+            // call is a barrier), in plain locals.
+            var is_spawn = false;
+            var spawn_dest: ?u32 = null;
+            var spawn_writer = false;
+            var spawn_args = std.array_list.Managed(u64).init(allocator);
+            defer spawn_args.deinit();
+            var is_barrier_call = wb.kind == .call_indirect;
+            if (wb.kind == .call) {
+                is_barrier_call = true;
+                if (call.parseInstructionCall(allocator, wb, verified.symbols)) |*pc| {
+                    var parsed = pc.*;
+                    defer parsed.deinit(allocator);
+                    if (!parsed.is_indirect) {
+                        if (tc.prog.fnid_by_name.get(sigNormName(parsed.callee))) |cfid| {
+                            is_spawn = true;
+                            is_barrier_call = false;
+                            const cfsig = verified.function_sigs[tc.prog.fsig_of_fnid[cfid]];
+                            spawn_writer = tc.prog.may_store_any[cfid];
+                            if (parsed.dest) |dname| {
+                                if (verified.symbols.findId(dname)) |did| {
+                                    if (fsig.slotOf(did)) |slot| {
+                                        if (dead.get(slot) == null) spawn_dest = slot;
+                                    }
+                                }
+                            }
+                            const lim = @min(@min(parsed.args.len, cfsig.params.len), cfsig.param_ids.len);
+                            for (parsed.args[0..lim], 0..) |arg, j| {
+                                if (!tc.prog.may_store[cfid][j]) continue;
+                                try spawn_args.append(tfArgIdentity(verified.symbols, fsig, arg.text));
+                            }
+                        }
+                    }
+                } else |_| {}
+            }
+            var need = false;
+            if (out_count > 0) {
+                const is_control = switch (wb.kind) {
+                    .label, .jmp, .br, .br_null, .return_, .early_return => true,
+                    else => false,
+                };
+                const is_mem_write = switch (wb.kind) {
+                    .store, .atomic_store, .atomic_rmw, .cmpxchg => true,
+                    else => false,
+                };
+                const is_mem_read = switch (wb.kind) {
+                    .load, .take, .atomic_load, .atomic_rmw, .cmpxchg => true,
+                    else => false,
+                };
+                if (is_control or is_barrier_call or is_mem_write) {
+                    need = true;
+                } else if (is_mem_read and out_writer) {
+                    need = true;
+                } else if (is_spawn) {
+                    // R4: the new spawn shares a may-store argument
+                    // with a live group member.
+                    for (group_args.items) |g| {
+                        for (spawn_args.items) |a| {
+                            if (tfListHasU64(g.items, a)) {
+                                need = true;
+                                break;
+                            }
+                        }
+                        if (need) break;
+                    }
+                }
+                if (!need) {
+                    for (wuses.items) |s| {
+                        if (tfListHas(out_slots.items, s)) {
+                            need = true;
+                            break;
+                        }
+                    }
+                }
+                if (!need) {
+                    for (wdefs.items) |s| {
+                        if (tfListHas(out_slots.items, s)) {
+                            need = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (need) {
+                const info = TfSyncInfo{ .id = next_id, .reload = try allocator.dupe(u32, out_slots.items) };
+                next_id += 1;
+                try tf_syncs.put(wi, info);
+                try tf_sync_list.append(info);
+                out_slots.clearRetainingCapacity();
+                out_count = 0;
+                out_writer = false;
+                for (group_args.items) |*g| g.deinit();
+                group_args.clearRetainingCapacity();
+            }
+            if (is_spawn) {
+                if (spawn_dest) |slot| {
+                    if (!tfListHas(out_slots.items, slot)) try out_slots.append(slot);
+                }
+                out_count += 1;
+                if (spawn_writer) out_writer = true;
+                var g = std.array_list.Managed(u64).init(allocator);
+                try g.appendSlice(spawn_args.items);
+                try group_args.append(g);
+            }
+        }
+        if (out_count > 0) {
+            tf_tail = TfSyncInfo{ .id = next_id, .reload = try allocator.dupe(u32, out_slots.items) };
+        }
+    }
     // Seed parameter slots with their declared types: caller and callee
     // share the u64-bits invariant, so this is exact (unlike JS, which
     // must infer argument domains at runtime).
@@ -8506,6 +9410,13 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             }
         }
     }
+    // Task-formed functions are emitted as a step function over a
+    // frame (plus, at the end, a wrapper with the uniform signature).
+    if (tf) |_| {
+        try writer.writeAll("static void sa_tf_step_");
+        try cIdent(writer, sigNormName(fsig.name));
+        try writer.writeAll("(sa_u64 fr) {\n");
+    } else {
     // Uniform-arity prototype: every function takes exactly uniform_arity
     // u64 params (extras ignored, missing padded with 0 at call sites).
     // This makes direct calls, the ftable, and indirect dispatch share
@@ -8522,6 +9433,7 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         }
     }
     try writer.writeAll(") {\n");
+    }
     const nregs = fsig.reg_ids.len;
     if (nregs > 0) {
         // Declare registers. Slots aliasing static consts are
@@ -8562,6 +9474,41 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             try writer.writeAll(";\n");
         }
     }
+    if (tf) |_| {
+        // Step prologue: load the register file from the frame (the
+        // frame was zero-initialized at frame_new and the spawner
+        // stored the arguments into the parameter slots, so on first
+        // entry this reproduces declaration init + parameter binding;
+        // const-alias slots are then re-seeded with their constant
+        // address, exactly like the declaration initializers do).
+        for (tf_declared.items) |s| {
+            try writer.print("  r{d} = sa_tf_ld64(fr + SA_TF_REGOFF({d}));\n", .{ s, s });
+        }
+        if (tf_const_slots.items.len > 0) {
+            try writer.writeAll("  if (sa_tf_ld32(fr + SA_TF_OFF_RESUME) == 0) {\n");
+            for (tf_const_slots.items, tf_const_names.items) |s, gname| {
+                try writer.print("    r{d} = ", .{s});
+                try writeConstSym(writer, gname);
+                try writer.writeAll(";\n");
+            }
+            try writer.writeAll("  }\n");
+        }
+        // Gas is charged per step segment on the C path (entry of each
+        // step); the LLVM build-exe path is untouched.
+        if (c_opt.gas) {
+            try writer.writeAll("  SA_GAS_CHECK(1);\n");
+        }
+        // Resume dispatch: jump to the suspension point whose wait
+        // has completed (join == 0 is re-checked there).
+        try writer.writeAll("  { uint32_t sa_tf_res = (uint32_t)sa_tf_ld32(fr + SA_TF_OFF_RESUME);\n    switch (sa_tf_res) {\n      case 0: break;\n");
+        for (tf_sync_list.items) |info| {
+            try writer.print("      case {d}: goto SA_TF_SYNC_{d};\n", .{ info.id, info.id });
+        }
+        if (tf_tail) |info| {
+            try writer.print("      case {d}: goto SA_TF_SYNC_{d};\n", .{ info.id, info.id });
+        }
+        try writer.writeAll("      default: sa_trap(\"sa_tf: bad resume id\");\n    } }\n");
+    } else {
     // map params to slots (skip slots never read in the body)
     for (fsig.param_ids, 0..) |pid, pi| {
         if (fsig.slotOf(pid)) |slot| {
@@ -8582,6 +9529,7 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
     if (c_opt.gas) {
         try writer.writeAll("  SA_GAS_CHECK(1);\n");
     }
+    }
     if (c_opt.debug_comments) {
         try writer.print("  /* fn {s} regs={d} */\n", .{ fsig.name, nregs });
     }
@@ -8591,6 +9539,9 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         if (elide.get(i) != null) {
             try writer.print("  /* dead store elided: {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
             continue;
+        }
+        if (tf) |_| {
+            if (tf_syncs.get(i)) |sinfo| try emitTfSyncBlock(writer, tf_declared.items, sinfo);
         }
         switch (base.kind) {
             .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
@@ -8675,12 +9626,28 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 if (c_opt.debug_comments) {
                     try writer.print("  /* {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
                 }
-                try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, indirect_ret_width, &dead);
+                if (tf) |tc| {
+                    if (base.kind == .call or base.kind == .call_indirect) {
+                        try emitTfCall(writer, allocator, verified, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, indirect_ret_width, &dead, tc);
+                    } else if (base.kind == .return_) {
+                        try emitTfReturn(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths);
+                    } else {
+                        try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, indirect_ret_width, &dead);
+                    }
+                } else {
+                    try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, indirect_ret_width, &dead);
+                }
             },
         }
     }
-    // default return for fallthrough
-    if (fsig.return_ty == .void and !fsig.return_fallible) {
+    if (tf) |tc| {
+        // Fallthrough completion: wait for any outstanding spawns
+        // (tail suspension point), then complete with the zero value.
+        if (tf_tail) |ts| try emitTfSyncBlock(writer, tf_declared.items, ts);
+        try writer.writeAll("  sa_tf_complete(fr, 0);\n  return;\n}\n");
+        try emitTfWrapper(writer, fsig, tc, uniform_arity);
+    } else if (fsig.return_ty == .void and !fsig.return_fallible) {
+        // default return for fallthrough
         try writer.writeAll("  return 0;\n}\n");
     } else {
         try writer.writeAll("  return 0;\n}\n");
@@ -8831,6 +9798,10 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
             }
         }
     }
+    // Task-formed @gpu set: the downward closure of the recursive
+    // @gpu SCCs (empty for most programs). See TASKFORM_DESIGN.md.
+    var tfprog = try buildTfProgram(allocator, verified, tasks, &reachable);
+    defer tfprog.deinit(allocator);
     // Unanimous ftable return domain: every successful indirect call
     // lands on an ftable entry (bounds + null checked in the dispatcher),
     // so when all entries share one return domain the indirect result
@@ -8912,6 +9883,7 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         try rw.print("}}; {{ size_t i; for (i = 0; i < {d}; i++) sa_mem[{d} + i] = b[i]; }} }}\n", .{ init_len, addr });
     }
     try rw.writeAll("}\n");
+    if (tfprog.count() > 0) try writeTfHeader(rw, verified, &tfprog);
     var emitted = std.StringHashMap(void).init(allocator);
     defer emitted.deinit();
     for (tasks) |task| {
@@ -8921,9 +9893,11 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         // Unreachable definitions are dead code: skip (else
         // -Wunused-function). Reachability is exact (see above).
         if (reachable.get(task.fsig_index) == null) continue;
-        try emitOneFunction(rw, allocator, verified, task, &const_addrs, &fn_idx, c_opt, &sigmap, uniform_arity, indirect_ret_width);
+        const tfctx: ?TfFnCtx = if (tfprog.fnid_of_fsig.get(task.fsig_index)) |fid| TfFnCtx{ .prog = &tfprog, .fnid = fid } else null;
+        try emitOneFunction(rw, allocator, verified, task, &const_addrs, &fn_idx, c_opt, &sigmap, uniform_arity, indirect_ret_width, tfctx);
         try emitted.put(efsig.name, {});
     }
+    if (tfprog.count() > 0) try writeTfMachinery(rw, verified, &tfprog);
     // Phase 2: helper-use scan, then the file preamble (which must precede
     // any `sa_u64`-typed declaration in output order).
     const rest_text = try rest.toOwnedSlice();
