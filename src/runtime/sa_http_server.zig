@@ -130,6 +130,12 @@ const hist_thresholds_us: [hist_buckets - 1]u64 = .{
     1_000_000, 2_500_000, 5_000_000,
 };
 
+/// Oldest-first sort key for claim candidates: an unstamped
+/// candidate (stamp 0) sorts last, as if newest.
+fn stampSortKey(stamp_us: i64) i64 {
+    return if (stamp_us == 0) std.math.maxInt(i64) else stamp_us;
+}
+
 fn histBucketFor(value: u64) usize {
     for (hist_thresholds_us, 0..) |t, i| {
         if (value < t) return i;
@@ -397,12 +403,30 @@ const PooledSnapshot = struct {
 };
 
 /// Result of the internal poll over listener + idle pool + wake pipe.
+/// One pooled connection a poll found actionable (tail-fix
+/// form 1): the pointer is a pool item at collection time and
+/// must be re-verified by tryClaimPooled before dereferencing.
+const ReadyConn = struct {
+    conn: *ConnState,
+    revents: i16,
+    has_buffered: bool,
+    /// Queue stamp copied at collection time (under the pool
+    /// lock): the claim sorts on this value and never has to
+    /// dereference the pointer before tryClaimPooled.
+    stamp_us: i64,
+};
+
 const PollOutcome = struct {
     status: NetworkStatus,
     /// A recycled connection may have a request (or died): sweep the pool.
     recycled_ready: bool,
     /// The listener has a pending connection.
     listener_ready: bool,
+    /// Tail-fix form 1: the ready set of this poll, threaded into
+    /// the claim so one accept cycle polls once instead of three
+    /// times (export pre-poll, accept poll, claim re-poll).
+    ready: [max_recycled_conns]ReadyConn = undefined,
+    n_ready: usize = 0,
 };
 
 /// Request handler for sa_http_server_serve_threaded:
@@ -690,7 +714,10 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                 // Pipelined bytes already buffered: no need to poll.
                 if (conn.read_len > conn.request_start) {
                     if (conn.queued_since_us == 0) conn.queued_since_us = nowMicros();
-                    return .{ .status = .ok, .recycled_ready = true, .listener_ready = false };
+                    var out = PollOutcome{ .status = .ok, .recycled_ready = true, .listener_ready = false };
+                    out.ready[0] = .{ .conn = conn, .revents = 0, .has_buffered = true, .stamp_us = conn.queued_since_us };
+                    out.n_ready = 1;
+                    return out;
                 }
                 fds[nfds] = .{
                     .fd = conn.stream.socket.handle,
@@ -738,14 +765,17 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         for (fds[0..nrec]) |pfd| {
             if (pfd.revents != 0) recycled_ready = true;
         }
+        var out = PollOutcome{ .status = .ok, .recycled_ready = recycled_ready, .listener_ready = false };
         if (recycled_ready) {
-            // Delivery-histogram stamps: record when each ready
-            // pooled connection was first observed. Re-walk the pool
-            // under the lock and match poll slots in build order
-            // (unclaimed connections only) so no pointer from the
-            // unlocked poll set is dereferenced; a pool change
-            // mid-poll can shift a stamp to a neighbour, which only
-            // blurs this instrumentation, never the service path.
+            // Delivery-histogram stamps + ready-set collection:
+            // record when each ready pooled connection was first
+            // observed, and carry the ready set into the claim.
+            // Re-walk the pool under the lock and match poll slots
+            // in build order (unclaimed connections only) so no
+            // pointer from the unlocked poll set is dereferenced;
+            // a pool change mid-poll can shift a stamp to a
+            // neighbour, which only blurs this instrumentation,
+            // never the service path (claims re-verify presence).
             const stamp_us = nowMicros();
             self.recycled_mutex.lockUncancelable(sio.io());
             defer self.recycled_mutex.unlock(sio.io());
@@ -755,19 +785,18 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                 if (fi >= nrec) break;
                 const rev = fds[fi].revents;
                 fi += 1;
-                if (rev != 0 and conn.queued_since_us == 0) {
-                    conn.queued_since_us = stamp_us;
+                if (rev != 0) {
+                    if (conn.queued_since_us == 0) conn.queued_since_us = stamp_us;
+                    out.ready[out.n_ready] = .{ .conn = conn, .revents = rev, .has_buffered = false, .stamp_us = conn.queued_since_us };
+                    out.n_ready += 1;
                 }
             }
         }
         const levents = fds[nfds - 1].revents;
         if (levents & (std.posix.POLL.ERR | std.posix.POLL.NVAL) != 0)
             return .{ .status = .io_error, .recycled_ready = false, .listener_ready = false };
-        return .{
-            .status = .ok,
-            .recycled_ready = recycled_ready,
-            .listener_ready = levents & std.posix.POLL.IN != 0,
-        };
+        out.listener_ready = levents & std.posix.POLL.IN != 0;
+        return out;
     }
 
     pub fn acceptWithBodyLimit(self: *HttpServer, max_body_len: usize) !*HttpRequest {
@@ -794,7 +823,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
             switch (pr.status) {
                 .ok => {
                     if (pr.recycled_ready) {
-                        if (self.claimRecycled(max_body_len, null)) |req| {
+                        if (self.claimFromOutcome(&pr, max_body_len, null)) |req| {
                             self.histServed(accept_t0);
                             return req;
                         }
@@ -829,7 +858,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
             switch (pr.status) {
                 .ok => {
                     if (pr.recycled_ready) {
-                        if (self.claimRecycled(max_body_len, timeout_ms)) |req| {
+                        if (self.claimFromOutcome(&pr, max_body_len, timeout_ms)) |req| {
                             self.histServed(accept_t0);
                             return req;
                         }
@@ -861,18 +890,23 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         }
     }
 
-    /// Missed-round accounting for one claim sweep (tail-fix
-    /// instrumentation): every snapshot entry that was readable in
-    /// this sweep, was not the served one, and is still pooled and
-    /// unclaimed accrues a missed round. Pool presence is re-checked
-    /// under the lock before any snapshot pointer is dereferenced.
-    fn noteMissedRounds(self: *HttpServer, snap: []const PooledSnapshot, pfds: []const std.posix.pollfd, served_idx: usize) void {
+    /// Finish a successful claim under ONE pool-lock hold
+    /// (tail-fix form 1): unlink the served connection and accrue
+    /// a missed round to every other readable candidate that is
+    /// still pooled and unclaimed. Pointers from the candidate
+    /// list are dereferenced only after a presence match under
+    /// this lock, so a peer's claim/free cannot race the walk.
+    fn finishClaim(self: *HttpServer, conn: *ConnState, accounting: []const ReadyConn) void {
         self.recycled_mutex.lockUncancelable(sio.io());
         defer self.recycled_mutex.unlock(sio.io());
-        for (snap, 0..) |entry, j| {
-            if (j == served_idx) continue;
-            const readable = entry.has_buffered or (pfds[j].revents & std.posix.POLL.IN) != 0;
-            if (!readable) continue;
+        for (self.recycled.items, 0..) |item, idx| {
+            if (item == conn) {
+                _ = self.recycled.swapRemove(idx);
+                break;
+            }
+        }
+        for (accounting) |entry| {
+            if (entry.conn == conn) continue;
             for (self.recycled.items) |item| {
                 if (item == entry.conn) {
                     if (!item.claimed.load(.acquire)) {
@@ -882,6 +916,20 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                 }
             }
         }
+    }
+
+    /// Shared tail of a successful claim (tail-fix): the served
+    /// connection's delivery wait and missed-round count land in
+    /// the histograms, then finishClaim unlinks it and accounts
+    /// the missed rounds of the candidates it beat.
+    fn completeClaim(self: *HttpServer, conn: *ConnState, accounting: []const ReadyConn) void {
+        if (conn.queued_since_us != 0) {
+            const waited_us = nowMicros() - conn.queued_since_us;
+            if (waited_us > 0) self.histRecord(HIST_SEG_DELIVERY, @intCast(waited_us));
+            conn.queued_since_us = 0;
+        }
+        self.histRecord(HIST_SEG_MISSED, conn.missed_rounds.swap(0, .monotonic));
+        self.finishClaim(conn, accounting);
     }
 
     /// Claim a pooled connection iff it is still in the pool.
@@ -946,6 +994,20 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         }
         if (nsnap > 0) {
             _ = std.posix.poll(pfds[0..nsnap], 0) catch {};
+        }
+
+        // Readable candidates of this sweep (the claim accounting
+        // set): if one of them wins, completeClaim charges the
+        // others a missed round.
+        var accounting: [max_recycled_conns]ReadyConn = undefined;
+        var nacc: usize = 0;
+        for (snap[0..nsnap], 0..) |entry, i| {
+            const rev: i16 = pfds[i].revents;
+            const dead = rev & (std.posix.POLL.ERR | std.posix.POLL.NVAL) != 0;
+            if (!dead and (entry.has_buffered or (rev & std.posix.POLL.IN) != 0)) {
+                accounting[nacc] = .{ .conn = entry.conn, .revents = rev, .has_buffered = entry.has_buffered, .stamp_us = 0 };
+                nacc += 1;
+            }
         }
 
         for (snap[0..nsnap], 0..) |entry, i| {
@@ -1014,21 +1076,128 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                     continue;
                 };
             }
-            // Tail-fix instrumentation: this connection's queue
-            // wait and missed-sweep count land in the histograms;
-            // every other connection this sweep saw readable but
-            // did not serve accrues a missed round.
-            if (conn.queued_since_us != 0) {
-                const waited_us = nowMicros() - conn.queued_since_us;
-                if (waited_us > 0) self.histRecord(HIST_SEG_DELIVERY, @intCast(waited_us));
-                conn.queued_since_us = 0;
-            }
-            self.histRecord(HIST_SEG_MISSED, conn.missed_rounds.swap(0, .monotonic));
-            self.noteMissedRounds(snap[0..nsnap], pfds[0..nsnap], i);
-            self.removeFromPool(conn);
+            self.completeClaim(conn, accounting[0..nacc]);
             return req;
         }
         return null;
+    }
+
+    /// Claim from a poll outcome's ready set (tail-fix form 1).
+    /// Candidates are served OLDEST-FIRST by their queue stamp
+    /// (anti-starvation: a connection that has waited longest is
+    /// never passed over for a fresher one), at most one request
+    /// per call. The ready set is a us-old hint: the winner is
+    /// re-verified (presence + CAS in tryClaimPooled, then a
+    /// one-fd poll(0) freshness check) before any parse, so a
+    /// connection a peer served and recycled in the meantime is
+    /// never parsed on stale readiness.
+    fn claimRecycledFrom(self: *HttpServer, pr: *const PollOutcome, max_body_len: usize, post_parse_timeout: ?u32) ?*HttpRequest {
+        const n = pr.n_ready;
+        // Accounting set: the readable candidates, in claim order.
+        var accounting: [max_recycled_conns]ReadyConn = undefined;
+        var nacc: usize = 0;
+        // Claim order: insertion sort of candidate indices by
+        // queue stamp, oldest first; unstamped (0) sorts last.
+        var order: [max_recycled_conns]usize = undefined;
+        for (0..n) |i| order[i] = i;
+        var a: usize = 1;
+        while (a < n) : (a += 1) {
+            var b = a;
+            while (b > 0) : (b -= 1) {
+                const sb = stampSortKey(pr.ready[order[b]].stamp_us);
+                const sp = stampSortKey(pr.ready[order[b - 1]].stamp_us);
+                if (sb >= sp) break;
+                const tmp = order[b];
+                order[b] = order[b - 1];
+                order[b - 1] = tmp;
+            }
+        }
+        for (order[0..n]) |ci| {
+            const entry = pr.ready[ci];
+            const rev: i16 = entry.revents;
+            const dead = rev & (std.posix.POLL.ERR | std.posix.POLL.NVAL) != 0;
+            const readable = !dead and (entry.has_buffered or (rev & std.posix.POLL.IN) != 0);
+            if (!readable) {
+                if (dead or (rev & std.posix.POLL.HUP) != 0) {
+                    if (self.tryClaimPooled(entry.conn)) {
+                        self.removeFromPool(entry.conn);
+                        self.destroyConn(entry.conn, true);
+                    }
+                }
+                continue;
+            }
+            accounting[nacc] = entry;
+            nacc += 1;
+            if (!self.tryClaimPooled(entry.conn)) continue;
+            const conn = entry.conn;
+            const stream = conn.stream;
+            if (!(conn.read_len > conn.request_start)) {
+                // Freshness re-check: exactly one poll(0) on the
+                // winner (the legacy sweep polled the whole pool
+                // at this point).
+                var one = [_]std.posix.pollfd{.{
+                    .fd = conn.stream.socket.handle,
+                    .events = std.posix.POLL.IN,
+                    .revents = 0,
+                }};
+                _ = std.posix.poll(&one, 0) catch 0;
+                const orev: i16 = one[0].revents;
+                if (orev & std.posix.POLL.IN == 0) {
+                    if (orev & (std.posix.POLL.ERR | std.posix.POLL.NVAL | std.posix.POLL.HUP) != 0) {
+                        self.removeFromPool(conn);
+                        self.destroyConn(conn, true);
+                    } else {
+                        // Served and recycled by a peer after the
+                        // accept poll: still pooled, just not
+                        // ready. Release the claim and move on.
+                        conn.claimed.store(false, .release);
+                    }
+                    continue;
+                }
+                setBlocking(stream) catch {
+                    self.removeFromPool(conn);
+                    self.destroyConn(conn, true);
+                    continue;
+                };
+                setReceiveTimeout(stream, probe_parse_timeout_ms) catch {
+                    self.removeFromPool(conn);
+                    self.destroyConn(conn, true);
+                    continue;
+                };
+            }
+            const req = self.parseHead(conn, max_body_len) catch {
+                self.removeFromPool(conn);
+                self.destroyConn(conn, true);
+                continue;
+            };
+            if (post_parse_timeout) |ms| {
+                setReceiveTimeout(stream, ms) catch {
+                    self.removeFromPool(conn);
+                    req.deinit();
+                    continue;
+                };
+            } else {
+                setBlocking(stream) catch {
+                    self.removeFromPool(conn);
+                    req.deinit();
+                    continue;
+                };
+            }
+            self.completeClaim(conn, accounting[0..nacc]);
+            return req;
+        }
+        return null;
+    }
+
+    /// Claim dispatcher for the poll-driven accept loops: use
+    /// the outcome's ready set when the poll collected one, else
+    /// the legacy snapshot sweep (it also reaps dead connections
+    /// a wake-only poll could not see).
+    fn claimFromOutcome(self: *HttpServer, pr: *const PollOutcome, max_body_len: usize, post_parse_timeout: ?u32) ?*HttpRequest {
+        if (pr.n_ready > 0) {
+            if (self.claimRecycledFrom(pr, max_body_len, post_parse_timeout)) |req| return req;
+        }
+        return self.claimRecycled(max_body_len, post_parse_timeout);
     }
 
     /// Accept one NEW tcp connection (never a recycled one). With
@@ -2418,16 +2587,14 @@ pub export fn sa_http_server_accept_v2(server: ?*anyopaque, timeout_ms: u32, out
     slot.* = null;
     const server_ptr = server orelse return networkStatus(.invalid);
     const srv = @as(*HttpServer, @ptrCast(@alignCast(server_ptr)));
-    const started_ms = nowMillis();
-    const poll_status = srv.pollAccept(timeout_ms);
-    if (poll_status != .ok) return networkStatus(poll_status);
-    const receive_timeout_ms: u32 = if (timeout_ms == 0) 0 else blk: {
-        const elapsed_signed = nowMillis() - started_ms;
-        const elapsed_ms: u64 = if (elapsed_signed <= 0) 0 else @intCast(elapsed_signed);
-        if (elapsed_ms >= timeout_ms) return networkStatus(.timeout);
-        break :blk @intCast(@as(u64, timeout_ms) - elapsed_ms);
-    };
-    const request = srv.acceptWithBodyLimitAndTimeout(max_v2_message_bytes, receive_timeout_ms) catch |err| {
+    // Tail-fix form 1: no discarded pre-poll. This export used to
+    // poll the whole set once via pollAccept, throw the outcome
+    // away, and let the bounded accept poll the same set again
+    // (whose claim then polled a third time) -- three polls and
+    // ~9 pool-lock holds per accepted request on the hot path.
+    // The bounded accept now owns the single poll and threads
+    // its outcome into the claim.
+    const request = srv.acceptWithBodyLimitAndTimeout(max_v2_message_bytes, timeout_ms) catch |err| {
         if (err == error.WouldBlock or err == error.HttpHeadersUnreadable) return networkStatus(if (timeout_ms == 0) .would_block else .timeout);
         return networkStatus(statusFromError(err));
     };
