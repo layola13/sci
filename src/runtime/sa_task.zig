@@ -364,6 +364,7 @@ const WaitNode = struct {
     // a kind-specific flag (rwlock: 1 = writer).
     owner_key: u64 = 0,
     flag: u32 = 0,
+    pool_next: ?*WaitNode = null, // wait-node pool free list
 };
 
 pub const Slot = extern struct { a: u64 = 0, b: u64 = 0 };
@@ -883,6 +884,61 @@ fn unpark(g: *Goroutine) void {
     enqueueRunnable(g);
 }
 
+/// WaitNode recycling. A blocking plain chan send/recv allocates
+/// its wait node from the page allocator and the peer that fires
+/// it releases it in fireNode: one mmap/munmap pair per park, on
+/// the goroutine handoff path every request walks (slaredis's
+/// per-command floor family; same tax the select path stopped
+/// paying in the wake batch). The lifetime discipline already
+/// guarantees exactly-once release: a node sits in exactly one
+/// wait queue, the claimer unlinks it under the owning lock
+/// before firing, and the fire-all paths unlink as they go --
+/// the same envelope that makes destroying it safe today makes
+/// pooling it safe. Select nodes never pass through fireNode
+/// (claimed via selectTryClaim, freed by their owner), so the
+/// pool only ever holds plain chan / join / sync nodes; join and
+/// sync nodes are still created raw and are simply donated into
+/// the pool when fireNode releases them. Every allocation site
+/// fully reinitializes the node (`node.* = .{...}`) before
+/// linking it anywhere, and waitNodeAlloc zeroes on top, so no
+/// stale field can survive a cycle. Stack residence (the select
+/// nodes' treatment) is NOT sound here: the peer fires and
+/// releases the node, potentially while the owner resumes on
+/// another carrier and reuses its stack frame -- the heap node's
+/// lifetime is exactly what makes the peer-side release sound.
+const WAIT_NODE_POOL_MAX: usize = 256;
+var wait_node_pool_mu: Mutex = .{};
+var wait_node_pool_head: ?*WaitNode = null;
+var wait_node_pool_len: usize = 0;
+
+fn waitNodeAlloc() ?*WaitNode {
+    wait_node_pool_mu.lock();
+    if (wait_node_pool_head) |node| {
+        wait_node_pool_head = node.pool_next;
+        wait_node_pool_len -= 1;
+        wait_node_pool_mu.unlock();
+        node.* = .{};
+        return node;
+    }
+    wait_node_pool_mu.unlock();
+    const node = alloc.create(WaitNode) catch return null;
+    node.* = .{};
+    return node;
+}
+
+fn waitNodeRelease(node: *WaitNode) void {
+    wait_node_pool_mu.lock();
+    if (wait_node_pool_len < WAIT_NODE_POOL_MAX) {
+        node.pool_next = wait_node_pool_head;
+        wait_node_pool_head = node;
+        wait_node_pool_len += 1;
+        wait_node_pool_mu.unlock();
+        return;
+    }
+    wait_node_pool_mu.unlock();
+    alloc.destroy(node);
+}
+
 fn fireNode(node: *WaitNode, status: i32) void {
     if (node.g) |g| {
         g.wake_status = status;
@@ -892,7 +948,7 @@ fn fireNode(node: *WaitNode, status: i32) void {
         os.status = status;
         os.fire();
     }
-    alloc.destroy(node);
+    waitNodeRelease(node);
 }
 
 // ---------------------------------------------------------------------
@@ -2404,7 +2460,7 @@ pub export fn sa_chan_send(handle: u64, value_ptr: ?*const Slot) i32 {
         return SA_TASK_OK;
     }
     // Block: register a wait node and park.
-    const node = alloc.create(WaitNode) catch {
+    const node = waitNodeAlloc() orelse {
         ch.mu.unlock();
         return ERR_NOMEM;
     };
@@ -2456,7 +2512,7 @@ pub export fn sa_chan_recv(handle: u64, out_value: ?*Slot, out_closed: ?*u32) i3
             out.* = .{};
             return SA_TASK_OK;
         }
-        const node = alloc.create(WaitNode) catch {
+        const node = waitNodeAlloc() orelse {
             ch.mu.unlock();
             return ERR_NOMEM;
         };
@@ -2920,6 +2976,99 @@ test "sa_task.test.chan: producer-consumer sum oracle" {
     try testing.expectEqual(expected, prodcons.total.load(.seq_cst));
     try testing.expectEqual(@as(u64, 1000), prodcons.count.load(.seq_cst));
     try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(prodcons.ch));
+}
+
+fn poolCycleProducer(arg: ?*anyopaque) callconv(.c) void {
+    const ch: u64 = @intFromPtr(arg.?);
+    var i: u64 = 0;
+    while (i < 5000) : (i += 1) {
+        var v: Slot = .{ .a = i, .b = i * 3 };
+        _ = sa_chan_send(ch, &v);
+    }
+    _ = sa_chan_close(ch);
+}
+
+test "sa_task.test.chan: pooled wait nodes keep delivery integrity across park cycles" {
+    if (!supported) return error.SkipZigTest;
+    var ch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &ch));
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&poolCycleProducer, @ptrFromInt(@as(usize, @intCast(ch))), &h));
+    // Every producer send parks on the unbuffered channel; its
+    // node is fired by the recv below and must come back through
+    // the pool thousands of times without corrupting delivery.
+    var i: u64 = 0;
+    while (i < 5000) : (i += 1) {
+        var out: Slot = undefined;
+        var closed: u32 = 99;
+        try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, &closed));
+        try testing.expectEqual(@as(u32, 0), closed);
+        try testing.expectEqual(i, out.a);
+        try testing.expectEqual(i * 3, out.b);
+    }
+    var out: Slot = undefined;
+    var closed: u32 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, &closed));
+    try testing.expectEqual(@as(u32, 1), closed);
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    // The pool must actually be holding recycled nodes (if the
+    // release path regresses to destroy, this stays 0).
+    try testing.expect(wait_node_pool_len > 0);
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+}
+
+var pool_blocked_got: std.atomic.Value(u64) = .init(0);
+var pool_blocked_closed: std.atomic.Value(u32) = .init(99);
+
+fn poolBlockedReceiver(arg: ?*anyopaque) callconv(.c) void {
+    const ch: u64 = @intFromPtr(arg.?);
+    var out: Slot = undefined;
+    var closed: u32 = 0;
+    _ = sa_chan_recv(ch, &out, &closed);
+    pool_blocked_got.store(out.a, .release);
+    pool_blocked_closed.store(closed, .release);
+}
+
+test "sa_task.test.chan: pooled nodes wake precisely (value, drain, close)" {
+    if (!supported) return error.SkipZigTest;
+    var ch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(1, &ch));
+    // Rotate the pool first so the waits below run on recycled
+    // nodes: a blocked receiver claimed by a send...
+    pool_blocked_got.store(0, .release);
+    pool_blocked_closed.store(99, .release);
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&poolBlockedReceiver, @ptrFromInt(@as(usize, @intCast(ch))), &h));
+    _ = sa_task_sleep_ms(60);
+    var v: Slot = .{ .a = 77, .b = 0 };
+    try testing.expectEqual(SA_TASK_OK, sa_chan_send(ch, &v));
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    try testing.expectEqual(@as(u64, 77), pool_blocked_got.load(.acquire));
+    try testing.expectEqual(@as(u32, 0), pool_blocked_closed.load(.acquire));
+    // ...a blocked sender released by a drain...
+    var v5: Slot = .{ .a = 5, .b = 0 };
+    try testing.expectEqual(SA_TASK_OK, sa_chan_send(ch, &v5));
+    block_send_done.store(false, .release);
+    var h2: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&blockedSender, @ptrFromInt(@as(usize, @intCast(ch))), &h2));
+    _ = sa_task_sleep_ms(60);
+    try testing.expect(!block_send_done.load(.acquire));
+    var out: Slot = undefined;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, null));
+    try testing.expectEqual(@as(u64, 5), out.a);
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h2));
+    try testing.expect(block_send_done.load(.acquire));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, null));
+    try testing.expectEqual(@as(u64, 44), out.a);
+    // ...and a blocked receiver woken by close (recheck path).
+    pool_blocked_closed.store(99, .release);
+    var h3: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&poolBlockedReceiver, @ptrFromInt(@as(usize, @intCast(ch))), &h3));
+    _ = sa_task_sleep_ms(60);
+    try testing.expectEqual(SA_TASK_OK, sa_chan_close(ch));
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h3));
+    try testing.expectEqual(@as(u32, 1), pool_blocked_closed.load(.acquire));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
 }
 
 test "sa_task.test.select: timeout, default, and ready case" {
