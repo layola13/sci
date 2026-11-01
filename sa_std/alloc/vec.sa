@@ -191,6 +191,7 @@ L_GROW_COPY:
     call @sa_mem_copy(&next_ptr, &buf, copy_bytes)
     store vec+Vec_ptr, next_ptr as ptr
     store vec+Vec_cap, next_cap as u64
+    call @sa_mem_free(^buf)
     jmp L_WRITE_GROW
 L_REUSE:
     store vec+Vec_ptr, buf as ptr
@@ -211,7 +212,6 @@ L_WRITE_GROW:
     !next_cap_ok
     !next_cap
     !cap_is_zero
-    !buf
     !value
     !elem_size
     !cap
@@ -564,8 +564,10 @@ L_SHRINK:
     br target_zero -> L_ZERO, L_ALLOC
 
 L_ZERO:
+    old_buf = take vec+Vec_ptr
     store vec+Vec_ptr, 0 as ptr
     store vec+Vec_cap, 0 as u64
+    call @sa_mem_free(^old_buf)
     !target_zero
     !needs_shrink
     !target_cap
