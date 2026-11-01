@@ -1357,6 +1357,7 @@ const SelectWaiter = struct {
     // Refcounted because a timeout timer may still hold the
     // pointer after the owner has woken and cleaned up.
     refs: std.atomic.Value(u32) = .init(1),
+    pool_next: ?*SelectWaiter = null, // selectAlloc free list
 };
 
 const NetWaiter = struct {
@@ -2069,8 +2070,50 @@ fn wakeSelectOwner(sel: *SelectWaiter) void {
     }
 }
 
+/// SelectWaiter recycling. A blocking select otherwise pays a
+/// page_allocator mmap/munmap pair for its waiter on every
+/// call. The refs/gen discipline already guarantees that a
+/// waiter whose refs reach zero is unreachable: a live timer
+/// entry holds a ref until it fires, stale entries are
+/// rejected by the gen check before they can touch the
+/// waiter, and the owner detaches every wait node (the only
+/// path by which a peer can reach the waiter) before dropping
+/// its own ref. A zero-ref waiter can therefore be reset and
+/// reused safely -- the same envelope that makes destroying
+/// it safe today.
+const SEL_POOL_MAX: usize = 64;
+var sel_pool_mu: Mutex = .{};
+var sel_pool_head: ?*SelectWaiter = null;
+var sel_pool_len: usize = 0;
+
+fn selectAlloc() ?*SelectWaiter {
+    sel_pool_mu.lock();
+    if (sel_pool_head) |sel| {
+        sel_pool_head = sel.pool_next;
+        sel_pool_len -= 1;
+        sel_pool_mu.unlock();
+        sel.* = .{};
+        return sel;
+    }
+    sel_pool_mu.unlock();
+    const sel = alloc.create(SelectWaiter) catch return null;
+    sel.* = .{};
+    return sel;
+}
+
 fn selectRelease(sel: *SelectWaiter) void {
-    if (sel.refs.fetchSub(1, .seq_cst) == 1) alloc.destroy(sel);
+    if (sel.refs.fetchSub(1, .seq_cst) == 1) {
+        sel_pool_mu.lock();
+        if (sel_pool_len < SEL_POOL_MAX) {
+            sel.pool_next = sel_pool_head;
+            sel_pool_head = sel;
+            sel_pool_len += 1;
+            sel_pool_mu.unlock();
+            return;
+        }
+        sel_pool_mu.unlock();
+        alloc.destroy(sel);
+    }
 }
 
 /// Attempt to claim a select waiter for case `index`. On success
@@ -2557,8 +2600,7 @@ pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[
     }
 
     // Phase 2: register one node per case and park.
-    const sel = alloc.create(SelectWaiter) catch return ERR_NOMEM;
-    sel.* = .{};
+    const sel = selectAlloc() orelse return ERR_NOMEM;
     sel.gen = select_gen_counter.fetchAdd(1, .seq_cst) + 1;
     var os_waiter: OsWaiter = .{};
     if (current_g) |me| {
@@ -2567,10 +2609,26 @@ pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[
     } else {
         sel.owner_os = &os_waiter;
     }
-    const nodes = alloc.alloc(?*WaitNode, n) catch {
+    // Wait nodes for small case counts live on this call's
+    // stack. The frame outlives the park; peers touch a node
+    // only while it is linked in a channel queue and only
+    // under that channel's lock, and the cleanup below
+    // detaches every node under the same lock before
+    // returning, so no peer can reach a node after this call.
+    // The heap path paid a page_allocator mmap + munmap for
+    // the pointer array and one mmap + munmap per node on
+    // every blocking select; at supervisor park rates that
+    // syscall traffic (mmap_lock contention, TLB shootdowns)
+    // priced tens of microseconds into the park/wake cycle
+    // (the same per-call allocator tax the ready fast path
+    // removed for case resolution).
+    var stack_nodes: [SELECT_STACK_CASES]WaitNode = undefined;
+    var stack_node_ptrs: [SELECT_STACK_CASES]?*WaitNode = undefined;
+    const stack_nodes_on = n <= SELECT_STACK_CASES;
+    const nodes: []?*WaitNode = if (stack_nodes_on) stack_node_ptrs[0..n] else (alloc.alloc(?*WaitNode, n) catch {
         selectRelease(sel);
         return ERR_NOMEM;
-    };
+    });
     for (nodes) |*nd| nd.* = null;
     // Mark parked BEFORE registering any case: a peer completing
     // a case during registration fires the waiter, and that wake
@@ -2580,7 +2638,7 @@ pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[
     var registered: usize = 0;
     var self_claimed = false;
     for (0..n) |i| {
-        const node = alloc.create(WaitNode) catch break;
+        const node: *WaitNode = if (stack_nodes_on) &stack_nodes[i] else (alloc.create(WaitNode) catch break);
         node.* = .{ .slot = &slot_ptrs[i], .sel = sel, .sel_index = @intCast(i) };
         nodes[i] = node;
         const ch = chans[i].?;
@@ -2674,9 +2732,9 @@ pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[
                 }
             }
             ch.mu.unlock();
-            alloc.destroy(node);
+            if (!stack_nodes_on) alloc.destroy(node);
         }
-        alloc.free(nodes);
+        if (!stack_nodes_on) alloc.free(nodes);
         selectRelease(sel);
         if (current_g) |me| {
             parkCancel();
@@ -2726,9 +2784,9 @@ pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[
             }
         }
         ch.mu.unlock();
-        alloc.destroy(node);
+        if (!stack_nodes_on) alloc.destroy(node);
     }
-    alloc.free(nodes);
+    if (!stack_nodes_on) alloc.free(nodes);
     selectRelease(sel);
     if (wake_status == WAKE_SEND_ON_CLOSED) {
         raiseTrap(SA_TASK_TRAP_SEND_ON_CLOSED, "send on closed channel");
@@ -3065,6 +3123,144 @@ test "sa_task.test.select: long timeout still waits and is woken by data" {
     try testing.expect(elapsed >= 40 * std.time.ns_per_ms);
     try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(selwake.a));
     try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(selwake.b));
+}
+
+const SelMany = struct {
+    chans: [40]u64 = undefined,
+    idx: std.atomic.Value(i64) = .init(-99),
+    val: std.atomic.Value(u64) = .init(0),
+};
+var selmany: SelMany = .{};
+
+fn selManyWaiter(_: ?*anyopaque) callconv(.c) void {
+    var ops: [40]u32 = undefined;
+    var slots: [40]Slot = undefined;
+    for (&ops) |*o| o.* = SA_CHAN_OP_RECV;
+    for (&slots) |*s| s.* = .{};
+    var idx: i64 = -1;
+    _ = sa_chan_select(&selmany.chans, &ops, &slots, 40, 0, -1, &idx, null);
+    selmany.idx.store(idx, .seq_cst);
+    if (idx >= 0) selmany.val.store(slots[@intCast(idx)].a, .seq_cst);
+}
+
+test "sa_task.test.select: 40 cases (heap node path) woken by the last arm" {
+    if (!supported) return error.SkipZigTest;
+    selmany = .{};
+    for (&selmany.chans) |*h| try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, h));
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&selManyWaiter, null, &h));
+    _ = sa_task_sleep_ms(60); // let the waiter register all 40 arms
+    var v: Slot = .{ .a = 4242, .b = 0 };
+    try testing.expectEqual(SA_TASK_OK, sa_chan_send(selmany.chans[39], &v));
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    try testing.expectEqual(@as(i64, 39), selmany.idx.load(.seq_cst));
+    try testing.expectEqual(@as(u64, 4242), selmany.val.load(.seq_cst));
+    for (selmany.chans) |ch| try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+}
+
+test "sa_task.test.select: 40 cases (heap node path) still time out precisely" {
+    if (!supported) return error.SkipZigTest;
+    selmany = .{};
+    for (&selmany.chans) |*h| try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, h));
+    var ops: [40]u32 = undefined;
+    var slots: [40]Slot = undefined;
+    for (&ops) |*o| o.* = SA_CHAN_OP_RECV;
+    for (&slots) |*s| s.* = .{};
+    var idx: i64 = -1;
+    const t0 = monotonicNs();
+    try testing.expectEqual(SA_TASK_OK, sa_chan_select(&selmany.chans, &ops, &slots, 40, 0, 30 * std.time.ns_per_ms, &idx, null));
+    const elapsed = monotonicNs() - t0;
+    try testing.expectEqual(@as(i64, -2), idx);
+    try testing.expect(elapsed >= 20 * std.time.ns_per_ms);
+    try testing.expect(elapsed < 2 * std.time.ns_per_s);
+    for (selmany.chans) |ch| try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+}
+
+test "sa_task.test.select: recycled waiters keep timeout precision across cycles" {
+    if (!supported) return error.SkipZigTest;
+    var ch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &ch));
+    // Alternate timed-out cycles (the waiter is released by
+    // its own timer fire and recycled) with data-claimed
+    // cycles (released by the owner). Every cycle must observe
+    // its own outcome and its own deadline: a stale claim or a
+    // stale gen leaking across pool reuse would show up as a
+    // wrong index, a wrong value, or an early return.
+    var iter: usize = 0;
+    while (iter < 6) : (iter += 1) {
+        var chans = [1]u64{ch};
+        var ops = [1]u32{SA_CHAN_OP_RECV};
+        var slots = [1]Slot{.{}};
+        var idx: i64 = -1;
+        if (iter % 2 == 0) {
+            const t0 = monotonicNs();
+            try testing.expectEqual(SA_TASK_OK, sa_chan_select(&chans, &ops, &slots, 1, 0, 25 * std.time.ns_per_ms, &idx, null));
+            const elapsed = monotonicNs() - t0;
+            try testing.expectEqual(@as(i64, -2), idx);
+            try testing.expect(elapsed >= 18 * std.time.ns_per_ms);
+            try testing.expect(elapsed < 1 * std.time.ns_per_s);
+        } else {
+            selwake = .{ .timeout_ns = 500 * std.time.ns_per_ms };
+            selwake.a = ch;
+            try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &selwake.b));
+            var h: u64 = 0;
+            const t0 = monotonicNs();
+            try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&selWakeWaiter, null, &h));
+            _ = sa_task_sleep_ms(10);
+            var v: Slot = .{ .a = 1000 + @as(u64, @intCast(iter)), .b = 0 };
+            try testing.expectEqual(SA_TASK_OK, sa_chan_send(ch, &v));
+            try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+            const elapsed = monotonicNs() - t0;
+            try testing.expectEqual(@as(i64, 0), selwake.idx.load(.seq_cst));
+            try testing.expectEqual(@as(u64, 1000 + @as(u64, @intCast(iter))), selwake.val.load(.seq_cst));
+            try testing.expect(elapsed < 300 * std.time.ns_per_ms);
+            try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(selwake.b));
+        }
+    }
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+}
+
+const SelFair = struct {
+    ch: u64 = 0,
+    got_a: std.atomic.Value(u64) = .init(0),
+    got_b: std.atomic.Value(u64) = .init(0),
+};
+var selfair: SelFair = .{};
+
+fn selFairWaiter(arg: ?*anyopaque) callconv(.c) void {
+    const mine: *std.atomic.Value(u64) = @ptrCast(@alignCast(arg.?));
+    var n: usize = 0;
+    while (n < 20) : (n += 1) {
+        var chans = [1]u64{selfair.ch};
+        var ops = [1]u32{SA_CHAN_OP_RECV};
+        var slots = [1]Slot{.{}};
+        var idx: i64 = -1;
+        _ = sa_chan_select(&chans, &ops, &slots, 1, 0, -1, &idx, null);
+        if (idx == 0) _ = mine.fetchAdd(1, .seq_cst);
+    }
+}
+
+test "sa_task.test.select: two waiters on one channel neither starves" {
+    if (!supported) return error.SkipZigTest;
+    selfair = .{};
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &selfair.ch));
+    var ha: u64 = 0;
+    var hb: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&selFairWaiter, @ptrCast(&selfair.got_a), &ha));
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&selFairWaiter, @ptrCast(&selfair.got_b), &hb));
+    _ = sa_task_sleep_ms(30); // both parked
+    var i: usize = 0;
+    while (i < 40) : (i += 1) {
+        var v: Slot = .{ .a = @intCast(i), .b = 0 };
+        try testing.expectEqual(SA_TASK_OK, sa_chan_send(selfair.ch, &v));
+        _ = sa_task_sleep_ms(5);
+    }
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(ha));
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(hb));
+    try testing.expectEqual(@as(u64, 40), selfair.got_a.load(.seq_cst) + selfair.got_b.load(.seq_cst));
+    try testing.expect(selfair.got_a.load(.seq_cst) >= 5);
+    try testing.expect(selfair.got_b.load(.seq_cst) >= 5);
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(selfair.ch));
 }
 
 var sink_send_closed_code: std.atomic.Value(i32) = .init(0);
