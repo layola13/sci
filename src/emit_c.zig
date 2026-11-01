@@ -1363,20 +1363,50 @@ const kRuntimeHelpers: []const HelperDef = &.{
     .{ .name = "sa_alloc", .code =
     \\static sa_u64 sa_alloc(sa_u64 size) {
     \\  size = sa_align(size, 8); if (size == 0) size = 8;
+    \\  { uint32_t prev = 0; uint32_t cur = sa_free_head;
+    \\    while (cur != 0) {
+    \\      uint32_t bsize = (uint32_t)sa_load_u32(cur);
+    \\      uint32_t next = (uint32_t)sa_load_u32((sa_u64)cur + 8);
+    \\      if ((sa_u64)bsize >= size) {
+    \\        if ((sa_u64)bsize - size >= 32) {
+    \\          uint32_t nb = cur + 8 + (uint32_t)size;
+    \\          sa_store_u32(nb, (sa_u64)(bsize - (uint32_t)size - 8));
+    \\          sa_store_u32((sa_u64)nb + 4, 0xF2EE0B10u);
+    \\          sa_store_u32((sa_u64)nb + 8, (sa_u64)next);
+    \\          if (prev != 0) sa_store_u32((sa_u64)prev + 8, (sa_u64)nb); else sa_free_head = nb;
+    \\          sa_store_u32(cur, size);
+    \\        } else {
+    \\          if (prev != 0) sa_store_u32((sa_u64)prev + 8, (sa_u64)next); else sa_free_head = next;
+    \\        }
+    \\        sa_store_u32((sa_u64)cur + 4, 0x5A110C4Bu);
+    \\        { uint32_t i; for (i = 0; i < (uint32_t)size; i++) sa_mem[cur + 8 + i] = 0; }
+    \\        return (sa_u64)cur + 8;
+    \\      }
+    \\      prev = cur; cur = next;
+    \\    } }
     \\  uint32_t base = sa_brk;
     \\  { sa_u64 nb = (sa_u64)base + size + 8; if (nb > (sa_u64)sizeof(sa_mem)) sa_trap("out of memory (bump)"); sa_brk = (uint32_t)nb; } // NOLINT(bugprone-misplaced-widening-cast): nb range-checked above
     \\  { uint32_t i; for (i = 0; i < (uint32_t)(size + 8); i++) sa_mem[base + i] = 0; }
     \\  sa_mem[base] = (uint8_t)(size & 0xFFu); sa_mem[base + 1] = (uint8_t)((size >> 8) & 0xFFu);
     \\  sa_mem[base + 2] = (uint8_t)((size >> 16) & 0xFFu); sa_mem[base + 3] = (uint8_t)((size >> 24) & 0xFFu);
+    \\  sa_store_u32((sa_u64)base + 4, 0x5A110C4Bu);
     \\  return (sa_u64)base + 8;
     \\}
-    , .deps = &.{"sa_align"} },
+    , .deps = &.{ "sa_align", "sa_load_u32", "sa_store_u32" } },
     .{ .name = "sa_salloc", .code =
     \\static sa_u64 sa_salloc(sa_u64 size) { return sa_alloc(size); }
     , .deps = &.{"sa_alloc"} },
     .{ .name = "sa_free", .code =
-    \\static sa_u64 sa_free(sa_u64 ptr) { (void)ptr; return 0; }
-    , .deps = &.{} },
+    \\static sa_u64 sa_free(sa_u64 ptr) {
+    \\  if (ptr < 65536 + 8 || ptr >= (sa_u64)sa_brk) return 0;
+    \\  { uint32_t base = (uint32_t)ptr - 8;
+    \\    if ((uint32_t)sa_load_u32((sa_u64)base + 4) != 0x5A110C4Bu) return 0;
+    \\    sa_store_u32((sa_u64)base + 4, 0xF2EE0B10u);
+    \\    sa_store_u32((sa_u64)base + 8, (sa_u64)sa_free_head);
+    \\    sa_free_head = base; }
+    \\  return 0;
+    \\}
+    , .deps = &.{ "sa_load_u32", "sa_store_u32" } },
     .{ .name = "sa_ptr_add", .code =
     \\static sa_u64 sa_ptr_add(sa_u64 base, sa_u64 off) { return base + off; }
     , .deps = &.{} },
@@ -7292,6 +7322,7 @@ fn writePreamble(
     }
     if (need_brk) {
         try writer.writeAll("static uint32_t sa_brk = 65536;\n");
+        try writer.writeAll("static uint32_t sa_free_head = 0;\n");
     }
     try writer.writeAll(
         \\static __attribute__((noreturn, unused)) void sa_trap(const char *msg) { fputs("[sa-trap] ", stderr); fputs(msg, stderr); fputc('\n', stderr); exit(1); }
