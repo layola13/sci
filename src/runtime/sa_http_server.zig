@@ -95,6 +95,58 @@ pub fn nowMillis() i64 {
     return std.Io.Timestamp.now(sio.io(), .awake).toMilliseconds();
 }
 
+pub fn nowMicros() i64 {
+    return std.Io.Timestamp.now(sio.io(), .awake).toMicroseconds();
+}
+
+// ---------------------------------------------------------------------
+// Resident accept-wait instrumentation (tail-fix D1). Always compiled
+// in; per-request cost is a stamp write under the pool lock or one
+// atomic increment, so the face's service discipline is observable
+// without application-level probes. Segments:
+//   0 delivery: us a pooled keep-alive request waited from first
+//      being observed ready (queued_since stamp) to being claimed
+//      and parsed by an acceptor.
+//   1 exit:     time inside the v2 response send exports (poll for
+//      writability + the write/sendfile itself).
+//   2 missed:   number of claim sweeps in which a connection was
+//      readable but another connection was served instead
+//      (bucketed with the same thresholds, read as counts).
+//   3 accept:   wall time inside one bounded/configured accept
+//      call that returned a request (poll -> claim/fresh -> return).
+// Bucket thresholds are microseconds for segments 0/1/3.
+// Read via sa_http_server_hist_v2; SA_HTTP_HIST_DUMP=1 additionally
+// dumps all segments to stderr every 16384 served accepts.
+// ---------------------------------------------------------------------
+pub const hist_segments: usize = 4;
+pub const hist_buckets: usize = 20;
+pub const HIST_SEG_DELIVERY: usize = 0;
+pub const HIST_SEG_EXIT: usize = 1;
+pub const HIST_SEG_MISSED: usize = 2;
+pub const HIST_SEG_ACCEPT: usize = 3;
+const hist_thresholds_us: [hist_buckets - 1]u64 = .{
+    5, 10, 25, 50, 100, 250, 500, 1_000, 2_000, 5_000,
+    10_000, 25_000, 50_000, 100_000, 250_000, 500_000,
+    1_000_000, 2_500_000, 5_000_000,
+};
+
+fn histBucketFor(value: u64) usize {
+    for (hist_thresholds_us, 0..) |t, i| {
+        if (value < t) return i;
+    }
+    return hist_buckets - 1;
+}
+
+var hist_dump_flag: std.atomic.Value(i32) = std.atomic.Value(i32).init(-1);
+
+fn histDumpEnabled() bool {
+    const cur = hist_dump_flag.load(.monotonic);
+    if (cur >= 0) return cur != 0;
+    const on = if (std.c.getenv("SA_HTTP_HIST_DUMP")) |v| v[0] != 0 and v[0] != '0' else false;
+    hist_dump_flag.store(if (on) 1 else 0, .monotonic);
+    return on;
+}
+
 pub fn pollStream(fd: std.posix.fd_t, events: i16, timeout_ms: u32, out_events: ?*u32) NetworkStatus {
     var poll_fds = [1]std.posix.pollfd{.{
         .fd = fd,
@@ -310,6 +362,16 @@ const ConnState = struct {
     /// other connections in parallel. Set under claim, cleared when
     /// the connection is pushed back into the pool.
     claimed: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    /// Tail-fix instrumentation: wall time (us) when an acceptor
+    /// first observed this pooled connection with a queued request
+    /// (poll readiness or bytes already buffered at recycle time).
+    /// 0 = not queued. Written under the pool lock (poll stamp,
+    /// pushRecycled) or by the claim owner; read by the claim owner.
+    queued_since_us: i64 = 0,
+    /// Tail-fix instrumentation: claim sweeps that saw this
+    /// connection readable but served another connection instead.
+    /// Recorded into the missed-rounds histogram when claimed.
+    missed_rounds: std.atomic.Value(u32) = std.atomic.Value(u32).init(0),
 };
 
 /// Cap on idle keep-alive connections held in the pool (each pins an 8KB
@@ -324,6 +386,15 @@ const stream_flush_threshold: usize = 8192;
 /// Bound on one non-blocking keep-alive probe parse (covers normal TCP
 /// segment gaps without stalling the accept loop).
 const probe_parse_timeout_ms: u32 = 50;
+
+/// One pooled connection as snapshotted by a claim sweep: values
+/// only (pointer, fd, buffered flag); the pointer is dereferenced
+/// solely after a claim or a locked presence re-check.
+const PooledSnapshot = struct {
+    conn: *ConnState,
+    fd: std.posix.fd_t,
+    has_buffered: bool,
+};
 
 /// Result of the internal poll over listener + idle pool + wake pipe.
 const PollOutcome = struct {
@@ -402,6 +473,39 @@ pub const HttpServer = struct {
     wake_pipe: [2]std.posix.fd_t,
     /// Active plugin-internal thread pool (serve_threaded), if any.
     pool: ?*ThreadPool = null,
+    /// Resident instrumentation counters [segment][bucket]
+    /// (tail-fix D1; see the segment table near nowMicros).
+    hist: [hist_segments][hist_buckets]std.atomic.Value(u64) = blk: {
+        var h: [hist_segments][hist_buckets]std.atomic.Value(u64) = undefined;
+        for (&h) |*seg| {
+            for (seg) |*cell| cell.* = std.atomic.Value(u64).init(0);
+        }
+        break :blk h;
+    },
+    /// Accepts served since boot (drives the env-gated hist dump).
+    hist_served: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+
+    fn histRecord(self: *HttpServer, segment: usize, value: u64) void {
+        _ = self.hist[segment][histBucketFor(value)].fetchAdd(1, .monotonic);
+    }
+
+    fn histDump(self: *HttpServer) void {
+        for (0..hist_segments) |seg| {
+            var total: u64 = 0;
+            for (0..hist_buckets) |b| total += self.hist[seg][b].load(.monotonic);
+            std.debug.print("SA_HTTP_HIST seg={d} total={d} buckets=", .{ seg, total });
+            for (0..hist_buckets) |b| std.debug.print("{d},", .{self.hist[seg][b].load(.monotonic)});
+            std.debug.print("\n", .{});
+        }
+    }
+
+    /// Record one served accept (accept segment + periodic dump).
+    fn histServed(self: *HttpServer, accept_started_us: i64) void {
+        const elapsed = nowMicros() - accept_started_us;
+        if (elapsed > 0) self.histRecord(HIST_SEG_ACCEPT, @intCast(elapsed));
+        const n = self.hist_served.fetchAdd(1, .monotonic) + 1;
+        if (n % 16384 == 0 and histDumpEnabled()) self.histDump();
+    }
 
     pub fn init(allocator: std.mem.Allocator) !*HttpServer {
         if (comptime builtin.cpu.arch.isWasm()) {
@@ -585,6 +689,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                 if (conn.claimed.load(.acquire)) continue;
                 // Pipelined bytes already buffered: no need to poll.
                 if (conn.read_len > conn.request_start) {
+                    if (conn.queued_since_us == 0) conn.queued_since_us = nowMicros();
                     return .{ .status = .ok, .recycled_ready = true, .listener_ready = false };
                 }
                 fds[nfds] = .{
@@ -633,6 +738,28 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         for (fds[0..nrec]) |pfd| {
             if (pfd.revents != 0) recycled_ready = true;
         }
+        if (recycled_ready) {
+            // Delivery-histogram stamps: record when each ready
+            // pooled connection was first observed. Re-walk the pool
+            // under the lock and match poll slots in build order
+            // (unclaimed connections only) so no pointer from the
+            // unlocked poll set is dereferenced; a pool change
+            // mid-poll can shift a stamp to a neighbour, which only
+            // blurs this instrumentation, never the service path.
+            const stamp_us = nowMicros();
+            self.recycled_mutex.lockUncancelable(sio.io());
+            defer self.recycled_mutex.unlock(sio.io());
+            var fi: usize = 0;
+            for (self.recycled.items) |conn| {
+                if (conn.claimed.load(.acquire)) continue;
+                if (fi >= nrec) break;
+                const rev = fds[fi].revents;
+                fi += 1;
+                if (rev != 0 and conn.queued_since_us == 0) {
+                    conn.queued_since_us = stamp_us;
+                }
+            }
+        }
         const levents = fds[nfds - 1].revents;
         if (levents & (std.posix.POLL.ERR | std.posix.POLL.NVAL) != 0)
             return .{ .status = .io_error, .recycled_ready = false, .listener_ready = false };
@@ -661,15 +788,22 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         // accept loop while other connections have traffic. The idle pool is
         // only swept when poll saw pool activity (wake pipe or recycled fd),
         // keeping the per-accept cost O(1) in the common listener-traffic case.
+        const accept_t0 = nowMicros();
         while (true) {
             const pr = self.pollAcceptEx(60_000);
             switch (pr.status) {
                 .ok => {
                     if (pr.recycled_ready) {
-                        if (self.claimRecycled(max_body_len, null)) |req| return req;
+                        if (self.claimRecycled(max_body_len, null)) |req| {
+                            self.histServed(accept_t0);
+                            return req;
+                        }
                     }
                     if (pr.listener_ready) {
-                        if (try self.acceptFresh(max_body_len, null, null, true)) |req| return req;
+                        if (try self.acceptFresh(max_body_len, null, null, true)) |req| {
+                            self.histServed(accept_t0);
+                            return req;
+                        }
                     }
                     // Spurious wakeup (e.g. a recycled fd died and was
                     // reaped): re-poll.
@@ -683,6 +817,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
     fn acceptBounded(self: *HttpServer, max_body_len: usize, timeout_ms: u32) !*HttpRequest {
         if (self.server == null) return error.NotFound;
         const start_ms = nowMillis();
+        const accept_t0 = nowMicros();
         while (true) {
             const elapsed_ms: u64 = blk: {
                 const e = nowMillis() - start_ms;
@@ -694,10 +829,16 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
             switch (pr.status) {
                 .ok => {
                     if (pr.recycled_ready) {
-                        if (self.claimRecycled(max_body_len, timeout_ms)) |req| return req;
+                        if (self.claimRecycled(max_body_len, timeout_ms)) |req| {
+                            self.histServed(accept_t0);
+                            return req;
+                        }
                     }
                     if (pr.listener_ready) {
-                        if (try self.acceptFresh(max_body_len, remaining, timeout_ms, true)) |req| return req;
+                        if (try self.acceptFresh(max_body_len, remaining, timeout_ms, true)) |req| {
+                            self.histServed(accept_t0);
+                            return req;
+                        }
                     }
                 },
                 .timeout => return error.HttpHeadersUnreadable,
@@ -716,6 +857,29 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
             if (item == conn) {
                 _ = self.recycled.swapRemove(idx);
                 return;
+            }
+        }
+    }
+
+    /// Missed-round accounting for one claim sweep (tail-fix
+    /// instrumentation): every snapshot entry that was readable in
+    /// this sweep, was not the served one, and is still pooled and
+    /// unclaimed accrues a missed round. Pool presence is re-checked
+    /// under the lock before any snapshot pointer is dereferenced.
+    fn noteMissedRounds(self: *HttpServer, snap: []const PooledSnapshot, pfds: []const std.posix.pollfd, served_idx: usize) void {
+        self.recycled_mutex.lockUncancelable(sio.io());
+        defer self.recycled_mutex.unlock(sio.io());
+        for (snap, 0..) |entry, j| {
+            if (j == served_idx) continue;
+            const readable = entry.has_buffered or (pfds[j].revents & std.posix.POLL.IN) != 0;
+            if (!readable) continue;
+            for (self.recycled.items) |item| {
+                if (item == entry.conn) {
+                    if (!item.claimed.load(.acquire)) {
+                        _ = item.missed_rounds.fetchAdd(1, .monotonic);
+                    }
+                    break;
+                }
             }
         }
     }
@@ -754,11 +918,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
     /// complete request, or null when every ready connection was
     /// claimed by a peer or none was ready; never blocks.
     fn claimRecycled(self: *HttpServer, max_body_len: usize, post_parse_timeout: ?u32) ?*HttpRequest {
-        const Snapshot = struct {
-            conn: *ConnState,
-            fd: std.posix.fd_t,
-            has_buffered: bool,
-        };
+        const Snapshot = PooledSnapshot;
         var snap: [max_recycled_conns]Snapshot = undefined;
         var nsnap: usize = 0;
         {
@@ -854,6 +1014,17 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                     continue;
                 };
             }
+            // Tail-fix instrumentation: this connection's queue
+            // wait and missed-sweep count land in the histograms;
+            // every other connection this sweep saw readable but
+            // did not serve accrues a missed round.
+            if (conn.queued_since_us != 0) {
+                const waited_us = nowMicros() - conn.queued_since_us;
+                if (waited_us > 0) self.histRecord(HIST_SEG_DELIVERY, @intCast(waited_us));
+                conn.queued_since_us = 0;
+            }
+            self.histRecord(HIST_SEG_MISSED, conn.missed_rounds.swap(0, .monotonic));
+            self.noteMissedRounds(snap[0..nsnap], pfds[0..nsnap], i);
             self.removeFromPool(conn);
             return req;
         }
@@ -1124,6 +1295,12 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
             // here; clear any claim before it becomes visible in
             // the pool.
             conn.claimed.store(false, .release);
+            // A request pipelined into the buffer is already
+            // queued at recycle time: stamp it for the delivery
+            // histogram.
+            if (conn.read_len > conn.request_start and conn.queued_since_us == 0) {
+                conn.queued_since_us = nowMicros();
+            }
             self.recycled.append(conn) catch {
                 self.destroyConn(conn, true);
                 return;
@@ -2258,6 +2435,27 @@ pub export fn sa_http_server_accept_v2(server: ?*anyopaque, timeout_ms: u32, out
     return networkStatus(.ok);
 }
 
+// Resident instrumentation readout (tail-fix D1): one bucket of
+// one segment of the server's service-discipline histograms.
+// Out-of-range segment/bucket reads return 0 (readout only; the
+// counters themselves are the contract).
+pub export fn sa_http_server_hist_v2(server: ?*anyopaque, segment: u32, bucket: u32) u64 {
+    const server_ptr = server orelse return 0;
+    if (segment >= hist_segments or bucket >= hist_buckets) return 0;
+    const srv = @as(*HttpServer, @ptrCast(@alignCast(server_ptr)));
+    return srv.hist[segment][bucket].load(.monotonic);
+}
+
+pub export fn sa_http_server_hist_reset_v2(server: ?*anyopaque) u32 {
+    const server_ptr = server orelse return networkStatus(.invalid);
+    const srv = @as(*HttpServer, @ptrCast(@alignCast(server_ptr)));
+    for (&srv.hist) |*seg| {
+        for (seg) |*cell| cell.store(0, .monotonic);
+    }
+    srv.hist_served.store(0, .monotonic);
+    return networkStatus(.ok);
+}
+
 pub export fn sa_http_server_req_free_v2(req: ?*anyopaque) u32 {
     const req_ptr = req orelse return networkStatus(.invalid);
     const request = @as(*HttpRequest, @ptrCast(@alignCast(req_ptr)));
@@ -2297,9 +2495,12 @@ pub export fn sa_http_server_resp_send_v2(resp: ?*anyopaque, body_ptr: ?[*]const
         break :blk "";
     };
     const response = @as(*HttpResponse, @ptrCast(@alignCast(resp_ptr)));
+    const exit_t0 = nowMicros();
     const poll_status = pollStream(response.request.stream().socket.handle, std.posix.POLL.OUT, timeout_ms, null);
     if (poll_status != .ok) return networkStatus(poll_status);
-    response.send(body) catch |err| return networkStatus(statusFromError(err));
+    const send_result = response.send(body);
+    response.request.server.histRecord(HIST_SEG_EXIT, @intCast(@max(0, nowMicros() - exit_t0)));
+    send_result catch |err| return networkStatus(statusFromError(err));
     return networkStatus(.ok);
 }
 
@@ -2309,9 +2510,12 @@ pub export fn sa_http_server_resp_send_v2(resp: ?*anyopaque, body_ptr: ?[*]const
 pub export fn sa_http_server_resp_send_head_v2(resp: ?*anyopaque, content_length: u64, timeout_ms: u32) u32 {
     const resp_ptr = resp orelse return networkStatus(.invalid);
     const response = @as(*HttpResponse, @ptrCast(@alignCast(resp_ptr)));
+    const exit_t0 = nowMicros();
     const poll_status = pollStream(response.request.stream().socket.handle, std.posix.POLL.OUT, timeout_ms, null);
     if (poll_status != .ok) return networkStatus(poll_status);
-    response.sendHeadOnly(content_length) catch |err| return networkStatus(statusFromError(err));
+    const send_result = response.sendHeadOnly(content_length);
+    response.request.server.histRecord(HIST_SEG_EXIT, @intCast(@max(0, nowMicros() - exit_t0)));
+    send_result catch |err| return networkStatus(statusFromError(err));
     return networkStatus(.ok);
 }
 
@@ -2371,9 +2575,12 @@ pub export fn sa_http_server_resp_send_file_v2(resp: ?*anyopaque, file_fd: i64, 
     if (file_fd < 0 or file_fd > std.math.maxInt(std.posix.fd_t)) return networkStatus(.invalid);
     if (comptime builtin.cpu.arch.isWasm() or builtin.os.tag != .linux) return 8;
     const response = @as(*HttpResponse, @ptrCast(@alignCast(resp_ptr)));
+    const exit_t0 = nowMicros();
     const poll_status = pollStream(response.request.stream().socket.handle, std.posix.POLL.OUT, timeout_ms, null);
     if (poll_status != .ok) return networkStatus(poll_status);
-    const sent = response.sendFile(@intCast(file_fd), offset, count) catch |err| return networkStatus(statusFromError(err));
+    const send_result = response.sendFile(@intCast(file_fd), offset, count);
+    response.request.server.histRecord(HIST_SEG_EXIT, @intCast(@max(0, nowMicros() - exit_t0)));
+    const sent = send_result catch |err| return networkStatus(statusFromError(err));
     sent_slot.* = sent;
     if (sent != count) return networkStatus(.io_error);
     return networkStatus(.ok);

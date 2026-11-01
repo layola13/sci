@@ -45,6 +45,11 @@
 @extern sa_http_server_new_v2(&out_server: ptr) -> u32
 @extern sa_http_server_start_v2(server: ptr, &host: ptr, host_len: u64, port: u16) -> u32
 @extern sa_http_server_accept_v2(server: ptr, timeout_ms: u32, &out_req: ptr) -> u32
+// Resident service-discipline histograms (delivery / exit /
+// missed-rounds / accept segments; see the runtime source for the
+// bucket table). Readout + reset for benches and diagnostics.
+@extern sa_http_server_hist_v2(server: ptr, segment: u32, bucket: u32) -> u64
+@extern sa_http_server_hist_reset_v2(server: ptr) -> u32
 @extern sa_http_server_req_free_v2(req: ptr) -> u32
 @extern sa_http_server_resp_new_v2(req: ptr, status: u16, &out_resp: ptr) -> u32
 @extern sa_http_server_resp_add_header_v2(resp: ptr, &name: ptr, name_len: u64, &value: ptr, value_len: u64) -> u32
