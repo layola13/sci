@@ -2466,6 +2466,10 @@ pub export fn sa_chan_cap(handle: u64, out_cap: ?*u64) i32 {
 
 var select_gen_counter: std.atomic.Value(u64) = .init(0);
 
+/// Case-count ceiling for stack-resident channel resolution in
+/// sa_chan_select; above this the call falls back to the heap.
+const SELECT_STACK_CASES: usize = 32;
+
 pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[*]Slot, count: u64, has_default: u32, timeout_ns: i64, out_index: ?*i64, out_closed: ?*u32) i32 {
     if (!supported) return ERR_UNSUPPORTED;
     const oi = out_index orelse return ERR_INVALID;
@@ -2483,10 +2487,20 @@ pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[
     const slot_ptrs: []Slot = if (n > 0) slots.?[0..n] else &empty_slots;
 
     // Resolve all channels first (pins them for the whole call).
-    const chans = alloc.alloc(?*Channel, n) catch return ERR_NOMEM;
+    // Small case counts resolve into a stack buffer: the ready
+    // fast path below must not pay a page_allocator mmap/munmap
+    // per call (that tax alone priced a ready-hit select well
+    // above a bare recv). Larger counts fall back to the heap.
+    var stack_chans: [SELECT_STACK_CASES]?*Channel = undefined;
+    for (&stack_chans) |*c| c.* = null;
+    const heap_chans: ?[]?*Channel = if (n > SELECT_STACK_CASES) (alloc.alloc(?*Channel, n) catch return ERR_NOMEM) else null;
+    if (heap_chans) |hc| {
+        for (hc) |*c| c.* = null;
+    }
+    const chans: []?*Channel = if (heap_chans) |hc| hc else stack_chans[0..n];
     defer {
         for (chans) |c| if (c) |ch| chanRelease(ch);
-        alloc.free(chans);
+        if (heap_chans) |hc| alloc.free(hc);
     }
     for (case_ptrs, 0..) |h, i| {
         chans[i] = chanLookup(h);
@@ -2528,6 +2542,17 @@ pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[
     }
     if (has_default != 0) {
         oi.* = -1;
+        return SA_TASK_OK;
+    }
+    // Zero timeout: the deadline has already expired at entry.
+    // Phase 1 found nothing ready, so the timeout outcome is
+    // decided -- return it now instead of registering wait
+    // nodes and parking for a timer cycle that can only confirm
+    // what is already known. (Parking here priced every drain
+    // poll of a saturated supervisor at a full park/wake cycle
+    // per item, which was the measured completion ceiling.)
+    if (timeout_ns == 0) {
+        oi.* = -2;
         return SA_TASK_OK;
     }
 
@@ -2874,6 +2899,172 @@ test "sa_task.test.select: timeout, default, and ready case" {
     try testing.expect(monotonicNs() - t0 < 1000 * std.time.ns_per_ms);
     try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
     try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch2));
+}
+
+test "sa_task.test.select: zero timeout returns immediately on empty channel" {
+    if (!supported) return error.SkipZigTest;
+    var ch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &ch));
+    var chans = [1]u64{ch};
+    var ops = [1]u32{SA_CHAN_OP_RECV};
+    var slots = [1]Slot{.{}};
+    var idx: i64 = -99;
+    // One call: timeout outcome (-2), no value.
+    try testing.expectEqual(SA_TASK_OK, sa_chan_select(&chans, &ops, &slots, 1, 0, 0, &idx, null));
+    try testing.expectEqual(@as(i64, -2), idx);
+    // A drain loop of zero-timeout polls must not pay a park /
+    // timer cycle per call: 2000 polls complete in a small
+    // fraction of the ~100us-per-poll the parking path charged.
+    const t0 = monotonicNs();
+    var i: usize = 0;
+    while (i < 2000) : (i += 1) {
+        idx = -99;
+        try testing.expectEqual(SA_TASK_OK, sa_chan_select(&chans, &ops, &slots, 1, 0, 0, &idx, null));
+        try testing.expectEqual(@as(i64, -2), idx);
+    }
+    try testing.expect(monotonicNs() - t0 < 20 * std.time.ns_per_ms);
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+}
+
+test "sa_task.test.select: ready arm beats zero timeout" {
+    if (!supported) return error.SkipZigTest;
+    var ch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(1, &ch));
+    var v: Slot = .{ .a = 4242, .b = 0 };
+    try testing.expectEqual(SA_TASK_OK, sa_chan_send(ch, &v));
+    var chans = [1]u64{ch};
+    var ops = [1]u32{SA_CHAN_OP_RECV};
+    var slots = [1]Slot{.{}};
+    var idx: i64 = -99;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_select(&chans, &ops, &slots, 1, 0, 0, &idx, null));
+    try testing.expectEqual(@as(i64, 0), idx);
+    try testing.expectEqual(@as(u64, 4242), slots[0].a);
+    // Send arm with buffer space also resolves immediately.
+    var chans2 = [1]u64{ch};
+    var ops2 = [1]u32{SA_CHAN_OP_SEND};
+    var slots2 = [1]Slot{.{ .a = 5150, .b = 0 }};
+    idx = -99;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_select(&chans2, &ops2, &slots2, 1, 0, 0, &idx, null));
+    try testing.expectEqual(@as(i64, 0), idx);
+    var out: Slot = undefined;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, null));
+    try testing.expectEqual(@as(u64, 5150), out.a);
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+}
+
+test "sa_task.test.select: default takes precedence over zero timeout" {
+    if (!supported) return error.SkipZigTest;
+    var ch: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &ch));
+    var chans = [1]u64{ch};
+    var ops = [1]u32{SA_CHAN_OP_RECV};
+    var slots = [1]Slot{.{}};
+    var idx: i64 = -99;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_select(&chans, &ops, &slots, 1, 1, 0, &idx, null));
+    try testing.expectEqual(@as(i64, -1), idx);
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+}
+
+test "sa_task.test.select: ready arms drain in order, no arm starves" {
+    if (!supported) return error.SkipZigTest;
+    var ch1: u64 = 0;
+    var ch2: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(4, &ch1));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(4, &ch2));
+    for (0..3) |i| {
+        var v1: Slot = .{ .a = @intCast(100 + i), .b = 0 };
+        try testing.expectEqual(SA_TASK_OK, sa_chan_send(ch1, &v1));
+        var v2: Slot = .{ .a = @intCast(200 + i), .b = 0 };
+        try testing.expectEqual(SA_TASK_OK, sa_chan_send(ch2, &v2));
+    }
+    var chans = [2]u64{ ch1, ch2 };
+    var ops = [2]u32{ SA_CHAN_OP_RECV, SA_CHAN_OP_RECV };
+    var slots = [2]Slot{ .{}, .{} };
+    // In-order evaluation drains the earlier ready arm first;
+    // across the full drain every arm's items are all served --
+    // no item is starved while its channel holds values.
+    var counts = [2]u64{ 0, 0 };
+    var seen = [6]u64{ 0, 0, 0, 0, 0, 0 };
+    var k: usize = 0;
+    while (k < 6) : (k += 1) {
+        var idx: i64 = -99;
+        slots = [2]Slot{ .{}, .{} };
+        try testing.expectEqual(SA_TASK_OK, sa_chan_select(&chans, &ops, &slots, 2, 0, 0, &idx, null));
+        try testing.expect(idx == 0 or idx == 1);
+        counts[@intCast(idx)] += 1;
+        seen[k] = slots[@intCast(idx)].a;
+    }
+    try testing.expectEqual(@as(u64, 3), counts[0]);
+    try testing.expectEqual(@as(u64, 3), counts[1]);
+    for (0..3) |i| {
+        try testing.expectEqual(@as(u64, @intCast(100 + i)), seen[i]);
+        try testing.expectEqual(@as(u64, @intCast(200 + i)), seen[3 + i]);
+    }
+    // Both drained: a further zero-timeout poll reports timeout.
+    var idx: i64 = -99;
+    try testing.expectEqual(SA_TASK_OK, sa_chan_select(&chans, &ops, &slots, 2, 0, 0, &idx, null));
+    try testing.expectEqual(@as(i64, -2), idx);
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch1));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch2));
+}
+
+const SelWake = struct {
+    a: u64 = 0,
+    b: u64 = 0,
+    timeout_ns: i64 = -1,
+    idx: std.atomic.Value(i64) = .init(-99),
+    val: std.atomic.Value(u64) = .init(0),
+};
+var selwake: SelWake = .{};
+
+fn selWakeWaiter(_: ?*anyopaque) callconv(.c) void {
+    var chans = [2]u64{ selwake.a, selwake.b };
+    var ops = [2]u32{ SA_CHAN_OP_RECV, SA_CHAN_OP_RECV };
+    var slots = [2]Slot{ .{}, .{} };
+    var idx: i64 = -1;
+    _ = sa_chan_select(&chans, &ops, &slots, 2, 0, selwake.timeout_ns, &idx, null);
+    selwake.idx.store(idx, .seq_cst);
+    if (idx >= 0) selwake.val.store(slots[@intCast(idx)].a, .seq_cst);
+}
+
+test "sa_task.test.select: blocked select is woken by the second arm" {
+    if (!supported) return error.SkipZigTest;
+    selwake = .{ .timeout_ns = -1 };
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &selwake.a));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &selwake.b));
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&selWakeWaiter, null, &h));
+    _ = sa_task_sleep_ms(60); // let the waiter park in select
+    var v: Slot = .{ .a = 9001, .b = 0 };
+    try testing.expectEqual(SA_TASK_OK, sa_chan_send(selwake.b, &v));
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    try testing.expectEqual(@as(i64, 1), selwake.idx.load(.seq_cst));
+    try testing.expectEqual(@as(u64, 9001), selwake.val.load(.seq_cst));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(selwake.a));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(selwake.b));
+}
+
+test "sa_task.test.select: long timeout still waits and is woken by data" {
+    if (!supported) return error.SkipZigTest;
+    selwake = .{ .timeout_ns = 5 * std.time.ns_per_s };
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &selwake.a));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &selwake.b));
+    const t0 = monotonicNs();
+    var h: u64 = 0;
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&selWakeWaiter, null, &h));
+    _ = sa_task_sleep_ms(60); // waiter is parked with ~5 s left
+    var v: Slot = .{ .a = 31337, .b = 0 };
+    try testing.expectEqual(SA_TASK_OK, sa_chan_send(selwake.a, &v));
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+    const elapsed = monotonicNs() - t0;
+    try testing.expectEqual(@as(i64, 0), selwake.idx.load(.seq_cst));
+    try testing.expectEqual(@as(u64, 31337), selwake.val.load(.seq_cst));
+    // Woken by the data long before the 5 s timeout, and not
+    // before the send (i.e. it genuinely waited).
+    try testing.expect(elapsed < 2 * std.time.ns_per_s);
+    try testing.expect(elapsed >= 40 * std.time.ns_per_ms);
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(selwake.a));
+    try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(selwake.b));
 }
 
 var sink_send_closed_code: std.atomic.Value(i32) = .init(0);
