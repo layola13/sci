@@ -1120,7 +1120,7 @@ pub fn disasmModule(allocator: std.mem.Allocator, bytes: []const u8, writer: *st
 
     for (module.instructions) |item| {
         switch (item.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                 try writer.writeByte('\n');
                 try writeDisasmInstruction(writer, item, module.symbols);
             },

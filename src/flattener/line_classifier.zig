@@ -15,6 +15,7 @@ pub const LineKind = enum {
     extern_decl,
     export_decl,
     test_decl,
+    gpu_decl,
     label,
     macro_start,
     macro_end,
@@ -954,6 +955,7 @@ pub fn classifyLine(line: []const u8) ClassifiedLine {
     if (parseFunctionHeader(line, trimmed, "@extern", .extern_decl, false)) |out| return out;
     if (parseFunctionHeader(line, trimmed, "@export", .export_decl, true)) |out| return out;
     if (parseFunctionHeader(line, trimmed, "@test", .test_decl, true)) |out| return out;
+    if (parseFunctionHeader(line, trimmed, "@gpu", .gpu_decl, true)) |out| return out;
     if (parseFunctionHeader(line, trimmed, "@", .func_decl, true)) |out| return out;
 
     if (trimmed.len >= 3 and trimmed[0] == 'L' and trimmed[1] == '_' and trimmed[trimmed.len - 1] == ':') {

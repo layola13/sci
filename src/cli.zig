@@ -309,7 +309,7 @@ fn estimateBackendIrMetrics(verified: *const referee.VerifyOk, debug: bool) Back
     var sig_index: usize = 0;
     for (verified.annotated) |item| {
         switch (item.base.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                 out.functions += 1;
                 out.blocks += 1;
                 if (sig_index < verified.function_sigs.len) {
@@ -477,7 +477,7 @@ fn buildCallGraph(
 
     for (verified.annotated) |item| {
         switch (item.base.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                 if (sig_index >= verified.function_sigs.len) break;
                 const sig_item = verified.function_sigs[sig_index];
                 sig_index += 1;
@@ -4667,7 +4667,7 @@ const SabFunctionRange = struct {
 
 fn isSabFunctionDecl(kind: flattener.InstKind) bool {
     return switch (kind) {
-        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => true,
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => true,
         else => false,
     };
 }
@@ -6706,14 +6706,14 @@ fn buildIncrementalObject(
     while (idx < compiled.verified.annotated.len) : (idx += 1) {
         const item = compiled.verified.annotated[idx].base;
         switch (item.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                 if (sig_index >= compiled.verified.function_sigs.len) return error.UnknownFunction;
                 const current_sig_index = sig_index;
                 sig_index += 1;
 
                 var end = idx + 1;
                 while (end < compiled.verified.annotated.len and switch (compiled.verified.annotated[end].base.kind) {
-                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => false,
                     else => true,
                 }) : (end += 1) {}
 
@@ -8877,13 +8877,13 @@ fn collectFunctionBodyHashes(allocator: std.mem.Allocator, verified: *const refe
     while (idx < verified.annotated.len) : (idx += 1) {
         const item = verified.annotated[idx].base;
         switch (item.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                 if (sig_index >= verified.function_sigs.len) break;
                 const fs = verified.function_sigs[sig_index];
                 sig_index += 1;
                 var end = idx + 1;
                 while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => false,
                     else => true,
                 }) : (end += 1) {}
                 var lines = std.array_list.Managed([]const u8).init(allocator);
@@ -8930,7 +8930,7 @@ fn collectCallEdges(
     var sig_index: usize = 0;
     for (verified.annotated) |item| {
         switch (item.base.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                 if (sig_index >= verified.function_sigs.len) break;
                 current_fn = verified.function_sigs[sig_index].name;
                 sig_index += 1;

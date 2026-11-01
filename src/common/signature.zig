@@ -95,6 +95,9 @@ pub const FunctionKind = enum(u8) {
     external,
     exported,
     test_func,
+    // Appended last: SAB encodes the kind as a raw byte, so existing
+    // values must not move. GPU-eligible function (SA @gpu kind).
+    gpu,
 };
 
 const HeaderSpec = struct {
@@ -387,6 +390,7 @@ pub fn parseFunctionHeader(
         .external => .{ .prefix = "@extern", .require_colon = false },
         .exported => .{ .prefix = "@export", .require_colon = true },
         .test_func => .{ .prefix = "@test", .require_colon = true },
+        .gpu => .{ .prefix = "@gpu", .require_colon = true },
     };
 
     if (!std.mem.startsWith(u8, trimmed, spec.prefix)) return ParseError.InvalidFunctionSig;
@@ -693,6 +697,7 @@ pub fn writeFunctionHeader(writer: anytype, sig: FunctionSig) !void {
         .ffi_wrapper => try writer.writeAll("@ffi_wrapper "),
         .external => try writer.writeAll("@extern "),
         .exported => try writer.writeAll("@export "),
+        .gpu => try writer.writeAll("@gpu "),
         .test_func => {
             try writer.writeAll("@test ");
             if (sig.ignored) try writer.writeAll("ignored ");

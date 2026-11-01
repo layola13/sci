@@ -614,13 +614,13 @@ fn collectFuncTasks(allocator: std.mem.Allocator, verified: anytype) ![]FuncTask
     while (idx < verified.annotated.len) : (idx += 1) {
         const k = verified.annotated[idx].base.kind;
         switch (k) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                 sig_index += 1;
                 var end = idx + 1;
                 while (end < verified.annotated.len) {
                     const nk = verified.annotated[end].base.kind;
                     switch (nk) {
-                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => break,
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => break,
                         else => end += 1,
                     }
                 }
@@ -2149,7 +2149,7 @@ fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype
             widthRemoveSlot(widths, base.operands[0]);
             widthRemoveSlot(widths, base.operands[1]);
         },
-        .store, .atomic_store, .fence, .release, .jmp, .br, .br_null, .panic, .panic_msg, .return_, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {},
+        .store, .atomic_store, .fence, .release, .jmp, .br, .br_null, .panic, .panic_msg, .return_, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {},
     }
 }
 

@@ -686,7 +686,7 @@ const Interpreter = struct {
         var decl_count: usize = 0;
         for (program.annotated, 0..) |item, idx| {
             switch (item.base.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                     if (decl_count < decl_indices.len) {
                         decl_indices[decl_count] = idx;
                         decl_count += 1;

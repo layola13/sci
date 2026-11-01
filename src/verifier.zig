@@ -324,6 +324,7 @@ fn structuredLineKind(kind: inst.InstKind) classifier.LineKind {
         .extern_decl => .extern_decl,
         .export_decl => .export_decl,
         .test_decl => .test_decl,
+        .gpu_decl => .gpu_decl,
         .label => .label,
         .native => .native,
         else => if (structuredInstForm(kind) != null) .instruction else .unknown,
@@ -346,7 +347,7 @@ fn classifyStructuredInstruction(item: inst.Instruction, symbol_names: []const [
     };
 
     switch (item.kind) {
-        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
             addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
         },
         .label => {
@@ -624,7 +625,7 @@ fn seedConstSymbols(
 
 fn isDecl(kind: inst.InstKind) bool {
     return switch (kind) {
-        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => true,
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => true,
         else => false,
     };
 }
@@ -2100,6 +2101,7 @@ fn parseDeclKind(kind: inst.InstKind) ?sig.FunctionKind {
         .extern_decl => .external,
         .export_decl => .exported,
         .test_decl => .test_func,
+        .gpu_decl => .gpu,
         else => null,
     };
 }
@@ -2414,7 +2416,7 @@ fn collectMetadata(
             .label => {
                 _ = try symbols.intern(classified.parts[0]);
             },
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => unreachable,
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => unreachable,
             .alloc, .stack_alloc => {
                 _ = try symbols.intern(classified.parts[0]);
             },
@@ -4449,6 +4451,103 @@ fn verifyParallel(
     } };
 }
 
+/// GPU subset check (v1, spike): a function declared with kind `.gpu`
+/// (@gpu) must stay inside the device-safe instruction subset. The rule
+/// is a denylist; everything not listed is permitted (arithmetic/logic,
+/// frame-local alloc/load/store, borrow/move/release, br/jmp, and calls
+/// to other `.gpu` functions included):
+///   - `call` to a function whose kind is not `.gpu` (host function,
+///     @extern, @ffi_wrapper, plain @-function) — host calls cannot run
+///     on a device;
+///   - `call_indirect` — the target is not statically provable;
+///   - `raw_cast` — the `*` raw-pointer downgrade leaves the verified
+///     pointer model the device subset relies on;
+///   - `native` — the $...$ native escape is host machine code by
+///     definition;
+///   - `panic` / `panic_msg` — the host trap path.
+/// A callee that cannot be resolved to a declared signature is treated
+/// as a host call (not provably a GPU function). Violations are
+/// rejected with the named diagnostic GpuSubsetViolation (trap code
+/// 1059). The check runs on the flattened instruction stream, so it
+/// covers both the .sa text path and the SAB path (SAB decode
+/// synthesizes call raw_text, see sab.zig synthesizeRawText).
+fn checkGpuSubset(
+    allocator: std.mem.Allocator,
+    instructions: []const inst.Instruction,
+    metadata: *const CollectResult,
+) !?trap.TrapReport {
+    const starts = metadata.function_starts.items;
+    for (metadata.sigs.items, 0..) |gpu_sig, sig_idx| {
+        if (gpu_sig.kind != .gpu) continue;
+        const start = starts[sig_idx];
+        const end = if (sig_idx + 1 < starts.len) starts[sig_idx + 1] else instructions.len;
+        for (instructions[start..end]) |item| {
+            const reason: ?[]const u8 = switch (item.kind) {
+                .call_indirect => "indirect call target is not statically provable",
+                .raw_cast => "raw pointer downgrade (*) leaves the GPU subset",
+                .native => "native escape ($...$) is host-only",
+                .panic, .panic_msg => "panic is a host trap path",
+                .call => blk: {
+                    // Structured form (same-module calls, and everything
+                    // after a SAB round trip): operands[3] carries the
+                    // callee as a .func symbol id. Text form: the callee
+                    // is parsed out of the raw line.
+                    var structured_name: ?[]const u8 = null;
+                    if (item.operands[3] == .func) {
+                        structured_name = metadata.symbols.lookupName(item.operands[3].func);
+                    }
+                    // SAB-decoded calls carry the call body as an operand
+                    // text ("@pow2(m)"); the host check path does not
+                    // synthesize raw_text for them, so read the callee
+                    // straight from the body operand.
+                    if (structured_name == null) {
+                        for ([_]usize{ 1, 0 }) |op_idx| {
+                            if (item.operands[op_idx] == .text) {
+                                const body = std.mem.trim(u8, item.operands[op_idx].text, " \t");
+                                if (body.len > 1 and body[0] == '@') {
+                                    const open = std.mem.indexOfScalar(u8, body, '(') orelse body.len;
+                                    structured_name = std.mem.trim(u8, body[1..open], " \t");
+                                }
+                            }
+                            if (structured_name) |name| {
+                                if (name.len != 0) break;
+                                structured_name = null;
+                            }
+                        }
+                    }
+                    var parsed: ?call.ParsedCall = null;
+                    defer if (parsed) |*p| p.deinit(allocator);
+                    const callee_name: []const u8 = if (structured_name) |name|
+                        name
+                    else if (call.parseCall(allocator, item.raw_text)) |p| blk2: {
+                        parsed = p;
+                        break :blk2 p.callee;
+                    } else |_| {
+                        break :blk "call target could not be resolved to a @gpu function";
+                    };
+                    const callee_idx = metadata.sig_index_by_name.get(callee_name) orelse
+                        break :blk "call target is not a declared @gpu function";
+                    if (metadata.sigs.items[callee_idx].kind != .gpu)
+                        break :blk "call target is not a @gpu function";
+                    break :blk null;
+                },
+                else => null,
+            };
+            if (reason) |why| {
+                return trapReportFromText(
+                    .gpu_subset_violation,
+                    item.expanded_line + 1,
+                    item.source_line,
+                    item.raw_text,
+                    why,
+                    "keep @gpu bodies to arithmetic, frame-local memory, branches, and calls to other @gpu functions",
+                );
+            }
+        }
+    }
+    return null;
+}
+
 pub fn verifyWithOptions(
     allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,
@@ -4499,6 +4598,10 @@ pub fn verifyWithOptions(
     var symbols_moved = false;
     defer if (!symbols_moved) metadata.symbols.deinit();
     if (options.stage_reporter) |reporter| reporter.report("after_metadata", metadata.sigs.items.len, instructions.len);
+
+    if (try checkGpuSubset(allocator, instructions, &metadata)) |report| {
+        return .{ .trap = report };
+    }
 
     const chunks = try buildVerifyChunks(allocator, instructions);
     defer allocator.free(chunks);

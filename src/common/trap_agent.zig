@@ -71,6 +71,7 @@ pub fn allTraps() []const Trap {
         .forbidden_global_config,
         .sum_hash_mismatch,
         .corrupted_signature,
+        .gpu_subset_violation,
     };
 }
 
@@ -134,6 +135,7 @@ pub fn trapStableCode(t: Trap) []const u8 {
         .forbidden_global_config => "SA-SYS-004",
         .sum_hash_mismatch => "SA-SYS-005",
         .corrupted_signature => "SA-VER-001",
+        .gpu_subset_violation => "SA-VER-002",
     };
 }
 
@@ -197,6 +199,7 @@ pub fn explainTrap(t: Trap) TrapExplanation {
         .forbidden_global_config => .{ .stable_code = "SA-SYS-004", .summary = "A system/CLI-level guard refused the operation.", .fix_hint = "Resolve the environment/config/confirmation precondition." },
         .sum_hash_mismatch => .{ .stable_code = "SA-SYS-005", .summary = "A system/CLI-level guard refused the operation.", .fix_hint = "Resolve the environment/config/confirmation precondition." },
         .corrupted_signature => .{ .stable_code = "SA-VER-001", .summary = "The verifier found a function signature whose parameter bindings do not match the function's register scope.", .fix_hint = "Rebuild the module from source; the artifact is corrupted or was produced by an incompatible toolchain." },
+        .gpu_subset_violation => .{ .stable_code = "SA-VER-002", .summary = "An @gpu function body uses an instruction outside the device-safe subset (host call, indirect call, raw cast, native escape, or panic).", .fix_hint = "Keep @gpu bodies to arithmetic, frame-local memory, branches, and calls to other @gpu functions; move host work into a normal function." },
     };
 }
 

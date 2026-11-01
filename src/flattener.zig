@@ -165,14 +165,14 @@ fn appendExpandedLine(
 
 fn isFunctionLikeLineKind(kind: LineKind) bool {
     return switch (kind) {
-        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => true,
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => true,
         else => false,
     };
 }
 
 fn consumesPendingLoc(kind: LineKind) bool {
     return switch (kind) {
-        .const_decl, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .native => true,
+        .const_decl, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl, .instruction, .native => true,
         else => false,
     };
 }
@@ -1691,13 +1691,14 @@ fn emitParsedLine(
             inst.operands[1] = .{ .label = label_id };
             try instructions.append(inst);
         },
-        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
             const kind = switch (classified.kind) {
                 .func_decl => FunctionKind.normal,
                 .ffi_wrapper_decl => FunctionKind.ffi_wrapper,
                 .extern_decl => FunctionKind.external,
                 .export_decl => FunctionKind.exported,
                 .test_decl => FunctionKind.test_func,
+                .gpu_decl => FunctionKind.gpu,
                 else => FunctionKind.normal,
             };
             var sig = try parseFunctionSigForKind(
@@ -1734,6 +1735,7 @@ fn emitParsedLine(
                 .external => .extern_decl,
                 .exported => .export_decl,
                 .test_func => .test_decl,
+                .gpu => .gpu_decl,
             };
             try appendNullLoc(loc_table);
             const raw_copy = try ownFoldedText(allocator, dict, owned_text, raw_line);
@@ -2226,7 +2228,7 @@ fn collectMacroDefinitions(
         const line = lines[idx];
         recordErrorSourceLine(error_ctx, line.line_no);
         switch (line.classified.kind) {
-            .blank_or_comment, .def, .npm_bind, .const_decl, .import_decl, .version, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .if_start, .else_, .if_end, .macro_end => {},
+            .blank_or_comment, .def, .npm_bind, .const_decl, .import_decl, .version, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .if_start, .else_, .if_end, .macro_end => {},
             .macro_start => {
                 const end = findBlockEnd(lines, idx + 1, .macro_end) orelse return error.UnbalancedMacro;
                 const name = line.classified.parts[0];
@@ -3090,7 +3092,7 @@ fn emitRange(
                 const col_no = try std.fmt.parseInt(u32, line.classified.parts[2], 10);
                 try setPendingLoc(allocator, pending_loc, line.classified.parts[0], line_no, col_no);
             },
-            .def, .npm_bind, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .instruction, .native, .unknown => {
+            .def, .npm_bind, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl, .instruction, .native, .unknown => {
                 const should_render = source_line_override != null or replacements.len != 0;
                 if (should_render) {
                     const rendered = try renderWithTokenReplacements(allocator, line.text, replacements);
@@ -4921,7 +4923,7 @@ fn flattenInternal(
             if (inst.package_identity) |identity| allocator.free(identity);
             if (inst.upstream_loc) |loc| {
                 const is_func_decl = switch (inst.kind) {
-                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => true,
+                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => true,
                     else => false,
                 };
                 if (is_func_decl) allocator.free(loc.file);

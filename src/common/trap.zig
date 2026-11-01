@@ -61,6 +61,7 @@ pub const Trap = enum(u8) {
     forbidden_global_config,
     sum_hash_mismatch,
     corrupted_signature,
+    gpu_subset_violation,
 };
 
 pub const TrapReport = struct {
@@ -170,6 +171,7 @@ pub fn trapName(trap: Trap) []const u8 {
         .forbidden_global_config => "ForbiddenGlobalConfig",
         .sum_hash_mismatch => "SumHashMismatch",
         .corrupted_signature => "CorruptedSignature",
+        .gpu_subset_violation => "GpuSubsetViolation",
     };
 }
 
@@ -233,6 +235,7 @@ pub fn trapCode(trap: Trap) u32 {
         .forbidden_global_config => 1056,
         .sum_hash_mismatch => 1057,
         .corrupted_signature => 1058,
+        .gpu_subset_violation => 1059,
     };
 }
 

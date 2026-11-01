@@ -713,7 +713,7 @@ fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytyp
     while (idx < verified.annotated.len) : (idx += 1) {
         const item = verified.annotated[idx].base;
         switch (item.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                 if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
                 const fsig = verified.function_sigs[sig_index];
                 sig_index += 1;
@@ -736,13 +736,13 @@ fn collectNormalBuildReachability(allocator: std.mem.Allocator, verified: anytyp
         while (idx < verified.annotated.len) : (idx += 1) {
             const item = verified.annotated[idx].base;
             switch (item.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                     if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
                     const fsig = verified.function_sigs[sig_index];
                     sig_index += 1;
                     var end = idx + 1;
                     while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => false,
                         else => true,
                     }) : (end += 1) {}
 
@@ -781,13 +781,13 @@ fn collectSelectedTestReachability(allocator: std.mem.Allocator, verified: anyty
         while (idx < verified.annotated.len) : (idx += 1) {
             const item = verified.annotated[idx].base;
             switch (item.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                     if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
                     const fsig = verified.function_sigs[sig_index];
                     sig_index += 1;
                     var end = idx + 1;
                     while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => false,
                         else => true,
                     }) : (end += 1) {}
 
@@ -1497,12 +1497,12 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         while (idx < verified.annotated.len) : (idx += 1) {
             const item = verified.annotated[idx].base;
             switch (item.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                     if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
                     sig_index += 1;
                     var end = idx + 1;
                     while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => false,
                         else => true,
                     }) : (end += 1) {}
 
@@ -1522,12 +1522,12 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         while (idx < verified.annotated.len) : (idx += 1) {
             const item = verified.annotated[idx].base;
             switch (item.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                     if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
                     sig_index += 1;
                     var end = idx + 1;
                     while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => false,
                         else => true,
                     }) : (end += 1) {}
 
@@ -1549,13 +1549,13 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
     while (idx < verified.annotated.len) : (idx += 1) {
         const item = verified.annotated[idx].base;
         switch (item.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                 if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
                 const fsig = verified.function_sigs[sig_index];
                 sig_index += 1;
                 var end = idx + 1;
                 while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => false,
                     else => true,
                 }) : (end += 1) {}
 
@@ -1786,12 +1786,12 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         while (idx < verified.annotated.len) : (idx += 1) {
             const item = verified.annotated[idx].base;
             switch (item.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                     if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
                     sig_index += 1;
                     var end = idx + 1;
                     while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => false,
                         else => true,
                     }) : (end += 1) {}
 
@@ -1811,12 +1811,12 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         while (idx < verified.annotated.len) : (idx += 1) {
             const item = verified.annotated[idx].base;
             switch (item.kind) {
-                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+                .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                     if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
                     sig_index += 1;
                     var end = idx + 1;
                     while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => false,
                         else => true,
                     }) : (end += 1) {}
 
@@ -1838,13 +1838,13 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
     while (idx < verified.annotated.len) : (idx += 1) {
         const item = verified.annotated[idx].base;
         switch (item.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
                 if (sig_index >= verified.function_sigs.len) return error.UnknownFunction;
                 const fsig = verified.function_sigs[sig_index];
                 sig_index += 1;
                 var end = idx + 1;
                 while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl => false,
+                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => false,
                     else => true,
                 }) : (end += 1) {}
 

@@ -303,6 +303,8 @@ pub const InstKind = enum(u8) {
     va_start,
     va_arg,
     va_end,
+    // @gpu function declaration (appended last for the same reason).
+    gpu_decl,
 };
 
 pub const Instruction = struct {
