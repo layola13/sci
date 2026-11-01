@@ -1,10 +1,45 @@
 # sci staging — 状态
 
-## 现状态（2026-11-02 本机重建）
+## 现状态（2026-11-02，DEF 深 drop 批完工，本地提交、未推送）
 
-- 基点：sci main `8979c4e1`，分支 `deepdrop-base`，HEAD 已核对 = 8979c4e1，工作树干净、完整（198M；src/emit_c.zig、build.zig、src/runtime/、sa_std/ 抽查在位）。
-- 来源：本机本地路径克隆自 `~/workspace/sched-wake-local/sci`（其 HEAD d5c2363 仅多一份 WIP-sched-wake.md、零代码改动；克隆后 checkout 至 8979c4e1 本体）。该树即此前 bundle sha256 双确认过的完整克隆。
-- 待办（本批 sci 侧唯一改动面）：按 sla 仓 `DESIGN.md` §3 实现 `src/emit_c.zig` 前导 `sa_alloc`/`sa_free` 的侵入式空闲链表复用（头 {size:u32, magic:u32}、first-fit + ≥32B 切分、复用块清零保证不变、不做合并 v1）。原生 LLVM 路线分配器本批不动（DESIGN.md §2 第 4 层）。
+- 基点：sci main `8979c4e1`，分支 `deepdrop-base`。本地路径克隆自
+  `~/workspace/sched-wake-local/sci`（bundle sha256 双确认过的完整克隆），
+  HEAD 与工作树完整性已核（关键文件抽查在位）。原占位提交的 STATUS 内容
+  已并入（见文末归档段）。
+- 本批 sci 侧落地（3 笔）：
+  1. `17fc328` emit_c 前导分配器 v1：空闲链表复用（头 {size:u32@0,
+     magic:u32@4}，LIVE `0x5A110C4B` / FREE `0xF2EE0B10`，切分 ≥32B，
+     复用块清零，范围+magic 守卫）。
+  2. `8b934a3` **根因修复**：`sa_std/alloc/vec.sa` `@sa_vec_push` 扩容
+     路径与 `@sa_vec_shrink_to` L_ZERO 路径漏 free 旧缓冲——probe_a
+     ≈8.24 MB/轮保留的第一阶根因（DESIGN §1/§2 的 box2 平台读数与
+     alloc/@sa_mem_free 配对嫌疑均被本地隔离实验推翻，见 sla 仓
+     DESIGN.md 落地附记）。
+  3. 本笔 emit_c 三件：① `@sa_mem_free` extern 绑定（此前一律落
+     trapping stub，C 路线任何 free 都跑不了——既存缺口）；
+     ② sa_alloc 改 best-fit + sa_free 相邻合并（first-fit+切分会把
+     唯一的 1 MiB 块逐轮切碎、bump 单调涨到 OOM）；
+     ③ `.release` 发射加来源门（provCUpdate）：仅对可证自有堆基址
+     的槽位发真 sa_free，其余发 no-op 注释——镜像 interp 语义与
+     emit_js 既有门控；无门控时真 free 会把经 load/store 寄存器
+     流转的活缓冲误放（probe_d/a 实证腐化）。附绑定回归测试
+     `c extern binding maps sa_mem_free to the runtime sa_free`。
+- 验证（本机 rig，串行）：
+  - C 路线探针：probe_d（300 轮）exit 0；probe_a（300 轮）exit 0、
+    峰值 RSS 38,092 kB；B/C 形缩放版 exit 3（已知 sink 常量伪影，
+    S/E 完整）。运行需 harness 覆写 SA_GAS_LIMIT=4e10、
+    SA_MEM_BYTES=256 MiB（默认值是 demo 级）。
+  - `zig build test`：477/498 通过、20 个命名失败 + 26 个
+    unit-framework 文件失败。逐项裁决：与本批无关，全部既存——
+    26 个 unit 文件在 stash 掉本笔 emit_c 后同样全败、且在零改动的
+    pre-batch 树（5e1e9b9）上同样失败（linked_list 为 segfault）；
+    c-matrix 在 stash 态同样败于 `sa_install_sigpipe_ignore`
+    未定义引用（既存 emit_c 缺口：主序言引用该符号但独立 C 链接
+    时不发其定义——另行登记 DEF）；其余命名失败为环境类
+    （dns/pty/keyring/tree-sitter/tls loopback/wasm 工具链）。
+    失败集快照：`~/workspace/deepdrop-local/logs/sci_fail_names.txt`、
+    `sci_fail_unitfiles.txt`。
+  - 本笔新测试不在失败集内（通过）。
 
 ## 并入的原占位 STATUS（2026-11-02 悬停点，原文）
 

@@ -1363,26 +1363,29 @@ const kRuntimeHelpers: []const HelperDef = &.{
     .{ .name = "sa_alloc", .code =
     \\static sa_u64 sa_alloc(sa_u64 size) {
     \\  size = sa_align(size, 8); if (size == 0) size = 8;
-    \\  { uint32_t prev = 0; uint32_t cur = sa_free_head;
-    \\    while (cur != 0) {
-    \\      uint32_t bsize = (uint32_t)sa_load_u32(cur);
+    \\  { uint32_t best = 0; uint32_t best_prev = 0; uint32_t best_size = 0xFFFFFFFFu;
+    \\    { uint32_t prev = 0; uint32_t cur = sa_free_head;
+    \\      while (cur != 0) {
+    \\        uint32_t bsize = (uint32_t)sa_load_u32(cur);
+    \\        if ((sa_u64)bsize >= size && bsize < best_size) { best = cur; best_prev = prev; best_size = bsize; if ((sa_u64)bsize == size) break; }
+    \\        prev = cur; cur = (uint32_t)sa_load_u32((sa_u64)cur + 8);
+    \\      } }
+    \\    if (best != 0) {
+    \\      uint32_t cur = best; uint32_t prev = best_prev; uint32_t bsize = best_size;
     \\      uint32_t next = (uint32_t)sa_load_u32((sa_u64)cur + 8);
-    \\      if ((sa_u64)bsize >= size) {
-    \\        if ((sa_u64)bsize - size >= 32) {
-    \\          uint32_t nb = cur + 8 + (uint32_t)size;
-    \\          sa_store_u32(nb, (sa_u64)(bsize - (uint32_t)size - 8));
-    \\          sa_store_u32((sa_u64)nb + 4, 0xF2EE0B10u);
-    \\          sa_store_u32((sa_u64)nb + 8, (sa_u64)next);
-    \\          if (prev != 0) sa_store_u32((sa_u64)prev + 8, (sa_u64)nb); else sa_free_head = nb;
-    \\          sa_store_u32(cur, size);
-    \\        } else {
-    \\          if (prev != 0) sa_store_u32((sa_u64)prev + 8, (sa_u64)next); else sa_free_head = next;
-    \\        }
-    \\        sa_store_u32((sa_u64)cur + 4, 0x5A110C4Bu);
-    \\        { uint32_t i; for (i = 0; i < (uint32_t)size; i++) sa_mem[cur + 8 + i] = 0; }
-    \\        return (sa_u64)cur + 8;
+    \\      if ((sa_u64)bsize - size >= 32) {
+    \\        uint32_t nb = cur + 8 + (uint32_t)size;
+    \\        sa_store_u32(nb, (sa_u64)(bsize - (uint32_t)size - 8));
+    \\        sa_store_u32((sa_u64)nb + 4, 0xF2EE0B10u);
+    \\        sa_store_u32((sa_u64)nb + 8, (sa_u64)next);
+    \\        if (prev != 0) sa_store_u32((sa_u64)prev + 8, (sa_u64)nb); else sa_free_head = nb;
+    \\        sa_store_u32(cur, size);
+    \\      } else {
+    \\        if (prev != 0) sa_store_u32((sa_u64)prev + 8, (sa_u64)next); else sa_free_head = next;
     \\      }
-    \\      prev = cur; cur = next;
+    \\      sa_store_u32((sa_u64)cur + 4, 0x5A110C4Bu);
+    \\      { uint32_t i; for (i = 0; i < (uint32_t)size; i++) sa_mem[cur + 8 + i] = 0; }
+    \\      return (sa_u64)cur + 8;
     \\    } }
     \\  uint32_t base = sa_brk;
     \\  { sa_u64 nb = (sa_u64)base + size + 8; if (nb > (sa_u64)sizeof(sa_mem)) sa_trap("out of memory (bump)"); sa_brk = (uint32_t)nb; } // NOLINT(bugprone-misplaced-widening-cast): nb range-checked above
@@ -1401,9 +1404,31 @@ const kRuntimeHelpers: []const HelperDef = &.{
     \\  if (ptr < 65536 + 8 || ptr >= (sa_u64)sa_brk) return 0;
     \\  { uint32_t base = (uint32_t)ptr - 8;
     \\    if ((uint32_t)sa_load_u32((sa_u64)base + 4) != 0x5A110C4Bu) return 0;
+    \\    uint32_t size = (uint32_t)sa_load_u32(base);
+    \\    uint32_t end = base + 8 + size;
+    \\    uint32_t pred = 0; uint32_t succ = 0; uint32_t succ_prev = 0;
+    \\    { uint32_t prev = 0; uint32_t cur = sa_free_head;
+    \\      while (cur != 0) {
+    \\        uint32_t csize = (uint32_t)sa_load_u32(cur);
+    \\        if (cur == end) { succ = cur; succ_prev = prev; }
+    \\        if (cur + 8 + csize == base) pred = cur;
+    \\        prev = cur; cur = (uint32_t)sa_load_u32((sa_u64)cur + 8);
+    \\      } }
+    \\    if (succ != 0) {
+    \\      uint32_t ssize = (uint32_t)sa_load_u32(succ);
+    \\      uint32_t snext = (uint32_t)sa_load_u32((sa_u64)succ + 8);
+    \\      if (succ_prev != 0) sa_store_u32((sa_u64)succ_prev + 8, (sa_u64)snext); else sa_free_head = snext;
+    \\      size += 8 + ssize;
+    \\    }
     \\    sa_store_u32((sa_u64)base + 4, 0xF2EE0B10u);
-    \\    sa_store_u32((sa_u64)base + 8, (sa_u64)sa_free_head);
-    \\    sa_free_head = base; }
+    \\    if (pred != 0) {
+    \\      uint32_t psize = (uint32_t)sa_load_u32(pred);
+    \\      sa_store_u32(pred, (sa_u64)(psize + 8 + size));
+    \\    } else {
+    \\      sa_store_u32(base, (sa_u64)size);
+    \\      sa_store_u32((sa_u64)base + 8, (sa_u64)sa_free_head);
+    \\      sa_free_head = base;
+    \\    } }
     \\  return 0;
     \\}
     , .deps = &.{ "sa_load_u32", "sa_store_u32" } },
@@ -3366,6 +3391,7 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         fd_read,
         mmap,
         munmap,
+        mem_free,
         signal,
         npm_totalmem,
         npm_parallelism,
@@ -3727,6 +3753,11 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = 0b1, .tag = .mmap }
     else if (std.mem.eql(u8, name, "munmap"))
         .{ .voids = all_void, .tag = .munmap }
+    else if (std.mem.eql(u8, name, "sa_mem_free"))
+        // The one sa_std allocator extern: bound to the emitter's own
+        // free-list sa_free so C-route drops actually release memory
+        // (without this binding every @sa_vec_free trapped).
+        .{ .voids = all_void ^ 0b1, .tag = .mem_free }
     else if (std.mem.eql(u8, name, "signal"))
         .{ .voids = all_void ^ 0b1, .tag = .signal }
     else if (std.mem.eql(u8, name, "npm_totalmem"))
@@ -4606,6 +4637,9 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         },
         .munmap => {
             try writer.writeAll(" return 0; }\n");
+        },
+        .mem_free => {
+            try writer.writeAll(" { sa_free(a0); return 0; } }\n");
         },
         .signal => {
             // Echo the signal number back (staged oracle semantics).
@@ -7962,7 +7996,103 @@ fn emitCopyOrCast(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_
     try writer.writeAll(");\n");
 }
 
-fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, widths: *WidthMap, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32, dead: *const std.AutoHashMap(u32, void)) !void {
+/// Slots proven (within the current straight-line stretch) to hold
+/// owned heap bases produced by `alloc`/`stack_alloc` (both lower to
+/// sa_alloc in the C model). `.release` emits a real `sa_free` only
+/// for these; every other release stays a no-op comment. This mirrors
+/// the interpreter, which frees exact owned bases but never interior
+/// pointers, borrows, consts, or stack slots — and mirrors emit_js's
+/// provenance gate, adopted here when sa_free became a real free
+/// (DEF deep-drop batch, DESIGN §3): unconditional freeing corrupts
+/// live buffers whose pointers pass through load/store registers
+/// (value equality alone is unsound). Conservative direction is
+/// leak-only: labels clear the set, call results are unknown,
+/// move/by-value call arguments and stored values escape (killed),
+/// borrow arguments are only read through (kept).
+const CBaseSet = std.AutoHashMap(u32, void);
+
+fn provCSlotOf(fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) ?u32 {
+    return switch (op) {
+        .reg => |r| regSlot(fsig, use_global, r) catch null,
+        .symbol => |id| fsig.slotOf(id),
+        else => null,
+    };
+}
+
+/// Slot of a textual value (call args and `.store` keep values as
+/// `.text`); mirrors emit_js's provTextSlot name resolution.
+fn provCTextSlot(symbols: anytype, fsig: sig.FunctionSig, text: []const u8) ?u32 {
+    var t = std.mem.trim(u8, text, " \t");
+    if (t.len == 0) return null;
+    if (t[0] == '&' or t[0] == '*' or t[0] == '^') t = std.mem.trim(u8, t[1..], " \t");
+    if (std.mem.lastIndexOf(u8, t, " as ")) |idx| t = std.mem.trim(u8, t[0..idx], " \t\r");
+    if (t.len == 0) return null;
+    if (std.fmt.parseInt(i64, t, 10)) |_| return null else |_| {}
+    if (std.fmt.parseFloat(f64, t)) |_| return null else |_| {}
+    const id = symbols.findId(t) orelse return null;
+    return fsig.slotOf(id);
+}
+
+fn provCKillOp(bases: *CBaseSet, fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) void {
+    if (provCSlotOf(fsig, use_global, op)) |slot| _ = bases.remove(slot);
+}
+
+fn provCKillText(bases: *CBaseSet, symbols: anytype, fsig: sig.FunctionSig, text: []const u8) void {
+    if (provCTextSlot(symbols, fsig, text)) |slot| _ = bases.remove(slot);
+}
+
+/// Advance the owned-base provenance set across one instruction.
+/// Applied once per instruction in emitOneFunction's emission loop
+/// (before dispatch), so the task-form path is covered identically.
+fn provCUpdate(bases: *CBaseSet, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, base: inst.Instruction) !void {
+    switch (base.kind) {
+        .label => bases.clearRetainingCapacity(),
+        .alloc, .stack_alloc => {
+            if (provCSlotOf(fsig, use_global, base.operands[0])) |slot| try bases.put(slot, {});
+        },
+        .assign => {
+            const dst = provCSlotOf(fsig, use_global, base.operands[0]) orelse return;
+            const src_base = if (provCSlotOf(fsig, use_global, base.operands[1])) |src| bases.get(src) != null else false;
+            if (src_base) {
+                try bases.put(dst, {});
+            } else {
+                _ = bases.remove(dst);
+            }
+        },
+        .move_ => provCKillOp(bases, fsig, use_global, base.operands[0]),
+        .release => {}, // the emission case consumes the set itself
+        .store, .atomic_store => {
+            switch (base.operands[2]) {
+                .reg, .symbol => provCKillOp(bases, fsig, use_global, base.operands[2]),
+                .text, .native_text => |t| provCKillText(bases, symbols, fsig, t),
+                else => {},
+            }
+        },
+        .return_ => provCKillOp(bases, fsig, use_global, base.operands[0]),
+        .call, .call_indirect => {
+            if (call.parseInstructionCall(allocator, base, symbols)) |*parsed_const| {
+                var parsed = parsed_const.*;
+                defer parsed.deinit(allocator);
+                if (parsed.dest) |dest| {
+                    if (symbols.findId(dest)) |id| {
+                        if (fsig.slotOf(id)) |slot| _ = bases.remove(slot);
+                    }
+                }
+                for (parsed.args) |arg| {
+                    if (arg.prefix == .move or arg.prefix == .by_value) {
+                        provCKillText(bases, symbols, fsig, arg.text);
+                    }
+                }
+            } else |_| {}
+        },
+        .load, .take, .ptr_add, .op, .borrow, .raw_cast, .assume_safe, .assume_borrow, .atomic_load, .atomic_rmw, .cmpxchg, .try_, .early_return, .va_start, .va_arg => {
+            provCKillOp(bases, fsig, use_global, base.operands[0]);
+        },
+        else => {},
+    }
+}
+
+fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, widths: *WidthMap, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32, dead: *const std.AutoHashMap(u32, void), bases: *CBaseSet) !void {
     last_c_inst = base.raw_text;
     last_c_func = fsig.name;
     trackWidths(widths, allocator, symbols, fsig, use_global, base);
@@ -8373,9 +8503,20 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             try writer.print("  /* no-op {s}: {s} */\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
         },
         .release => {
-            try writer.writeAll("  sa_free(");
-            try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
-            try writer.writeAll(");\n");
+            // Ownership release: emit a real `sa_free` only for slots
+            // proven to hold owned heap bases (see provCUpdate).
+            // Anything else (interior pointers, borrows, scalars,
+            // consts) stays a no-op comment, mirroring interp release
+            // semantics; freeing those corrupts live allocations.
+            const freeable = if (provCSlotOf(fsig, use_global, base.operands[0])) |slot| bases.get(slot) != null else false;
+            if (freeable) {
+                if (provCSlotOf(fsig, use_global, base.operands[0])) |slot| _ = bases.remove(slot);
+                try writer.writeAll("  sa_free(");
+                try resolveValueToC(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0]);
+                try writer.writeAll(");\n");
+            } else {
+                try writer.print("  /* no-op {s}: {s} */\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
+            }
         },
         .native => {
             const raw = std.mem.trim(u8, base.raw_text, " \t\r\n");
@@ -9056,7 +9197,7 @@ fn emitTfWrapper(writer: anytype, fsig: sig.FunctionSig, ctx: TfFnCtx, uniform_a
 // as a task; the caller's dry walk placed suspension points so the
 // sequential semantics are preserved). Any other call keeps the
 // historical emission via emitLinearInstruction.
-fn emitTfCall(writer: anytype, allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: anytype, widths: *WidthMap, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32, dead: *const std.AutoHashMap(u32, void), ctx: TfFnCtx) !void {
+fn emitTfCall(writer: anytype, allocator: std.mem.Allocator, verified: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: anytype, widths: *WidthMap, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32, dead: *const std.AutoHashMap(u32, void), bases: *CBaseSet, ctx: TfFnCtx) !void {
     const symbols = verified.symbols;
     if (base.kind == .call) {
         if (call.parseInstructionCall(allocator, base, symbols)) |*pc| {
@@ -9105,7 +9246,7 @@ fn emitTfCall(writer: anytype, allocator: std.mem.Allocator, verified: anytype, 
             }
         } else |_| {}
     }
-    try emitLinearInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, widths, sigmap, uniform_arity, indirect_ret_width, dead);
+    try emitLinearInstruction(writer, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, widths, sigmap, uniform_arity, indirect_ret_width, dead, bases);
 }
 
 fn emitTfReturn(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: anytype, widths: *WidthMap) !void {
@@ -9564,6 +9705,10 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
     if (c_opt.debug_comments) {
         try writer.print("  /* fn {s} regs={d} */\n", .{ fsig.name, nregs });
     }
+    // Owned-heap-base provenance for gated `.release` freeing
+    // (provCUpdate); per function, advanced once per instruction.
+    var bases = CBaseSet.init(allocator);
+    defer bases.deinit();
     var i: usize = task.start_idx + 1;
     while (i < task.end_idx) : (i += 1) {
         const base = verified.annotated[i].base;
@@ -9599,6 +9744,9 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                     continue;
                 }
                 try writer.print("SA_L_{d}:\n", .{id});
+                // Control-flow join: owned-base provenance is unknown
+                // past a label (conservative, leak-only).
+                bases.clearRetainingCapacity();
                 // Loop/back-edge headers pay gas per visit: bounded execution.
                 if (c_opt.gas) {
                     try writer.writeAll("  SA_GAS_CHECK(1);\n");
@@ -9657,16 +9805,17 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 if (c_opt.debug_comments) {
                     try writer.print("  /* {s} */\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
                 }
+                try provCUpdate(&bases, allocator, verified.symbols, fsig, use_global, base);
                 if (tf) |tc| {
                     if (base.kind == .call or base.kind == .call_indirect) {
-                        try emitTfCall(writer, allocator, verified, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, indirect_ret_width, &dead, tc);
+                        try emitTfCall(writer, allocator, verified, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, indirect_ret_width, &dead, &bases, tc);
                     } else if (base.kind == .return_) {
                         try emitTfReturn(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths);
                     } else {
-                        try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, indirect_ret_width, &dead);
+                        try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, indirect_ret_width, &dead, &bases);
                     }
                 } else {
-                    try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, indirect_ret_width, &dead);
+                    try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &widths, sigmap, uniform_arity, indirect_ret_width, &dead, &bases);
                 }
             },
         }
@@ -10418,6 +10567,17 @@ test "c stdlink bindings cover the cookie/tls/sockopt gap lists" {
         try std.testing.expect(try writeExternBinding(&aw.writer, n, 12, false));
         try std.testing.expect(isStdlinkExtern(n));
     }
+}
+
+test "c extern binding maps sa_mem_free to the runtime sa_free" {
+    // DEF deep-drop batch (DESIGN §3): @sa_mem_free is the only memory
+    // free extern in sa_std. Without this binding every @sa_vec_free
+    // on the C route rendered a trapping stub, so no program that
+    // frees could run there at all.
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
+    try std.testing.expect(try writeExternBinding(&aw.writer, "sa_mem_free", 12, false));
+    try std.testing.expect(std.mem.indexOf(u8, aw.writer.buffered(), "{ sa_free(a0); return 0; }") != null);
 }
 
 test "c stdlink bindings cover the goroutine task family (C1)" {
