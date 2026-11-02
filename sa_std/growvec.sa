@@ -1,0 +1,325 @@
+@import "alloc/growvec.sal"
+@import "alloc/growvec.sa"
+@import "core/slice.sal"
+@import "core/slice.sa"
+
+// GrowVec macros (F1): the grow-only, never-moving sibling of the VEC_*
+// family. See alloc/growvec.sa for the runtime contract and the VMA
+// budget registration. GROWVEC_NEW takes the element size and the
+// reservation cap in elements (0 = runtime default); exceeding the
+// reservation panics instead of relocating (1215).
+//
+// Reuse discipline (same registration): do NOT GROWVEC_FREE containers
+// on hot paths -- munmap returns pages to the OS and, in an mm shared
+// by many goroutines, costs an mmap_lock write lock plus cross-core
+// TLB shootdowns. Pool retired containers and reuse them with len
+// reset to 0, keeping their committed pages; reserve GROWVEC_FREE for
+// coarse-grained teardown (whole-pool dismantle, process shutdown).
+
+[MACRO] GROWVEC_NEW %out_gv, %elem_size, %max_elems
+    %out_gv = call @sa_growvec_new(%elem_size, %max_elems)
+[END_MACRO]
+
+[MACRO] GROWVEC_DEFAULT %out_gv, %elem_size
+    EXPAND GROWVEC_NEW %out_gv, %elem_size, 0
+[END_MACRO]
+
+[MACRO] GROWVEC_LEN %out_len, %gv_reg
+    %out_len = call @sa_growvec_len(&%gv_reg)
+[END_MACRO]
+
+[MACRO] GROWVEC_PUSH %gv_reg, %value, %elem_size
+    %gv_reg = call @sa_growvec_push(^%gv_reg, %value, %elem_size)
+[END_MACRO]
+
+[MACRO] GROWVEC_PUSH_U64 %gv_reg, %value
+    EXPAND GROWVEC_PUSH %gv_reg, %value, 8
+[END_MACRO]
+
+[MACRO] GROWVEC_EXTEND_FROM_SLICE %gv_reg, %slice_reg, %elem_size
+    %gv_reg = call @sa_growvec_extend_from_slice(^%gv_reg, &%slice_reg, %elem_size)
+[END_MACRO]
+
+[MACRO] GROWVEC_FREE %gv_reg
+    call @sa_growvec_free(^%gv_reg)
+[END_MACRO]
+
+[MACRO] GROWVEC_AS_PTR %out_ptr, %gv_reg
+    __gv_view_%out_ptr = & %gv_reg
+    %out_ptr = load __gv_view_%out_ptr+GrowVec_ptr as ptr
+    !__gv_view_%out_ptr
+[END_MACRO]
+
+[MACRO] GROWVEC_AS_SLICE %out_slice, %gv_reg
+    __gv_view_%out_slice = & %gv_reg
+    __gv_ptr_%out_slice = load __gv_view_%out_slice+GrowVec_ptr as ptr
+    __gv_len_%out_slice = load __gv_view_%out_slice+GrowVec_len as u64
+    %out_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW %out_slice, __gv_ptr_%out_slice, __gv_len_%out_slice
+    !__gv_ptr_%out_slice
+    !__gv_len_%out_slice
+    !__gv_view_%out_slice
+[END_MACRO]
+
+[MACRO] GROWVEC_AS_MUT_SLICE %out_slice, %gv_reg
+    EXPAND GROWVEC_AS_SLICE %out_slice, %gv_reg
+[END_MACRO]
+
+[MACRO] GROWVEC_CLONE %out_gv, %gv_reg, %elem_size
+    __gv_clone_max_%out_gv = load %gv_reg+GrowVec_max as u64
+    EXPAND GROWVEC_NEW %out_gv, %elem_size, __gv_clone_max_%out_gv
+    EXPAND GROWVEC_AS_SLICE __gv_clone_slice_%out_gv, %gv_reg
+    EXPAND GROWVEC_EXTEND_FROM_SLICE %out_gv, __gv_clone_slice_%out_gv, %elem_size
+    !__gv_clone_slice_%out_gv
+    !__gv_clone_max_%out_gv
+[END_MACRO]
+
+// ---- Index surface (SAB std-surface rules + SA users) ----
+// Mirrors of the VEC_GET*/VEC_SET_TYPED family over GROWVEC_AS_SLICE:
+// bounds-checked typed reads, mut element pointers, typed writes.
+// Element addresses are stable for the container's whole life, so a
+// pointer obtained here stays valid across any later push/extend.
+[MACRO] GROWVEC_GET_UNCHECKED %out_ptr, %vec_reg, %index
+    __growvec_view_%out_ptr = & %vec_reg
+    __growvec_ptr_%out_ptr = load __growvec_view_%out_ptr+GrowVec_ptr as ptr
+    __growvec_elem_off_%out_ptr = mul %index, 8
+    __growvec_elem_ptr_%out_ptr = ptr_add __growvec_ptr_%out_ptr, __growvec_elem_off_%out_ptr
+    %out_ptr = load __growvec_elem_ptr_%out_ptr+0 as u64
+    !__growvec_elem_off_%out_ptr
+    !__growvec_elem_ptr_%out_ptr
+    !__growvec_ptr_%out_ptr
+    !__growvec_view_%out_ptr
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_UNCHECKED_U64 %out_value, %vec_reg, %index
+    EXPAND GROWVEC_GET_UNCHECKED %out_value, %vec_reg, %index
+[END_MACRO]
+
+[MACRO] GROWVEC_GET %out_ptr, %vec_reg, %index
+    EXPAND GROWVEC_TRY_GET __growvec_get_ok_%out_ptr, %out_ptr, %vec_reg, %index
+    !__growvec_get_ok_%out_ptr
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_U64 %out_value, %vec_reg, %index
+    EXPAND GROWVEC_GET %out_value, %vec_reg, %index
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_MUT_PTR_U64 %out_ptr, %vec_reg, %index
+    EXPAND GROWVEC_AS_SLICE __growvec_get_mut_slice_%out_ptr, %vec_reg
+    EXPAND SLICE_GET_MUT_PTR_U64 %out_ptr, __growvec_get_mut_slice_%out_ptr, %index
+    !__growvec_get_mut_slice_%out_ptr
+[END_MACRO]
+
+// Rust method-name alias over GROWVEC_GET_MUT_PTR_U64.
+[MACRO] GROWVEC_GET_MUT_PTR %out_ptr, %vec_reg, %index
+    EXPAND GROWVEC_GET_MUT_PTR_U64 %out_ptr, %vec_reg, %index
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %vec_reg, %index
+    EXPAND GROWVEC_AS_MUT_SLICE __growvec_try_get_mut_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, __growvec_try_get_mut_slice_%out_ok, %index
+    !__growvec_try_get_mut_slice_%out_ok
+[END_MACRO]
+
+// Rust method-name alias over GROWVEC_TRY_GET_MUT_PTR_U64.
+[MACRO] GROWVEC_TRY_GET_MUT_PTR %out_ok, %out_ptr, %vec_reg, %index
+    EXPAND GROWVEC_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %vec_reg, %index
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_MUT_U64 %out_ok, %out_ptr, %vec_reg, %index
+    EXPAND GROWVEC_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %vec_reg, %index
+[END_MACRO]
+
+// Rust method-name alias over GROWVEC_GET_MUT_U64.
+[MACRO] GROWVEC_GET_MUT %out_ok, %out_ptr, %vec_reg, %index
+    EXPAND GROWVEC_GET_MUT_U64 %out_ok, %out_ptr, %vec_reg, %index
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_UNCHECKED_MUT_PTR_U64 %out_ptr, %vec_reg, %index
+    EXPAND GROWVEC_GET_MUT_PTR_U64 %out_ptr, %vec_reg, %index
+[END_MACRO]
+
+// Rust method-name alias over GROWVEC_GET_UNCHECKED_MUT_PTR_U64.
+[MACRO] GROWVEC_GET_UNCHECKED_MUT_PTR %out_ptr, %vec_reg, %index
+    EXPAND GROWVEC_GET_UNCHECKED_MUT_PTR_U64 %out_ptr, %vec_reg, %index
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET %out_ok, %out_value, %vec_reg, %index
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_U64 %out_ok, %out_value, __growvec_get_slice_%out_ok, %index
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_U64 %out_ok, %out_value, %vec_reg, %index
+    EXPAND GROWVEC_TRY_GET %out_ok, %out_value, %vec_reg, %index
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_TYPED_I1 %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_I1 __growvec_get_ok_%out_value, %out_value, %vec_reg, %index, %elem_size
+    !__growvec_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_TYPED_I1 %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_TYPED_I1 %out_ok, %out_value, __growvec_get_slice_%out_ok, %index, %elem_size
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_TYPED_I8 %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_I8 __growvec_get_ok_%out_value, %out_value, %vec_reg, %index, %elem_size
+    !__growvec_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_TYPED_I8 %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_TYPED_I8 %out_ok, %out_value, __growvec_get_slice_%out_ok, %index, %elem_size
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_TYPED_I16 %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_I16 __growvec_get_ok_%out_value, %out_value, %vec_reg, %index, %elem_size
+    !__growvec_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_TYPED_I16 %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_TYPED_I16 %out_ok, %out_value, __growvec_get_slice_%out_ok, %index, %elem_size
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_TYPED_I32 %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_I32 __growvec_get_ok_%out_value, %out_value, %vec_reg, %index, %elem_size
+    !__growvec_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_TYPED_I32 %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_TYPED_I32 %out_ok, %out_value, __growvec_get_slice_%out_ok, %index, %elem_size
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_TYPED_I64 %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_I64 __growvec_get_ok_%out_value, %out_value, %vec_reg, %index, %elem_size
+    !__growvec_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_TYPED_I64 %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_TYPED_I64 %out_ok, %out_value, __growvec_get_slice_%out_ok, %index, %elem_size
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_TYPED_U8 %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_U8 __growvec_get_ok_%out_value, %out_value, %vec_reg, %index, %elem_size
+    !__growvec_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_TYPED_U8 %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_TYPED_U8 %out_ok, %out_value, __growvec_get_slice_%out_ok, %index, %elem_size
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_TYPED_U16 %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_U16 __growvec_get_ok_%out_value, %out_value, %vec_reg, %index, %elem_size
+    !__growvec_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_TYPED_U16 %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_TYPED_U16 %out_ok, %out_value, __growvec_get_slice_%out_ok, %index, %elem_size
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_TYPED_U32 %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_U32 __growvec_get_ok_%out_value, %out_value, %vec_reg, %index, %elem_size
+    !__growvec_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_TYPED_U32 %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_TYPED_U32 %out_ok, %out_value, __growvec_get_slice_%out_ok, %index, %elem_size
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_TYPED_U64 %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_U64 __growvec_get_ok_%out_value, %out_value, %vec_reg, %index, %elem_size
+    !__growvec_get_ok_%out_value
+[END_MACRO]
+
+// Rust method-name alias over GROWVEC_GET_TYPED_U64.
+[MACRO] GROWVEC_GET_TYPED %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_GET_TYPED_U64 %out_value, %vec_reg, %index, %elem_size
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_TYPED_U64 %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_TYPED_U64 %out_ok, %out_value, __growvec_get_slice_%out_ok, %index, %elem_size
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+// Rust method-name alias over GROWVEC_TRY_GET_TYPED_U64.
+[MACRO] GROWVEC_TRY_GET_TYPED %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_U64 %out_ok, %out_value, %vec_reg, %index, %elem_size
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_TYPED_F32 %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_F32 __growvec_get_ok_%out_value, %out_value, %vec_reg, %index, %elem_size
+    !__growvec_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_TYPED_F32 %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_TYPED_F32 %out_ok, %out_value, __growvec_get_slice_%out_ok, %index, %elem_size
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_TYPED_F64 %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_F64 __growvec_get_ok_%out_value, %out_value, %vec_reg, %index, %elem_size
+    !__growvec_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_TYPED_F64 %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_TYPED_F64 %out_ok, %out_value, __growvec_get_slice_%out_ok, %index, %elem_size
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] GROWVEC_GET_TYPED_PTR %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_TRY_GET_TYPED_PTR __growvec_get_ok_%out_value, %out_value, %vec_reg, %index, %elem_size
+    !__growvec_get_ok_%out_value
+[END_MACRO]
+
+[MACRO] GROWVEC_TRY_GET_TYPED_PTR %out_ok, %out_value, %vec_reg, %index, %elem_size
+    EXPAND GROWVEC_AS_SLICE __growvec_get_slice_%out_ok, %vec_reg
+    EXPAND SLICE_TRY_GET_TYPED_PTR %out_ok, %out_value, __growvec_get_slice_%out_ok, %index, %elem_size
+    !__growvec_get_slice_%out_ok
+[END_MACRO]
+
+[MACRO] GROWVEC_SET_TYPED %vec_reg, %index, %value, %elem_size, %elem_ty
+    __growvec_set_view_%value = & %vec_reg
+    __growvec_set_len_%value = load __growvec_set_view_%value+GrowVec_len as u64
+    __growvec_set_in_bounds_%value = ult %index, __growvec_set_len_%value
+    br __growvec_set_in_bounds_%value -> L_GROWVEC_SET_TYPED_HIT_%value, L_GROWVEC_SET_TYPED_MISS_%value
+
+L_GROWVEC_SET_TYPED_HIT_%value:
+    __growvec_set_ptr_%value = load __growvec_set_view_%value+GrowVec_ptr as ptr
+    __growvec_set_off_%value = mul %index, %elem_size
+    __growvec_set_item_%value = ptr_add __growvec_set_ptr_%value, __growvec_set_off_%value
+    store __growvec_set_item_%value+0, %value as %elem_ty
+    !__growvec_set_item_%value
+    !__growvec_set_off_%value
+    !__growvec_set_ptr_%value
+    !__growvec_set_in_bounds_%value
+    !__growvec_set_len_%value
+    !__growvec_set_view_%value
+    jmp L_GROWVEC_SET_TYPED_END_%value
+
+L_GROWVEC_SET_TYPED_MISS_%value:
+    !__growvec_set_in_bounds_%value
+    !__growvec_set_len_%value
+    !__growvec_set_view_%value
+    panic(87)
+
+L_GROWVEC_SET_TYPED_END_%value:
+[END_MACRO]

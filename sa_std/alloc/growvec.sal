@@ -1,0 +1,5 @@
+#def GrowVec_SIZE = 32
+#def GrowVec_ptr  = +0
+#def GrowVec_len  = +8
+#def GrowVec_max  = +16
+#def GrowVec_rsv  = +24

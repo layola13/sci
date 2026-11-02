@@ -1,0 +1,252 @@
+@import "../core/mem.sa"
+@import "../core/slice.sal"
+@import "../num.sa"
+@import "growvec.sal"
+
+// ---------------------------------------------------------------------------
+// GrowVec runtime (F1, Jev ruling B: virtual reserve + commit-on-touch).
+//
+// A GrowVec handle is a 32-byte heap struct { ptr, len, max, rsv }:
+//   +0  ptr  base of a single mmap reservation (never moves, ever)
+//   +8  len  element count
+//   +16 max  element cap (the reservation parameter, exact)
+//   +24 rsv  reservation size in bytes (page rounded)
+// max and rsv are both stored: rsv is page-rounded, so the element cap
+// cannot be recovered from it (4096 bytes would read back as 512 u64
+// slots for a max=4 container), and munmap needs the exact rsv.
+//
+// The reservation is created with mmap(PROT_READ|PROT_WRITE,
+// MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE) and committed by the kernel on
+// first write (touch form). There is deliberately NO growth path: when len
+// would exceed the reservation the runtime panics (1215) instead of moving
+// the buffer -- element addresses are stable for the container's whole
+// life, which is the entire point of the type. Fresh pages are kernel
+// zero-filled, so unlike sa_vec_reserve there is no whole-buffer memset.
+//
+// VMA budget (registered constraint, F1-B probe 2026-11-02): the touch
+// form costs at most 1 VMA per container (no mprotect splitting), so a
+// process under the stock vm.max_map_count=65530 can hold ~65k live
+// GrowVec containers; destruction is one munmap of the whole reservation.
+//
+// Page-return discipline (registered constraint, external review merged
+// 2026-11-02): destroying or shrinking a container on a hot path must
+// NEVER hand pages back to the OS. munmap / madvise(MADV_DONTNEED) in a
+// process whose mm is shared by many goroutines takes mmap_lock for
+// writing and forces cross-core TLB shootdowns -- the same cost family
+// the F1-B probe measured on the mprotect form (5.4x slower writes, VMAs
+// 24 -> 20,023). Therefore:
+//   * Hot-path reuse is POOLED: a retired container goes back to a
+//     pool and is reused with len reset to 0, keeping its committed
+//     ("hot") pages. There is deliberately no shrink/trim primitive.
+//   * sa_growvec_free (the munmap below) is reserved for process-level
+//     or coarse-grained teardown only -- e.g. dismantling a whole pool
+//     at shutdown -- never per-request / per-task recycling.
+// The primitive surface is unchanged by this rule; it constrains the
+// default reuse strategy of layers above, not the existence of free.
+//
+// Panic codes (1215-1217, free in the 12xx std band):
+//   1215  push/extend would exceed the reservation
+//   1216  reservation size computation overflowed
+//   1217  mmap failed
+//
+// Platform scope: Linux (x86_64 constants; page size 4096).
+// ---------------------------------------------------------------------------
+
+@extern mmap(addr: ptr, len: u64, prot: i32, flags: i32, fd: i32, offset: u64) -> ptr
+@extern munmap(addr: ptr, len: u64) -> i32
+@extern sa_mem_free(^ptr: ptr) -> void
+
+@export sa_growvec_new(elem_size: u64, max_elems: u64) -> ^ptr:
+L_ENTRY:
+    zero_max = eq max_elems, 0
+    br zero_max -> L_DEFAULT_MAX, L_HAVE_MAX
+L_DEFAULT_MAX:
+    eff_max = add 0, 1048576
+    jmp L_SIZE
+L_HAVE_MAX:
+    eff_max = add max_elems, 0
+    jmp L_SIZE
+L_SIZE:
+    EXPAND NUM_U64_CHECKED_MUL bytes_ok, raw_bytes, eff_max, elem_size
+    br bytes_ok -> L_ROUND, L_OVERFLOW
+L_OVERFLOW:
+    panic(1216)
+L_ROUND:
+    pages = udiv raw_bytes, 4096
+    rem = urem raw_bytes, 4096
+    has_rem = ne rem, 0
+    br has_rem -> L_ROUND_UP, L_ROUND_EXACT
+L_ROUND_UP:
+    ceil_pages = add pages, 1
+    jmp L_ROUND_MUL
+L_ROUND_EXACT:
+    ceil_pages = add pages, 0
+    jmp L_ROUND_MUL
+L_ROUND_MUL:
+    rsv_raw = mul ceil_pages, 4096
+    zero_rsv = eq rsv_raw, 0
+    br zero_rsv -> L_ONE_PAGE, L_HAVE_RSV
+L_ONE_PAGE:
+    rsv = add 0, 4096
+    jmp L_MMAP
+L_HAVE_RSV:
+    rsv = add rsv_raw, 0
+    jmp L_MMAP
+L_MMAP:
+    base = call @mmap(0 as ptr, rsv, 3, 16418, -1, 0)
+    fail_ptr = -1 as ptr
+    failed = eq base, fail_ptr
+    br failed -> L_MMAP_FAIL, L_FILL
+L_MMAP_FAIL:
+    panic(1217)
+L_FILL:
+    gv = alloc GrowVec_SIZE
+    store gv+GrowVec_ptr, base as ptr
+    store gv+GrowVec_len, 0 as u64
+    store gv+GrowVec_max, eff_max as u64
+    store gv+GrowVec_rsv, rsv as u64
+    ^base
+    !fail_ptr
+    !failed
+    !rsv
+    !rsv_raw
+    !zero_rsv
+    !ceil_pages
+    !has_rem
+    !rem
+    !pages
+    !bytes_ok
+    !raw_bytes
+    !eff_max
+    !zero_max
+    !max_elems
+    !elem_size
+    return gv
+
+@export sa_growvec_len(&gv: ptr) -> u64:
+L_ENTRY:
+    len = load gv+GrowVec_len as u64
+    !gv
+    return len
+
+@export sa_growvec_reserved(&gv: ptr) -> u64:
+L_ENTRY:
+    rsv = load gv+GrowVec_rsv as u64
+    !gv
+    return rsv
+
+@export sa_growvec_capacity(&gv: ptr) -> u64:
+L_ENTRY:
+    cap = load gv+GrowVec_max as u64
+    !gv
+    return cap
+
+@export sa_growvec_is_empty(&gv: ptr) -> i32:
+L_ENTRY:
+    len = load gv+GrowVec_len as u64
+    empty = eq len, 0
+    result = empty as i32
+    !len
+    !gv
+    return result
+
+@export sa_growvec_data_ptr(&gv: ptr) -> ptr:
+L_ENTRY:
+    base = load gv+GrowVec_ptr as ptr
+    !gv
+    return base
+
+@export sa_growvec_push(^gv: ptr, value: u64, elem_size: u64) -> ^ptr:
+L_ENTRY:
+    len = load gv+GrowVec_len as u64
+    cap = load gv+GrowVec_max as u64
+    full = uge len, cap
+    br full -> L_FULL, L_WRITE
+L_FULL:
+    panic(1215)
+L_WRITE:
+    base = load gv+GrowVec_ptr as ptr
+    off = mul len, elem_size
+    slot = ptr_add base, off
+    store slot+0, value as u64
+    next_len = add len, 1
+    store gv+GrowVec_len, next_len as u64
+    !slot
+    !off
+    !base
+    !next_len
+    !full
+    !cap
+    !len
+    !value
+    !elem_size
+    return gv
+
+@export sa_growvec_extend_from_slice(^gv: ptr, &slice: ptr, elem_size: u64) -> ^ptr:
+L_ENTRY:
+    add_len = load slice+Slice_len as u64
+    add_zero = eq add_len, 0
+    br add_zero -> L_DONE, L_CHECK
+L_CHECK:
+    len = load gv+GrowVec_len as u64
+    cap = load gv+GrowVec_max as u64
+    EXPAND NUM_U64_CHECKED_ADD needed_ok, needed, len, add_len
+    br needed_ok -> L_ROOM, L_OVERFLOW
+L_OVERFLOW:
+    panic(1216)
+L_ROOM:
+    has_room = uge cap, needed
+    br has_room -> L_COPY, L_FULL
+L_FULL:
+    panic(1215)
+L_COPY:
+    dst_buf = load gv+GrowVec_ptr as ptr
+    src_buf = load slice+Slice_ptr as ptr
+    dst_off = mul len, elem_size
+    dst_ptr = ptr_add dst_buf, dst_off
+    copy_bytes = mul add_len, elem_size
+    call @sa_mem_copy(&dst_ptr, &src_buf, copy_bytes)
+    store gv+GrowVec_len, needed as u64
+    !copy_bytes
+    !dst_ptr
+    !dst_off
+    !src_buf
+    !dst_buf
+    !has_room
+    !needed
+    !needed_ok
+    !cap
+    !len
+    !add_zero
+    !add_len
+    !elem_size
+    !slice
+    return gv
+L_DONE:
+    !add_zero
+    !add_len
+    !elem_size
+    !slice
+    return gv
+
+@export sa_growvec_free(^gv: ptr) -> void:
+L_ENTRY:
+    base = take gv+GrowVec_ptr
+    rsv = load gv+GrowVec_rsv as u64
+    zero_ptr = 0 as ptr
+    has_base = ne base, zero_ptr
+    br has_base -> L_UNMAP, L_NO_BASE
+L_NO_BASE:
+    !base
+    jmp L_FREE_HANDLE
+L_UNMAP:
+    rc = call @munmap(base, rsv)
+    !rc
+    !base
+    jmp L_FREE_HANDLE
+L_FREE_HANDLE:
+    !zero_ptr
+    !has_base
+    !rsv
+    call @sa_mem_free(^gv)
+    return
