@@ -3392,6 +3392,7 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         mmap,
         munmap,
         mem_free,
+        memcpy,
         signal,
         npm_totalmem,
         npm_parallelism,
@@ -3753,6 +3754,12 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = 0b1, .tag = .mmap }
     else if (std.mem.eql(u8, name, "munmap"))
         .{ .voids = all_void, .tag = .munmap }
+    else if (std.mem.eql(u8, name, "memcpy"))
+        // The libc copy primitive (sa_std core/mem.sa's
+        // @sa_mem_copy_nonoverlapping binds here): a real copy
+        // inside guest memory, bounds-checked on both ranges;
+        // returns the destination like C memcpy.
+        .{ .voids = all_void ^ 0b111, .tag = .memcpy }
     else if (std.mem.eql(u8, name, "sa_mem_free"))
         // The one sa_std allocator extern: bound to the emitter's own
         // free-list sa_free so C-route drops actually release memory
@@ -4640,6 +4647,12 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         },
         .mem_free => {
             try writer.writeAll(" { sa_free(a0); return 0; } }\n");
+        },
+        .memcpy => {
+            try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a2);");
+            try writer.writeAll(" uint32_t y = sa_checked_addr(a1, (size_t)a2);");
+            try writer.writeAll(" memcpy(&sa_mem[x], &sa_mem[y], (size_t)a2);");
+            try writer.writeAll(" return a0; } }\n");
         },
         .signal => {
             // Echo the signal number back (staged oracle semantics).
@@ -10578,6 +10591,17 @@ test "c extern binding maps sa_mem_free to the runtime sa_free" {
     defer aw.deinit();
     try std.testing.expect(try writeExternBinding(&aw.writer, "sa_mem_free", 12, false));
     try std.testing.expect(std.mem.indexOf(u8, aw.writer.buffered(), "{ sa_free(a0); return 0; }") != null);
+}
+
+test "c extern binding maps memcpy to a guest-memory copy" {
+    // Class-A batch: sa_std core/mem.sa binds
+    // @sa_mem_copy_nonoverlapping to @extern memcpy. Without this
+    // binding the C route rendered a trapping stub and every Vec
+    // bulk-extend trapped there.
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
+    try std.testing.expect(try writeExternBinding(&aw.writer, "memcpy", 12, false));
+    try std.testing.expect(std.mem.indexOf(u8, aw.writer.buffered(), "memcpy(&sa_mem[x], &sa_mem[y], (size_t)a2)") != null);
 }
 
 test "c stdlink bindings cover the goroutine task family (C1)" {

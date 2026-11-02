@@ -27,6 +27,36 @@
 //   sa_vec_export_packed_i32(v: &Vec<i32>, dst: ptr, dst_cap: u64) -> (i32, u64)
 //   sa_vec_export_packed_f64(v: &Vec<f64>, dst: ptr, dst_cap: u64) -> (i32, u64)
 //
+//   sa_vec_u8_extend_packed(v: Vec<u8>, src: ptr, n: u64) -> Vec<u8>
+//     The reverse direction for byte vectors: append the n packed
+//     bytes at `src` to v (value-threaded, the codebase writer
+//     idiom). This is the face a caller uses to turn a packed byte
+//     image (a socket read, a file read) into Vec<u8> elements
+//     instead of open-coding a push loop at every call site.
+//
+//   sa_vec_u8_extend_from_vec(v: Vec<u8>, srcv: &Vec<u8>, start: u64, n: u64) -> Vec<u8>
+//     The slot-to-slot counterpart: append n elements of another
+//     Vec<u8> (from element `start`) to v. The range is checked
+//     loudly (panic 1251); `srcv` must not be `v` itself.
+//
+//   sa_vec_u16_extend_packed / sa_vec_i32_extend_packed /
+//   sa_vec_f64_extend_packed: the same append for the other
+//     primitive element types (packed little-endian source image,
+//     one wrapper per type over the same growth + scatter shape;
+//     f64's packed stride equals the slot stride, so it rides the
+//     bulk primitive directly).
+//
+// GROWTH CONTRACT (Class-A batch, GAP-BULKAPPEND closed here):
+//   All extend faces in this file grow through the geometric
+//   primitives @sa_vec_reserve_grow / @sa_vec_extend (0 -> 4, then
+//   doubling; see alloc/vec.sa). sa_vec_reserve itself is EXACT
+//   one-shot sizing -- reserve for a known final size only, never
+//   for incremental growth (repeated exact reserve is O(n^2)).
+//   The u8/u16/i32 faces scatter the packed source into word
+//   slots; every grown slot is written in full (zero-extended, or
+//   sign-extended for i32), so the produced slot image is
+//   byte-identical to a push-built Vec's.
+//
 //   Return (status, bytes):
 //     status 0: the packed image (len * abi_size(T) bytes) was
 //               written to dst; bytes = that count.
@@ -113,4 +143,140 @@ fn sa_vec_export_packed_f64(v: &Vec<f64>, dst: ptr, dst_cap: u64) -> (i32, u64) 
     let p: ptr = PTR_NULL();
     SLICE_AS_PTR(p, sl);
     return sa_vec_export_packed_core(p, len(v), 8, 8, dst, dst_cap);
+}
+
+// Append the n packed bytes at `src` to v. The elements live
+// in word slots, so there is no packed destination image a bulk
+// copy could land in; the append therefore grows geometrically
+// through @sa_vec_reserve_grow (the GAP-BULKAPPEND primitive --
+// no exact-fit reserve, no whole-buffer memset per growth) and
+// scatters each packed byte into its slot with a full-slot store
+// (zero-extended u64), so every slot in the grown range is fully
+// written and no uninitialized element is ever observable. The
+// produced slot image is byte-identical to the previous
+// reserve-based implementation's.
+fn sa_vec_u8_extend_packed(v: Vec<u8>, src: ptr, n: u64) -> Vec<u8> {
+    if n == 0 {
+        return v;
+    };
+    let base: u64 = len(v);
+    VEC_RESERVE_GROW(v, n, 8);
+    VEC_SET_LEN(v, base + n);
+    let buf: ptr = VEC_AS_PTR(v);
+    let i: u64 = 0;
+    while i < n {
+        let byte: u8 = PTR_BYTE_AT(src, i);
+        let w: u64 = byte as u64;
+        let soff: u64 = (base + i) * 8;
+        let sp: ptr = PTR_BYTE_ADD(buf, soff);
+        PTR_WRITE_U64(sp, w);
+        i = i + 1;
+    }
+    return v;
+}
+
+// Append n elements of another Vec<u8>'s slot image (starting
+// at element `start`) to v: the slot-to-slot counterpart of
+// sa_vec_u8_extend_packed, for callers whose source is already
+// a Vec (a parse buffer being split into argument vectors, an
+// input buffer being compacted). The source is already a slot
+// image, so the whole append is one @sa_vec_extend bulk copy
+// (geometric growth inside). The range is checked loudly
+// (panic 1251) -- the raw-pointer form has no implicit bounds
+// check of its own. `srcv` must not be `v` itself.
+fn sa_vec_u8_extend_from_vec(v: Vec<u8>, srcv: &Vec<u8>, start: u64, n: u64) -> Vec<u8> {
+    if n == 0 {
+        return v;
+    };
+    let slen: u64 = len(srcv);
+    if start > slen {
+        panic(1251);
+    };
+    if n > slen - start {
+        panic(1251);
+    };
+    let sbuf: ptr = VEC_AS_PTR(srcv);
+    let soff: u64 = start * 8;
+    let sp: ptr = PTR_BYTE_ADD(sbuf, soff);
+    VEC_EXTEND(v, sp, n, 8);
+    return v;
+}
+
+// Packed appends for the remaining primitive element types,
+// one wrapper per type over the same growth + scatter shape as
+// sa_vec_u8_extend_packed (values are reassembled little-endian
+// from the packed source and stored as full slots; i32 values
+// are sign-extended into the slot, matching the slot image a
+// push of the same value produces).
+fn sa_vec_u16_extend_packed(v: Vec<u16>, src: ptr, n: u64) -> Vec<u16> {
+    if n == 0 {
+        return v;
+    };
+    let base: u64 = len(v);
+    VEC_RESERVE_GROW(v, n, 8);
+    VEC_SET_LEN(v, base + n);
+    let buf: ptr = VEC_AS_PTR(v);
+    let i: u64 = 0;
+    while i < n {
+        let lo_off: u64 = i * 2;
+        let hi_off: u64 = lo_off + 1;
+        let lo_b: u8 = PTR_BYTE_AT(src, lo_off);
+        let hi_b: u8 = PTR_BYTE_AT(src, hi_off);
+        let lo: u64 = lo_b as u64;
+        let hi: u64 = hi_b as u64;
+        let w: u64 = lo | (hi << 8);
+        let soff: u64 = (base + i) * 8;
+        let sp: ptr = PTR_BYTE_ADD(buf, soff);
+        PTR_WRITE_U64(sp, w);
+        i = i + 1;
+    }
+    return v;
+}
+
+fn sa_vec_i32_extend_packed(v: Vec<i32>, src: ptr, n: u64) -> Vec<i32> {
+    if n == 0 {
+        return v;
+    };
+    let base: u64 = len(v);
+    VEC_RESERVE_GROW(v, n, 8);
+    VEC_SET_LEN(v, base + n);
+    let buf: ptr = VEC_AS_PTR(v);
+    let i: u64 = 0;
+    while i < n {
+        let o0: u64 = i * 4;
+        let o1: u64 = o0 + 1;
+        let o2: u64 = o0 + 2;
+        let o3: u64 = o0 + 3;
+        let c0: u8 = PTR_BYTE_AT(src, o0);
+        let c1: u8 = PTR_BYTE_AT(src, o1);
+        let c2: u8 = PTR_BYTE_AT(src, o2);
+        let c3: u8 = PTR_BYTE_AT(src, o3);
+        let b0: u64 = c0 as u64;
+        let b1: u64 = c1 as u64;
+        let b2: u64 = c2 as u64;
+        let b3: u64 = c3 as u64;
+        let lo32: u64 = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+        let neg: u64 = lo32 & 2147483648;
+        let w: u64 = lo32;
+        if neg != 0 {
+            let mask: u64 = 4294967295 << 32;
+            w = lo32 | mask;
+        };
+        let soff: u64 = (base + i) * 8;
+        let sp: ptr = PTR_BYTE_ADD(buf, soff);
+        PTR_WRITE_U64(sp, w);
+        i = i + 1;
+    }
+    return v;
+}
+
+// f64's packed size equals the slot size (8), so the packed
+// source IS a slot image and the append rides @sa_vec_extend
+// directly -- one bulk copy, geometric growth. The face stores
+// the exact bit image; what SLA-level reads of Vec<f64>
+// elements return is governed by the upstream element-storage
+// state (see the export caveat at the top of this file).
+fn sa_vec_f64_extend_packed(v: Vec<f64>, src: ptr, n: u64) -> Vec<f64> {
+    VEC_EXTEND(v, src, n, 8);
+    return v;
 }

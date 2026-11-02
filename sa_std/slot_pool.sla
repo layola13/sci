@@ -1,0 +1,105 @@
+// sa_std/slot_pool.sla -- fixed-size slot pool (Class-A batch,
+// A-3; the Goose freelist idea localized to our ownership
+// discipline -- a real free list with loud double-free, not a
+// deferred "inactive" flag).
+//
+// PURPOSE: fixed-size records -- connection contexts, timer
+// nodes, handle tables -- allocated and released repeatedly,
+// without a fresh Vec (or a deep-drop walk) per record.
+//
+// CONTRACT:
+//   * Elements are FLAT and FIXED-SIZE: elem_size is the byte
+//     stride (the sa_vec_* convention) and every slot occupies
+//     exactly [idx*elem_size, (idx+1)*elem_size) of the arena.
+//     Deep elements (owning pointers/Vecs) are OUT OF CONTRACT
+//     in v1 -- the pool returns raw slot memory, it does not
+//     run element drops, so an owning element's contents would
+//     leak unobserved. That boundary is loud, here, on purpose.
+//   * alloc: LIFO reuse from the freelist; a fresh slot is
+//     carved at the high-water index and the arena grows in
+//     zeroed words. elem_size == 0 panics (1321).
+//   * free: idx must be a carved slot and not already free --
+//     out-of-range or double free panics (1322). Callers must
+//     pass the same elem_size family to alloc/free/get.
+//   * get: idx must be carved (in use or free -- the pool does
+//     not track per-slot liveness beyond the freelist), else
+//     panic 1323. The returned pointer is invalidated by any
+//     later alloc that grows the arena.
+//   * The pool is an ordinary owned value; dropping it deep
+//     drops its Vecs, no special path.
+
+@import "sa_std/vec.sa"
+@import "sa_std/ptr.sa"
+
+struct SlotPool {
+    data: Vec<u64>,
+    freelist: Vec<u32>,
+    len: u64,
+}
+
+fn slot_pool_new() -> SlotPool {
+    return SlotPool { data: Vec::new(), freelist: Vec::new(), len: 0 };
+}
+
+fn slot_pool_arena_ptr(d: &Vec<u64>) -> ptr {
+    return VEC_AS_PTR(d);
+}
+
+fn slot_pool_alloc(p: SlotPool, elem_size: u64) -> (SlotPool, u32) {
+    if elem_size == 0 {
+        panic(1321);
+    };
+    let q = p;
+    let result: u32 = 0;
+    let reused: bool = false;
+    if len(q.freelist) > 0 {
+        let o = q.freelist.pop();
+        if let Some(idx) = o {
+            result = idx;
+            reused = true;
+        };
+    };
+    if reused {
+        return (q, result);
+    };
+    if q.len >= 4294967296 {
+        panic(1324);
+    };
+    let idx: u32 = q.len as u32;
+    let need_bytes: u64 = (q.len + 1) * elem_size;
+    while len(q.data) * 8 < need_bytes {
+        q.data.push(0);
+    }
+    q.len = q.len + 1;
+    return (q, idx);
+}
+
+// Tuple return for the same reason as slice_pool_free (see
+// there): (pool, freelist length after the release).
+fn slot_pool_free(p: SlotPool, idx: u32, elem_size: u64) -> (SlotPool, u64) {
+    let i: u64 = idx as u64;
+    if i >= p.len {
+        panic(1322);
+    };
+    let q = p;
+    let j: u64 = 0;
+    while j < len(q.freelist) {
+        if q.freelist[j] == idx {
+            panic(1322);
+        };
+        j = j + 1;
+    }
+    q.freelist.push(idx);
+    let fl: u64 = len(q.freelist);
+    return (q, fl);
+}
+
+fn slot_pool_get(p: &SlotPool, idx: u32, elem_size: u64) -> ptr {
+    let i: u64 = idx as u64;
+    if i >= p.len {
+        panic(1323);
+    };
+    let base: ptr = slot_pool_arena_ptr(&p.data);
+    let off: u64 = i * elem_size;
+    return PTR_BYTE_ADD(base, off);
+}

@@ -1,0 +1,86 @@
+// sa_std/vec_grow.sla -- geometric growth faces + scratch rewind
+// (Class-A batch: A-2 wrapper surface, A-4 rewind pattern).
+//
+// GROWTH CONTRACT (the file header IS the contract; same text as
+// alloc/vec.sa and vec_packed.sla):
+//   * sa_vec_reserve is EXACT one-shot sizing: use it only when
+//     the final size is known up front. Incremental growth through
+//     it copies the whole buffer per call (O(n^2)).
+//   * Incremental growth uses the geometric sequence -- 0 -> 4,
+//     then doubling, new_cap = max(needed, geo) -- implemented
+//     ONCE, inside the runtime primitives (@sa_vec_reserve_grow /
+//     @sa_vec_extend). The faces here are thin signed wrappers:
+//     they hold the signatures and this contract, never a second
+//     growth formula.
+//
+// REWIND PATTERN (A-4; the hot-path scratch discipline, measured
+// by knife-1: per-call [u8; 4096] scratch -> persistent field
+// took SET c1 service time 76.6 -> 40.9 us):
+//   Hot paths must not declare big stack arrays ([0u8; N] is
+//   filled at full size on every declaration, ~4 ns/byte) and
+//   must not build a fresh Vec per call. Hold ONE persistent Vec,
+//   take a mark before filling it, and rewind to the mark when
+//   done: capacity is retained, allocation stays at zero.
+
+@import "sa_std/vec.sa"
+@import "sa_std/ptr.sa"
+@import "sa_std/vec_packed.sla"
+
+// Ensure capacity for target_len elements, growing geometrically
+// when short. The growth itself is delegated to
+// @sa_vec_reserve_grow so the sequence lives in exactly one
+// place; this face exists so call sites can state the target
+// length instead of an additional count.
+fn sa_vec_grow_to<T>(v: Vec<T>, target_len: u64, elem_size: u64) -> Vec<T> {
+    let cap: u64 = VEC_CAPACITY(v);
+    if cap < target_len {
+        let cur: u64 = len(v);
+        VEC_RESERVE_GROW(v, target_len - cur, elem_size);
+    };
+    return v;
+}
+
+// Geometric-growth packed byte append. Since the Class-A
+// primitives landed, this is exactly sa_vec_u8_extend_packed
+// (which grows geometrically through @sa_vec_reserve_grow); the
+// grow-named face is retained for call sites that think in
+// growth terms.
+fn sa_vec_u8_extend_grow(v: Vec<u8>, src: ptr, n: u64) -> Vec<u8> {
+    return sa_vec_u8_extend_packed(v, src, n);
+}
+
+// ---- rewind (A-4) ----
+
+// A mark is just the current length; take it before (re)filling
+// a persistent scratch Vec.
+fn sa_vec_mark<T>(v: &Vec<T>) -> u64 {
+    return len(v);
+}
+
+// Truncate back to a mark, dropping every element in
+// [mark, len) exactly once through the normal element drop
+// path (pop + drop). Deep elements are NOT leaked: this is the
+// semantically full form. A mark above the current length is a
+// caller bug and panics loudly (1301).
+fn sa_vec_rewind<T>(v: Vec<T>, mark: u64) -> Vec<T> {
+    if mark > len(v) {
+        panic(1301);
+    };
+    let q = v;
+    while len(q) > mark {
+        let gone = q.pop();
+    }
+    return q;
+}
+
+// The flat fast form for byte vectors: u8 elements carry no
+// drop obligation, so rewinding is a bare length store, no
+// per-element work. Only for element types without drops;
+// anything else must use sa_vec_rewind.
+fn sa_vec_rewind_bytes(v: Vec<u8>, mark: u64) -> Vec<u8> {
+    if mark > len(v) {
+        panic(1301);
+    };
+    VEC_SET_LEN(v, mark);
+    return v;
+}

@@ -118,6 +118,48 @@ L_END:
     !dst
     return
 
+@extern memcpy(dst: ptr, src: ptr, n: u64) -> ptr
+
+// Bulk byte copy bound to the platform memcpy (Class-A batch,
+// GAP-BULKAPPEND). sa_mem_copy above is the portable SA face --
+// its body is a byte loop, which the compiled backends do NOT
+// recognize as a copy idiom (measured ~5 ms per MiB appended
+// through it, vs ~0.04 ms for memcpy on the same host), so bulk
+// paths (the vec geometric-growth primitives) bind this face
+// instead. Semantics match sa_mem_copy: non-overlapping regions,
+// count == 0 is a no-op, null dst/src with nonzero count panics
+// with the same codes (1701/1702).
+@export sa_mem_copy_nonoverlapping(&dst: ptr, &src: ptr, count: u64) -> void:
+L_ENTRY:
+    nonzero = ne count, 0
+    br nonzero -> L_CHECK_DST, L_DONE
+L_CHECK_DST:
+    dst_null = eq dst, 0
+    br dst_null -> L_NULL_DST, L_CHECK_SRC
+L_NULL_DST:
+    panic(1701)
+L_CHECK_SRC:
+    src_null = eq src, 0
+    br src_null -> L_NULL_SRC, L_DO
+L_NULL_SRC:
+    panic(1702)
+L_DO:
+    r = call @memcpy(dst, src, count)
+    !r
+    !src_null
+    !dst_null
+    !nonzero
+    !count
+    !src
+    !dst
+    return
+L_DONE:
+    !nonzero
+    !count
+    !src
+    !dst
+    return
+
 [MACRO] BOX_NEW %out_box, %value
     %out_box = alloc Box_SIZE
     store %out_box+Box_value, %value as u64

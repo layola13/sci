@@ -1681,6 +1681,36 @@ L_VEC_PEEK_MUT_END_%out_ok:
     EXPAND VEC_TRY_RESERVE_EXACT %out_ok, %vec_reg, %additional, 8
 [END_MACRO]
 
+// Geometric growth (Class-A batch, GAP-BULKAPPEND): VEC_RESERVE_GROW
+// ensures cap >= len + min_additional on the geometric sequence
+// (0 -> 4, doubling) with a single copy and no zero-fill promise
+// for [len, cap). VEC_RESERVE above stays exact one-shot sizing --
+// see the growth contract in alloc/vec.sa. Use GROW for anything
+// incremental.
+[MACRO] VEC_RESERVE_GROW %vec_reg, %min_additional, %elem_size
+    %vec_reg = call @sa_vec_reserve_grow(^%vec_reg, %min_additional, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_RESERVE_GROW_U64 %vec_reg, %min_additional
+    EXPAND VEC_RESERVE_GROW %vec_reg, %min_additional, 8
+[END_MACRO]
+
+[MACRO] VEC_EXTEND %vec_reg, %src_ptr, %count, %elem_size
+    %vec_reg = call @sa_vec_extend(^%vec_reg, %src_ptr, %count, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_EXTEND_U64 %vec_reg, %src_ptr, %count
+    EXPAND VEC_EXTEND %vec_reg, %src_ptr, %count, 8
+[END_MACRO]
+
+[MACRO] VEC_EXTEND_VEC %vec_reg, %src_vec_reg, %elem_size
+    %vec_reg = call @sa_vec_extend_vec(^%vec_reg, &%src_vec_reg, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_EXTEND_VEC_U64 %vec_reg, %src_vec_reg
+    EXPAND VEC_EXTEND_VEC %vec_reg, %src_vec_reg, 8
+[END_MACRO]
+
 [MACRO] VEC_IS_EMPTY %out_flag, %vec_reg
     %out_flag = call @sa_vec_is_empty(&%vec_reg)
 [END_MACRO]

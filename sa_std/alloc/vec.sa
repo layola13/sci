@@ -1,3 +1,26 @@
+// sa_std/alloc/vec.sa -- Vec runtime (handle = 24B {ptr+0, cap+8, len+16}).
+//
+// GROWTH CONTRACT (Class-A batch, GAP-BULKAPPEND closure; read before
+// choosing a growth entry):
+//   * sa_vec_reserve is EXACT one-shot sizing: it grows the buffer to
+//     precisely len + additional and memsets the whole new buffer.
+//     Use it only when the final size is known up front. NEVER use it
+//     for incremental growth -- repeated exact reserve copies the
+//     whole buffer on every call (O(n^2); measured 600 s timeout in
+//     the knife-2 component probe).
+//   * Incremental growth goes through sa_vec_reserve_grow /
+//     sa_vec_extend / sa_vec_extend_vec: geometric sequence
+//     (0 -> 4, then doubling; new_cap = max(needed, geo)), a single
+//     copy of the live range, and NO zero-fill promise for the
+//     capacity region [len, cap) -- the same observable surface the
+//     push growth path has always had (push never zeroed either).
+//   * sa_vec_push grows on the same geometric sequence (0 -> 4,
+//     doubling) since this batch (Jev F3 ruling A: one sequence on
+//     host, device and the new primitives).
+//   * Needed/byte arithmetic overflow traps loudly (reserve_grow and
+//     extend use panic 1215-1225; device-side counterpart: trap 17
+//     VEC_GROW).
+
 @import "../core/mem.sa"
 @import "../core/slice.sal"
 @import "../core/slice.sa"
@@ -161,7 +184,7 @@ L_GROW:
     br cap_is_zero -> L_GROW_FROM_ZERO, L_GROW_DOUBLE
 
 L_GROW_FROM_ZERO:
-    next_cap = add 0, 1
+    next_cap = add 0, 4
     next_cap_ok = add 0, 1
     jmp L_GROW_ALLOC
 
@@ -677,6 +700,261 @@ L_GROW_DONE:
     !fill_value
     !elem_size
     !new_len
+    return vec
+
+// Geometric-growth reserve (Class-A batch, GAP-BULKAPPEND): ensures
+// cap >= len + min_additional, growing on the geometric sequence
+// 0 -> 4 -> doubling (new_cap = max(needed, geo)). Unlike
+// sa_vec_reserve (exact fit + whole-buffer memset), this copies the
+// live range exactly once and makes NO promise about the contents
+// of [len, cap) -- callers must write every element they expose
+// through set_len, exactly as with push-grown capacity.
+@export sa_vec_reserve_grow(^vec: ptr, min_additional: u64, elem_size: u64) -> ^ptr:
+L_ENTRY:
+    len = load vec+Vec_len as u64
+    cap = load vec+Vec_cap as u64
+    EXPAND NUM_U64_CHECKED_ADD needed_ok, needed, len, min_additional
+    br needed_ok -> L_NEED_OK, L_OVERFLOW
+
+L_OVERFLOW:
+    panic(1215)
+
+L_NEED_OK:
+    has_room = uge cap, needed
+    br has_room -> L_DONE, L_GROW
+
+L_GROW:
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_GROW_FROM_ZERO, L_GROW_DOUBLE
+
+L_GROW_FROM_ZERO:
+    cand = add 0, 4
+    geo_ok = add 0, 1
+    jmp L_GROW_MAX
+
+L_GROW_DOUBLE:
+    EXPAND NUM_U64_CHECKED_ADD geo_ok, cand, cap, cap
+    br geo_ok -> L_GROW_MAX, L_GROW_CAP_OVERFLOW
+
+L_GROW_CAP_OVERFLOW:
+    panic(1216)
+
+L_GROW_MAX:
+    geo_wins = ugt cand, needed
+    br geo_wins -> L_CAP_GEO, L_CAP_NEEDED
+
+L_CAP_GEO:
+    new_cap = add cand, 0
+    jmp L_GROW_ALLOC
+
+L_CAP_NEEDED:
+    new_cap = add needed, 0
+    jmp L_GROW_ALLOC
+
+L_GROW_ALLOC:
+    old_buf = take vec+Vec_ptr
+    EXPAND NUM_U64_CHECKED_MUL new_bytes_ok, new_bytes, new_cap, elem_size
+    br new_bytes_ok -> L_ALLOC, L_BYTES_OVERFLOW
+
+L_BYTES_OVERFLOW:
+    panic(1217)
+
+L_ALLOC:
+    new_buf = alloc new_bytes
+    EXPAND NUM_U64_CHECKED_MUL copy_bytes_ok, copy_bytes, len, elem_size
+    br copy_bytes_ok -> L_COPY, L_COPY_OVERFLOW
+
+L_COPY_OVERFLOW:
+    panic(1218)
+
+L_COPY:
+    call @sa_mem_copy_nonoverlapping(&new_buf, &old_buf, copy_bytes)
+    store vec+Vec_ptr, new_buf as ptr
+    store vec+Vec_cap, new_cap as u64
+    !copy_bytes_ok
+    !copy_bytes
+    !new_bytes_ok
+    !new_bytes
+    call @sa_mem_free(^old_buf)
+    ^new_buf
+    !geo_wins
+    !new_cap
+    !cand
+    !geo_ok
+    !cap_is_zero
+    !has_room
+    !needed
+    !needed_ok
+    !cap
+    !len
+    !elem_size
+    !min_additional
+    return vec
+
+L_DONE:
+    !has_room
+    !needed
+    !needed_ok
+    !cap
+    !len
+    !elem_size
+    !min_additional
+    return vec
+
+// Bulk append from a raw element image (Class-A batch,
+// GAP-BULKAPPEND): appends count elements whose image at src_ptr
+// uses the same elem_size stride as the Vec's own slots, in a
+// single memcpy-bound copy (@sa_mem_copy_nonoverlapping; the
+// byte-loop @sa_mem_copy cannot meet the bulk rate on compiled
+// backends). Growth, when needed,
+// is the geometric sequence of sa_vec_reserve_grow. The appended
+// range is written in full by the copy; nothing uninitialized is
+// exposed. src_ptr must not point into vec's own buffer (use
+// sa_vec_extend_vec for Vec sources, which rejects self-append).
+@export sa_vec_extend(^vec: ptr, src_ptr: ptr, count: u64, elem_size: u64) -> ^ptr:
+L_ENTRY:
+    count_zero = eq count, 0
+    br count_zero -> L_DONE, L_CHECK
+
+L_CHECK:
+    len = load vec+Vec_len as u64
+    cap = load vec+Vec_cap as u64
+    EXPAND NUM_U64_CHECKED_ADD needed_ok, needed, len, count
+    br needed_ok -> L_NEED_OK, L_OVERFLOW
+
+L_OVERFLOW:
+    panic(1219)
+
+L_NEED_OK:
+    has_room = uge cap, needed
+    br has_room -> L_COPY, L_REALLOC
+
+L_REALLOC:
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_FROM_ZERO, L_DOUBLE
+
+L_FROM_ZERO:
+    cand = add 0, 4
+    geo_ok = add 0, 1
+    jmp L_MAX
+
+L_DOUBLE:
+    EXPAND NUM_U64_CHECKED_ADD geo_ok, cand, cap, cap
+    br geo_ok -> L_MAX, L_CAP_OVERFLOW
+
+L_CAP_OVERFLOW:
+    panic(1220)
+
+L_MAX:
+    geo_wins = ugt cand, needed
+    br geo_wins -> L_CAP_GEO, L_CAP_NEEDED
+
+L_CAP_GEO:
+    new_cap = add cand, 0
+    jmp L_ALLOC
+
+L_CAP_NEEDED:
+    new_cap = add needed, 0
+    jmp L_ALLOC
+
+L_ALLOC:
+    old_buf = take vec+Vec_ptr
+    EXPAND NUM_U64_CHECKED_MUL new_bytes_ok, new_bytes, new_cap, elem_size
+    br new_bytes_ok -> L_ALLOC_NEW, L_BYTES_OVERFLOW
+
+L_BYTES_OVERFLOW:
+    panic(1221)
+
+L_ALLOC_NEW:
+    new_buf = alloc new_bytes
+    EXPAND NUM_U64_CHECKED_MUL copy_old_ok, copy_old_bytes, len, elem_size
+    br copy_old_ok -> L_COPY_OLD, L_COPY_OLD_OVERFLOW
+
+L_COPY_OLD_OVERFLOW:
+    panic(1222)
+
+L_COPY_OLD:
+    call @sa_mem_copy_nonoverlapping(&new_buf, &old_buf, copy_old_bytes)
+    store vec+Vec_ptr, new_buf as ptr
+    store vec+Vec_cap, new_cap as u64
+    !copy_old_ok
+    !copy_old_bytes
+    !new_bytes_ok
+    !new_bytes
+    call @sa_mem_free(^old_buf)
+    ^new_buf
+    !geo_wins
+    !new_cap
+    !cand
+    !geo_ok
+    !cap_is_zero
+
+L_COPY:
+    dst_buf = load vec+Vec_ptr as ptr
+    EXPAND NUM_U64_CHECKED_MUL dst_off_ok, dst_off, len, elem_size
+    br dst_off_ok -> L_COPY_ADD_SIZE, L_DST_OVERFLOW
+
+L_DST_OVERFLOW:
+    panic(1223)
+
+L_COPY_ADD_SIZE:
+    dst_ptr = ptr_add dst_buf, dst_off
+    EXPAND NUM_U64_CHECKED_MUL add_bytes_ok, add_bytes, count, elem_size
+    br add_bytes_ok -> L_COPY_ADD, L_ADD_OVERFLOW
+
+L_ADD_OVERFLOW:
+    panic(1224)
+
+L_COPY_ADD:
+    call @sa_mem_copy_nonoverlapping(&dst_ptr, &src_ptr, add_bytes)
+    store vec+Vec_len, needed as u64
+    !add_bytes_ok
+    !add_bytes
+    !dst_ptr
+    !dst_off_ok
+    !dst_off
+    !dst_buf
+    !has_room
+    !needed
+    !needed_ok
+    !cap
+    !len
+    !count_zero
+    !count
+    !elem_size
+    !src_ptr
+    return vec
+
+L_DONE:
+    !count_zero
+    !count
+    !elem_size
+    !src_ptr
+    return vec
+
+// Bulk append of another Vec's elements (Class-A batch,
+// GAP-BULKAPPEND). Self-append (dst and src are the same handle)
+// is rejected loudly with panic(1225): growth could reallocate the
+// shared buffer mid-copy and corrupt the source image. Distinct
+// handles never share a buffer under the ownership discipline, so
+// the handle identity check is the whole aliasing story.
+@export sa_vec_extend_vec(^vec: ptr, &src_vec: ptr, elem_size: u64) -> ^ptr:
+L_ENTRY:
+    same = eq vec, src_vec
+    br same -> L_SELF, L_GO
+
+L_SELF:
+    panic(1225)
+
+L_GO:
+    src_ptr = load src_vec+Vec_ptr as ptr
+    count = load src_vec+Vec_len as u64
+    vec = call @sa_vec_extend(^vec, src_ptr, count, elem_size)
+    !src_ptr
+    !count
+    !same
+    !elem_size
+    !src_vec
     return vec
 
 @extern sa_mem_free(^ptr: ptr) -> void
