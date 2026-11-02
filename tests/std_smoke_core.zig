@@ -295,7 +295,9 @@ test "sa_std core primitives are concrete and verifiable" {
         .ok => |ok| {
             var owned = ok;
             defer owned.deinit(std.testing.allocator);
-            try std.testing.expectEqual(@as(usize, 2), owned.function_sigs.len);
+            // mem.sa sigs: sa_mem_copy + sa_mem_set + @extern memcpy +
+            // sa_mem_copy_nonoverlapping (Class-A GAP-BULKAPPEND addition).
+            try std.testing.expectEqual(@as(usize, 4), owned.function_sigs.len);
             try std.testing.expect(owned.annotated.len > 0);
         },
         .trap => |report| {
