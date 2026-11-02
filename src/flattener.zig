@@ -127,11 +127,60 @@ pub const SourceLine = struct {
     classified: ClassifiedLine,
     package_identity: ?[]const u8 = null,
     package_source_sha256: ?[32]u8 = null,
+    /// Path of the file this line was read from before import expansion
+    /// inlined it into the expanded source, and its 1-based line number in
+    /// that file. Zero/null when unknown (e.g. lines replayed from the
+    /// expanded-import cache); diagnostics must fall back to `line_no`
+    /// (the expanded-source coordinate) in that case.
+    origin_path: ?[]const u8 = null,
+    origin_line_no: u32 = 0,
 };
 
 pub const ErrorContext = struct {
     source_line: ?u32 = null,
+    /// Origin file of the line recorded in `source_line`, when it is known
+    /// to differ from a plain expanded-source coordinate. Stored inline so
+    /// the context outlives the expansion buffers it was borrowed from.
+    source_path_buf: [256]u8 = std.mem.zeroes([256]u8),
+    source_path_len: usize = 0,
+    /// Short machine-readable detail for the recorded error (currently the
+    /// offending macro name for error.UndefinedMacro).
+    detail_buf: [128]u8 = std.mem.zeroes([128]u8),
+    detail_len: usize = 0,
+
+    pub fn sourcePath(self: *const ErrorContext) ?[]const u8 {
+        if (self.source_path_len == 0) return null;
+        return self.source_path_buf[0..self.source_path_len];
+    }
+
+    pub fn detail(self: *const ErrorContext) ?[]const u8 {
+        if (self.detail_len == 0) return null;
+        return self.detail_buf[0..self.detail_len];
+    }
+
+    fn reset(self: *ErrorContext) void {
+        self.source_line = null;
+        self.source_path_len = 0;
+        self.detail_len = 0;
+    }
 };
+
+pub const ErrorReport = struct {
+    line: ?u32,
+    path: ?[]const u8,
+    detail: ?[]const u8,
+};
+
+/// Borrowed view of the recorded error position: `line` is a line number in
+/// `path` (the origin file) when a path was recorded, and an
+/// expanded-source coordinate otherwise.
+pub fn errorReport(error_ctx: *const ErrorContext) ErrorReport {
+    return .{
+        .line = error_ctx.source_line,
+        .path = error_ctx.sourcePath(),
+        .detail = error_ctx.detail(),
+    };
+}
 
 pub const IncludeCycle = error{
     IncludeCycle,
@@ -140,6 +189,44 @@ pub const IncludeCycle = error{
 fn recordErrorSourceLine(error_ctx: ?*ErrorContext, line_no: u32) void {
     if (error_ctx) |ctx| {
         ctx.source_line = line_no;
+    }
+}
+
+/// Record an error position in origin-file coordinates: `origin_line` is
+/// the 1-based line number inside the origin file. A null `origin_path`
+/// means the root file (whose path spelling is owned by the caller, so it
+/// is never recorded here); it clears any previously recorded foreign path.
+fn recordErrorOrigin(error_ctx: ?*ErrorContext, origin_path: ?[]const u8, origin_line: u32) void {
+    if (error_ctx) |ctx| {
+        ctx.source_line = origin_line;
+        if (origin_path) |path| {
+            const current = ctx.sourcePath();
+            if (current == null or !std.mem.eql(u8, current.?, path)) {
+                const n = @min(path.len, ctx.source_path_buf.len);
+                @memcpy(ctx.source_path_buf[0..n], path[0..n]);
+                ctx.source_path_len = n;
+            }
+        } else {
+            ctx.source_path_len = 0;
+        }
+    }
+}
+
+/// Record the error position for a source line, preferring its origin
+/// coordinates when import expansion preserved them.
+fn recordErrorLine(error_ctx: ?*ErrorContext, line: SourceLine, fallback_line: u32) void {
+    if (line.origin_line_no != 0) {
+        recordErrorOrigin(error_ctx, line.origin_path, line.origin_line_no);
+    } else {
+        recordErrorSourceLine(error_ctx, fallback_line);
+    }
+}
+
+fn setErrorDetail(error_ctx: ?*ErrorContext, detail_text: []const u8) void {
+    if (error_ctx) |ctx| {
+        const n = @min(detail_text.len, ctx.detail_buf.len);
+        @memcpy(ctx.detail_buf[0..n], detail_text[0..n]);
+        ctx.detail_len = n;
     }
 }
 
@@ -153,14 +240,20 @@ fn appendExpandedLine(
     out: *std.array_list.Managed(u8),
     line_package_identities: *std.array_list.Managed(?[]const u8),
     line_package_hashes: *std.array_list.Managed(?[32]u8),
+    line_origin_paths: *std.array_list.Managed(?[]const u8),
+    line_origin_lines: *std.array_list.Managed(u32),
     text: []const u8,
     package_identity: ?[]const u8,
     package_hash: ?[32]u8,
+    origin_path: ?[]const u8,
+    origin_line_no: u32,
 ) !void {
     try out.appendSlice(text);
     try out.append('\n');
     try line_package_identities.append(package_identity);
     try line_package_hashes.append(package_hash);
+    try line_origin_paths.append(origin_path);
+    try line_origin_lines.append(origin_line_no);
 }
 
 fn isFunctionLikeLineKind(kind: LineKind) bool {
@@ -182,14 +275,17 @@ fn appendGeneratedLocLine(
     out: *std.array_list.Managed(u8),
     line_package_identities: *std.array_list.Managed(?[]const u8),
     line_package_hashes: *std.array_list.Managed(?[32]u8),
+    line_origin_paths: *std.array_list.Managed(?[]const u8),
+    line_origin_lines: *std.array_list.Managed(u32),
     source_path: []const u8,
     line_no: u32,
     package_identity: ?[]const u8,
     package_hash: ?[32]u8,
+    origin_path: ?[]const u8,
 ) !void {
     const loc_line = try std.fmt.allocPrint(allocator, "#loc \"{s}\":{d}:1", .{ source_path, line_no });
     defer allocator.free(loc_line);
-    try appendExpandedLine(out, line_package_identities, line_package_hashes, loc_line, package_identity, package_hash);
+    try appendExpandedLine(out, line_package_identities, line_package_hashes, line_origin_paths, line_origin_lines, loc_line, package_identity, package_hash, origin_path, line_no);
 }
 
 const ImportExpansion = struct {
@@ -199,12 +295,20 @@ const ImportExpansion = struct {
     seen_package_identities: std.StringHashMap(void),
     line_package_identities: std.array_list.Managed(?[]const u8),
     line_package_hashes: std.array_list.Managed(?[32]u8),
+    /// Per-expanded-line origin (file path borrowed from `owned_paths`,
+    /// and 1-based line number inside that file). Entries may be null/0
+    /// for lines replayed from the expanded-import cache, mirroring the
+    /// lossy per-line package metadata on cache hits.
+    line_origin_paths: std.array_list.Managed(?[]const u8),
+    line_origin_lines: std.array_list.Managed(u32),
     owned_paths: std.array_list.Managed([]u8),
     layout_versions: std.array_list.Managed(LayoutVersion),
 
     pub fn deinit(self: *ImportExpansion, allocator: std.mem.Allocator) void {
         self.line_package_identities.deinit();
         self.line_package_hashes.deinit();
+        self.line_origin_paths.deinit();
+        self.line_origin_lines.deinit();
         for (self.owned_paths.items) |path| {
             allocator.free(path);
         }
@@ -497,6 +601,8 @@ fn rollbackExpandedImportCacheApply(
     out: *std.array_list.Managed(u8),
     line_package_identities: *std.array_list.Managed(?[]const u8),
     line_package_hashes: *std.array_list.Managed(?[32]u8),
+    line_origin_paths: *std.array_list.Managed(?[]const u8),
+    line_origin_lines: *std.array_list.Managed(u32),
     seen_paths: *std.StringHashMap(void),
     owned_paths: *std.array_list.Managed([]u8),
     layout_versions: *std.array_list.Managed(LayoutVersion),
@@ -508,6 +614,8 @@ fn rollbackExpandedImportCacheApply(
     out.shrinkRetainingCapacity(out_len);
     line_package_identities.shrinkRetainingCapacity(line_len);
     line_package_hashes.shrinkRetainingCapacity(line_len);
+    line_origin_paths.shrinkRetainingCapacity(line_len);
+    line_origin_lines.shrinkRetainingCapacity(line_len);
     for (owned_paths.items[owned_len..]) |path| {
         _ = seen_paths.remove(path);
         allocator.free(path);
@@ -523,6 +631,8 @@ fn appendExpandedImportCacheHit(
     out: *std.array_list.Managed(u8),
     line_package_identities: *std.array_list.Managed(?[]const u8),
     line_package_hashes: *std.array_list.Managed(?[32]u8),
+    line_origin_paths: *std.array_list.Managed(?[]const u8),
+    line_origin_lines: *std.array_list.Managed(u32),
     active_paths: *std.StringHashMap(void),
     seen_paths: *std.StringHashMap(void),
     owned_paths: *std.array_list.Managed([]u8),
@@ -556,6 +666,8 @@ fn appendExpandedImportCacheHit(
         out,
         line_package_identities,
         line_package_hashes,
+        line_origin_paths,
+        line_origin_lines,
         seen_paths,
         owned_paths,
         layout_versions,
@@ -568,9 +680,15 @@ fn appendExpandedImportCacheHit(
     try out.appendSlice(entry.source);
     try line_package_identities.ensureUnusedCapacity(entry.line_count);
     try line_package_hashes.ensureUnusedCapacity(entry.line_count);
+    try line_origin_paths.ensureUnusedCapacity(entry.line_count);
+    try line_origin_lines.ensureUnusedCapacity(entry.line_count);
     for (0..entry.line_count) |_| {
         line_package_identities.appendAssumeCapacity(null);
         line_package_hashes.appendAssumeCapacity(null);
+        // Origins are not stored in the cache entry; like the package
+        // metadata above, they degrade to unknown on a cache hit.
+        line_origin_paths.appendAssumeCapacity(null);
+        line_origin_lines.appendAssumeCapacity(0);
     }
 
     for (entry.files) |file| {
@@ -2226,7 +2344,7 @@ fn collectMacroDefinitions(
     var idx: usize = 0;
     while (idx < lines.len) : (idx += 1) {
         const line = lines[idx];
-        recordErrorSourceLine(error_ctx, line.line_no);
+        recordErrorLine(error_ctx, line, line.line_no);
         switch (line.classified.kind) {
             .blank_or_comment, .def, .npm_bind, .const_decl, .import_decl, .version, .loc_hint, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl, .instruction, .unknown, .expand, .rep_start, .rep_end, .if_start, .else_, .if_end, .macro_end => {},
             .macro_start => {
@@ -3068,7 +3186,7 @@ fn emitRange(
         const line = lines[idx];
         const source_line = source_line_override orelse line.line_no;
         const effective_package_identity = line.package_identity orelse current_package_identity;
-        recordErrorSourceLine(error_ctx, source_line);
+        recordErrorLine(error_ctx, line, source_line);
 
         switch (line.classified.kind) {
             .blank_or_comment, .import_decl, .version => {},
@@ -3326,7 +3444,7 @@ fn emitRange(
 
                     var expanded = try expandImports(allocator, source, resolved_path, error_ctx, null);
                     defer expanded.deinit(allocator);
-                    const included_lines = try scanSource(allocator, expanded.source, expanded.line_package_identities.items[0..], expanded.line_package_hashes.items[0..]);
+                    const included_lines = try scanSourceWithOrigins(allocator, expanded.source, expanded.line_package_identities.items[0..], expanded.line_package_hashes.items[0..], expanded.line_origin_paths.items[0..], expanded.line_origin_lines.items[0..]);
                     defer allocator.free(included_lines);
                     try collectMacroDefinitions(allocator, included_lines, macros, error_ctx);
                     try emitRange(
@@ -3374,7 +3492,14 @@ fn emitRange(
                         line.package_source_sha256 orelse current_package_hash,
                     );
                 } else {
-                    const def = macros.getPtr(macro_name) orelse return error.InvalidMacroInvocation;
+                    const def = macros.getPtr(macro_name) orelse {
+                        // Name the missing macro and keep the EXPAND line's
+                        // origin (recorded at the top of this loop iteration)
+                        // so the diagnostic points at the real invocation
+                        // site instead of an unrelated expanded-source line.
+                        setErrorDetail(error_ctx, macro_name);
+                        return error.UndefinedMacro;
+                    };
                     for (macro_call_stack.items) |active_macro| {
                         if (active_macro == def) return error.MacroRecursionLimit;
                     }
@@ -3525,6 +3650,17 @@ pub fn scanSource(
     line_package_identities: []const ?[]const u8,
     line_package_hashes: []const ?[32]u8,
 ) ![]SourceLine {
+    return scanSourceWithOrigins(allocator, source, line_package_identities, line_package_hashes, &.{}, &.{});
+}
+
+pub fn scanSourceWithOrigins(
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    line_package_identities: []const ?[]const u8,
+    line_package_hashes: []const ?[32]u8,
+    line_origin_paths: []const ?[]const u8,
+    line_origin_lines: []const u32,
+) ![]SourceLine {
     var lines = std.array_list.Managed(SourceLine).init(allocator);
     errdefer lines.deinit();
     try lines.ensureTotalCapacity(countSourceLines(source));
@@ -3536,12 +3672,16 @@ pub fn scanSource(
         const idx = line_idx;
         const package_identity = if (idx < line_package_identities.len) line_package_identities[idx] else null;
         const package_source_sha256 = if (idx < line_package_hashes.len) line_package_hashes[idx] else null;
+        const origin_path = if (idx < line_origin_paths.len) line_origin_paths[idx] else null;
+        const origin_line_no = if (idx < line_origin_lines.len) line_origin_lines[idx] else 0;
         try lines.append(.{
             .line_no = line_no,
             .text = raw_line,
             .classified = classifier.classifyLine(raw_line),
             .package_identity = package_identity,
             .package_source_sha256 = package_source_sha256,
+            .origin_path = origin_path,
+            .origin_line_no = origin_line_no,
         });
     }
 
@@ -4450,6 +4590,8 @@ fn injectImportedFile(
     out: *std.array_list.Managed(u8),
     line_package_identities: *std.array_list.Managed(?[]const u8),
     line_package_hashes: *std.array_list.Managed(?[32]u8),
+    line_origin_paths: *std.array_list.Managed(?[]const u8),
+    line_origin_lines: *std.array_list.Managed(u32),
     imported: *pkg_resolver.ResolvedImport,
     active_paths: *std.StringHashMap(void),
     seen_paths: *std.StringHashMap(void),
@@ -4487,6 +4629,8 @@ fn injectImportedFile(
             out2: *std.array_list.Managed(u8),
             line_package_identities2: *std.array_list.Managed(?[]const u8),
             line_package_hashes2: *std.array_list.Managed(?[32]u8),
+            line_origin_paths2: *std.array_list.Managed(?[]const u8),
+            line_origin_lines2: *std.array_list.Managed(u32),
             base_dir: []const u8,
             file_name: []const u8,
             active_paths2: *std.StringHashMap(void),
@@ -4542,9 +4686,12 @@ fn injectImportedFile(
                 out2,
                 line_package_identities2,
                 line_package_hashes2,
+                line_origin_paths2,
+                line_origin_lines2,
                 expanded_source,
                 injected_dir,
                 injected.entry_path,
+                false,
                 active_paths2,
                 seen_paths2,
                 seen_package_identities2,
@@ -4567,6 +4714,8 @@ fn injectImportedFile(
             out,
             line_package_identities,
             line_package_hashes,
+            line_origin_paths,
+            line_origin_lines,
             import_dir,
             iface_name,
             active_paths,
@@ -4590,6 +4739,8 @@ fn injectImportedFile(
             out,
             line_package_identities,
             line_package_hashes,
+            line_origin_paths,
+            line_origin_lines,
             import_dir,
             layout_name,
             active_paths,
@@ -4611,9 +4762,12 @@ fn expandImportsInto(
     out: *std.array_list.Managed(u8),
     line_package_identities: *std.array_list.Managed(?[]const u8),
     line_package_hashes: *std.array_list.Managed(?[32]u8),
+    line_origin_paths: *std.array_list.Managed(?[]const u8),
+    line_origin_lines: *std.array_list.Managed(u32),
     source: []const u8,
     base_dir: []const u8,
     current_source_path: ?[]const u8,
+    is_root_call: bool,
     active_paths: *std.StringHashMap(void),
     seen_paths: *std.StringHashMap(void),
     seen_package_identities: *std.StringHashMap(void),
@@ -4629,12 +4783,14 @@ fn expandImportsInto(
     try out.ensureUnusedCapacity(source.len +| 1);
     try line_package_identities.ensureUnusedCapacity(estimated_line_count);
     try line_package_hashes.ensureUnusedCapacity(estimated_line_count);
+    try line_origin_paths.ensureUnusedCapacity(estimated_line_count);
+    try line_origin_lines.ensureUnusedCapacity(estimated_line_count);
 
     var iterator = std.mem.splitScalar(u8, source, '\n');
     var line_no: u32 = 1;
     var explicit_loc_pending = false;
     while (iterator.next()) |raw_line| : (line_no += 1) {
-        recordErrorSourceLine(error_ctx, line_no);
+        recordErrorOrigin(error_ctx, if (is_root_call) null else current_source_path, line_no);
         if (parseImportPath(raw_line)) |import_path| {
             var imported = try readImportFile(allocator, base_dir, import_path, resolve_ctx);
             if (traceImportsEnabled()) {
@@ -4674,6 +4830,8 @@ fn expandImportsInto(
                     out,
                     line_package_identities,
                     line_package_hashes,
+                    line_origin_paths,
+                    line_origin_lines,
                     active_paths,
                     seen_paths,
                     owned_paths,
@@ -4710,6 +4868,8 @@ fn expandImportsInto(
                 out,
                 line_package_identities,
                 line_package_hashes,
+                line_origin_paths,
+                line_origin_lines,
                 &imported,
                 active_paths,
                 seen_paths,
@@ -4738,9 +4898,12 @@ fn expandImportsInto(
                 out,
                 line_package_identities,
                 line_package_hashes,
+                line_origin_paths,
+                line_origin_lines,
                 expanded_source,
                 import_dir,
                 imported.entry_path,
+                false,
                 active_paths,
                 seen_paths,
                 seen_package_identities,
@@ -4772,12 +4935,13 @@ fn expandImportsInto(
         }
 
         const classified = classifier.classifyLine(raw_line);
+        const line_origin_path: ?[]const u8 = if (is_root_call) null else current_source_path;
         if (current_source_path) |path| {
             if (isFunctionLikeLineKind(classified.kind) and !explicit_loc_pending) {
-                try appendGeneratedLocLine(allocator, out, line_package_identities, line_package_hashes, path, line_no, current_package_identity, current_package_hash);
+                try appendGeneratedLocLine(allocator, out, line_package_identities, line_package_hashes, line_origin_paths, line_origin_lines, path, line_no, current_package_identity, current_package_hash, line_origin_path);
             }
         }
-        try appendExpandedLine(out, line_package_identities, line_package_hashes, raw_line, current_package_identity, current_package_hash);
+        try appendExpandedLine(out, line_package_identities, line_package_hashes, line_origin_paths, line_origin_lines, raw_line, current_package_identity, current_package_hash, line_origin_path, line_no);
         if (classified.kind == .loc_hint) {
             explicit_loc_pending = true;
         } else if (consumesPendingLoc(classified.kind)) {
@@ -4811,6 +4975,12 @@ pub fn expandImports(
 
     var line_package_hashes = std.array_list.Managed(?[32]u8).init(allocator);
     errdefer line_package_hashes.deinit();
+
+    var line_origin_paths = std.array_list.Managed(?[]const u8).init(allocator);
+    errdefer line_origin_paths.deinit();
+
+    var line_origin_lines = std.array_list.Managed(u32).init(allocator);
+    errdefer line_origin_lines.deinit();
 
     var owned_paths = std.array_list.Managed([]u8).init(allocator);
     errdefer {
@@ -4858,9 +5028,12 @@ pub fn expandImports(
         &out,
         &line_package_identities,
         &line_package_hashes,
+        &line_origin_paths,
+        &line_origin_lines,
         source,
         base_dir,
         root_source_path,
+        true,
         &active_paths,
         &seen_paths,
         &seen_package_identities,
@@ -4880,6 +5053,8 @@ pub fn expandImports(
         .seen_package_identities = seen_package_identities,
         .line_package_identities = line_package_identities,
         .line_package_hashes = line_package_hashes,
+        .line_origin_paths = line_origin_paths,
+        .line_origin_lines = line_origin_lines,
         .owned_paths = owned_paths,
         .layout_versions = layout_versions,
     };
@@ -4905,7 +5080,7 @@ fn flattenInternal(
     error_ctx: ?*ErrorContext,
     resolve_ctx: ?ResolveContext,
 ) !FlattenResult {
-    if (error_ctx) |ctx| ctx.source_line = null;
+    if (error_ctx) |ctx| ctx.reset();
     var expanded = try expandImports(allocator, source, source_path, error_ctx, resolve_ctx);
     defer expanded.deinit(allocator);
 
@@ -4969,7 +5144,7 @@ fn flattenInternal(
     var macro_call_stack = std.array_list.Managed(*const MacroDef).init(allocator);
     defer macro_call_stack.deinit();
 
-    const lines = try scanSource(allocator, expanded.source, expanded.line_package_identities.items[0..], expanded.line_package_hashes.items[0..]);
+    const lines = try scanSourceWithOrigins(allocator, expanded.source, expanded.line_package_identities.items[0..], expanded.line_package_hashes.items[0..], expanded.line_origin_paths.items[0..], expanded.line_origin_lines.items[0..]);
     defer allocator.free(lines);
 
     try collectMacroDefinitions(allocator, lines, &macros, error_ctx);
@@ -6198,6 +6373,89 @@ test "flattenFile expands relative @import files" {
     try std.testing.expectEqualStrings("main", result.function_sigs[1].name);
 }
 
+test "flattenFile reports undefined macro at its origin line, not the expanded line" {
+    // Regression (DEF-ASM-AND-NAMED-REG): an EXPAND naming a macro that no
+    // imported source defines used to surface as ForbiddenSyntax /
+    // InvalidMacroInvocation, with the error position taken from the
+    // expanded source and rendered as a line of the root file — fabricating
+    // context from an unrelated instruction (an innocent `and` line in the
+    // slaredis build). The diagnostic must name the macro and point at the
+    // EXPAND line in its own file.
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
+
+    // Padding in the imported file pushes the EXPAND far down the expanded
+    // source, while it sits at line 4 of the root file.
+    var module_file = try tdir.createFile("module.sa", .{ .truncate = true });
+    for (0..40) |_| try module_file.writeAll("// pad\n");
+    module_file.close();
+
+    var main_file = try tdir.createFile("main.sa", .{ .truncate = true });
+    try main_file.writeAll(
+        \\@import "module.sa"
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND MISSING_MACRO tmp_1
+        \\    return 0
+    );
+    main_file.close();
+
+    const source = try tdir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    defer std.testing.allocator.free(source);
+
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "main.sa");
+    defer std.testing.allocator.free(source_path);
+
+    var error_ctx: ErrorContext = .{};
+    try std.testing.expectError(error.UndefinedMacro, flattenFileWithContext(std.testing.allocator, source_path, source, &error_ctx));
+    const report = errorReport(&error_ctx);
+    try std.testing.expectEqual(@as(?u32, 4), report.line);
+    // A null path means the root file (its spelling is owned by the caller).
+    try std.testing.expect(report.path == null);
+    try std.testing.expectEqualStrings("MISSING_MACRO", report.detail.?);
+}
+
+test "flattenFile attributes undefined macro inside an imported file to that file" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
+
+    var module_file = try tdir.createFile("module.sa", .{ .truncate = true });
+    try module_file.writeAll(
+        \\// header
+        \\@helper() -> i32:
+        \\L_ENTRY:
+        \\    EXPAND INNER_MISSING tmp_1
+        \\    return 7
+    );
+    module_file.close();
+
+    var main_file = try tdir.createFile("main.sa", .{ .truncate = true });
+    try main_file.writeAll(
+        \\@import "module.sa"
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    return 0
+    );
+    main_file.close();
+
+    const source = try tdir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    defer std.testing.allocator.free(source);
+
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "main.sa");
+    defer std.testing.allocator.free(source_path);
+    const module_path = try tdir.realpathAlloc(std.testing.allocator, "module.sa");
+    defer std.testing.allocator.free(module_path);
+
+    var error_ctx: ErrorContext = .{};
+    try std.testing.expectError(error.UndefinedMacro, flattenFileWithContext(std.testing.allocator, source_path, source, &error_ctx));
+    const report = errorReport(&error_ctx);
+    try std.testing.expectEqual(@as(?u32, 4), report.line);
+    try std.testing.expectEqualStrings(module_path, report.path.?);
+    try std.testing.expectEqualStrings("INNER_MISSING", report.detail.?);
+}
+
 test "flattenFile tags imported functions with imported source path" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -7177,7 +7435,12 @@ test "macro PBT rejects invalid definitions and invocations" {
         defer std.testing.allocator.free(source);
 
         const expected_error = switch (case_id) {
-            0, 1 => error.InvalidMacroInvocation,
+            // Case 0 expands a macro that was never defined: since
+            // DEF-ASM-AND-NAMED-REG that is error.UndefinedMacro, not the
+            // generic InvalidMacroInvocation (which case 1, an argument
+            // count mismatch against a defined macro, still produces).
+            0 => error.UndefinedMacro,
+            1 => error.InvalidMacroInvocation,
             2 => error.DuplicateDef,
             3 => error.UnbalancedMacro,
             4 => error.UnbalancedRep,

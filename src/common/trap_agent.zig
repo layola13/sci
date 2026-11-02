@@ -72,6 +72,7 @@ pub fn allTraps() []const Trap {
         .sum_hash_mismatch,
         .corrupted_signature,
         .gpu_subset_violation,
+        .undefined_macro,
     };
 }
 
@@ -83,6 +84,7 @@ pub fn trapStableCode(t: Trap) []const u8 {
         .unsupported_type => "SA-FLAT-004",
         .import_resolution_failed => "SA-FLAT-005",
         .macro_recursion_limit => "SA-FLAT-006",
+        .undefined_macro => "SA-FLAT-007",
         .register_redefinition => "SA-REF-001",
         .unknown_register => "SA-REF-002",
         .borrow_conflict => "SA-REF-003",
@@ -147,6 +149,7 @@ pub fn explainTrap(t: Trap) TrapExplanation {
         .unsupported_type => .{ .stable_code = "SA-FLAT-004", .summary = "Flattener rejected the input before verification.", .fix_hint = "Lower the surface syntax into the accepted linear SA form." },
         .import_resolution_failed => .{ .stable_code = "SA-FLAT-005", .summary = "Flattener rejected the input before verification.", .fix_hint = "Lower the surface syntax into the accepted linear SA form." },
         .macro_recursion_limit => .{ .stable_code = "SA-FLAT-006", .summary = "Flattener rejected the input before verification.", .fix_hint = "Lower the surface syntax into the accepted linear SA form." },
+        .undefined_macro => .{ .stable_code = "SA-FLAT-007", .summary = "An EXPAND names a macro with no [MACRO] definition in the imported sources.", .fix_hint = "Define the macro, import the file that defines it, or align the sa_std version with the program being assembled." },
         .register_redefinition => .{ .stable_code = "SA-REF-001", .summary = "The referee rejected the instruction stream during verification.", .fix_hint = "Fix the ownership/capability/borrow violation the verifier reported." },
         .unknown_register => .{ .stable_code = "SA-REF-002", .summary = "The referee rejected the instruction stream during verification.", .fix_hint = "Fix the ownership/capability/borrow violation the verifier reported." },
         .borrow_conflict => .{ .stable_code = "SA-REF-003", .summary = "The referee rejected the instruction stream during verification.", .fix_hint = "Fix the ownership/capability/borrow violation the verifier reported." },

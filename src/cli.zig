@@ -1621,6 +1621,16 @@ fn explainEntries() []const ExplainEntry {
             .fix_hint = "Pin the package ref, fix the path, or depend on the source package instead of a precompiled artifact.",
         },
         .{
+            .codes = &.{ "UndefinedMacro", "SA-FLAT-060" },
+            .title = "Macro is not defined",
+            .summary = "An EXPAND names a macro for which no [MACRO] definition exists in the imported sources.",
+            .details = &.{
+                "Macro definitions are collected from the root file and everything it imports before expansion runs.",
+                "When the program was emitted against a newer sa_std than the one being assembled with, the missing macro is usually a std macro: that is std version skew, not a syntax error in the program.",
+            },
+            .fix_hint = "Define the macro, import the file that defines it, or assemble against the sa_std version the program was emitted for.",
+        },
+        .{
             .codes = &.{ "RegisterRedefinition", "SA-REF-010" },
             .title = "Live register re-bound",
             .summary = "A register that is still live cannot be assigned a second time without an explicit move or release.",
@@ -2601,6 +2611,15 @@ fn fixPlanForCode(code: []const u8) ?FixPlan {
         .rationale = &.{
             "The resolver needs one concrete source artifact, not an ambiguous graph.",
             "The current CLI fallback already treats invalid import data as a structured trap.",
+        },
+    } else if (std.mem.eql(u8, code, "UndefinedMacro")) .{
+        .steps = &.{
+            .{ .action = "check", .target = "std-version", .detail = "compare the sa_std version the program was emitted against with the one being assembled with" },
+            .{ .action = "align", .target = "sa_std", .detail = "assemble against the matching sa_std, or define/import the missing macro" },
+        },
+        .rationale = &.{
+            "The diagnostic names the macro that has no definition in the imported sources.",
+            "A missing std macro almost always means the assembler is running against an older sa_std than the emitter used.",
         },
     } else if (std.mem.eql(u8, code, "SA-CLI-001")) .{
         .steps = &.{
@@ -3729,7 +3748,8 @@ fn daemonCommandUnix(allocator: std.mem.Allocator, args: []const []const u8, std
     return 0;
 }
 
-fn trapFromFlattenError(source_path: []const u8, source: []const u8, err: anyerror, last_line: ?u32) trap.TrapReport {
+fn trapFromFlattenError(source_path: []const u8, source: []const u8, err: anyerror, err_report: flattener.ErrorReport) trap.TrapReport {
+    const last_line = err_report.line;
     const forbidden = flattener.findFirstForbiddenLine(source);
     const line_no = if (forbidden) |hit| hit.line_no else last_line orelse 1;
     const line_text = lineAt(source, line_no);
@@ -3738,6 +3758,20 @@ fn trapFromFlattenError(source_path: []const u8, source: []const u8, err: anyerr
     const original_text_buf: [256]u8 = std.mem.zeroes([256]u8);
     const file_buf: [128]u8 = std.mem.zeroes([128]u8);
     const bad_token_buf: [64]u8 = std.mem.zeroes([64]u8);
+    // Origin-aware rendering: when the flattener recorded the failing
+    // line's origin file, positions are in that file's coordinates. Text
+    // and context may only be read from `source` when the origin is the
+    // root file itself; for a foreign origin the root text at that line
+    // number would be an unrelated line (the misattribution behind
+    // DEF-ASM-AND-NAMED-REG), so it is suppressed instead.
+    const origin_path = err_report.path;
+    const origin_is_root = origin_path == null or std.mem.eql(u8, origin_path.?, source_path);
+    var origin_file_buf: [128]u8 = std.mem.zeroes([128]u8);
+    if (origin_path) |path| copyTextBuf(&origin_file_buf, path);
+    var macro_token_buf: [64]u8 = std.mem.zeroes([64]u8);
+    if (err_report.detail) |detail_text| copyTextBuf(&macro_token_buf, detail_text);
+    const macro_line_no = last_line orelse 1;
+    const macro_line_text = if (origin_is_root) lineAt(source, macro_line_no) else null;
     var report: trap.TrapReport = switch (err) {
         error.ForbiddenSyntax => .{
             .trap = .forbidden_syntax,
@@ -4002,6 +4036,33 @@ fn trapFromFlattenError(source_path: []const u8, source: []const u8, err: anyerr
             .message = "invalid atomic ordering",
             .hint = null,
         },
+        error.UndefinedMacro => .{
+            .trap = .undefined_macro,
+            .trap_code = trap.trapCode(.undefined_macro),
+            .file_buf = if (origin_is_root) file_buf else origin_file_buf,
+            .file = if (origin_is_root) source_path else null,
+            .line = macro_line_no,
+            .source_line = macro_line_no,
+            .column = null,
+            .source_text_buf = source_text_buf,
+            .original_text_buf = original_text_buf,
+            .source_text = null,
+            .original_text = null,
+            .bad_token_buf = macro_token_buf,
+            .bad_token = null,
+            .context = .{ .{}, .{}, .{}, .{}, .{} },
+            .context_len = 0,
+            .register = null,
+            .registers = &.{},
+            .expected_mask = null,
+            .actual_mask = null,
+            .expected_mask_name = null,
+            .actual_mask_name = null,
+            .function = null,
+            .is_ffi_wrapper = null,
+            .message = "macro is not defined",
+            .hint = "EXPAND names a macro with no [MACRO] definition in the imported sources; if the macro comes from sa_std, the std in use is older than the program being assembled (std version skew)",
+        },
         error.InvalidMacroInvocation, error.InvalidMacroDefinitionContext, error.UnbalancedMacro, error.UnbalancedRep, error.InvalidSyntax => .{
             .trap = .forbidden_syntax,
             .trap_code = trap.trapCode(.forbidden_syntax),
@@ -4064,10 +4125,17 @@ fn trapFromFlattenError(source_path: []const u8, source: []const u8, err: anyerr
             .hint = "flattening failed before a public trap mapping was available",
         },
     };
-    if (line_text) |line| {
-        const excerpt = sourceExcerpt(line);
-        setLineText(&report, excerpt);
-        fillContextWindow(&report, source, line_no);
+    if (err == error.UndefinedMacro) {
+        if (macro_line_text) |line| {
+            setLineText(&report, sourceExcerpt(line));
+            fillContextWindow(&report, source, macro_line_no);
+        }
+    } else if (origin_is_root) {
+        if (line_text) |line| {
+            const excerpt = sourceExcerpt(line);
+            setLineText(&report, excerpt);
+            fillContextWindow(&report, source, line_no);
+        }
     }
     switch (report.trap) {
         .forbidden_syntax => {
@@ -5540,7 +5608,7 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
 
     const flatten_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
-        return .{ .trap = trapFromFlattenError(source_path, source, err, flattener.takeErrorSourceLine(&error_ctx)) };
+        return .{ .trap = trapFromFlattenError(source_path, source, err, flattener.errorReport(&error_ctx)) };
     };
     errdefer flat.deinit(allocator);
     const flatten_ns = if (flatten_start) |start| elapsedNs(start) else 0;
@@ -8503,7 +8571,7 @@ fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, 
 
     const flatten_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
-        return .{ .trap = trapFromFlattenError(source_path, source, err, flattener.takeErrorSourceLine(&error_ctx)) };
+        return .{ .trap = trapFromFlattenError(source_path, source, err, flattener.errorReport(&error_ctx)) };
     };
     errdefer flat.deinit(allocator);
     const flatten_ns = if (flatten_start) |start| elapsedNs(start) else 0;

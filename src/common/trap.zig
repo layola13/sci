@@ -62,6 +62,7 @@ pub const Trap = enum(u8) {
     sum_hash_mismatch,
     corrupted_signature,
     gpu_subset_violation,
+    undefined_macro,
 };
 
 pub const TrapReport = struct {
@@ -172,6 +173,7 @@ pub fn trapName(trap: Trap) []const u8 {
         .sum_hash_mismatch => "SumHashMismatch",
         .corrupted_signature => "CorruptedSignature",
         .gpu_subset_violation => "GpuSubsetViolation",
+        .undefined_macro => "UndefinedMacro",
     };
 }
 
@@ -236,6 +238,7 @@ pub fn trapCode(trap: Trap) u32 {
         .sum_hash_mismatch => 1057,
         .corrupted_signature => 1058,
         .gpu_subset_violation => 1059,
+        .undefined_macro => 1060,
     };
 }
 
