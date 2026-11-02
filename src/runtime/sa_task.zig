@@ -755,8 +755,22 @@ const Carrier = struct {
     sched_sp: u64 = 0,
     runq: [256]*Goroutine = undefined,
     runq_head: usize = 0,
-    runq_len: usize = 0,
+    // sched-wake batch: queue length as an atomic hint. All
+    // array-slot updates still happen under runq_mu (push/pop/
+    // steal); only the length read in the steal scan is
+    // lock-free, and it is a heuristic re-checked under the
+    // lock in stealHalf, so a stale read cannot misdirect a
+    // steal. This removes one lock acquisition per victim per
+    // idle scan (findWork used to lock every victim just to
+    // read its length).
+    runq_len: std.atomic.Value(usize) = .init(0),
     runq_mu: Mutex = .{},
+    // sched-wake batch: single runnext hot slot. Only the
+    // owning carrier writes/reads it (via runq_mu); it is
+    // never stolen. A woken goroutine placed here runs next
+    // on this carrier, giving back-to-back handoffs same-core
+    // locality instead of queueing behind unrelated work.
+    runnext: ?*Goroutine = null,
     current: ?*Goroutine = null,
     thread: ?std.Thread = null,
     /// Exit handoff: the exiting goroutine (running on this
@@ -768,26 +782,38 @@ const Carrier = struct {
     fn push(c: *Carrier, g: *Goroutine) bool {
         c.runq_mu.lock();
         defer c.runq_mu.unlock();
-        if (c.runq_len >= c.runq.len) return false;
-        c.runq[(c.runq_head + c.runq_len) % c.runq.len] = g;
-        c.runq_len += 1;
+        const len = c.runq_len.load(.acquire);
+        if (len >= c.runq.len) return false;
+        c.runq[(c.runq_head + len) % c.runq.len] = g;
+        c.runq_len.store(len + 1, .release);
         return true;
     }
 
     fn pop(c: *Carrier) ?*Goroutine {
         c.runq_mu.lock();
         defer c.runq_mu.unlock();
-        if (c.runq_len == 0) return null;
+        if (c.runq_len.load(.acquire) == 0) return null;
         const g = c.runq[c.runq_head];
         c.runq_head = (c.runq_head + 1) % c.runq.len;
-        c.runq_len -= 1;
+        _ = c.runq_len.fetchSub(1, .acq_rel);
+        return g;
+    }
+
+    /// Owner-only hot slot: the next goroutine this carrier
+    /// runs, ahead of its queue. Never stolen by other
+    /// carriers; consumed by findWork before the queue.
+    fn popRunnext(c: *Carrier) ?*Goroutine {
+        c.runq_mu.lock();
+        defer c.runq_mu.unlock();
+        const g = c.runnext orelse return null;
+        c.runnext = null;
         return g;
     }
 
     fn runq_len_snapshot(c: *Carrier) usize {
-        c.runq_mu.lock();
-        defer c.runq_mu.unlock();
-        return c.runq_len;
+        // Lock-free by design (see runq_len comment): a
+        // heuristic for the steal scan only.
+        return c.runq_len.load(.acquire);
     }
 
     fn stealHalf(c: *Carrier, victim: *Carrier) ?*Goroutine {
@@ -796,14 +822,15 @@ const Carrier = struct {
         // it: at most 127 of 256 slots are taken from a victim.
         victim.runq_mu.lock();
         defer victim.runq_mu.unlock();
-        if (victim.runq_len < 2) return null;
-        const take = victim.runq_len / 2;
+        const vlen = victim.runq_len.load(.acquire);
+        if (vlen < 2) return null;
+        const take = vlen / 2;
         var first: ?*Goroutine = null;
         var i: usize = 0;
         while (i < take) : (i += 1) {
             const g = victim.runq[victim.runq_head];
             victim.runq_head = (victim.runq_head + 1) % victim.runq.len;
-            victim.runq_len -= 1;
+            _ = victim.runq_len.fetchSub(1, .acq_rel);
             if (first == null) {
                 first = g;
             } else {
@@ -820,14 +847,46 @@ var global_runq_head: ?*Goroutine = null;
 var global_runq_tail: ?*Goroutine = null;
 var live_count: std.atomic.Value(usize) = .init(0);
 var wake_word: std.atomic.Value(u32) = .init(0);
+// sched-wake batch: carriers currently parked in futexWait
+// in carrierMain. Maintained only around the sleep section:
+// incremented before the last pre-sleep findWork check,
+// decremented when the carrier wakes or finds work instead.
+// Enqueuers read it to size the futex nudge; it is a hint,
+// not a gate — the wake_word bump below is the real signal
+// (a carrier that computed its wait value before the bump
+// returns from futexWait immediately), so a stale read
+// cannot strand work.
+var idle_carriers: std.atomic.Value(usize) = .init(0);
 var deadlock_armed: std.atomic.Value(bool) = .init(false);
 
 threadlocal var current_g: ?*Goroutine = null;
 threadlocal var carrier_self: ?*Carrier = null;
 
-fn wakeCarriers() void {
+/// Wake discipline (sched-wake batch, replaces wake-all).
+/// Every enqueue bumps wake_word first (release): that bump is
+/// what a sleeping carrier's futexWait compares against, so no
+/// enqueue can be missed. The futex nudge itself goes only to
+/// idle carriers, one per demand unit: the old code woke ALL
+/// sleeping carriers per enqueue (measured enqueue segment
+/// 26-29 us, worse at zero contention when carriers are
+/// genuinely asleep). Busy carriers need no nudge — they drain
+/// queues in their own loop before sleeping.
+fn wakeDemand(n: usize) void {
     _ = wake_word.fetchAdd(1, .release);
-    futexWake(&wake_word, 0x7fffffff);
+    const idle = idle_carriers.load(.acquire);
+    if (idle == 0) return;
+    futexWake(&wake_word, @intCast(@min(n, idle)));
+}
+
+fn wakeCarriers() void {
+    // Timer-arm and init paths: waking one idle carrier
+    // suffices — the woken carrier re-evaluates deadlines on
+    // its next loop pass (timer case) or enters its loop
+    // (init case). The old "wake all, coarse but rare" comment
+    // on timerAdd stays true in the weaker form: at least one
+    // carrier is guaranteed to re-evaluate, which is what the
+    // stranded-timer race required.
+    wakeDemand(1);
 }
 
 fn globalPush(g: *Goroutine) void {
@@ -853,35 +912,74 @@ fn globalPop() ?*Goroutine {
 }
 
 fn enqueueRunnable(g: *Goroutine) void {
+    enqueueWake(g, true);
+}
+
+fn enqueueWake(g: *Goroutine, wake: bool) void {
     noteProgress();
     if (carrier_self) |c| {
         if (c.push(g)) {
-            wakeCarriers();
+            if (wake) wakeDemand(1);
             return;
         }
     }
     globalPush(g);
-    wakeCarriers();
+    if (wake) wakeDemand(1);
+}
+
+/// Wake enqueue with runnext preference. When the waker runs
+/// on a carrier, the woken goroutine is offered that carrier's
+/// single runnext slot first, so a back-to-back handoff runs
+/// next on the same core instead of queueing behind unrelated
+/// work. A runnext placement needs no futex nudge at all: the
+/// owning carrier consumes it at its next findWork before it
+/// can sleep. Falls back to the normal queue when the slot is
+/// busy or the waker is not on a carrier. The deferred requeue
+/// path in runGoroutine deliberately does NOT use this: a
+/// just-run goroutine must not cut back in front of the queue.
+fn enqueueWakeNext(g: *Goroutine, wake: bool) void {
+    noteProgress();
+    if (carrier_self) |c| {
+        c.runq_mu.lock();
+        if (c.runnext == null) {
+            c.runnext = g;
+            c.runq_mu.unlock();
+            return;
+        }
+        c.runq_mu.unlock();
+    }
+    enqueueWake(g, wake);
 }
 
 /// Transition a parked goroutine back to runnable. Only the first
 /// waker wins; later ones observe state != parked and do nothing.
 /// If the goroutine is still switching out (transition), the wake
 /// is recorded and the carrier completes it after the switch.
+/// Returns true iff the goroutine was actually enqueued (batch
+/// callers use this to size the single trailing wake).
 fn unpark(g: *Goroutine) void {
+    _ = unparkWake(g, true);
+}
+
+fn unparkNoWake(g: *Goroutine) bool {
+    return unparkWake(g, false);
+}
+
+fn unparkWake(g: *Goroutine, wake: bool) bool {
     sched_mu.lock();
     if (g.state.load(.acquire) != .parked) {
         sched_mu.unlock();
-        return;
+        return false;
     }
     if (g.transition) {
         g.unpark_pending = true;
         sched_mu.unlock();
-        return;
+        return false;
     }
     g.state.store(.runnable, .release);
     sched_mu.unlock();
-    enqueueRunnable(g);
+    enqueueWakeNext(g, wake);
+    return true;
 }
 
 /// WaitNode recycling. A blocking plain chan send/recv allocates
@@ -989,9 +1087,13 @@ fn timerAdd(deadline: i64, target: TimerTarget, gen: u64) bool {
     // indefinitely". Without this wake, a freshly armed timer
     // (a select timeout on an otherwise idle system) could be
     // stranded forever; this race hung the select timeout test
-    // intermittently. Waking all carriers is coarse but rare
-    // (once per armed timer) and always correct: each carrier
-    // recomputes its deadline on the next loop pass.
+    // intermittently. Sched-wake note: wakeCarriers() now wakes
+    // one idle carrier (plus the wake_word bump, which covers
+    // carriers that computed their wait value early). One woken
+    // carrier suffices: it recomputes its deadline and fires
+    // timers on its next loop pass, which is exactly what the
+    // stranded-timer race required — waking all was coarse
+    // but never load-bearing.
     wakeCarriers();
     return true;
 }
@@ -1013,18 +1115,22 @@ fn fireTimers() void {
         expired.append(alloc, timer_heap.pop().?) catch break;
     }
     timer_mu.unlock();
+    // Batch wake: fire all expired timers without a futex
+    // nudge each, then one demand-sized wake at the end.
+    var fired: usize = 0;
     for (expired.items) |e| {
         switch (e.target) {
             .g => |g| {
                 if (g.state.load(.acquire) == .parked and g.wait_kind == .sleep and g.park_gen == e.gen) {
                     g.wake_status = SA_TASK_OK;
-                    unpark(g);
+                    if (unparkNoWake(g)) fired += 1;
                 }
             },
             .sel => |sel| selectTimeoutFire(sel, e.gen),
             .net => |nw| netTimeoutFire(nw, e.gen),
         }
     }
+    if (fired > 0) wakeDemand(fired);
 }
 
 // ---------------------------------------------------------------------
@@ -1185,6 +1291,7 @@ pub fn setTrapSink(sink: ?TrapSinkFn, ctx: ?*anyopaque) void {
 // Carrier main loop.
 
 fn findWork(c: *Carrier) ?*Goroutine {
+    if (c.popRunnext()) |g| return g;
     if (c.pop()) |g| return g;
     if (globalPop()) |g| return g;
     // Steal: start from a rotating victim to spread load.
@@ -1293,7 +1400,15 @@ fn carrierMain(c: *Carrier) void {
         }
         deadlockCheck();
         const w = wake_word.load(.acquire);
+        // Mark idle BEFORE the last pre-sleep findWork check:
+        // an enqueuer that observes idle>0 wakes one sleeper,
+        // and an enqueuer that observes idle==0 still cannot
+        // strand us — either its item predates our findWork
+        // check (we pick it up) or its wake_word bump postdates
+        // our snapshot w (futexWait returns immediately).
+        _ = idle_carriers.fetchAdd(1, .acq_rel);
         if (findWork(c)) |g| {
+            _ = idle_carriers.fetchSub(1, .acq_rel);
             runGoroutine(c, g);
             continue;
         }
@@ -1320,6 +1435,7 @@ fn carrierMain(c: *Carrier) void {
             timeout_ns = if (timeout_ns) |t| @min(t, cap) else cap;
         }
         futexWait(&wake_word, w, timeout_ns);
+        _ = idle_carriers.fetchSub(1, .acq_rel);
     }
 }
 
@@ -3648,16 +3764,34 @@ fn pollNetOnce() void {
     const rc = pollWait(handles.ptr, interests.ptr, @intCast(n), 0, ready.ptr, &out_count);
     if (rc != SA_TASK_OK or out_count == 0) return;
     net_mu.lock();
+    // Batch wake: unlink + fire all ready waiters without a
+    // futex nudge each (netFireLocked's per-waiter wake-all was
+    // the N-way storm on a busy poll round), then one
+    // demand-sized wake for the actually-enqueued count. Lock
+    // order is unchanged from before (net_mu -> sched_mu via
+    // unparkNoWake); os waiters still fire immediately.
+    var fired: usize = 0;
     for (0..n) |k| {
         if (ready[k] != 0) {
             const nw = waiters[k];
             if (nw.linked and !nw.done) {
                 netUnlinkLocked(nw);
-                netFireLocked(nw, ready[k], SA_TASK_OK);
+                nw.done = true;
+                nw.status = SA_TASK_OK;
+                if (nw.ready_out) |ro| ro.* = ready[k];
+                if (nw.g) |g| {
+                    g.wake_status = SA_TASK_OK;
+                    if (unparkNoWake(g)) fired += 1;
+                }
+                if (nw.os) |os| {
+                    os.status = SA_TASK_OK;
+                    os.fire();
+                }
             }
         }
     }
     net_mu.unlock();
+    if (fired > 0) wakeDemand(fired);
 }
 
 /// Park until `handle` is ready for `interest` (SA_TASK_NET_*
