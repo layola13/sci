@@ -121,7 +121,7 @@ typedef struct {
     const char *target_triple;
 } SaModule;
 
-typedef struct { const char *name; LLVMBasicBlockRef block; long inst_index; unsigned char is_header; LLVMValueRef sp_save_slot; LLVMBasicBlockRef rewind_block; } LabelEntry;
+typedef struct { const char *name; LLVMBasicBlockRef block; long inst_index; unsigned char is_header; long back_edge_max; unsigned char needs_rewind; LLVMValueRef sp_save_slot; LLVMBasicBlockRef rewind_block; } LabelEntry;
 typedef struct { LLVMValueRef slot; LLVMValueRef value; LLVMValueRef fallible_slot; SaType ty; unsigned char fallible; unsigned char initialized; unsigned int indirect_sig_index; unsigned char is_malloc; } RegValue;
 typedef struct {
     LLVMContextRef ctx;
@@ -1040,7 +1040,12 @@ static LabelEntry *label_entry(LabelEntry *labels, size_t label_count, const cha
  * iteration's dynamic allocas. This is the same save/restore pattern clang
  * uses for VLAs. Forward edges into a header never restore: the save slot
  * is (re)written by the header itself before any back-edge can execute.
- * Disabled for wasm_compat modules, whose stack model differs. */
+ * Disabled for wasm_compat modules, whose stack model differs.
+ * REGPROM rider: headers are armed selectively -- only when the loop
+ * interval contains a stack_alloc or exclusivity cannot be proven (an
+ * edge from outside the interval enters its interior). In an unarmed
+ * interval the pair is an identity no-op, so it is not emitted at all;
+ * see the arming analysis in emit_function_body. */
 static int ensure_stack_rewind_intrinsics(EmitCtx *e) {
     if (e->stacksave_fn != NULL && e->stackrestore_fn != NULL) return 0;
     LLVMTypeRef ptr_i8 = LLVMPointerType(e->i8_ty, 0);
@@ -1386,13 +1391,30 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
             label_count++;
         }
     }
-    /* DEF-4: mark loop headers (targets of backward jumps) and give each a
-     * stacksave slot in the entry block. The builder is still positioned at
-     * the end of the entry block here, so these allocas are static frame
-     * slots. No header in this function -> no slots, no intrinsics, and the
-     * emitted code is unchanged. */
+    /* DEF-4: mark loop headers (targets of backward jumps) and give each
+     * ARMED header a stacksave slot in the entry block. The builder is
+     * still positioned at the end of the entry block here, so these
+     * allocas are static frame slots. No armed header in this function ->
+     * no slots, no intrinsics, and the emitted code is unchanged.
+     * REGPROM rider: a header is armed only when its loop interval can
+     * actually bump the stack pointer -- i.e. the interval (header index,
+     * latest back-edge source] contains a stack_alloc, or exclusivity
+     * cannot be proven because an edge from outside the interval enters
+     * its interior. In an unarmed interval the save/restore pair is an
+     * identity no-op (no dynamic alloca can execute there: any cyclically
+     * executed stack_alloc lies in the interval of some header whose
+     * back-edge bounds the cycle, and that header is armed), so skipping
+     * it is semantics-neutral and saves 2 instructions per iteration in
+     * allocation-free loops. */
     if (!e->wasm_compat) {
-        int any_header = 0;
+        int any_armed = 0;
+        /* Pass 1: mark headers, record each header's latest back-edge,
+         * and resolve every jump target to a label index once. */
+        long *tgt_idx = NULL;
+        if (f->instruction_count > 0)
+            tgt_idx = (long *)malloc(2 * f->instruction_count * sizeof(long));
+        if (tgt_idx != NULL)
+            for (size_t i = 0; i < 2 * f->instruction_count; i++) tgt_idx[i] = -1;
         for (size_t i = 0; i < f->instruction_count; i++) {
             const SaInstruction *ji = &f->instructions[i];
             const char *targets[2];
@@ -1405,14 +1427,40 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
             }
             for (int t = 0; t < n_targets; t++) {
                 LabelEntry *le = label_entry(labels, label_count, targets[t]);
-                if (le != NULL && le->inst_index < (long)i && !le->is_header) { le->is_header = 1; any_header = 1; }
+                if (le == NULL) continue;
+                if (tgt_idx != NULL) tgt_idx[2 * i + (size_t)t] = le->inst_index;
+                if (le->inst_index < (long)i) {
+                    le->is_header = 1;
+                    if ((long)i > le->back_edge_max) le->back_edge_max = (long)i;
+                }
             }
         }
-        if (any_header) {
+        /* Pass 2: decide arming per header from the interval analysis. */
+        for (size_t k = 0; k < label_count; k++) {
+            if (!labels[k].is_header) continue;
+            const long h = labels[k].inst_index;
+            const long b = labels[k].back_edge_max;
+            /* tgt_idx allocation failure -> fall back to arming every
+             * header (the pre-rider behaviour); never under-arm. */
+            int arm = (tgt_idx == NULL);
+            for (long x = h + 1; x <= b && !arm; x++)
+                if (f->instructions[x].op == SA_OP_STACK_ALLOC) arm = 1;
+            if (!arm && tgt_idx != NULL) {
+                for (size_t i = 0; i < f->instruction_count && !arm; i++) {
+                    for (int t = 0; t < 2; t++) {
+                        const long ti = tgt_idx[2 * i + (size_t)t];
+                        if (ti > h && ti <= b && ((long)i < h || (long)i > b)) arm = 1;
+                    }
+                }
+            }
+            if (arm) { labels[k].needs_rewind = 1; any_armed = 1; }
+        }
+        free(tgt_idx);
+        if (any_armed) {
             if (ensure_stack_rewind_intrinsics(e)) { free(regs); free(labels); return 1; }
             LLVMTypeRef ptr_i8 = LLVMPointerType(e->i8_ty, 0);
             for (size_t k = 0; k < label_count; k++) {
-                if (!labels[k].is_header) continue;
+                if (!labels[k].needs_rewind) continue;
                 labels[k].sp_save_slot = LLVMBuildAlloca(e->builder, ptr_i8, "def4_sp_save");
                 LLVMBuildStore(e->builder, LLVMConstPointerNull(ptr_i8), labels[k].sp_save_slot);
             }
