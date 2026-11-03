@@ -7409,7 +7409,41 @@ fn saStdArchivePathForTarget(allocator: std.mem.Allocator, target_triple: ?[]con
         } else |_| {}
         return error.ArchiveNotFoundForTarget;
     }
+    // No SA_STD_DIR: fall back to the directory holding the host
+    // archive (the baked build path), with the same <triple>/ layout.
+    // This mirrors saStdArchivePath's own baked fallback for the host
+    // target; without it cross archives built into the tree were
+    // unreachable unless the user hand-exported SA_STD_DIR.
+    const host_archive = try saStdArchivePath(allocator);
+    defer allocator.free(host_archive);
+    const host_dir = std.fs.path.dirname(host_archive) orelse return error.ArchiveNotFoundForTarget;
+    const archive = try std.fs.path.join(allocator, &.{ host_dir, triple, archive_name });
+    errdefer allocator.free(archive);
+    if (sio.cwd().openFile(archive, .{})) |file| {
+        file.close();
+        return archive;
+    } else |_| {}
     return error.ArchiveNotFoundForTarget;
+}
+
+/// Resolve the sa_std archive for a wasm build. A module with an
+/// entry point always references the runtime from its generated main
+/// wrapper (DEF-R7), so a missing archive there is a hard error with
+/// the build remedy -- never a silent no-archive link that explodes
+/// later as an undefined symbol. No-entry (library) modules may
+/// legitimately link without the runtime, so for them a missing
+/// archive stays optional and yields null.
+fn wasmStdArchivePath(allocator: std.mem.Allocator, target: WasmTarget, stderr: anytype) !?[]u8 {
+    return saStdArchivePathForTarget(allocator, target.triple) catch |err| {
+        if (err == error.ArchiveNotFoundForTarget) {
+            if (target.no_entry) return null;
+            try stderr.print("error: no sa_std archive for target '{s}'. Build it with:\n", .{target.triple});
+            try stderr.writeAll("  zig build -Dtarget=<triple> sa-std-static\n");
+            try stderr.writeAll("then copy zig-out/lib/<libsa_std.a|sa_std.lib> to $SA_STD_DIR/<triple>/\n");
+            return error.ArchiveNotFoundForTarget;
+        }
+        return err;
+    };
 }
 
 /// `#npm_bind` bindings only lower under `sa build-js`. Every other
@@ -7855,8 +7889,10 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
                 recordMetricMemoryAfterEmit(&owned.metrics);
                 if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
 
+                const c_std_archive_path: ?[]u8 = wasmStdArchivePath(allocator, target, stderr) catch return 1;
+                defer if (c_std_archive_path) |p| allocator.free(p);
                 const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                driver.compileWasm(allocator, c_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, null, stderr) catch |err| switch (err) {
+                driver.compileWasm(allocator, c_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, c_std_archive_path, stderr) catch |err| switch (err) {
                     error.ChildProcessFailed => return 1,
                     else => return err,
                 };
@@ -7883,23 +7919,11 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             recordMetricMemoryAfterEmit(&owned.metrics);
             if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
 
-            const std_archive_path: ?[]const u8 = saStdArchivePathForTarget(allocator, target.triple) catch |err| blk: {
-                if (err == error.ArchiveNotFoundForTarget) {
-                    break :blk null;
-                }
-                return err;
-            };
+            const std_archive_path: ?[]u8 = wasmStdArchivePath(allocator, target, stderr) catch return 1;
             defer if (std_archive_path) |p| allocator.free(p);
             const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
             driver.compileWasm(allocator, artifact_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, std_archive_path, stderr) catch |err| switch (err) {
-                error.ChildProcessFailed => {
-                    if (std_archive_path == null) {
-                        try stderr.print("hint: no sa_std archive for target '{s}' was linked. Build it with:\n", .{target.triple});
-                        try stderr.writeAll("  zig build -Dtarget=<triple> sa-std-static\n");
-                        try stderr.writeAll("then copy zig-out/lib/<libsa_std.a|sa_std.lib> to $SA_STD_DIR/<triple>/\n");
-                    }
-                    return 1;
-                },
+                error.ChildProcessFailed => return 1,
                 else => return err,
             };
             const link_ns = if (link_start) |start| elapsedNs(start) else null;

@@ -8,6 +8,14 @@ const sa_std_net = @import("sa_ws_stream");
 
 const sio = @import("sio");
 
+/// Monotonic event counters (histogram cells, served tallies).
+/// Zig sema rejects 64-bit atomic operands on targets whose widest
+/// atomic is 32 bits (wasm32), so those targets use u32 cells and
+/// widen on read; 64-bit targets keep exact u64 counters. The HTTP
+/// server proper is UnsupportedPlatform on wasm, so the narrower
+/// cells there only gate compilation, never live counts.
+const CounterAtomic = if (@sizeOf(usize) >= 8) std.atomic.Value(u64) else std.atomic.Value(u32);
+
 var sigpipe_installed = false;
 var sigpipe_mu: std.atomic.Mutex = .unlocked;
 
@@ -442,7 +450,7 @@ pub const ThreadPool = struct {
     handler: HttpServeHandlerFn,
     handler_ctx: ?*anyopaque,
     max_requests: u64,
-    served: std.atomic.Value(u64),
+    served: CounterAtomic,
     stopping: std.atomic.Value(bool),
     done: std.atomic.Value(usize),
 };
@@ -499,15 +507,15 @@ pub const HttpServer = struct {
     pool: ?*ThreadPool = null,
     /// Resident instrumentation counters [segment][bucket]
     /// (tail-fix D1; see the segment table near nowMicros).
-    hist: [hist_segments][hist_buckets]std.atomic.Value(u64) = blk: {
-        var h: [hist_segments][hist_buckets]std.atomic.Value(u64) = undefined;
+    hist: [hist_segments][hist_buckets]CounterAtomic = blk: {
+        var h: [hist_segments][hist_buckets]CounterAtomic = undefined;
         for (&h) |*seg| {
-            for (seg) |*cell| cell.* = std.atomic.Value(u64).init(0);
+            for (seg) |*cell| cell.* = CounterAtomic.init(0);
         }
         break :blk h;
     },
     /// Accepts served since boot (drives the env-gated hist dump).
-    hist_served: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+    hist_served: CounterAtomic = CounterAtomic.init(0),
 
     fn histRecord(self: *HttpServer, segment: usize, value: u64) void {
         _ = self.hist[segment][histBucketFor(value)].fetchAdd(1, .monotonic);
@@ -638,7 +646,7 @@ pub const HttpServer = struct {
             .handler = handler,
             .handler_ctx = handler_ctx,
             .max_requests = max_requests,
-            .served = std.atomic.Value(u64).init(0),
+            .served = CounterAtomic.init(0),
             .stopping = std.atomic.Value(bool).init(false),
             .done = std.atomic.Value(usize).init(0),
         };

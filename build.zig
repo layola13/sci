@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 fn latestGitTag(allocator: std.mem.Allocator, io: std.Io) ?[]const u8 {
     const argv = [_][]const u8{ "git", "tag", "--sort=-v:refname" };
@@ -155,7 +156,7 @@ pub fn build(b: *std.Build) void {
     });
     const install_sa_std_static = b.addInstallArtifact(sa_std_static, .{});
     const sync_sa_std_artifact = b.addUpdateSourceFiles();
-    sync_sa_std_artifact.addCopyFileToSource(sa_std_static.getEmittedBin(), sa_std_archive_rel);
+    sync_sa_std_artifact.addCopyFileToSource(sa_std_static.getEmittedBin(), targetSaStdSyncPath(b, target));
 
     const sa_std_shared_module = b.createModule(.{
         .root_source_file = b.path(sa_std_root),
@@ -1312,6 +1313,24 @@ fn targetSaStdArchivePath(os_tag: std.Target.Os.Tag) []const u8 {
         .windows => "artifacts/sa_std/sa_std.lib",
         else => "artifacts/sa_std/libsa_std.a",
     };
+}
+
+/// Destination of the in-tree sa_std archive copy. Host-target builds
+/// (plain or with an explicit host -Dtarget) publish to
+/// artifacts/sa_std/ as always; cross builds publish to
+/// artifacts/sa_std/<triple>/ -- the layout the CLI's per-target
+/// archive lookup resolves -- instead of clobbering the host archive.
+fn targetSaStdSyncPath(b: *std.Build, target: std.Build.ResolvedTarget) []const u8 {
+    const is_host = target.result.cpu.arch == builtin.target.cpu.arch and
+        target.result.os.tag == builtin.target.os.tag and
+        target.result.abi == builtin.target.abi;
+    if (is_host) return targetSaStdArchivePath(target.result.os.tag);
+    const archive_name: []const u8 = if (target.result.os.tag == .windows) "sa_std.lib" else "libsa_std.a";
+    // The CLI's canonical target names omit the ABI for wasi (its
+    // default libc is musl): parseTarget maps to "wasm32-wasi",
+    // never "wasm32-wasi-musl", so the sync layout must match.
+    const abi_suffix: []const u8 = if (target.result.abi == .none or target.result.os.tag == .wasi) "" else b.fmt("-{s}", .{@tagName(target.result.abi)});
+    return b.fmt("artifacts/sa_std/{s}-{s}{s}/{s}", .{ @tagName(target.result.cpu.arch), @tagName(target.result.os.tag), abi_suffix, archive_name });
 }
 
 fn targetSaStdRoot(os_tag: std.Target.Os.Tag) []const u8 {
