@@ -1,0 +1,189 @@
+// Demo 973: sa_math_* surface on the JS backend (sa_std/math.sai).
+// Prints f64 bit patterns for a deterministic battery across
+// floor/ceil/sqrt/sin/cos/pow; the values below are byte-equal to the
+// native build (platform libm binding — see emit_js). sa_math_random
+// is crypto-drawn, so the demo prints its contract shape instead of
+// values: three verdicts (1 = draw in [0,1) and on the 53-bit grid)
+// and two consecutive-equality flags (0 = distinct draws).
+@extern sa_math_floor(x: f64) -> f64
+@extern sa_math_ceil(x: f64) -> f64
+@extern sa_math_sqrt(x: f64) -> f64
+@extern sa_math_sin(x: f64) -> f64
+@extern sa_math_cos(x: f64) -> f64
+@extern sa_math_pow(base: f64, exp: f64) -> f64
+@extern sa_math_random() -> f64
+@extern sa_fmt_u64(value: u64, base: u32) -> u64
+@extern sa_fmt_buffer_data(buffer: u64) -> &ptr
+@extern sa_fmt_buffer_len(buffer: u64) -> u64
+@extern sa_fmt_buffer_free(^buffer: u64) -> i32
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+
+@const NL = utf8:"\n"
+
+@print_u64(v: u64) -> void:
+L_ENTRY:
+    buf = call @sa_fmt_u64(v, 10)
+    p = call @sa_fmt_buffer_data(buf)
+    n = call @sa_fmt_buffer_len(buf)
+    call @sa_print_bytes(&p, n)
+    call @sa_print_bytes(&NL, 1)
+    st = call @sa_fmt_buffer_free(^buf)
+    !st
+    !n
+    !p
+    !v
+    return
+
+@print_bits(v: f64) -> void:
+L_ENTRY:
+    cell = alloc 8
+    store cell+0, v as f64
+    b = load cell+0 as u64
+    call @print_u64(b)
+    !b
+    !cell
+    !v
+    return
+
+@verdict(v: f64) -> u64:
+L_ENTRY:
+    lo = fcmp_ge v, 0.0
+    hi = fcmp_lt v, 1.0
+    in_range = and lo, hi
+    g = fmul v, 9007199254740992.0
+    gi = fptosi g as i64
+    gb = sitofp gi as f64
+    gran = fcmp_eq gb, g
+    ok = and in_range, gran
+    out = zext ok as u64
+    !lo
+    !hi
+    !in_range
+    !g
+    !gi
+    !gb
+    !gran
+    !ok
+    !v
+    return out
+
+@print_eq(a: f64, b: f64) -> void:
+L_ENTRY:
+    e = fcmp_eq a, b
+    o = zext e as u64
+    call @print_u64(o)
+    !e
+    !o
+    !a
+    !b
+    return
+
+@ffi_wrapper main() -> i32:
+L_ENTRY:
+    x01 = 3.7
+    r01 = call @sa_math_floor(x01)
+    call @print_bits(r01)
+    !x01
+    !r01
+    x02 = -3.7
+    r02 = call @sa_math_floor(x02)
+    call @print_bits(r02)
+    !x02
+    !r02
+    x03 = -0.5
+    r03 = call @sa_math_floor(x03)
+    call @print_bits(r03)
+    !x03
+    !r03
+    x04 = 3.7
+    r04 = call @sa_math_ceil(x04)
+    call @print_bits(r04)
+    !x04
+    !r04
+    x05 = -3.7
+    r05 = call @sa_math_ceil(x05)
+    call @print_bits(r05)
+    !x05
+    !r05
+    x06 = 0.5
+    r06 = call @sa_math_ceil(x06)
+    call @print_bits(r06)
+    !x06
+    !r06
+    x07 = 2.0
+    r07 = call @sa_math_sqrt(x07)
+    call @print_bits(r07)
+    !x07
+    !r07
+    x08 = 0.25
+    r08 = call @sa_math_sqrt(x08)
+    call @print_bits(r08)
+    !x08
+    !r08
+    x09 = 123456.789
+    r09 = call @sa_math_sqrt(x09)
+    call @print_bits(r09)
+    !x09
+    !r09
+    x10 = 0.5
+    r10 = call @sa_math_sin(x10)
+    call @print_bits(r10)
+    !x10
+    !r10
+    x11 = 1.0
+    r11 = call @sa_math_sin(x11)
+    call @print_bits(r11)
+    !x11
+    !r11
+    x12 = 3.141592653589793
+    r12 = call @sa_math_sin(x12)
+    call @print_bits(r12)
+    !x12
+    !r12
+    x13 = 0.5
+    r13 = call @sa_math_cos(x13)
+    call @print_bits(r13)
+    !x13
+    !r13
+    x14 = 1.0
+    r14 = call @sa_math_cos(x14)
+    call @print_bits(r14)
+    !x14
+    !r14
+    x15 = 3.141592653589793
+    r15 = call @sa_math_cos(x15)
+    call @print_bits(r15)
+    !x15
+    !r15
+    pa1 = 2.0
+    pe1 = 0.5
+    pr1 = call @sa_math_pow(pa1, pe1)
+    call @print_bits(pr1)
+    !pa1
+    !pe1
+    !pr1
+    pa2 = 1.5
+    pe2 = 2.5
+    pr2 = call @sa_math_pow(pa2, pe2)
+    call @print_bits(pr2)
+    !pa2
+    !pe2
+    !pr2
+    d1 = call @sa_math_random()
+    d2 = call @sa_math_random()
+    d3 = call @sa_math_random()
+    w1 = call @verdict(d1)
+    call @print_u64(w1)
+    w2 = call @verdict(d2)
+    call @print_u64(w2)
+    w3 = call @verdict(d3)
+    call @print_u64(w3)
+    call @print_eq(d1, d2)
+    call @print_eq(d2, d3)
+    !w1
+    !w2
+    !w3
+    !d1
+    !d2
+    !d3
+    return 0

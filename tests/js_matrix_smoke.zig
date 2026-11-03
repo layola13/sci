@@ -1118,6 +1118,13 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/js/970_sync_mutex_contention/main.sa", "1\n3\n");
     try assertJsMatrixStdout("demos/js/971_sync_waitgroup/main.sa", "60\n");
     try assertJsMatrixStdout("demos/js/972_coop_track/main.sa", "77\n0\n");
+    // Math surface (sa_std/math.sai): the seven sa_math_* externs used
+    // to trap on the JS target. floor/ceil/sqrt/sin/cos/pow print f64
+    // bit patterns (platform libm binding; byte-equal to the native
+    // backend on this battery); sa_math_random is crypto-drawn, so the
+    // demo prints its contract shape (three in-range/on-grid verdicts,
+    // two distinctness flags) instead of values.
+    try assertJsMatrixStdout("demos/js/973_math_surface/main.sa", "4613937818241073152\n13839561654909534208\n13830554455654793216\n4616189618054758400\n13837309855095848960\n4607182418800017408\n4609047870845172685\n4602678819172646912\n4644888880265906422\n4602308182625945072\n4605754516372524270\n4368955796522032135\n4606079780542709072\n4603041830072026764\n13830554455654793216\n4609047870845172685\n4613387649414743380\n1\n1\n1\n0\n0\n");
 }
 
 fn assertJsBuildRejects(path: []const u8) !void {
