@@ -263,7 +263,6 @@ static void run_level0_promotion_core(EmitCtx *e) {
     LLVMPassManagerRef fpm = LLVMCreateFunctionPassManagerForModule(e->module);
     if (fpm == NULL) return;
     LLVMAddPromoteMemoryToRegisterPass(fpm);
-    LLVMAddCFGSimplificationPass(fpm);
     LLVMAddInstructionCombiningPass(fpm);
     LLVMInitializeFunctionPassManager(fpm);
     for (LLVMValueRef fn = LLVMGetFirstFunction(e->module); fn != NULL; fn = LLVMGetNextFunction(fn)) {
