@@ -1476,6 +1476,14 @@ fn addLlvmcSupportToModule(
 ) void {
     if (enable_llvm) {
         module.addCSourceFile(.{ .file = b.path("src/emit_llvm_llvmc_shim.c"), .flags = &.{} });
+        // DEF-RF-DSE: hand-written release pipeline (PMB transcription minus
+        // DSE) lives in C++ -- the legacy C API cannot express several of
+        // its passes/options (threshold inliner, SimplifyCFG options, AA
+        // wrappers). The one stdlib-crossing factory is bridged inside the
+        // TU itself (see emit_llvm_pipeline.cpp), so a plain libc++ link is
+        // all the build needs.
+        module.addCSourceFile(.{ .file = b.path("src/emit_llvm_pipeline.cpp"), .flags = &.{"-std=c++17"} });
+        module.link_libcpp = true;
         linkLLVMToModule(module, include_dir, lib_dir, lib_name);
     } else {
         module.addCSourceFile(.{ .file = b.path("src/emit_llvm_llvmc_stub.c"), .flags = &.{"-fno-sanitize=all"} });

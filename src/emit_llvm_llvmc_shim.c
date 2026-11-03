@@ -29,7 +29,6 @@ char *LLVMCopyStringRepOfTargetData(LLVMTargetDataRef target_data);
 void LLVMDisposeTargetData(LLVMTargetDataRef target_data);
 #endif
 #include <llvm-c/Transforms/IPO.h>
-#include <llvm-c/Transforms/PassManagerBuilder.h>
 #include <llvm-c/Transforms/Scalar.h>
 #include <llvm-c/Transforms/Utils.h>
 #include <llvm-c/Transforms/Vectorize.h>
@@ -273,6 +272,18 @@ static void run_level0_promotion_core(EmitCtx *e) {
     LLVMDisposePassManager(fpm);
 }
 
+/* DEF-RF-DSE: for opt_level >= 1 the standard O2/O3 pipeline is populated
+ * by hand (emit_llvm_pipeline.cpp) instead of LLVMPassManagerBuilder. The
+ * transcription mirrors LLVM 14.0.6's PassManagerBuilder under the exact
+ * configuration this function used to set on it (opt level, size level 0,
+ * inliner threshold 225 / 900 at level >= 3) with one deliberate deviation:
+ * DeadStoreElimination is never scheduled -- upstream LLVM 14's DSE
+ * segfaults on legal IR from the slaredis tree at --release-fast, and the
+ * C API offers no way to keep PMB while excluding a single pass. Level 0
+ * keeps the cheap promotion core above and is unaffected. */
+extern void sa_rf_populate_function_pm(LLVMPassManagerRef fpm, unsigned level);
+extern void sa_rf_populate_module_pm(LLVMPassManagerRef mpm, unsigned level);
+
 static void optimize_module_ir(EmitCtx *e, int opt_level) {
     unsigned level = normalize_opt_level(opt_level);
     if (e == NULL || e->module == NULL) return;
@@ -282,12 +293,6 @@ static void optimize_module_ir(EmitCtx *e, int opt_level) {
         return;
     }
 
-    LLVMPassManagerBuilderRef pmb = LLVMPassManagerBuilderCreate();
-    if (pmb == NULL) return;
-    LLVMPassManagerBuilderSetOptLevel(pmb, level);
-    LLVMPassManagerBuilderSetSizeLevel(pmb, 0);
-    LLVMPassManagerBuilderUseInlinerWithThreshold(pmb, level >= 3 ? 900 : 225);
-
     LLVMPassManagerRef fpm = LLVMCreateFunctionPassManagerForModule(e->module);
     if (fpm != NULL) {
         LLVMAddScalarReplAggregatesPassSSA(fpm);
@@ -296,7 +301,7 @@ static void optimize_module_ir(EmitCtx *e, int opt_level) {
         LLVMAddReassociatePass(fpm);
         LLVMAddGVNPass(fpm);
         LLVMAddCFGSimplificationPass(fpm);
-        LLVMPassManagerBuilderPopulateFunctionPassManager(pmb, fpm);
+        sa_rf_populate_function_pm(fpm, level);
         LLVMInitializeFunctionPassManager(fpm);
         for (LLVMValueRef fn = LLVMGetFirstFunction(e->module); fn != NULL; fn = LLVMGetNextFunction(fn)) {
             if (LLVMCountBasicBlocks(fn) != 0) LLVMRunFunctionPassManager(fpm, fn);
@@ -311,14 +316,15 @@ static void optimize_module_ir(EmitCtx *e, int opt_level) {
         LLVMAddAlwaysInlinerPass(mpm);
         LLVMAddGlobalOptimizerPass(mpm);
         if (level >= 2) LLVMAddIPSCCPPass(mpm);
-        LLVMPassManagerBuilderPopulateModulePassManager(pmb, mpm);
+        sa_rf_populate_module_pm(mpm, level);
         LLVMAddScalarReplAggregatesPassSSA(mpm);
         LLVMAddPromoteMemoryToRegisterPass(mpm);
         LLVMAddInstructionCombiningPass(mpm);
         LLVMAddReassociatePass(mpm);
         LLVMAddGVNPass(mpm);
         LLVMAddSCCPPass(mpm);
-        LLVMAddDeadStoreEliminationPass(mpm);
+        /* DEF-RF-DSE: no LLVMAddDeadStoreEliminationPass here anymore --
+         * the release pipeline is DSE-free by construction (see above). */
         LLVMAddTailCallEliminationPass(mpm);
         LLVMAddLoopRotatePass(mpm);
         LLVMAddLICMPass(mpm);
@@ -338,8 +344,6 @@ static void optimize_module_ir(EmitCtx *e, int opt_level) {
         LLVMRunPassManager(mpm, e->module);
         LLVMDisposePassManager(mpm);
     }
-
-    LLVMPassManagerBuilderDispose(pmb);
 }
 
 static LLVMTypeRef type_of(EmitCtx *e, SaType ty) {
