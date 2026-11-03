@@ -1103,6 +1103,21 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/js/962_vec_mem_free/main.sa", "19900\n");
     try assertJsMatrixStdout("demos/js/963_stringbuf_mem_free/main.sa", "1600\n777\n");
     try assertJsMatrixStdout("demos/js/964_growvec_mem_free/main.sa", "1999000\n777\n");
+    // Goroutine surface (sa_std/task.sai): the whole task/chan/select/
+    // sync/coop extern family used to trap with "extern not linked" on
+    // the JS target. The __sa_task runtime chunk (emit_js.zig) ports
+    // the cooperative scheduler (src/runtime/sa_task_coop.zig) to the
+    // single-threaded JS host; expected outputs below are byte-equal
+    // to the native backend on the same sources (972 is JS-only: a
+    // coop program fails loudly at native link time by design).
+    try assertJsMatrixStdout("demos/js/965_task_spawn_join/main.sa", "42\n0\n");
+    try assertJsMatrixStdout("demos/js/966_chan_rendezvous/main.sa", "7\n0\n");
+    try assertJsMatrixStdout("demos/js/967_chan_select_ready/main.sa", "1\n33\n999\n");
+    try assertJsMatrixStdout("demos/js/968_chan_select_block/main.sa", "0\n21\n0\n");
+    try assertJsMatrixStdout("demos/js/969_task_sleep_order/main.sa", "111\n0\n");
+    try assertJsMatrixStdout("demos/js/970_sync_mutex_contention/main.sa", "1\n3\n");
+    try assertJsMatrixStdout("demos/js/971_sync_waitgroup/main.sa", "60\n");
+    try assertJsMatrixStdout("demos/js/972_coop_track/main.sa", "77\n0\n");
 }
 
 fn assertJsBuildRejects(path: []const u8) !void {
@@ -1205,6 +1220,11 @@ test "js backend runtime traps surface through node with diagnostics" {
     try assertJsRuntimeTrap("demos/support/jsh_double_release.sa", "stale or released handle");
     try assertJsRuntimeTrap("demos/support/jsh_invalid_handle.sa", "js handle: handle out of range");
     try assertJsRuntimeTrap("demos/support/jsh_make_callback_bad.sa", "not an SA function pointer");
+    // Goroutine scheduler misuse must trap loudly, never hang: a
+    // deadlocked program and a send on a closed channel.
+    try assertJsRuntimeTrap("demos/support/jstask_deadlock_probe.sa", "sa_task: deadlock: no ready task and no pending timer");
+    try assertJsRuntimeTrap("demos/support/jstask_send_on_closed_probe.sa", "send on closed channel");
+    try assertJsRuntimeTrap("demos/support/jstask_mutex_deadlock_probe.sa", "sa_task: deadlock: no ready task and no pending timer");
 }
 
 test "js backend dce: unreferenced extern trap stubs are not emitted" {

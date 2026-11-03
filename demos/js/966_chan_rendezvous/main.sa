@@ -1,0 +1,86 @@
+// Probe g2: unbuffered channel rendezvous across tasks.
+// Producer task sends 7 on a capacity-0 channel; main receives.
+// The send cannot complete until main receives and vice versa, so a
+// correct run proves real blocking/waking. Expected:
+//   7
+//   0        (join status)
+@extern sa_task_spawn(*entry: ptr, arg: ptr, &out_handle: ptr) -> i32
+@extern sa_task_join(handle: u64) -> i32
+@extern sa_chan_make(capacity: u32, &out_handle: ptr) -> i32
+@extern sa_chan_send(handle: u64, *value: ptr) -> i32
+@extern sa_chan_recv(handle: u64, &out_value: ptr, &out_closed: ptr) -> i32
+@extern sa_fmt_u64(value: u64, base: u32) -> u64
+@extern sa_fmt_buffer_data(buffer: u64) -> &ptr
+@extern sa_fmt_buffer_len(buffer: u64) -> u64
+@extern sa_fmt_buffer_free(^buffer: u64) -> i32
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+
+@const NL = utf8:"\n"
+@const P_VT = vtable { call = @producer }
+
+@print_u64(v: u64) -> void:
+L_ENTRY:
+    buf = call @sa_fmt_u64(v, 10)
+    p = call @sa_fmt_buffer_data(buf)
+    n = call @sa_fmt_buffer_len(buf)
+    call @sa_print_bytes(&p, n)
+    call @sa_print_bytes(&NL, 1)
+    st = call @sa_fmt_buffer_free(^buf)
+    !st
+    !n
+    !p
+    !v
+    return
+
+// arg layout: +0 chan handle (u64), +8 value (u64)
+@producer(arg: ptr) -> void:
+L_ENTRY:
+    ch = load arg+0 as u64
+    val = load arg+8 as u64
+    cell = stack_alloc 16
+    store cell+0, val as u64
+    store cell+8, 0 as u64
+    st = call @sa_chan_send(ch, *cell)
+    !st
+    !ch
+    !val
+    !arg
+    return
+
+@ffi_wrapper main() -> i32:
+L_ENTRY:
+    hs = stack_alloc 8
+    mst = call @sa_chan_make(0, &hs)
+    ch = load hs+0 as u64
+    args = alloc 16
+    store args+0, ch as u64
+    store args+8, 7 as u64
+    ts = stack_alloc 8
+    vt = &P_VT
+    fncell = load vt+0 as ptr
+    raw = *fncell
+    safe = assume_safe raw
+    sst = call @sa_task_spawn(*safe, args, &ts)
+    handle = load ts+0 as u64
+    cell = stack_alloc 16
+    cs = stack_alloc 8
+    rst = call @sa_chan_recv(ch, &cell, &cs)
+    v = load cell+0 as u64
+    call @print_u64(v)
+    jst = call @sa_task_join(handle)
+    jv = zext jst as u64
+    call @print_u64(jv)
+    !mst
+    !ch
+    !sst
+    !fncell
+    !vt
+    !raw
+    !safe
+    !handle
+    !rst
+    !v
+    !jst
+    !jv
+    !args
+    return 0

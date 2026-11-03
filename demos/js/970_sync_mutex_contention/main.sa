@@ -1,0 +1,146 @@
+// Probe g6: sa_sync_mutex real contention. Task A locks the mutex,
+// increments the counter (0 -> 1), flags main, then sleeps 30 ms
+// WHILE HOLDING the lock. Only then does main spawn task B, whose
+// lock attempt must block until A wakes and unlocks. A re-reads the
+// counter before its second increment: with a real mutex it still
+// sees 1 (B could not have run); with a fake no-op lock B would run
+// during A's sleep and A would see 2. Expected:
+//   1        (A's re-read: B was truly blocked)
+//   3        (final counter)
+@extern sa_task_spawn(*entry: ptr, arg: ptr, &out_handle: ptr) -> i32
+@extern sa_task_join(handle: u64) -> i32
+@extern sa_task_sleep_ms(ms: u64) -> i32
+@extern sa_task_yield() -> i32
+@extern sa_sync_mutex_new(&out_handle: ptr) -> i32
+@extern sa_sync_mutex_lock(handle: u64) -> i32
+@extern sa_sync_mutex_unlock(handle: u64) -> i32
+@extern sa_fmt_u64(value: u64, base: u32) -> u64
+@extern sa_fmt_buffer_data(buffer: u64) -> &ptr
+@extern sa_fmt_buffer_len(buffer: u64) -> u64
+@extern sa_fmt_buffer_free(^buffer: u64) -> i32
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+
+@const NL = utf8:"\n"
+@const A_VT = vtable { call = @task_a }
+@const B_VT = vtable { call = @task_b }
+
+// shared layout: +0 mutex handle (u64), +8 counter (u64),
+//                +16 started flag (u64), +24 A re-read (u64)
+@task_a(arg: ptr) -> void:
+L_ENTRY:
+    mu = load arg+0 as u64
+    lst = call @sa_sync_mutex_lock(mu)
+    c = load arg+8 as u64
+    c1 = add c, 1
+    store arg+8, c1 as u64
+    store arg+16, 1 as u64
+    sst = call @sa_task_sleep_ms(30)
+    r = load arg+8 as u64
+    store arg+24, r as u64
+    c2 = add r, 1
+    store arg+8, c2 as u64
+    ust = call @sa_sync_mutex_unlock(mu)
+    !mu
+    !lst
+    !c
+    !c1
+    !sst
+    !r
+    !c2
+    !ust
+    !arg
+    return
+
+@task_b(arg: ptr) -> void:
+L_ENTRY:
+    mu = load arg+0 as u64
+    lst = call @sa_sync_mutex_lock(mu)
+    c = load arg+8 as u64
+    c1 = add c, 1
+    store arg+8, c1 as u64
+    ust = call @sa_sync_mutex_unlock(mu)
+    !mu
+    !lst
+    !c
+    !c1
+    !ust
+    !arg
+    return
+
+@print_u64(v: u64) -> void:
+L_ENTRY:
+    buf = call @sa_fmt_u64(v, 10)
+    p = call @sa_fmt_buffer_data(buf)
+    n = call @sa_fmt_buffer_len(buf)
+    call @sa_print_bytes(&p, n)
+    call @sa_print_bytes(&NL, 1)
+    st = call @sa_fmt_buffer_free(^buf)
+    !st
+    !n
+    !p
+    !v
+    return
+
+@ffi_wrapper main() -> i32:
+L_ENTRY:
+    shared = alloc 32
+    store shared+8, 0 as u64
+    store shared+16, 0 as u64
+    store shared+24, 0 as u64
+    hs = stack_alloc 8
+    nst = call @sa_sync_mutex_new(&hs)
+    mu = load hs+0 as u64
+    store shared+0, mu as u64
+    ts = stack_alloc 8
+    avt = &A_VT
+    acell = load avt+0 as ptr
+    araw = *acell
+    asafe = assume_safe araw
+    ast = call @sa_task_spawn(*asafe, shared, &ts)
+    ha = load ts+0 as u64
+    jmp L_SPIN
+L_SPIN:
+    f = load shared+16 as u64
+    started = ne f, 0
+    br started -> L_GOT, L_YIELD
+L_YIELD:
+    yst = call @sa_task_yield()
+    !yst
+    !f
+    !started
+    jmp L_SPIN
+L_GOT:
+    !f
+    !started
+    bvt = &B_VT
+    bcell = load bvt+0 as ptr
+    braw = *bcell
+    bsafe = assume_safe braw
+    bst = call @sa_task_spawn(*bsafe, shared, &ts)
+    hb = load ts+0 as u64
+    ja = call @sa_task_join(ha)
+    jb = call @sa_task_join(hb)
+    r = load shared+24 as u64
+    call @print_u64(r)
+    total = load shared+8 as u64
+    call @print_u64(total)
+    !nst
+    !mu
+    !ast
+    !acell
+    !avt
+    !araw
+    !asafe
+    !ha
+    !bst
+    !bcell
+    !bvt
+    !braw
+    !bsafe
+    !hb
+    !ja
+    !jb
+    !r
+    !total
+    !shared
+    return 0

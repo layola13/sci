@@ -1,0 +1,108 @@
+// Probe g7: sa_sync_waitgroup. Main arms the group with 3, spawns
+// three workers that each store their value (10/20/30) and call
+// done; main's wait must suspend until all three have run. Expected:
+//   60
+@extern sa_task_spawn(*entry: ptr, arg: ptr, &out_handle: ptr) -> i32
+@extern sa_sync_waitgroup_new(&out_handle: ptr) -> i32
+@extern sa_sync_waitgroup_add(handle: u64, delta: i64) -> i32
+@extern sa_sync_waitgroup_done(handle: u64) -> i32
+@extern sa_sync_waitgroup_wait(handle: u64) -> i32
+@extern sa_fmt_u64(value: u64, base: u32) -> u64
+@extern sa_fmt_buffer_data(buffer: u64) -> &ptr
+@extern sa_fmt_buffer_len(buffer: u64) -> u64
+@extern sa_fmt_buffer_free(^buffer: u64) -> i32
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+
+@const NL = utf8:"\n"
+@const W_VT = vtable { call = @worker }
+
+// arg layout: +0 waitgroup handle (u64), +8 out cell (ptr as u64),
+//             +16 value (u64)
+@worker(arg: ptr) -> void:
+L_ENTRY:
+    wg = load arg+0 as u64
+    cell = load arg+8 as u64
+    val = load arg+16 as u64
+    dst = bitcast cell as ptr
+    store dst+0, val as u64
+    dst2 = call @sa_sync_waitgroup_done(wg)
+    !wg
+    !cell
+    !val
+    !dst
+    !dst2
+    !arg
+    return
+
+@print_u64(v: u64) -> void:
+L_ENTRY:
+    buf = call @sa_fmt_u64(v, 10)
+    p = call @sa_fmt_buffer_data(buf)
+    n = call @sa_fmt_buffer_len(buf)
+    call @sa_print_bytes(&p, n)
+    call @sa_print_bytes(&NL, 1)
+    st = call @sa_fmt_buffer_free(^buf)
+    !st
+    !n
+    !p
+    !v
+    return
+
+@ffi_wrapper spawn_one(wg: u64, cell: ptr, val: u64) -> void:
+L_ENTRY:
+    arg = alloc 24
+    store arg+0, wg as u64
+    cv = bitcast cell as u64
+    store arg+8, cv as u64
+    store arg+16, val as u64
+    ts = stack_alloc 8
+    vt = &W_VT
+    fncell = load vt+0 as ptr
+    raw = *fncell
+    safe = assume_safe raw
+    sst = call @sa_task_spawn(*safe, arg, &ts)
+    !wg
+    !val
+    !cv
+    !fncell
+    !vt
+    !raw
+    !safe
+    !sst
+    return
+
+@main() -> i32:
+L_ENTRY:
+    hs = stack_alloc 8
+    nst = call @sa_sync_waitgroup_new(&hs)
+    wg = load hs+0 as u64
+    ast = call @sa_sync_waitgroup_add(wg, 3)
+    c1 = alloc 8
+    c2 = alloc 8
+    c3 = alloc 8
+    store c1+0, 0 as u64
+    store c2+0, 0 as u64
+    store c3+0, 0 as u64
+    call @spawn_one(wg, c1, 10)
+    call @spawn_one(wg, c2, 20)
+    call @spawn_one(wg, c3, 30)
+    wst = call @sa_sync_waitgroup_wait(wg)
+    v1 = load c1+0 as u64
+    v2 = load c2+0 as u64
+    v3 = load c3+0 as u64
+    s1 = add v1, v2
+    sum = add s1, v3
+    call @print_u64(sum)
+    !nst
+    !wg
+    !ast
+    !wst
+    !v1
+    !v2
+    !v3
+    !s1
+    !sum
+    !c1
+    !c2
+    !c3
+    return 0

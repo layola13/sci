@@ -1,0 +1,103 @@
+// Probe g4: blocking sa_chan_select. A sender task sleeps 20 ms and
+// then sends 21 on a capacity-0 channel; main selects on the receive
+// arm with no default and no timeout, so the select must suspend
+// until the sender fires. Expected:
+//   0        (chosen index)
+//   21       (received value)
+//   0        (join status)
+@extern sa_task_spawn(*entry: ptr, arg: ptr, &out_handle: ptr) -> i32
+@extern sa_task_join(handle: u64) -> i32
+@extern sa_task_sleep_ms(ms: u64) -> i32
+@extern sa_chan_make(capacity: u32, &out_handle: ptr) -> i32
+@extern sa_chan_send(handle: u64, *value: ptr) -> i32
+@extern sa_chan_select(*cases: ptr, *ops: ptr, *slots: ptr, count: u64, has_default: u32, timeout_ns: i64, &out_index: ptr, &out_closed: ptr) -> i32
+@extern sa_fmt_u64(value: u64, base: u32) -> u64
+@extern sa_fmt_buffer_data(buffer: u64) -> &ptr
+@extern sa_fmt_buffer_len(buffer: u64) -> u64
+@extern sa_fmt_buffer_free(^buffer: u64) -> i32
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+
+@const NL = utf8:"\n"
+@const S_VT = vtable { call = @sender }
+
+@print_u64(v: u64) -> void:
+L_ENTRY:
+    buf = call @sa_fmt_u64(v, 10)
+    p = call @sa_fmt_buffer_data(buf)
+    n = call @sa_fmt_buffer_len(buf)
+    call @sa_print_bytes(&p, n)
+    call @sa_print_bytes(&NL, 1)
+    st = call @sa_fmt_buffer_free(^buf)
+    !st
+    !n
+    !p
+    !v
+    return
+
+// arg layout: +0 chan handle (u64), +8 value (u64)
+@sender(arg: ptr) -> void:
+L_ENTRY:
+    sst = call @sa_task_sleep_ms(20)
+    ch = load arg+0 as u64
+    val = load arg+8 as u64
+    cell = stack_alloc 16
+    store cell+0, val as u64
+    store cell+8, 0 as u64
+    st = call @sa_chan_send(ch, *cell)
+    !sst
+    !st
+    !ch
+    !val
+    !arg
+    return
+
+@ffi_wrapper main() -> i32:
+L_ENTRY:
+    hs = stack_alloc 8
+    mst = call @sa_chan_make(0, &hs)
+    ch = load hs+0 as u64
+    args = alloc 16
+    store args+0, ch as u64
+    store args+8, 21 as u64
+    ts = stack_alloc 8
+    vt = &S_VT
+    fncell = load vt+0 as ptr
+    raw = *fncell
+    safe = assume_safe raw
+    sst = call @sa_task_spawn(*safe, args, &ts)
+    handle = load ts+0 as u64
+    cases = alloc 8
+    store cases+0, ch as u64
+    ops = alloc 4
+    store ops+0, 0 as u32
+    slots = alloc 16
+    idx = stack_alloc 8
+    cls = stack_alloc 8
+    st = call @sa_chan_select(*cases, *ops, *slots, 1, 0, -1, &idx, &cls)
+    i1 = load idx+0 as i64
+    i1u = bitcast i1 as u64
+    call @print_u64(i1u)
+    v = load slots+0 as u64
+    call @print_u64(v)
+    jst = call @sa_task_join(handle)
+    jv = zext jst as u64
+    call @print_u64(jv)
+    !mst
+    !ch
+    !sst
+    !fncell
+    !vt
+    !raw
+    !safe
+    !handle
+    !st
+    !i1
+    !i1u
+    !v
+    !jst
+    !jv
+    !args
+    !cases
+    !ops
+    !slots
+    return 0

@@ -1,0 +1,214 @@
+// Probe g8: cooperative track end-to-end (JS only). Hand-written
+// state machines driven by sa_coop_run_main, mirroring what the SLA
+// plugin's build-wasm lowering emits: root makes a cap-1 channel,
+// spawns the worker step, joins it (blocks: worker sleeps first),
+// collects the join status via sa_coop_take_result, receives the
+// worker's buffered send (77), finishes. Worker sleeps 10 ms
+// (blocks), collects its sleep status, sends 77, finishes.
+// Expected on JS:  77 / 0   (value, run_main status)
+// Expected on native: LOUD LINK FAILURE (sa_coop_* exists only in
+// the cooperative runtime; a coop program linked against the native
+// runtime must fail, never silently run).
+@extern sa_task_spawn(*entry: ptr, arg: ptr, &out_handle: ptr) -> i32
+@extern sa_task_join(handle: u64) -> i32
+@extern sa_task_sleep_ms(ms: u64) -> i32
+@extern sa_chan_make(capacity: u32, &out_handle: ptr) -> i32
+@extern sa_chan_send(handle: u64, *value: ptr) -> i32
+@extern sa_chan_recv(handle: u64, &out_value: ptr, &out_closed: ptr) -> i32
+@extern sa_coop_take_result(&out_status: ptr) -> i32
+@extern sa_coop_finish() -> void
+@extern sa_coop_run_main(*entry: ptr, arg: ptr) -> i32
+@extern sa_fmt_u64(value: u64, base: u32) -> u64
+@extern sa_fmt_buffer_data(buffer: u64) -> &ptr
+@extern sa_fmt_buffer_len(buffer: u64) -> u64
+@extern sa_fmt_buffer_free(^buffer: u64) -> i32
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+
+@const NL = utf8:"\n"
+@const ROOT_VT = vtable { call = @root_step }
+@const WORKER_VT = vtable { call = @worker_step }
+
+@print_u64(v: u64) -> void:
+L_ENTRY:
+    buf = call @sa_fmt_u64(v, 10)
+    p = call @sa_fmt_buffer_data(buf)
+    n = call @sa_fmt_buffer_len(buf)
+    call @sa_print_bytes(&p, n)
+    call @sa_print_bytes(&NL, 1)
+    st = call @sa_fmt_buffer_free(^buf)
+    !st
+    !n
+    !p
+    !v
+    return
+
+// worker frame: +0 state, +8 chan handle, +16 send slot a, +24 send slot b
+@worker_step(frame: ptr) -> void:
+L_ENTRY:
+    state = load frame+0 as u64
+    is0 = eq state, 0
+    br is0 -> L_W0, L_W1
+L_W0:
+    store frame+0, 1 as u64
+    sst = call @sa_task_sleep_ms(10)
+    isb = eq sst, 1073741824
+    !sst
+    br isb -> L_WRET, L_W1PRE
+L_WRET:
+    !state
+    !is0
+    !isb
+    !frame
+    return
+L_W1PRE:
+    !isb
+    jmp L_W1
+L_W1:
+    !state
+    !is0
+    sout = stack_alloc 4
+    has = call @sa_coop_take_result(&sout)
+    chan = load frame+8 as u64
+    store frame+16, 77 as u64
+    store frame+24, 0 as u64
+    cellp = ptr_add frame, 16
+    cst = call @sa_chan_send(chan, *cellp)
+    isb2 = eq cst, 1073741824
+    !has
+    !chan
+    !cellp
+    !cst
+    br isb2 -> L_WRET2, L_FIN
+L_WRET2:
+    !isb2
+    !frame
+    return
+L_FIN:
+    !isb2
+    call @sa_coop_finish()
+    !frame
+    return
+
+// root frame: +0 state, +8 chan handle, +16 join handle,
+//             +24 recv value, +32 worker frame ptr
+@ffi_wrapper root_step(frame: ptr) -> void:
+L_ENTRY:
+    state = load frame+0 as u64
+    is0 = eq state, 0
+    br is0 -> L_R0, L_RCHK
+L_RCHK:
+    is1 = eq state, 1
+    !is0
+    br is1 -> L_R1PRE2, L_R2PRE
+L_R1PRE2:
+    !state
+    !is1
+    jmp L_R1
+L_R2PRE:
+    !is1
+    jmp L_R2
+L_R0:
+    store frame+0, 1 as u64
+    hs = stack_alloc 8
+    mst = call @sa_chan_make(1, &hs)
+    chan = load hs+0 as u64
+    store frame+8, chan as u64
+    wf = load frame+32 as u64
+    wfp = bitcast wf as ptr
+    store wfp+8, chan as u64
+    ts = stack_alloc 8
+    vt = &WORKER_VT
+    fncell = load vt+0 as ptr
+    raw = *fncell
+    safe = assume_safe raw
+    sst = call @sa_task_spawn(*safe, wfp, &ts)
+    jh = load ts+0 as u64
+    store frame+16, jh as u64
+    jst = call @sa_task_join(jh)
+    isb = eq jst, 1073741824
+    !state
+    !is0
+    !mst
+    !chan
+    !wf
+    !sst
+    !jh
+    !jst
+    br isb -> L_RRET, L_R1PRE
+L_RRET:
+    !isb
+    !wfp
+    !vt
+    !fncell
+    !raw
+    !safe
+    !frame
+    return
+L_R1PRE:
+    !isb
+    !wfp
+    !vt
+    !fncell
+    !raw
+    !safe
+    jmp L_R1
+L_R1:
+    sout = stack_alloc 4
+    has = call @sa_coop_take_result(&sout)
+    jstatus = load sout+0 as i32
+    chan2 = load frame+8 as u64
+    cs = stack_alloc 4
+    vslot = ptr_add frame, 24
+    rst = call @sa_chan_recv(chan2, &vslot, &cs)
+    isb2 = eq rst, 1073741824
+    !has
+    !jstatus
+    !chan2
+    !vslot
+    !rst
+    br isb2 -> L_R2SET, L_RPRINTPRE
+L_R2SET:
+    !isb2
+    store frame+0, 2 as u64
+    !frame
+    return
+L_R2:
+    !state
+    sout2 = stack_alloc 4
+    has2 = call @sa_coop_take_result(&sout2)
+    !has2
+    jmp L_RPRINT
+L_RPRINTPRE:
+    !isb2
+    jmp L_RPRINT
+L_RPRINT:
+    v = load frame+24 as u64
+    call @print_u64(v)
+    call @sa_coop_finish()
+    !frame
+    return
+
+@ffi_wrapper main() -> i32:
+L_ENTRY:
+    rframe = alloc 40
+    store rframe+0, 0 as u64
+    wframe = alloc 32
+    store wframe+0, 0 as u64
+    wfv = bitcast wframe as u64
+    store rframe+32, wfv as u64
+    vt = &ROOT_VT
+    fncell = load vt+0 as ptr
+    raw = *fncell
+    safe = assume_safe raw
+    rc = call @sa_coop_run_main(*safe, rframe)
+    rcu = zext rc as u64
+    call @print_u64(rcu)
+    !rframe
+    !wframe
+    !wfv
+    !vt
+    !fncell
+    !raw
+    !safe
+    !rc
+    return 0
