@@ -1,0 +1,141 @@
+// sa_std/num_u32.sla — U32 derived-operation surface (Bend2 P1-6 parity).
+//
+// Bend's base.bend defines a family of U32 operations that are *derived*
+// in Bend itself (popcount/ctz/log2/pow/min/max/clamp/is_even/hex/read)
+// on top of the wrapping operators. SLA's plain u32 operators cover the
+// primitive half (add/sub/mul/div/mod/bitops/shifts/comparisons); this
+// module supplies the derived half as named std entries so the surface
+// matches Bend def-for-def. Import with: @import "sa_std/num_u32.sla"
+//
+// Semantic notes (verified against base.bend @faeb02e):
+// - u32_pow wraps modulo 2^32 exactly like Bend (u64-masked steps).
+// - u32_read is the decimal parser: empty input and any non-digit byte
+//   are rejected, and overflow is rejected. Bend's own reader folds
+//   digits with a wrap-and-check; the accept/reject boundary agrees on
+//   all digit strings, and this version also rejects non-digit bytes
+//   outright instead of relying on the wrap check to catch them.
+// - u32_hex matches Bend's U32.hex exactly: lowercase digits, no
+//   leading zeros, and the empty string for 0.
+
+fn u32_popcount(x: u32) -> u32 {
+    // SWAR over a u64 lane so no intermediate can overflow.
+    let m: u64 = x as u64;
+    let a = m - ((m >> 1) & 1431655765);
+    let b = (a & 858993459) + ((a >> 2) & 858993459);
+    let c = (b + (b >> 4)) & 252645135;
+    // The multiply step relies on 32-bit wraparound to sum the bytes
+    // into the top byte; mask the u64 product back to 32 bits first.
+    let prod = (c * 16843009) & 4294967295;
+    let r = prod >> 24;
+    return r as u32;
+}
+
+fn u32_ctz(x: u32) -> u32 {
+    // Bend: U32.ctz(0) == 32 (popcount of all-ones via its formula).
+    if x == 0 {
+        return 32;
+    };
+    let n: u32 = 0;
+    let m = x;
+    while (m & 1) == 0 {
+        n = n + 1;
+        m = m >> 1;
+    }
+    return n;
+}
+
+fn u32_log2(x: u32) -> u32 {
+    // Floor log2; U32.log2(0) == 0 in Bend (its go-loop never adds).
+    let n: u32 = 0;
+    let m = x;
+    while m > 1 {
+        n = n + 1;
+        m = m >> 1;
+    }
+    return n;
+}
+
+fn u32_pow(a: u32, n: u32) -> u32 {
+    // Wrapping power: mask to 32 bits after every u64 multiply.
+    let acc: u64 = 1;
+    let base: u64 = a as u64;
+    let i: u32 = 0;
+    while i < n {
+        acc = (acc * base) & 4294967295;
+        i = i + 1;
+    }
+    return acc as u32;
+}
+
+fn u32_min(a: u32, b: u32) -> u32 {
+    if a < b {
+        return a;
+    };
+    return b;
+}
+
+fn u32_max(a: u32, b: u32) -> u32 {
+    if a > b {
+        return a;
+    };
+    return b;
+}
+
+fn u32_clamp(x: u32, lo: u32, hi: u32) -> u32 {
+    return u32_min(u32_max(x, lo), hi);
+}
+
+fn u32_is_even(x: u32) -> bool {
+    return (x & 1) == 0;
+}
+
+fn u32_hex_digit(d: u32) -> String {
+    if d < 10 {
+        return format("{}", d);
+    };
+    if d == 10 { return format("a"); };
+    if d == 11 { return format("b"); };
+    if d == 12 { return format("c"); };
+    if d == 13 { return format("d"); };
+    if d == 14 { return format("e"); };
+    return format("f");
+}
+
+fn u32_hex(x: u32) -> String {
+    if x == 0 {
+        return format("");
+    };
+    let out = format("");
+    let n = x;
+    while n > 0 {
+        let d = n & 15;
+        out = format("{}{}", u32_hex_digit(d), out);
+        n = n >> 4;
+    }
+    return out;
+}
+
+fn u32_read(s: &String) -> Option<u32> {
+    let bs = s.as_bytes();
+    let n = len(bs);
+    if n == 0 {
+        return None;
+    };
+    let acc: u64 = 0;
+    let i: u64 = 0;
+    while i < n {
+        let c = bs[i] as u64;
+        if c < 48 {
+            return None;
+        };
+        if c > 57 {
+            return None;
+        };
+        acc = acc * 10 + (c - 48);
+        if acc > 4294967295 {
+            return None;
+        };
+        i = i + 1;
+    }
+    return Some(acc as u32);
+}
