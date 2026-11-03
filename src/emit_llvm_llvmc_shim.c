@@ -244,10 +244,43 @@ static int verify_emit_module(EmitCtx *e, char **out_error) {
     return 0;
 }
 
+/* REGPROM-A2: cheap promotion core for opt_level 0.
+ * The register-slot emission form (one i64 alloca per SA register, touched
+ * only by the entry store, reg_store stores, operand_value loads and
+ * dbg.declare -- no address escape) is exactly the shape mem2reg promotes.
+ * Historically level 0 skipped the whole pipeline, so every default build
+ * kept the pathological slot traffic (~25 stack movs per loop iteration).
+ * At level 0 we now run only this cheap core -- mem2reg, then CFG
+ * simplification, then instruction combining -- with no PassManagerBuilder,
+ * no inliner and no vectorizer, and the target machine stays at
+ * CodeGenLevelNone: default builds keep their "no fancy optimization"
+ * development semantics; only the slot pathology is removed. Debug builds
+ * (module debug flag plumbed through SaModule.debug) are excluded so the
+ * slot form stays inspectable. The pass order is deliberate: it is the
+ * prefix ladder used to bisect any test name-set drift (mem2reg alone,
+ * + simplifycfg, + instcombine). */
+static void run_level0_promotion_core(EmitCtx *e) {
+    LLVMPassManagerRef fpm = LLVMCreateFunctionPassManagerForModule(e->module);
+    if (fpm == NULL) return;
+    LLVMAddPromoteMemoryToRegisterPass(fpm);
+    LLVMAddCFGSimplificationPass(fpm);
+    LLVMAddInstructionCombiningPass(fpm);
+    LLVMInitializeFunctionPassManager(fpm);
+    for (LLVMValueRef fn = LLVMGetFirstFunction(e->module); fn != NULL; fn = LLVMGetNextFunction(fn)) {
+        if (LLVMCountBasicBlocks(fn) != 0) LLVMRunFunctionPassManager(fpm, fn);
+    }
+    LLVMFinalizeFunctionPassManager(fpm);
+    LLVMDisposePassManager(fpm);
+}
+
 static void optimize_module_ir(EmitCtx *e, int opt_level) {
     unsigned level = normalize_opt_level(opt_level);
-    if (level == 0 || e == NULL || e->module == NULL) return;
+    if (e == NULL || e->module == NULL) return;
     if (e->wasm_compat) return;
+    if (level == 0) {
+        if (!e->debug) run_level0_promotion_core(e);
+        return;
+    }
 
     LLVMPassManagerBuilderRef pmb = LLVMPassManagerBuilderCreate();
     if (pmb == NULL) return;
