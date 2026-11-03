@@ -1280,6 +1280,25 @@ fn writeBuildOptionsHelp(writer: anytype, artifact: []const u8, include_incremen
 
 fn printPkgHelp(writer: anytype, args: []const []const u8) !void {
     const sub = if (args.len != 0 and !isHelpFlag(args[0])) args[0] else "";
+    if (std.mem.eql(u8, sub, "add")) {
+        try writer.writeAll("usage: sa pkg add [options] <identity>\n\n");
+        try writer.writeAll("Add a dependency to the project: fetch the package, record it as a\n");
+        try writer.writeAll("require line in the project sa.mod, and refresh the project sum file.\n\n");
+        try writer.writeAll("Options:\n");
+        try writer.writeAll("  --ref <ref>                    Fetch a specific package ref (default: HEAD)\n");
+        try writer.writeAll("  --offline                      Use local package cache only\n");
+        try writer.writeAll("  -g                             Install into the global package cache\n");
+        try writer.writeAll("  -h, --help                     Show this help message\n");
+        return;
+    }
+    if (std.mem.eql(u8, sub, "list")) {
+        try writer.writeAll("usage: sa pkg list\n\n");
+        try writer.writeAll("List the dependencies declared by the project sa.mod (require and\n");
+        try writer.writeAll("require_plugin lines, with their locked refs and source hashes).\n\n");
+        try writer.writeAll("Options:\n");
+        try writer.writeAll("  -h, --help                     Show this help message\n");
+        return;
+    }
     if (std.mem.eql(u8, sub, "install")) {
         try writer.writeAll("usage: sa pkg install [options] [identity]\n\n");
         try writer.writeAll("Fetch project dependencies from sa.mod, or fetch one package identity.\n\n");
@@ -1315,12 +1334,14 @@ fn printPkgHelp(writer: anytype, args: []const []const u8) !void {
         return;
     }
 
-    try writer.writeAll("usage: sa pkg <install|fetch|audit> [options]\n\n");
-    try writer.writeAll("Package fetch, audit, install, and lock commands.\n\n");
+    try writer.writeAll("usage: sa pkg <add|install|fetch|audit|list> [options]\n\n");
+    try writer.writeAll("Package add, fetch, audit, install, list, and lock commands.\n\n");
     try writer.writeAll("Subcommands:\n");
+    try writer.writeAll("  add                            Add a dependency to the project sa.mod\n");
     try writer.writeAll("  install                        Fetch project dependencies or one identity\n");
     try writer.writeAll("  fetch                          Fetch and cache one identity\n");
     try writer.writeAll("  audit                          Audit package capabilities and risk\n");
+    try writer.writeAll("  list                           List declared project dependencies\n");
     try writer.writeAll("\nUse `sa pkg <subcommand> --help` for subcommand options.\n");
 }
 
@@ -1330,6 +1351,7 @@ fn printCacheHelp(writer: anytype, args: []const []const u8) !void {
         try writer.writeAll("usage: sa cache clean [options]\n\n");
         try writer.writeAll("Remove invalid, incomplete, or expired project cache entries from .sa_cache.\n\n");
         try writer.writeAll("Options:\n");
+        try writer.writeAll("  --all                          Also remove the project-local frontend cache (.sla-cache)\n");
         try writer.writeAll("  --dry-run                      Report removals without deleting files\n");
         try writer.writeAll("  --max-age-days <n>             Remove complete entries older than n days (default: 30)\n");
         try writer.writeAll("  -h, --help                     Show this help message\n");
@@ -1361,12 +1383,23 @@ fn printPluginHelp(writer: anytype, args: []const []const u8) !void {
         try writer.writeAll("  -h, --help                     Show this help message\n");
         return;
     }
+    if (std.mem.eql(u8, sub, "confirm")) {
+        try writer.writeAll("usage: sa plugin confirm <name> [--yes]\n\n");
+        try writer.writeAll("Review and confirm an installed plugin's declared permissions and\n");
+        try writer.writeAll("native libraries. Writes the permissions.lock entry that lets the\n");
+        try writer.writeAll("plugin run outside development mode; never hand-write permissions.lock.\n\n");
+        try writer.writeAll("Options:\n");
+        try writer.writeAll("  --yes                          Confirm without an interactive prompt\n");
+        try writer.writeAll("  -h, --help                     Show this help message\n");
+        return;
+    }
 
-    try writer.writeAll("usage: sa plugin <install|list> [options]\n\n");
-    try writer.writeAll("Install and list native SA plugins.\n\n");
+    try writer.writeAll("usage: sa plugin <install|list|confirm> [options]\n\n");
+    try writer.writeAll("Install, list, and confirm native SA plugins.\n\n");
     try writer.writeAll("Subcommands:\n");
     try writer.writeAll("  install                        Install a plugin project or sap.json\n");
     try writer.writeAll("  list                           List installed plugins\n");
+    try writer.writeAll("  confirm                        Confirm an installed plugin's permissions\n");
     try writer.writeAll("\nUse `sa plugin <subcommand> --help` for subcommand options.\n");
 }
 
@@ -1380,7 +1413,7 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         },
         .install => {
             try writer.writeAll("usage: sa install [options] [identity]\n\n");
-            try writer.writeAll("Install project dependencies or one package identity. This is a compatibility alias for package install behavior.\n\n");
+            try writer.writeAll("Pkg alias of `sa pkg install`: install project dependencies or one package identity.\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  --offline                      Use local package cache only\n");
             try writer.writeAll("  -g                             Install into the global package cache\n");
@@ -1461,13 +1494,13 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
         },
         .fetch => {
             try writer.writeAll("usage: sa fetch <identity>\n\n");
-            try writer.writeAll("Fetch and cache a remote package. This is a compatibility alias; prefer `sa pkg fetch`.\n\n");
+            try writer.writeAll("Pkg alias of `sa pkg fetch`: fetch and cache a remote package.\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .audit => {
             try writer.writeAll("usage: sa audit <identity>\n\n");
-            try writer.writeAll("Compatibility alias for package audit. Prefer `sa pkg audit <identity>`.\n\n");
+            try writer.writeAll("Pkg alias of `sa pkg audit`: audit a package's capabilities and risk.\n\n");
             try writer.writeAll("Options:\n");
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
@@ -1733,10 +1766,10 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("usage: sa <command> [options]\n\n");
     try writer.writeAll("Commands:\n");
     try writer.writeAll("  init         [path]            Create a new SA binary project\n");
-    try writer.writeAll("  pkg          <subcommand>      Package fetch, audit, install, and lock commands\n");
-    try writer.writeAll("  plugin       <subcommand>      Install and list native SA plugins\n");
+    try writer.writeAll("  pkg          <subcommand>      Package add, install, fetch, audit, list, and lock commands\n");
+    try writer.writeAll("  plugin       <subcommand>      Install, list, and confirm native SA plugins\n");
     try writer.writeAll("  cache        <subcommand>      Inspect and clean project-local caches\n");
-    try writer.writeAll("  install      [identity]        Install project dependencies or one package (compat)\n");
+    try writer.writeAll("  install      [identity]        Pkg alias of `sa pkg install` (project dependencies or one package)\n");
     try writer.writeAll("  build        <file>            Compile a .sa/.sab source to a native executable\n");
     try writer.writeAll("  build-workspace                Build the selected workspace member executable\n");
     try writer.writeAll("  run          <file>            Compile and immediately execute a .sa/.sab file\n");
@@ -1748,8 +1781,8 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  build-c      <file>            Build a portable C file (.c, C backend)\n");
     try writer.writeAll("  test         <file>            Run @test blocks in a .sa/.sab file\n");
     try writer.writeAll("  check        <file>            Flatten and verify without codegen\n");
-    try writer.writeAll("  fetch        <url>             Fetch and cache a remote package (compat)\n");
-    try writer.writeAll("  audit        <file>            Use `sa pkg audit` from the package plugin\n");
+    try writer.writeAll("  fetch        <identity>        Pkg alias of `sa pkg fetch` (fetch and cache a package)\n");
+    try writer.writeAll("  audit        <identity>        Pkg alias of `sa pkg audit` (audit package capabilities)\n");
     try writer.writeAll("  graph        <path>            Output a dependency/call graph\n");
     try writer.writeAll("  layout       ...               Print struct layout information\n");
     try writer.writeAll("  size         <file>            Print function size statistics\n");
@@ -1760,6 +1793,15 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  daemon                         Run a persistent compile/verify server\n");
     try writer.writeAll("  help         [command]         Show this help message\n");
     try writer.writeAll("  version                        Print the SA toolchain version\n");
+    try writer.writeAll("\nProject lifecycle:\n");
+    try writer.writeAll("  Inside a project directory, the verbs build, build-exe, build-wasm,\n");
+    try writer.writeAll("  build-js, build-c, test, check, and run act on the project. When the\n");
+    try writer.writeAll("  project selects a language frontend (its sa.mod declares the plugin\n");
+    try writer.writeAll("  via require_plugin, or its entry source under src/ has an extension a\n");
+    try writer.writeAll("  language plugin owns), these verbs dispatch to that frontend with\n");
+    try writer.writeAll("  all flags passed through untouched. Without such a project the verbs\n");
+    try writer.writeAll("  keep their SA meaning. Naming a source file dispatches by extension\n");
+    try writer.writeAll("  as before, and the explicit form `sa <frontend> <verb>` keeps working.\n");
     try writer.writeAll("\nGlobal options:\n");
     try writer.writeAll("  --json                         Output diagnostics in JSON format\n");
     try writer.writeAll("  --profile                      Include compile phase timings in JSON metrics\n");
@@ -5795,6 +5837,7 @@ const CacheCleanStats = struct {
 const CacheCleanOptions = struct {
     dry_run: bool = false,
     max_age_days: u64 = 30,
+    include_frontend_project_cache: bool = false,
 };
 
 const ProjectCacheKey = struct {
@@ -6658,6 +6701,10 @@ fn executeCacheCommand(allocator: std.mem.Allocator, args: []const []const u8, s
             options.dry_run = true;
             continue;
         }
+        if (std.mem.eql(u8, args[i], "--all")) {
+            options.include_frontend_project_cache = true;
+            continue;
+        }
         if (std.mem.eql(u8, args[i], "--max-age-days")) {
             if (i + 1 >= args.len) return error.MissingArgument;
             options.max_age_days = try std.fmt.parseInt(u64, args[i + 1], 10);
@@ -6678,6 +6725,18 @@ fn executeCacheCommand(allocator: std.mem.Allocator, args: []const []const u8, s
     if (!options.dry_run) {
         if (plugins.cleanFrontendCache(allocator) catch false) {
             try stdout.print("cache clean: frontend cache removed\n", .{});
+        }
+    }
+    if (options.include_frontend_project_cache) {
+        // --all also covers the language frontends' project-local cache
+        // (.sla-cache at the project root), which the host cache layout
+        // above does not own. Command surface only: the stores stay
+        // separate, this just gives one entry point that clears both.
+        const sla_cache_path = try pathJoinAlloc(allocator, &.{ project_root, ".sla-cache" });
+        defer allocator.free(sla_cache_path);
+        if (projectPathExists(sla_cache_path)) {
+            if (!options.dry_run) try sio.cwd().deleteTree(sla_cache_path);
+            try stdout.print("cache clean: project .sla-cache {s}\n", .{if (options.dry_run) "found (dry run, kept)" else "removed"});
         }
     }
     return 0;
@@ -7071,8 +7130,174 @@ fn executePkgCommandFallback(allocator: std.mem.Allocator, args: []const []const
     if (std.mem.eql(u8, sub, "install")) {
         return try executeInstall(allocator, args[3..], stdout);
     }
-    _ = stderr;
+    if (std.mem.eql(u8, sub, "add")) {
+        return try executePkgAdd(allocator, args[3..], stdout, stderr);
+    }
+    if (std.mem.eql(u8, sub, "list")) {
+        return try executePkgList(allocator, args[3..], stdout, stderr);
+    }
     return null;
+}
+
+/// Render one canonical `require` line for sa.mod (the same shape
+/// manifest.writeManifest emits, grants clause included when present).
+fn renderRequireLine(allocator: std.mem.Allocator, url: []const u8, ref: []const u8, source_sha256: [32]u8, grants: []const manifest.Capability) ![]u8 {
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    errdefer aw.deinit();
+    const writer = &aw.writer;
+    try writer.print("require {s} @{s} sha256:{s}", .{ url, ref, std.fmt.bytesToHex(source_sha256, .lower) });
+    if (grants.len != 0) {
+        try writer.writeAll(" grants [");
+        for (grants, 0..) |cap, idx| {
+            if (idx != 0) try writer.writeAll(", ");
+            try writer.writeAll(manifest.capabilityName(cap));
+        }
+        try writer.writeByte(']');
+    }
+    return aw.toOwnedSlice();
+}
+
+/// Return the byte range [start, end) of the manifest line whose first
+/// two whitespace-separated tokens are `require` and `url`, or null.
+fn findRequireLineRange(text: []const u8, url: []const u8) ?struct { start: usize, end: usize } {
+    var start: usize = 0;
+    while (start < text.len) {
+        var end = std.mem.indexOfScalarPos(u8, text, start, '\n') orelse text.len;
+        var line = text[start..end];
+        if (line.len != 0 and line[line.len - 1] == '\r') line = line[0 .. line.len - 1];
+        const trimmed = std.mem.trim(u8, line, " \t");
+        var tokens = std.mem.tokenizeAny(u8, trimmed, " \t");
+        const first = tokens.next() orelse "";
+        const second = tokens.next() orelse "";
+        if (std.mem.eql(u8, first, "require") and std.mem.eql(u8, second, url)) {
+            if (end < text.len) end += 1; // consume the newline with the line
+            return .{ .start = start, .end = end };
+        }
+        start = end + 1;
+    }
+    return null;
+}
+
+fn executePkgAdd(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
+    const parsed = try parseInstallArgs(args);
+    const identity = parsed.identity orelse {
+        try stderr.writeAll("usage: sa pkg add [options] <identity>\n");
+        return 1;
+    };
+
+    var resolution = pkg_workspace.resolveFromCurrentDir(allocator, .{}) catch |err| {
+        try stderr.print("pkg add: no sa.mod project found from the current directory; run `sa init` or `sa sla init` first ({s})\n", .{@errorName(err)});
+        return 1;
+    };
+    defer resolution.deinit(allocator);
+
+    // The dependency belongs to the manifest that governs the current
+    // directory: the workspace member's sa.mod when one is selected,
+    // otherwise the workspace/project root sa.mod.
+    const target_path: []const u8 = if (resolution.member_manifest != null)
+        resolution.member_manifest_path
+    else if (resolution.workspace_manifest != null)
+        resolution.workspace_manifest_path
+    else {
+        try stderr.writeAll("pkg add: no sa.mod project found from the current directory; run `sa init` or `sa sla init` first\n");
+        return 1;
+    };
+    const effective = resolution.effective_manifest orelse {
+        try stderr.writeAll("pkg add: no sa.mod project found from the current directory; run `sa init` or `sa sla init` first\n");
+        return 1;
+    };
+
+    var mirror_rules = try pkg_mirror.loadProjectRules(allocator, resolution.workspace_root, effective.mirrors);
+    defer mirror_rules.deinit(allocator);
+
+    var fetch_options = parsed.options;
+    fetch_options.mirror_rules = mirror_rules.rules;
+    var result = try pkg_fetch.fetchPackage(allocator, identity, parsed.ref, fetch_options);
+    defer result.deinit(allocator);
+
+    // Edit the manifest textually so hand-written content (comments,
+    // ordering, unrelated sections) survives untouched: replace the
+    // existing require line for this identity, or append a new one.
+    const original_text = try readManifestTextFileAlloc(allocator, target_path);
+    defer allocator.free(original_text);
+    var existing_manifest = try manifest.parseManifestWithFile(allocator, original_text, target_path);
+    defer existing_manifest.deinit(allocator);
+
+    var kept_grants: []const manifest.Capability = &.{};
+    for (existing_manifest.requires) |entry| {
+        if (std.mem.eql(u8, entry.url, identity)) {
+            kept_grants = entry.grants;
+            break;
+        }
+    }
+    const new_line = try renderRequireLine(allocator, identity, parsed.ref, result.source_sha256, kept_grants);
+    defer allocator.free(new_line);
+
+    var new_text = std.array_list.Managed(u8).init(allocator);
+    defer new_text.deinit();
+    if (findRequireLineRange(original_text, identity)) |range| {
+        try new_text.appendSlice(original_text[0..range.start]);
+        try new_text.appendSlice(new_line);
+        try new_text.append('\n');
+        try new_text.appendSlice(original_text[range.end..]);
+    } else {
+        try new_text.appendSlice(original_text);
+        if (new_text.items.len != 0 and new_text.items[new_text.items.len - 1] != '\n') try new_text.append('\n');
+        try new_text.appendSlice(new_line);
+        try new_text.append('\n');
+    }
+
+    // Never write a manifest the parser would reject, and never write
+    // one that lost the entry just added.
+    var check_manifest = try manifest.parseManifestWithFile(allocator, new_text.items, target_path);
+    defer check_manifest.deinit(allocator);
+    var recorded = false;
+    for (check_manifest.requires) |entry| {
+        if (std.mem.eql(u8, entry.url, identity) and std.mem.eql(u8, entry.ref, parsed.ref) and hashesEqual(entry.source_sha256, result.source_sha256)) recorded = true;
+    }
+    if (!recorded) return error.InvalidManifestAfterAdd;
+
+    var file = try sio.createFileAbsolute(target_path, .{ .truncate = true });
+    defer file.close();
+    try file.writeAll(new_text.items);
+
+    // Refresh the project sum from a fresh resolution so the recorded
+    // lock state matches the edited manifests (same tail as install).
+    var next_resolution = try pkg_workspace.resolveFromCurrentDir(allocator, .{});
+    defer next_resolution.deinit(allocator);
+    if (next_resolution.effective_manifest) |*next_manifest| {
+        var update = try pkg_sum.updateProjectSum(allocator, next_resolution.workspace_root, next_manifest.*);
+        defer update.deinit(allocator);
+    }
+
+    try stdout.print("pkg add: {s} @{s} sha256:{s}\n", .{ identity, parsed.ref, std.fmt.bytesToHex(result.source_sha256, .lower) });
+    try stdout.print("recorded in {s}\n", .{target_path});
+    try stdout.print("{s}\n", .{result.root});
+    return 0;
+}
+
+fn executePkgList(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
+    for (args) |arg| {
+        if (!isHelpFlag(arg)) return error.UnexpectedArgument;
+    }
+    var resolution = pkg_workspace.resolveFromCurrentDir(allocator, .{}) catch {
+        try stderr.writeAll("pkg list: no sa.mod project found from the current directory\n");
+        return 1;
+    };
+    defer resolution.deinit(allocator);
+    const effective = resolution.effective_manifest orelse {
+        try stderr.writeAll("pkg list: no sa.mod project found from the current directory\n");
+        return 1;
+    };
+    for (effective.requires) |entry| {
+        const line = try renderRequireLine(allocator, entry.url, entry.ref, entry.source_sha256, entry.grants);
+        defer allocator.free(line);
+        try stdout.print("{s}\n", .{line});
+    }
+    for (effective.plugin_requires) |entry| {
+        try stdout.print("require_plugin {s} @{s} abi {d}\n", .{ entry.identity, entry.ref, entry.abi });
+    }
+    return 0;
 }
 
 /// Resolver diagnostics sink for plugin import resolution: the
@@ -9279,8 +9504,20 @@ pub fn executeWithWritersAndOptions(
     // when a file-consuming verb names a source file whose extension is
     // owned by an installed kind=language plugin, the frontend compiles
     // or handles it first and the builtin pipeline continues from there.
+    // A bare project verb (no source file named) inside a project whose
+    // sa.mod selects a language frontend routes to that frontend first;
+    // see routeProjectVerb for the guardrails.
     if (argv.len >= 2) {
         if (commandFromName(argv[1])) |verb| {
+            if (try routeProjectVerb(allocator, verb, argv, stdout, stderr)) |route| {
+                switch (route) {
+                    .handled => |code| return code,
+                    .rewritten => |new_argv| {
+                        defer freeRewrittenArgs(allocator, new_argv);
+                        return try executeWithWritersAndOptionsImpl(allocator, new_argv, stdout, stderr, exec_options);
+                    },
+                }
+            }
             if (try routeLanguageFrontend(allocator, verb, argv, stdout, stderr)) |route| {
                 switch (route) {
                     .handled => |code| return code,
@@ -9293,6 +9530,205 @@ pub fn executeWithWritersAndOptions(
         }
     }
     return try executeWithWritersAndOptionsImpl(allocator, argv, stdout, stderr, exec_options);
+}
+
+/// True when a require_plugin identity names the given language
+/// frontend: the identity itself, its basename, or the conventional
+/// `sa_plugin_<name>` source-directory basename.
+fn pluginRequireNamesFrontend(identity: []const u8, frontend_name: []const u8) bool {
+    if (std.mem.eql(u8, identity, frontend_name)) return true;
+    const base = std.fs.path.basename(identity);
+    if (std.mem.eql(u8, base, frontend_name)) return true;
+    const prefix = "sa_plugin_";
+    if (std.mem.startsWith(u8, base, prefix) and std.mem.eql(u8, base[prefix.len..], frontend_name)) return true;
+    return false;
+}
+
+/// Project-verb routing (toolchain phase 1, form A): a lifecycle verb
+/// invoked without a source file inside a project dispatches to the
+/// project's language frontend, with every flag passed through
+/// untouched (the host never interprets frontend flags).
+///
+/// Guardrails: routing requires project context — a sa.mod found from
+/// the current directory (workspace resolution) whose effective
+/// manifest either declares the frontend via require_plugin or whose
+/// entry source (src/main.<ext> / main.<ext>) has an extension a
+/// language frontend owns. Conflicting signals keep the host meaning,
+/// and any positional argument (or a help flag) keeps today's
+/// behavior, so existing scripts are unaffected. A generated main.sa
+/// beside a frontend entry (the frontend build/run output) does not
+/// veto the entry signal; a project whose only entry is main.sa has
+/// no frontend entry and keeps the host meaning.
+fn routeProjectVerb(
+    allocator: std.mem.Allocator,
+    verb: Command,
+    argv: []const []const u8,
+    stdout: anytype,
+    stderr: anytype,
+) !?LanguageRoute {
+    const frontend_cmd: []const u8 = switch (verb) {
+        .build, .build_exe => "build-exe",
+        .build_wasm => "build-wasm",
+        .build_js => "build-js",
+        .build_c => "build-c",
+        .check => "check",
+        .test_cmd => "test",
+        // run has no frontend counterpart: stage one compiles the
+        // project entry through the frontend `build` command, stage two
+        // rewrites argv to run the generated .sa (same shape as the
+        // file-extension build routing below).
+        .run => "build",
+        else => return null,
+    };
+
+    // Bare-verb scan: a positional token means the invocation names
+    // something and keeps today's meaning. Values of flags that take a
+    // separate value are skipped so `sa build -o app` stays bare.
+    var i: usize = 2;
+    while (i < argv.len) : (i += 1) {
+        const arg = argv[i];
+        if (isHelpFlag(arg)) return null;
+        if (std.mem.eql(u8, arg, "-o") or std.mem.eql(u8, arg, "--out") or
+            std.mem.eql(u8, arg, "--target") or std.mem.eql(u8, arg, "--package") or std.mem.eql(u8, arg, "-p") or
+            std.mem.eql(u8, arg, "--project-root") or std.mem.eql(u8, arg, "--contract") or
+            std.mem.eql(u8, arg, "--filter") or std.mem.eql(u8, arg, "--skip") or
+            std.mem.eql(u8, arg, "--ref") or std.mem.eql(u8, arg, "--emit-sab") or
+            std.mem.eql(u8, arg, "--kind") or std.mem.eql(u8, arg, "--format") or
+            std.mem.eql(u8, arg, "--test-backend") or std.mem.eql(u8, arg, "--sab-out"))
+        {
+            i += 1;
+            continue;
+        }
+        if (arg.len == 0 or arg[0] == '-') continue;
+        return null;
+    }
+
+    var resolution = pkg_workspace.resolveFromCurrentDir(allocator, .{}) catch return null;
+    defer resolution.deinit(allocator);
+    const effective = resolution.effective_manifest orelse return null;
+
+    var plugin_auth = try buildPluginRuntimeAuthorization(allocator, argv);
+    defer plugin_auth.deinit(allocator);
+    var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, plugin_auth.input);
+    defer plugin_runtime.deinit();
+    plugin_runtime.suppress_legacy_frontend_notice = true;
+
+    const infos = try plugin_runtime.languageFrontendInfos(allocator);
+    defer allocator.free(infos);
+    if (infos.len == 0) return null;
+
+    // Signal 1: the project entry source's extension. A generated
+    // main.sa beside the frontend entry does not veto the signal (it
+    // is the frontend's own build/run output); a project with only a
+    // main.sa entry simply has no frontend entry.
+    var ext_frontend: ?plugins.Runtime.LanguageFrontendInfo = null;
+    var entry_path: ?[]u8 = null;
+    defer if (entry_path) |path| allocator.free(path);
+    const member_root = resolution.member_root;
+    outer: for (infos) |info| {
+        for (info.extensions) |ext| {
+            const main_name = try std.fmt.allocPrint(allocator, "main{s}", .{ext});
+            defer allocator.free(main_name);
+            const src_candidate = try pathJoinAlloc(allocator, &.{ member_root, "src", main_name });
+            if (projectPathExists(src_candidate)) {
+                ext_frontend = info;
+                entry_path = src_candidate;
+                break :outer;
+            }
+            allocator.free(src_candidate);
+            const root_candidate = try pathJoinAlloc(allocator, &.{ member_root, main_name });
+            if (projectPathExists(root_candidate)) {
+                ext_frontend = info;
+                entry_path = root_candidate;
+                break :outer;
+            }
+            allocator.free(root_candidate);
+        }
+    }
+
+    // Signal 2: sa.mod require_plugin naming a language frontend.
+    var decl_frontend: ?plugins.Runtime.LanguageFrontendInfo = null;
+    for (effective.plugin_requires) |entry| {
+        for (infos) |info| {
+            if (pluginRequireNamesFrontend(entry.identity, info.name)) {
+                decl_frontend = info;
+                break;
+            }
+        }
+        if (decl_frontend != null) break;
+    }
+
+    const frontend: plugins.Runtime.LanguageFrontendInfo = blk: {
+        if (ext_frontend != null and decl_frontend != null) {
+            if (!std.mem.eql(u8, ext_frontend.?.name, decl_frontend.?.name)) return null;
+            break :blk ext_frontend.?;
+        }
+        if (ext_frontend) |found| break :blk found;
+        if (decl_frontend) |found| break :blk found;
+        return null;
+    };
+
+    const json_mode = hasJsonFlag(argv);
+
+    if (verb == .run) {
+        const source_path = entry_path orelse blk: {
+            if (frontend.extensions.len == 0) return null;
+            const main_name = try std.fmt.allocPrint(allocator, "main{s}", .{frontend.extensions[0]});
+            defer allocator.free(main_name);
+            const candidate = try pathJoinAlloc(allocator, &.{ member_root, "src", main_name });
+            if (projectPathExists(candidate)) {
+                entry_path = candidate;
+                break :blk candidate;
+            }
+            allocator.free(candidate);
+            return null;
+        };
+        const ext = std.fs.path.extension(source_path);
+        const stem = source_path[0 .. source_path.len - ext.len];
+        const sa_path = try std.fmt.allocPrint(allocator, "{s}.sa", .{stem});
+        defer allocator.free(sa_path);
+
+        var fwd = std.array_list.Managed([]const u8).init(allocator);
+        defer fwd.deinit();
+        try fwd.append(argv[0]);
+        try fwd.append(frontend.name);
+        try fwd.append("build");
+        try fwd.append(source_path);
+        try fwd.append("--out");
+        try fwd.append(sa_path);
+        const code = (try plugin_runtime.dispatchCommand(fwd.items, stdout, stderr, json_mode)) orelse {
+            try stderr.print("error[SA-LANGUAGE-FRONTEND]: language frontend {s} does not provide a build command\n", .{frontend.name});
+            return .{ .handled = 1 };
+        };
+        if (code != 0) return .{ .handled = code };
+        if (!projectPathExists(sa_path)) {
+            try stderr.print("error[SA-LANGUAGE-FRONTEND]: language frontend {s} reported success but did not produce {s}\n", .{ frontend.name, sa_path });
+            return .{ .handled = 1 };
+        }
+
+        var new_argv = std.array_list.Managed([]const u8).init(allocator);
+        errdefer {
+            for (new_argv.items) |arg| allocator.free(arg);
+            new_argv.deinit();
+        }
+        try new_argv.append(try allocator.dupe(u8, argv[0]));
+        try new_argv.append(try allocator.dupe(u8, "run"));
+        try new_argv.append(try allocator.dupe(u8, sa_path));
+        for (argv[2..]) |arg| try new_argv.append(try allocator.dupe(u8, arg));
+        return .{ .rewritten = try new_argv.toOwnedSlice() };
+    }
+
+    var fwd = std.array_list.Managed([]const u8).init(allocator);
+    defer fwd.deinit();
+    try fwd.append(argv[0]);
+    try fwd.append(frontend.name);
+    try fwd.append(frontend_cmd);
+    try fwd.appendSlice(argv[2..]);
+    if (try plugin_runtime.dispatchCommand(fwd.items, stdout, stderr, json_mode)) |code| {
+        return .{ .handled = code };
+    }
+    try stderr.print("error[SA-LANGUAGE-FRONTEND]: language frontend {s} does not handle '{s}' for project sources\n", .{ frontend.name, commandName(verb) });
+    return .{ .handled = 1 };
 }
 
 const LanguageRoute = union(enum) {
@@ -9314,7 +9750,7 @@ fn routeLanguageFrontend(
 ) !?LanguageRoute {
     const terminal = switch (verb) {
         .check, .test_cmd => true,
-        .build, .build_exe, .build_wasm, .build_js, .build_c, .build_obj => false,
+        .build, .build_exe, .build_wasm, .build_js, .build_c, .build_obj, .run => false,
         else => return null,
     };
 

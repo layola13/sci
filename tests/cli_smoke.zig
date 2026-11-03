@@ -981,6 +981,125 @@ test "cli cache clean removes invalid project cache entries" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--max-age-days") != null);
 }
 
+test "cli pkg add records the require line and pkg list reads it back" {
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.createDirPath(std.testing.io, "deps/example/shared");
+    try writeSource(tmp.dir, "deps/example/shared/index.sa",
+        \\@shared_value() -> i32:
+        \\return 10
+    );
+    try writeSource(tmp.dir, "sa.mod",
+        \\package "demo"
+        \\
+    );
+
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const add_argv = [_][]const u8{ "sa", "pkg", "add", "deps/example/shared" };
+    const add_code = try saasm.cli.executeWithWriters(std.testing.allocator, add_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
+    if (add_code != 0) {
+        std.debug.print("pkg add failed: code={d}\nstdout:\n{s}\nstderr:\n{s}\n", .{ add_code, stdout_buf.items, stderr_buf.items });
+    }
+    try std.testing.expectEqual(@as(u8, 0), add_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "pkg add: deps/example/shared @HEAD sha256:"));
+
+    const mod_text = try sio.cwd().readFileAlloc(std.testing.allocator, "sa.mod", 1 << 20);
+    defer std.testing.allocator.free(mod_text);
+    try std.testing.expect(std.mem.containsAtLeast(u8, mod_text, 1, "package \"demo\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, mod_text, 1, "require deps/example/shared @HEAD sha256:"));
+    try tmp.dir.access(std.testing.io, "sa.sum", .{ .read = true });
+    try tmp.dir.access(std.testing.io, "sa_vendor/deps/example/shared/index.sa", .{ .read = true });
+
+    // Listing reads the same declaration back.
+    stdout_buf.clearRetainingCapacity();
+    const list_argv = [_][]const u8{ "sa", "pkg", "list" };
+    const list_code = try saasm.cli.executeWithWriters(std.testing.allocator, list_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
+    try std.testing.expectEqual(@as(u8, 0), list_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "require deps/example/shared @HEAD sha256:"));
+
+    // Adding the same identity again replaces its line instead of
+    // appending a duplicate.
+    const readd_code = try saasm.cli.executeWithWriters(std.testing.allocator, add_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
+    try std.testing.expectEqual(@as(u8, 0), readd_code);
+    const mod_text2 = try sio.cwd().readFileAlloc(std.testing.allocator, "sa.mod", 1 << 20);
+    defer std.testing.allocator.free(mod_text2);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, mod_text2, "require deps/example/shared"));
+}
+
+test "cli cache clean --all removes the project .sla-cache only on request" {
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    defer original_cwd.setAsCwd() catch {};
+
+    try tmp.dir.createDirPath(std.testing.io, ".sla-cache/macros");
+    try writeBytes(tmp.dir, ".sla-cache/macros/probe.idx", "idx");
+
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const plain_argv = [_][]const u8{ "sa", "cache", "clean" };
+    const plain_code = try saasm.cli.executeWithWriters(std.testing.allocator, plain_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
+    try std.testing.expectEqual(@as(u8, 0), plain_code);
+    try tmp.dir.access(std.testing.io, ".sla-cache/macros/probe.idx", .{});
+
+    stdout_buf.clearRetainingCapacity();
+    const dry_argv = [_][]const u8{ "sa", "cache", "clean", "--all", "--dry-run" };
+    const dry_code = try saasm.cli.executeWithWriters(std.testing.allocator, dry_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
+    try std.testing.expectEqual(@as(u8, 0), dry_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, ".sla-cache found (dry run, kept)"));
+    try tmp.dir.access(std.testing.io, ".sla-cache/macros/probe.idx", .{});
+
+    stdout_buf.clearRetainingCapacity();
+    const all_argv = [_][]const u8{ "sa", "cache", "clean", "--all" };
+    const all_code = try saasm.cli.executeWithWriters(std.testing.allocator, all_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
+    try std.testing.expectEqual(@as(u8, 0), all_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, ".sla-cache removed"));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(std.testing.io, ".sla-cache/macros/probe.idx", .{}));
+}
+
+test "cli help surfaces lifecycle routing, pkg aliases, and plugin confirm" {
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const help_argv = [_][]const u8{ "sa", "help" };
+    const help_code = try saasm.cli.executeWithWriters(std.testing.allocator, help_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
+    try std.testing.expectEqual(@as(u8, 0), help_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "Project lifecycle:"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "Pkg alias of `sa pkg install`"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "Pkg alias of `sa pkg fetch`"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "Pkg alias of `sa pkg audit`"));
+
+    stdout_buf.clearRetainingCapacity();
+    const plugin_help_argv = [_][]const u8{ "sa", "plugin", "--help" };
+    const plugin_help_code = try saasm.cli.executeWithWriters(std.testing.allocator, plugin_help_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
+    try std.testing.expectEqual(@as(u8, 0), plugin_help_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "confirm"));
+
+    stdout_buf.clearRetainingCapacity();
+    const cache_help_argv = [_][]const u8{ "sa", "cache", "clean", "--help" };
+    const cache_help_code = try saasm.cli.executeWithWriters(std.testing.allocator, cache_help_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
+    try std.testing.expectEqual(@as(u8, 0), cache_help_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buf.items, 1, "--all"));
+}
+
 test "sa test compile-only reuses and repairs project test cache" {
     var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();

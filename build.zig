@@ -523,6 +523,30 @@ pub fn build(b: *std.Build) void {
     const workspace_smoke_step = b.step("workspace-smoke", "Run workspace package-management smoke tests");
     workspace_smoke_step.dependOn(&run_workspace_smoke.step);
 
+    const toolchain_u1u2_module = b.createModule(.{
+        .root_source_file = b.path("tests/cli_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    toolchain_u1u2_module.addImport("sio", sio_module);
+    toolchain_u1u2_module.addImport("saasm", lib_module);
+    toolchain_u1u2_module.addOptions("build_options", build_options);
+    const toolchain_u1u2_smoke = b.addTest(.{
+        .root_module = toolchain_u1u2_module,
+        .filters = &.{
+            "cli pkg add records the require line and pkg list reads it back",
+            "cli cache clean --all removes the project .sla-cache only on request",
+            "cli help surfaces lifecycle routing, pkg aliases, and plugin confirm",
+        },
+    });
+    const run_toolchain_u1u2_smoke = b.addRunArtifact(toolchain_u1u2_smoke);
+    run_toolchain_u1u2_smoke.setCwd(repo_root_lazy);
+    addLlvmBinDirToRun(b, run_toolchain_u1u2_smoke, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    run_toolchain_u1u2_smoke.step.dependOn(&sync_sa_std_artifact.step);
+    test_step.dependOn(&run_toolchain_u1u2_smoke.step);
+    const toolchain_u1u2_step = b.step("toolchain-u1u2-smoke", "Run toolchain phase-1 (U1/U2) CLI smoke tests");
+    toolchain_u1u2_step.dependOn(&run_toolchain_u1u2_smoke.step);
+
     const sab_corrupt_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/cli_smoke.zig"),
         .target = target,

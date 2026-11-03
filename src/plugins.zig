@@ -2442,6 +2442,25 @@ pub const Runtime = struct {
         return null;
     }
 
+    /// Borrowed view of one registered language frontend: its plugin
+    /// name and the file extensions it owns. Slices borrow from the
+    /// runtime and stay valid while it is alive.
+    pub const LanguageFrontendInfo = struct {
+        name: []const u8,
+        extensions: []const []const u8,
+    };
+
+    /// Snapshot of every registered language frontend, in load order.
+    /// The caller owns the returned slice (but not the borrowed fields).
+    pub fn languageFrontendInfos(self: *const Runtime, allocator: std.mem.Allocator) ![]LanguageFrontendInfo {
+        var infos = std.array_list.Managed(LanguageFrontendInfo).init(allocator);
+        errdefer infos.deinit();
+        for (self.language_frontends.items) |*frontend| {
+            try infos.append(.{ .name = frontend.plugin_name, .extensions = frontend.extensions });
+        }
+        return infos.toOwnedSlice();
+    }
+
     fn languageFrontendNamed(self: *const Runtime, name: []const u8) ?*const LanguageFrontend {
         for (self.language_frontends.items) |*frontend| {
             if (std.mem.eql(u8, frontend.plugin_name, name)) return frontend;
