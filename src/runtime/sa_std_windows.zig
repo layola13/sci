@@ -4254,7 +4254,7 @@ pub export fn pthread_spawn_detached(entry_ptr: ?[*]const u8, arg_ptr: ?[*]const
     return SA_STD_OK;
 }
 
-pub export fn pthread_join(handle_id: i32, out: ?[*]u8) callconv(.c) i32 {
+pub export fn sa_pthread_join(handle_id: i32, out: ?[*]u8) callconv(.c) i32 {
     const handle_ptr = freeWinThreadHandle(handle_id) catch return finish(SA_STD_ERR_INVALID_HANDLE);
     const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const wait_result = WaitForSingleObject(handle_ptr.handle, 0xFFFFFFFF);

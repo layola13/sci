@@ -823,7 +823,7 @@ int32_t sa_time_sleep_ms(uint64_t ms);
 
 int32_t pthread_spawn(const uint8_t *entry, const uint8_t *arg);
 int32_t pthread_spawn_detached(const uint8_t *entry, const uint8_t *arg);
-int32_t pthread_join(int32_t handle, uint8_t *out);
+int32_t sa_pthread_join(int32_t handle, uint8_t *out);
 void pthread_drop(int32_t handle);
 
 uint8_t *sa_fmt_buffer_data(uint64_t buffer);

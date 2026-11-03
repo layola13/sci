@@ -3777,7 +3777,7 @@ fn writeExternBinding(writer: anytype, raw_name: []const u8, uniform_arity: usiz
         .{ .voids = all_void ^ 0b1111, .tag = .npm_iseq }
     else if (std.mem.eql(u8, name, "pthread_spawn"))
         .{ .voids = all_void ^ 0b11, .tag = .pthread_spawn }
-    else if (std.mem.eql(u8, name, "pthread_join"))
+    else if (std.mem.eql(u8, name, "pthread_join") or std.mem.eql(u8, name, "sa_pthread_join"))
         .{ .voids = all_void, .tag = .pthread_join }
     else if (std.mem.eql(u8, name, "pthread_drop"))
         .{ .voids = all_void, .tag = .pthread_drop }

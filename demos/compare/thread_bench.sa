@@ -5,7 +5,7 @@
 @const WORKER_VT = vtable { call = @worker }
 
 @extern pthread_spawn(*entry: ptr, *arg: ptr) -> i32
-@extern pthread_join(handle: i32, *out: ptr) -> i32
+@extern sa_pthread_join(handle: i32, *out: ptr) -> i32
 @extern pthread_drop(handle: i32) -> void
 
 #def Thread_SIZE = 16
@@ -76,7 +76,7 @@ L_ENTRY:
 
 @ffi_wrapper join_worker(handle: i32, *slot: ptr) -> i32:
 L_ENTRY:
-    joined = call @pthread_join(handle, *slot)
+    joined = call @sa_pthread_join(handle, *slot)
     !slot
     !handle
     return joined

@@ -10905,6 +10905,14 @@ comptime {
         @export(&fd_close, .{ .name = "fd_close" });
         @export(&pthread_spawn, .{ .name = "pthread_spawn" });
         @export(&pthread_spawn_detached, .{ .name = "pthread_spawn_detached" });
+        // The SA-facing join is exported ONLY under the non-colliding
+        // name sa_pthread_join (see thread.sai): the definition's
+        // handle-registry ABI is not libc's pthread_join signature.
+        // Under the bare name it captured std.Thread's joins when
+        // exported (the F1 incident class below) and, once gated to
+        // no-libc targets, SA programs fell through to glibc's
+        // pthread_join and segfaulted on the slot id.
+        @export(&pthread_join, .{ .name = "sa_pthread_join" });
         @export(&pthread_drop, .{ .name = "pthread_drop" });
         @export(&sa_thread_as_pthread_t, .{ .name = "sa_thread_as_pthread_t" });
         @export(&sa_thread_into_pthread_t, .{ .name = "sa_thread_into_pthread_t" });
@@ -10925,8 +10933,10 @@ comptime {
         // 120,066 mmap syscalls against exactly 1 munmap, growing RSS
         // without bound in slanginx/slaredis-class long-running
         // executables), signal (stub installs no handler), pthread_join
-        // (handle-registry ABI, not the libc signature std.Thread joins
-        // through), and the sqlite3_* stubs (would shadow a real
+        // (the bare libc name stays gated to no-libc targets as a compat
+        // surface; SA programs use sa_pthread_join, exported above —
+        // the handle-registry ABI is not the libc signature std.Thread
+        // joins through), and the sqlite3_* stubs (would shadow a real
         // libsqlite3 in the same link).
         if (builtin.os.tag == .wasi or !builtin.link_libc) {
             @export(&dlopen, .{ .name = "dlopen", .visibility = .hidden });

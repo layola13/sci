@@ -4829,6 +4829,7 @@ fn isKnownShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "signal")) return true;
     if (std.mem.eql(u8, name, "pthread_spawn")) return true;
     if (std.mem.eql(u8, name, "pthread_join")) return true;
+    if (std.mem.eql(u8, name, "sa_pthread_join")) return true;
     if (std.mem.eql(u8, name, "pthread_drop")) return true;
     if (std.mem.eql(u8, name, "dlclose")) return true;
     if (std.mem.eql(u8, name, "sqlite3_prepare")) return true;
@@ -7928,6 +7929,11 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
         if (std.mem.eql(u8, fsig.name, "pthread_join")) {
             // Entry already ran inside pthread_spawn; nothing to wait for.
             try writer.writeAll("function pthread_join(handle, out) { return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_pthread_join")) {
+            // Entry already ran inside pthread_spawn; nothing to wait for.
+            try writer.writeAll("function sa_pthread_join(handle, out) { return 0; }\n");
             return;
         }
         if (std.mem.eql(u8, fsig.name, "pthread_drop")) {

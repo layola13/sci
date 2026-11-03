@@ -10,7 +10,7 @@
 [END_MACRO]
 
 [MACRO] THREAD_JOIN_STATUS %out_status, %handle, %out_ptr
-    %out_status = call @pthread_join(%handle, *%out_ptr)
+    %out_status = call @sa_pthread_join(%handle, *%out_ptr)
 [END_MACRO]
 
 [MACRO] THREAD_DROP %handle
@@ -115,7 +115,7 @@ L_THREAD_BUILDER_SPAWN_END_%out_handle:
     __join_handle_joinable_%out_status = ne __join_handle_raw_%out_status, 0
     br __join_handle_joinable_%out_status -> L_JOIN_HANDLE_JOIN_CALL_%out_status, L_JOIN_HANDLE_JOINED_%out_status
 L_JOIN_HANDLE_JOIN_CALL_%out_status:
-    %out_status = call @pthread_join(__join_handle_raw_%out_status, *%out_ptr)
+    %out_status = call @sa_pthread_join(__join_handle_raw_%out_status, *%out_ptr)
     store %join_handle+JoinHandle_result, %out_status as u64
     store %join_handle+JoinHandle_handle, 0 as i32
     !__join_handle_joinable_%out_status
