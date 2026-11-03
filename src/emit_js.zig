@@ -5676,6 +5676,7 @@ fn isKnownShim(name: []const u8) bool {
 fn isJsPolicyShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_time_unix_ms")) return true;
     if (std.mem.eql(u8, name, "sa_time_instant_ns")) return true;
+    if (std.mem.eql(u8, name, "sa_math_random")) return true;
     if (std.mem.eql(u8, name, "sa_node_plugin_crypto_random_bytes")) return true;
     if (std.mem.eql(u8, name, "sa_deno_plugin_read_text_file")) return true;
     if (std.mem.eql(u8, name, "sa_deno_plugin_write_text_file")) return true;
@@ -8652,6 +8653,57 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             // this branch every Vec regrow/free trapped at run time with
             // "extern not linked: sa_mem_free".
             try writer.writeAll("function sa_mem_free(ptr) { return __sa_free(ptr); }\n");
+            return;
+        }
+        // Float math surface (sa_std/math.sai): pure f64 functions bind
+        // to the JS platform libm (Math.*), the same platform-binding
+        // precedent as emit_c's libm calls. floor/ceil/sqrt are exactly
+        // rounded on both sides; sin/cos/pow follow the host libm, so a
+        // last-ulp result can differ from the native glibc values where
+        // V8's fdlibm port is not correctly rounded (known cases are
+        // registered in the JS math line evidence, not hidden).
+        if (std.mem.eql(u8, fsig.name, "sa_math_floor")) {
+            try writer.writeAll("function sa_math_floor(x) { return Math.floor(x); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_math_ceil")) {
+            try writer.writeAll("function sa_math_ceil(x) { return Math.ceil(x); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_math_sqrt")) {
+            try writer.writeAll("function sa_math_sqrt(x) { return Math.sqrt(x); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_math_sin")) {
+            try writer.writeAll("function sa_math_sin(x) { return Math.sin(x); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_math_cos")) {
+            try writer.writeAll("function sa_math_cos(x) { return Math.cos(x); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_math_pow")) {
+            try writer.writeAll("function sa_math_pow(base, exp) { return Math.pow(base, exp); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_math_random")) {
+            // Native contract: policy-gated crypto draw of 53 bits in
+            // [0, 1) — (u >> 11) * 2^-53 over a crypto u64. The JS host
+            // crypto source is WebCrypto (Node >= 19, browsers, Deno);
+            // a host without one traps loudly instead of silently
+            // demoting to Math.random (a non-crypto source).
+            try writer.writeAll(
+                \\function sa_math_random() {
+                \\  if (!__sa_policy_unit('random')) return 0;
+                \\  const c = globalThis.crypto;
+                \\  if (!c || typeof c.getRandomValues !== "function") __sa_trap("sa_math_random: no crypto source on this host");
+                \\  const w = new Uint32Array(2);
+                \\  c.getRandomValues(w);
+                \\  const u = (BigInt(w[0]) << 32n) | BigInt(w[1]);
+                \\  return Number(u >> 11n) * (1.0 / 9007199254740992.0);
+                \\}
+                \\
+            );
             return;
         }
         // Goroutine surface (sa_std/task.sai): every name delegates
