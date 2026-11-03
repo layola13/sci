@@ -1,0 +1,59 @@
+@import "sa_std/string.sa"
+@import "sa_std/core/slice.sa"
+
+@extern sa_fmt_u64(value: u64, base: u32) -> u64
+@extern sa_fmt_buffer_data(buffer: u64) -> &ptr
+@extern sa_fmt_buffer_len(buffer: u64) -> u64
+@extern sa_fmt_buffer_free(^buffer: u64) -> i32
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+
+@const NL = utf8:"\n"
+@const CHUNK = utf8:"abcdefgh"
+
+@print_u64(v: u64) -> void:
+L_ENTRY:
+    buf = call @sa_fmt_u64(v, 10)
+    p = call @sa_fmt_buffer_data(buf)
+    n = call @sa_fmt_buffer_len(buf)
+    call @sa_print_bytes(&p, n)
+    call @sa_print_bytes(&NL, 1)
+    st = call @sa_fmt_buffer_free(^buf)
+    !st
+    !n
+    !p
+    !v
+    return
+
+// StringBuf: 200 push_str of an 8-byte chunk (byte buffer regrows through
+// the Vec path, releasing old buffers via sa_mem_free), length check, then
+// STRING_BUF_DROP_IN_PLACE, whose body calls sa_mem_free directly.
+// Expected prints: 1600 then 777
+@main() -> i32:
+L_ENTRY:
+    EXPAND STRING_BUF_NEW buf
+    islot = stack_alloc 8
+    store islot+0, 0 as u64
+    jmp L_HEAD
+L_HEAD:
+    i = load islot+0 as u64
+    done = uge i, 200
+    br done -> L_FIN, L_BODY
+L_BODY:
+    EXPAND STR_FROM_PARTS s, &CHUNK, 8
+    EXPAND STRING_BUF_PUSH_STR buf, s
+    i2 = add i, 1
+    store islot+0, i2 as u64
+    !i2
+    !i
+    !done
+    jmp L_HEAD
+L_FIN:
+    !i
+    !done
+    EXPAND STRING_BUF_LEN ln, buf
+    call @print_u64(ln)
+    !ln
+    EXPAND STRING_BUF_DROP_IN_PLACE buf
+    call @print_u64(777)
+    !buf
+    return 0

@@ -1,0 +1,94 @@
+@import "sa_std/vec.sa"
+
+@extern sa_fmt_u64(value: u64, base: u32) -> u64
+@extern sa_fmt_buffer_data(buffer: u64) -> &ptr
+@extern sa_fmt_buffer_len(buffer: u64) -> u64
+@extern sa_fmt_buffer_free(^buffer: u64) -> i32
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+
+@const NL = utf8:"\n"
+
+@print_u64(v: u64) -> void:
+L_ENTRY:
+    buf = call @sa_fmt_u64(v, 10)
+    p = call @sa_fmt_buffer_data(buf)
+    n = call @sa_fmt_buffer_len(buf)
+    call @sa_print_bytes(&p, n)
+    call @sa_print_bytes(&NL, 1)
+    st = call @sa_fmt_buffer_free(^buf)
+    !st
+    !n
+    !p
+    !v
+    return
+
+// Vec lifecycle: 200 pushes force repeated buffer regrowth (each regrow
+// releases the old buffer through sa_mem_free), then a full sum pass and
+// sa_vec_free (which also routes through sa_mem_free).
+// Expected print: 19900
+@main() -> i32:
+L_ENTRY:
+    v = call @sa_vec_new()
+    hslot = stack_alloc 8
+    store hslot+0, v as ptr
+    !v
+    islot = stack_alloc 8
+    store islot+0, 0 as u64
+    jmp L_HEAD
+L_HEAD:
+    i = load islot+0 as u64
+    done = uge i, 200
+    br done -> L_SUM_INIT, L_BODY
+L_BODY:
+    h = load hslot+0 as ptr
+    h2 = call @sa_vec_push(^h, i, 8)
+    store hslot+0, h2 as ptr
+    i2 = add i, 1
+    store islot+0, i2 as u64
+    !h2
+    !i2
+    !i
+    !done
+    jmp L_HEAD
+L_SUM_INIT:
+    !i
+    !done
+    store islot+0, 0 as u64
+    accslot = stack_alloc 8
+    store accslot+0, 0 as u64
+    jmp L_SUM_HEAD
+L_SUM_HEAD:
+    j = load islot+0 as u64
+    sdone = uge j, 200
+    br sdone -> L_FIN, L_SUM_BODY
+L_SUM_BODY:
+    h = load hslot+0 as ptr
+    base = load h+Vec_ptr as ptr
+    off = mul j, 8
+    ep = ptr_add base, off
+    val = load ep+0 as u64
+    acc = load accslot+0 as u64
+    acc2 = add acc, val
+    store accslot+0, acc2 as u64
+    j2 = add j, 1
+    store islot+0, j2 as u64
+    !h
+    !base
+    !off
+    !ep
+    !val
+    !acc
+    !acc2
+    !j2
+    !j
+    !sdone
+    jmp L_SUM_HEAD
+L_FIN:
+    !j
+    !sdone
+    total = load accslot+0 as u64
+    call @print_u64(total)
+    !total
+    h = load hslot+0 as ptr
+    call @sa_vec_free(^h)
+    return 0

@@ -1637,7 +1637,6 @@ fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16, np
         \\// ---- end runtime ----
         \\
     );
-    try writer.writeAll(policy_runtime_js);
 }
 
 /// Resolve raw call-arg text (`&name`, `10`, `3.5`, `"str"`) to a JS expr.
@@ -5002,6 +5001,21 @@ fn isKnownShim(name: []const u8) bool {
     return false;
 }
 
+/// Extern shims whose emitted bodies call the __sa_policy_* helpers.
+/// The policy runtime chunk is emitted only for programs declaring one
+/// of these (same declaration gate as the net/handle chunks below);
+/// every other program used to pay ~10 KB for a runtime it never calls.
+fn isJsPolicyShim(name: []const u8) bool {
+    if (std.mem.eql(u8, name, "sa_time_unix_ms")) return true;
+    if (std.mem.eql(u8, name, "sa_time_instant_ns")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_crypto_random_bytes")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_read_text_file")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_write_text_file")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_mkdir")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_remove")) return true;
+    return false;
+}
+
 /// Whether `name` is a BP net shim (gates the jsnet runtime chunk).
 fn isJsNetShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_cookie_parse_set_cookie")) return true;
@@ -7904,7 +7918,24 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             return;
         }
         if (std.mem.eql(u8, fsig.name, "munmap")) {
-            try writer.writeAll("function munmap(map, len) { return 0; }\n");
+            // mmap above hands out __sa_alloc blocks, so munmap releases
+            // them; __sa_free no-ops on pointers it does not own, so
+            // foreign ranges stay safe. This used to be a bare no-op,
+            // which leaked the whole mapping (a default GrowVec reserves
+            // 8 MiB of the 16 MiB heap) on every free.
+            try writer.writeAll("function munmap(map, len) { __sa_free(map); return 0; }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_mem_free")) {
+            // Native sa_mem_free releases blocks handed out by the SA
+            // `alloc` path (raw free for alloc blocks; Vec buffer
+            // regrowth/free, GrowVec handles and StringBuf drop all route
+            // through it). On JS, `alloc` lowers to __sa_alloc, so
+            // __sa_free is the exact counterpart, including its discipline
+            // of silently ignoring null/foreign/interior pointers. Without
+            // this branch every Vec regrow/free trapped at run time with
+            // "extern not linked: sa_mem_free".
+            try writer.writeAll("function sa_mem_free(ptr) { return __sa_free(ptr); }\n");
             return;
         }
         if (std.mem.eql(u8, fsig.name, "signal")) {
@@ -11962,6 +11993,18 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         const fsig = verified.function_sigs[task.fsig_index];
         if (isJsNetShim(fsig.name)) {
             try writer.writeAll(jsnet_runtime_js);
+            try writer.writeAll("\n");
+            break;
+        }
+    }
+    // Emit the policy runtime chunk once when the program declares any
+    // shim whose body consults it (time/random/deno-fs). It used to be
+    // appended to every program's runtime header unconditionally.
+    for (tasks) |task| {
+        if (task.kind != .extern_decl) continue;
+        const fsig = verified.function_sigs[task.fsig_index];
+        if (isJsPolicyShim(fsig.name)) {
+            try writer.writeAll(policy_runtime_js);
             try writer.writeAll("\n");
             break;
         }

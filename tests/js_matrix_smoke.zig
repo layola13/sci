@@ -1096,6 +1096,13 @@ test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/support/hashset_probe.sa", "set ok\n");
     try assertJsMatrixStdout("demos/support/once_probe.sa", "once ok\n");
     try assertJsMatrixStdout("demos/support/mpsc_probe.sa", "mpsc ok\n");
+    // Memory-extern regressions: Vec regrowth/free, StringBuf drop and
+    // GrowVec free all route through sa_mem_free, which used to have no
+    // JS lowering (every one of these trapped with
+    // "extern not linked: sa_mem_free" before the fix).
+    try assertJsMatrixStdout("demos/js/962_vec_mem_free/main.sa", "19900\n");
+    try assertJsMatrixStdout("demos/js/963_stringbuf_mem_free/main.sa", "1600\n777\n");
+    try assertJsMatrixStdout("demos/js/964_growvec_mem_free/main.sa", "1999000\n777\n");
 }
 
 fn assertJsBuildRejects(path: []const u8) !void {
