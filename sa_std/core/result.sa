@@ -182,16 +182,17 @@ L_RESULT_ERR_AND_END_%out_bool:
 [END_MACRO]
 
 [MACRO] RESULT_UNWRAP_OR %out_value, %res_reg, %default_value
+    __result_unwrap_or_default_%out_value = add %default_value, 0
     __result_tag_%out_value = load %res_reg+Result_tag as u64
     __result_is_ok_%out_value = eq __result_tag_%out_value, Result_OK
     br __result_is_ok_%out_value -> L_RESULT_UNWRAP_OR_OK_%out_value, L_RESULT_UNWRAP_OR_ERR_%out_value
 L_RESULT_UNWRAP_OR_OK_%out_value:
     %out_value = load %res_reg+Result_ok as u64
     !__result_tag_%out_value
-    !%default_value
+    !__result_unwrap_or_default_%out_value
     jmp L_RESULT_UNWRAP_OR_END_%out_value
 L_RESULT_UNWRAP_OR_ERR_%out_value:
-    %out_value = add %default_value, 0
+    %out_value = add __result_unwrap_or_default_%out_value, 0
     !__result_tag_%out_value
 L_RESULT_UNWRAP_OR_END_%out_value:
 [END_MACRO]
@@ -215,7 +216,8 @@ L_RESULT_UNWRAP_ELSE_END_%out_value:
 [END_MACRO]
 
 [MACRO] RESULT_UNWRAP_OR_DEFAULT %out_value, %res_reg
-    EXPAND RESULT_UNWRAP_OR %out_value, %res_reg, 0
+    __result_default_%out_value = add 0, 0
+    EXPAND RESULT_UNWRAP_OR %out_value, %res_reg, __result_default_%out_value
 [END_MACRO]
 
 [MACRO] RESULT_RETURN_ERR %res_reg, %err_value

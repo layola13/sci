@@ -1,0 +1,72 @@
+@import "sa_std/core/result.sa"
+
+@inc1(v: u64) -> u64:
+L_ENTRY:
+    out = add v, 1
+    !v
+    return out
+
+@test "sa_std result unwrap_or_default"():
+L_ENTRY:
+    EXPAND RESULT_OK rok, 5
+    EXPAND RESULT_ERR rerr, 9
+    EXPAND RESULT_UNWRAP_OR_DEFAULT v1, rok
+    EXPAND RESULT_UNWRAP_OR_DEFAULT v2, rerr
+    a = eq v1, 5
+    b = eq v2, 0
+    ok = and a, b
+    !v1
+    !v2
+    !a
+    !b
+    br ok -> L_OK1, L_FAIL1
+L_OK1:
+    !ok
+    return 0
+L_FAIL1:
+    !ok
+    panic(10331)
+
+@test "sa_std result unwrap_or"():
+L_ENTRY:
+    EXPAND RESULT_OK uok, 5
+    EXPAND RESULT_ERR uerr, 9
+    d1 = add 99, 0
+    EXPAND RESULT_UNWRAP_OR w1, uok, d1
+    d2 = add 99, 0
+    EXPAND RESULT_UNWRAP_OR w2, uerr, d2
+    a = eq w1, 5
+    b = eq w2, 99
+    ok = and a, b
+    !w1
+    !w2
+    !a
+    !b
+    br ok -> L_OK2, L_FAIL2
+L_OK2:
+    !ok
+    return 0
+L_FAIL2:
+    !ok
+    panic(10332)
+
+@test "sa_std result unwrap_or_else"():
+L_ENTRY:
+    EXPAND RESULT_OK eok, 5
+    EXPAND RESULT_ERR eerr, 9
+    EXPAND RESULT_UNWRAP_OR_ELSE x1, eok, @inc1
+    EXPAND RESULT_UNWRAP_OR_ELSE x2, eerr, @inc1
+    a = eq x1, 5
+    b = eq x2, 10
+    ok = and a, b
+    !x1
+    !x2
+    !a
+    !b
+    br ok -> L_OK3, L_FAIL3
+L_OK3:
+    !ok
+    return 0
+L_FAIL3:
+    !ok
+    panic(10333)

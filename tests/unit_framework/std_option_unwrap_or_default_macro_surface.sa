@@ -1,0 +1,78 @@
+@import "sa_std/option.sa"
+
+@inc1(v: u64) -> u64:
+L_ENTRY:
+    out = add v, 1
+    !v
+    return out
+
+@test "sa_std option unwrap_or_default"():
+L_ENTRY:
+    EXPAND OPTION_SOME os, 41
+    EXPAND OPTION_NONE on
+    EXPAND OPTION_UNWRAP_OR_DEFAULT u1, os
+    EXPAND OPTION_UNWRAP_OR_DEFAULT u2, on
+    a = eq u1, 41
+    b = eq u2, 0
+    ok = and a, b
+    !u1
+    !u2
+    !a
+    !b
+    br ok -> L_OK1, L_FAIL1
+L_OK1:
+    !ok
+    return 0
+L_FAIL1:
+    !ok
+    panic(10311)
+
+@test "sa_std option map_or_default"():
+L_ENTRY:
+    EXPAND OPTION_SOME ms, 10
+    EXPAND OPTION_NONE mn
+    EXPAND OPTION_MAP_OR_DEFAULT m1, ms, @inc1
+    EXPAND OPTION_MAP_OR_DEFAULT m2, mn, @inc1
+    a = eq m1, 11
+    b = eq m2, 0
+    ok = and a, b
+    !m1
+    !m2
+    !a
+    !b
+    br ok -> L_OK2, L_FAIL2
+L_OK2:
+    !ok
+    return 0
+L_FAIL2:
+    !ok
+    panic(10312)
+
+@test "sa_std option get_or_insert_default"():
+L_ENTRY:
+    EXPAND OPTION_NONE gn
+    EXPAND OPTION_GET_OR_INSERT_DEFAULT gp1, gn
+    gv1 = load gp1+0 as u64
+    EXPAND OPTION_IS_SOME gis, gn
+    EXPAND OPTION_SOME gs, 7
+    EXPAND OPTION_GET_OR_INSERT_DEFAULT gp2, gs
+    gv2 = load gp2+0 as u64
+    a = eq gv1, 0
+    b = eq gis, 1
+    c = eq gv2, 7
+    ok01 = and a, b
+    ok = and ok01, c
+    !gv1
+    !gv2
+    !gis
+    !a
+    !b
+    !c
+    !ok01
+    br ok -> L_OK3, L_FAIL3
+L_OK3:
+    !ok
+    return 0
+L_FAIL3:
+    !ok
+    panic(10313)
