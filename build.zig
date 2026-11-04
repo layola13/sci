@@ -154,6 +154,13 @@ pub fn build(b: *std.Build) void {
         .root_module = sa_std_static_module,
         .linkage = .static,
     });
+    // The runtime compiles as a single compilation-unit object; without
+    // per-function/per-data sections, one anchor reference (every program
+    // main calls sa_install_sigpipe_ignore) forces the linker to take the
+    // entire runtime object into every executable. Section splitting lets
+    // --gc-sections executable links keep only the reachable runtime.
+    sa_std_static.link_function_sections = true;
+    sa_std_static.link_data_sections = true;
     const install_sa_std_static = b.addInstallArtifact(sa_std_static, .{});
     const sync_sa_std_artifact = b.addUpdateSourceFiles();
     sync_sa_std_artifact.addCopyFileToSource(sa_std_static.getEmittedBin(), targetSaStdSyncPath(b, target));

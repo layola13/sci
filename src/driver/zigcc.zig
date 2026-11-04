@@ -98,6 +98,20 @@ pub fn argvForExe(
     });
     if (!debug) {
         try argv.items.append("-Wl,--strip-debug");
+        // The sa_std runtime archive is one compilation unit; it is built
+        // with function/data sections (see build.zig) so the linker can
+        // garbage-collect the runtime sections a given program never
+        // reaches instead of pulling the whole runtime object in through
+        // the startup anchor reference. ELF link drivers only: the COFF
+        // and Mach-O drivers reject --gc-sections. Reachability roots are
+        // the usual ones (entry point, .init_array/.fini_array, dynamic
+        // exports), so startup constructors such as the policy bootstrap
+        // stay linked.
+        const elf_target = target_triple == null or
+            std.mem.indexOf(u8, target_triple.?, "linux") != null;
+        if (elf_target) {
+            try argv.items.append("-Wl,--gc-sections");
+        }
     }
     try argv.items.append(artifact_path);
     try argv.items.append(sa_std_archive_path);
@@ -583,7 +597,8 @@ test "argv helpers choose the requested optimization" {
     defer exe_small.deinit();
     try std.testing.expectEqualStrings("-O1", exe_small.slice()[3]);
     try std.testing.expectEqualStrings("-Wl,--strip-debug", exe_small.slice()[4]);
-    try std.testing.expectEqualStrings("/repo/artifacts/sa_std/libsa_std.a", exe_small.slice()[6]);
+    try std.testing.expectEqualStrings("-Wl,--gc-sections", exe_small.slice()[5]);
+    try std.testing.expectEqualStrings("/repo/artifacts/sa_std/libsa_std.a", exe_small.slice()[7]);
     var exe_fast = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_fast, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false, null);
     defer exe_fast.deinit();
     try std.testing.expectEqualStrings("-O3", exe_fast.slice()[3]);
@@ -595,6 +610,7 @@ test "argv helpers choose the requested optimization" {
     try std.testing.expectEqualStrings("-O0", exe_debug.slice()[4]);
     for (exe_debug.slice()) |arg| {
         try std.testing.expect(!std.mem.eql(u8, arg, "-Wl,--strip-debug"));
+        try std.testing.expect(!std.mem.eql(u8, arg, "-Wl,--gc-sections"));
     }
 
     var wasm_small = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_small, false, null);
