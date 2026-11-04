@@ -1044,7 +1044,11 @@ static LabelEntry *label_entry(LabelEntry *labels, size_t label_count, const cha
  * iteration's dynamic allocas. This is the same save/restore pattern clang
  * uses for VLAs. Forward edges into a header never restore: the save slot
  * is (re)written by the header itself before any back-edge can execute.
- * Disabled for wasm_compat modules, whose stack model differs.
+ * DEF-WASM-SABTRAP: wasm_compat modules are covered as well. The rewind
+ * was originally disabled there ("stack model differs"), but the wasm
+ * stack lives in bounded linear memory, so the ratchet traps with an
+ * out-of-bounds access where native merely grows the stack; the
+ * intrinsics lower to __stack_pointer get/set on wasm32.
  * REGPROM rider: headers are armed selectively -- only when the loop
  * interval contains a stack_alloc or exclusivity cannot be proven (an
  * edge from outside the interval enters its interior). In an unarmed
@@ -1409,8 +1413,15 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
      * executed stack_alloc lies in the interval of some header whose
      * back-edge bounds the cycle, and that header is armed), so skipping
      * it is semantics-neutral and saves 2 instructions per iteration in
-     * allocation-free loops. */
-    if (!e->wasm_compat) {
+     * allocation-free loops.
+     * DEF-WASM-SABTRAP: the arming analysis now also runs for wasm_compat
+     * modules. It was previously skipped there ("stack model differs"),
+     * which left in-loop stack_allocs ratcheting the wasm stack pointer
+     * (__stack_pointer global) inside bounded linear memory until a store
+     * walked out of bounds and trapped (mandel full image x SAB x wasm).
+     * llvm.stacksave/stackrestore lower to __stack_pointer get/set on
+     * wasm32, so the same rewind applies unchanged. */
+    {
         int any_armed = 0;
         /* Pass 1: mark headers, record each header's latest back-edge,
          * and resolve every jump target to a label index once. */
