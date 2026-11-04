@@ -1,0 +1,51 @@
+// Regression (DEF-JS-BUILDJS-OPERAND, defects 2+3): an extern out-param
+// writes through a stack slot whose address reaches the callee only
+// inside the call text. In the raw_text-less SAB form the JS emitter's
+// slot-promotion analysis saw only the slot's load/store uses and
+// promoted it to a JS local, so the value read back after the call was
+// the stale init (0) instead of the extern-written sum — and the
+// globals externs had no JS shim at all (runtime "extern not linked").
+// sa_global_u64_add("sab_ctr", 7, +5, &cell) on a fresh name writes 5
+// through &cell; main prints the read-back value and the status.
+// Expected (native, and JS via both text and SAB forms):
+//   5
+//   0
+@extern sa_global_u64_add(name: ptr, name_len: u64, delta: i64, &out_new: ptr) -> i32
+@extern sa_fmt_u64(value: u64, base: u32) -> u64
+@extern sa_fmt_buffer_data(buffer: u64) -> &ptr
+@extern sa_fmt_buffer_len(buffer: u64) -> u64
+@extern sa_fmt_buffer_free(^buffer: u64) -> i32
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+
+@const NL = utf8:"\n"
+@const KEY = utf8:"sab_ctr"
+
+@ffi_wrapper main() -> i32:
+L_ENTRY:
+    cell = stack_alloc 8
+    store cell+0, 0 as u64
+    rc = call @sa_global_u64_add(&KEY, 7, 5, &cell)
+    v = load cell+0 as u64
+    buf = call @sa_fmt_u64(v, 10)
+    p = call @sa_fmt_buffer_data(buf)
+    n = call @sa_fmt_buffer_len(buf)
+    call @sa_print_bytes(&p, n)
+    call @sa_print_bytes(&NL, 1)
+    fst = call @sa_fmt_buffer_free(^buf)
+    rcu = zext rc as u64
+    buf2 = call @sa_fmt_u64(rcu, 10)
+    p2 = call @sa_fmt_buffer_data(buf2)
+    n2 = call @sa_fmt_buffer_len(buf2)
+    call @sa_print_bytes(&p2, n2)
+    call @sa_print_bytes(&NL, 1)
+    fst2 = call @sa_fmt_buffer_free(^buf2)
+    !fst
+    !fst2
+    !rc
+    !rcu
+    !v
+    !n
+    !p
+    !n2
+    !p2
+    return 0

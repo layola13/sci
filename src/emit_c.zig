@@ -1052,6 +1052,25 @@ fn dstSlot(fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) !u32 {
     }
 }
 
+/// Destination slot of a call instruction; mirrors emit_js.callDestSlot.
+/// The destination register lives in operands[0], in the per-function
+/// operand id space (slot indexes, or global symbol ids in global-reg
+/// bodies — see regSlot). The parsed dest text resolves through the
+/// program-global symbol table, a different id space: for raw_text-less
+/// (SAB-form) calls it names an unrelated symbol, so resolving it either
+/// fails (InvalidOperand) or silently assigns the wrong slot. Only fall
+/// back to the parsed name when the instruction carries no dest operand.
+fn callDestSlot(symbols: anytype, fsig: sig.FunctionSig, use_global: bool, base: inst.Instruction, parsed: call.ParsedCall) !?u32 {
+    if (base.operands[0] == .reg) {
+        return try dstSlot(fsig, use_global, base.operands[0]);
+    }
+    if (parsed.dest) |dest| {
+        const id = symbols.findId(dest) orelse return null;
+        return fsig.slotOf(id);
+    }
+    return null;
+}
+
 fn emitReturnStmt(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, operand: inst.Operand, indent: []const u8) !void {
     if (fsig.return_fallible) {
         switch (operand) {
@@ -8332,9 +8351,8 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             };
             defer parsed.deinit(allocator);
             var dest_dead = false;
-            if (parsed.dest) |dest| {
-                const id = symbols.findId(dest) orelse return CEmitError.InvalidOperand;
-                const slot = fsig.slotOf(id) orelse return CEmitError.InvalidOperand;
+            if (parsed.dest) |_| {
+                const slot = (try callDestSlot(symbols, fsig, use_global, base, parsed)) orelse return CEmitError.InvalidOperand;
                 if (dead.get(slot) != null) {
                     dest_dead = true;
                     try writer.writeAll("  (void)(");
@@ -8390,9 +8408,8 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             };
             defer parsed.deinit(allocator);
             var ind_dead = false;
-            if (parsed.dest) |dest| {
-                const id = symbols.findId(dest) orelse return CEmitError.InvalidOperand;
-                const slot = fsig.slotOf(id) orelse return CEmitError.InvalidOperand;
+            if (parsed.dest) |_| {
+                const slot = (try callDestSlot(symbols, fsig, use_global, base, parsed)) orelse return CEmitError.InvalidOperand;
                 if (dead.get(slot) != null) {
                     ind_dead = true;
                     try writer.writeAll("  (void)(");
@@ -9883,6 +9900,31 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
     var uniform_arity: usize = 1;
     for (tasks) |task| {
         uniform_arity = @max(uniform_arity, verified.function_sigs[task.fsig_index].params.len);
+    }
+    // The goroutine glue trampolines (emitted when a task-entry binding is
+    // bound) call sa_call_indirect with up to five arguments (the trap
+    // sink passes handle, code, message pointer/length and its context),
+    // so the uniform arity must cover the glue itself. Text-form programs
+    // usually mask this because std helpers inflate the max param count;
+    // a program whose widest function takes fewer params (the SAB-form
+    // lowering of the same source, for instance) would otherwise emit a
+    // dispatcher too narrow for its own glue and fail C compilation.
+    {
+        var ti: usize = 0;
+        var glue_found = false;
+        while (ti < tasks.len and !glue_found) : (ti += 1) {
+            var i: usize = tasks[ti].start_idx + 1;
+            while (i < tasks[ti].end_idx) : (i += 1) {
+                const base = verified.annotated[i].base;
+                if (base.kind != .call) continue;
+                if (call.parseInstructionCall(allocator, base, verified.symbols)) |*pc| {
+                    var parsed = pc.*;
+                    defer parsed.deinit(allocator);
+                    if (!parsed.is_indirect and bindingNeedsTaskEntry(sigNormName(parsed.callee))) glue_found = true;
+                } else |_| {}
+            }
+        }
+        if (glue_found) uniform_arity = @max(uniform_arity, 5);
     }
     // Indirect dispatch is needed iff the IR contains a dynamic call
     // site. Vtable consts alone don't need the ftable: without a call

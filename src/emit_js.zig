@@ -2585,8 +2585,29 @@ fn emitReturnStmt(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, use_
     }
 }
 
+/// Destination slot of a call instruction. The destination register lives
+/// in operands[0], in the per-function operand id space (slot indexes, or
+/// global symbol ids in global-reg bodies — see regSlot). The parsed dest
+/// text instead resolves through the program-global symbol table, a
+/// different id space: for raw_text-less (SAB-form) calls
+/// parseInstructionCall derives that text by looking the slot up as a
+/// global id, which names an unrelated symbol — resolving it either fails
+/// (InvalidOperand) or, worse, lands on a namesake local of the current
+/// function and silently assigns the result to the wrong slot. Only fall
+/// back to the parsed name when the instruction carries no dest operand
+/// (the same rule trackWidths already follows).
+fn callDestSlot(symbols: anytype, fsig: sig.FunctionSig, use_global: bool, base: inst.Instruction, parsed: call.ParsedCall) !?u32 {
+    if (base.operands[0] == .reg) {
+        return try dstSlot(fsig, use_global, base.operands[0]);
+    }
+    if (parsed.dest) |dest| {
+        const id = symbols.findId(dest) orelse return null;
+        return fsig.slotOf(id);
+    }
+    return null;
+}
+
 fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, bases: *BaseSet, retbase: *const RetBaseTable) !void {
-    _ = use_global;
     _ = fn_idx;
     var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
         try writer.print("  __sa_trap(\"unsupported call: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
@@ -2597,9 +2618,8 @@ fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: a
         try writer.print("  __sa_trap(\"unsupported call_indirect: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
         return;
     }
-    if (parsed.dest) |dest| {
-        const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
-        const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
+    if (parsed.dest) |_| {
+        const slot = (try callDestSlot(symbols, fsig, use_global, base, parsed)) orelse return JsEmitError.InvalidOperand;
         // Fresh blocks from allocator shims and proven callees keep base
         // provenance; everything else is killed (unknown). Move-prefix
         // arguments are consumed.
@@ -2635,16 +2655,14 @@ fn emitCallInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: a
 /// Boxed callee values come from vtable loads or `&func` expressions;
 /// results (including fallible {s,v} objects) pass through untouched.
 fn emitCallIndirectInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, bases: *BaseSet, retbase: *const RetBaseTable) !void {
-    _ = use_global;
     _ = fn_idx;
     var parsed = call.parseInstructionCall(allocator, base, symbols) catch {
         try writer.print("  __sa_trap(\"unsupported call_indirect: {s}\");\n", .{std.mem.trim(u8, base.raw_text, " \t\r\n")});
         return;
     };
     defer parsed.deinit(allocator);
-    if (parsed.dest) |dest| {
-        const id = symbols.findId(dest) orelse return JsEmitError.InvalidOperand;
-        const slot = fsig.slotOf(id) orelse return JsEmitError.InvalidOperand;
+    if (parsed.dest) |_| {
+        const slot = (try callDestSlot(symbols, fsig, use_global, base, parsed)) orelse return JsEmitError.InvalidOperand;
         // Fresh blocks from allocator shims and proven callees keep base
         // provenance; everything else is killed (unknown). Move-prefix
         // arguments are consumed.
@@ -2793,6 +2811,25 @@ fn collectPromotableSlots(allocator: std.mem.Allocator, verified: anytype, fsig:
             else => {
                 for (ops) |op| {
                     if (promoMentionSlot(verified.symbols, fsig, use_global, op)) |s| try bad.put(s, {});
+                    // Composite text operands (a call's argument list
+                    // rendered as one string) name several slots, but
+                    // promoMentionSlot resolves only the first. Scan every
+                    // token as well: in raw_text-less (SAB-form) bodies
+                    // this operand is the ONLY place an escaped slot is
+                    // mentioned — the raw_text scan below sees nothing —
+                    // so a slot passed by address to a callee that writes
+                    // through it (extern out-params, e.g. a task handle
+                    // written by sa_task_spawn) would otherwise stay
+                    // promotable and keep serving its stale init value.
+                    switch (op) {
+                        .text, .native_text => |t| {
+                            var oit = std.mem.tokenizeAny(u8, t, " \t\r\n,()[]{}:;\"'`@=");
+                            while (oit.next()) |tok| {
+                                if (provTextSlot(verified.symbols, fsig, use_global, tok)) |s| try bad.put(s, {});
+                            }
+                        },
+                        else => {},
+                    }
                 }
                 // Call instructions carry their arguments in raw_text,
                 // not in operands, so the operand scan above never sees
@@ -3275,14 +3312,12 @@ fn provTransfer(
                     continue;
                 };
                 defer parsed.deinit(allocator);
-                if (parsed.dest) |dest| {
-                    if (symbols.findId(dest)) |id| {
-                        if (fsig.slotOf(id)) |slot| {
-                            if (!parsed.is_indirect and provCallDestBase(out_set, symbols, fsig, parsed.callee, parsed.args, retbase)) {
-                                out_set.put(slot, {}) catch return JsEmitError.OutOfMemory;
-                            } else {
-                                _ = out_set.remove(slot);
-                            }
+                if (parsed.dest) |_| {
+                    if (callDestSlot(symbols, fsig, use_global, base, parsed) catch null) |slot| {
+                        if (!parsed.is_indirect and provCallDestBase(out_set, symbols, fsig, parsed.callee, parsed.args, retbase)) {
+                            out_set.put(slot, {}) catch return JsEmitError.OutOfMemory;
+                        } else {
+                            _ = out_set.remove(slot);
                         }
                     }
                 }
@@ -5765,6 +5800,100 @@ fn isJsTaskShim(name: []const u8) bool {
     return false;
 }
 
+/// Extern shims backed by the __sa_globals cell-registry chunk
+/// (sa_std/globals.sai). The chunk is emitted only for programs
+/// declaring one of these (same declaration gate as the task chunk).
+fn isJsGlobalsShim(name: []const u8) bool {
+    if (std.mem.eql(u8, name, "sa_global_u64_set")) return true;
+    if (std.mem.eql(u8, name, "sa_global_u64_get")) return true;
+    if (std.mem.eql(u8, name, "sa_global_u64_set_once")) return true;
+    if (std.mem.eql(u8, name, "sa_global_u64_add")) return true;
+    if (std.mem.eql(u8, name, "sa_global_bytes_set")) return true;
+    if (std.mem.eql(u8, name, "sa_global_bytes_get")) return true;
+    return false;
+}
+
+/// JS port of the sa_std global-cell registry (native implementation:
+/// src/runtime/sa_globals.zig). Process-wide named cells in two
+/// independent namespaces (u64 / bytes), keyed by the raw name bytes
+/// (latin1-exact key strings, so arbitrary name bytes stay distinct).
+/// Status codes mirror the native registry (OK=0, INVALID_ARGUMENT=1,
+/// NOT_FOUND=3, TRUNCATED=9); u64 arithmetic wraps, add is a
+/// read-modify-write starting from 0 on a fresh name, and every out
+/// slot is zeroed before the lookup, exactly like the native exports.
+/// The host is single-threaded, so the native mutex has no observable
+/// effect and plain Maps are faithful. Emitted once per program that
+/// declares any sa_global_* extern (gate below); other programs pay
+/// nothing for it.
+const globals_runtime_js =
+    \\// ---- sa global cells runtime (JS port of sa_globals.zig) ----
+    \\const __sa_globals = (() => {
+    \\  const u64_cells = new Map();
+    \\  const bytes_cells = new Map();
+    \\  function key(name, name_len) {
+    \\    const a = __sa_addr(name), n = __sa_num(name_len);
+    \\    if (a === 0 || n === 0 || n > 1024) return null;
+    \\    let k = "";
+    \\    for (let i = 0; i < n; i++) k += String.fromCharCode(__sa_u8[a + i]);
+    \\    return k;
+    \\  }
+    \\  function u64Set(name, name_len, value) {
+    \\    const k = key(name, name_len); if (k === null) return 1;
+    \\    u64_cells.set(k, BigInt.asUintN(64, BigInt(value)));
+    \\    return 0;
+    \\  }
+    \\  function u64Get(name, name_len, out) {
+    \\    if (__sa_addr(out) === 0) return 1;
+    \\    __sa_store_i64(out, 0n);
+    \\    const k = key(name, name_len); if (k === null) return 1;
+    \\    if (!u64_cells.has(k)) return 3;
+    \\    __sa_store_i64(out, u64_cells.get(k));
+    \\    return 0;
+    \\  }
+    \\  function u64SetOnce(name, name_len, value, out_already) {
+    \\    if (__sa_addr(out_already) === 0) return 1;
+    \\    __sa_store_i64(out_already, 0n);
+    \\    const k = key(name, name_len); if (k === null) return 1;
+    \\    if (u64_cells.has(k)) { __sa_store_i64(out_already, 1n); return 0; }
+    \\    u64_cells.set(k, BigInt.asUintN(64, BigInt(value)));
+    \\    return 0;
+    \\  }
+    \\  function u64Add(name, name_len, delta, out) {
+    \\    if (__sa_addr(out) === 0) return 1;
+    \\    __sa_store_i64(out, 0n);
+    \\    const k = key(name, name_len); if (k === null) return 1;
+    \\    const cur = u64_cells.has(k) ? u64_cells.get(k) : 0n;
+    \\    const next = BigInt.asUintN(64, cur + BigInt.asIntN(64, BigInt(delta)));
+    \\    u64_cells.set(k, next);
+    \\    __sa_store_i64(out, next);
+    \\    return 0;
+    \\  }
+    \\  function bytesSet(name, name_len, value, value_len) {
+    \\    const k = key(name, name_len); if (k === null) return 1;
+    \\    const n = __sa_num(value_len);
+    \\    if (n > 0 && __sa_addr(value) === 0) return 1;
+    \\    const a = __sa_addr(value);
+    \\    bytes_cells.set(k, __sa_u8.slice(a, a + n));
+    \\    return 0;
+    \\  }
+    \\  function bytesGet(name, name_len, buf, cap, out_len) {
+    \\    if (__sa_addr(out_len) === 0) return 1;
+    \\    __sa_store_i64(out_len, 0n);
+    \\    const k = key(name, name_len); if (k === null) return 1;
+    \\    if (!bytes_cells.has(k)) return 3;
+    \\    const v = bytes_cells.get(k);
+    \\    __sa_store_i64(out_len, BigInt(v.length));
+    \\    if (v.length > __sa_num(cap)) return 9;
+    \\    if (v.length > 0) {
+    \\      if (__sa_addr(buf) === 0) return 1;
+    \\      __sa_u8.set(v, __sa_addr(buf));
+    \\    }
+    \\    return 0;
+    \\  }
+    \\  return { u64Set: u64Set, u64Get: u64Get, u64SetOnce: u64SetOnce, u64Add: u64Add, bytesSet: bytesSet, bytesGet: bytesGet };
+    \\})();
+;
+
 /// Whether `name` is a BP net shim (gates the jsnet runtime chunk).
 fn isJsNetShim(name: []const u8) bool {
     if (std.mem.eql(u8, name, "sa_cookie_parse_set_cookie")) return true;
@@ -6060,11 +6189,9 @@ fn provSolveBody(
                 .call, .call_indirect => {
                     var parsed = call.parseInstructionCall(allocator, base, verified.symbols) catch continue;
                     defer parsed.deinit(allocator);
-                    if (parsed.dest) |dest| {
-                        if (verified.symbols.findId(dest)) |id| {
-                            if (fsig.slotOf(id)) |slot| {
-                                universe.put(slot, {}) catch return JsEmitError.OutOfMemory;
-                            }
+                    if (parsed.dest) |_| {
+                        if (callDestSlot(verified.symbols, fsig, use_global, base, parsed) catch null) |slot| {
+                            universe.put(slot, {}) catch return JsEmitError.OutOfMemory;
                         }
                     }
                 },
@@ -8747,6 +8874,36 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
                 \\}
                 \\
             );
+            return;
+        }
+        // Global cells (sa_std/globals.sai): process-wide named
+        // u64/bytes cells backed by the __sa_globals registry chunk
+        // (emitted above when any of these is declared). Signatures
+        // mirror globals.sai exactly; semantics mirror
+        // src/runtime/sa_globals.zig (status codes, out-slot zeroing,
+        // wrapping add, set_once, truncated bytes_get).
+        if (std.mem.eql(u8, fsig.name, "sa_global_u64_set")) {
+            try writer.writeAll("function sa_global_u64_set(name, name_len, value) { return __sa_globals.u64Set(name, name_len, value); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_global_u64_get")) {
+            try writer.writeAll("function sa_global_u64_get(name, name_len, out) { return __sa_globals.u64Get(name, name_len, out); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_global_u64_set_once")) {
+            try writer.writeAll("function sa_global_u64_set_once(name, name_len, value, out_already) { return __sa_globals.u64SetOnce(name, name_len, value, out_already); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_global_u64_add")) {
+            try writer.writeAll("function sa_global_u64_add(name, name_len, delta, out) { return __sa_globals.u64Add(name, name_len, delta, out); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_global_bytes_set")) {
+            try writer.writeAll("function sa_global_bytes_set(name, name_len, value, value_len) { return __sa_globals.bytesSet(name, name_len, value, value_len); }\n");
+            return;
+        }
+        if (std.mem.eql(u8, fsig.name, "sa_global_bytes_get")) {
+            try writer.writeAll("function sa_global_bytes_get(name, name_len, buf, cap, out_len) { return __sa_globals.bytesGet(name, name_len, buf, cap, out_len); }\n");
             return;
         }
         // Goroutine surface (sa_std/task.sai): every name delegates
@@ -12990,6 +13147,17 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         const fsig = verified.function_sigs[task.fsig_index];
         if (isJsTaskShim(fsig.name)) {
             try writer.writeAll(jstask_runtime_js);
+            try writer.writeAll("\n");
+            break;
+        }
+    }
+    // Emit the global-cells runtime chunk once when the program
+    // declares any sa_global_* shim (sa_std/globals.sai surface).
+    for (tasks) |task| {
+        if (task.kind != .extern_decl) continue;
+        const fsig = verified.function_sigs[task.fsig_index];
+        if (isJsGlobalsShim(fsig.name)) {
+            try writer.writeAll(globals_runtime_js);
             try writer.writeAll("\n");
             break;
         }

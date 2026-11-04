@@ -116,6 +116,103 @@ fn assertJsMatrixStdout(path: []const u8, expected_stdout: []const u8) !void {
     demo_ended = true;
 }
 
+/// SAB-form variant of assertJsMatrixStdout: the demo source is first
+/// encoded with `sa check --emit-sab` (the same SAB v4 encoding the SLA
+/// plugin's build-js route feeds the emitter; SAB v4 stores no raw_text)
+/// and the resulting .sab is then built with `sa build-js`. This is the
+/// route that hit DEF-JS-BUILDJS-OPERAND: emitter analyses written for
+/// the text form misread raw_text-less call instructions (call dest
+/// names derived in the wrong id space, slot mentions hidden inside
+/// composite call texts).
+fn assertJsMatrixStdoutViaSab(path: []const u8, expected_stdout: []const u8) !void {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!jsMatrixShardSelected()) {
+        std.debug.print("[js-matrix] SKIP  demo={s} reason=shard\n", .{path});
+        return;
+    }
+    const node_probe = sio.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{ "node", "--version" },
+    }) catch return error.SkipZigTest;
+    defer std.testing.allocator.free(node_probe.stdout);
+    defer std.testing.allocator.free(node_probe.stderr);
+    switch (node_probe.term) {
+        .exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
+    defer std.testing.allocator.free(source_path);
+
+    const demo_start = sio.nanoTimestamp();
+    std.debug.print("[js-matrix] START demo={s} (via-sab)\n", .{path});
+    var demo_ended = false;
+    errdefer {
+        if (!demo_ended) std.debug.print("[js-matrix] FAIL demo={s} (via-sab)\n", .{path});
+    }
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    defer original_cwd.setAsCwd() catch {};
+
+    const base = std.fs.path.basename(path);
+    const stem = std.fs.path.stem(base);
+    const parent = std.fs.path.dirname(path) orelse ".";
+    const tag = std.fs.path.basename(parent);
+    const sab_name = try std.fmt.allocPrint(std.testing.allocator, "{s}_{s}.sab", .{ tag, stem });
+    defer std.testing.allocator.free(sab_name);
+    const js_name = try std.fmt.allocPrint(std.testing.allocator, "{s}_{s}.mjs", .{ tag, stem });
+    defer std.testing.allocator.free(js_name);
+
+    const check_argv = [_][]const u8{ "sa", "check", source_path, "--emit-sab", sab_name };
+    const check_code = saasm.cli.execute(std.testing.allocator, check_argv[0..]) catch |err| {
+        std.debug.print("check --emit-sab errored: {s}: {s}\n", .{ path, @errorName(err) });
+        return err;
+    };
+    if (check_code != 0) std.debug.print("check --emit-sab failed: {s}\n", .{path});
+    try std.testing.expectEqual(@as(u8, 0), check_code);
+
+    const build_js_argv = [_][]const u8{ "sa", "build-js", sab_name, "-o", js_name, "--project-root", repo_root };
+    const build_js_code = saasm.cli.execute(std.testing.allocator, build_js_argv[0..]) catch |err| {
+        std.debug.print("build-js (sab) errored: {s}: {s}\n", .{ path, @errorName(err) });
+        return err;
+    };
+    if (build_js_code != 0) std.debug.print("build-js (sab) failed: {s}\n", .{path});
+    try std.testing.expectEqual(@as(u8, 0), build_js_code);
+
+    const js_file = try tmp.dir.openFile(std.testing.io, js_name, .{});
+    defer js_file.close(std.testing.io);
+    var js_rbuf: [8192]u8 = undefined;
+    var js_reader = js_file.reader(std.testing.io, &js_rbuf);
+    const js_bytes = try js_reader.interface.allocRemaining(std.testing.allocator, .limited(1 << 24));
+    defer std.testing.allocator.free(js_bytes);
+    try std.testing.expect(js_bytes.len > 64);
+
+    const js_result = try runJsWithNode(std.testing.allocator, js_name);
+    defer std.testing.allocator.free(js_result.stdout);
+    defer std.testing.allocator.free(js_result.stderr);
+    switch (js_result.term) {
+        .exited => |code| {
+            if (code != 0 or !std.mem.eql(u8, js_result.stdout, expected_stdout) or js_result.stderr.len != 0) {
+                std.debug.print("js demo (sab) failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, js_result.stdout, js_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings(expected_stdout, js_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), js_result.stderr.len);
+
+    std.debug.print("[js-matrix] END   demo={s} (via-sab) elapsed={}ms\n", .{ path, elapsedMs(demo_start) });
+    demo_ended = true;
+}
+
 test "js backend rosetta demos match expected output under node" {
     try assertJsMatrixStdout("demos/rosetta/01_hello_world/main.sa", "hello, saasm\n");
     try assertJsMatrixStdout("demos/rosetta/02_mutability/main.sa", "20\n");
@@ -1125,6 +1222,23 @@ test "js backend rosetta demos match expected output under node" {
     // demo prints its contract shape (three in-range/on-grid verdicts,
     // two distinctness flags) instead of values.
     try assertJsMatrixStdout("demos/js/973_math_surface/main.sa", "4613937818241073152\n13839561654909534208\n13830554455654793216\n4616189618054758400\n13837309855095848960\n4607182418800017408\n4609047870845172685\n4602678819172646912\n4644888880265906422\n4602308182625945072\n4605754516372524270\n4368955796522032135\n4606079780542709072\n4603041830072026764\n13830554455654793216\n4609047870845172685\n4613387649414743380\n1\n1\n1\n0\n0\n");
+}
+
+test "js backend SAB-form demos match expected output under node" {
+    // DEF-JS-BUILDJS-OPERAND: the plugin build-js route feeds the
+    // emitter SAB (no raw_text), not SA text. 965 through this route
+    // failed pre-fix with "InvalidOperand in print_u64" (call dest
+    // resolved in the global symbol id space); 974 pins that shape,
+    // 975 pins the globals shim + the slot-promotion escape scan (an
+    // extern out-param slot mentioned only inside a composite call
+    // text must not be promoted; pre-fix it read back the stale 0).
+    // (965 itself is not repeated here: it is 974's source with a
+    // different header, and a second in-process `check --emit-sab` on
+    // a near-identical program traps with "SAB encode failed:
+    // verification trap" — a pre-existing in-process CLI state defect,
+    // registered separately; one-shot CLI processes are unaffected.)
+    try assertJsMatrixStdoutViaSab("demos/js/974_sab_call_dest/main.sa", "42\n0\n");
+    try assertJsMatrixStdoutViaSab("demos/js/975_sab_extern_outparam/main.sa", "5\n0\n");
 }
 
 fn assertJsBuildRejects(path: []const u8) !void {

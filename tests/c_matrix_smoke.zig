@@ -241,6 +241,125 @@ test "c backend rosetta demos match expected output under cc" {
     try assertCMatrixStdout("demos/rosetta/964_multipart_checksum/main.sa", "ok\n");
 }
 
+/// SAB-form stdlink variant: encode with `sa check --emit-sab` first,
+/// then `sa build-c` on the .sab (the SLA plugin's build-c route; SAB
+/// v4 stores no raw_text). Pins DEF-JS-BUILDJS-OPERAND's C siblings:
+/// call destinations resolved in the wrong id space (InvalidOperand),
+/// and a uniform arity narrower than the goroutine glue's own
+/// sa_call_indirect calls (C compile error in sa_glue_trap_sink).
+fn assertCMatrixStdoutViaSabStdlink(path: []const u8, expected_stdout: []const u8) !void {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!cMatrixShardSelected()) {
+        std.debug.print("[c-matrix] SKIP  demo={s} reason=shard\n", .{path});
+        return;
+    }
+    const zig_exe: []const u8 = blk: {
+        const candidates = [_][]const u8{ "zig", "/opt/zig17/zig", "/usr/local/bin/zig", "/opt/zig/zig" };
+        for (candidates) |cand| {
+            const probe = sio.Child.run(.{
+                .allocator = std.testing.allocator,
+                .argv = &.{ cand, "version" },
+            }) catch continue;
+            defer std.testing.allocator.free(probe.stdout);
+            defer std.testing.allocator.free(probe.stderr);
+            switch (probe.term) {
+                .exited => |code| if (code == 0) break :blk cand,
+                else => {},
+            }
+        }
+        return error.SkipZigTest;
+    };
+
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    const repo_root = try original_cwd.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, path);
+    defer std.testing.allocator.free(source_path);
+
+    const demo_start = sio.nanoTimestamp();
+    std.debug.print("[c-matrix] START demo={s} (via-sab stdlink)\n", .{path});
+    var demo_ended = false;
+    errdefer {
+        if (!demo_ended) std.debug.print("[c-matrix] FAIL demo={s} (via-sab stdlink)\n", .{path});
+    }
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    defer original_cwd.setAsCwd() catch {};
+
+    const base = std.fs.path.basename(path);
+    const stem = std.fs.path.stem(base);
+    const parent = std.fs.path.dirname(path) orelse ".";
+    const tag = std.fs.path.basename(parent);
+    const sab_name = try std.fmt.allocPrint(std.testing.allocator, "{s}_{s}.sab", .{ tag, stem });
+    defer std.testing.allocator.free(sab_name);
+    const c_name = try std.fmt.allocPrint(std.testing.allocator, "{s}_{s}.c", .{ tag, stem });
+    defer std.testing.allocator.free(c_name);
+    const exe_name = try std.fmt.allocPrint(std.testing.allocator, "{s}_{s}_c", .{ tag, stem });
+    defer std.testing.allocator.free(exe_name);
+
+    const check_argv = [_][]const u8{ "sa", "check", source_path, "--emit-sab", sab_name };
+    const check_code = saasm.cli.execute(std.testing.allocator, check_argv[0..]) catch |err| {
+        std.debug.print("check --emit-sab errored: {s}: {s}\n", .{ path, @errorName(err) });
+        return err;
+    };
+    if (check_code != 0) std.debug.print("check --emit-sab failed: {s}\n", .{path});
+    try std.testing.expectEqual(@as(u8, 0), check_code);
+
+    const build_c_argv = [_][]const u8{ "sa", "build-c", sab_name, "-o", c_name, "--project-root", repo_root };
+    const build_c_code = saasm.cli.execute(std.testing.allocator, build_c_argv[0..]) catch |err| {
+        std.debug.print("build-c (sab) errored: {s}: {s}\n", .{ path, @errorName(err) });
+        return err;
+    };
+    if (build_c_code != 0) std.debug.print("build-c (sab) failed: {s}\n", .{path});
+    try std.testing.expectEqual(@as(u8, 0), build_c_code);
+
+    const archive_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/artifacts/sa_std/libsa_std.a", .{repo_root});
+    defer std.testing.allocator.free(archive_path);
+    const cc_argv = [_][]const u8{ zig_exe, "cc", "-DSA_GAS_LIMIT=100000000", c_name, archive_path, "-o", exe_name, "-lm", "-lpthread", "-ldl" };
+    const cc_res = try sio.Child.run(.{ .allocator = std.testing.allocator, .argv = cc_argv[0..] });
+    defer std.testing.allocator.free(cc_res.stdout);
+    defer std.testing.allocator.free(cc_res.stderr);
+    switch (cc_res.term) {
+        .exited => |code| {
+            if (code != 0) std.debug.print("zig cc failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, cc_res.stdout, cc_res.stderr });
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    const exe_path = try std.fmt.allocPrint(std.testing.allocator, "./{s}", .{exe_name});
+    defer std.testing.allocator.free(exe_path);
+    const c_result = try sio.Child.run(.{ .allocator = std.testing.allocator, .argv = &.{exe_path} });
+    defer std.testing.allocator.free(c_result.stdout);
+    defer std.testing.allocator.free(c_result.stderr);
+    switch (c_result.term) {
+        .exited => |code| {
+            if (code != 0 or !std.mem.eql(u8, c_result.stdout, expected_stdout) or c_result.stderr.len != 0) {
+                std.debug.print("c demo (sab) failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ path, c_result.stdout, c_result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings(expected_stdout, c_result.stdout);
+    try std.testing.expectEqual(@as(usize, 0), c_result.stderr.len);
+
+    std.debug.print("[c-matrix] END   demo={s} (via-sab stdlink) elapsed={}ms\n", .{ path, elapsedMs(demo_start) });
+    demo_ended = true;
+}
+
+test "c backend SAB-form demos match expected output under cc" {
+    // DEF-JS-BUILDJS-OPERAND (C sibling): same SAB route as the SLA
+    // plugin's build-c; pre-fix this shape failed at emit with
+    // InvalidOperand and, once emitting, produced a sa_call_indirect
+    // declaration too narrow for the task glue (arity floor).
+    try assertCMatrixStdoutViaSabStdlink("demos/c/974_sab_call_dest/main.sa", "42\n0\n");
+}
+
 test "c backend emits sane C for hello world" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     var original_cwd = try sio.cwd().openDir(".", .{});

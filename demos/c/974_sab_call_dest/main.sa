@@ -1,0 +1,69 @@
+// Regression (DEF-JS-BUILDJS-OPERAND, defect 1): the SAB form of this
+// program (sa check --emit-sab; SAB v4 stores no raw_text) made the JS
+// emitter resolve call destinations through the program-global symbol
+// table instead of the per-function operand id space, failing with
+// "InvalidOperand in print_u64" — the same failure the SLA plugin's
+// build-js route hit on go_chan/go_spawn (InvalidOperand in the worker
+// functions). The text form emits fine. Worker stores 42 into the arg
+// cell; main spawns, joins, prints the cell value and the join status.
+// Expected (native, and JS via both text and SAB forms):
+//   42
+//   0
+@extern sa_task_spawn(*entry: ptr, arg: ptr, &out_handle: ptr) -> i32
+@extern sa_task_join(handle: u64) -> i32
+@extern sa_fmt_u64(value: u64, base: u32) -> u64
+@extern sa_fmt_buffer_data(buffer: u64) -> &ptr
+@extern sa_fmt_buffer_len(buffer: u64) -> u64
+@extern sa_fmt_buffer_free(^buffer: u64) -> i32
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+
+@const NL = utf8:"\n"
+@const W_VT = vtable { call = @worker }
+
+@print_u64(v: u64) -> void:
+L_ENTRY:
+    buf = call @sa_fmt_u64(v, 10)
+    p = call @sa_fmt_buffer_data(buf)
+    n = call @sa_fmt_buffer_len(buf)
+    call @sa_print_bytes(&p, n)
+    call @sa_print_bytes(&NL, 1)
+    st = call @sa_fmt_buffer_free(^buf)
+    !st
+    !n
+    !p
+    !v
+    return
+
+@worker(arg: ptr) -> void:
+L_ENTRY:
+    store arg+0, 42 as u64
+    !arg
+    return
+
+@ffi_wrapper main() -> i32:
+L_ENTRY:
+    cell = alloc 8
+    store cell+0, 0 as u64
+    hs = stack_alloc 8
+    vt = &W_VT
+    fncell = load vt+0 as ptr
+    raw = *fncell
+    safe = assume_safe raw
+    st = call @sa_task_spawn(*safe, cell, &hs)
+    handle = load hs+0 as u64
+    jst = call @sa_task_join(handle)
+    v = load cell+0 as u64
+    call @print_u64(v)
+    jv = zext jst as u64
+    call @print_u64(jv)
+    !st
+    !fncell
+    !vt
+    !raw
+    !safe
+    !handle
+    !jst
+    !v
+    !jv
+    !cell
+    return 0
