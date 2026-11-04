@@ -2053,7 +2053,7 @@ fn useFastU32(lhs: inst.Operand, rhs: inst.Operand, widths: *const WidthMap, che
 /// int-op results are 64-bit (interp always builds i64/u64), int compares
 /// are i1, float ops are f64. Anything unrecognized drops knowledge so a
 /// stale entry can never feed a wrong mask.
-fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype, base: inst.Instruction) void {
+fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype, rettype: *const CalleeRetTable, base: inst.Instruction) void {
     switch (base.kind) {
         // Extern variadic batch: JS rejects variadic signatures at
         // entry; should a hand-written va instruction still arrive,
@@ -2134,8 +2134,34 @@ fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype
                 return;
             };
             defer parsed.deinit(allocator);
-            if (parsed.dest) |dest| {
-                if (symbols.findId(dest)) |id| _ = widths.remove(id);
+            // Width keys live in the per-function operand id space:
+            // the destination is operands[0] (parseInstructionCall's
+            // has_dest). The parsed dest text resolves through the
+            // program-global symbol table, a different id space — only
+            // use it when the instruction carries no dest operand.
+            const dest_id: ?u32 = if (base.operands[0] == .reg)
+                base.operands[0].reg
+            else if (parsed.dest) |dest|
+                symbols.findId(dest)
+            else
+                null;
+            if (dest_id) |id| {
+                // A direct call to a declared callee produces its
+                // declared return type: record that domain (this is
+                // what keeps a direct bitcast of an extern f64 result
+                // exact). Indirect calls and unresolved callees keep
+                // the conservative removal (never guess a domain the
+                // declaration does not give).
+                var recorded = false;
+                if (!parsed.is_indirect) {
+                    if (rettype.get(parsed.callee)) |ret_ty| {
+                        if (packWidth(ret_ty)) |w| {
+                            widths.put(id, w) catch return;
+                            recorded = true;
+                        }
+                    }
+                }
+                if (!recorded) _ = widths.remove(id);
             }
         },
         .try_, .early_return => widthRemoveSlot(widths, base.operands[0]),
@@ -2806,11 +2832,11 @@ fn promoBaseSlot(fsig: sig.FunctionSig, use_global: bool, base: inst.Instruction
     return bs;
 }
 
-fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable, widths: *WidthMap, promo: *const PromoMap) !void {
+fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable, rettype: *const CalleeRetTable, widths: *WidthMap, promo: *const PromoMap) !void {
     _ = js_opt;
     last_js_inst = base.raw_text;
     last_js_func = fsig.name;
-    trackWidths(widths, allocator, symbols, base);
+    trackWidths(widths, allocator, symbols, rettype, base);
     switch (base.kind) {
         .return_ => try emitReturnStmt(writer, symbols, fsig, use_global, const_addrs, fn_idx, base.operands[0], "  "),
         .try_, .early_return => {
@@ -3126,7 +3152,7 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
     }
 }
 
-fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, label_pc: *std.AutoHashMap(u32, usize), js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable, widths: *WidthMap, promo: *const PromoMap) !void {
+fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, label_pc: *std.AutoHashMap(u32, usize), js_opt: JsEmitOptions, bases: *BaseSet, retbase: *const RetBaseTable, rettype: *const CalleeRetTable, widths: *WidthMap, promo: *const PromoMap) !void {
     switch (base.kind) {
         .jmp => {
             const npc = try labelPcOf(label_pc, base.operands[1]);
@@ -3158,7 +3184,7 @@ fn emitPcInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: any
             // Reuse the linear emitter, then re-indent (it emits with 2-space indent).
             var buf: [32768]u8 = undefined;
             var fbs = std.Io.Writer.fixed(&buf);
-            try emitLinearInstruction(&fbs, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases, retbase, widths, promo);
+            try emitLinearInstruction(&fbs, allocator, symbols, fsig, use_global, const_addrs, fn_idx, base, js_opt, bases, retbase, rettype, widths, promo);
             const s = std.mem.trim(u8, fbs.buffered(), " \t\r\n");
             // Linear emitter may produce multiple lines; indent each by 8 spaces.
             var it = std.mem.splitScalar(u8, s, '\n');
@@ -3295,6 +3321,12 @@ fn provLabelId(op: inst.Operand) ?u32 {
 /// the same by_value/move parameter (param). Anything else is unprovable.
 const RetBaseInfo = union(enum) { alloc: void, param: usize };
 const RetBaseTable = std.StringHashMap(RetBaseInfo);
+
+/// Declared return types of the program's callees (extern and defined
+/// alike — both are static signatures in a verified program), keyed by
+/// signature name. Lets width tracking type a direct call's destination
+/// by declaration instead of dropping its value domain.
+const CalleeRetTable = std.StringHashMap(sig.PrimType);
 
 /// Host shims whose JS lowering allocates a fresh linear-memory block.
 fn isAllocatorShim(name: []const u8) bool {
@@ -6148,6 +6180,17 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
     // cleared at every label since merges are untracked (sound fallback).
     var widths = WidthMap.init(allocator);
     defer widths.deinit();
+    // Declared callee return types, for width tracking of call results
+    // (see trackWidths' call case). Variadic callees are excluded: JS
+    // rejects their signatures at entry, so no call to one can emit.
+    var rettype = CalleeRetTable.init(allocator);
+    defer rettype.deinit();
+    for (verified.function_sigs) |csig| {
+        if (csig.is_variadic) continue;
+        if (packWidth(csig.return_ty) != null) {
+            rettype.put(csig.name, csig.return_ty) catch {};
+        }
+    }
     var prov = try provSolveBody(allocator, verified, fsig, use_global, task, retbase, null);
     defer prov.deinit();
     // Slot promotion: unescaped stack slots become function-scope locals.
@@ -6168,7 +6211,7 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
     if (pcs == 1) {
         i = task.start_idx + 1;
         while (i < task.end_idx) : (i += 1) {
-            try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, verified.annotated[i].base, js_opt, &bases, retbase, &widths, &promo);
+            try emitLinearInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, verified.annotated[i].base, js_opt, &bases, retbase, &rettype, &widths, &promo);
         }
         return;
     }
@@ -6203,7 +6246,7 @@ fn emitBodyAsPcMachine(writer: anytype, allocator: std.mem.Allocator, verified: 
             prev_terminates = false;
             continue;
         }
-        try emitPcInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &label_pc, js_opt, &bases, retbase, &widths, &promo);
+        try emitPcInstruction(writer, allocator, verified.symbols, fsig, use_global, const_addrs, fn_idx, base, &label_pc, js_opt, &bases, retbase, &rettype, &widths, &promo);
         prev_terminates = base.kind == .jmp or base.kind == .br or base.kind == .br_null or base.kind == .return_;
     }
     try writer.writeAll("        return __sa_trap(\"fallthrough end of function\");\n      }\n      default: return __sa_trap(\"bad pc \" + __pc);\n    }\n  }\n");
