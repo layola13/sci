@@ -1,0 +1,80 @@
+@import "sa_std/option.sa"
+@import "sa_std/result.sa"
+
+// Regression for DEF-OPT-COMBINATOR: OPTION_BRANCH / RESULT_BRANCH used to
+// place a release (`!`) after the terminating `br`, so every expansion was
+// a hard FallthroughForbidden flatten error and the macros were unusable.
+// They now dispatch through internal blocks that release the tag registers
+// before jumping to the caller's labels. Panic codes: 13061-13079 segment.
+
+@branch_option_probe(opt: ptr) -> u64:
+L_ENTRY:
+    EXPAND OPTION_BRANCH opt, L_SOME, L_NONE
+L_SOME:
+    !opt
+    return 1
+L_NONE:
+    !opt
+    return 0
+
+@branch_result_probe(res: ptr) -> u64:
+L_ENTRY:
+    EXPAND RESULT_BRANCH res, L_OK, L_ERR
+L_OK:
+    !res
+    return 1
+L_ERR:
+    !res
+    return 0
+
+@test "sa_std option branch macro dispatches some and none"():
+L_ENTRY:
+    some = alloc Option_SIZE
+    none = alloc Option_SIZE
+    EXPAND OPTION_SET_SOME some, 7
+    EXPAND OPTION_SET_NONE none
+    a = call @branch_option_probe(some)
+    b = call @branch_option_probe(none)
+    ok1 = eq a, 1
+    br ok1 -> L_N1, L_B1
+L_B1:
+    panic(13061)
+L_N1:
+    ok2 = eq b, 0
+    br ok2 -> L_N2, L_B2
+L_B2:
+    panic(13062)
+L_N2:
+    !some
+    !none
+    !a
+    !b
+    !ok1
+    !ok2
+    return 0
+
+@test "sa_std result branch macro dispatches ok and err"():
+L_ENTRY:
+    ok_res = alloc Result_SIZE
+    err_res = alloc Result_SIZE
+    EXPAND RESULT_SET_OK ok_res, 7
+    EXPAND RESULT_SET_ERR err_res, 3
+    a = call @branch_result_probe(ok_res)
+    b = call @branch_result_probe(err_res)
+    ok1 = eq a, 1
+    br ok1 -> L_N1, L_B1
+L_B1:
+    panic(13071)
+L_N1:
+    ok2 = eq b, 0
+    br ok2 -> L_N2, L_B2
+L_B2:
+    panic(13072)
+L_N2:
+    !ok_res
+    !err_res
+    !a
+    !b
+    !ok1
+    !ok2
+    return 0

@@ -1,0 +1,246 @@
+@import "sa_std/option.sa"
+@import "sa_std/result.sa"
+
+// Regression for DEF-OPT-COMBINATOR: OPTION_TRANSPOSE / RESULT_TRANSPOSE used to
+// release (`!`) the freshly allocated inner object right after storing its
+// pointer into the output object. The release freed (poisoned) the inner
+// object while the output still pointed at it, so any later same-size
+// allocation reused the block and corrupted the transposed value.
+// The pressure allocations below make that reuse deterministic: on the
+// pre-fix macros the read-backs observe the pressure values, not the
+// transposed ones. Panic codes: 13001-13099 segment.
+
+@test "sa_std option transpose ok inner survives reuse pressure"():
+L_ENTRY:
+    inner_res = alloc Result_SIZE
+    EXPAND RESULT_SET_OK inner_res, 22
+    opt = alloc Option_SIZE
+    store opt+Option_tag, Option_SOME as u64
+    store opt+Option_value, inner_res as ptr
+    EXPAND OPTION_TRANSPOSE out, opt
+    p1 = alloc Option_SIZE
+    store p1+Option_tag, Option_SOME as u64
+    store p1+Option_value, 101 as u64
+    p2 = alloc Option_SIZE
+    store p2+Option_tag, Option_SOME as u64
+    store p2+Option_value, 102 as u64
+    p3 = alloc Option_SIZE
+    store p3+Option_tag, Option_SOME as u64
+    store p3+Option_value, 103 as u64
+    out_tag = load out+Result_tag as u64
+    out_ptr = load out+Result_ok as ptr
+    in_tag = load out_ptr+Option_tag as u64
+    in_val = load out_ptr+Option_value as u64
+    ok1 = eq out_tag, Result_OK
+    br ok1 -> L_N1, L_B1
+L_B1:
+    panic(13001)
+L_N1:
+    ok2 = eq in_tag, Option_SOME
+    br ok2 -> L_N2, L_B2
+L_B2:
+    panic(13002)
+L_N2:
+    ok3 = eq in_val, 22
+    br ok3 -> L_N3, L_B3
+L_B3:
+    panic(13003)
+L_N3:
+    !inner_res
+    !opt
+    !out
+    !p1
+    !p2
+    !p3
+    !out_tag
+    !out_ptr
+    !in_tag
+    !in_val
+    !ok1
+    !ok2
+    !ok3
+    return 0
+
+@test "sa_std option transpose none inner survives reuse pressure"():
+L_ENTRY:
+    opt = alloc Option_SIZE
+    EXPAND OPTION_SET_NONE opt
+    EXPAND OPTION_TRANSPOSE out, opt
+    p1 = alloc Option_SIZE
+    store p1+Option_tag, Option_SOME as u64
+    store p1+Option_value, 777 as u64
+    p2 = alloc Option_SIZE
+    store p2+Option_tag, Option_SOME as u64
+    store p2+Option_value, 778 as u64
+    out_tag = load out+Result_tag as u64
+    out_ptr = load out+Result_ok as ptr
+    in_tag = load out_ptr+Option_tag as u64
+    in_val = load out_ptr+Option_value as u64
+    ok1 = eq out_tag, Result_OK
+    br ok1 -> L_N1, L_B1
+L_B1:
+    panic(13011)
+L_N1:
+    ok2 = eq in_tag, Option_NONE
+    br ok2 -> L_N2, L_B2
+L_B2:
+    panic(13012)
+L_N2:
+    ok3 = eq in_val, 0
+    br ok3 -> L_N3, L_B3
+L_B3:
+    panic(13013)
+L_N3:
+    !opt
+    !out
+    !p1
+    !p2
+    !out_tag
+    !out_ptr
+    !in_tag
+    !in_val
+    !ok1
+    !ok2
+    !ok3
+    return 0
+
+@test "sa_std option transpose err passes through"():
+L_ENTRY:
+    inner_res = alloc Result_SIZE
+    EXPAND RESULT_SET_ERR inner_res, 31
+    opt = alloc Option_SIZE
+    store opt+Option_tag, Option_SOME as u64
+    store opt+Option_value, inner_res as ptr
+    EXPAND OPTION_TRANSPOSE out, opt
+    out_tag = load out+Result_tag as u64
+    out_err = load out+Result_err as u64
+    ok1 = eq out_tag, Result_ERR
+    br ok1 -> L_N1, L_B1
+L_B1:
+    panic(13021)
+L_N1:
+    ok2 = eq out_err, 31
+    br ok2 -> L_N2, L_B2
+L_B2:
+    panic(13022)
+L_N2:
+    !inner_res
+    !opt
+    !out
+    !out_tag
+    !out_err
+    !ok1
+    !ok2
+    return 0
+
+@test "sa_std result transpose some inner survives reuse pressure"():
+L_ENTRY:
+    inner_opt = alloc Option_SIZE
+    EXPAND OPTION_SET_SOME inner_opt, 51
+    res = alloc Result_SIZE
+    store res+Result_tag, Result_OK as u64
+    store res+Result_ok, inner_opt as ptr
+    store res+Result_err, 0 as u64
+    EXPAND RESULT_TRANSPOSE out, res
+    p1 = alloc Result_SIZE
+    EXPAND RESULT_SET_OK p1, 201
+    p2 = alloc Result_SIZE
+    EXPAND RESULT_SET_OK p2, 202
+    p3 = alloc Result_SIZE
+    EXPAND RESULT_SET_OK p3, 203
+    out_tag = load out+Option_tag as u64
+    out_ptr = load out+Option_value as ptr
+    in_tag = load out_ptr+Result_tag as u64
+    in_val = load out_ptr+Result_ok as u64
+    ok1 = eq out_tag, Option_SOME
+    br ok1 -> L_N1, L_B1
+L_B1:
+    panic(13031)
+L_N1:
+    ok2 = eq in_tag, Result_OK
+    br ok2 -> L_N2, L_B2
+L_B2:
+    panic(13032)
+L_N2:
+    ok3 = eq in_val, 51
+    br ok3 -> L_N3, L_B3
+L_B3:
+    panic(13033)
+L_N3:
+    !inner_opt
+    !res
+    !out
+    !p1
+    !p2
+    !p3
+    !out_tag
+    !out_ptr
+    !in_tag
+    !in_val
+    !ok1
+    !ok2
+    !ok3
+    return 0
+
+@test "sa_std result transpose err inner survives reuse pressure"():
+L_ENTRY:
+    res = alloc Result_SIZE
+    EXPAND RESULT_SET_ERR res, 61
+    EXPAND RESULT_TRANSPOSE out, res
+    p1 = alloc Result_SIZE
+    EXPAND RESULT_SET_ERR p1, 209
+    p2 = alloc Result_SIZE
+    EXPAND RESULT_SET_ERR p2, 210
+    out_tag = load out+Option_tag as u64
+    out_ptr = load out+Option_value as ptr
+    in_tag = load out_ptr+Result_tag as u64
+    in_err = load out_ptr+Result_err as u64
+    ok1 = eq out_tag, Option_SOME
+    br ok1 -> L_N1, L_B1
+L_B1:
+    panic(13041)
+L_N1:
+    ok2 = eq in_tag, Result_ERR
+    br ok2 -> L_N2, L_B2
+L_B2:
+    panic(13042)
+L_N2:
+    ok3 = eq in_err, 61
+    br ok3 -> L_N3, L_B3
+L_B3:
+    panic(13043)
+L_N3:
+    !res
+    !out
+    !p1
+    !p2
+    !out_tag
+    !out_ptr
+    !in_tag
+    !in_err
+    !ok1
+    !ok2
+    !ok3
+    return 0
+
+@test "sa_std result transpose none passes through"():
+L_ENTRY:
+    inner_opt = alloc Option_SIZE
+    EXPAND OPTION_SET_NONE inner_opt
+    res = alloc Result_SIZE
+    store res+Result_tag, Result_OK as u64
+    store res+Result_ok, inner_opt as ptr
+    store res+Result_err, 0 as u64
+    EXPAND RESULT_TRANSPOSE out, res
+    out_tag = load out+Option_tag as u64
+    ok1 = eq out_tag, Option_NONE
+    br ok1 -> L_N1, L_B1
+L_B1:
+    panic(13051)
+L_N1:
+    !inner_opt
+    !res
+    !out
+    !out_tag
+    !ok1
+    return 0

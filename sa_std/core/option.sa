@@ -682,7 +682,7 @@ L_OPTION_TRANSPOSE_OK_%out_res:
     store %out_res+Result_tag, Result_OK as u64
     store %out_res+Result_ok, __option_transpose_ok_opt_%out_res as ptr
     store %out_res+Result_err, 0 as u64
-    !__option_transpose_ok_opt_%out_res
+    ^__option_transpose_ok_opt_%out_res
     !__option_transpose_ok_value_%out_res
     !__option_transpose_inner_ok_%out_res
     !__option_transpose_inner_tag_%out_res
@@ -709,7 +709,7 @@ L_OPTION_TRANSPOSE_NONE_%out_res:
     store %out_res+Result_tag, Result_OK as u64
     store %out_res+Result_ok, __option_transpose_none_opt_%out_res as ptr
     store %out_res+Result_err, 0 as u64
-    !__option_transpose_none_opt_%out_res
+    ^__option_transpose_none_opt_%out_res
     !__option_transpose_some_%out_res
     !__option_transpose_tag_%out_res
 L_OPTION_TRANSPOSE_END_%out_res:
@@ -717,8 +717,13 @@ L_OPTION_TRANSPOSE_END_%out_res:
 
 [MACRO] OPTION_BRANCH %opt_reg, %some_label, %none_label
     __option_tag_%opt_reg = load %opt_reg+Option_tag as u64
-    br __option_tag_%opt_reg -> %some_label, %none_label
+    br __option_tag_%opt_reg -> L_OPTION_BRANCH_SOME_%opt_reg, L_OPTION_BRANCH_NONE_%opt_reg
+L_OPTION_BRANCH_SOME_%opt_reg:
     !__option_tag_%opt_reg
+    jmp %some_label
+L_OPTION_BRANCH_NONE_%opt_reg:
+    !__option_tag_%opt_reg
+    jmp %none_label
 [END_MACRO]
 
 [MACRO] MATCH_OPTION %out_value, %opt_reg, %some_label, %none_label
