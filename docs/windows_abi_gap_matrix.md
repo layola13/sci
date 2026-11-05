@@ -1,5 +1,7 @@
 # Windows ABI gap matrix
 
+> **状态（2026-11-05 文档审计）**：本矩阵数量基线已于 2026-11-05 按现 manifest 重数更新（unsupported 482 条、extra 3 条）；正文分组清单按旧基数（201）编排、不再完整，引用计数以文中已更新的数量表为准。8 个 stale 符号与校验工具经抽查仍成立。
+
 本文件是当前 Windows ABI 缺口的源码审计矩阵。它只描述当前工作区
 的证据，不扩大 Windows 支持声明，也不修改 ABI manifest。
 
@@ -12,7 +14,7 @@
 - 机器校验规则：[`tools/runtime_abi_check.zig`](../tools/runtime_abi_check.zig)。该校验要求：manifest 名称必须存在于 C 头文件、不得同时被 Windows runtime 导出，且 Windows 缺失的公共符号必须进入 manifest。
 - 当前支持边界：[`docs/windows_support_level.txt`](windows_support_level.txt) 声明为 bootstrap/core + optional LLVM native codegen，并明确不宣称完整 `sa_std` runtime parity。
 
-本次按 manifest 中以 `sa_` 开头的实际行统计：201 个条目。源码导出扫描显示其中 8 个已经出现在 Windows runtime，但仍留在 manifest；因此它们是“已实现、待清理/专项回归”，不是当前真实缺失的 ABI。其余 193 个在 Windows runtime 源码中没有对应导出，状态为“manifest unsupported”。
+本次按 manifest 中以 `sa_` 开头的实际行统计：482 个条目（2026-11-05 重数；原文写作时为 201）。源码导出扫描显示其中 8 个已经出现在 Windows runtime，但仍留在 manifest；因此它们是“已实现、待清理/专项回归”，不是当前真实缺失的 ABI。其余 474 个在 Windows runtime 源码中没有对应导出，状态为“manifest unsupported”。注：下文按 201 基数分组的清单已不完整，引用计数以本节与文末数量表（已同步重数）为准。
 
 ## 状态定义
 
@@ -80,7 +82,7 @@
 本次没有把任何条目标记为“已支持”，因为当前任务只做审计文档。以下是基于源码/构建证据需要单独闭环的验证项：
 
 1. 8 个已导出的动态库/IO 符号：需要 native C 行为回归，并在确认 ABI 与生命周期后同步 manifest。
-2. 其余 193 个 manifest 符号：需要逐域实现或保留 unsupported 的语义证据；不能仅凭名称判断“可移植”或“Unix-only”。
+2. 其余 474 个 manifest 符号：需要逐域实现或保留 unsupported 的语义证据；不能仅凭名称判断“可移植”或“Unix-only”。
 3. `sa_std/net.sai` 中的 SA-facing wrapper 不完全由 `sa_std.h` 覆盖；因此只通过 `runtime_abi_check` 不能证明这些 wrapper 的导出、返回布局和行为 parity。相关接口应以 [`sa_std/net.sai`](../sa_std/net.sai) 与 Linux runtime 对照后另行验证。
 4. Windows 原生 LLVM 已有独立构建/hello-world 证据，但这不等价于 `sa_std` runtime 完整 parity；支持边界仍以 [`docs/windows_support_level.txt`](windows_support_level.txt) 为准。
 
@@ -88,9 +90,9 @@
 
 | 项目 | 数量 | 依据 |
 |---|---:|---|
-| manifest 实际符号 | 201 | `docs/runtime_abi_windows_unsupported.txt` 中匹配 `^sa_` 的行 |
+| manifest 实际符号 | 482 | `docs/runtime_abi_windows_unsupported.txt` 中匹配 `^sa_` 的行（2026-11-05 重数） |
 | 已在 Windows runtime 导出、但仍在 manifest | 8 | `sa_dl_*` 4 个 + `sa_io_*` 4 个 |
-| 当前未在 Windows runtime 导出的 manifest 符号 | 193 | 201 - 8 |
-| Windows extra manifest 行 | 7 | `docs/runtime_abi_windows_extra.txt` 中匹配 `^sa_` 的行 |
+| 当前未在 Windows runtime 导出的 manifest 符号 | 474 | 482 - 8 |
+| Windows extra manifest 行 | 3 | `docs/runtime_abi_windows_extra.txt` 中匹配 `^sa_` 的行（2026-11-05 重数） |
 
 本文件未修改 runtime、ABI manifest、`Agents.md` 或构建配置。

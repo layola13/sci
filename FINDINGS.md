@@ -1,5 +1,7 @@
 # sa_std MySQL 客户端线 — 交付记录
 
+> **状态（2026-11-05 文档审计）**：本文为 sa_std MySQL 客户端线（2026-10-28，基点 0dc7aea4）的交付记录，按其基点与日期理解。
+
 - 线：STD 第四批 · MySQL 客户端（用户 2026-10-28 20:36 批准开线）
 - 基点：sci `0dc7aea4`（ls-remote 核到的远端 tip；= 28fd2ceb + 一笔 ts 垫片提交）
 - 本机 staging：`~/workspace/std-mysql-local/`，分支 `mysql-client-v1`

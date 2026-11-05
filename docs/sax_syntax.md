@@ -4,6 +4,8 @@
 > 包含 BNF 范式、语法元素说明与完整示例。
 >
 > 前置阅读：`docs/whitepaper.md`（SA 基础语法）、`docs/sax_design.md`（SAX 框架设计）。
+>
+> 实现状态（2026-11-05 注）：SAX 的权威实现位于外部插件仓 `sa_plugin_sax`，不在 sci 仓内；本文的白名单/语义细节需与插件仓对版核实，本仓只能核对宿主侧契约与 trap 登记（`src/common/trap.zig` 的 7 条 sax_*）。
 
 ---
 
@@ -234,7 +236,7 @@ L_ENTRY:
 - `@ffi_wrapper` 仍然是普通 SA 函数体，必须满足标准控制流和 `ret` 终止要求
 - SAX 生成的组件入口会以 `@export` 对外暴露，内部实现由 `@ffi_wrapper` 承载
 
-### 3.5 `!var` 释放语句
+### 3.6 `!var` 释放语句
 
 组件末尾，显式释放所有 `<state>` 声明的变量，顺序不限。
 
@@ -313,6 +315,8 @@ Referee 验证：组件销毁函数出口处，所有 `<state>` 变量必须全�
 ```
 
 ### 4.2 TodoList（待办列表）
+
+> 注（2026-11-05）：本节与 §4.3 示例中的 `@sax_dom_get_value(&buf, N)` 为旧两参写法；`docs/sax_airlock.md` 现行 @extern 签名为 `sax_dom_get_value(node_h: i64, *buf_ptr: ptr, buf_len: i64)`（三参，首参为节点句柄）。示例正文未逐处改写，引用时以 airlock 签名为准。
 
 ```xml
 <Component name="TodoList">

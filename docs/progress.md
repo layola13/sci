@@ -1,5 +1,7 @@
 # Progress Assessment
 
+> **状态（2026-11-05 文档审计）**：滚动历史日志（2026-06-01–08-21），与仓根 progress.md 为不同文件。文中多处「100%」均为单个低风险 slice 口径、非整层完成度（见 completeness_evaluation 的点名）。验证数字为当时运行记录、无日志归档；DB 节对象为仓外 sa_plugin_db 插件。
+
 ## sa_std Sync Behavior Pass 2026-08-21
 
 - Added `MUTEX_TRY_UNLOCK` and `RWLOCK_TRY_RELEASE_WRITE` checked release helpers. They return `1` when the corresponding lock state was observed held and avoid silently accepting duplicate releases in single-owner paths; they are not an ownership token for concurrent handoff.

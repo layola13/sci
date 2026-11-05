@@ -1,5 +1,7 @@
 # 架构设计参考 (Technical Design Reference)
 
+> **状态（2026-11-05 文档审计）**：本文为按日期追加的任务流水台账，各条目按其日期理解；其中「架构设计参考」的提法与流水内容并存，引用具体条目时请核对日期。
+
 - [x] 2026-08-21 `sa_std` facade completion pass：补齐公共类型与子模块入口、环境/时间/FFI/线程命名别名、`BinaryHeap::contains`、`RwLock` 自旋清理，并新增 `FORMAT_*_TO_STRING` / `FORMAT_WRITE_*` / `FORMAT_WRITELN_*` concrete 格式化表面及 focused 行为测试；同步 `docs/std_missing.md`。仍不主张 Rust 泛型/variadic `format!`、panic unwinding/catch_unwind、trait/lifetime 语义；Windows 非 runner 聚合环境大测试仍有独立 LLVM backend blocker。
 - [x] 2026-08-21 std validation hardening：拆分 Windows 环境 mega-suite 的超大首测后，18 个环境行为测试全部通过；修复 `LinkedList`、`Barrier`、`Condvar`、`MPSC`、`MPSC list`、定时 `Mutex` 的 borrowed-register cleanup；`sa_std` 全部 122 个 `.sa` 文件通过 `sa check`。
 - [x] 2026-08-21 facade layout validation：修正 8 个新增 `.sal` facade 的注释语法，`sa_std` 全部 100 个 `.sal` 文件通过 `sa check`。

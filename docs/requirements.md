@@ -1,5 +1,7 @@
 # SA 语言与编译器 需求文档
 
+> **状态（2026-11-05 文档审计）**：本文为需求登记（R1–R42），无「已实现/未实现」状态列，多条与现状矛盾，引用前须核对：R42.1 的 emit-sab 入口已订正为 `sa check --emit-sab`（`build-workspace --distributed` 未实现）；R36.1 所称 src/sax/ 六文件不存在（实存仅 common/ 与 plugin_helpers.zig，`sa sax *` 子命令亦不在顶层命令表）；R37.1 与 call_indirect 现状冲突（见该条订正）；R34.11 的 db 子命令未实现；R32（#tag/--strict-tags）未实现；Referee ≤2500 行指标已不成立（实测 verifier.zig 7558 行、合计约 8538 行）。补状态列为后续维护项。
+
 ## 1. 项目概述
 
 ### 1.1 项目代号
@@ -246,7 +248,7 @@
    }
    ```
 4. WHEN 校验通过 THEN Referee SHALL 向下游输出与输入等价的、带状态注解的"已验证指令流"
-5. WHEN 全部校验完成 THEN Referee 核心实现 SHALL 限制在 ≤ 2500 行 Zig（MVP 目标；stretch goal ≤ 1500 行，需通过注释抽取重复模式后达成）
+5. WHEN 全部校验完成 THEN Referee 核心实现 SHALL 限制在 ≤ 2500 行 Zig（MVP 目标；stretch goal ≤ 1500 行，需通过注释抽取重复模式后达成）〔2026-11-05 注：该指标已不成立——实测 verifier.zig 7558 行、referee 相关模块合计约 8538 行〕
 6. WHEN 百万行指令流被验证 THEN 其单线程吞吐 SHALL 达到每秒 ≥ 500K 行（MVP 基线；stretch goal ≥ 1M 行）。基准必须在真实代码（含回边、多函数、气闸舱交互）上测量，不得仅以合成直线指令流作为证据
 
 ### Requirement 10: 分支汇聚点状态一致性（Phi 检查）
@@ -865,7 +867,7 @@
 | Referee 单线程吞吐 | ≥ 500K 指令行/秒 (MVP) / ≥ 1M (stretch) |
 | 白皮书体积 | ≤ 2000 行 |
 | Hello-Compute WASM 体积 | ≤ 48 KB (MVP) / ≤ 32 KB (stretch) |
-| Referee 代码行数 | ≤ 2500 行 (MVP) / ≤ 1500 行 (stretch) |
+| Referee 代码行数 | ≤ 2500 行 (MVP) / ≤ 1500 行 (stretch)〔2026-11-05 注：已不成立，实测约 8538 行〕 |
 | Flattener + Referee 组合耗时（100 万行指令流） | ≤ 300 ms (MVP) / ≤ 100 ms (stretch) |
 | Hello-Compute `.exe` 体积 | ≤ 800 KB (MVP) / ≤ 500 KB (stretch) |
 | 测试通过率 | ≥ 99.9% |
@@ -1000,7 +1002,7 @@
 
 **Acceptance Criteria**
 
-1. WHEN `.sax` 源文件被处理 THEN 编译器 SHALL 在 `src/sax/` 提供独立前端层（已存在 `parser.zig` / `lowerer.zig` / `airlock_gen.zig` / `sax_rules.zig` / `cli.zig` / `mod.zig`），输出**合法 `.sa` 文本**，**不构造任何 AST、不引入新的 SA-ASM 指令、不修改 ISA**
+1. WHEN `.sax` 源文件被处理 THEN 编译器 SHALL 在 `src/sax/` 提供独立前端层（已存在 `parser.zig` / `lowerer.zig` / `airlock_gen.zig` / `sax_rules.zig` / `cli.zig` / `mod.zig`）〔2026-11-05 订正：此现状断言为假——src/sax/ 实存仅 common/{trap,upstream_loc}.zig 与 plugin_helpers.zig，所列六文件均不存在，SAX 走插件面〕，输出**合法 `.sa` 文本**，**不构造任何 AST、不引入新的 SA-ASM 指令、不修改 ISA**
 2. WHEN SAX Parser 解析 `<Component name="X">` THEN 解析器 SHALL 识别 `<state>` 块、DOM 树（XML 标签 + `{expr}` 插值）、`@handler:` 函数体、`!var1 !var2` 释放序列；DOM 树降级为 `@ffi_wrapper` 内对 Airlock `@extern` 的调用，状态变量降级为 `alloc N` + 固定偏移 `store`
 3. WHEN `<state>` 变量被声明 THEN 每条声明 SHALL 一行一变量；类型由字面量或 `as T` 推断（同 `.sa`）；**每个 `<state>` 变量必须出现在组件结尾的 `!var` 释放序列中**，遗漏触发 `Trap: SaxStateLeak`
 4. WHEN `{expr}` 出现在文本或属性值 THEN 表达式 SHALL 是只读 SA 表达式（`load` / 算术），**禁止包含 `^`（Move）或 `!`（Release）**，违规触发 `Trap: SaxInvalidInterpolation`
@@ -1027,7 +1029,7 @@
 作为高级语言（如 Rust）的降级目标，我需要 SA-ASM 在保持指令集（ISA）极简（Zero-ISA 扩展）的同时，具备等同于 Rust 的高级安全特性与抽象能力。
 
 **Acceptance Criteria**
-1. WHEN 需要实现动态分发（`dyn Trait`）THEN 编译器与宏系统 SHALL 采用**去功能化 (Defunctionalization)** 路线：通过宏 `[MACRO] DISPATCH` 生成基于 Enum Tag 的静态分支路由树（`eq` + `br`），以 O(log N) 的极低损耗模拟间接调用，**禁止向 ISA 添加 `call_indirect` 函数指针指令**。
+1. WHEN 需要实现动态分发（`dyn Trait`）THEN 编译器与宏系统 SHALL 采用**去功能化 (Defunctionalization)** 路线：通过宏 `[MACRO] DISPATCH` 生成基于 Enum Tag 的静态分支路由树（`eq` + `br`），以 O(log N) 的极低损耗模拟间接调用，**禁止向 ISA 添加 `call_indirect` 函数指针指令**。〔2026-11-05 注：本条前提已失效——`call_indirect` 早已是 ISA 指令（src/common/instruction.zig），且与 R41.6 的 call_indirect 路线直接冲突，本条不得单独引用。〕
 2. WHEN 需要处理安全枚举与模式匹配（Sum Types / Tagged Unions）THEN 编译器 SHALL 提供标准宏 `[MACRO] MATCH_RESULT`：自动根据内存 Layout 中的 Tag 执行安全解包和穷尽性匹配（Exhaustive Match），屏蔽底层的裸指针偏移计算，防止内存越界。
 3. WHEN 处理大型结构体（如网络引擎中的 `ConnectionSlot`）THEN `referee.zig` SHALL 支持**细粒度字段级借用 (Disjoint Field Borrows)**：识别 `ptr_add obj, offset` 产生的借用是相互独立的，允许对同一结构体的不同字段同时进行不冲突的借用，无需引入新语法。
 4. WHEN 处理资源释放（RAII）THEN 编译器 SHALL 通过**作用域收尾宏 (如 `[MACRO] DROP_AND_RETURN`)**：将资源释放指令 `!` 与 `return` 强制捆绑，确保在任何提前返回路径下资源均被正确释放，防止内存或文件描述符泄漏，且无需引入运行时的 `defer`。
@@ -1069,7 +1071,7 @@
 作为大型项目的开发者，我需要编译器支持模块级独立编译和并行验证，使得修改一个底层库时只有直接依赖的模块需要重编译，而不是整个项目。
 
 **Acceptance Criteria**
-1. WHEN `sa build --emit-sab <file.sa>` 被调用 THEN CLI SHALL 执行 Flattener + SAB Encoder，产出 `<stem>.sab` 文件（缓存 Flattener 产物供后续编译直接使用）
+1. WHEN `sa check --emit-sab <path>` 被调用 THEN CLI SHALL 执行 Flattener + SAB Encoder，产出 `.sab` 文件（缓存 Flattener 产物供后续编译直接使用）〔2026-11-05 订正：原文作 `sa build --emit-sab <file.sa>`——`sa build` 无此标志，现行唯一入口为 `sa check --emit-sab`〕
 2. WHEN `sa build-workspace --distributed` 被调用 THEN CLI SHALL 解析 `sa.mod` 依赖图，按模块粒度并行执行 Flattener + Referee，最后链接合并
 3. WHEN 某模块未变更（源文件 hash 不变）THEN 分布式编译 SHALL 跳过该模块的 Flattener，直接使用 `.sa_cache/<module>.sab` 缓存
 4. WHEN 多个模块依赖同一底层库 THEN 该底层库 SHALL 只被 flatten 一次（O(M) 而非 O(N×M)），产出的 `.sab` 被所有消费者 decode 复用

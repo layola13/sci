@@ -3,9 +3,15 @@
 This document mirrors design appendix C and acts as the canonical syntax
 reference for the current SA-ASM contract.
 
+> Sync note (2026-11-05): the `type` / `inst` / `toplevel` productions below
+> were re-synced against `src/common/signature.zig` (PrimType, 15 values) and
+> `src/common/instruction.zig` (InstKind, 40 values). The appended §12/§13
+> （附录 D/E) are historical design-decision records pasted from design.md and
+> are not part of the grammar proper.
+
 ```ebnf
 program        = { toplevel } ;
-toplevel       = def | loc | macro_def | func_def | ffi_wrapper_def | extern_decl | export_def ;
+toplevel       = def | loc | macro_def | func_def | ffi_wrapper_def | extern_decl | export_def | const_decl | test_def | gpu_def ;
 def            = "#def" IDENT "=" LITERAL ;
 loc            = "#loc" STRING ":" NUMBER ":" NUMBER ;
 func_def       = "@" IDENT "(" [ param_list ] ")" [ "->" [ "^" ] type [ "!" ] ] ":" { line } ;
@@ -13,13 +19,16 @@ ffi_wrapper_def= "@ffi_wrapper" IDENT "(" [ param_list ] ")" [ "->" type [ "!" ]
 extern_decl    = "@extern" IDENT "(" [ param_list ] ")" [ "->" type ] ;
 export_def     = "@export" IDENT "(" [ param_list ] ")" [ "->" type [ "!" ] ] ":" { line } ;
 param          = [ "&" | "^" | "*" ] IDENT [ ":" type ] ;
-type           = "i8"|...|"u64"|"f32"|"f64"|"ptr"|"v128" ;
+type           = "void"|"i1"|"i8"|"i16"|"i32"|"i64"|"u8"|"u16"|"u32"|"u64"|"f32"|"f64"|"ptr"|"blob_handle"|"v128" ;
 line           = label | inst | native ;
-inst           = alloc | load | store | op | jmp | br | call | return | take
-               | release | move | borrow | rawcast | assume_safe | assume_borrow
-               | atomic_load | atomic_store | cmpxchg | fence | try_op | panic_op ;
+inst           = alloc | stack_alloc | load | store | op | jmp | br | br_null | call | call_indirect | return | take
+               | release | move | assign | ptr_add | borrow | rawcast | assume_safe | assume_borrow
+               | atomic_load | atomic_store | cmpxchg | atomic_rmw | fence | try_op | early_return | panic_op
+               | label | native | va_start | va_arg | va_end ;
+               (* 40 InstKind in total; the declaration kinds func_decl / ffi_wrapper_decl /
+                  extern_decl / export_decl / test_decl / gpu_decl appear at toplevel *)
 try_op         = IDENT "=" "?" IDENT ;
-panic_op       = "panic" "(" LITERAL ")" ;
+panic_op       = "panic" "(" LITERAL ")" | "panic_msg" "(" LITERAL "," operand "," operand ")" ;
 atomic_load    = IDENT "=" "atomic_load" IDENT "+" LITERAL [ AtomicOrd ] ;
 atomic_store   = "atomic_store" IDENT "+" LITERAL "," operand [ AtomicOrd ] ;
 cmpxchg        = IDENT "=" "cmpxchg" IDENT "+" LITERAL "," operand "," operand [ AtomicOrd ] ;

@@ -292,6 +292,8 @@ L_ENTRY:
 | `SaxRenderOutsideHandler` | `call @render()` 出现在 `@handler` 函数体之外 | 新增规则 |
 | `SaxInvalidInterpolation` | `{expr}` 插值中出现 `^` / `!` 操作（禁止状态转移） | 类比 `ForbiddenSyntax` |
 | `SaxStateWriteFromOutside` | 从组件外部直接写入 `<state>` 内存槽 | 组件封装性保证 |
+| `SaxUnknownTag` | 使用白名单外的 DOM 标签 | 类比 `ForbiddenSyntax` |
+| `SaxUnknownEvent` | 使用白名单外的事件名 | 类比 `ForbiddenSyntax` |
 
 ### 4.2 规则说明
 
@@ -374,7 +376,7 @@ Airlock（airlock.js）
 
 - `sax_dom_set_text` 使用 `textContent`（非 `innerHTML`），天然防 XSS
 - `sax_dom_set_attr` 白名单属性（`class` / `style` / `value` / `placeholder` / `disabled`）
-- 事件绑定通过函数索引（非字符串 eval），防代码注入
+- 事件绑定通过 handler 的 WASM 导出名字节串（非函数表索引、非字符串 eval），防代码注入〔2026-11-05 订正：原文作「函数索引」，与 `docs/sax_airlock.md` 现行签名不符〕
 
 ---
 

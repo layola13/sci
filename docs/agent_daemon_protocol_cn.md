@@ -107,7 +107,7 @@ Agent 侧解析逻辑与现在完全一致。
 daemon 收到请求后，**不重写编译逻辑**，直接复用现有可注入 writer 的入口：
 
 ```
-src/cli.zig:7180  executeWithWritersAndOptions(allocator, argv, stdout, stderr, options)
+src/cli.zig:9520  executeWithWritersAndOptions(allocator, argv, stdout, stderr, options)
 ```
 
 - 把请求的 `args` 拼成 `argv`，`stdout`/`stderr` 用内存 buffer writer 接住，
@@ -129,6 +129,8 @@ src/cli.zig:7180  executeWithWritersAndOptions(allocator, argv, stdout, stderr, 
 ---
 
 ## 4. 客户端改造（瘦客户端）
+
+> **实现现状（2026-11-05 复核）**：本节的 `--daemon` 标志形态未按此实现——cli.zig 无 `--daemon` 标志。现行接入是环境变量驱动：`src/daemon_client.zig` 读 `SA_DAEMON_SOCKET`（:18）决定走 daemon、仅 `--no-daemon` 作退出开关（:23）、`SA_AGENT_ID` 标识 agent（:48）。`sa daemon` 的实际 usage 为 `sa daemon [--socket path] [--max-workers N] [--per-agent-limit N]`，无 `--idle-timeout` 选项。下文按设计原文保留，引用时以本注为准。
 
 - 新增 `Command.daemon`（`sa daemon [--socket <path>] [--idle-timeout <s>]`）：
   启动/前台运行常驻服务。
@@ -165,6 +167,8 @@ src/cli.zig:7180  executeWithWritersAndOptions(allocator, argv, stdout, stderr, 
 ---
 
 ## 7. 稳定错误码补充（写入 `trap.zig` 字典）
+
+> 2026-11-05 注：下表 SA-DAEMON-001…005 在 `src/` 全树 grep 零命中，未落地。
 
 | Code | 含义 |
 |------|------|

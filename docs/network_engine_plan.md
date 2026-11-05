@@ -1,5 +1,7 @@
 # SA-ASM 极速网络引擎架构与开发计划 (Hyper-Performance Network Engine v0.9)
 
+> **状态（2026-11-05 文档审计）**：历史计划 v0.9（无日期）；主体已部分落地（sa_net_uring.zig 2585 行、sa_std/netx.* 在仓），但文中 sa_std.zig「1519 行/117 export」已严重过时（现 18958 行/约 675 export），examples/netx_echo 未建，HTTP/2 与 QUIC 其后已另行入仓。
+
 > v0.9 修订要点（对照 v0.8 的硬伤）：
 > - 明确新引擎与现有 `sa_std.net` 的边界（**并行模块**而非替换）。
 > - 把 SIMD 解掩码、HTTP DFA 拆包**留在 Zig 侧**（`@Vector` + `std.mem`），SA-ASM 只看结构化 Ticket。
@@ -38,7 +40,7 @@ SA 编译器（现有 src/）
 ├── common/                ← 零修改复用（atomic / ptr_add / load / store 已就绪）
 ├── verifier.zig           ← 零修改；新增 sa_netx_* extern 走现有契约校验路径
 └── runtime/
-    ├── sa_std.zig         ← 保留不动（1519 行，117 个 sa_* export，含旧版 sa_net_tcp_*）
+    ├── sa_std.zig         ← 保留不动（1519 行，117 个 sa_* export，含旧版 sa_net_tcp_*）〔2026-11-05 注：该数字已严重过时——现 sa_std.zig 为 18958 行、约 675 个 export〕
     ├── sa_std.h           ← 保留不动
     ├── native_sys.zig     ← 保留不动
     └── sa_net_uring.zig   ← 【新增】io_uring 网络引擎主体（与 sa_std.zig 并列）

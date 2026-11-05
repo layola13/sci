@@ -1,5 +1,7 @@
 # SlaX: Sla-driven Safe UI Framework Design & Integration Plan
 
+> **Status (2026-11-05)**: Unimplemented design draft (v0.1-draft, June 14, 2026). No `.slax` file format or SlaX implementation exists in this repository (or in the SAX plugin, whose path is named below by mistake); do not use this document as a syntax reference. SAX's current documents are `docs/sax_whitepaper.md` / `docs/sax_syntax.md` / `docs/sax_airlock.md` / `docs/sax_design.md`.
+
 > **Design Date**: June 14, 2026
 > **Version**: v0.1-draft
 > **Module Path**: `/home/vscode/projects/sa_plugins/sa_plugin_sax`

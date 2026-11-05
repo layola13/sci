@@ -1,5 +1,7 @@
 # Issue 14: Large SAB `sa test --filter` / `--list` performance
 
+> **状态（2026-11-05 文档审计）**：2026-07-09 历史性能记录；复现工件在仓外 sla_ecs 工程、未归档，全部时延数字不可复核。「partially fixed」为当时状态，SAB 懒解码现状以 src/sab.zig 与 cli.zig 现树为准。
+
 Status: partially fixed; compile-only/list focused SAB targets are at or near the 1s iteration goal in ReleaseFast.
 
 Date: 2026-07-09.

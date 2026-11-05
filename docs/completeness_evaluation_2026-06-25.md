@@ -1,5 +1,7 @@
 # sci (SA Core) 深度完成度评估
 
+> **状态（2026-11-05 文档审计）**：2026-06-25 历史评估快照，行号/行数/版本号均对应当时树；现状：sa 0.1.8，verifier.zig 7558 行，顶层命令已含 pkg。结论性判断（如 emit_wasm 死代码）经抽查仍成立，引用数字前先看本头。
+
 > 评估日期：2026-06-25
 > 方法：22 个评估 agent（侦察 + 子系统精读 + 对抗验证）。其中验证类 agent 实际 build 了 `sa` 二进制（zig-out/bin/sa, 18MB, v0.0.3.3）并端到端跑了 referee trap、`sa run`、`sa build-exe/wasm/bc2sa`、`sa fetch`。`zig build test` 全量因链接 LLVM-14 编译超 9 分钟未跑完，相关结论标注为「读代码确认」。
 > 所有行号引用对应评估当时的源码树。

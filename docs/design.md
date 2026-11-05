@@ -30,7 +30,7 @@ SA 不是一门"给人写的语言"，而是：
 
 **Y 形双输入架构要点**：
 - `.sa` 文本路径：保留人类可写性、宏系统（`[MACRO]` / `EXPAND` / `[REP]`）、`#def` 替换、`#loc` 行号追踪、`@import` 递归解析
-- `.sab` 二进制路径：直接解码为结构化 `Instruction[]`，无需解析、无需宏展开，稳像耗时约为文本路径的 1/10
+- `.sab` 二进制路径：直接解码为结构化 `Instruction[]`，无需解析、无需宏展开，稳态耗时约为文本路径的 1/10（**设计口径**——仓内尚无基准实测支撑该数字，见 SAB 白皮书 §6）
 - **两路在 `Instruction[]` 处完全汇合**，汇合后的 Referee、LLVM-C Emitter、WASM Emitter 不感知输入来源
 
 ### 1.2 编译管线（Y 形双输入架构）
@@ -327,7 +327,7 @@ SA 不把 `Cell` / `RefCell` / `Rc` / `Arc` / `Weak` / `Waker` 当成 ISA 内建
 | `@import` | ✅ 递归解析依赖树 | ❌ 不支持（依赖已在编码时解析） |
 | `raw_text` | ✅ 保留原始文本 | ❌ v4 起为 `""`（语义由结构化 operand 保留） |
 | `#loc` 追踪 | ✅ 完整 | ✅ 通过 `upstream_loc` 元数据保留 |
-| 典型场景 | 手写 / LLM 生成 / 前端产出 | 编译缓存、发布产物、插件链式传递 |
+| 典型场景 | 手写 / LLM 生成 / 前端产出 | 编译缓存、插件链式传递（包管理器不分发 `.sab`，见 §3.2b） |
 
 ### 2.4 版本治理
 
@@ -390,14 +390,14 @@ pub const FlattenResult = struct {
 
 ### 3.2b SAB Decoder — 二进制输入解码器
 
-**职责**：Y 形双输入架构的二进制路径入口。将 `.sab` 二进制字节解码为结构化 `Module`，直接产出与 Flattener 等价的 `[]Instruction` 数组。
+**职责**：Y 形双输入架构的二进制路径入口。将 `.sab` 二进制字节解码为结构化 `Module`，直接产出与 Flattener 同构的 `[]Instruction` 数组（指令层兼容；宿主表示层等价性现状见本节末「与 Flattener 的等价性」注）。
 
 **为什么需要**：
 - 插件链（SLA 等）产出的指令流已经是结构化的，不需要再做文本解析和宏展开
 - 编译缓存场景无需重新解析文本，直接加载二进制即可进入 Referee
-- 发布产物可走 SAB 格式分发，避免暴露原始 `.sa` 源码
+- SAB 定位于编译缓存与插件间交换；包管理器只分发 `.sa` 文本、不分发 `.sab`（`src/pkg/` 无 `.sab` 路径），SAB 不作发布分发格式
 
-**实现**：`src/sab.zig`，~400 行无依赖 Zig。
+**实现**：`src/sab.zig`（1,652 行，含 14 项内嵌测试；2026-11-05 于 `2e67cc54` 实测）。
 
 **二进制格式（v4.0）**：
 ```
@@ -418,7 +418,7 @@ pub const FlattenResult = struct {
 │   K × {line, name, literal, value} │
 ├─────────────────────────────────────┤
 │ Section 4: Instructions            │
-│   P × {kind, operands[4] ...}      │  ← 48 种 InstKind × 15 种 Operand
+│   P × {kind, operands[4] ...}      │  ← 40 种 InstKind × 15 种 Operand
 └─────────────────────────────────────┘
 ```
 
@@ -442,34 +442,39 @@ pub const Module = struct {
 };
 ```
 
-**测试覆盖**：
+**测试覆盖**（`src/sab.zig` 内嵌，共 14 项；下表为 2026-11-05 实测的真实测试名）：
 | 测试 | 验证内容 |
 |---|---|
-| `sab instruction roundtrip` | 无 raw_text 状态下语义保持 |
-| `sab text operands roundtrip` | 文本操作数编码/解码 |
-| `sab borrow roundtrip` | 结构化操作数完整保留 |
-| `sab v4 preserves structured metadata` | 原子字段、包哈希、upstream_loc |
-| `sab roundtrip covers every InstKind` | 48 种指令类型全覆盖 |
-| `sab roundtrip covers every Operand` | 15 种操作数类型全覆盖 |
-| `disasmModule produces readable text` | 从二进制重建 SA 文本 |
-| `decoded sab verifies through predecoded metadata` | 解码后 SAB 可直接进入 Referee |
+| `sleb128 roundtrip` | SLEB128 编解码 |
+| `sab instruction roundtrip keeps semantics without raw source text` | 无 raw_text 状态下语义保持 |
+| `sab text operands roundtrip without raw source text` | 文本操作数编码/解码 |
+| `sab borrow roundtrip preserves structured operands` | 结构化操作数完整保留 |
+| `sab roundtrip preserves expanded_line from SA-text` | expanded_line 往返保留 |
+| `sab v4 preserves structured instruction metadata required by SA backends` | 原子字段、包哈希、upstream_loc |
+| `sab roundtrip covers every SA instruction and op kind` | 40 种 InstKind 全覆盖 |
+| `sab roundtrip covers every SA operand kind` | 15 种操作数类型全覆盖 |
+| `sab parenthesized panic operand stays structured` | 括号 panic 操作数保持结构化 |
+| `sab no-destination call stays structured` | 无目标 call 保持结构化 |
+| `sab function signatures roundtrip without function header text` | 函数签名往返 |
+| `disasmModule produces readable text from binary SAB` | 从二进制重建 SA 文本 |
+| `disasmModule separates call target from call args` | call 目标与参数分离 |
+| `decoded sab verifies through predecoded metadata without text parser` | 解码后 SAB 可直接进入 Referee |
 
 **SAB 在 CLI 中的使用**：
 ```bash
-# 生成 SAB 二进制（编译缓存/发布产物）
-sa build-exe input.sa -o app --emit-sab    # 同时产出 app.exe + app.o.sab
+# 生成 SAB 二进制（写出已验证程序的 .sab；--emit-sab <path> 仅 sa check 提供）
+sa check input.sa --emit-sab out.sab
 
-# 从 SAB 直接编译（跳过文本解析）
-sa build-exe input.sab -o app             # 隐式识别 .sab 后缀
+# 从 SAB 直接编译（跳过文本解析；compileSource 按 .sab 后缀识别）
+sa build-exe input.sab -o app
 sa run input.sab                          # 直接解释执行
 
-# SAB 反汇编为可读文本
-sa build-obj input.sab -o /dev/null --disasm   # 解码后走正常编译管线
+# SAB 反汇编为可读文本：无 CLI 标志，库 API 为 sab.disasmModule / plugin_bridge.disasmSabAlloc
 ```
 
-**与 Flattener 的等价性保证**：SAB Decoder 产出的 `Instruction[]` 与 Flattener 产出的 `Instruction[]` 在 `kind` / `operands` / `upstream_loc` 层面字段级兼容，Referee 和 Emitter 看到的是同一套数据结构。
+**与 Flattener 的等价性**：SAB Decoder 产出的 `Instruction[]` 与 Flattener 产出的 `Instruction[]` 在 `kind` / `operands` / `upstream_loc` 层面字段级兼容（白皮书 L1）。但宿主表示层（白皮书 L2）尚未对称：`loadSabFlat` 构造的 `FlattenResult` 中 `loc_table` 全为 null、`layout_versions` 与 `def_dict` 为空（`cli.zig:4706-4722`），与文本路的全信息表示不对称。分层口径以 SAB 白皮书（sala `03_sa_asm/08_sab_whitepaper.html`）§4.1 为准。
 
-**测试验证**：`zig build test` 包含 8 项 SAB 往返测试，覆盖全部 48 种指令类型和 15 种操作数类型。
+**测试验证**：`src/sab.zig` 内嵌 14 项测试，其中往返测试覆盖全部 40 种指令类型和 15 种操作数类型。
 
 ### 3.3 Referee
 
@@ -700,7 +705,7 @@ flowchart LR
 | `sa audit <URL>` | `audit.zig::xray_scan()` | 仅 stdout |
 | `sa audit --update-lock` | `lock.zig::update_machine_code_hash()` | `sa.lock`（**唯一**允许修改的命令） |
 | `sa build` | 全部子模块 | 内存确权状态进程级（不写盘） |
-| `sa build --emit-sab` | Flattener + SAB Encoder | `.o.sab`（伴随产物，与 `.o` 并列） |
+| `sa check --emit-sab <path>` | compileSource + `plugin_bridge.encodeSabFromFlat` | 指定路径的 `.sab`（已验证程序的二进制；仅 `sa check` 提供此标志） |
 | `sa build --ci` | `ci.zig::dual_track_verify()` | `$GITHUB_STEP_SUMMARY`（可选） |
 | `sa build --offline` | `resolver.zig` + `audit.zig`（禁网） | 不写盘 |
 | `sa build --all-targets --lock-only` | 全平台 Emitter + `lock.zig` | `sa.lock` 多 target hash |
@@ -1561,6 +1566,8 @@ docs/
 ---
 
 ## §7 SAB 分布式编译架构（v0.7b — 模块级并行编译）
+
+> **状态（2026-11-05 注）**：本节为**设计提案、尚未实现**。CLI 无 `--distributed` 标志（`cli.zig` 无此选项），§7.5 的 `sa build --emit-sab` 亦不存在——SAB 写出只有 `sa check --emit-sab <path>`。分布式编译的现状评估与草案见 `docs/sab_distributed_compilation.md`（设计草案）与 SAB 白皮书（sala `03_sa_asm/08_sab_whitepaper.html`）。
 
 ### 7.1 架构定位
 

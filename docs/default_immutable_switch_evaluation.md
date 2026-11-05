@@ -1,5 +1,7 @@
 # SA 默认不可变动态开关评估
 
+> **状态（2026-11-05 文档审计）**：§1–§7 为评估稿，行号已漂移（如 regFlagImmutable 现 verifier.zig:528）；§8 实现状态经抽查仍成立：--default-immutable 已落地、默认关闭、sa_std 未迁移。
+
 ## 背景
 
 SA 语言当前能力模型中，`reg = alloc N` 默认进入 `Active` 状态 (默认可变)。该评估探讨将默认行为改为 `Active + Immutable` (Rust 风格 `let x = ...` 默认不可变) 的可能性，以及通过**动态开关** `--default-immutable` 实现向后兼容。

@@ -1,3 +1,5 @@
+> **状态（2026-11-05 文档审计）**：规格正文写于落地前（其中 Status: design only 已被文首 2026-07-11 落地状态取代：Option A 已落地、incr_verify.zig 与 sa check 经核实在仓）；正文行号已漂移。
+
 ## 落地状态（2026-07-11）
 
 - **Option A（verdict-only + `sa check`）已落地**：`src/incr_verify.zig` + `sa check`，daemon 内跨请求 hit。
@@ -6,7 +8,7 @@
 
 # Phase B — Incremental Referee: Implementation Specification
 
-Status: **design only, not implemented**. This document is the sound design to
+Status: **design only, not implemented**〔2026-11-05 注：此行已被文首 2026-07-11「落地状态」取代——Option A 已落地〕. This document is the sound design to
 implement in an environment where `src/verifier.zig` edits persist and test
 output is trustworthy. It exists because Phase B could not be reliably landed or
 verified in the session where this spec was written.

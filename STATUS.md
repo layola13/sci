@@ -1,5 +1,7 @@
 # sci staging — 状态
 
+> **状态（2026-11-05 文档审计）**：本文为某 staging 线 2026-11-02 的工作状态快照（基点 8979c4e1），非 sci 主线现状；主线现状见 readme.md「Current status」。
+
 ## 现状态（2026-11-02，DEF 深 drop 批完工，本地提交、未推送）
 
 - 基点：sci main `8979c4e1`，分支 `deepdrop-base`。本地路径克隆自

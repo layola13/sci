@@ -1,5 +1,7 @@
 # SA 工具链与 Lua2SA（类 LuaJIT）可行性评估报告
 
+> **状态（2026-11-05 文档审计）**：2026-06-14 历史评估；所涉 lua 工程不在 sci 仓内，文中数字无仓内出处。bc2sa 现为顶层命令但仍是子集原型（见 completeness_evaluation 与 llvm2sa.zig 现状），非完整 Lua 管道。
+
 > **评估日期**：2026年6月14日
 > **评估范围**：
 > 1. SA（安全汇编）工具链编译器评估 (`/home/vscode/projects/sci`)。

@@ -1,5 +1,7 @@
 # Test Performance Notes
 
+> **状态（2026-11-05 文档审计）**：2026-06-08–07-09 历史性能笔记；所引 logs/ 未入仓，全部耗时数字不可复核、且树与机器已变，勿引为当前性能。两件 tools 脚本现仍在仓。
+
 Date: 2026-06-08
 
 This note records the first timed pre-push pass after replacing the fixed `zig build pre-push -j1` hook with `tools/pre_push_timed.sh`.

@@ -1,5 +1,7 @@
 # DESIGN — `sa build-js --emit-dts`：JS 目标的 .d.ts 声明发射
 
+> **状态（2026-11-05 文档审计）**：本文为 `sa build-js --emit-dts` 的设计记录；该功能已实现（cli.zig 帮助含 --emit-dts），本文按设计文档理解，现状以 CLI 与 src/emit_js.zig 为准。
+
 定位：JS 目标的「出方向」——SA/SLA 编译出的 JS 库被 TS 项目带类型
 消费。与 `sla convert`（.d.ts→.sai，入方向）互为镜像。普查事实见
 `SURFACE.md`（同批交付）；本文件只做映射裁定与实现形态。

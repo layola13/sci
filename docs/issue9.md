@@ -1,5 +1,7 @@
 # SA Compiler — Re-scan After Hardening (issue9)
 
+> **状态（2026-11-05 文档审计）**：历史复扫验证记录；抽查 4 项证据符号现仍在（interp 常量 :44、flattener 预算 :33、resolver pin :391），但全表行号已漂移，引用须重新定位。
+
 Verification pass over the fixes that landed for issue7/issue8 (commits `1709e66` → `da23c1f`), plus a fresh scan of the newly added code (import caching, fetch hardening, verifier buffer pool). Every check below was confirmed against the current source.
 
 ---

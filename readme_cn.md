@@ -41,7 +41,7 @@ SA（safe asm，安全汇编）不是"又一门给人手写的语言"。它是�
 | 维度 | 数字 |
 |------|------|
 | **借用检查复杂度** | O(N) 线性扫描 + O(1) 位掩码 vs Rust 的 O(N³) NLL |
-| **Referee 代码量** | ≤ 2 500 行 Zig，可逐行审计 / 可烧 FPGA |
+| **Referee 代码量** | ≈ 8 500 行 Zig（`src/verifier.zig` ≈ 7 600 行 + `src/referee/` 模块；2026-11-05 于 sci `2e67cc54` 实测）。早期 ≤ 2 500 行的说法已不成立 |
 | **前端编译速度** | 词法 ~5 ms / 类型检查 0 ms / 借用校验 ~10 ms |
 | **WASM Hello World 体积** | ≤ 48 KB（含 DWARF），开 `--no-debug` 更小 |
 | **运行时开销** | 零（Release 模式无 Referee 代码，机器码与 Zig / Rust 同级） |
@@ -130,17 +130,17 @@ SA（safe asm，安全汇编）不是"又一门给人手写的语言"。它是�
 # 构建编译器（本仓库）
 zig build -Doptimize=ReleaseFast
 
-# 直接运行
-./zig-out/bin/sa run examples/hello.sa
+# 直接运行（示例程序：demos/rosetta/01_hello_world/main.sa）
+./zig-out/bin/sa run demos/rosetta/01_hello_world/main.sa
 
 # 编译到 WASM
-./zig-out/bin/sa build-wasm examples/hello.sa -o hello.wasm
+./zig-out/bin/sa build-wasm demos/rosetta/01_hello_world/main.sa -o hello.wasm
 
 # 编译到原生可执行
-./zig-out/bin/sa build-exe examples/hello.sa -o hello
+./zig-out/bin/sa build-exe demos/rosetta/01_hello_world/main.sa -o hello
 
 # 编译到 JavaScript（默认 ESM；node / bun 直接运行，无需 WASI）
-./zig-out/bin/sa build-js examples/hello.sa -o hello.mjs
+./zig-out/bin/sa build-js demos/rosetta/01_hello_world/main.sa -o hello.mjs
 node hello.mjs
 bun hello.mjs
 

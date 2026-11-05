@@ -41,7 +41,7 @@ SA (safe asm) is **not yet another language for humans to hand-write.** It is a 
 | Dimension | Number |
 |-----------|--------|
 | **Borrow check complexity** | O(N) linear scan + O(1) bitmask vs Rust's O(N³) NLL |
-| **Referee code size** | ≤ 2,500 lines of Zig — auditable line-by-line, burnable to FPGA |
+| **Referee code size** | ≈ 8,500 lines of Zig (`src/verifier.zig` ≈ 7,600 lines plus the `src/referee/` modules; measured at sci `2e67cc54`, 2026-11-05). An earlier ≤ 2,500-line figure no longer holds |
 | **Frontend compile speed** | ~5 ms lex / 0 ms type check / ~10 ms borrow check |
 | **WASM hello-world size** | ≤ 48 KB (with DWARF); smaller with `--no-debug` |
 | **Runtime overhead** | Zero (Release mode strips Referee entirely; codegen is on par with Zig / Rust) |
@@ -150,17 +150,17 @@ multi-platform build matrix, and the sala help chapter “多平台编译”.
 # Build the compiler (this repo)
 zig build -Doptimize=ReleaseFast
 
-# Run directly
-./zig-out/bin/sa run examples/hello.sa
+# Run directly (example program: demos/rosetta/01_hello_world/main.sa)
+./zig-out/bin/sa run demos/rosetta/01_hello_world/main.sa
 
 # Compile to WASM
-./zig-out/bin/sa build-wasm examples/hello.sa -o hello.wasm
+./zig-out/bin/sa build-wasm demos/rosetta/01_hello_world/main.sa -o hello.wasm
 
 # Compile to native executable
-./zig-out/bin/sa build-exe examples/hello.sa -o hello
+./zig-out/bin/sa build-exe demos/rosetta/01_hello_world/main.sa -o hello
 
 # Compile to JavaScript (ESM by default; run with node or bun, no WASI needed)
-./zig-out/bin/sa build-js examples/hello.sa -o hello.mjs
+./zig-out/bin/sa build-js demos/rosetta/01_hello_world/main.sa -o hello.mjs
 node hello.mjs
 bun hello.mjs
 

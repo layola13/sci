@@ -1,5 +1,7 @@
 # SA DB 插件性能评估
 
+> **状态（2026-11-05 文档审计）**：2026-06-12 历史评估快照（SA 0.0.3.3 时代）；全部性能数字的原始输出在仓外插件工程 benchmark_test/，未随 sci 仓归档，不可复核。db 插件现状以插件仓为准。
+
 日期：2026-06-12
 插件：`/home/vscode/projects/sa_plugins/sa_plugin_db/sap.json`，`db` v0.1.0
 SA：`sa 0.0.3.3`

@@ -3,19 +3,21 @@
 > 文档版本: 2026-07-01  
 > 评估范围: `src/sab.zig` (v4.0)、CLI 集成 (`src/cli.zig`)、插件桥 (`src/plugin_bridge.zig`)、验证器 (`src/verifier.zig`)
 
+> **状态（2026-11-05）**：本评估为 2026-07-01 的历史快照，部分结论已被 **SAB 白皮书**（sala `content/03_sa_asm/08_sab_whitepaper.html`，2026-11-05 发布）取代——**规范口径一律以白皮书为准**。主要订正：① InstKind 实数为 **40**（非 48）；② `--emit-sab <path>` 已实现于 `sa check`（非「未实现」）；③ 「roundtrip 全链路正确」须按白皮书 §4.1 分 L1（编解码往返）/ L2（宿主表示往返，尚未达成）两层理解；④ 文中源码行号已随主线漂移，不再逐条更新。下文保留历史原文，被推翻处就地标注〔订正〕。
+
 ---
 
 ## 一、评估摘要
 
 | 维度 | 评分 | 说明 |
 |---|---|---|
-| **核心编解码** | ✅ 完成 | encode/decode/roundtrip 全链路正确，覆盖 48 InstKind + 15 Operand 类型 |
+| **核心编解码** | ✅ 完成 | encode/decode/roundtrip 全链路正确〔订正 2026-11-05：此指 L1 编解码往返；L2 宿主表示往返尚未达成，见白皮书 §4.1〕，覆盖 48 InstKind〔订正：实数 40〕 + 15 Operand 类型 |
 | **版本兼容** | ✅ 完成 | v1-v4 前向兼容，v4 移除 raw_text 决策明确 |
 | **SAB Decoder 管线集成** | ✅ 完成 | CLI 自动识别 `.sab` 后缀 → loadSabFlat → Referee 验证 |
 | **Referee 预解码路径** | ✅ 完成 | verifyWithOptions.predecoded_symbol_names/.function_sigs |
 | **Plugin Bridge** | ✅ 完成 | encodeSabFromFlat 通过 Referee 获取 register metadata |
 | **Disasm** | ✅ 完成 | disasmModule 可重建可读 SA 文本 |
-| **CLI `--emit-sab`** | ⚠️ 未实现 | 无 `--emit-sab` flag，编译管线不产出 `.sab` |
+| **CLI `--emit-sab`** | ⚠️ 未实现〔订正 2026-11-05：已实现——`sa check <file> --emit-sab <path>`，`cli.zig:8693` 起解析、`:1558` 帮助文本、`:10842` 回归测试〕 | 无 `--emit-sab` flag，编译管线不产出 `.sab`〔订正：`sa check` 可产出；build/build-exe 无此标志〕 |
 | **增量缓存（SAB 即缓存）** | ✅ 天生支持 | `.sab` 文件本身就是 Flattener 产物的持久化缓存。编译 `.sab` 输入时完全跳过 Flattener/宏展开/文本解析，直接从 SAB Decoder 进入 Referee |
 | **WASM 发射器 SAB 路径** | ⚠️ 未测试 | WASM 发射器使用 `[]Instruction`，理论上 SAB 可用但无端到端测试 |
 | **包管理器 SAB 分发** | ⚠️ 未实现 | 包管理器分发纯文本 `.sa`，不分发 `.sab`（设计决策，但无文档说明） |
@@ -36,7 +38,7 @@
 | Symbol Pool 编解码 | ✅ | `writeStringPool` / `readStringPool` |
 | Function Signature 编解码 (含 metadata) | ✅ | `writeFunctionSigs` / `readFunctionSigs` |
 | Const Declaration 编解码 (struct/vtable/repeat) | ✅ | `writeConstDecls` / `readConstDecls`, `writeConstValue` / `readConstValue` |
-| Instruction 编解码 (48 InstKind + 15 Operand) | ✅ | `writeInstructions` / `readInstructions` |
+| Instruction 编解码 (48 InstKind + 15 Operand)〔订正 2026-11-05：InstKind 实数 40〕 | ✅ | `writeInstructions` / `readInstructions` |
 | 原子字段 (value_ty/ordering/rmw_op) | ✅ | atomic_expected_text, atomic_new_text, native_reg_names |
 | 包元数据 (package_identity, source_sha256) | ✅ | `writeOptionalPoolText`, `writeOptionalHash` |
 | UpstreamLoc 编解码 | ✅ | `writeOptionalUpstreamLoc` / `readOptionalUpstreamLoc` |
@@ -45,13 +47,13 @@
 | v4 raw_text="" 语义 | ✅ | `synthesize_debug_text = false` 对 v4 |
 | disasmModule (重建可读文本) | ✅ | `disasmModule` + `writeDisasmInstruction` |
 | 15 种 Operand 全覆盖 roundtrip 测试 | ✅ | `test "sab roundtrip covers every SA operand kind"` |
-| 48 InstKind 全覆盖 roundtrip 测试 | ✅ | `test "sab roundtrip covers every SA instruction and op kind"` |
+| 48 InstKind 全覆盖 roundtrip 测试〔订正：40〕 | ✅ | `test "sab roundtrip covers every SA instruction and op kind"` |
 | borrow/call/cmpxchg 语义保持测试 | ✅ | `test "sab borrow roundtrip"`, `test "sab v4 preserves structured metadata"` |
 | disasmModule call 分离测试 | ✅ | `test "disasmModule separates call target from call args"` |
 | Referee SAB 解码验证测试 | ✅ | `test "decoded sab verifies through predecoded metadata"` |
 
-**代码行数**: ~920 行 (含测试 ~250 行测试代码)  
-**测试数**: 12 个 unit test
+**代码行数**: ~920 行 (含测试 ~250 行测试代码)〔订正 2026-11-05：`src/sab.zig` 现为 1,652 行〕  
+**测试数**: 12 个 unit test〔订正：现为 14 个〕
 
 ### 2.2 `cli.zig` — CLI 集成 (✅ 核心完成，⚠️ 小缺失)
 
@@ -60,7 +62,7 @@
 | 组件 | 状态 | 代码引用 |
 |---|---|---|
 | `.sab` 文件自动识别 | ✅ | `cli.zig:4236` — `endsWith(u8, source_path, ".sab")` |
-| loadSabFlat 函数 | ✅ | `cli.zig:3891` — 读取 → `sab.decodeModule` → 构建 FlattenResult |
+| loadSabFlat 函数 | ✅ | `cli.zig:3891` — 读取 → `sab.decodeModule` → 构建 FlattenResult〔订正 2026-11-05：行号已漂移，现 `cli.zig:4683`〕 |
 | compileSource SAB 路径 | ✅ | 调用 loadSabFlat → 进入标准验证/发射管线 |
 | help 文本识别 `.sab` 支持 | ✅ | "experimental .sab binary" 出现在 build/run/test help 中 |
 | 增量缓存（SAB 即缓存） | ✅ | `.sab` 文件本身就是 Flattener 产物的持久化缓存。SAB 解码后直接进入 Referee，完全跳过 Flattener。唯一缺失的是 `--emit-sab` 来从 `.sa` 产出 `.sab` 缓存文件 |
@@ -69,7 +71,7 @@
 
 | 组件 | 重要性 | 说明 |
 |---|---|---|
-| `--emit-sab` flag | 中 | 无 CLI flag 让编译管线产出 `.sab` 文件。命令 `sa build --emit-sab main.sa -o out` 应产生 `out.sab` |
+| `--emit-sab` flag | 中 | 无 CLI flag 让编译管线产出 `.sab` 文件。命令 `sa build --emit-sab main.sa -o out` 应产生 `out.sab`〔订正 2026-11-05：已实现，形态为 `sa check main.sa --emit-sab out.sab`（显式路径参数）；`sa build` 至今无此标志〕 |
 | `.sab` 作为 `sa test` 的输出 | 低 | `sa test` 不产出中间产物，但 `--compile-only` 模式下产出 SAB 也有用 |
 
 ### 2.3 `plugin_bridge.zig` — 插件桥 (✅ 完成)
@@ -103,6 +105,8 @@
 ### P1 — 功能缺失 (阻断了关键场景)
 
 #### 1.1 `--emit-sab` CLI flag 缺失
+
+> 〔订正 2026-11-05：本节所述缺失已消除——`sa check <file> --emit-sab <path>` 已实现（`cli.zig:8693` 起，回归测试 `:10842`），下文保留为历史问题记录。〕
 
 **问题**: 编译管线只消耗 `.sab`，从不产出 `.sab`。这意味着：
 - 用户无法 `sa build --emit-sab input.sa -o out` 获取处理后 SAB
@@ -217,6 +221,8 @@ test "sab decode performance" {
 
 #### 3.1 缺少 SAB 格式规范文档
 
+> 〔订正 2026-11-05：已补齐——SAB 格式白皮书已发布于 sala `content/03_sa_asm/08_sab_whitepaper.html`（字节级规范，含 L1/L2 分层与差异清单），为现行规范源。〕
+
 **当前**: 无独立文档。格式细节仅能从 `sab.zig` 源码和 `design.md` §3.2b 推断。
 
 **需要**: `docs/sab_format.md` 描述：
@@ -296,7 +302,7 @@ test "sab decode performance" {
 | sab text operands roundtrip | panic 指令 text operand | ✅ |
 | sab borrow roundtrip preserves structured operands | borrow 4-operand 结构 | ✅ |
 | sab v4 preserves structured instruction metadata | cmpxchg + 原子字段 + 包元数据 | ✅ 强 |
-| sab roundtrip covers every SA instruction and op kind | 48 InstKind + 所有 OpKind | ✅ 强 |
+| sab roundtrip covers every SA instruction and op kind | 48 InstKind〔订正：40〕 + 所有 OpKind | ✅ 强 |
 | sab roundtrip covers every SA operand kind | 15 Operand 类型 + OpCode + CapPrefix | ✅ 强 |
 | sab parenthesized panic operand stays structured | panic( (1701) ) | ✅ |
 | sab no-destination call stays structured | call @sink(value) 无 dest | ✅ |
@@ -356,7 +362,7 @@ test "sab decode performance" {
 
 **SAB 的架构位置正确，但生态位未完全落地**。
 
-当前 SAB 是一个"技术基础设施"组件：核心编解码和管线集成质量高，但没有面向用户的入口（无 `--emit-sab`）和生态支撑（无缓存集成）。如果把 SAB 比作 JSON——你已经有了完美的 marshal/unmarshal，但没有 `json.Encoder` 写出到文件的 API。
+当前 SAB 是一个"技术基础设施"组件：核心编解码和管线集成质量高，但没有面向用户的入口（无 `--emit-sab`）和生态支撑（无缓存集成）。〔订正 2026-11-05：`--emit-sab` 已实现于 `sa check`，本段「最值得做的一件事」已完成；缓存集成仍按白皮书 §6 口径推进。〕如果把 SAB 比作 JSON——你已经有了完美的 marshal/unmarshal，但没有 `json.Encoder` 写出到文件的 API。
 
 **最值得做的一件事**: 实现 `--emit-sab`。这个单一改动将：
 1. 连接 SAB 缓存管线——`.sab` 格式本身就是从 `.sa` 到 Referee 的持久化缓存
@@ -473,7 +479,7 @@ sa build-wasm main.sab  →  compileSource → loadSabFlat → Referee → LLVM 
 
 | 缺失能力 | 重要性 | 说明 |
 |---|---|---|
-| `--emit-sab` CLI flag | P0 | 编译管线无法产出 .sab 文件 |
+| `--emit-sab` CLI flag | P0〔订正 2026-11-05：已实现（`sa check --emit-sab <path>`），此项关闭〕 | 编译管线无法产出 .sab 文件 |
 | 跨模块 Referee 验证 | P0 | 无法验证模块间调用签名一致性 |
 | SAB 模块链接器 | P0 | 无法合并多个 .sab 为统一编译单元 |
 | 模块缓存失效 | P1 | 无法检测 .sab 是否需要重新编译 |

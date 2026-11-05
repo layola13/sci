@@ -1,5 +1,7 @@
 # Agent-Native 编译后端：能力评估与开发计划
 
+> **状态（2026-11-05 文档审计）**：2026-07-11 评估与计划；文首「实现更新」已推翻正文矩阵多行——daemon 现为顶层命令（cli.zig:743）且 daemon_client/daemon_cancel 已入仓，矩阵中 daemon 0% 等行不得单独引用。百分比为作者自评、无量化出处。
+
 > 目标定位（用户战略判断）：大模型时代，代码生成能力正在商品化，真正稀缺的是
 > **编译 / 验证 / 运行反馈的吞吐量**。SA/SAB 的核心竞争力应是
 > **"AI 多 Agent 并发生成代码时，编译器和验证器能否扛住高频反馈"**。
@@ -33,7 +35,7 @@
 | 6 | **函数级增量 SAB delta** | 只重编改动的函数 | ❌ 无。缓存是文件/artifact 粒度，非 function-body 粒度 delta | **~15%** |
 | 7 | **增量 Referee（summary hash 复用）** | 未变函数不重验 | ❌ 无 function-body-hash / effect-summary / capability-hash 复用机制 | **~5%** |
 | 8 | **选择性测试执行** | 只跑受影响测试 | ❌ 无 test dependency graph / affected-test 选择；`--jobs` 仅并行执行已选测试 | **~10%** |
-| 9 | **daemon / server 常驻模式** | Agent 连常驻服务，不重启进程 | ❌ 无 `daemon`/`watch`/`serve` 编译入口（`serve` 仅出现在 plugin 上下文，非编译守护） | **0%** |
+| 9 | **daemon / server 常驻模式** | Agent 连常驻服务，不重启进程 | ❌ 无 `daemon`/`watch`/`serve` 编译入口（`serve` 仅出现在 plugin 上下文，非编译守护）〔2026-11-05 订正：已被文首实现更新推翻——`daemon` 现为顶层命令（cli.zig Command 枚举），daemon_client/daemon_cancel 已入仓〕 | **0%**（已过时，见订正） |
 | 10 | **可取消编译 (cancellable jobs)** | 过期任务取消 | ❌ 无 job 调度器 / cancellation | **0%** |
 | 11 | **speculative / branch-aware 编译** | 多候选共享 base cache | ❌ 无 branch delta 机制 | **0%** |
 | 12 | 资源隔离 / 调度器 | per-agent quota、优先级队列 | ❌ 无；`--jobs N` 只是单进程内并行度 | **~5%** |

@@ -145,7 +145,7 @@ Lowered to Airlock calls: `sax_dom_create("div")`, `sax_dom_add_class(...)`,
 ```
 
 `^handler` = `BorrowView` mask on the handler function reference.  
-Lowered to `sax_dom_bind_event(node, "click", handler_export_idx)`.
+Lowered to `sax_dom_bind_event(node_h, evt_ptr, evt_len, handler_ptr, handler_len, ctx)` — the handler is passed as its WASM export-name byte string (see `docs/sax_airlock.md`), not a function-table index.
 
 `handler` must be defined in the **same** `<Component>`. Cross-component → `SaxEventEscape`.
 
@@ -269,7 +269,7 @@ L_END:
 
 ## Component Lifecycle (Phase 2)
 
-Phase 1 has no explicit lifecycle hooks — the Lowerer auto-generates init and destroy functions.  
+Phase 1 has no explicit lifecycle hooks — the Lowerer auto-generates init and destroy functions. (Note: `docs/sax_design.md` §10 records `onMount`/`onUnmount`/`onUpdate` as landed in Phase 2; the examples in this section describe that Phase 2 surface.) 
 Phase 2 adds optional hooks:
 
 ```
@@ -300,7 +300,7 @@ Full documentation: `docs/sax_airlock.md`. Most-used Phase 1 APIs:
 | `sax_dom_remove_class(node, cls_ptr, len)` | `node.classList.remove(cls)` |
 | `sax_dom_get_value(node, buf, len)` | `input.value` |
 | `sax_dom_set_value(node, ptr, len)` | `input.value = str` |
-| `sax_dom_bind_event(node, evt_ptr, elen, fn_idx)` | `node.addEventListener(evt, fn)` |
+| `sax_dom_bind_event(node_h, evt_ptr, evt_len, handler_ptr, handler_len, ctx)` | `node.addEventListener(evt, fn)` — handler passed as its WASM export-name byte string, not a function-table index |
 | `sax_dom_query(sel_ptr, slen)` | `document.querySelector(sel)` |
 | `sax_dom_create(tag_ptr, tlen)` | `document.createElement(tag)` |
 | `sax_dom_append_child(parent, child)` | `parent.appendChild(child)` |
@@ -329,7 +329,7 @@ Only these HTML5 tags are accepted. Others → `SaxUnknownTag`.
 
 ## SAX-Specific Trap Reference
 
-In addition to all 29 SA Traps (see `docs/errorcode.md`), SAX adds:
+In addition to the SA Trap set (60 registered traps as of 2026-11-05, see `docs/errorcode.md`), SAX adds:
 
 | Trap | Stage | Message |
 |---|---|---|

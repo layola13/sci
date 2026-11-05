@@ -27,9 +27,9 @@ L_ADD:
 @test "memory correctly freed prevents leaks"():
 L_MEMORY:
     p = alloc 16
-    ! p
+    !p
     
-    // 如果忘记写 ! p，测试框架会自动探测到 MemoryLeak 并标记测试失败
+    // 如果忘记写 !p，测试框架会自动探测到 MemoryLeak 并标记测试失败
     return
 ```
 
@@ -145,12 +145,9 @@ L_ENTRY:
 
 由于 SA 的设计哲学是 **Fail-Fast (Panic 即终止)**，如果一个测试断言失败或触发了非法内存访问，整个解释器通常应该崩溃。
 
-为了让测试“失败而不中断执行列表”，`sa test` 实现了一种多进程隔离机制：
+为了让测试“失败而不中断执行列表”，`sa test` 实现了一种隔离机制（2026-11-05 按源码订正——原文「针对每一个测试 fork/spawn 一个子进程」与实现不符）：
 1. 主进程（Test Runner）解析出所有的 `@test` 符号，形成测试元数据列表 (`test_meta.TestList`)。
-2. 针对每一个测试，主进程通过 `fork` / `spawn` 拉起一个孤立的子进程。
-3. 主进程监听子进程的 Exit Code：
-   - 如果 Exit Code == `0`，标记为 **PASS**。
-   - 如果 Exit Code == `103` (AssertionFailed)，标记为 **FAIL** 并提取 stderr 日志。
-   - 如果触发了 `UseAfterMove` / `MemoryLeak` 等 Trap，记录为 **ERROR**。
+2. 测试被编译为测试可执行文件；Runner 以**线程工作池**并行调度（`src/test_runner.zig` 的 `workerMain` / `std.Thread.spawn`），并经子进程运行测试二进制（`src/test_executor.zig` 的 `Child.run`）。隔离粒度是「子进程运行测试二进制」，不是每测试一个进程。
+3. 子进程的退出码与输出被收集后逐条归因：退出码 `0` → PASS；断言失败 → FAIL 并提取 stderr 日志；触发 `UseAfterMove` / `MemoryLeak` 等 Trap → ERROR。（原文「Exit Code == 103 (AssertionFailed)」的逐码映射未在源码中核到，暂删。）
 
 这种隔离机制确保了即便某个测试严重违规导致内存段错误，其余的测试依旧会正常排队执行，为你提供最完整的安全体检报告。

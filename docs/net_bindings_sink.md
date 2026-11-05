@@ -1,5 +1,7 @@
 # sa_std 网络协议 binding 下沉 sci runtime — 进度与真机状态
 
+> **状态（2026-11-05 文档审计）**：历史状态快照。全文以 Zig 0.14 为前提的结论（DynLib 版本化符号、std.crypto.tls 仅 client 等）写于旧工具链——现行 minimum_zig_version 为 0.17.0，相关结论待在 0.17 下复测，不得直接沿用。文末「待办」的 sa_std 三范式已部分补齐（dtls/quic/tls_server 的 .sa/.sai/.sal 在仓）。各套件通过计数为当时记录、未复跑。
+
 ## 目标
 
 把 HTTP/2 (nghttp2)、HTTP/3 (nghttp3)、QUIC (ngtcp2)、DTLS、TLS-server 的真后端 binding 从 `sa_plugin_node` 下沉到 `sci` runtime,导出 `sa_std_*` ABI/宏供所有插件共用,并写严格单元测试证明。
@@ -54,5 +56,3 @@ zig build sa-quic-test       # 10/10(诚实 cap-gated + honest UNSUPPORTED + 不
 - [ ] 安装 `libngtcp2`/`libnghttp3` 后写真 QUIC/HTTP3 连接状态机替换骨架的 `TODO: ...待装库`。
 - [ ] 在带 plain-symbol OpenSSL 的构建环境(或链接期 `libssl.so` 直 link 而非 dlopen)真跑 TLS-server/DTLS loopback。
 - [ ] 其余插件(sa_plugin_deno / sa_plugin_http_client / sa_plugin_http_server)facade 接入 `sa_std_http2_*` 的 ABI/能力 JSON,把各自 stub 改为转发 sci。
-DOCEF
-echo "doc written: $(wc -l < ~/projects/sci/docs/net_bindings_sink.md) lines"

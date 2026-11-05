@@ -73,10 +73,10 @@ SA 生态分两类 manifest：
 ```text
 require github.com/acme/http_helpers @v0.2.0 sha256:...
 require_plugin http-client @0.1.0 abi 1
-require_plugin github.com/layol13/http-client @0.1.0 abi 1
+require_plugin github.com/layola13/http-client @0.1.0 abi 1
 ```
 
-插件身份规则：`require_plugin` 里的身份是 canonical plugin id。裸名如 `http-client`、`deno` 只表示 SA 官方顶级插件；第三方或组织插件必须带作者/组织命名空间，例如 `github.com/layol13/http-client`。同一个短名可以被不同 namespace 复用，但不能在同一 canonical id 下多源并存。编译时规则：`require_plugin` 只检查插件是否已安装、ABI 是否匹配、接口 hash 是否匹配。真正安装插件仍走 `sap.json` 和 `sa plugin install`。
+插件身份规则：`require_plugin` 里的身份是 canonical plugin id。裸名如 `http-client`、`deno` 只表示 SA 官方顶级插件；第三方或组织插件必须带作者/组织命名空间，例如 `github.com/layola13/http-client`。同一个短名可以被不同 namespace 复用，但不能在同一 canonical id 下多源并存。编译时规则：`require_plugin` 只检查插件是否已安装、ABI 是否匹配、接口 hash 是否匹配。真正安装插件仍走 `sap.json` 和 `sa plugin install`。
 
 `permissions` 词汇必须一致：同样的 `fs/net/env/process` 规则用于 `sa.mod` 和 `sap.json`。区别是 `sa.mod` 的权限可以对透明源码做静态审计；`sap.json` 的权限还必须交给 native sandbox/runtime enforcement。
 
@@ -176,17 +176,17 @@ effective_permission = sa.mod/sap.json 声明 ∩ CLI --allow-* 授权
 字段规则：
 
 - `schema` 必须固定为当前主版本，例如 `sa.plugin/1`。宿主不认识主版本时必须拒绝加载。
-- `name` 是插件短名，只能在自己的 namespace 内唯一。裸短名身份保留给 SA 官方顶级插件；非官方插件必须声明 `namespace`，例如 `github.com/layol13`、`github.com/acme` 或组织内网域名。canonical plugin id 为 `name`（官方顶级）或 `namespace/name`（第三方/组织），例如 `deno`、`http-client`、`github.com/layol13/deno`。
+- `name` 是插件短名，只能在自己的 namespace 内唯一。裸短名身份保留给 SA 官方顶级插件；非官方插件必须声明 `namespace`，例如 `github.com/layola13`、`github.com/acme` 或组织内网域名。canonical plugin id 为 `name`（官方顶级）或 `namespace/name`（第三方/组织），例如 `deno`、`http-client`、`github.com/layola13/deno`。
 - `namespace` 缺省时必须被视为 SA 官方顶级空间；安装器不得让远程第三方插件以缺省 namespace 安装。namespace 必须是可追溯作者空间，优先使用 Git host URL 前缀或组织域名，不能是普通 display name。
 - descriptor name、`sap.json.name`、安装目录和导出符号前缀要交叉核验。对于带 namespace 的插件，descriptor 可以暴露 canonical id 或 `{namespace, name}`，但不能只用短名参与唯一性判断，避免两个作者都发布 `deno` 时冲突。
-- canonical plugin id 可能包含 `/`，例如 `github.com/layol13/http-client`。锁文件和权限确认文本必须保存原始 canonical id；文件系统安装目录必须使用可逆的 `<plugin-id-path>` 表示，可以是转义后的单目录名，也可以是受控的嵌套目录，但不能退化成短名。
+- canonical plugin id 可能包含 `/`，例如 `github.com/layola13/http-client`。锁文件和权限确认文本必须保存原始 canonical id；文件系统安装目录必须使用可逆的 `<plugin-id-path>` 表示，可以是转义后的单目录名，也可以是受控的嵌套目录，但不能退化成短名。
 - `source` 记录插件来源，可以是本地路径、Git URL、GitHub shorthand 或 release archive；远程来源必须固定 tag/commit/release digest，不能只信浮动分支。
 - `abi.plugin` 对应 `saasm_plugin_descriptor_v1` 的 ABI version；`abi.saasm` 表示需要的宿主能力范围。
 - `artifacts` 按 target triple 指向构建产物路径，当前 Linux 路径先落地 `.so`。正式安装不得下载或接收预编译二进制；artifact 必须由安装器从文本源工程构建出来。
 - `interfaces.sa/sai/sal` 是 SA-facing native 入口；`.sa` 是可选 facade，实现用户可 import 的薄封装；`.sai/.sal` 是 ABI 与布局合约；native `.sai` 会参与 symbol smoke。
 - `interfaces.wasm_imports` 用于 SAX/WASM browser sidecar 这类接口：文件会被复制到插件 `sa/` 目录供编译期使用，但其中的 `@extern` 是浏览器/WASM import，不要求 native `.so` 导出同名符号。
 - `assets.share` 用于声明插件运行所需的静态 sidecar 文件，例如 browser airlock JS、demo 源文件或其他 share 资源；安装器复制到 `installed/<plugin-id-path>/current/share/`。
-- `dependencies` 只声明插件依赖插件，不声明普通源码包。依赖 key 同样使用 canonical plugin id；依赖第三方插件时必须写完整 namespace，例如 `github.com/layol13/http-client`。普通业务依赖仍归 `sa.mod` / `sa.lock`。
+- `dependencies` 只声明插件依赖插件，不声明普通源码包。依赖 key 同样使用 canonical plugin id；依赖第三方插件时必须写完整 namespace，例如 `github.com/layola13/http-client`。普通业务依赖仍归 `sa.mod` / `sa.lock`。
 - `permissions` 是插件整体可能使用的宿主能力声明。缺少权限声明却需要文件、网络、环境或进程能力的插件，安装器必须拒绝安装；真实阻断仍依赖宿主 sandbox/syscall 层补齐。
 - `sha256` 是 artifact 和 interface 的完整性字段。不要用 MD5 做安全判断；MD5 已不适合作为防篡改哈希。若未来需要更快校验，可额外支持 `blake3`，但 `sha256` 仍应作为默认兼容字段。
 
@@ -342,8 +342,8 @@ effective_permission = sa.mod/sap.json 声明 ∩ CLI --allow-* 授权
 
 ```sh
 sa plugin install ./plugins/http-client
-sa plugin install /opt/sa_plugins/github.com%2Flayol13%2Fhttp-client/sap.json
-sa plugin install github:layol13/http-client#v0.1.0
+sa plugin install /opt/sa_plugins/github.com%2Flayola13%2Fhttp-client/sap.json
+sa plugin install github:layola13/http-client#v0.1.0
 sa plugin install https://github.com/sa-plugins/sa_plugin_deno.git#<commit>
 sa plugin install https://github.com/sa-plugins/releases/download/deno-v0.1.0/sa_plugin_deno-linux-x86_64.tar.zst
 ```
@@ -381,7 +381,7 @@ $SA_PLUGINS_HOME/
         sa/deno.sai
         sa/deno.sal
       current -> 0.1.0
-    github.com%2Flayol13%2Fhttp-client/
+    github.com%2Flayola13%2Fhttp-client/
       0.1.0/
         sap.json
         sap.lock

@@ -1,5 +1,7 @@
 # SURFACE — `sa build-js` 导出面普查（.d.ts 发射的输入事实）
 
+> **状态（2026-11-05 文档审计）**：本文为 2026-10-28 的 build-js 导出面普查（基点 fc638db5），为时点快照；引用数字时请按基点理解。
+
 普查基点：sci main `fc638db5`。依据：`src/emit_js.zig` 源码逐行核对 +
 探针实测（`probes/probe_types.sa` / `probes/probe_edge.sa`，用主树已构建
 `sa` 以 build-js 生成产物后 node 实跑，2026-10-28）。没有实测或源码依据的

@@ -26,6 +26,12 @@ value is rejected with `InvalidSapManifest`; there is no fallback.
   source file's extension is registered, the host routes through the
   frontend before running its own pipeline. With no frontend registered
   for the extension, host behavior is exactly as before this contract.
+- Two further routing surfaces exist beyond the list above (added
+  2026-11-05): `run` also routes through the frontend (non-terminal
+  routing in `routeLanguageFrontend`), `build-lib` enters through the
+  frontend `build` route, and project verbs invoked **without** a source
+  file are routed by `routeProjectVerb` when the project selects a
+  language frontend.
 - At most one language source file per invocation in v1; more is an
   explicit `SA-LANGUAGE-FRONTEND` error, never a partial compile.
 - The process environment is the host's own (in particular the frontend

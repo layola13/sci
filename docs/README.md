@@ -5,7 +5,7 @@
 ## 🎯 1. 入门与初学者教程 (Tutorials)
 如果你是第一次接触 SA 语言，请**务必**从这里开始。
 
-- 📖 **[Beginner's Guide (初学者教程)](./tutorial/beginner_guide.md)**  
+- 📖 **[Beginner's Guide (初学者教程)](./tutorial/01_intro.md)**  
   👉 **必读**：包含安装、Hello World、核心 5 符号、扁平控制流及日常编写指南。
 - 🧱 **[SAX Basics (SAX 基础)](./tutorial/08_sax_basics.md)**  
   说明 `.sax` 如何真实生成 `app.wasm`、`airlock.js`、`index.html` 和 `.sa`，以及如何在浏览器里验证。
@@ -43,7 +43,7 @@
 ## 🔌 3. 插件开发指南 (Plugin Guides)
 专门针对独立插件工程的深度解析与实战。
 
-当前外部插件工作区是 `/home/vscode/projects/sa_plugins/`。截至 2026-06-04，已纳入评估的独立工程包括：`sa_plugin_pkg`、`sa_plugin_db`、`sa_plugin_deno`、`sa_plugin_http_client`、`sa_plugin_http_server`、`sa_plugin_sax`、`sa_plugin_bc2sa`、`sa_plugin_node`、`sa_plugin_ts`、`sa_plugin_vm`、`sa_plugin_wgpu` 和 `sa_plugin_3dengines`。
+当前外部插件工作区是 `/home/vscode/projects/sa_plugins/`。截至 2026-06-04，已纳入评估的独立工程包括：`sa_plugin_pkg`、`sa_plugin_db`、`sa_plugin_deno`、`sa_plugin_http_client`、`sa_plugin_http_server`、`sa_plugin_sax`、`sa_plugin_bc2sa`、`sa_plugin_node`、`sa_plugin_ts`、`sa_plugin_vm`、`sa_plugin_wgpu` 和 `sa_plugin_3dengines`。（2026-11-05 注：口径已变——http_client / http_server 的内核已迁入 sa_std、插件仅余框架层封装，见 `http_client_plugin.md` 文首状态说明；其余工程的状态在 sci 仓外，本仓未复核。）
 
 - 🌐 **[HTTP Client Plugin (独立工程)](./http_client_plugin.md)**  
   如何发送 GET/POST、处理 TLS 和流式响应。

@@ -1,5 +1,7 @@
 # Issue 15: Full `zig build test` failures during SAB performance milestone
 
+> **状态（2026-11-05 文档审计）**：2026-07-09 历史故障处置记录；文中 sa_std/string.sa 路径与现布局不符（现为 sa_std/alloc/string.sa）。全量套件现状以当前复跑为准，勿引当时 timeout 数字为现状。
+
 Status: focused blockers fixed; full-suite timeout narrowed to `sa-std-unit` and fixed; individual test dependency steps passed; logged step runner added for future full validation.
 
 Date: 2026-07-09.

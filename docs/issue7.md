@@ -1,5 +1,7 @@
 # SA Compiler — Performance & Safety Review (issue7)
 
+> **状态（2026-11-05 文档审计）**：2026-06 历史审查与修复状态记录；其修复经 issue9 复扫背书（见 issue9.md），行号对应当时树。
+
 Open-source SA toolchain at `/home/vscode/projects/sci`. I read the docs (`whitepaper.md`, `design.md`, `requirements.md`, `package_management.md`, `faq.md`) plus key implementation files, and ran two subagent passes over the runtime and emitter layers. Findings below are all verified in real source with file:line references — grouped by severity. Two subagents ran out of API credit mid-pass, so the compiler-core and CLI/pkg sections are based on direct reading rather than a structured agent sweep.
 
 ---

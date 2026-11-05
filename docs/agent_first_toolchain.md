@@ -1,5 +1,7 @@
 # Agent-First Toolchain (AI 优先的编译器工具链)
 
+> **状态（2026-11-05 文档审计）**：历史设计稿，部分已实现（explain / fix / skills / layout / graph / size 已落地）。全文命令名 `sci` 为旧称——现行二进制名为 `sa`（仓名仍为 sci）；§3.2 的 `sa.pkg` 现为 `sa.mod`；§4 的 `exportSkills` / `formatDiagnostic` 字段未按此形态实现（skills 走 descriptor，见 pluginssytem.md §1）。
+
 借用 `zero` 项目的先进理念，传统的编译器 CLI 设计主要是为了“人”看（彩色控制台、带波浪线的代码提示），而在 AI 编程时代，编译器的主力用户将变成 Agent。为此，`sci` (SA Compiler) 需要进行深度的 Agent-First 架构升级。
 
 **核心定位：这是 `sci` 编译器主线的核心基础设施，插件应当作为外部独立工程接入，而不是内置耦合到主线实现。** 
@@ -78,13 +80,15 @@ Agent 往往需要全知视角的 codebase 图谱才能做出架构级别的决�
 现有的 `sci layout` 将升级支持 `sci layout --json`，精确输出各结构的偏移量计算结果。
 
 ### 3.2 `sci graph --json`
-分析整个 `sa.pkg` 的 import 依赖树、函数调用图 (Call Graph)，以 JSON 节点与边的形式输出。Agent 可借此精确判断某个修改的爆炸半径（Blast Radius）。
+分析整个 `sa.mod` 的 import 依赖树、函数调用图 (Call Graph)，以 JSON 节点与边的形式输出。Agent 可借此精确判断某个修改的爆炸半径（Blast Radius）。
 ### 3.3 `sci size --json`
 在编译后提供精确到函数的指令/字节对齐体积报告，方便 Agent 进行代码瘦身优化。
 
 ---
 
 ## 4. 与现有 Plugin 系统的整合设计
+
+> 2026-11-05 注：本节设想的 `exportSkills` / `formatDiagnostic` 函数指针字段在 plugin_bridge.zig / plugins.zig 中均无实现（grep 零命中），未按此形态采用。
 
 在刚设计的插件 ABI 中，增加对 Agent-First 范式的支持：
 

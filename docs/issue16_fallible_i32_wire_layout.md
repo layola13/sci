@@ -1,5 +1,7 @@
 # Issue 16: Fallible i32 native wire layout
 
+> **状态（2026-11-05 文档审计）**：2026-07-16 已修复缺陷记录；修复点（emit_llvm_llvmc_shim.c:957）、回归（tests/cli_smoke.zig）与 bc2sa-smoke 门经核实现仍在。
+
 ## Status
 
 Fixed on 2026-07-16.

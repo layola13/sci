@@ -1,5 +1,7 @@
 # SCI Progress
 
+> **状态（2026-11-05 文档审计）**：本文为按日期追加的完成记录流水，各条目按其日期理解，不代表当前状态；当前状态见 readme.md「Current status」与 tasks.md。
+
 Scope: `/home/vscode/projects/sci` compiler std/runtime/CLI work.
 
 ## Completed: 2026-08-21 sa_std facade completion pass

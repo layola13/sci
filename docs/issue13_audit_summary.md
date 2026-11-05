@@ -1,5 +1,7 @@
 # SA Compiler — Security Audit Summary (issue13)
 
+> **状态（2026-11-05 文档审计）**：2026-06-12 历史审计汇总；所引 issue10/issue11（及 issue2）不在 docs/ 内，系列不完整、方法论出处不可达。前序修复汇总与 issue7–9 仓内互证一致。
+
 **Date**: 2026-06-12  
 **Auditor**: Claude Opus 4.7 via Kiro  
 **Scope**: Core SA compiler (flattener, verifier, interpreter, emitters)  

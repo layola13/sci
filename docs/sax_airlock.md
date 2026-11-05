@@ -1,6 +1,6 @@
 # SAX DOM Airlock API 文档
 
-> 本文档与 `/home/vscode/projects/sa_plugins/sa_plugin_sax/src/sax/airlock_gen.zig` 的当前实现保持一致，只描述今天 `sa sax build` 真正生成的 `airlock.js`。
+> 本文档与 `sa_plugin_sax` 仓 `src/sax/airlock_gen.zig` 的当前实现保持一致（实现位于插件仓，不在 sci 仓内——2026-11-05 注：原文以开发机绝对路径为锚点，读者不可达，已改以仓名为准；API 细节需与插件仓对版核实），只描述今天 `sa sax build` 真正生成的 `airlock.js`。
 > 如果某个 API 没有列在这里，当前生成器就不会输出它。
 > 
 > 上游的 SAX parser / lowerer 负责标签、属性、事件名和 handler 名的校验；`airlock.js` 本身只做 DOM 读写和事件转发。
@@ -175,7 +175,7 @@ export async function sax_init(wasm_url) {
 ```
 - 等价 JS：`node.addEventListener(evt, listener)`
 - `handler_ptr` / `handler_len` 传入的是 WASM 导出函数名的字节串，不是函数表索引。
-- 监听器触发时，JS 侧执行 `instance.exports[handler](ctx)`；如果导出不存在，则静默跳过。
+- 监听器触发时，JS 侧执行 `instance.exports[handler](ctx)`；如果导出不存在，则静默跳过。〔2026-11-05 注：此「静默跳过」与全仓「禁止静默降级/失败必须响亮」的口径相抵触，属已知缺口——生成器侧应改为响亮报错，订正前以本注为准。〕
 - 重复绑定同一 `node + evt + handler + ctx` 时，会先移除旧监听器再安装新的。
 
 ```

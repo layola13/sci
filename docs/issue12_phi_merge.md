@@ -1,5 +1,7 @@
 # SA Compiler — Control Flow Join State Merge Logic Audit (issue12)
 
+> **状态（2026-11-05 文档审计）**：历史专项审计；mergeJoinMask 现位于 verifier.zig:873。另见 completeness_evaluation_2026-06-25 关于 join lattice 三条 PATCH 的提示，两篇结论口径需并读。
+
 **Status**: ✅ VERIFIED SOUND — No vulnerability found  
 **Focus**: Verifier phi-node state merging soundness  
 **Method**: Manual analysis + exploit attempts + test validation

@@ -1,5 +1,7 @@
 # Changelog
 
+> **状态（2026-11-05 文档审计）**：本文止于 0.0.4（2026-07-09），其后版本未再维护本文件；当前工具链版本为 sa 0.1.8（2026-11-05 实测）。
+
 ## 0.0.4 - 2026-07-09
 
 This release focuses on compiler/test performance, especially the WASM validation path and long-running test diagnostics.

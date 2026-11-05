@@ -25,7 +25,7 @@ No Zig source generation. No AST construction. No hidden round-trips.
 
 SA-facing std modules (`io`, `fs`, `net`, `fmt`, `process`) are assembled with `@import` on the SA side and `@extern` declarations in their `.sai` files. C/C++ host examples still use `#include`, but only in host code.
 
-The repository checks in `artifacts/sa_std/libsa_std.a`. Rebuild it with `zig build sa-std-static -Doptimize=Debug`. The implementation source is `src/runtime/sa_std.zig`; the public C header is `src/runtime/sa_std.h`.
+The standard-library archive `artifacts/sa_std/libsa_std.a` is a **build product** (rebuild it with `zig build sa-std-static -Doptimize=Debug`); it is not checked into the repository at the current head. The implementation source is `src/runtime/sa_std.zig`; the public C header is `src/runtime/sa_std.h`.
 
 `sa_std` also now includes a first wave of portability-oriented base macros for data-structure code:
 - Container construction and field access: `STRUCT_NEW`, `FIELD_GET`, `FIELD_SET`, `STRUCT_FREE`, `PTR_FIELD`
@@ -73,7 +73,7 @@ The repository checks in `artifacts/sa_std/libsa_std.a`. Rebuild it with `zig bu
 - `dst = atomic_load src+offset [ordering]`
 - `atomic_store dst+offset, val [ordering]`
 - `dst, ok = cmpxchg target+offset, expected, new [success_ord] [failure_ord]`
-- `dst = atomic_rmw_<OP> target+offset, val [ordering]` — OP ∈ {add, sub, and, or, xor, xchg, smin, smax, umin, umax}
+- `dst = atomic_rmw_<OP> target+offset, val [ordering]` — OP ∈ {add, sub, and, or, xor, xchg, min, max, umin, umax} (`smin`/`smax` are accepted aliases of `min`/`max`)
 - `fence [ordering]`
 - Ordering: `relaxed / acquire / release / acq_rel / seq_cst`
 
@@ -138,7 +138,7 @@ Referee validates ownership by linear scan + bitwise AND/OR. No graph theory. No
 - `[MACRO] NAME %p1, %p2 ... [END_MACRO]` — parameterized text template
 - `[REP N] ... [END_REP]` — compile-time unrolling with `%i` cursor
 - `EXPAND NAME arg1, arg2` — macro invocation
-- `@const NAME = <literal>` — global read-only data (.rodata), no type annotation; roadmap feature
+- `@const NAME = <literal>` — global read-only data (.rodata), no type annotation; implemented (see Global Constants below)
 
 ## Global Constants (`@const`)
 
@@ -170,11 +170,10 @@ No type annotation. Byte length inferred from literal. Roadmap feature: immutabl
 
 ## Build Modes
 
-- `sa build-exe` and `sa build-wasm` default to `--release`; all ownership checks are complete at compile time, so release artifacts carry no Referee runtime.
+- Optimization is selected with `--release-fast` / `--release-small`; there is no `--release` flag and no default release mode (test builds default to -O0). All ownership checks are complete at compile time, so artifacts carry no Referee runtime.
 - `-g` enables DWARF and upstream source mapping.
 - `--no-debug` strips debug metadata.
-- `--debug-gas` inserts gas counters and may trap with `GasExceeded`.
-- `--debug-san` inserts runtime alloc/free bookkeeping for UAF / Double-Free and is intentionally slower.
+- (Removed: earlier drafts described `--debug-gas` / `--debug-san` modes — no such CLI flags exist. Gas accounting is reported via compile metrics; `GasExceeded` remains a roadmap-only trap.)
 
 ## Frontend Contract (R20)
 
@@ -211,10 +210,7 @@ This section is a compact summary for readers; it may lag the live namespace.
 | StackEscape | `stack_alloc` product `^` moved or returned |
 | ConstMutation | `^`/`!`/exclusive-borrow on `@const` register |
 | EarlyReturnLeak | `?` early-return path has unreleased Active registers |
-| InvalidParamType | `&`/`^` param ty is not `ptr` |
 | InvalidAtomicOrdering | `cmpxchg` failure_ord stronger than success_ord |
-| TagMismatch | call-site tag doesn't match signature tag (v0.5) |
-| MissingTag | `--strict-tags` mode: `alloc` without `tag` (v0.5) |
 | VTableSignatureMismatch | `call_indirect` args don't match vtable slot signature (v0.3) |
 
 ## Panic Code Dictionary (R18.6)
@@ -234,9 +230,11 @@ This section is a compact summary for readers; it may lag the live namespace.
 
 ## Distributed Compilation (SAB Module System)
 
-SA supports module-level distributed compilation via `.sab` binary modules:
+> **Status (2026-11-05): design proposal — not implemented.** The commands and cache model in this section describe the target design in `docs/sab_distributed_compilation.md`. What exists today: `.sab` input is accepted by the shared compile pipeline, and `sa check <file> --emit-sab <path>` writes a verified program as `.sab`. There is no `sa build --emit-sab`, no `--distributed` / `--dry-run` mode on `build-workspace` (it only builds the selected workspace member), and no cross-module Referee or `.sa_cache/<module>.sab` invalidation model yet.
 
-| Command | Pipeline | Output |
+The proposed design: module-level distributed compilation via `.sab` binary modules:
+
+| Command (proposed) | Pipeline | Output |
 |---|---|---|
 | `sa build --emit-sab <file>` | `.sa` → Flattener → SAB Encoder → `.sab` cache | `<stem>.sab` |
 | `sa build-workspace --distributed` | 依赖分析 → 并行 flatten → 并行 Referee → 跨模块验证 → 链接 | final binary |

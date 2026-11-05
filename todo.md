@@ -1,5 +1,7 @@
 # 设计与架构导读 (Design & Architecture Links)
 
+> **状态（2026-11-05 文档审计）**：本文为早期设计导读与任务清单（内含 .kiro/specs 路径等历史引用），按历史文档理解；现行设计见 docs/design.md。
+
 > 在开始实施以下任务前，请务必阅读 `design.md` 中的对应章节以确保实现与架构目标对齐：
 > - **物理极限性能架构**：参见 [`design.md §1.10 工业级可伸缩性架构`](.kiro/specs/sa-asm-language/design.md#110-工业级可伸缩性架构-industrial-scalability-architecture---紧急-p0)
 > - **宏驱动高级特性**：参见 [`design.md §1.4 宏驱动高级特性演进`](.kiro/specs/sa-asm-language/design.md#14-宏驱动高级特性演进-macro-driven-advanced-features)

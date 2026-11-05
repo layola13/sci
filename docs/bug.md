@@ -1,5 +1,7 @@
 # SA-ASM P0 Register Scope Localization: Diagnostic & Actionable Recommendation Report
 
+> **状态（2026-11-05 文档审计）**：历史诊断记录；emit_llvm.zig 移除一节经核实仍成立，lib.zig 中所指 legacy 测试现已不存在（grep 零命中），§2 为历史现场。
+
 This document records historical P0 register-scope diagnostics. The old text LLVM emitter `src/emit_llvm.zig` has been removed from the mainline; normal build/run/test paths use `src/emit_llvm_llvmc.zig` and emit `.sa.bc` directly.
 
 ## 1. Issue 1: Legacy Text Emitter Removed (`src/emit_llvm.zig`)

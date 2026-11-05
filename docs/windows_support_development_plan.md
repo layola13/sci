@@ -1,5 +1,7 @@
 # Windows Support Development Plan
 
+> **状态（2026-11-05 文档审计）**：历史计划与 2026-07-31 时点证据（Windows 主机、Zig 0.14.1）；现仓工具链已升 Zig 0.17.0（build.zig.zon），文中门禁证据均属旧工具链口径。Windows 支持等级现状以 windows_support_level.txt 为准。
+
 Status: Windows implementation complete; native Linux acceptance pending
 Target Zig version: 0.14.1
 Primary constraint: add Windows support without regressing the existing Linux toolchain.

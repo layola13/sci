@@ -1,5 +1,7 @@
 # SA-ASM 极简 Rust 转换器 (No-LLVM) 设计方案
 
+> **状态（2026-11-05）**：未实现的设计方案存档。本方案从未在本仓落地：其立论前提（如「`src/sax/parser.zig` 已经实现」）与现行源码不符（`src/sax/` 仅有 common/ 与 plugin_helpers.zig），且实际采用的 Rust/C++ → SA 路线是经 LLVM 的 `bc2sa` / `llvm2sa`（见 CLI `bc2sa` 命令与 `src/llvm2sa.zig`），与本文的 No-LLVM 路线相反。本文仅作历史方案记录。
+
 本方案旨在响应用户需求，不通过 LLVM，直接利用 SA 现有特性（如 Flattener 和 SAX 降级思想）实现一个极简的 Rust 到 SA-ASM 的 Source-to-Source (S2S) 转换器。
 
 ## 1. 核心设计：基于模式匹配的语法降级 (DMT - Direct Mapping Transpiler)

@@ -1,5 +1,7 @@
 # sa2js net 适配交付文档（BP 线）
 
+> **状态（2026-11-05 文档审计）**：本文为 sa2js net 适配线（基点 14d9fbc8）的交付记录，按其基点与日期理解，非当前状态声明。
+
 基点：sci main `14d9fbc8`，独立 worktree `/content/sci-js-net`（盒上），
 本地主本 `~/workspace/jsnet-local/`。只改 `src/emit_js.zig` 与 JS 目标专属测试文件。
 共享层（lowerer/referee/common）未动；撞到的共享层问题见文末登记。

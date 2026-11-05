@@ -1,5 +1,7 @@
 # Sla: Safe Linear Language Specification & Design Report
 
+> **Status (2026-11-05)**: Historical design draft (v0.1-draft, June 14, 2026) — **not** the current SLA specification. The language has since grown well beyond this draft (e.g. the §9 "strictly 12 keywords" policy is falsified by the current surface: `mut`, `while`, `match`, `impl`, `async`/`await`, `select`, `enum`, `where`, `pub` are all in use; the §14 "Phase 2 merge into sci" never happened — SLA remains a `kind=language` plugin). Current specification: the sa_plugin_sla repository and the sala help site.
+
 > **Design Date**: June 14, 2026
 > **Version**: v0.1-draft
 > **Target Platform**: SA (Safe ASM) v0.1

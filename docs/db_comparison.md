@@ -1,5 +1,7 @@
 # SA DB Plugin vs SQLite
 
+> **状态（2026-11-05 文档审计）**：2026-06-12 历史对比快照，与 db_plugin_evaluation.md 同源同数据（非独立第二证据）；原始 runs 在仓外未归档，数字不可复核。
+
 日期：2026-06-12
 目的：用 SA 写同一组会员库 benchmark，对比 db 插件和 SQLite 的实际表现。
 

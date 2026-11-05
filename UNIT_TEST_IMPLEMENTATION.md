@@ -1,5 +1,7 @@
 # SA Native Unit Test Framework - Implementation Summary
 
+> **状态（2026-11-05 文档审计）**：本文为 SA 原生单元测试框架的实现总结（历史记录）；现行测试框架文档见 docs/unit_test_framework.md。
+
 ## Overview
 This document summarizes the implementation of the SA native unit test framework, which enables developers to write `@test` functions directly in `.sa` files and run them with the `sa test` command.
 

@@ -1,5 +1,7 @@
 # bc2sa 可行性评估报告
 
+> **状态（2026-11-05 文档审计）**：2026-05-17 历史可行性评估；bc2sa 其后已落地为子集原型（顶层命令，实现在 src/llvm2sa.zig），phi 障碍判断仍成立。实现路径不是文中同批计划所称的 src/bc2sa.zig。
+
 > 评估日期：2026-05-17
 > 评估范围：基于本仓库 `src/emit_llvm_llvmc.zig`、`src/common/instruction.zig`、`.sa.bc` 产物及现有编译管线的深度分析。
 

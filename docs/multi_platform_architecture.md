@@ -1,5 +1,7 @@
 # SA-ASM 全平台架构设计与 PAL 实施指南
 
+> **状态（2026-11-05 文档审计）**：历史设计稿（无日期），已被取代：PAL 方案未实施（src/runtime 无 pal*.zig、sa_event_loop_* ABI 不存在）。实际跨平台路线为 sa_std_windows.zig bootstrap，见 windows_support_development_plan.md 与 windows_support_level.txt。本篇仅存档。
+
 ## 1. 架构现状与痛点评估
 SA-ASM 初期开发为了追求极致性能，将运行时的核心系统服务（System Services）和事件驱动基座（Reactor）深度绑定了 Linux 特性：
 - 进程与路径处理依赖 `/proc/self/cmdline`。

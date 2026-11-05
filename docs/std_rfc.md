@@ -1,5 +1,7 @@
 # SA-ASM Standard Library (sa_std) RFC
 
+> **状态（2026-11-05 文档审计）**：本文为混合体——§1–§6 是早期 RFC/规划（含已过期的阶段预言，如 §6 的 9-bit CapabilityMask 计划、§5.4 的 YAML/TOML 禁入核心约束，均已被现状越过，见各处订正注），§7 起为执行方向与现行登记。引用时请区分两部分。
+
 ## 1. 概述 (Overview)
 
 由于 SA (safe asm, 安全汇编) 刻意移除了内置的类型系统、结构体 (struct)、数组及泛型，标准库 `sa_std` 的本质与传统语言（如 Rust 的 `std` 或 C 的 `libc`）完全不同。
@@ -18,7 +20,7 @@
 
 `term` 侧补充 `SaTermWinsize` 与 `SaTermEpollEvent` 两个布局常量：前者用于读取窗口大小，后者用于承载 `epoll_wait` 的事件数组。raw mode 会通过 `sa_term_raw_enter` / `sa_term_raw_leave` 形成显式 session 对象，避免把终端状态隐式散落在调用栈里。
 
-仓库内已经附带静态归档 `artifacts/sa_std/libsa_std.a`，可直接用于链接或分发。它由 `zig build sa-std-static -Doptimize=Debug` 生成，对应实现源码位于 `src/runtime/sa_std.zig`，C ABI 头文件位于 `src/runtime/sa_std.h`。
+仓库内已经附带静态归档 `artifacts/sa_std/libsa_std.a`〔订正 2026-11-05：该归档是构建产物，当前仓内**未附带**（artifacts/sa_std/ 下无 .a 文件）；下文的生成方式与源码位置仍成立〕，可直接用于链接或分发。它由 `zig build sa-std-static -Doptimize=Debug` 生成，对应实现源码位于 `src/runtime/sa_std.zig`，C ABI 头文件位于 `src/runtime/sa_std.h`。
 
 公共 API 保持 Rust-like 命名与行为，但遵守 SA 约束：没有 trait/generic，句柄都是显式 `ptr`，拥有的句柄或缓冲区必须显式 `close` / `free`，写入端必须显式 `flush`。已有 demo 使用的 `sa_print_bytes(&msg, len)` 继续保留，语义等价于 `stdout().write_all(bytes)` 的兼容入口。
 
@@ -211,7 +213,7 @@ SA 没有原生数组长度的概念，必须通过胖指针 (Fat Pointer) 约�
     *   **JSON:** 作为 Web 生态的最基础血液，**JSON 是唯一被内置进 `sa_std` 核心的序列化格式**。它直接对接现成的 Zig 标准库（`std.json`），并同时提供 DOM 和流式（Streaming）两套解析 API 以应对不同体量的数据。
     *   **Regex (正则表达式):** 由于 Zig `std` 原生不带正则引擎，底层通过 Zig 的零成本 C 互操作性，桥接 POSIX `<regex.h>` 或轻量级 PCRE2。
 *   **严格边界约束 (YAML/XML/TOML 下放策略)：**
-    *   为了保持 `sa_std` 核心的极度纯粹和体积精简，**YAML、XML、TOML 等格式严禁放入标准库**。
+    *   为了保持 `sa_std` 核心的极度纯粹和体积精简，**YAML、XML、TOML 等格式严禁放入标准库**。〔现状注 2026-11-05：本约束未被遵守——现行 `sa_std/encoding/` 内已有 `toml.sai/.sla`、`yaml.sai/.sla`（位于核心内）。本条保留为 RFC 原始立场记录，现状以仓内文件为准。〕
     *   因为 Zig 原生不包含这些引擎，强行塞入 `sa_std` 会导致底层必须打包臃肿的 C 库（如 libyaml、expat）。
     *   **解决方案：** 它们将被移出核心，做成独立的官方扩展包（Ecosystem Packages / Runtime Plugins）。当用户需要时，通过依赖声明单独引入。
 *   **示例 1 (JSON 核心模块设计)：`sa_std/encoding/json.sai`**
@@ -268,7 +270,7 @@ SA 没有原生数组长度的概念，必须通过胖指针 (Fat Pointer) 约�
 3. **LLM 友好性：** LLM 几乎不可能直接写对无缺陷的 `HashMap` 扩容逻辑。提供标准库后，LLM 仅需拼接高层宏调用，大幅降低代码生成的废品率。
 
 **下一步建议：**
-先在编译器层面实现完整的 9-bit `CapabilityMask` 扩展和原子指令解析，再开启 `sa_std` 第一阶段的代码编写。
+先在编译器层面实现完整的 9-bit `CapabilityMask` 扩展和原子指令解析，再开启 `sa_std` 第一阶段的代码编写。〔订正 2026-11-05：CapabilityMask 现已扩展至 10 位（`src/common/capability.zig`，至 0x0200 InteriorPtr），本步预言已被越过。〕
 
 ---
 
@@ -331,7 +333,7 @@ JSON 不再作为 SAASM 里需要手写完整树结构的目标，而是优先�
 
 为了支撑高性能 Web API 中转（如 OpenAI 协议转发）场景，标准库将补充出站（Outbound）HTTPS 请求能力。
 
-### 8.1 示例 3 (HTTP Client 核心模块)：sa_std/net/http_client.sai
+### 8.1 示例 3 (HTTP Client 核心模块)：sa_std/http_client.sai〔订正 2026-11-05：实际路径为 sa_std 顶层，原标题的 sa_std/net/ 前缀不存在〕
 采用不透明句柄 (Opaque Handle) + Builder 模式，支持流式 Chunked 返回：
 
 ```sa

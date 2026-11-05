@@ -12,6 +12,7 @@ Use it together with:
 
 - Trap names are stable public identifiers.
 - Trap enum ordinals are not public numeric codes.
+- Public numeric codes do exist: they come from the explicit `trapCode()` mapping in `src/common/trap.zig` (e.g. `ForbiddenSyntax` = 1001), never from enum ordinals.
 - Do not infer meaning from enum order.
 - Prefer structured diagnostics over bare strings.
 - Follow Zig-style `ErrorMsg` / `ErrorBundle` thinking for notes and hints, but keep SA output JSON-first.
@@ -54,9 +55,40 @@ Use it together with:
 | `FallibleContractMismatch` | Referee | emitted |
 | `InvalidAtomicOrdering` | Flattener / CLI mapping | emitted |
 | `AtomicOrderingMismatch` | Referee | emitted |
+| `UnauthorizedPrimitive` | Referee | registered |
+| `UpstreamShaMismatch` | Flattener / CLI flatten wrapper | registered |
+| `TestFuncSignatureMismatch` | Test runner / Referee | registered |
+| `DbCapabilityEscalation` | DB subsystem | registered |
+| `DbMemoryGuardViolation` | DB subsystem | registered |
+| `DbBlobArenaOom` | DB subsystem | registered |
+| `DbConcurrencyConflict` | DB subsystem | registered |
+| `DbSchemaMismatch` | DB subsystem | registered |
+| `DbCursorOverflow` | DB subsystem | registered |
+| `DbColumnTypeMismatch` | DB subsystem | registered |
+| `DbQueryHashUnknown` | DB subsystem | registered |
+| `DbBlobHandleInvalid` | DB subsystem | registered |
+| `DbSnapshotCorrupted` | DB subsystem | registered |
+| `DbDuplicateRegister` | DB subsystem | registered |
+| `DbForbiddenSqlString` | DB subsystem | registered |
+| `SaxStateLeak` | SAX frontend | registered |
+| `SaxEventEscape` | SAX frontend | registered |
+| `SaxRenderOutsideHandler` | SAX frontend | registered |
+| `SaxInvalidInterpolation` | SAX frontend | registered |
+| `SaxStateWriteFromOutside` | SAX frontend | registered |
+| `SaxUnknownTag` | SAX frontend | registered |
+| `SaxUnknownEvent` | SAX frontend | registered |
+| `MachineCodeHashMismatch` | CLI / pkg | registered |
+| `BlockedRiskUnconfirmed` | CLI / pkg | registered |
+| `MissingTtyForConfirmation` | CLI / pkg | registered |
+| `ForbiddenGlobalConfig` | CLI / pkg | registered |
+| `SumHashMismatch` | CLI / pkg | registered |
+| `CorruptedSignature` | CLI / pkg | registered |
+| `GpuSubsetViolation` | Referee / @gpu | registered |
+| `UndefinedMacro` | Flattener | registered |
 
 Notes:
 - `GasExceeded`, `SnapshotVersionMismatch`, and `VTableSignatureMismatch` are namespace-reserved, but not fully wired through the current pipeline.
+- The `Trap` enum in `src/common/trap.zig` has **60** members (synced 2026-11-05). Rows marked "registered" above are the members added after this guide's first edition; their public numeric codes (`trapCode()`): UnauthorizedPrimitive 1043, UpstreamShaMismatch 1044, TestFuncSignatureMismatch 1030, Db* 1031–1042 (in table order), Sax* 1045–1049 + SaxUnknownTag 1051 + SaxUnknownEvent 1052, MachineCodeHashMismatch 1053, BlockedRiskUnconfirmed 1054, MissingTtyForConfirmation 1055, ForbiddenGlobalConfig 1056, SumHashMismatch 1057, CorruptedSignature 1058, GpuSubsetViolation 1059, UndefinedMacro 1060.
 
 ### 2.2 Stage-Local Error Sets
 
@@ -92,6 +124,7 @@ These are not Trap codes. They are ABI-compatible integers returned by `sa_std` 
 | `7` | `SA_STD_ERR_NET` |
 | `8` | `SA_STD_ERR_UNSUPPORTED` |
 | `9` | `SA_STD_ERR_TRUNCATED` |
+| `10` | `SA_STD_ERR_PERMISSION_DENIED` |
 | `127` | `SA_STD_ERR_UNKNOWN` |
 
 ## 3. JSON Diagnostics
@@ -118,8 +151,8 @@ Current `TrapReport` fields:
 Notes:
 - `register_buf` and `function_buf` are internal fallback buffers.
 - `upstream_file_buf`, `upstream_line`, and `upstream_col` are internal fallback carriers.
-- A future `trap_code` field may be added later, but it must be explicit and not derived from enum ordinals.
-- A future `source_text` or `original_text` field can be added for LLM repair workflows.
+- `trap_code` **already exists**: `TrapReport.trap_code: ?u32` is populated from the explicit `trapCode()` mapping (not derived from enum ordinals) and serialized in JSON output.
+- `source_text` and `original_text` fields **already exist** on `TrapReport` for LLM repair workflows; the struct also carries `file`, `column`, `bad_token`, `context`, and `repair_action` / `repair_hint` / `repair_confidence` / `repair_alternatives` fields not listed in the table above.
 
 ### Example
 
@@ -143,6 +176,8 @@ Notes:
 ```
 
 ## 4. Public Trap Catalog
+
+> Coverage note (2026-11-05): the detailed catalog below covers the original 30 traps. The remaining 30 registered traps (Db*, Sax*, pkg/CLI guards, `GpuSubsetViolation`, `UndefinedMacro`, …) are listed with their codes in §2.1; per-trap trigger/message details for them live with their subsystems.
 
 | Code | Namespace | Stage | Current trigger | Message / hint shape | Status |
 |---|---|---|---|---|---|

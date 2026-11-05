@@ -1,5 +1,7 @@
 # SlaX: 基于 Sla 驱动的安全 UI 框架设计与集成方案
 
+> **状态（2026-11-05）**：未落地的设计稿（v0.1-草案，2026年6月14日）。本仓（及下方误写的 SAX 插件路径处）不存在 `.slax` 文件格式与 SlaX 实现，请勿以本文作为语法依据。SAX 现行文档见 `docs/sax_whitepaper.md` / `docs/sax_syntax.md` / `docs/sax_airlock.md` / `docs/sax_design.md`。
+
 > **设计日期**：2026年6月14日
 > **版本**：v0.1-草案
 > **模块路径**：`/home/vscode/projects/sa_plugins/sa_plugin_sax`

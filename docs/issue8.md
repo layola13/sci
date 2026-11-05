@@ -1,5 +1,7 @@
 # SA Compiler — Core/Kernel Performance Deep Dive (issue8)
 
+> **状态（2026-11-05 文档审计）**：2026-06-10 历史性能审查与状态记录；切片完成情况经 issue9 复扫背书，行号已漂移。
+
 Continuation of issue7. This pass focuses exclusively on the compiler kernel: `src/flattener.zig`, `src/verifier.zig`, `src/interp.zig`, `src/lowerer.zig`, `src/common/`, `src/referee/`, `src/flattener/`. The audit reads the actual source — every finding includes file:line. Ordered by expected wall-clock impact on `sa run` and `sa build-exe` of realistic SA programs.
 
 The kernel is fundamentally well-shaped (flat arrays, no AST, no graph theory — matches the whitepaper R20 principles). The wins are mostly in five areas:

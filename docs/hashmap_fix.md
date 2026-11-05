@@ -1,5 +1,7 @@
 # HashMap / HashSet 修复记录
 
+> **状态（2026-11-05 文档审计）**：历史修复记录（原文未注日期）；核心修复（&key 借用签名）经核实现仍在 sa_std/hashmap.sa:9。208/208 为当时测试总量、已不可对拍。文中相对链接 sa_std/hashmap.sa 路径有误（应为 ../sa_std/）。
+
 > 相关 SA-ASM 语义说明: [`sa-asm` 技能](../.codex/skills/sa-asm/SKILL.md)
 
 ## 1. 现象

@@ -1,5 +1,7 @@
 # SA-ASM Playground & Rust2SA 演进计划
 
+> **状态（2026-11-05 文档审计）**：历史计划（无日期），Playground 本体未入仓；bc2sa 已以 src/llvm2sa.zig 原型落地（非文中 src/bc2sa.zig 路径）。与 playground_and_converter_plan.md 路线不同，须并读。
+
 本文档评估了构建 SA-ASM Playground 的可行性，并详细探讨了 Rust 到 SA-ASM (Rust2SA) 的转换路径及实现方案。
 
 ## 1. 核心需求

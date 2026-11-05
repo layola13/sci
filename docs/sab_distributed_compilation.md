@@ -4,6 +4,8 @@
 > 状态: 设计草案  
 > 关联: `sab_evaluation.md`, `design.md` §3.2b, `package_management.md`
 
+> **状态（2026-11-05 复核）**：本文为设计草案，未实现部分为 `sa build --emit-sab`、`build-workspace --distributed` 与 SAB 链接器；`sa check --emit-sab` 已落地（cli.zig:1558 帮助、8693 实现、10842 回归测试）。SAB 现状口径以 SAB 白皮书（sala `03_sa_asm/08_sab_whitepaper.html`）为准：往返分 L1/L2 两级、L2 未达成，解码表示存在不对称（loadSabFlat 的 loc_table 全 null、layout_versions/def_dict/package_identities 为空）；本文 §2.1「天然适配、无需格式修改」与 §7 性能倍数均为设计口径、非实测，引用时须注明。
+
 ---
 
 ## 一、问题背景
@@ -24,7 +26,7 @@ SA 当前采用**扁平化单体编译模型**：`@import` 在 Flattener 阶段�
 
 | 维度 | SAB 能力 | 分布式编译需求 | 适配度 |
 |---|---|---|---|
-| **自包含** | 含完整 symbols + function_sigs + const_decls + instructions | 模块可独立编译 | ✅ 完全适配 |
+| **自包含** | 含完整 symbols + function_sigs + const_decls + instructions〔2026-11-05 注：对调试/布局信息不成立——解码侧 loc_table 全 null、layout_versions/def_dict 为空，见文首状态头〕 | 模块可独立编译 | ✅ 完全适配 |
 | **结构化接口** | function_sigs 携带参数类型、capability 前缀 | 跨模块调用签名验证 | ✅ 完全适配 |
 | **宏已展开** | cached_macro_defs 不需要 | 无需跨模块传播宏定义 | ✅ 天然解决 |
 | **二进制紧凑** | ULEB128 编码，0.3-0.5x 文本大小 | 网络传输高效 | ✅ 完全适配 |
@@ -37,7 +39,7 @@ SA 当前采用**扁平化单体编译模型**：`@import` 在 Flattener 阶段�
 
 | 缺失能力 | 重要性 | 说明 |
 |---|---|---|
-| `--emit-sab` CLI flag | **P0** | 编译管线无法产出 .sab 文件 |
+| `--emit-sab` CLI flag | **P0** | 编译管线无法产出 .sab 文件〔2026-11-05 订正：前提已变——`sa check --emit-sab <path>` 已实现；仍缺的是本文设想的 `sa build --emit-sab` 形态〕 |
 | 跨模块 Referee 验证 | **P0** | 无法验证模块间调用签名一致性 |
 | SAB 模块链接器 | **P0** | 无法合并多个 .sab 为统一编译单元 |
 | 模块缓存失效 | P1 | 无法检测 .sab 是否需要重新编译 |
@@ -404,7 +406,7 @@ SAB 缓存 (粗粒度): 缓存完整的模块编译结果 → 跳过整个 flatt
 
 SAB 分布式编译对 WASM 目标**完全适用**，性能改进幅度与 Native 一致。
 
-**代码证据**：`compileSource` (cli.zig:4228) 是所有编译命令的共享入口，`.sab` 后缀识别已内置：
+**代码证据**：`compileSource` (cli.zig:5518；原文写作时为 4228) 是所有编译命令的共享入口，`.sab` 后缀识别已内置：
 
 ```
 sa build-exe  main.sab  →  compileSource → loadSabFlat → Referee → LLVM → zig cc
