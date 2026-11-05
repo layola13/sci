@@ -403,6 +403,24 @@ pub fn build(b: *std.Build) void {
     const js_matrix_step = b.step("js-matrix", "Run JS backend demo equivalence matrix under node");
     js_matrix_step.dependOn(&run_js_matrix.step);
 
+    const emit_sab_inprocess_module = b.createModule(.{
+        .root_source_file = b.path("tests/emit_sab_inprocess_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    emit_sab_inprocess_module.addImport("sio", sio_module);
+    emit_sab_inprocess_module.addImport("saasm", lib_module);
+    emit_sab_inprocess_module.addOptions("build_options", build_options);
+    const emit_sab_inprocess = b.addTest(.{
+        .root_module = emit_sab_inprocess_module,
+    });
+    const run_emit_sab_inprocess = b.addRunArtifact(emit_sab_inprocess);
+    run_emit_sab_inprocess.setCwd(repo_root_lazy);
+    addLlvmBinDirToRun(b, run_emit_sab_inprocess, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    test_step.dependOn(&run_emit_sab_inprocess.step);
+    const emit_sab_inprocess_step = b.step("emit-sab-inprocess-smoke", "Run finding D in-process check --emit-sab regression");
+    emit_sab_inprocess_step.dependOn(&run_emit_sab_inprocess.step);
+
     const c_matrix_module = b.createModule(.{
         .root_source_file = b.path("tests/c_matrix_smoke.zig"),
         .target = target,

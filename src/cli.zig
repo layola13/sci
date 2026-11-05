@@ -596,6 +596,15 @@ const CompileOptions = struct {
     diagnostic_writer: ?*std.Io.Writer = null,
     sab_selected_test_names: []const []const u8 = &.{},
     sab_skip_verify: bool = false,
+    /// Skip the process-global verdict-cache fast path and always run the
+    /// referee, leaving the returned FlattenResult pristine. Required by
+    /// consumers that re-derive everything from the flat itself (check
+    /// --emit-sab): the fast path's trusted shell repurposes the flat in
+    /// place (reg operands localized to slots, symbols/function sigs moved
+    /// out), which the standalone SAB encode/verify cannot consume
+    /// (finding D: second in-process emit-sab on an identical stream
+    /// trapped with a spurious verification trap).
+    skip_verdict_cache: bool = false,
     target_triple: ?[]const u8 = null,
     /// Rust-style mutability: allocations bind immutable values and writing
     /// through them requires an explicit exclusive borrow.
@@ -8711,6 +8720,11 @@ fn executeCheck(
     const source_path = source_arg.?;
     configureCompileDiagnostics(&compile_options, json_mode);
 
+    // --emit-sab encodes from the flat itself (encodeSabFromFlat re-verifies
+    // the pristine stream and reads flat.symbols), so the verdict-cache
+    // fast path must not repurpose that flat in place (finding D).
+    compile_options.skip_verdict_cache = emit_sab_path != null;
+
     const total_start = std.Io.Clock.awake.now(sio.io());
     // Flatten via compileSource front half by reusing compileSource then discarding codegen.
     // Fast path: if we already verified this instruction stream, skip verify.
@@ -8827,7 +8841,7 @@ fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, 
 
     const content_hash = incr_verify.hashInstructionsMode(flat.instructions, verifyModeByte(options.default_immutable));
     const verify_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    if (incr_verify.isVerified(content_hash)) {
+    if (!options.skip_verdict_cache and incr_verify.isVerified(content_hash)) {
         // Verdict hit: build a trusted shell without re-running the referee.
         const trusted = try trustedSabVerifyOk(allocator, &flat);
         const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
