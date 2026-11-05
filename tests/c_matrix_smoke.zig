@@ -189,7 +189,7 @@ fn assertCMatrixStdoutStdlink(path: []const u8, expected_stdout: []const u8) !vo
 
     const archive_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/artifacts/sa_std/libsa_std.a", .{repo_root});
     defer std.testing.allocator.free(archive_path);
-    const cc_argv = [_][]const u8{ zig_exe, "cc", "-DSA_GAS_LIMIT=100000000", c_name, archive_path, "-o", exe_name, "-lm", "-lpthread", "-ldl" };
+    const cc_argv = [_][]const u8{ zig_exe, "cc", "-DSA_GAS_LIMIT=100000000", c_name, archive_path, "-o", exe_name, "-lm", "-lpthread", "-ldl", "-licuuc", "-licui18n", "-licudata" };
     const cc_res = try sio.Child.run(.{ .allocator = std.testing.allocator, .argv = cc_argv[0..] });
     defer std.testing.allocator.free(cc_res.stdout);
     defer std.testing.allocator.free(cc_res.stderr);
@@ -319,7 +319,7 @@ fn assertCMatrixStdoutViaSabStdlink(path: []const u8, expected_stdout: []const u
 
     const archive_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/artifacts/sa_std/libsa_std.a", .{repo_root});
     defer std.testing.allocator.free(archive_path);
-    const cc_argv = [_][]const u8{ zig_exe, "cc", "-DSA_GAS_LIMIT=100000000", c_name, archive_path, "-o", exe_name, "-lm", "-lpthread", "-ldl" };
+    const cc_argv = [_][]const u8{ zig_exe, "cc", "-DSA_GAS_LIMIT=100000000", c_name, archive_path, "-o", exe_name, "-lm", "-lpthread", "-ldl", "-licuuc", "-licui18n", "-licudata" };
     const cc_res = try sio.Child.run(.{ .allocator = std.testing.allocator, .argv = cc_argv[0..] });
     defer std.testing.allocator.free(cc_res.stdout);
     defer std.testing.allocator.free(cc_res.stderr);
