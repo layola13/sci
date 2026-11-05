@@ -1960,3 +1960,609 @@ L_MAP_ENTRY_AND_MODIFY_END_%out_ok:
 [MACRO] MAP_DEFAULT %out_map
     EXPAND MAP_NEW %out_map
 [END_MACRO]
+// ==== String-keyed map variants (DEF-INSERT-GETMISS) ====
+// Hash basis note: @map_hash_str_seed mixes the seed with a positive
+// literal instead of materializing HashMap_FNV_OFFSET (a negative i64
+// #def): the #def-plus-bitcast form lands as a wide imm_i64 in the
+// flattened stream and trips the SAB template decoder (sci sab.zig
+// decodeSleb128 overflow), crashing every SAB compile that imports this
+// file. The literal is an arbitrary odd basis; only in-process
+// consistency between insert and lookup matters.
+// The generic map above keys slots by the key register's identity bits.
+// For owned String keys that is wrong at the SLA level: two distinct String
+// handles with equal bytes must hit the same slot. The _str variants below
+// hash and compare the key's byte content instead. The map adopts the key
+// handle passed to insert/put (the slot stores the handle itself), so the
+// stored key's bytes stay alive with the map. @map_rehash and
+// @map_table_insert are shared unchanged: rehash re-inserts by the stored
+// (content) hash and stored handle, which the token probe resolves
+// correctly because the probed handle is the stored one.
+
+@map_hash_str_seed(&key: ptr, seed: u64) -> u64:
+L_ENTRY:
+    data = load key+Vec_ptr as ptr
+    len = load key+Vec_len as u64
+    h_init = xor seed, 1469598103934665603
+    h_slot = stack_alloc 8
+    idx_slot = stack_alloc 8
+    store h_slot+0, h_init as u64
+    store idx_slot+0, 0 as u64
+    !h_init
+    jmp L_HASH_STR_HEAD
+
+L_HASH_STR_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, len
+    br done -> L_HASH_STR_DONE, L_HASH_STR_BODY
+
+L_HASH_STR_BODY:
+    byte_ptr = ptr_add data, idx
+    byte = load byte_ptr+0 as u8
+    byte64 = zext byte as u64
+    h = load h_slot+0 as u64
+    mixed = xor h, byte64
+    next_h = mul mixed, HashMap_FNV_PRIME
+    store h_slot+0, next_h as u64
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !next_h
+    !mixed
+    !h
+    !byte64
+    !byte
+    !byte_ptr
+    !done
+    !idx
+    jmp L_HASH_STR_HEAD
+
+L_HASH_STR_DONE:
+    raw = load h_slot+0 as u64
+    shift1 = 32 as u64
+    shift2 = 16 as u64
+    shift3 = 8 as u64
+    bits1 = shr raw, shift1
+    hash1 = xor raw, bits1
+    bits2 = shr hash1, shift2
+    hash2 = xor hash1, bits2
+    bits3 = shr hash2, shift3
+    hash3 = xor hash2, bits3
+    !shift3
+    !shift2
+    !shift1
+    !bits3
+    !bits2
+    !bits1
+    !hash2
+    !hash1
+    !raw
+    !done
+    !idx
+    !len
+    !data
+    !seed
+    !key
+    return hash3
+
+@map_str_key_eq(&a: ptr, &b: ptr) -> i32:
+L_ENTRY:
+    a_len = load a+Vec_len as u64
+    b_len = load b+Vec_len as u64
+    same_len = eq a_len, b_len
+    br same_len -> L_STR_EQ_LOOP_INIT, L_STR_EQ_DIFF
+
+L_STR_EQ_DIFF:
+    !same_len
+    !b_len
+    !a_len
+    !b
+    !a
+    return 0
+
+L_STR_EQ_LOOP_INIT:
+    a_data = load a+Vec_ptr as ptr
+    b_data = load b+Vec_ptr as ptr
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    jmp L_STR_EQ_HEAD
+
+L_STR_EQ_HEAD:
+    idx = load idx_slot+0 as u64
+    done = eq idx, a_len
+    br done -> L_STR_EQ_SAME, L_STR_EQ_BODY
+
+L_STR_EQ_BODY:
+    a_byte_ptr = ptr_add a_data, idx
+    b_byte_ptr = ptr_add b_data, idx
+    a_byte = load a_byte_ptr+0 as u8
+    b_byte = load b_byte_ptr+0 as u8
+    same_byte = eq a_byte, b_byte
+    br same_byte -> L_STR_EQ_NEXT, L_STR_EQ_MISMATCH
+
+L_STR_EQ_NEXT:
+    next_idx = add idx, 1
+    store idx_slot+0, next_idx as u64
+    !next_idx
+    !same_byte
+    !b_byte
+    !a_byte
+    !b_byte_ptr
+    !a_byte_ptr
+    !done
+    !idx
+    jmp L_STR_EQ_HEAD
+
+L_STR_EQ_MISMATCH:
+    !same_byte
+    !b_byte
+    !a_byte
+    !b_byte_ptr
+    !a_byte_ptr
+    !done
+    !idx
+    !b_data
+    !a_data
+    !same_len
+    !b_len
+    !a_len
+    !b
+    !a
+    return 0
+
+L_STR_EQ_SAME:
+    !done
+    !idx
+    !b_data
+    !a_data
+    !same_len
+    !b_len
+    !a_len
+    !b
+    !a
+    return 1
+
+@map_table_probe_str(&slots: ptr, cap: u64, hash: u64, &key: ptr, &out_index: ptr, &out_found: ptr) -> void:
+L_ENTRY:
+    index_slot = stack_alloc 8
+    remaining_slot = stack_alloc 8
+    store out_found+0, 0 as u64
+    store out_index+0, 0 as u64
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_PROBE_STR_END, L_PROBE_STR_INIT
+
+L_PROBE_STR_INIT:
+    cap_minus_one = sub cap, 1
+    start_index = and hash, cap_minus_one
+    store index_slot+0, start_index as u64
+    store remaining_slot+0, cap as u64
+    !start_index
+    !cap_minus_one
+    jmp L_PROBE_STR_LOOP
+
+L_PROBE_STR_LOOP:
+    remaining = load remaining_slot+0 as u64
+    exhausted = eq remaining, 0
+    br exhausted -> L_PROBE_STR_EXHAUSTED, L_PROBE_STR_BODY
+
+L_PROBE_STR_BODY:
+    !exhausted
+    index = load index_slot+0 as u64
+    slot_off = mul index, HashMapSlot_SIZE
+    slot = ptr_add slots, slot_off
+    state = load slot+HashMapSlot_state as u8
+    is_empty = eq state, HashMap_STATE_EMPTY
+    br is_empty -> L_PROBE_STR_EMPTY, L_PROBE_STR_NONEMPTY
+
+L_PROBE_STR_NONEMPTY:
+    slot_hash = load slot+HashMapSlot_hash as u64
+    hash_match = eq slot_hash, hash
+    br hash_match -> L_PROBE_STR_KEY_CHECK, L_PROBE_STR_STEP
+
+L_PROBE_STR_STEP:
+    next_index = add index, 1
+    wrapped = eq next_index, cap
+    next_remaining = sub remaining, 1
+    store remaining_slot+0, next_remaining as u64
+    !next_remaining
+    !slot_hash
+    !hash_match
+    !is_empty
+    !state
+    !slot
+    !slot_off
+    !index
+    !remaining
+    br wrapped -> L_PROBE_STR_WRAP, L_PROBE_STR_CONT
+
+L_PROBE_STR_WRAP:
+    store index_slot+0, 0 as u64
+    !next_index
+    !wrapped
+    jmp L_PROBE_STR_LOOP
+
+L_PROBE_STR_CONT:
+    store index_slot+0, next_index as u64
+    !next_index
+    !wrapped
+    jmp L_PROBE_STR_LOOP
+
+L_PROBE_STR_KEY_CHECK:
+    slot_key = load slot+HashMapSlot_key as ptr
+    key_match_i32 = call @map_str_key_eq(&slot_key, &key)
+    key_match = ne key_match_i32, 0
+    br key_match -> L_PROBE_STR_FOUND, L_PROBE_STR_KEY_MISS
+
+L_PROBE_STR_FOUND:
+    store out_index+0, index as u64
+    store out_found+0, 1 as u64
+    !key_match
+    !key_match_i32
+    !slot_key
+    !slot_hash
+    !hash_match
+    !is_empty
+    !state
+    !slot
+    !slot_off
+    !index
+    !remaining
+    jmp L_PROBE_STR_END
+
+L_PROBE_STR_KEY_MISS:
+    !key_match
+    !key_match_i32
+    !slot_key
+    jmp L_PROBE_STR_STEP
+
+L_PROBE_STR_EMPTY:
+    store out_index+0, index as u64
+    !is_empty
+    !state
+    !slot
+    !slot_off
+    !index
+    !remaining
+    jmp L_PROBE_STR_END
+
+L_PROBE_STR_EXHAUSTED:
+    current_index = load index_slot+0 as u64
+    store out_index+0, current_index as u64
+    !current_index
+    !remaining
+    !exhausted
+    jmp L_PROBE_STR_END
+
+L_PROBE_STR_END:
+    !cap_is_zero
+    !slots
+    !cap
+    !hash
+    !key
+    !out_index
+    !out_found
+    return
+
+@map_probe_existing_str(&map: ptr, &key: ptr, &out_slot: ptr) -> i32:
+L_ENTRY:
+    slots = load map+HashMap_slots as ptr
+    cap = load map+HashMap_cap as u64
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_PROBE_EXISTING_STR_ZERO, L_PROBE_EXISTING_STR_RUN
+
+L_PROBE_EXISTING_STR_RUN:
+    seed = load map+HashMap_seed as u64
+    hash = call @map_hash_str_seed(&key, seed)
+    probe_index_slot = stack_alloc 8
+    probe_found_slot = stack_alloc 8
+    call @map_table_probe_str(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    probe_found = load probe_found_slot+0 as u64
+    found = ne probe_found, 0
+    br found -> L_PROBE_EXISTING_STR_HIT, L_PROBE_EXISTING_STR_MISS
+
+L_PROBE_EXISTING_STR_HIT:
+    probe_index = load probe_index_slot+0 as u64
+    slot_off = mul probe_index, HashMapSlot_SIZE
+    slot = ptr_add slots, slot_off
+    store out_slot+0, slot as ptr
+    !slot
+    !slot_off
+    !probe_index
+    !found
+    !probe_found
+    !hash
+    !seed
+    !cap_is_zero
+    !cap
+    !slots
+    !out_slot
+    !key
+    !map
+    return 1
+
+L_PROBE_EXISTING_STR_MISS:
+    store out_slot+0, 0 as ptr
+    !found
+    !probe_found
+    !hash
+    !seed
+    !cap_is_zero
+    !cap
+    !slots
+    !out_slot
+    !key
+    !map
+    return 0
+
+L_PROBE_EXISTING_STR_ZERO:
+    store out_slot+0, 0 as ptr
+    !cap_is_zero
+    !cap
+    !slots
+    !out_slot
+    !key
+    !map
+    return 0
+
+@export sa_map_try_get_str(&map: ptr, &key: ptr, &out_value_slot: ptr) -> i32:
+L_ENTRY:
+    slot_slot = stack_alloc 8
+    found = call @map_probe_existing_str(&map, &key, &slot_slot)
+    found_nonzero = ne found, 0
+    br found_nonzero -> L_TRY_GET_STR_HIT, L_TRY_GET_STR_MISS
+
+L_TRY_GET_STR_HIT:
+    slot = load slot_slot+0 as ptr
+    value = load slot+HashMapSlot_value as ptr
+    store out_value_slot+0, value as ptr
+    !value
+    !slot
+    !found_nonzero
+    !found
+    !out_value_slot
+    !key
+    !map
+    return 1
+
+L_TRY_GET_STR_MISS:
+    store out_value_slot+0, 0 as ptr
+    !found_nonzero
+    !found
+    !out_value_slot
+    !key
+    !map
+    return 0
+
+@export sa_map_get_str(&map: ptr, &key: ptr) -> &ptr:
+L_ENTRY:
+    slots = load map+HashMap_slots as ptr
+    cap = load map+HashMap_cap as u64
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_GET_STR_MISS_ZERO, L_GET_STR_PROBE
+
+L_GET_STR_PROBE:
+    seed = load map+HashMap_seed as u64
+    hash = call @map_hash_str_seed(&key, seed)
+    probe_index_slot = stack_alloc 8
+    probe_found_slot = stack_alloc 8
+    call @map_table_probe_str(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    probe_found = load probe_found_slot+0 as u64
+    found = ne probe_found, 0
+    br found -> L_GET_STR_HIT, L_GET_STR_MISS_PROBE
+
+L_GET_STR_HIT:
+    probe_index = load probe_index_slot+0 as u64
+    slot_off = mul probe_index, HashMapSlot_SIZE
+    slot = ptr_add slots, slot_off
+    value = load slot+HashMapSlot_value as ptr
+    !slot
+    !slot_off
+    !probe_index
+    !probe_found
+    !hash
+    !seed
+    !key
+    !cap
+    !cap_is_zero
+    !slots
+    return value
+
+L_GET_STR_MISS_PROBE:
+    !probe_found
+    !hash
+    !seed
+    !key
+    !cap
+    !cap_is_zero
+    !slots
+    return 0
+
+L_GET_STR_MISS_ZERO:
+    !cap
+    !cap_is_zero
+    !key
+    !slots
+    return 0
+
+@export sa_map_contains_key_str(&map: ptr, &key: ptr) -> i32:
+L_ENTRY:
+    slots = load map+HashMap_slots as ptr
+    cap = load map+HashMap_cap as u64
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_CONTAINS_STR_MISS_ZERO, L_CONTAINS_STR_PROBE
+
+L_CONTAINS_STR_PROBE:
+    seed = load map+HashMap_seed as u64
+    hash = call @map_hash_str_seed(&key, seed)
+    probe_index_slot = stack_alloc 8
+    probe_found_slot = stack_alloc 8
+    call @map_table_probe_str(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    probe_found = load probe_found_slot+0 as u64
+    found = ne probe_found, 0
+    result = found as i32
+    !probe_found
+    !hash
+    !seed
+    !key
+    !cap
+    !cap_is_zero
+    !slots
+    return result
+
+L_CONTAINS_STR_MISS_ZERO:
+    !cap
+    !cap_is_zero
+    !key
+    !slots
+    return 0
+
+@export sa_map_put_str(&map: ptr, &key: ptr, &value: ptr) -> void:
+L_ENTRY:
+    slots = load map+HashMap_slots as ptr
+    cap = load map+HashMap_cap as u64
+    len = load map+HashMap_len as u64
+    tombs = load map+HashMap_tombs as u64
+    used = add len, tombs
+    used_twice = shl used, 1
+    cap_is_zero = eq cap, 0
+    pressure = uge used_twice, cap
+    grow = or cap_is_zero, pressure
+    br grow -> L_PUT_STR_GROW, L_PUT_STR_PROBE_DIRECT
+
+L_PUT_STR_GROW:
+    br cap_is_zero -> L_PUT_STR_GROW_INIT, L_PUT_STR_GROW_DOUBLE
+
+L_PUT_STR_GROW_INIT:
+    next_cap_raw = HashMap_INITIAL_CAP
+    next_cap = next_cap_raw
+    jmp L_PUT_STR_GROW_REHASH
+
+L_PUT_STR_GROW_DOUBLE:
+    EXPAND NUM_U64_CHECKED_ADD next_cap_raw_ok, next_cap_raw, cap, cap
+    br next_cap_raw_ok -> L_PUT_STR_GROW_DOUBLE_OK, L_PUT_STR_GROW_DOUBLE_OVERFLOW
+
+L_PUT_STR_GROW_DOUBLE_OVERFLOW:
+    panic(1304)
+
+L_PUT_STR_GROW_DOUBLE_OK:
+    next_cap = next_cap_raw
+    !next_cap_raw_ok
+    jmp L_PUT_STR_GROW_REHASH
+
+L_PUT_STR_GROW_REHASH:
+    !cap
+    !len
+    !tombs
+    !cap_is_zero
+    !slots
+    call @map_rehash(&map, next_cap)
+    slots = load map+HashMap_slots as ptr
+    cap = load map+HashMap_cap as u64
+    len = load map+HashMap_len as u64
+    tombs = load map+HashMap_tombs as u64
+    !next_cap
+    jmp L_PUT_STR_PROBE
+
+L_PUT_STR_PROBE_DIRECT:
+    !cap_is_zero
+    jmp L_PUT_STR_PROBE
+
+L_PUT_STR_PROBE:
+    seed = load map+HashMap_seed as u64
+    hash = call @map_hash_str_seed(&key, seed)
+    probe_index_slot = stack_alloc 8
+    probe_found_slot = stack_alloc 8
+    call @map_table_probe_str(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    probe_index = load probe_index_slot+0 as u64
+    probe_found = load probe_found_slot+0 as u64
+    slot_off = mul probe_index, HashMapSlot_SIZE
+    slot = ptr_add slots, slot_off
+    already_found = ne probe_found, 0
+    br already_found -> L_PUT_STR_UPDATE, L_PUT_STR_INSERT
+
+L_PUT_STR_UPDATE:
+    store slot+HashMapSlot_value, value as ptr
+    jmp L_PUT_STR_END
+
+L_PUT_STR_INSERT:
+    slot_state = load slot+HashMapSlot_state as u8
+    tomb_slot = eq slot_state, HashMap_STATE_TOMB
+    br tomb_slot -> L_PUT_STR_INSERT_TOMB, L_PUT_STR_INSERT_EMPTY
+
+L_PUT_STR_INSERT_TOMB:
+    next_tombs = sub tombs, 1
+    store map+HashMap_tombs, next_tombs as u64
+    !next_tombs
+    jmp L_PUT_STR_INSERT_EMPTY
+
+L_PUT_STR_INSERT_EMPTY:
+    next_len = add len, 1
+    store map+HashMap_len, next_len as u64
+    store slot+HashMapSlot_hash, hash as u64
+    store slot+HashMapSlot_key, key as ptr
+    store slot+HashMapSlot_value, value as ptr
+    store slot+HashMapSlot_state, HashMap_STATE_FILLED as u8
+    !next_len
+    !slot_state
+    !tomb_slot
+    !probe_found
+    !probe_index
+    !slot_off
+    !slot
+    !hash
+    !seed
+    !key
+    !value
+    !cap
+    !len
+    !tombs
+    !used
+    !used_twice
+    !pressure
+    !grow
+    !slots
+    return
+
+L_PUT_STR_END:
+    !probe_found
+    !probe_index
+    !slot_off
+    !slot
+    !hash
+    !seed
+    !key
+    !value
+    !cap
+    !len
+    !tombs
+    !used
+    !used_twice
+    !pressure
+    !grow
+    !slots
+    return
+
+@export sa_map_insert_str(&map: ptr, &key: ptr, &value: ptr, &out_old_value_slot: ptr) -> i32:
+L_ENTRY:
+    replaced = call @sa_map_try_get_str(&map, &key, &out_old_value_slot)
+    call @sa_map_put_str(&map, &key, &value)
+    !out_old_value_slot
+    !value
+    !key
+    !map
+    return replaced
+
+[MACRO] MAP_TRY_GET_STR %out_found, %out_value, %map_reg, %key_reg
+    __map_try_get_str_slot_%out_found = stack_alloc 8
+    %out_found = call @sa_map_try_get_str(&%map_reg, &%key_reg, &__map_try_get_str_slot_%out_found)
+    %out_value = load __map_try_get_str_slot_%out_found+0 as ptr
+[END_MACRO]
+
+[MACRO] MAP_GET_STR %out_value, %map_reg, %key_reg
+    %out_value = call @sa_map_get_str(&%map_reg, &%key_reg)
+[END_MACRO]
+
+[MACRO] MAP_INSERT_STR %out_replaced, %out_old_value, %map_reg, %key_reg, %value_reg
+    __map_insert_str_old_%out_replaced = stack_alloc 8
+    %out_replaced = call @sa_map_insert_str(&%map_reg, &%key_reg, &%value_reg, &__map_insert_str_old_%out_replaced)
+    %out_old_value = load __map_insert_str_old_%out_replaced+0 as ptr
+[END_MACRO]
