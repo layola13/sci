@@ -417,7 +417,7 @@ L_OPTION_OK_OR_ELSE_END_%out_res:
 [END_MACRO]
 
 [MACRO] OPTION_UNWRAP_OR %out_value, %opt_reg, %default_value
-    __option_unwrap_or_default_%out_value = add %default_value, 0
+    __option_unwrap_or_default_%out_value = %default_value
     __option_tag_%out_value = load %opt_reg+Option_tag as u64
     br __option_tag_%out_value -> L_OPTION_UNWRAP_OR_SOME_%out_value, L_OPTION_UNWRAP_OR_NONE_%out_value
 L_OPTION_UNWRAP_OR_SOME_%out_value:

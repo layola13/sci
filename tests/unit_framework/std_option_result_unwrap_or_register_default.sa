@@ -1,0 +1,92 @@
+@import "sa_std/rust_core.sa"
+
+// DEF-CARDS-R8 regression: OPTION_UNWRAP_OR / RESULT_UNWRAP_OR with an owned
+// register default (a BOX_NEW result). The cards 1c entry line
+// "__.._unwrap_or_default_%out = add %default_value, 0" never consumed the
+// caller's default register (.op sources are not consumption), so it stayed
+// Active at function exit -> error[MemoryLeak]. The fix materializes the
+// default with a plain assign (a move). Literal defaults (99) never
+// triggered it: they are exempt ephemeral scalars, see
+// std_option_some_none_macro_surface.sa. NOTE: these @test bodies pass
+// BOTH pre- and post-fix under `sa test` (that runner's path masks the
+// exit scan for @test fns) -- this file is a semantics guard only. The
+// red/green regression for the leak itself is the build-exe-judged
+// companion unwrap_or_register_default_main.sa (pre-fix MemoryLeak
+// naming d1, post-fix exit 19), plus sla corpus
+// test_unit_def_r8_unwrap_or_box_default.sla on both backends.
+
+@test "def_cards_r8 option none box register default"():
+L_ENTRY:
+    EXPAND BOX_NEW d1, 5
+    EXPAND OPTION_NEW_NONE o1
+    EXPAND OPTION_UNWRAP_OR u1, o1, d1
+    !o1
+    got1 = load u1+Box_value as u64
+    ok1 = eq got1, 5
+    !got1
+    EXPAND BOX_FREE u1
+    br ok1 -> L_OK1, L_FAIL1
+L_OK1:
+    !ok1
+    return 0
+L_FAIL1:
+    !ok1
+    panic(10811)
+
+@test "def_cards_r8 option some box register default"():
+L_ENTRY:
+    EXPAND BOX_NEW d2, 9
+    EXPAND BOX_NEW p2, 1
+    EXPAND OPTION_NEW_SOME o2, p2
+    EXPAND OPTION_UNWRAP_OR u2, o2, d2
+    !o2
+    got2 = load u2+Box_value as u64
+    ok2 = eq got2, 1
+    !got2
+    EXPAND BOX_FREE u2
+    !p2
+    br ok2 -> L_OK2, L_FAIL2
+L_OK2:
+    !ok2
+    return 0
+L_FAIL2:
+    !ok2
+    panic(10812)
+
+@test "def_cards_r8 result err box register default"():
+L_ENTRY:
+    EXPAND BOX_NEW d3, 11
+    EXPAND RESULT_NEW_ERR r1, 3
+    EXPAND RESULT_UNWRAP_OR u3, r1, d3
+    !r1
+    got3 = load u3+Box_value as u64
+    ok3 = eq got3, 11
+    !got3
+    EXPAND BOX_FREE u3
+    br ok3 -> L_OK3, L_FAIL3
+L_OK3:
+    !ok3
+    return 0
+L_FAIL3:
+    !ok3
+    panic(10813)
+
+@test "def_cards_r8 result ok box register default"():
+L_ENTRY:
+    EXPAND BOX_NEW d4, 12
+    EXPAND BOX_NEW p4, 2
+    EXPAND RESULT_NEW_OK r2, p4
+    EXPAND RESULT_UNWRAP_OR u4, r2, d4
+    !r2
+    got4 = load u4+Box_value as u64
+    ok4 = eq got4, 2
+    !got4
+    EXPAND BOX_FREE u4
+    !p4
+    br ok4 -> L_OK4, L_FAIL4
+L_OK4:
+    !ok4
+    return 0
+L_FAIL4:
+    !ok4
+    panic(10814)

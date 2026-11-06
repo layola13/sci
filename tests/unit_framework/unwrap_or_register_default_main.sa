@@ -1,0 +1,53 @@
+@import "sa_std/rust_core.sa"
+
+// DEF-CARDS-R8 minimal repro / regression (build-exe judged).
+// OPTION_UNWRAP_OR / RESULT_UNWRAP_OR with owned register defaults
+// (BOX_NEW results). Pre-fix (cards 1c entry `add %default_value, 0`)
+// the caller's default registers are never consumed and stay Active:
+//   error[MemoryLeak]: live registers remain at function exit
+//   register: d1 (state: Active)
+// Post-fix (plain-assign materialization) this builds and exits 19.
+// NOTE: the same shapes inside @test bodies under `sa test` do NOT go
+// red pre-fix (that runner's path masks the exit scan for @test fns);
+// judge this file with build-exe, not `sa test`.
+
+@main() -> u64:
+L_ENTRY:
+    EXPAND BOX_NEW d1, 5
+    EXPAND OPTION_NEW_NONE o1
+    EXPAND OPTION_UNWRAP_OR u1, o1, d1
+    !o1
+    EXPAND BOX_NEW d2, 9
+    EXPAND BOX_NEW p2, 1
+    EXPAND OPTION_NEW_SOME o2, p2
+    EXPAND OPTION_UNWRAP_OR u2, o2, d2
+    !o2
+    EXPAND BOX_NEW d3, 11
+    EXPAND RESULT_NEW_ERR r1, 3
+    EXPAND RESULT_UNWRAP_OR u3, r1, d3
+    !r1
+    EXPAND BOX_NEW d4, 12
+    EXPAND BOX_NEW p4, 2
+    EXPAND RESULT_NEW_OK r2, p4
+    EXPAND RESULT_UNWRAP_OR u4, r2, d4
+    !r2
+    got1 = load u1+Box_value as u64
+    got2 = load u2+Box_value as u64
+    got3 = load u3+Box_value as u64
+    got4 = load u4+Box_value as u64
+    !got1
+    !got2
+    !got3
+    !got4
+    EXPAND BOX_FREE u1
+    EXPAND BOX_FREE u2
+    EXPAND BOX_FREE u3
+    EXPAND BOX_FREE u4
+    !p2
+    !p4
+    s1 = add got1, got2
+    s2 = add got3, got4
+    s = add s1, s2
+    !s1
+    !s2
+    return s

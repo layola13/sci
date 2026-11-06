@@ -182,7 +182,7 @@ L_RESULT_ERR_AND_END_%out_bool:
 [END_MACRO]
 
 [MACRO] RESULT_UNWRAP_OR %out_value, %res_reg, %default_value
-    __result_unwrap_or_default_%out_value = add %default_value, 0
+    __result_unwrap_or_default_%out_value = %default_value
     __result_tag_%out_value = load %res_reg+Result_tag as u64
     __result_is_ok_%out_value = eq __result_tag_%out_value, Result_OK
     br __result_is_ok_%out_value -> L_RESULT_UNWRAP_OR_OK_%out_value, L_RESULT_UNWRAP_OR_ERR_%out_value
