@@ -114,7 +114,10 @@ const SslApi = struct {
     i2d_x509: *const fn (?*X509, ?*?[*]u8) callconv(.c) c_int,
     x509_get_subject_name: *const fn (?*const X509) callconv(.c) ?*X509Name,
     x509_get_issuer_name: *const fn (?*const X509) callconv(.c) ?*X509Name,
-    x509_name_oneline: *const fn (?*const X509Name, ?[*]u8, c_int) callconv(.c) ?[*:0]u8,
+    x509_name_print_ex: *const fn (?*Bio, ?*const X509Name, c_int, c_ulong) callconv(.c) c_int,
+    bio_s_mem: *const fn () callconv(.c) ?*anyopaque,
+    bio_new: *const fn (?*anyopaque) callconv(.c) ?*Bio,
+    bio_read: *const fn (?*Bio, [*]u8, c_int) callconv(.c) c_int,
     get1_session: *const fn (?*const Ssl) callconv(.c) ?*SslSession,
     set_session: *const fn (?*Ssl, ?*SslSession) callconv(.c) c_int,
     d2i_session: *const fn (?*?*SslSession, *?[*]const u8, c_long) callconv(.c) ?*SslSession,
@@ -206,7 +209,10 @@ fn loadSslApiNative() ?*SslApi {
         .i2d_x509 = l.lookup(*const fn (?*X509, ?*?[*]u8) callconv(.c) c_int, "i2d_X509") orelse return null,
         .x509_get_subject_name = l.lookup(*const fn (?*const X509) callconv(.c) ?*X509Name, "X509_get_subject_name") orelse return null,
         .x509_get_issuer_name = l.lookup(*const fn (?*const X509) callconv(.c) ?*X509Name, "X509_get_issuer_name") orelse return null,
-        .x509_name_oneline = l.lookup(*const fn (?*const X509Name, ?[*]u8, c_int) callconv(.c) ?[*:0]u8, "X509_NAME_oneline") orelse return null,
+        .x509_name_print_ex = l.lookup(*const fn (?*Bio, ?*const X509Name, c_int, c_ulong) callconv(.c) c_int, "X509_NAME_print_ex") orelse return null,
+        .bio_s_mem = l.lookup(*const fn () callconv(.c) ?*anyopaque, "BIO_s_mem") orelse return null,
+        .bio_new = l.lookup(*const fn (?*anyopaque) callconv(.c) ?*Bio, "BIO_new") orelse return null,
+        .bio_read = l.lookup(*const fn (?*Bio, [*]u8, c_int) callconv(.c) c_int, "BIO_read") orelse return null,
         .get1_session = l.lookup(*const fn (?*const Ssl) callconv(.c) ?*SslSession, "SSL_get1_session") orelse return null,
         .set_session = l.lookup(*const fn (?*Ssl, ?*SslSession) callconv(.c) c_int, "SSL_set_session") orelse return null,
         .d2i_session = l.lookup(*const fn (?*?*SslSession, *?[*]const u8, c_long) callconv(.c) ?*SslSession, "d2i_SSL_SESSION") orelse return null,
@@ -875,12 +881,54 @@ fn collectSans(parsed: *const std.crypto.Certificate.Parsed, dns: *std.ArrayList
     }
 }
 
+/// Pinned X509_NAME_print_ex flags for the display rendering of
+/// certificate names in the peer chain JSON, spelled out bit by bit
+/// (values from openssl/asn1.h and openssl/x509.h, OpenSSL 3) so the
+/// emitted format is a constant of this code and can never drift with
+/// library defaults. This is exactly the XN_FLAG_ONELINE preset the
+/// OpenSSL 3 CLI uses for `openssl x509 -subject` / `-issuer`:
+///   ASN1_STRFLGS_ESC_2253 0x1 | ESC_CTRL 0x2 | ESC_MSB 0x4 |
+///   UTF8_CONVERT 0x10 | DUMP_UNKNOWN 0x100 | DUMP_DER 0x200
+///     (= ASN1_STRFLGS_RFC2253: RFC 2253 escaping, unknown fields
+///     dumped, never silently dropped),
+///   ASN1_STRFLGS_ESC_QUOTE 0x8 (quote values holding separators
+///     instead of backslash-escaping them),
+///   XN_FLAG_SEP_CPLUS_SPC (2 << 16): ", " between RDNs, " + "
+///     inside a multi-valued RDN,
+///   XN_FLAG_SPC_EQ (1 << 23): " = " around '=',
+///   XN_FLAG_FN_SN (0): short field names, in certificate order.
+/// Verified byte-equal to the CLI default output on OpenSSL 3.0.13
+/// for subject and issuer of simple, multi-RDN/special-character and
+/// UTF-8 names (2026-11-06 flags probe).
+const X509_NAME_DISPLAY_FLAGS: c_ulong = 0x82031f;
+
+fn appendX509DisplayName(api: *SslApi, out: *std.ArrayList(u8), alloc: std.mem.Allocator, name: ?*const X509Name) !void {
+    const nm = name orelse return;
+    const meth = api.bio_s_mem() orelse return;
+    const bio = api.bio_new(meth) orelse return;
+    defer _ = api.bio_free(bio);
+    if (api.x509_name_print_ex(bio, nm, 0, X509_NAME_DISPLAY_FLAGS) <= 0) return;
+    var chunk: [512]u8 = undefined;
+    while (true) {
+        const n = api.bio_read(bio, &chunk, @intCast(chunk.len));
+        if (n <= 0) break;
+        try appendJsonEscaped(out, alloc, chunk[0..@intCast(n)]);
+    }
+}
+
 /// JSON document for a peer chain: one entry per certificate, leaf first,
-/// with decoded subject/issuer (OpenSSL oneline form), common name, SAN
+/// with decoded subject/issuer (display form, see below), common name, SAN
 /// dNSName/iPAddress lists, validity window (unix seconds), serial (hex)
 /// and the SHA-256 fingerprint (openssl colon-hex form). Certificates the
 /// std DER parser cannot decode are still listed (names + fingerprint)
 /// with "fields_parsed":false -- never silently dropped.
+///
+/// The subject/issuer strings are a DISPLAY format: the OpenSSL 3 spaced
+/// rendering ("CN = localhost") produced by X509_NAME_print_ex with the
+/// explicitly pinned flags of X509_NAME_DISPLAY_FLAGS -- never the
+/// deprecated X509_NAME_oneline slash form. They are for human readers;
+/// consumers must not parse them (common_name and the structured fields
+/// are the machine-readable surface).
 fn buildPeerCertChainJson(api: *SslApi, ssl: *Ssl) ![]u8 {
     const alloc = std.heap.page_allocator;
     var out: std.ArrayList(u8) = .empty;
@@ -903,11 +951,10 @@ fn buildPeerCertChainJson(api: *SslApi, ssl: *Ssl) ![]u8 {
             if (!first) try out.append(alloc, ',');
             first = false;
             try out.append(alloc, '{');
-            var name_buf: [1024]u8 = undefined;
             try out.appendSlice(alloc, "\"subject\":\"");
-            if (api.x509_name_oneline(api.x509_get_subject_name(x), &name_buf, @intCast(name_buf.len))) |s| try appendJsonEscaped(&out, alloc, std.mem.span(s));
+            try appendX509DisplayName(api, &out, alloc, api.x509_get_subject_name(x));
             try out.appendSlice(alloc, "\",\"issuer\":\"");
-            if (api.x509_name_oneline(api.x509_get_issuer_name(x), &name_buf, @intCast(name_buf.len))) |s| try appendJsonEscaped(&out, alloc, std.mem.span(s));
+            try appendX509DisplayName(api, &out, alloc, api.x509_get_issuer_name(x));
             try out.appendSlice(alloc, "\",\"sha256_fingerprint\":\"");
             var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
             std.crypto.hash.sha2.Sha256.hash(derbuf, &digest, .{});
@@ -1493,7 +1540,12 @@ test "loopback: chrome preset handshake, echo, negotiated + ja3/ja4 from capture
     const rc = connectRetry(port, profile);
     try testing.expect(rc > 0);
     const handle: u64 = @intCast(rc);
-    defer _ = sa_std_tls_shaped_close(handle);
+    // NOTE: no deferred close for this handle -- the success path below
+    // closes it explicitly (the server only exits, closing its stdout,
+    // once the connection closes), and shaped handles are raw pointers:
+    // a second close is a use-after-free, not an error. The double
+    // close stayed latent while the JA4 expectation failed first; with
+    // that fixed it segfaulted intermittently in close/shutdown.
 
     // negotiated values
     var jbuf: [512]u8 = undefined;
@@ -1517,7 +1569,7 @@ test "loopback: chrome preset handshake, echo, negotiated + ja3/ja4 from capture
     try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_shaped_hello_ja4(handle, &ja4_buf, ja4_buf.len, &ja4_len));
     const ja4 = ja4_buf[0..@intCast(ja4_len)];
     try testing.expect(std.mem.startsWith(u8, ja4, "t13d"));
-    try testing.expectEqual(@as(usize, 33), ja4.len);
+    try testing.expectEqual(@as(usize, 36), ja4.len);
 
     // echo: server stdin -> TLS -> us; our write -> server stdout
     const msg = "shaped-hello\n";
@@ -1826,11 +1878,19 @@ test "loopback: TLS 1.2 session blob resumes (session_reused=true)" {
 
     const profile1 = try profileJson(allocator, .{ .max_version = "1.2", .ca_file = setup.cert });
     defer allocator.free(profile1);
+    // A single s_server process must serve both connections: TLS 1.2
+    // session resumption needs the server-side session cache, which
+    // lives inside the server process. Two independent s_server
+    // processes can never resume each other's sessions (pure-openssl
+    // control, OpenSSL 3.0.13: cross-process -sess_out/-sess_in gives
+    // "New", same process with -naccept 2 gives "Reused"), so the
+    // previous two-server topology made this test unpassable for any
+    // client and the blob path was never actually exercised.
+    const port = try freePort();
+    var server = try spawnServer(allocator, setup.cert, setup.key, port, &.{ "-naccept", "2" });
+    defer _ = server.kill() catch {};
     var blob: []u8 = undefined;
     {
-        const port = try freePort();
-        var server = try spawnServer(allocator, setup.cert, setup.key, port, &.{ "-naccept", "1" });
-        defer _ = server.kill() catch {};
         const h = connectRetryProfile("localhost", port, profile1);
         try testing.expect(h > 0);
         const handle: u64 = @intCast(h);
@@ -1842,15 +1902,11 @@ test "loopback: TLS 1.2 session blob resumes (session_reused=true)" {
         try testing.expect(blen > 0);
         blob = try allocator.dupe(u8, bptr[0..@intCast(blen)]);
         _ = sa_std_tls_shaped_close(handle);
-        _ = server.wait() catch {};
     }
     defer allocator.free(blob);
 
     const profile2 = try profileJson(allocator, .{ .max_version = "1.2", .ca_file = setup.cert, .session = blob });
     defer allocator.free(profile2);
-    const port = try freePort();
-    var server = try spawnServer(allocator, setup.cert, setup.key, port, &.{ "-naccept", "1" });
-    defer _ = server.kill() catch {};
     const h = connectRetryProfile("localhost", port, profile2);
     try testing.expect(h > 0);
     const handle: u64 = @intCast(h);
@@ -1954,7 +2010,7 @@ test "loopback: client certificate (cert_file/key_file) satisfies a verifying se
     const port = try freePort();
     var server = try spawnServer(allocator, setup.cert, setup.key, port, &.{ "-naccept", "1", "-Verify", "1", "-verify_return_error", "-CAfile", setup.cert });
     defer _ = server.kill() catch {};
-    const profile = try profileJson(allocator, .{ .ca_pem = pem, .cert_file = setup.cert, .key_file = setup.key });
+    const profile = try profileJson(allocator, .{ .max_version = "1.2", .ca_pem = pem, .cert_file = setup.cert, .key_file = setup.key });
     defer allocator.free(profile);
     const h = connectRetryProfile("localhost", port, profile);
     try testing.expect(h > 0);
@@ -1962,10 +2018,16 @@ test "loopback: client certificate (cert_file/key_file) satisfies a verifying se
     _ = server.wait() catch {};
 
     // Without the client certificate the same server refuses us.
+    // Both halves pin TLS 1.2 on purpose: under TLS 1.3 the server can
+    // only reject a missing client certificate after the client has
+    // sent its Finished, so the refusal surfaces at the first read,
+    // not during connect, and a connect-level refusal assertion can
+    // never hold. Under TLS 1.2 the rejection happens inside the
+    // handshake, which is the refusal this test asserts.
     const port2 = try freePort();
     var server2 = try spawnServer(allocator, setup.cert, setup.key, port2, &.{ "-naccept", "1", "-Verify", "1", "-verify_return_error", "-CAfile", setup.cert });
     defer _ = server2.kill() catch {};
-    const profile2 = try profileJson(allocator, .{ .ca_pem = pem });
+    const profile2 = try profileJson(allocator, .{ .max_version = "1.2", .ca_pem = pem });
     defer allocator.free(profile2);
     const rc = connectRetryProfile("localhost", port2, profile2);
     try testing.expect(rc < 0);

@@ -100,7 +100,11 @@ const SslApi = struct {
     i2d_x509: *const fn (?*X509, ?*?[*]u8) callconv(.c) c_int,
     x509_get_subject_name: *const fn (?*const X509) callconv(.c) ?*X509Name,
     x509_get_issuer_name: *const fn (?*const X509) callconv(.c) ?*X509Name,
-    x509_name_oneline: *const fn (?*const X509Name, ?[*]u8, c_int) callconv(.c) ?[*:0]u8,
+    x509_name_print_ex: *const fn (?*Bio, ?*const X509Name, c_int, c_ulong) callconv(.c) c_int,
+    bio_s_mem: *const fn () callconv(.c) ?*anyopaque,
+    bio_new: *const fn (?*anyopaque) callconv(.c) ?*Bio,
+    bio_read: *const fn (?*Bio, [*]u8, c_int) callconv(.c) c_int,
+    bio_free: *const fn (?*Bio) callconv(.c) c_int,
 };
 
 var ssl_api: ?SslApi = null;
@@ -275,7 +279,23 @@ fn loadSslApiNative() ?*SslApi {
         l.close();
         return null;
     };
-    const x509_name_oneline = l.lookup(*const fn (?*const X509Name, ?[*]u8, c_int) callconv(.c) ?[*:0]u8, "X509_NAME_oneline") orelse {
+    const x509_name_print_ex = l.lookup(*const fn (?*Bio, ?*const X509Name, c_int, c_ulong) callconv(.c) c_int, "X509_NAME_print_ex") orelse {
+        l.close();
+        return null;
+    };
+    const bio_s_mem = l.lookup(*const fn () callconv(.c) ?*anyopaque, "BIO_s_mem") orelse {
+        l.close();
+        return null;
+    };
+    const bio_new = l.lookup(*const fn (?*anyopaque) callconv(.c) ?*Bio, "BIO_new") orelse {
+        l.close();
+        return null;
+    };
+    const bio_read = l.lookup(*const fn (?*Bio, [*]u8, c_int) callconv(.c) c_int, "BIO_read") orelse {
+        l.close();
+        return null;
+    };
+    const bio_free = l.lookup(*const fn (?*Bio) callconv(.c) c_int, "BIO_free") orelse {
         l.close();
         return null;
     };
@@ -317,7 +337,11 @@ fn loadSslApiNative() ?*SslApi {
         .i2d_x509 = i2d_x509,
         .x509_get_subject_name = x509_get_subject_name,
         .x509_get_issuer_name = x509_get_issuer_name,
-        .x509_name_oneline = x509_name_oneline,
+        .x509_name_print_ex = x509_name_print_ex,
+        .bio_s_mem = bio_s_mem,
+        .bio_new = bio_new,
+        .bio_read = bio_read,
+        .bio_free = bio_free,
     };
     return &ssl_api.?;
 }
@@ -892,9 +916,32 @@ fn collectSans(parsed: *const std.crypto.Certificate.Parsed, dns: *std.ArrayList
     }
 }
 
+/// Pinned X509_NAME_print_ex flags for the display rendering of
+/// certificate names in the peer chain JSON: identical constant and
+/// rationale as X509_NAME_DISPLAY_FLAGS in sa_tls_shaped.zig (the
+/// XN_FLAG_ONELINE preset, spelled out bit by bit so the format can
+/// never drift with library defaults).
+const X509_NAME_DISPLAY_FLAGS: c_ulong = 0x82031f;
+
+fn appendX509DisplayName(api: *SslApi, out: *std.ArrayList(u8), alloc: std.mem.Allocator, name: ?*const X509Name) !void {
+    const nm = name orelse return;
+    const meth = api.bio_s_mem() orelse return;
+    const bio = api.bio_new(meth) orelse return;
+    defer _ = api.bio_free(bio);
+    if (api.x509_name_print_ex(bio, nm, 0, X509_NAME_DISPLAY_FLAGS) <= 0) return;
+    var chunk: [512]u8 = undefined;
+    while (true) {
+        const n = api.bio_read(bio, &chunk, @intCast(chunk.len));
+        if (n <= 0) break;
+        try appendJsonEscaped(out, alloc, chunk[0..@intCast(n)]);
+    }
+}
+
 /// Same decoded-chain JSON document as the shaped client's
 /// sa_std_tls_shaped_peer_cert_chain_json: leaf first, subject/issuer in
-/// OpenSSL oneline form, common name, SAN lists, validity window, serial
+/// the pinned display form (see X509_NAME_DISPLAY_FLAGS above; the
+/// OpenSSL 3 spaced rendering, never the deprecated oneline slash
+/// form), common name, SAN lists, validity window, serial
 /// and SHA-256 fingerprint per certificate.
 fn buildPeerCertChainJson(api: *SslApi, ssl: *Ssl) ![]u8 {
     const alloc = std.heap.page_allocator;
@@ -934,11 +981,10 @@ fn buildPeerCertChainJson(api: *SslApi, ssl: *Ssl) ![]u8 {
             if (!first) try out.append(alloc, ',');
             first = false;
             try out.append(alloc, '{');
-            var name_buf: [1024]u8 = undefined;
             try out.appendSlice(alloc, "\"subject\":\"");
-            if (api.x509_name_oneline(api.x509_get_subject_name(x), &name_buf, @intCast(name_buf.len))) |s| try appendJsonEscaped(&out, alloc, std.mem.span(s));
+            try appendX509DisplayName(api, &out, alloc, api.x509_get_subject_name(x));
             try out.appendSlice(alloc, "\",\"issuer\":\"");
-            if (api.x509_name_oneline(api.x509_get_issuer_name(x), &name_buf, @intCast(name_buf.len))) |s| try appendJsonEscaped(&out, alloc, std.mem.span(s));
+            try appendX509DisplayName(api, &out, alloc, api.x509_get_issuer_name(x));
             try out.appendSlice(alloc, "\",\"sha256_fingerprint\":\"");
             var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
             std.crypto.hash.sha2.Sha256.hash(derbuf, &digest, .{});

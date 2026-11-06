@@ -15,8 +15,32 @@
 # protocol runtimes and the wave-1/wave-2 standard library additions;
 # the Windows root module exports none of those, so they are recorded
 # here in the same change, per the rule above.
-
+#
+# Expansion 2026-11-06: the 2026-10-28 sa_std batches for the YAML
+# surface, the PostgreSQL and MySQL wire clients, and the crypto suite
+# (digests/HMAC/KDF/AES-GCM/Ed25519/ECDSA/RSA/x509), plus the http
+# client profile/proxy constructors, sa_mem_free and
+# sa_std_net_poll_wait, landed without the registration this file's
+# own rule requires; they are recorded here in arrears. The Windows
+# root module exports none of them.
+#
+# Retirement condition (six-house ruling C, 2026-11-06): the entries
+# for the pure-logic families of this expansion -- the 31 sa_yaml_*
+# names and the 38 crypto-family names (sa_aes_gcm_*, sa_base64url_*,
+# sa_crypto_timing_safe_equal, sa_ecdsa_*, sa_ed25519_*, sa_hkdf_*,
+# sa_hmac_sha1/256/512, sa_md5, sa_pbkdf2_hmac_sha256, sa_pem_decode,
+# sa_rsa_*, sa_sha1/256/384/512, sa_x509_*) -- are interim. Each such
+# entry must be removed from this file in the same change that lands
+# a real Windows implementation of that symbol; per-family follow-up
+# work is tracked outside this file. The remaining entries of this
+# expansion (the PostgreSQL/MySQL wire clients, the http client
+# profile/proxy constructors, sa_mem_free, sa_std_net_poll_wait)
+# carry no such schedule.
+sa_aes_gcm_decrypt
+sa_aes_gcm_encrypt
 sa_b64dec_simd
+sa_base64url_decode
+sa_base64url_encode
 sa_bcrypt_hash
 sa_bcrypt_verify
 sa_cookie_clear_expiry
@@ -63,6 +87,7 @@ sa_cookie_set_same_site
 sa_cookie_set_secure
 sa_cookie_value
 sa_crypto_random_bytes
+sa_crypto_timing_safe_equal
 sa_deno_chat_json_to_responses
 sa_deno_chat_sse_to_responses
 sa_deno_jsonrpc_params_string_literal
@@ -70,6 +95,17 @@ sa_deno_responses_chat_fallback_request
 sa_deno_responses_json_normalize
 sa_deno_responses_request_normalize
 sa_deno_responses_sse_normalize
+sa_ecdsa_p256_public_key_from_spki
+sa_ecdsa_p256_sign
+sa_ecdsa_p256_verify
+sa_ecdsa_p256_verify_prehashed
+sa_ecdsa_signature_der_to_raw
+sa_ecdsa_signature_raw_to_der
+sa_ed25519_public_key
+sa_ed25519_public_key_from_spki
+sa_ed25519_seed_from_pkcs8
+sa_ed25519_sign
+sa_ed25519_verify
 sa_fs_file_create
 sa_fs_file_open
 sa_fs_mkdir_p
@@ -86,8 +122,12 @@ sa_global_u64_get
 sa_global_u64_set
 sa_global_u64_set_once
 sa_hexdec_simd
+sa_hkdf_sha256
+sa_hmac_sha1
 sa_hmac_sha1_hex
+sa_hmac_sha256
 sa_hmac_sha256_hex
+sa_hmac_sha512
 sa_http_client_async_cancel_v2
 sa_http_client_async_free
 sa_http_client_async_free_v2
@@ -96,6 +136,9 @@ sa_http_client_async_poll_v2
 sa_http_client_async_take_response
 sa_http_client_async_take_response_v2
 sa_http_client_new_v2
+sa_http_client_new_with_profile
+sa_http_client_new_with_profile_proxy
+sa_http_client_new_with_proxy
 sa_http_client_req_add_header_v2
 sa_http_client_req_add_openai_auth
 sa_http_client_req_new_joined
@@ -202,9 +245,41 @@ sa_keyring_available
 sa_keyring_get
 sa_keyring_remove
 sa_keyring_set
+sa_md5
+sa_mem_free
 sa_mfind_u8
 sa_modstate_get_u64
 sa_modstate_set_u64
+sa_mysql_affected_rows
+sa_mysql_close
+sa_mysql_connect
+sa_mysql_connection_id
+sa_mysql_errno
+sa_mysql_error_message
+sa_mysql_last_insert_id
+sa_mysql_ping
+sa_mysql_prepare
+sa_mysql_query
+sa_mysql_result_column_count
+sa_mysql_result_column_name
+sa_mysql_result_column_type
+sa_mysql_result_free
+sa_mysql_result_has_result_set
+sa_mysql_result_next
+sa_mysql_result_row_count
+sa_mysql_result_value
+sa_mysql_result_warnings
+sa_mysql_server_version
+sa_mysql_sqlstate
+sa_mysql_stmt_bind_bytes
+sa_mysql_stmt_bind_f64
+sa_mysql_stmt_bind_i64
+sa_mysql_stmt_bind_null
+sa_mysql_stmt_bind_u64
+sa_mysql_stmt_close
+sa_mysql_stmt_execute
+sa_mysql_stmt_param_count
+sa_mysql_supported
 sa_net_tcp_stream_peer_addr
 sa_net_tcp_stream_shutdown
 sa_net_unix_addr_abstract_len
@@ -221,6 +296,36 @@ sa_netx_listen
 sa_netx_push_outbound
 sa_netx_recv_ticket
 sa_netx_shutdown
+sa_pbkdf2_hmac_sha256
+sa_pem_decode
+sa_pg_bind_bool
+sa_pg_bind_f64
+sa_pg_bind_i64
+sa_pg_bind_null
+sa_pg_bind_text
+sa_pg_cell_bool
+sa_pg_cell_copy
+sa_pg_cell_f64
+sa_pg_cell_i64
+sa_pg_cell_is_null
+sa_pg_cell_len
+sa_pg_close
+sa_pg_col_name
+sa_pg_col_type_oid
+sa_pg_connect
+sa_pg_exec
+sa_pg_execute
+sa_pg_last_error
+sa_pg_last_error_detail
+sa_pg_last_sqlstate
+sa_pg_prepare
+sa_pg_result_cols
+sa_pg_result_rows
+sa_pg_rows_affected
+sa_pg_server_version
+sa_pg_stmt_free
+sa_pg_stmt_param_count
+sa_pg_txn_status
 sa_pty_close
 sa_pty_kill
 sa_pty_pid
@@ -253,6 +358,16 @@ sa_regex_split_count
 sa_regex_split_free
 sa_regex_split_len
 sa_regex_split_ptr
+sa_rsa_generate_keypair
+sa_rsa_jwk_to_spki
+sa_rsa_oaep_sha256_decrypt
+sa_rsa_pkcs1_sign
+sa_rsa_pkcs1_verify
+sa_rsa_spki_to_jwk
+sa_sha1
+sa_sha256
+sa_sha384
+sa_sha512
 sa_std_compress_buffer_data
 sa_std_compress_buffer_free
 sa_std_compress_buffer_len
@@ -305,6 +420,7 @@ sa_std_net_addr_reverse_lookup
 sa_std_net_interface_addresses_json
 sa_std_net_ja3_hash
 sa_std_net_ja4_hash12
+sa_std_net_poll_wait
 sa_std_net_raw_socket
 sa_std_net_sha256_hex
 sa_std_net_socket_getsockopt
@@ -498,3 +614,39 @@ sa_ts_tree_edit
 sa_ts_tree_free
 sa_ts_tree_root
 sa_ts_tree_sexp
+sa_x509_public_key
+sa_x509_spki
+sa_x509_subject
+sa_x509_subject_cn
+sa_x509_validity
+sa_yaml_array_get_i64
+sa_yaml_array_get_string
+sa_yaml_array_len
+sa_yaml_array_push_bool
+sa_yaml_array_push_f64
+sa_yaml_array_push_i64
+sa_yaml_array_push_null
+sa_yaml_array_push_string
+sa_yaml_array_push_table
+sa_yaml_count_documents
+sa_yaml_free
+sa_yaml_get_bool
+sa_yaml_get_f64
+sa_yaml_get_i64
+sa_yaml_get_string
+sa_yaml_kind
+sa_yaml_last_error
+sa_yaml_new
+sa_yaml_parse
+sa_yaml_parse_at
+sa_yaml_remove
+sa_yaml_set_bool
+sa_yaml_set_f64
+sa_yaml_set_i64
+sa_yaml_set_null
+sa_yaml_set_string
+sa_yaml_set_table
+sa_yaml_stringify
+sa_yaml_table_key_at
+sa_yaml_table_len
+sa_yaml_to_json
