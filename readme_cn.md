@@ -162,6 +162,30 @@ sa sax build demos/counter.sax --out-dir /tmp/counter
   wasm/node ≫ js/node ≫ js/bun（1000 万次 u64 累加：68ms / 67ms / 198ms / 3.5s / 8.7s）。
   完整命令参考见 sala 帮助"命令行参考 → 宿主侧 sa build-js"。
 
+### WASM 目标说明
+
+- **前置产物：wasm32-wasi 版 `sa_std` 归档。** `sa build-wasm` 链接的是
+  wasm32-wasi 目标的 `sa_std`，按目标三元组解析为
+  `<std>/wasm32-wasi/libsa_std.a`（本仓库布局：
+  `artifacts/sa_std/wasm32-wasi/libsa_std.a`）。默认 `zig build` 只产宿主
+  归档，wasm 归档需要在仓库根一次性单独构建：
+
+  ```bash
+  zig build -Dtarget=wasm32-wasi -Dcpu=baseline+atomics+bulk_memory \
+      sa-std-static -Doptimize=ReleaseFast
+  ```
+
+  `-Dcpu` 参数是必需的、不是可选调优：stock wasm32-wasi baseline 没有
+  atomics 与 bulk-memory，而 sa_std 的宿主垫片用到了 `memory.atomic.wait32`
+  与 bulk-memory 操作，只用 baseline 构建归档会失败。交叉构建的产物落到
+  `artifacts/sa_std/wasm32-wasi/`，不会覆写宿主归档。归档缺失时
+  `build-wasm` 会响亮报错并指名缺失的归档，绝不产出缺运行时的程序。
+- **运行环境：** `build-wasm` 产物是 WASI（wasm32-wasi）模块，必须有 WASI
+  宿主才能运行，不像 `build-js` 产物那样可以直接执行。已验证宿主：
+  wasmtime 26.0.0（`wasmtime hello.wasm`）、Node 22（经 `node:wasi` API）。
+  浏览器里需要 WASI 宿主垫片；SA 自家的浏览器路线是 SAX 插件，它会连同
+  `airlock.js` 宿主胶水一起产出 `app.wasm`。
+
 ---
 
 ## 文档地图

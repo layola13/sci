@@ -185,6 +185,33 @@ See each plugin's README for additional entry commands.
   (10M-iteration u64 sum: 68ms / 67ms / 198ms / 3.5s / 8.7s). The sala help
   chapter "命令行参考 → 宿主侧 sa build-js" has the full reference.
 
+### WASM target notes
+
+- **Prerequisite: the wasm32-wasi `sa_std` archive.** `sa build-wasm` links
+  against a wasm32-wasi build of `sa_std`, resolved per target triple as
+  `<std>/wasm32-wasi/libsa_std.a` (in this repo's layout:
+  `artifacts/sa_std/wasm32-wasi/libsa_std.a`). A plain `zig build` produces
+  only the host archive, so build the wasm archive once from the repo root:
+
+  ```bash
+  zig build -Dtarget=wasm32-wasi -Dcpu=baseline+atomics+bulk_memory \
+      sa-std-static -Doptimize=ReleaseFast
+  ```
+
+  The `-Dcpu` flags are required, not optional tuning: the stock
+  wasm32-wasi baseline has no atomics or bulk-memory, while sa_std's host
+  shims use `memory.atomic.wait32` and bulk-memory operations, so a
+  baseline-only archive build fails. The cross build publishes into
+  `artifacts/sa_std/wasm32-wasi/` and leaves the host archive untouched.
+  If the archive is missing, `build-wasm` fails loudly and names the
+  missing archive — it never links a program that is missing its runtime.
+- **Running the output:** `build-wasm` emits a WASI (wasm32-wasi) module,
+  so it needs a WASI host — it cannot be executed as a bare file the way
+  `build-js` output can. Validated hosts: wasmtime 26.0.0
+  (`wasmtime hello.wasm`) and Node 22 via its `node:wasi` API. In the
+  browser a WASI host shim is required; SA's own browser path is the SAX
+  plugin, which emits `app.wasm` together with its `airlock.js` host glue.
+
 ---
 
 ## Documentation map
