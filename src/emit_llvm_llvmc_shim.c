@@ -1101,16 +1101,65 @@ static void emit_stack_restore(EmitCtx *e, LLVMValueRef save_slot) {
  * header route through a per-header rewind block that restores the saved
  * stack pointer first. `cur` is the block the branch itself is emitted in;
  * the builder is restored to it before returning. */
-static LLVMBasicBlockRef br_edge_block(EmitCtx *e, LabelEntry *le, long inst_index, LLVMBasicBlockRef cur, LLVMValueRef fn) {
-    if (le->sp_save_slot == NULL || le->inst_index >= inst_index) return le->block;
-    if (le->rewind_block == NULL) {
-        le->rewind_block = LLVMAppendBasicBlockInContext(e->ctx, fn, "def4_rewind");
-        LLVMPositionBuilderAtEnd(e->builder, le->rewind_block);
-        emit_stack_restore(e, le->sp_save_slot);
+/* DEF-4 entry save: an edge from outside an armed header's interval into
+ * its interior (below the header) can reach a back-edge stackrestore
+ * before any header arrival wrote the save slot in this call; the slot
+ * then still holds its entry NULL and llvm.stackrestore(NULL) zeroes the
+ * stack pointer. Such an entry edge must stacksave into the header's slot
+ * first, capturing the stack pointer at interval entry -- exactly what a
+ * header arrival via this path would have saved, so pre-interval dynamic
+ * allocas stay live and the iteration's own allocas are still reclaimed
+ * by the back-edge restore. Header-targeted edges need no entry save
+ * (the header saves on arrival), and neither do edges whose source lies
+ * inside the interval. */
+static int edge_needs_entry_saves(const LabelEntry *labels, size_t label_count, long src_idx, long tgt_idx) {
+    for (size_t k = 0; k < label_count; k++) {
+        const LabelEntry *h = &labels[k];
+        if (h->sp_save_slot == NULL) continue;
+        if (tgt_idx > h->inst_index && tgt_idx <= h->back_edge_max &&
+            (src_idx < h->inst_index || src_idx > h->back_edge_max)) return 1;
+    }
+    return 0;
+}
+
+static void emit_entry_saves(EmitCtx *e, const LabelEntry *labels, size_t label_count, long src_idx, long tgt_idx) {
+    for (size_t k = 0; k < label_count; k++) {
+        const LabelEntry *h = &labels[k];
+        if (h->sp_save_slot == NULL) continue;
+        if (tgt_idx > h->inst_index && tgt_idx <= h->back_edge_max &&
+            (src_idx < h->inst_index || src_idx > h->back_edge_max)) {
+            LLVMValueRef sp = LLVMBuildCall2(e->builder, e->stacksave_ty, e->stacksave_fn, NULL, 0, "def4_entry_sp");
+            LLVMBuildStore(e->builder, sp, h->sp_save_slot);
+        }
+    }
+}
+
+static LLVMBasicBlockRef br_edge_block(EmitCtx *e, const LabelEntry *labels, size_t label_count, LabelEntry *le, long inst_index, LLVMBasicBlockRef cur, LLVMValueRef fn) {
+    int need_rewind = le->sp_save_slot != NULL && le->inst_index < inst_index;
+    int need_entry = edge_needs_entry_saves(labels, label_count, inst_index, le->inst_index);
+    if (!need_rewind && !need_entry) return le->block;
+    if (!need_entry) {
+        if (le->rewind_block == NULL) {
+            le->rewind_block = LLVMAppendBasicBlockInContext(e->ctx, fn, "def4_rewind");
+            LLVMPositionBuilderAtEnd(e->builder, le->rewind_block);
+            emit_stack_restore(e, le->sp_save_slot);
+            LLVMBuildBr(e->builder, le->block);
+            LLVMPositionBuilderAtEnd(e->builder, cur);
+        }
+        return le->rewind_block;
+    }
+    /* Entry saves depend on the source edge, so this block is per call
+     * site (never cached): save first, then the target's own rewind
+     * restore if the edge is also a backward edge to an armed header. */
+    {
+        LLVMBasicBlockRef bb = LLVMAppendBasicBlockInContext(e->ctx, fn, "def4_entry_save");
+        LLVMPositionBuilderAtEnd(e->builder, bb);
+        emit_entry_saves(e, labels, label_count, inst_index, le->inst_index);
+        if (need_rewind) emit_stack_restore(e, le->sp_save_slot);
         LLVMBuildBr(e->builder, le->block);
         LLVMPositionBuilderAtEnd(e->builder, cur);
+        return bb;
     }
-    return le->rewind_block;
 }
 
 static int current_has_terminator(EmitCtx *e) {
@@ -1493,7 +1542,13 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
                 LabelEntry *le = label_entry(labels, label_count, in->label);
                 if (le == NULL) { free(regs); free(labels); return 1; }
                 LLVMBasicBlockRef bb = le->block;
-                if (!current_has_terminator(e)) LLVMBuildBr(e->builder, bb);
+                if (!current_has_terminator(e)) {
+                    /* DEF-4: a fall-through into an armed interval's
+                     * interior is an entry edge like any other; the
+                     * builder is still in the source block here. */
+                    if (i > 0) emit_entry_saves(e, labels, label_count, (long)i - 1, le->inst_index);
+                    LLVMBuildBr(e->builder, bb);
+                }
                 LLVMPositionBuilderAtEnd(e->builder, bb);
                 /* DEF-4: loop header arrival -> save the stack pointer for
                  * this iteration; backward edges restore it (see JMP/BR). */
@@ -1705,6 +1760,9 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 /* DEF-4: backward edge -> rewind this iteration's dynamic
                  * allocas before re-entering the loop header. */
                 if (le->sp_save_slot != NULL && le->inst_index < (long)i) emit_stack_restore(e, le->sp_save_slot);
+                /* DEF-4: an unconditional edge into an armed interval's
+                 * interior saves inline (no block needed on this path). */
+                emit_entry_saves(e, labels, label_count, (long)i, le->inst_index);
                 LLVMBuildBr(e->builder, le->block);
                 break;
             }
@@ -1719,8 +1777,8 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                  * taken path, via a per-header rewind block. */
                 LLVMBasicBlockRef cur = LLVMGetInsertBlock(e->builder);
                 LLVMValueRef cur_fn = LLVMGetBasicBlockParent(cur);
-                LLVMBasicBlockRef tb = br_edge_block(e, tle, (long)i, cur, cur_fn);
-                LLVMBasicBlockRef fb = br_edge_block(e, fle, (long)i, cur, cur_fn);
+                LLVMBasicBlockRef tb = br_edge_block(e, labels, label_count, tle, (long)i, cur, cur_fn);
+                LLVMBasicBlockRef fb = br_edge_block(e, labels, label_count, fle, (long)i, cur, cur_fn);
                 LLVMPositionBuilderAtEnd(e->builder, cur);
                 LLVMBuildCondBr(e->builder, cond, tb, fb);
                 break;
