@@ -1884,7 +1884,18 @@ pub export fn sa_http_client_websocket_connect(client: ?*anyopaque, url_ptr: ?[*
 
 var sse_stream_counter = std.atomic.Value(u32).init(0);
 
+// Handle-kind tag for SseStream allocations. The sse_* exports
+// receive opaque handles; a client handle (HttpClient) passed
+// where a stream handle belongs must fail soft (error status),
+// never be reinterpreted as a stream -- the blind cast used to
+// read a client allocation's bytes as stream state and crash
+// inside sse_read. The value's high byte keeps it outside every
+// pointer/small-int range a foreign allocation's first word can
+// plausibly hold.
+const SSE_STREAM_MAGIC: u64 = 0xA5A5_5353_4554_0001;
+
 const SseStream = struct {
+    magic: u64,
     allocator: std.mem.Allocator,
     child: sio.Child,
     body_path: []u8,
@@ -2066,6 +2077,7 @@ pub export fn sa_http_client_sse_post(
         return 1;
     };
     s.* = .{
+        .magic = SSE_STREAM_MAGIC,
         .allocator = allocator,
         .child = child,
         .body_path = body_path,
@@ -2080,12 +2092,23 @@ pub export fn sa_http_client_sse_post(
     return 0;
 }
 
+// Resolve an opaque handle to its stream, or null when the
+// handle is null or is not an SseStream allocation (see
+// SSE_STREAM_MAGIC). Every public sse_* export goes through
+// here before touching any stream field.
+fn sseStreamFromHandle(handle: ?*anyopaque) ?*SseStream {
+    const raw = handle orelse return null;
+    const s = @as(*SseStream, @ptrCast(@alignCast(raw)));
+    if (s.magic != SSE_STREAM_MAGIC) return null;
+    return s;
+}
+
 pub export fn sa_http_client_sse_read(
     handle: ?*anyopaque,
     buf_ptr: ?[*]u8, buf_cap: u64,
     out_len: ?*u64,
 ) u32 {
-    const s = @as(*SseStream, @ptrCast(@alignCast(handle orelse return 1)));
+    const s = sseStreamFromHandle(handle) orelse return 1;
     const out = out_len orelse return 1;
     const buf = buf_ptr orelse return 1;
     out.* = 0;
@@ -2105,7 +2128,7 @@ pub export fn sa_http_client_sse_read(
 
 // out_done: 0 = running, 1 = finished ok, 2 = finished with error
 pub export fn sa_http_client_sse_poll(handle: ?*anyopaque, out_done: ?*u8) u32 {
-    const s = @as(*SseStream, @ptrCast(@alignCast(handle orelse return 1)));
+    const s = sseStreamFromHandle(handle) orelse return 1;
     const out = out_done orelse return 1;
     sseCheckFinished(s);
     // Also try to parse status from headers if not yet known.
@@ -2117,7 +2140,7 @@ pub export fn sa_http_client_sse_poll(handle: ?*anyopaque, out_done: ?*u8) u32 {
 }
 
 pub export fn sa_http_client_sse_status(handle: ?*anyopaque) u16 {
-    const s = @as(*SseStream, @ptrCast(@alignCast(handle orelse return 0)));
+    const s = sseStreamFromHandle(handle) orelse return 0;
     if (s.http_status == 0) {
         s.http_status = sseParseStatus(s.header_path);
     }
@@ -2125,7 +2148,7 @@ pub export fn sa_http_client_sse_status(handle: ?*anyopaque) u16 {
 }
 
 pub export fn sa_http_client_sse_free(handle: ?*anyopaque) u32 {
-    const s = @as(*SseStream, @ptrCast(@alignCast(handle orelse return 1)));
+    const s = sseStreamFromHandle(handle) orelse return 1;
     if (!s.finished) {
         _ = s.child.kill() catch {};
         sseWaitSioChild(&s.child);

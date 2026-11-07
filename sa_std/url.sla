@@ -439,8 +439,10 @@ fn url_query_pair_spans(p: ptr, n: u64, index: u64) -> UrlPairSpans {
     while i <= n {
         let at_end: bool = i == n;
         let at_sep: bool = false;
-        if !at_end && PTR_BYTE_AT(p, i) == 38 {
-            at_sep = true;
+        if !at_end {
+            if PTR_BYTE_AT(p, i) == 38 {
+                at_sep = true;
+            };
         };
         if at_end || at_sep {
             if i > seg_start {
@@ -488,16 +490,23 @@ fn url_query_get(query: String, key: String) -> Option<String> {
 }
 
 fn url_query_get_nth(query: String, key: String, nth: u64) -> Option<String> {
+    // Walk the pair spans to exhaustion instead of counting
+    // first: the count pass took `query` by value after `p` was
+    // captured from it, and a by-value pass may invalidate the
+    // caller's buffer (DEF-ARG-EXTRACT-ALIAS family), which made
+    // every lookup miss and return None.
     let p: ptr = STR_PTR(query);
     let n: u64 = len(query);
     let kp: ptr = STR_PTR(key);
     let kn: u64 = len(key);
-    let total: u64 = url_query_count(query);
     let matches: u64 = 0;
     let i: u64 = 0;
-    while i < total {
+    let scanning: bool = true;
+    while scanning {
         let spans: UrlPairSpans = url_query_pair_spans(p, n, i);
-        if spans.found {
+        if !spans.found {
+            scanning = false;
+        } else {
             let dkey_raw: String = url_dup_range(p, spans.key_start, spans.key_end);
             let dkey: String = url_decode_or_raw(dkey_raw, true);
             if url_bytes_eq(STR_PTR(dkey), len(dkey), kp, kn) {
@@ -510,8 +519,8 @@ fn url_query_get_nth(query: String, key: String, nth: u64) -> Option<String> {
                 };
                 matches = matches + 1;
             };
+            i = i + 1;
         };
-        i = i + 1;
     }
     return None;
 }
@@ -644,25 +653,31 @@ fn url_parse(text: String) -> Result<Url, i32> {
         fragment = url_dup_range(p, (hash as u64) + 1, n);
     };
     // Scheme: [A-Za-z][A-Za-z0-9+.-]* ':' before any '/', '?'.
+    // The length check and the byte read are nested ifs, not an
+    // && chain: the read must stay behind the check even on
+    // paths where && evaluates both sides (an empty input's
+    // buffer pointer is not readable at index 0).
     let scheme: String = format("");
     let pos: u64 = 0;
-    if n > 0 && url_is_alpha(PTR_BYTE_AT(p, 0)) {
-        let j: u64 = 1;
-        let scanning: bool = true;
-        while scanning && j < main_end {
-            let b: u8 = PTR_BYTE_AT(p, j);
-            if b == 58 {
-                scheme = url_dup_range(p, 0, j);
-                pos = j + 1;
-                scanning = false;
-            } else {
-                if url_is_alpha(b) || url_is_digit(b) || b == 43 || b == 45 || b == 46 {
-                    j = j + 1;
-                } else {
+    if n > 0 {
+        if url_is_alpha(PTR_BYTE_AT(p, 0)) {
+            let j: u64 = 1;
+            let scanning: bool = true;
+            while scanning && j < main_end {
+                let b: u8 = PTR_BYTE_AT(p, j);
+                if b == 58 {
+                    scheme = url_dup_range(p, 0, j);
+                    pos = j + 1;
                     scanning = false;
+                } else {
+                    if url_is_alpha(b) || url_is_digit(b) || b == 43 || b == 45 || b == 46 {
+                        j = j + 1;
+                    } else {
+                        scanning = false;
+                    };
                 };
-            };
-        }
+            }
+        };
     };
     // Authority: "//" up to the next '/', '?' or the end.
     let has_authority: bool = false;
@@ -671,7 +686,13 @@ fn url_parse(text: String) -> Result<Url, i32> {
     let host: String = format("");
     let has_port: bool = false;
     let port: u32 = 0;
-    if pos + 1 < main_end && PTR_BYTE_AT(p, pos) == 47 && PTR_BYTE_AT(p, pos + 1) == 47 {
+    let has_auth_prefix: bool = false;
+    if pos + 1 < main_end {
+        if PTR_BYTE_AT(p, pos) == 47 && PTR_BYTE_AT(p, pos + 1) == 47 {
+            has_auth_prefix = true;
+        };
+    };
+    if has_auth_prefix {
         has_authority = true;
         let auth_start: u64 = pos + 2;
         let auth_end: u64 = auth_start;
@@ -692,7 +713,13 @@ fn url_parse(text: String) -> Result<Url, i32> {
             hp_start = (at as u64) + 1;
         };
         // host / port.
-        if hp_start < auth_end && PTR_BYTE_AT(p, hp_start) == 91 {
+        let bracketed: bool = false;
+        if hp_start < auth_end {
+            if PTR_BYTE_AT(p, hp_start) == 91 {
+                bracketed = true;
+            };
+        };
+        if bracketed {
             // Bracketed literal: host includes the brackets.
             let close: i64 = url_find_byte(p, hp_start, auth_end, 93);
             if close < 0 {
@@ -824,7 +851,22 @@ fn url_dec_len(v: u32) -> u64 {
     if v < 10000 {
         return 4;
     };
-    return 5;
+    if v < 100000 {
+        return 5;
+    };
+    if v < 1000000 {
+        return 6;
+    };
+    if v < 10000000 {
+        return 7;
+    };
+    if v < 100000000 {
+        return 8;
+    };
+    if v < 1000000000 {
+        return 9;
+    };
+    return 10;
 }
 
 // Recompose. All appends are inline loops over field bytes: a

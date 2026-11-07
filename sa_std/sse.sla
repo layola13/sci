@@ -48,9 +48,9 @@
 //     parser and return it. Getters take it by reference.
 //   - Events are byte strings throughout (Vec<u8>); text decoding is
 //     the caller's business. Dispatched events accumulate in order;
-//     sse_parser_event_at copies one out by value as a read-only view
-//     (the same shape as reading a DnsRecord out of a DnsMessage):
-//     consume its fields, do not free them separately.
+//     sse_parser_event_at copies one out by value as an owned deep
+//     copy (its buffers are fresh allocations; the stored event
+//     stays the parser's).
 //   - Errors: this parser has no failure modes of its own -- every
 //     byte sequence is a legal event stream. The only status in this
 //     file is the http composition helper's, which propagates the
@@ -584,8 +584,13 @@ fn sse_parser_event_count(p: &SseParser) -> u64 {
     return len(p.events) as u64;
 }
 
-// Copy the index-th dispatched event out as a read-only view (see the
-// header's ownership note). index must be < sse_parser_event_count.
+// Copy the index-th dispatched event out by value (see the
+// header's ownership note): the three byte buffers are copied
+// into fresh allocations owned by the returned event. A bare
+// SLICE_GET struct copy would alias the stored event's buffers
+// in the returned value, and the returned value's drop then
+// frees the parser's live event (crash on the next access or
+// at parser drop). index must be < sse_parser_event_count.
 fn sse_parser_event_at(p: &SseParser, index: u64) -> SseEvent {
     let sl: Slice<SseEvent> = VEC_AS_SLICE(p.events);
     let ev: SseEvent = SseEvent {
@@ -596,7 +601,21 @@ fn sse_parser_event_at(p: &SseParser, index: u64) -> SseEvent {
         retry_ms: -1,
     };
     SLICE_GET(ev, sl, index);
-    return ev;
+    let tsl: Slice<u8> = VEC_AS_SLICE(ev.event_type);
+    let type_copy: Vec<u8> = sse_slice_copy(&tsl, 0, len(ev.event_type));
+    let dsl: Slice<u8> = VEC_AS_SLICE(ev.data);
+    let data_copy: Vec<u8> = sse_slice_copy(&dsl, 0, len(ev.data));
+    let isl: Slice<u8> = VEC_AS_SLICE(ev.id);
+    let id_copy: Vec<u8> = sse_slice_copy(&isl, 0, len(ev.id));
+    let out: SseEvent = SseEvent {
+        event_type: type_copy,
+        data: data_copy,
+        id: id_copy,
+        has_id: ev.has_id,
+        retry_ms: ev.retry_ms,
+    };
+    !ev;
+    return out;
 }
 
 // The last event id seen so far (empty when none, or when the id was
