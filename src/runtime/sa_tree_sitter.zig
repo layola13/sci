@@ -1117,7 +1117,22 @@ test "tree-sitter: parse javascript, query its function definitions" {
 }
 
 fn setTsDir() void {
-    _ = setenv("SA_TREE_SITTER_DIR", "/content/sa_all/sci/artifacts/tree_sitter", 1);
+    // DEF-TS-HARDCODE-PATH: the tests must load the tree-sitter artifacts
+    // that ship with this repository (artifacts/tree_sitter), never a
+    // venue-specific absolute path. Derive the directory from the
+    // build-time repo root baked into build_options (the same source
+    // cli.zig uses to locate sa_std), so the tests find the in-tree
+    // artifacts on any machine.
+    const build_options = @import("build_options");
+    const suffix = std.fs.path.sep_str ++ "artifacts" ++ std.fs.path.sep_str ++ "tree_sitter";
+    const root = build_options.repo_root;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (root.len + suffix.len >= buf.len) return;
+    @memcpy(buf[0..root.len], root);
+    @memcpy(buf[root.len..][0..suffix.len], suffix);
+    buf[root.len + suffix.len] = 0;
+    const dir: [*:0]const u8 = @ptrCast(&buf);
+    _ = setenv("SA_TREE_SITTER_DIR", dir, 1);
 }
 
 fn readInto(comptime F: anytype, handle: u64, buf: []u8) ![]u8 {
