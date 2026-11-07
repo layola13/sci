@@ -660,7 +660,6 @@ const Interpreter = struct {
     anon_const_addrs: std.StringHashMap(u64),
     anon_const_keys: std.array_list.Managed([]u8),
     memory: Memory,
-    monotonic_origin: ?std.Io.Timestamp = null,
     trace_runtime: bool = false,
     exit_code: ?u8 = null,
     call_depth: usize = 0,
@@ -738,7 +737,6 @@ const Interpreter = struct {
             .anon_const_addrs = std.StringHashMap(u64).init(allocator),
             .anon_const_keys = std.array_list.Managed([]u8).init(allocator),
             .memory = Memory.init(allocator),
-            .monotonic_origin = null,
             .trace_runtime = traceRuntime(allocator) catch false,
             .exit_code = null,
             .call_depth = 0,
@@ -1565,15 +1563,17 @@ const Interpreter = struct {
     }
 
     fn monotonicNowNs(self: *Interpreter) !u64 {
+        _ = self;
         // NOTE(Zig 0.17): `std.time.Instant` is gone; `Clock.awake` is the
-        // monotonic clock ("will not go backwards").
-        const current = std.Io.Clock.awake.now(sio.io());
-        if (self.monotonic_origin) |origin| {
-            const delta = current.durationTo(origin);
-            return @as(u64, @intCast(delta.toNanoseconds()));
-        }
-        self.monotonic_origin = current;
-        return 0;
+        // monotonic clock ("will not go backwards"). Return the raw
+        // reading, matching the native runtime: 0 means clock failure,
+        // never a legitimate first reading (the previous
+        // origin-relative form returned exactly 0 to the first caller
+        // of every interpreter session).
+        const now_ns: i128 = std.Io.Clock.awake.now(sio.io()).toNanoseconds();
+        if (now_ns <= 0) return 0;
+        if (now_ns > std.math.maxInt(u64)) return std.math.maxInt(u64);
+        return @intCast(now_ns);
     }
 
     fn writeUtcNow(self: *Interpreter, ptr: u64) !void {

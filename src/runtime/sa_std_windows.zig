@@ -506,8 +506,6 @@ var last_error: i32 = SA_STD_OK;
 var registry_mutex: std.atomic.Mutex = .unlocked;
 var buffers = std.array_list.Managed(?BufferResource).init(std.heap.page_allocator);
 var free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
-var time_mutex: std.atomic.Mutex = .unlocked;
-var monotonic_origin_ns: ?u64 = null;
 const process_handle_tag: u64 = 0x7000_0000_0000_0000;
 const stream_handle_tag: u64 = 0x7100_0000_0000_0000;
 const json_handle_tag: u64 = 0x7200_0000_0000_0000;
@@ -839,16 +837,12 @@ fn fillUtcNow(out: *TimeDate) !void {
 }
 
 fn monotonicNowNs() !u64 {
-    while (!time_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer time_mutex.unlock();
-
-    // Instant clock is gone in 0.17; awake-clock ns with origin subtraction.
-    const now_ns = @as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds()));
-    if (monotonic_origin_ns) |origin| {
-        return now_ns - origin;
-    }
-    monotonic_origin_ns = now_ns;
-    return 0;
+    // Instant clock is gone in 0.17; return the raw awake-clock ns
+    // reading, matching the non-Windows runtime: 0 is reserved for
+    // clock failure, never a legitimate first reading (the previous
+    // origin-subtraction form returned exactly 0 to the first caller
+    // in every process).
+    return @as(u64, @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds()));
 }
 
 fn stringConcat(left: []const u8, right: []const u8) ![]u8 {

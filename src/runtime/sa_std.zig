@@ -2442,13 +2442,11 @@ const Resource = union(enum) {
 };
 
 var registry_mutex: std.atomic.Mutex = .unlocked;
-var time_mutex: std.atomic.Mutex = .unlocked;
 var registry_slots = std.array_list.Managed(?Resource).init(std.heap.page_allocator);
 var pthread_registry_mutex: std.atomic.Mutex = .unlocked;
 var pthread_slots = std.array_list.Managed(?*PthreadHandle).init(std.heap.page_allocator);
 var pthread_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
 var raw_pthread_owners = std.array_list.Managed(RawPthreadOwner).init(std.heap.page_allocator);
-var monotonic_origin: ?i96 = null;
 threadlocal var last_error: i32 = SA_STD_OK;
 var compatibility_mmap_page: [4096]u8 = std.mem.zeroes([4096]u8);
 var compatibility_dlopen_cookie: [1]u8 = .{0};
@@ -2771,19 +2769,17 @@ fn fillUtcNow(out: *TimeDate) !void {
 }
 
 fn monotonicNowNs() !u64 {
-    while (!time_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer time_mutex.unlock();
-
-    const now_ns = std.Io.Clock.awake.now(sio.io()).toNanoseconds();
-    if (monotonic_origin) |origin| {
-        const delta = now_ns - origin;
-        if (delta <= std.math.maxInt(u64)) return @as(u64, @intCast(delta));
-        return std.math.maxInt(u64);
-    }
-    monotonic_origin = now_ns;
-    return 0;
+    // Raw monotonic-clock reading (ns since boot), the same contract
+    // sa_time_unix_ns already uses for the wall clock: callers diff two
+    // readings, and a reading of 0 is reserved for policy denial or
+    // clock failure. (The previous origin-relative form returned
+    // exactly 0 to the first caller in every process, which read as a
+    // dead clock on every surface exposing the raw value:
+    // Instant::now().raw_ns(), timer_now_ns, sched_now_ns.)
+    const now_ns: i128 = std.Io.Clock.awake.now(sio.io()).toNanoseconds();
+    if (now_ns <= 0) return 0;
+    if (now_ns > std.math.maxInt(u64)) return std.math.maxInt(u64);
+    return @intCast(now_ns);
 }
 
 fn lenAsUsize(len: u64) !usize {
