@@ -52,8 +52,20 @@
 // Platform scope: Linux (x86_64 constants; page size 4096).
 // ---------------------------------------------------------------------------
 
+// Target-conditional declarations (C-upper materialization; shared
+// spec: sa_plugin_sla docs/target_conditional_decls.md). The mmap and
+// munmap length parameters are C size_t: u64 wide on native targets,
+// u32 wide on wasm32 (wasi-libc). The offset parameter is a C off_t,
+// which stays 64-bit on both. Materialized per target before assembly;
+// the assembler itself sees exactly one variant.
+// @target-begin
+// @target native
 @extern mmap(addr: ptr, len: u64, prot: i32, flags: i32, fd: i32, offset: u64) -> ptr
 @extern munmap(addr: ptr, len: u64) -> i32
+// @target wasm32
+@extern mmap(addr: ptr, len: u32, prot: i32, flags: i32, fd: i32, offset: u64) -> ptr
+@extern munmap(addr: ptr, len: u32) -> i32
+// @target-end
 @extern sa_mem_free(^ptr: ptr) -> void
 
 @export sa_growvec_new(elem_size: u64, max_elems: u64) -> ^ptr:
@@ -93,7 +105,26 @@ L_HAVE_RSV:
     rsv = add rsv_raw, 0
     jmp L_MMAP
 L_MMAP:
+// The mmap flags word is a target constant riding the same
+// conditional mechanism: 16418 is MAP_PRIVATE | MAP_ANONYMOUS |
+// MAP_NORESERVE in the Linux native numbering; wasi-libc numbers
+// MAP_PRIVATE | MAP_ANONYMOUS as 34 and its mmap emulation rejects
+// the MAP_NORESERVE bit (0x4000) with EINVAL. The wasm32 variant
+// converts the u64 reservation length to the u32 size_t width
+// explicitly, with a bounds check (panic 1216) instead of a silent
+// truncation; the published (u64, u64) signature above is unchanged.
+// @target-begin
+// @target native
     base = call @mmap(0 as ptr, rsv, 3, 16418, -1, 0)
+// @target wasm32
+    rsv_ok = ule rsv, 4294967295
+    br rsv_ok -> L_MMAP_CALL, L_OVERFLOW
+L_MMAP_CALL:
+    rsv_sz = rsv as u32
+    base = call @mmap(0 as ptr, rsv_sz, 3, 34, -1, 0)
+    !rsv_sz
+    !rsv_ok
+// @target-end
     fail_ptr = -1 as ptr
     failed = eq base, fail_ptr
     br failed -> L_MMAP_FAIL, L_FILL
@@ -240,10 +271,29 @@ L_NO_BASE:
     !base
     jmp L_FREE_HANDLE
 L_UNMAP:
+// Same explicit checked size_t conversion as the mmap call site: a
+// reservation length that cannot be represented in the wasm32 u32
+// width is a loud panic (1216), never a silent truncation.
+// @target-begin
+// @target native
     rc = call @munmap(base, rsv)
     !rc
     !base
     jmp L_FREE_HANDLE
+// @target wasm32
+    rsv_ok = ule rsv, 4294967295
+    br rsv_ok -> L_UNMAP_CALL, L_UNMAP_OVERFLOW
+L_UNMAP_OVERFLOW:
+    panic(1216)
+L_UNMAP_CALL:
+    rsv_sz = rsv as u32
+    rc = call @munmap(base, rsv_sz)
+    !rsv_sz
+    !rsv_ok
+    !rc
+    !base
+    jmp L_FREE_HANDLE
+// @target-end
 L_FREE_HANDLE:
     !zero_ptr
     !has_base

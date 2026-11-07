@@ -118,7 +118,17 @@ L_END:
     !dst
     return
 
+// Target-conditional declaration (C-upper materialization; shared
+// spec: sa_plugin_sla docs/target_conditional_decls.md). memcpy's
+// count parameter is a C size_t: u64 wide on native targets, u32 wide
+// on wasm32 (wasi-libc). Materialized per target at the std assembly
+// points; the assembler itself sees exactly one variant.
+// @target-begin
+// @target native
 @extern memcpy(dst: ptr, src: ptr, n: u64) -> ptr
+// @target wasm32
+@extern memcpy(dst: ptr, src: ptr, n: u32) -> ptr
+// @target-end
 
 // Bulk byte copy bound to the platform memcpy (Class-A batch,
 // GAP-BULKAPPEND). sa_mem_copy above is the portable SA face --
@@ -144,6 +154,11 @@ L_CHECK_SRC:
 L_NULL_SRC:
     panic(1702)
 L_DO:
+// The wasm32 variant converts the u64 count to the u32 size_t width
+// explicitly, with a bounds check (panic 1703) instead of a silent
+// truncation; this function's published signature is unchanged.
+// @target-begin
+// @target native
     r = call @memcpy(dst, src, count)
     !r
     !src_null
@@ -153,6 +168,25 @@ L_DO:
     !src
     !dst
     return
+// @target wasm32
+    count_ok = ule count, 4294967295
+    br count_ok -> L_DO_COPY, L_TOO_BIG
+L_TOO_BIG:
+    panic(1703)
+L_DO_COPY:
+    count_sz = count as u32
+    r = call @memcpy(dst, src, count_sz)
+    !count_sz
+    !count_ok
+    !r
+    !src_null
+    !dst_null
+    !nonzero
+    !count
+    !src
+    !dst
+    return
+// @target-end
 L_DONE:
     !nonzero
     !count

@@ -404,6 +404,17 @@ pub fn build(b: *std.Build) void {
         else
             b.fmt("{s}-{s}-{s}", .{ @tagName(target.result.cpu.arch), @tagName(target.result.os.tag), @tagName(target.result.abi) });
 
+        // Target-conditional declarations (C-upper): SA-implemented std
+        // units may carry conditional declaration blocks (libc size_t
+        // widths differ per target). Materialize the unit for this
+        // archive's target before assembling, per the shared
+        // specification implemented in tools/decl_materialize.zig. A
+        // unit without conditional blocks is assembled in place,
+        // byte-identical to before. Materialization problems are loud
+        // configure-time failures, never a silent fallback.
+        const decl_materialize = @import("tools/decl_materialize.zig");
+        const decl_target: decl_materialize.DeclTarget = if (target.result.cpu.arch == .wasm32) .wasm32 else .native;
+
         const asm_growvec = b.addRunArtifact(sa_tool);
         // The assembler must not reuse a project build cache populated
         // for another target (cross-target reuse corrupts the object);
@@ -411,7 +422,19 @@ pub fn build(b: *std.Build) void {
         // mirrors the proven manual invocation:
         //   sa build-obj <unit.sa> --no-incremental --target <triple> -o <out>
         asm_growvec.addArg("build-obj");
-        asm_growvec.addFileArg(b.path("sa_std/alloc/growvec.sa"));
+        const growvec_src_rel = "sa_std/alloc/growvec.sa";
+        const growvec_abs = pathFromRoot(b, growvec_src_rel);
+        const growvec_raw = std.Io.Dir.readFileAlloc(.cwd(), b.graph.io, growvec_abs, b.allocator, .limited(16 * 1024 * 1024)) catch |err|
+            std.debug.panic("failed to read {s}: {s}", .{ growvec_src_rel, @errorName(err) });
+        if (decl_materialize.containsTargetBlocks(growvec_raw)) {
+            const growvec_materialized = decl_materialize.materialize(b.allocator, growvec_raw, decl_target) catch |err|
+                std.debug.panic("decl materialize failed for {s} (target {s}): {s}", .{ growvec_src_rel, decl_target.targetName(), @errorName(err) });
+            const wf = b.addWriteFiles();
+            asm_growvec.addFileArg(wf.add("growvec_materialized.sa", growvec_materialized));
+            asm_growvec.step.dependOn(&wf.step);
+        } else {
+            asm_growvec.addFileArg(b.path(growvec_src_rel));
+        }
         asm_growvec.addArgs(&.{ "--no-incremental", "--target", triple, "-o" });
         const growvec_obj = asm_growvec.addOutputFileArg("sa_growvec_unit.o");
         sa_std_static.root_module.addObjectFile(growvec_obj);
