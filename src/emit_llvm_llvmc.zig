@@ -1019,13 +1019,34 @@ fn builtinReturnType(name: []const u8) ?CType {
     return null;
 }
 
-fn assignTy(kind: inst.InstKind, value: COperand) CType {
-    return switch (kind) {
+/// The cast target of an `as <type>` suffix lives only in the
+/// instruction's raw text (the classifier splits it off the operand;
+/// emit_c's castTargetType recovers it the same way). Returns the
+/// parsed target type, or null when there is no parseable suffix.
+fn assignTargetTy(base: inst.Instruction) ?CType {
+    const text = std.mem.trim(u8, base.raw_text, " \t\r\n");
+    const idx = std.mem.lastIndexOf(u8, text, " as ") orelse return null;
+    var tail = std.mem.trim(u8, text[idx + 4 ..], " \t\r\n");
+    if (tail.len == 0) return null;
+    if (std.mem.indexOfAny(u8, tail, " \t\r\n")) |end| tail = tail[0..end];
+    const prim = sig.parsePrimType(tail) catch return null;
+    return cType(prim) catch null;
+}
+
+fn assignTy(base: inst.Instruction, value: COperand) CType {
+    return switch (base.kind) {
         .raw_cast => .i64,
         .borrow, .assume_safe, .assume_borrow => .ptr,
         .assign => switch (value.kind) {
             .const_ptr => .ptr,
-            .imm_i64, .imm_u64 => if (value.ty == .ptr) .ptr else .void,
+            // DEF-WASM32-PTR-REPR: an explicit `as ptr` materializes a
+            // ptr-typed register. Without this the operand's suffix
+            // type is dropped here, the shim records the register as
+            // i64, and a negative literal (e.g. `-1 as ptr`) lands in
+            // the 64-bit slot sign-extended — while an extern ptr
+            // return lands zero-extended — so MAP_FAILED-style
+            // sentinel equality never fires on wasm32.
+            .imm_i64, .imm_u64, .reg => if (value.ty == .ptr or (assignTargetTy(base) orelse .void) == .ptr) .ptr else .void,
             .imm_f64 => value.ty,
             else => .void,
         },
@@ -1203,7 +1224,7 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
         .try_, .early_return => .{ .op = .try_, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = try cType(returnTypeForSig(state.fsig.return_cap, state.fsig.return_ty)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => blk: {
             const value = try assignOperand(state, base);
-            const assign_ty = assignTy(base.kind, value);
+            const assign_ty = assignTy(base, value);
             const is_ptr = (assign_ty == .ptr);
             var is_malloc_val = false;
             const dst_global_id = try state.regGlobalId(base.operands[0].reg);
@@ -1217,7 +1238,7 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
                     }
                 }
             }
-            break :blk .{ .op = .assign, .dst = try state.regSlot(base.operands[0].reg), .operand0 = value, .operand1 = none, .operand2 = none, .ty = assignTy(base.kind, value), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
+            break :blk .{ .op = .assign, .dst = try state.regSlot(base.operands[0].reg), .operand0 = value, .operand1 = none, .operand2 = none, .ty = assignTy(base, value), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32), .is_malloc = is_malloc_val };
         },
         .return_ => .{ .op = .ret, .dst = 0, .operand0 = if (base.operands[0] == .none) none else try state.operand(base.operands[0]), .operand1 = none, .operand2 = none, .ty = try cType(returnTypeForSig(state.fsig.return_cap, state.fsig.return_ty)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = base.operands[0] != .none, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .move_ => null,
