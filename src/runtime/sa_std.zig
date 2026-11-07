@@ -7360,11 +7360,15 @@ pub export fn sa_std_print(data: ?[*]const u8, len: u64) i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_println(data: ?[*]const u8, len: u64) i32 {
-    const bytes = constBytes(data, len) catch |err| return finishErr(err);
-    sio.getStdOut().writeAll(bytes) catch |err| return finishErr(err);
-    sio.getStdOut().writeAll("\n") catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
+pub export fn sa_std_println(data: ?[*]const u8, len: u64) Fallible(i32) {
+    // Contract alignment (A_min): io.sai declares `-> i32!`, and the
+    // interpreter already returns a fallible cell; the native runtime
+    // used to return the bare status word, so compiled callers read
+    // the payload slot of a cell that was never written.
+    const bytes = constBytes(data, len) catch |err| return fail(i32, finishErr(err));
+    sio.getStdOut().writeAll(bytes) catch |err| return fail(i32, finishErr(err));
+    sio.getStdOut().writeAll("\n") catch |err| return fail(i32, finishErr(err));
+    return ok(i32, 0);
 }
 
 pub export fn sa_deno_cwd() u64 {
