@@ -536,7 +536,12 @@ fn smtp_transport_close(handle: u64, tls: bool) -> i32 {
     if tls {
         return sa_std_tls_client_close(handle);
     };
-    return sa_net_tcp_stream_close(handle);
+    let close_st: i32 = 0;
+    match sa_net_tcp_stream_close(handle) {
+        Ok(p) => { close_st = p; },
+        Err(e) => { close_st = e; },
+    };
+    return close_st;
 }
 
 // ---- client plumbing ----
@@ -696,7 +701,7 @@ fn smtp_dial_plain(host: Vec<u8>, port: u32) -> SmtpStep {
     };
     let to_st: i32 = sa_std_net_tcp_stream_set_read_timeout(handle, 10000000000);
     if to_st != SA_STD_OK {
-        let cl: i32 = sa_net_tcp_stream_close(handle);
+        let _ = sa_net_tcp_stream_close(handle);
         return smtp_step(smtp_empty_client(), to_st);
     };
     let client = smtp_empty_client();

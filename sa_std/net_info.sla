@@ -611,13 +611,13 @@ fn net_interfaces() -> Result<Vec<NetInterface>, i32> {
     let entries: u64 = 0;
     let g_st: i32 = sa_json_object_get(doc, STR_PTR("entries"), STR_LEN("entries"), &entries);
     if g_st != SA_STD_OK {
-        let jf: i32 = sa_json_free(doc);
+        let _ = sa_json_free(doc);
         return Err(SA_STD_ERR_IO);
     };
     let count: u64 = 0;
     let c_st: i32 = sa_json_value_count(entries, &count);
     if c_st != SA_STD_OK {
-        let jf: i32 = sa_json_free(doc);
+        let _ = sa_json_free(doc);
         return Err(SA_STD_ERR_IO);
     };
     let out: Vec<NetInterface> = Vec::new();
@@ -647,7 +647,7 @@ fn net_interfaces() -> Result<Vec<NetInterface>, i32> {
         };
         i = i + 1;
     }
-    sa_json_free(doc);
+    let _ = sa_json_free(doc);
     if fail != 0 {
         return Err(fail);
     };
@@ -865,7 +865,7 @@ fn ni_collect_addresses(filter: &Vec<u8>, filtered: bool) -> Result<Vec<NetIface
     let count: u64 = 0;
     let c_st: i32 = sa_json_value_count(doc, &count);
     if c_st != SA_STD_OK {
-        sa_json_free(doc);
+        let _ = sa_json_free(doc);
         return Err(SA_STD_ERR_IO);
     };
     let out: Vec<NetIfaceAddr> = Vec::new();
@@ -888,7 +888,7 @@ fn ni_collect_addresses(filter: &Vec<u8>, filtered: bool) -> Result<Vec<NetIface
         };
         i = i + 1;
     }
-    sa_json_free(doc);
+    let _ = sa_json_free(doc);
     if fail != 0 {
         return Err(fail);
     };

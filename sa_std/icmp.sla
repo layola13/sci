@@ -425,7 +425,7 @@ fn icmp_ping(session: IcmpEchoSession, host: Vec<u8>, payload: Vec<u8>, timeout_
         let from_addr: u64 = 0;
         let rst: i32 = sa_std_net_udp_recv_from(sock, recv_ptr, SA_ICMP_MAX_PACKET, &got, &from_addr);
         if from_addr != 0 {
-            let fr: i32 = sa_net_addr_free(from_addr);
+            let _ = sa_net_addr_free(from_addr);
         };
         if rst != SA_STD_OK {
             let cl: i32 = sa_net_udp_close(sock);

@@ -424,13 +424,13 @@ fn jwt_split(token: Vec<u8>, alg: ptr, alg_len: u64) -> JwtParts {
         return jwt_parts_fail(SA_JWT_ERR_FORMAT);
     };
     if sa_json_kind(doc) != 7 {
-        let f0: i32 = sa_json_free(doc);
+        let _ = sa_json_free(doc);
         return jwt_parts_fail(SA_JWT_ERR_FORMAT);
     };
     let alg_p: ptr = STR_PTR("");
     let alg_l: u64 = 0;
     let gst: i32 = sa_json_object_get_string(doc, STR_PTR("alg"), STR_LEN("alg"), &alg_p, &alg_l);
-    let f1: i32 = sa_json_free(doc);
+    let _ = sa_json_free(doc);
     if gst != SA_STD_OK {
         return jwt_parts_fail(SA_JWT_ERR_FORMAT);
     };
@@ -466,7 +466,7 @@ fn jwt_check_times(payload: &Vec<u8>) -> i32 {
         return SA_JWT_ERR_FORMAT;
     };
     if sa_json_kind(doc) != 7 {
-        let f0: i32 = sa_json_free(doc);
+        let _ = sa_json_free(doc);
         return SA_JWT_ERR_FORMAT;
     };
     let now: i64 = sa_time_unix_s();
@@ -474,18 +474,18 @@ fn jwt_check_times(payload: &Vec<u8>) -> i32 {
     let est: i32 = sa_json_object_get_i64(doc, STR_PTR("exp"), STR_LEN("exp"), &exp);
     if est == SA_STD_OK {
         if now >= exp {
-            let f1: i32 = sa_json_free(doc);
+            let _ = sa_json_free(doc);
             return SA_JWT_ERR_EXPIRED;
         };
     } else {
         if est != SA_STD_ERR_NOT_FOUND {
-            let f2: i32 = sa_json_free(doc);
+            let _ = sa_json_free(doc);
             return SA_JWT_ERR_CLAIM;
         };
     };
     let nbf: i64 = 0;
     let nst: i32 = sa_json_object_get_i64(doc, STR_PTR("nbf"), STR_LEN("nbf"), &nbf);
-    let f3: i32 = sa_json_free(doc);
+    let _ = sa_json_free(doc);
     if nst == SA_STD_OK {
         if now < nbf {
             return SA_JWT_ERR_NOT_YET_VALID;

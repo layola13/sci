@@ -664,11 +664,11 @@ fn dns_query(server: Vec<u8>, server_port: u16, name: Vec<u8>, qtype: u16, qclas
     let sock: u64 = 0;
     let bind_st: i32 = sa_std_net_udp_bind(STR_PTR("0.0.0.0"), STR_LEN("0.0.0.0"), 0, &sock);
     if bind_st != SA_STD_OK {
-        let f0: i32 = sa_net_addr_free(addr);
+        let _ = sa_net_addr_free(addr);
         return Err(bind_st);
     };
     let conn_st: i32 = sa_std_net_udp_connect_addr(sock, addr);
-    let f1: i32 = sa_net_addr_free(addr);
+    let _ = sa_net_addr_free(addr);
     if conn_st != SA_STD_OK {
         let c1: i32 = sa_net_udp_close(sock);
         return Err(conn_st);

@@ -1139,7 +1139,7 @@ fn redis_connect(host: Vec<u8>, port: u32) -> RedisStep {
     };
     let to_st: i32 = sa_std_net_tcp_stream_set_read_timeout(handle, SA_REDIS_READ_TIMEOUT_NS);
     if to_st != SA_STD_OK {
-        let cl: i32 = sa_net_tcp_stream_close(handle);
+        let _ = sa_net_tcp_stream_close(handle);
         return redis_step(redis_empty_client(), to_st, redis_empty_value());
     };
     let client = redis_empty_client();
@@ -1210,7 +1210,12 @@ fn redis_connect_auth_db(host: Vec<u8>, port: u32, user: Vec<u8>, password: Vec<
 // empty client is a no-op success.
 fn redis_client_close(c: RedisClient) -> i32 {
     if c.open {
-        return sa_net_tcp_stream_close(c.handle);
+        let close_st: i32 = 0;
+        match sa_net_tcp_stream_close(c.handle) {
+            Ok(p) => { close_st = p; },
+            Err(e) => { close_st = e; },
+        };
+        return close_st;
     };
     return SA_STD_OK;
 }
