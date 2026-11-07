@@ -1504,6 +1504,56 @@ test "hello world demo prints through build-wasm and node wasi" {
     try std.testing.expectEqual(@as(usize, 0), node_result.stderr.len);
 }
 
+test "wasm32 ptr slot convention: MAP_FAILED sentinel checks fire (DEF-WASM32-PTR-REPR)" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const node_probe = sio.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{ "node", "--version" },
+    }) catch return error.SkipZigTest;
+    defer std.testing.allocator.free(node_probe.stdout);
+    defer std.testing.allocator.free(node_probe.stderr);
+    switch (node_probe.term) {
+        .exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    defer original_cwd.setAsCwd() catch {};
+
+    // chk: wasi-libc rejects flags 16418, mmap returns -1, and the
+    // `-1 as ptr` sentinel check must fire (exit 7). On the defective
+    // emitter the literal materializes as i64 -1 while the return is
+    // zero-extended (4294967295), the check misses, and the program
+    // traps in munmap on the wild pointer (node reports exit 1).
+    // ret: the failing return's low byte stays visible (exit 255).
+    // f34: flags 34 succeeds end to end (exit 42).
+    const cases = [_]struct { src: []const u8, out: []const u8, want: u8 }{
+        .{ .src = "tests/wasm32_ptr_repr_chk.sa", .out = "chk.wasm", .want = 7 },
+        .{ .src = "tests/wasm32_ptr_repr_ret.sa", .out = "ret.wasm", .want = 255 },
+        .{ .src = "tests/wasm32_ptr_repr_f34.sa", .out = "f34.wasm", .want = 42 },
+    };
+    for (cases) |case| {
+        const source_path = try original_cwd.realpathAlloc(std.testing.allocator, case.src);
+        defer std.testing.allocator.free(source_path);
+        const build_wasm_argv = [_][]const u8{ "sa", "build-wasm", source_path, "-o", case.out, "--target", "wasm32" };
+        const build_wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
+        try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
+
+        const node_result = try runWasmWithNode(std.testing.allocator, case.out, &.{ "sa", case.out });
+        defer std.testing.allocator.free(node_result.stdout);
+        defer std.testing.allocator.free(node_result.stderr);
+        switch (node_result.term) {
+            .exited => |code| try std.testing.expectEqual(case.want, code),
+            else => return error.TestUnexpectedResult,
+        }
+    }
+}
+
 test "windows llvm builds and runs hello world executable" {
     if (builtin.os.tag != .windows or !saasm.build_options.llvm_enabled) return error.SkipZigTest;
 

@@ -1,0 +1,14 @@
+// DEF-WASM32-PTR-REPR regression: the failing extern ptr return stays
+// visible. Provenance: sim-wasm32-munmap-diag varRet16418, verbatim in
+// form. flags 16418 is rejected by wasi-libc's emulated mmap, so mmap
+// returns -1; under the zero-extension slot convention the returned
+// pointer's low byte is 255. Exit code = that low byte (255).
+@extern mmap(addr: ptr, len: u32, prot: i32, flags: i32, fd: i32, offset: u64) -> ptr
+@extern munmap(addr: ptr, len: u32) -> i32
+
+@main() -> i32:
+L_ENTRY:
+    base = call @mmap(0 as ptr, 4096, 3, 16418, -1, 0)
+    low = and base, 255
+    !base
+    return low

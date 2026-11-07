@@ -757,10 +757,31 @@ static LLVMTypeRef indirect_fn_type_for_carried(EmitCtx *e, const SaInstruction 
     return ty;
 }
 
+/* DEF-WASM32-PTR-REPR: integer -> ptr conversion under the slot
+ * convention documented at reg_encode(). On targets whose pointer is
+ * narrower than the 64-bit SA slot (size_bits < 64), an integer CONSTANT
+ * must be truncated to the pointer width before IntToPtr: otherwise the
+ * constant fold ptrtoint(inttoptr(c)) yields the untruncated c (e.g. -1
+ * as i64), while a real pointer reaches its slot zero-extended from the
+ * target width (4294967295) — the two slot representations of the same
+ * pointer differ and `ptr == -1` sentinel checks (MAP_FAILED idiom)
+ * never fire on wasm32. Truncating first is a no-op for the pointer
+ * itself (IntToPtr truncates anyway) and makes the folded slot bits the
+ * zero-extended ones. Non-constant values need no help: their
+ * inttoptr/ptrtoint round trip lowers through the real pointer width. */
+static LLVMValueRef int_to_ptr_value(EmitCtx *e, LLVMValueRef v, LLVMTypeRef dst, const char *name) {
+    if (e->size_bits < 64 && LLVMIsConstant(v) && LLVMGetTypeKind(LLVMTypeOf(v)) == LLVMIntegerTypeKind) {
+        unsigned long long mask = (1ULL << e->size_bits) - 1ULL;
+        unsigned long long bits = LLVMConstIntGetZExtValue(v) & mask;
+        v = LLVMConstInt(LLVMTypeOf(v), bits, 0);
+    }
+    return LLVMBuildIntToPtr(e->builder, v, dst, name);
+}
+
 static LLVMValueRef coerce(EmitCtx *e, LLVMValueRef v, SaType from, SaType to) {
     if (from == to) return v;
     LLVMTypeRef dst = type_of(e, to);
-    if (to == SA_T_PTR) return LLVMBuildIntToPtr(e->builder, v, dst, "cast_ptr");
+    if (to == SA_T_PTR) return int_to_ptr_value(e, v, dst, "cast_ptr");
     if (from == SA_T_PTR) return LLVMBuildPtrToInt(e->builder, v, dst, "cast_int");
     if ((from == SA_T_F32 || from == SA_T_F64) && (to == SA_T_F32 || to == SA_T_F64)) {
         return from == SA_T_F32 ? LLVMBuildFPExt(e->builder, v, dst, "fpext") : LLVMBuildFPTrunc(e->builder, v, dst, "fptrunc");
@@ -796,7 +817,7 @@ static LLVMValueRef bitcast_value(EmitCtx *e, LLVMValueRef v, SaType from, SaTyp
         v = LLVMBuildPtrToInt(e->builder, v, e->i64_ty, "bitcast_ptr_int");
         from = SA_T_U64;
     }
-    if (to == SA_T_PTR) return LLVMBuildIntToPtr(e->builder, v, dst, "bitcast_int_ptr");
+    if (to == SA_T_PTR) return int_to_ptr_value(e, v, dst, "bitcast_int_ptr");
     if (to == SA_T_F32 || to == SA_T_F64) {
         /* Integer registers may hold an i64 LLVM value even when the
            SA type is narrower (slot loads materialize as i64); an
@@ -902,6 +923,19 @@ static unsigned align_of(SaType ty) {
     return 8;
 }
 
+/* WASM32 PTR SLOT CONVENTION (DEF-WASM32-PTR-REPR, ruled zero-extension):
+ * an SA ptr register's 64-bit slot holds the pointer ZERO-EXTENDED from
+ * the target pointer width. The PtrToInt in reg_encode() below is the
+ * return-side producer of that convention — LLVM zero-extends when the
+ * integer result is wider than the pointer, so an extern's ptr return
+ * (e.g. mmap's MAP_FAILED) lands in its slot as 4294967295 on wasm32,
+ * never as -1. The literal side meets the same convention because
+ * integer constants are truncated to the pointer width before IntToPtr
+ * in int_to_ptr_value() (used by coerce()/bitcast_value()). Do not
+ * sign-extend here: a wasm32 address is unsigned, and the convention is
+ * what lets `ptr == -1` sentinel checks fire identically on both
+ * backends. This convention governs the wasm32 path only; on 64-bit
+ * targets every step above is the identity. */
 static LLVMValueRef reg_encode(EmitCtx *e, LLVMValueRef value, SaType ty) {
     if (ty == SA_T_PTR) return LLVMBuildPtrToInt(e->builder, value, e->i64_ty, "slot_ptr_to_int");
     if (ty == SA_T_F64) return LLVMBuildBitCast(e->builder, value, e->i64_ty, "slot_f64_bits");

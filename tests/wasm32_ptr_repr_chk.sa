@@ -1,0 +1,34 @@
+// DEF-WASM32-PTR-REPR regression: the MAP_FAILED sentinel check.
+// Provenance: sim-wasm32-munmap-diag varChk/varA forms (the diag varChk
+// used a 4294967295 literal as a workaround proof; this file restores
+// the original `-1 as ptr` literal whose wasm32 materialization is the
+// defect). Declarations are already target-width correct (u32 len), so
+// no other wasm32 defect is in play: flags 16418 is rejected by
+// wasi-libc's emulated mmap (EINVAL), mmap returns -1, and the failure
+// check MUST fire. Exit 7 = check fired. On the defective emitter the
+// check never fires (slot holds i64 -1 for the literal, 4294967295 for
+// the zero-extended return) and the program traps in munmap on the
+// wild pointer instead.
+@extern mmap(addr: ptr, len: u32, prot: i32, flags: i32, fd: i32, offset: u64) -> ptr
+@extern munmap(addr: ptr, len: u32) -> i32
+
+@main() -> i32:
+L_ENTRY:
+    base = call @mmap(0 as ptr, 4096, 3, 16418, -1, 0)
+    fail_ptr = -1 as ptr
+    failed = eq base, fail_ptr
+    br failed -> L_FAIL, L_OK
+L_OK:
+    rc = call @munmap(base, 4096)
+    !rc
+    !base
+    !fail_ptr
+    !failed
+    ret = add 0, 42
+    return ret
+L_FAIL:
+    !base
+    !fail_ptr
+    !failed
+    ret7 = add 0, 7
+    return ret7
