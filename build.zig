@@ -354,6 +354,68 @@ pub fn build(b: *std.Build) void {
     linkLLVMToCompile(exe, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
     const install_sa_exe = b.addInstallArtifact(exe, .{});
     b.getInstallStep().dependOn(&install_sa_exe.step);
+
+    // -- SA-implemented std units in the static sa_std archive -----------
+    // A few .sai externs are implemented in SA source rather than in the
+    // Zig runtime (today exactly the GrowVec family:
+    // sa_std/alloc/growvec.sa, pulled in via sa_std/growvec.sa). The
+    // archive built above is Zig-only, so those symbols can never enter
+    // it: text-backend clients that declare the externs fail at link
+    // with undefined symbols, while SAB clients work because the SAB
+    // compiler compiles the .sa unit in. Assemble the SA-implemented
+    // units with a host build of the `sa` CLI and add the resulting
+    // objects to the static archive as standalone members. Archive
+    // member granularity is what makes this safe for the SAB path: a
+    // program that already defines the symbols (because SAB compiled
+    // the unit in) never pulls the member, so no duplicate definition
+    // can occur; a text client with unresolved symbols pulls exactly
+    // this member.
+    if (enable_llvm and target.result.os.tag != .windows) {
+        // Host-target copy of the CLI, used purely as a build-time
+        // assembler for .sa std units. In host builds this has the same
+        // artifact configuration as `exe` above and is served from the
+        // build cache.
+        // The tool needs its own host-target copy of the sio module:
+        // importing the target-scoped sio_module would unify the whole
+        // tool compile onto the cross target (zig module target
+        // unification follows imported modules), which cannot run here.
+        const sa_tool_sio_module = b.createModule(.{
+            .root_source_file = b.path("src/sa_io.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        });
+        const sa_tool_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        sa_tool_module.addImport("sio", sa_tool_sio_module);
+        addLlvmcSupportToModule(b, sa_tool_module, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
+        sa_tool_module.addOptions("build_options", build_options);
+        const sa_tool = b.addExecutable(.{
+            .name = "sa-std-asm",
+            .root_module = sa_tool_module,
+        });
+        linkLLVMToCompile(sa_tool, enable_llvm, llvm_include_dir, llvm_lib_dir, llvm_lib_name);
+
+        const triple: []const u8 = if (target.result.os.tag == .wasi or target.result.abi == .none)
+            b.fmt("{s}-{s}", .{ @tagName(target.result.cpu.arch), @tagName(target.result.os.tag) })
+        else
+            b.fmt("{s}-{s}-{s}", .{ @tagName(target.result.cpu.arch), @tagName(target.result.os.tag), @tagName(target.result.abi) });
+
+        const asm_growvec = b.addRunArtifact(sa_tool);
+        // The assembler must not reuse a project build cache populated
+        // for another target (cross-target reuse corrupts the object);
+        // --no-incremental disables that cache outright. Argument order
+        // mirrors the proven manual invocation:
+        //   sa build-obj <unit.sa> --no-incremental --target <triple> -o <out>
+        asm_growvec.addArg("build-obj");
+        asm_growvec.addFileArg(b.path("sa_std/alloc/growvec.sa"));
+        asm_growvec.addArgs(&.{ "--no-incremental", "--target", triple, "-o" });
+        const growvec_obj = asm_growvec.addOutputFileArg("sa_growvec_unit.o");
+        sa_std_static.root_module.addObjectFile(growvec_obj);
+    }
     if (enable_llvm) installLlvmCDll(b, llvm_lib_dir, target.result.os.tag);
 
     const wasm_matrix_module = b.createModule(.{

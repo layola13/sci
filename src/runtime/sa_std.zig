@@ -10942,8 +10942,17 @@ comptime {
             @export(&dlopen, .{ .name = "dlopen", .visibility = .hidden });
             @export(&dlsym, .{ .name = "dlsym", .visibility = .hidden });
             @export(&dlclose, .{ .name = "dlclose", .visibility = .hidden });
-            @export(&mmap, .{ .name = "mmap", .visibility = .hidden });
-            @export(&munmap, .{ .name = "munmap", .visibility = .hidden });
+            // mmap/munmap are weak on top of hidden: hidden alone still
+            // collides at link time when a client object referencing the
+            // real libc mmap/munmap (e.g. an SA-implemented std unit such
+            // as GrowVec) pulls libc's mman.o into a link that also pulls
+            // this compilation unit -- wasm-ld reports a duplicate symbol
+            // against the stub. Weak lets the real libc definition win
+            // whenever one is present in the link, while the stub still
+            // serves links with no libc at all. References from inside
+            // this unit (the page allocator) bind locally either way.
+            @export(&mmap, .{ .name = "mmap", .visibility = .hidden, .linkage = .weak });
+            @export(&munmap, .{ .name = "munmap", .visibility = .hidden, .linkage = .weak });
             @export(&signal, .{ .name = "signal", .visibility = .hidden });
             @export(&pthread_join, .{ .name = "pthread_join", .visibility = .hidden });
             @export(&sqlite3_prepare, .{ .name = "sqlite3_prepare", .visibility = .hidden });
