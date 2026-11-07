@@ -2,10 +2,10 @@
 // implementation for the sa_std assembly point.
 //
 // build.zig uses this module to reduce target-conditional declaration
-// blocks in SA-implemented std units (today: sa_std/alloc/growvec.sa,
-// sa_std/core/mem.sa) to the single concrete variant for the archive's
-// target before the `sa` assembler tool sees the file. The SA compiler
-// itself never learns any conditional semantics.
+// blocks in SA-implemented std units (today: sa_std/alloc/growvec.sa)
+// to the single concrete variant for the archive's target before the
+// `sa` assembler tool sees the file. The SA compiler itself never
+// learns any conditional semantics.
 //
 // This is one implementation of the shared specification whose master
 // copy lives in the sa_plugin_sla repository

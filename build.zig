@@ -427,10 +427,15 @@ pub fn build(b: *std.Build) void {
         const growvec_raw = std.Io.Dir.readFileAlloc(.cwd(), b.graph.io, growvec_abs, b.allocator, .limited(16 * 1024 * 1024)) catch |err|
             std.debug.panic("failed to read {s}: {s}", .{ growvec_src_rel, @errorName(err) });
         if (decl_materialize.containsTargetBlocks(growvec_raw)) {
-            const growvec_materialized = decl_materialize.materialize(b.allocator, growvec_raw, decl_target) catch |err|
-                std.debug.panic("decl materialize failed for {s} (target {s}): {s}", .{ growvec_src_rel, decl_target.targetName(), @errorName(err) });
+            // The unit's relative @imports must resolve exactly as
+            // they do in-tree, so the assembler is pointed at a
+            // mirrored copy of the whole sa_std tree (in the build
+            // cache) in which every file carrying conditional blocks
+            // (this unit and any unit in its import closure, e.g.
+            // core/mem.sa) has been materialized for the target.
             const wf = b.addWriteFiles();
-            asm_growvec.addFileArg(wf.add("growvec_materialized.sa", growvec_materialized));
+            mirrorSaStdTree(b, wf, decl_target);
+            asm_growvec.addFileArg(wf.getDirectory().path(b, "alloc/growvec.sa"));
             asm_growvec.step.dependOn(&wf.step);
         } else {
             asm_growvec.addFileArg(b.path(growvec_src_rel));
@@ -1422,6 +1427,61 @@ fn defaultUnitFileJobs() u32 {
 fn pathFromRoot(b: *std.Build, sub_path: []const u8) []u8 {
     const root_path = b.root.root_dir.path orelse ".";
     return std.fs.path.resolveAlloc(b.allocator, &.{ root_path, sub_path }) catch @panic("OOM");
+}
+
+/// Mirror the sa_std tree into a WriteFiles step, materializing
+/// every SA source file that carries target-conditional declaration
+/// blocks for `decl_target` and copying all other files verbatim.
+/// Used by the target-conditional declaration materialization at the
+/// sa-std-static assembly point: materialized units keep their
+/// in-tree relative paths, so relative @imports resolve exactly as
+/// they do in the real tree, and a conditional block anywhere in an
+/// assembled unit's import closure is reduced before the assembler
+/// sees it. Materialization problems are loud configure-time
+/// failures, never a silent fallback.
+fn mirrorSaStdTree(b: *std.Build, wf: *std.Build.Step.WriteFile, decl_target: @import("tools/decl_materialize.zig").DeclTarget) void {
+    const io = b.graph.io;
+    const root_abs = pathFromRoot(b, "sa_std");
+    var root_dir = std.Io.Dir.openDirAbsolute(io, root_abs, .{ .iterate = true }) catch |err|
+        std.debug.panic("decl materialize: cannot open sa_std tree: {s}", .{@errorName(err)});
+    defer root_dir.close(io);
+    mirrorSaStdDir(b, wf, root_dir, "", decl_target);
+}
+
+fn mirrorSaStdDir(b: *std.Build, wf: *std.Build.Step.WriteFile, dir: std.Io.Dir, rel_prefix: []const u8, decl_target: @import("tools/decl_materialize.zig").DeclTarget) void {
+    const decl_materialize = @import("tools/decl_materialize.zig");
+    const io = b.graph.io;
+    var it = dir.iterate();
+    while (it.next(io) catch |err| std.debug.panic("decl materialize: sa_std walk failed: {s}", .{@errorName(err)})) |entry| {
+        const rel = if (rel_prefix.len == 0)
+            b.allocator.dupe(u8, entry.name) catch @panic("OOM")
+        else
+            std.fs.path.join(b.allocator, &.{ rel_prefix, entry.name }) catch @panic("OOM");
+        switch (entry.kind) {
+            .directory => {
+                var sub = dir.openDir(io, entry.name, .{ .iterate = true }) catch |err|
+                    std.debug.panic("decl materialize: cannot open sa_std/{s}: {s}", .{ rel, @errorName(err) });
+                defer sub.close(io);
+                mirrorSaStdDir(b, wf, sub, rel, decl_target);
+            },
+            .file, .sym_link => {
+                const src = std.fs.path.join(b.allocator, &.{ "sa_std", rel }) catch @panic("OOM");
+                if (std.mem.endsWith(u8, rel, ".sa") or std.mem.endsWith(u8, rel, ".sal")) {
+                    const abs = pathFromRoot(b, src);
+                    const raw = std.Io.Dir.readFileAlloc(.cwd(), io, abs, b.allocator, .limited(16 * 1024 * 1024)) catch |err|
+                        std.debug.panic("decl materialize: failed to read {s}: {s}", .{ src, @errorName(err) });
+                    if (decl_materialize.containsTargetBlocks(raw)) {
+                        const materialized = decl_materialize.materialize(b.allocator, raw, decl_target) catch |err|
+                            std.debug.panic("decl materialize failed for {s} (target {s}): {s}", .{ src, decl_target.targetName(), @errorName(err) });
+                        _ = wf.add(rel, materialized);
+                        continue;
+                    }
+                }
+                _ = wf.addCopyFile(b.path(src), rel);
+            },
+            else => {},
+        }
+    }
 }
 
 /// NOTE(Zig 0.17): `std.fs.Dir` was replaced by `std.Io.Dir`; every
