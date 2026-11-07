@@ -11,6 +11,18 @@ pub const magic = "SAB\x00";
 pub const version_major: u8 = 4;
 pub const version_minor: u8 = 0;
 
+/// Magic of the SAB fragment container defined in sab_fragment.zig. A
+/// fragment is a compiler-internal building block (an unchecked-encoded
+/// function body plus its register contract), never a program: every
+/// module decode entry point rejects it with error.SabFragmentNotAProgram
+/// so a bare fragment can never be silently built, run, or checked as a
+/// whole program.
+pub const fragment_magic = "SAFRAG\x00";
+
+pub fn isFragmentBytes(bytes: []const u8) bool {
+    return bytes.len >= fragment_magic.len and std.mem.eql(u8, bytes[0..fragment_magic.len], fragment_magic);
+}
+
 const SectionId = enum(u64) {
     symbol_pool = 1,
     function_sigs = 2,
@@ -20,6 +32,7 @@ const SectionId = enum(u64) {
 
 pub const Error = error{
     InvalidSabMagic,
+    SabFragmentNotAProgram,
     UnsupportedSabVersion,
     MissingInstructionSection,
     TruncatedSab,
@@ -1007,6 +1020,7 @@ pub fn encodeModule(allocator: std.mem.Allocator, symbols: []const []const u8, i
 
 pub fn decodeModule(allocator: std.mem.Allocator, bytes: []const u8) !Module {
     if (bytes.len < magic.len + 2) return error.TruncatedSab;
+    if (isFragmentBytes(bytes)) return error.SabFragmentNotAProgram;
     if (!std.mem.eql(u8, bytes[0..magic.len], magic)) return error.InvalidSabMagic;
     var cursor = Cursor{ .bytes = bytes, .index = magic.len };
     const major = try cursor.readByte();
@@ -1042,6 +1056,7 @@ pub fn decodeModule(allocator: std.mem.Allocator, bytes: []const u8) !Module {
 
 pub fn decodeFunctionSigsOnly(allocator: std.mem.Allocator, bytes: []const u8) ![]sig.FunctionSig {
     if (bytes.len < magic.len + 2) return error.TruncatedSab;
+    if (isFragmentBytes(bytes)) return error.SabFragmentNotAProgram;
     if (!std.mem.eql(u8, bytes[0..magic.len], magic)) return error.InvalidSabMagic;
     var cursor = Cursor{ .bytes = bytes, .index = magic.len };
     const major = try cursor.readByte();
@@ -1075,6 +1090,7 @@ pub fn decodeFunctionSigsOnly(allocator: std.mem.Allocator, bytes: []const u8) !
 
 pub fn decodeTestFunctionSigsOnly(allocator: std.mem.Allocator, bytes: []const u8) ![]sig.FunctionSig {
     if (bytes.len < magic.len + 2) return error.TruncatedSab;
+    if (isFragmentBytes(bytes)) return error.SabFragmentNotAProgram;
     if (!std.mem.eql(u8, bytes[0..magic.len], magic)) return error.InvalidSabMagic;
     var cursor = Cursor{ .bytes = bytes, .index = magic.len };
     const major = try cursor.readByte();

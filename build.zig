@@ -483,6 +483,23 @@ pub fn build(b: *std.Build) void {
     const emit_sab_inprocess_step = b.step("emit-sab-inprocess-smoke", "Run finding D in-process check --emit-sab regression");
     emit_sab_inprocess_step.dependOn(&run_emit_sab_inprocess.step);
 
+    const fragment_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/fragment_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    fragment_smoke_module.addImport("sio", sio_module);
+    fragment_smoke_module.addImport("saasm", lib_module);
+    const fragment_smoke = b.addTest(.{
+        .root_module = fragment_smoke_module,
+    });
+    const run_fragment_smoke = b.addRunArtifact(fragment_smoke);
+    run_fragment_smoke.setCwd(repo_root_lazy);
+    addLlvmBinDirToRun(b, run_fragment_smoke, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    test_step.dependOn(&run_fragment_smoke.step);
+    const fragment_smoke_step = b.step("fragment-smoke", "Run SAB fragment contract golden and negative corpus");
+    fragment_smoke_step.dependOn(&run_fragment_smoke.step);
+
     const c_matrix_module = b.createModule(.{
         .root_source_file = b.path("tests/c_matrix_smoke.zig"),
         .target = target,

@@ -15,6 +15,7 @@ const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
 const sab = @import("sab.zig");
 const plugin_bridge = @import("plugin_bridge.zig");
+const sab_fragment = @import("sab_fragment.zig");
 const plugins = @import("plugins.zig");
 const manifest = @import("pkg/manifest.zig");
 const pkg_audit = @import("pkg/audit.zig");
@@ -752,6 +753,7 @@ const Command = enum {
     daemon,
     help,
     version,
+    encode_fragment,
 };
 
 pub fn hasJsonFlag(argv: []const []const u8) bool {
@@ -1227,6 +1229,7 @@ fn commandName(cmd: Command) []const u8 {
         .daemon => "daemon",
         .help => "help",
         .version => "version",
+        .encode_fragment => "encode-fragment",
     };
 }
 
@@ -1568,6 +1571,21 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writeCompileOptionsHelp(writer);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
+        .encode_fragment => {
+            try writer.writeAll("usage: sa encode-fragment <file> [options]\n\n");
+            try writer.writeAll("Encode an SA surface fragment as a .safrag container (fragment format 1.0).\n");
+            try writer.writeAll("The source must start with a #fragment contract header declaring the wrapper\n");
+            try writer.writeAll("function and its register contract (#fragment-function/-reads/-owns/-returns/\n");
+            try writer.writeAll("-caller). The header is validated against the flattened body; the payload is\n");
+            try writer.writeAll("encoded without whole-program verification because a fragment is not a\n");
+            try writer.writeAll("program. A .safrag is rejected by build/run/check; only an assembler may\n");
+            try writer.writeAll("decode it, and the assembled module must pass normal verification.\n\n");
+            try writer.writeAll("Options:\n");
+            try writer.writeAll("  -o <path>                      Write the fragment container to path (default: <file>.safrag)\n");
+            try writer.writeAll("  --json                         Emit JSON report\n");
+            try writeCompileOptionsHelp(writer);
+            try writer.writeAll("  -h, --help                     Show this help message\n");
+        },
         .bc2sa => {
             try writer.writeAll("usage: sa bc2sa <file.bc>\n\n");
             try writer.writeAll("Translate LLVM bitcode to SA assembly.\n\n");
@@ -1790,6 +1808,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll("  build-c      <file>            Build a portable C file (.c, C backend)\n");
     try writer.writeAll("  test         <file>            Run @test blocks in a .sa/.sab file\n");
     try writer.writeAll("  check        <file>            Flatten and verify without codegen\n");
+    try writer.writeAll("  encode-fragment <file>         Encode an SA surface fragment (contract header required) as a .safrag container\n");
     try writer.writeAll("  fetch        <identity>        Pkg alias of `sa pkg fetch` (fetch and cache a package)\n");
     try writer.writeAll("  audit        <identity>        Pkg alias of `sa pkg audit` (audit package capabilities)\n");
     try writer.writeAll("  graph        <path>            Output a dependency/call graph\n");
@@ -2101,7 +2120,12 @@ fn cliErrorInfo(err: anyerror) CliErrorInfo {
         error.UnknownCommand => .{
             .code = "SA-CLI-013",
             .message = "unknown command",
-            .hint = "use build, build-workspace, run, build-exe, build-wasm, build-js, build-c, build-obj, build-lib, pkg, cache, graph, layout, size, test, explain, fix, skills, bc2sa, help, or version",
+            .hint = "use build, build-workspace, run, build-exe, build-wasm, build-js, build-c, build-obj, build-lib, pkg, cache, graph, layout, size, test, check, encode-fragment, explain, fix, skills, bc2sa, help, or version",
+        },
+        error.SabFragmentNotAProgram => .{
+            .code = "SA-CLI-022",
+            .message = "input is a SAB fragment (.safrag), not a program",
+            .hint = "fragments are compiler building blocks produced by `sa encode-fragment`; assemble the fragment into a module with the calling frontend instead of building, running, or checking it directly",
         },
         error.UnexpectedArgument => .{
             .code = "SA-CLI-014",
@@ -4686,7 +4710,16 @@ fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     // such a .sab died with error.StreamTooLong before doing any work.
     // Source files are fully buffered by every downstream stage anyway;
     // keep a 1 GiB sanity ceiling instead.
-    return try file.readToEndAlloc(allocator, 1024 * 1024 * 1024);
+    const bytes = try file.readToEndAlloc(allocator, 1024 * 1024 * 1024);
+    // A SAB fragment container is not a program: whatever path or
+    // extension it arrives under, it must never be flattened as text
+    // or decoded as a module here. Reject it by name at the single
+    // source-loading choke point every command path shares.
+    if (sab.isFragmentBytes(bytes)) {
+        allocator.free(bytes);
+        return error.SabFragmentNotAProgram;
+    }
+    return bytes;
 }
 
 fn loadSabFlat(allocator: std.mem.Allocator, source_path: []const u8) !flattener.FlattenResult {
@@ -8687,6 +8720,181 @@ fn executeLayout(
     return 0;
 }
 
+fn fragmentParseMessage(err: sab_fragment.ParseError) []const u8 {
+    return switch (err) {
+        error.FragmentMissingHeader => "source does not start with a `#fragment <major>` header line",
+        error.FragmentVersionMismatch => "fragment format version does not match this host (expected major 1, minor 0)",
+        error.FragmentMissingField => "fragment header is missing a required field (#fragment-function, #fragment-reads, #fragment-owns, or #fragment-caller)",
+        error.FragmentUnknownDirective => "unknown #fragment-* directive in the header",
+        error.FragmentDuplicateDirective => "duplicate directive in the fragment header",
+        error.FragmentDuplicateRegister => "duplicate register name in a fragment header list",
+        error.FragmentBadHeaderLine => "malformed fragment header line",
+        error.FragmentHeaderAfterCode => "a #fragment header line appears after code; the header must precede all code",
+        error.OutOfMemory => "out of memory",
+    };
+}
+
+fn deriveFragmentOutputPath(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
+    if (std.mem.endsWith(u8, source_path, ".sa")) {
+        return try std.fmt.allocPrint(allocator, "{s}safrag", .{source_path[0 .. source_path.len - 2]});
+    }
+    return try std.fmt.allocPrint(allocator, "{s}.safrag", .{source_path});
+}
+
+/// `sa encode-fragment`: validate a surface fragment's contract
+/// header against its flattened wrapper body, encode the payload with
+/// the unchecked SAB encoder (the fragment is not a program, so the
+/// verified whole-program encoder would reject its placeholder
+/// registers), and write the versioned fragment container. See
+/// sab_fragment.zig for the format and the guard rules.
+fn executeEncodeFragment(
+    allocator: std.mem.Allocator,
+    args: []const []const u8,
+    stdout: anytype,
+    stderr: anytype,
+    json_mode: bool,
+    exec_options: ExecuteOptions,
+) !u8 {
+    var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
+    defer diag_forward.writer().flush() catch {};
+    var compile_options = newCompileOptions(exec_options, diag_forward.writer());
+    var source_arg: ?[]const u8 = null;
+    var out_path: ?[]const u8 = null;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (try consumeCompileOption(arg, args, &i, &compile_options)) continue;
+        if (std.mem.eql(u8, arg, "-o")) {
+            if (i + 1 >= args.len) return error.MissingOutputPath;
+            out_path = args[i + 1];
+            i += 1;
+            continue;
+        }
+        if (source_arg == null) {
+            source_arg = arg;
+            continue;
+        }
+        return error.UnexpectedArgument;
+    }
+    if (source_arg == null) return error.MissingSourcePath;
+    const source_path = source_arg.?;
+    if (std.mem.endsWith(u8, source_path, ".sab") or std.mem.endsWith(u8, source_path, ".safrag")) {
+        try stderr.print("encode-fragment: input must be SA text with a #fragment header, not an encoded binary\n", .{});
+        return 1;
+    }
+    const source = try loadSource(allocator, source_path);
+    defer allocator.free(source);
+
+    var parsed = sab_fragment.parseFragmentSource(allocator, source) catch |err| {
+        const parse_err: sab_fragment.ParseError = @errorCast(err);
+        if (json_mode) {
+            try stdout.writeAll("{\"status\":\"error\",\"error\":{\"name\":");
+            try writeJsonString(stdout, @errorName(parse_err));
+            try stdout.writeAll(",\"message\":");
+            try writeJsonString(stdout, fragmentParseMessage(parse_err));
+            try stdout.writeAll("}}\n");
+        } else {
+            try stderr.print("encode-fragment: {s}: {s}\n", .{ @errorName(parse_err), fragmentParseMessage(parse_err) });
+        }
+        return 1;
+    };
+    defer parsed.deinit(allocator);
+
+    // Flatten with the same project/std resolution `sa check` uses
+    // (package dependencies from a project manifest are not consulted:
+    // fragment sources import the standard library and relative files).
+    var resolution = if (compile_options.project_root) |project_root|
+        try pkg_workspace.resolveFromRootPath(allocator, project_root, .{ .request = compile_options.package_name })
+    else
+        try resolveProjectFromSourcePath(allocator, source_path, compile_options.package_name);
+    defer resolution.deinit(allocator);
+    const std_root = try stdRootFromEnv(allocator);
+    defer allocator.free(std_root);
+    const stable_import_roots = try defaultStableImportRoots(allocator, resolution.member_root);
+    defer freeOwnedStringSlice(allocator, stable_import_roots);
+    var error_ctx: flattener.ErrorContext = .{};
+    const resolve_ctx = flattener.ResolveContext{
+        .options = .{
+            .project_root = resolution.workspace_root,
+            .std_root = std_root,
+            .offline = compile_options.offline,
+            .stable_import_roots = stable_import_roots,
+            .diagnostics = &reportPluginImportDiagnostic,
+        },
+    };
+    var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, parsed.stripped_source, &error_ctx, resolve_ctx) catch |err| {
+        const report = trapFromFlattenError(source_path, source, err, flattener.errorReport(&error_ctx));
+        try printTrapReport(if (json_mode) stdout else stderr, report, if (json_mode) .json else .human);
+        return 1;
+    };
+    defer flat.deinit(allocator);
+
+    var validation = try sab_fragment.validateContract(allocator, &flat, &parsed.contract, parsed.stripped_source);
+    defer validation.deinit(allocator);
+    switch (validation) {
+        .ok => {},
+        .violation => |v| {
+            if (json_mode) {
+                try stdout.writeAll("{\"status\":\"error\",\"error\":{\"name\":\"FragmentContractViolation\",\"kind\":");
+                try writeJsonString(stdout, @tagName(v.kind));
+                try stdout.writeAll(",\"register\":");
+                if (v.register) |name| {
+                    try writeJsonString(stdout, name);
+                } else {
+                    try stdout.writeAll("null");
+                }
+                try stdout.writeAll(",\"message\":");
+                try writeJsonString(stdout, v.detail);
+                try stdout.writeAll("}}\n");
+            } else {
+                try stderr.print("encode-fragment: contract violation: {s}", .{@tagName(v.kind)});
+                if (v.register) |name| try stderr.print(" (register: {s})", .{name});
+                try stderr.print(": {s}\n", .{v.detail});
+            }
+            return 1;
+        },
+    }
+
+    const container = try sab_fragment.encodeFragment(allocator, &flat, &parsed.contract, source);
+    defer allocator.free(container);
+
+    const owned_out = if (out_path) |path| path else try deriveFragmentOutputPath(allocator, source_path);
+    defer if (out_path == null) allocator.free(owned_out);
+    const cwd = sio.cwd();
+    const out_file = try cwd.createFile(owned_out, .{});
+    defer out_file.close();
+    try out_file.writeAll(container);
+
+    var container_sha: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(container, &container_sha, .{});
+    const sha_hex = std.fmt.bytesToHex(container_sha, .lower);
+    if (json_mode) {
+        try stdout.writeAll("{\"status\":\"ok\",\"command\":\"encode-fragment\",\"fragment_format\":\"1.0\"");
+        try stdout.print(",\"sab_version\":\"{d}.{d}\"", .{ sab.version_major, sab.version_minor });
+        try stdout.print(",\"bytes\":{d}", .{container.len});
+        try stdout.writeAll(",\"sha256\":");
+        try writeJsonString(stdout, &sha_hex);
+        try stdout.writeAll(",\"caller\":");
+        try writeJsonString(stdout, parsed.contract.caller);
+        try stdout.writeAll(",\"function\":");
+        try writeJsonString(stdout, parsed.contract.function_name);
+        try stdout.writeAll(",\"reads\":");
+        try writeJsonStringArray(stdout, parsed.contract.reads);
+        try stdout.writeAll(",\"owns\":");
+        try writeJsonStringArray(stdout, parsed.contract.owns);
+        try stdout.writeAll(",\"returns\":");
+        try writeJsonStringArray(stdout, parsed.contract.returns);
+        try stdout.writeAll(",\"output\":");
+        try writeJsonString(stdout, owned_out);
+        try stdout.writeAll("}\n");
+    } else {
+        try stdout.print("encode-fragment ok: wrote SAB fragment: {s} ({d} bytes)\n", .{ owned_out, container.len });
+        try stdout.print("  fragment format {d}.{d}; sab payload {d}.{d}; sha256 {s}\n", .{ sab_fragment.format_major, sab_fragment.format_minor, sab.version_major, sab.version_minor, &sha_hex });
+        try stdout.print("  caller: {s}; function: {s}; reads: {d}; owns: {d}; returns: {d}\n", .{ parsed.contract.caller, parsed.contract.function_name, parsed.contract.reads.len, parsed.contract.owns.len, parsed.contract.returns.len });
+    }
+    return 0;
+}
+
 fn executeCheck(
     allocator: std.mem.Allocator,
     args: []const []const u8,
@@ -9968,6 +10176,9 @@ fn executeWithWritersAndOptionsImpl(
         .audit => return error.UnknownCommand,
         .check => {
             return try executeCheck(allocator, args[2..], stdout, stderr, json_mode, exec_options);
+        },
+        .encode_fragment => {
+            return try executeEncodeFragment(allocator, args[2..], stdout, stderr, json_mode, exec_options);
         },
         .explain => return try explainCommand(stdout, args, json_mode),
         .fix => return try fixCommand(stdout, args, json_mode),
