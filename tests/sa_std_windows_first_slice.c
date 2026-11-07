@@ -42,17 +42,27 @@ static int fail_at(int code, const char *what) {
 #endif
 
 static int check_io_buffer_lifecycle(void) {
-    uint8_t bytes[] = {'o', 'k', '\n'};
-    SaIoBuffer buffer = {bytes, sizeof(bytes), sizeof(bytes)};
+    /* W1-DEF-IO-BUFFER-API: io buffers are registry handles (what
+     * sa_io_read_line returns), not caller-owned SaIoBuffer structs.
+     * Handle 0 is never a live buffer on either runtime. */
+    CHECK(10, sa_io_buffer_data(0) == NULL);
+    CHECK(11, sa_io_buffer_len(0) == 0);
 
-    CHECK(10, sa_io_buffer_data(&buffer) == bytes);
-    CHECK(11, sa_io_buffer_len(&buffer) == sizeof(bytes));
-    CHECK(12, sa_io_buffer_data(NULL) == NULL);
-    CHECK(13, sa_io_buffer_len(NULL) == 0);
-    CHECK(14, sa_io_buffer_free(&buffer) == SA_STD_OK);
-
-    /* The C ABI accepts a NULL optional buffer pointer and must not crash. */
-    CHECK(15, sa_io_buffer_free(NULL) == SA_STD_OK);
+    /* A buffer produced by the fs family must be consumable through
+     * the io accessors, and free must really release it. */
+    const char *path = "sa_std_first_slice_iobuf.txt";
+    FILE *fp = fopen(path, "wb");
+    if (fp == NULL) return fail_at(12, "fopen temp file");
+    fputs("ok\n", fp);
+    fclose(fp);
+    uint64_t buffer = 0;
+    CHECK(13, sa_std_fs_read_file((const uint8_t *)path, strlen(path), 1024, &buffer) == SA_STD_OK);
+    CHECK(14, buffer != 0);
+    CHECK(15, sa_io_buffer_len(buffer) == 3);
+    CHECK(16, sa_io_buffer_data(buffer) != NULL);
+    CHECK(17, sa_io_buffer_free(buffer) == SA_STD_OK);
+    CHECK(18, sa_io_buffer_len(buffer) == 0);
+    remove(path);
     return 0;
 }
 

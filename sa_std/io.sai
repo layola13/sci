@@ -16,10 +16,14 @@
 @extern sa_io_flush(handle: u64) -> i32
 @extern sa_io_close(handle: u64) -> i32
 
-// Owned byte buffers use SaIoBuffer layout and must be freed explicitly.
-@extern sa_io_buffer_data(&buffer: ptr) -> &ptr
-@extern sa_io_buffer_len(&buffer: ptr) -> u64
-@extern sa_io_buffer_free(^buffer: ptr) -> i32
+// Owned byte buffers are registry handles (the buffer resources
+// sa_io_read_line produces), freed explicitly. data/len/free take
+// the handle by value, exactly like the sa_fs_read_buffer_* family
+// (W1-DEF-IO-BUFFER-API: the old raw SaIoBuffer-pointer form could
+// not consume read_line's product at all).
+@extern sa_io_buffer_data(buffer: u64) -> &ptr
+@extern sa_io_buffer_len(buffer: u64) -> u64
+@extern sa_io_buffer_free(^buffer: u64) -> i32
 
 // Legacy demo compatibility: equivalent to stdout().write_all(bytes).
 @extern sa_print_bytes(&msg: ptr, len: u64) -> void

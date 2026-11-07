@@ -425,9 +425,11 @@ int32_t sa_io_write_all(uint64_t handle, const uint8_t *data, uint64_t len);
 int32_t sa_io_flush(uint64_t handle);
 int32_t sa_io_close(uint64_t handle);
 
-uint8_t *sa_io_buffer_data(const SaIoBuffer *buffer);
-uint64_t sa_io_buffer_len(const SaIoBuffer *buffer);
-int32_t sa_io_buffer_free(SaIoBuffer *buffer);
+/* W1-DEF-IO-BUFFER-API: io buffers are registry handles (what
+ * sa_io_read_line returns), not SaIoBuffer structs. */
+uint8_t *sa_io_buffer_data(uint64_t buffer);
+uint64_t sa_io_buffer_len(uint64_t buffer);
+int32_t sa_io_buffer_free(uint64_t buffer);
 
 int32_t sa_std_fs_open_read(const uint8_t *path, uint64_t path_len, uint64_t *out_handle);
 int32_t sa_std_fs_open_write(const uint8_t *path, uint64_t path_len, uint32_t truncate, uint64_t *out_handle);

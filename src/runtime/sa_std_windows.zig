@@ -5707,17 +5707,18 @@ pub export fn sa_io_read_line(handle: u64, max_bytes: u64, out_handle: ?*u64) i3
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_io_buffer_data(buffer: ?*const SaIoBuffer) ?[*]u8 {
-    return if (buffer) |value| value.ptr else null;
+// W1-DEF-IO-BUFFER-API (windows twin of the sa_std.zig change):
+// io buffers are registry handles; see io.sai.
+pub export fn sa_io_buffer_data(buffer: u64) ?[*]u8 {
+    return sa_fs_read_buffer_data(buffer);
 }
 
-pub export fn sa_io_buffer_len(buffer: ?*const SaIoBuffer) u64 {
-    return if (buffer) |value| value.len else 0;
+pub export fn sa_io_buffer_len(buffer: u64) u64 {
+    return sa_fs_read_buffer_len(buffer);
 }
 
-pub export fn sa_io_buffer_free(buffer: ?*SaIoBuffer) i32 {
-    _ = buffer;
-    return finish(SA_STD_OK);
+pub export fn sa_io_buffer_free(buffer: u64) i32 {
+    return sa_fs_read_buffer_free(buffer);
 }
 
 pub export fn sa_dl_open(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
@@ -6470,7 +6471,9 @@ pub export fn sa_std_net_tcp_stream_from_raw_fd(fd: i32, out_handle: ?*u64) i32 
 pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
     var read: u64 = 0;
     const status = sa_std_net_tcp_stream_peek(stream, out, cap, &read);
-    if (status != SA_STD_OK) return status;
+    // Count wrapper: errors go out negated (see sa_std.zig,
+    // W1-DEF-NET-WRITE-AFTER-SHUTDOWN).
+    if (status != SA_STD_OK) return -status;
     return finish(@as(i32, @intCast(read)));
 }
 pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32) FallibleU64 {
@@ -6488,7 +6491,7 @@ pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) Fallibl
 pub export fn sa_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64) i32 {
     var written: u64 = 0;
     const status = sa_std_net_tcp_stream_write(stream, out, len, &written);
-    if (status != SA_STD_OK) return status;
+    if (status != SA_STD_OK) return -status;
     return finish(@as(i32, @intCast(written)));
 }
 pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u64) FallibleI32 {
@@ -7168,32 +7171,32 @@ pub export fn sa_net_udp_set_multicast_ttl_v4(s: u64, v: u32) i32 {
 pub export fn sa_net_udp_send(s: u64, b: ?[*]const u8, l: u64) i32 {
     var n: u64 = 0;
     const status = sa_std_net_udp_send(s, b, l, &n);
-    return if (status == SA_STD_OK) @intCast(n) else status;
+    return if (status == SA_STD_OK) @intCast(n) else -status;
 }
 pub export fn sa_net_udp_recv(s: u64, b: ?[*]u8, l: u64) i32 {
     var n: u64 = 0;
     const status = sa_std_net_udp_recv(s, b, l, &n);
-    return if (status == SA_STD_OK) @intCast(n) else status;
+    return if (status == SA_STD_OK) @intCast(n) else -status;
 }
 pub export fn sa_net_udp_peek(s: u64, b: ?[*]u8, l: u64) i32 {
     var n: u64 = 0;
     const status = sa_std_net_udp_peek(s, b, l, &n);
-    return if (status == SA_STD_OK) @intCast(n) else status;
+    return if (status == SA_STD_OK) @intCast(n) else -status;
 }
 pub export fn sa_net_udp_send_to(s: u64, b: ?[*]const u8, l: u64, h: ?[*]const u8, hl: u64, p: u16) i32 {
     var n: u64 = 0;
     const status = sa_std_net_udp_send_to(s, b, l, h, hl, p, &n);
-    return if (status == SA_STD_OK) @intCast(n) else status;
+    return if (status == SA_STD_OK) @intCast(n) else -status;
 }
 pub export fn sa_net_udp_recv_from(s: u64, b: ?[*]u8, l: u64, a: ?*u64) i32 {
     var n: u64 = 0;
     const status = sa_std_net_udp_recv_from(s, b, l, &n, a);
-    return if (status == SA_STD_OK) @intCast(n) else status;
+    return if (status == SA_STD_OK) @intCast(n) else -status;
 }
 pub export fn sa_net_udp_peek_from(s: u64, b: ?[*]u8, l: u64, a: ?*u64) i32 {
     var n: u64 = 0;
     const status = sa_std_net_udp_peek_from(s, b, l, &n, a);
-    return if (status == SA_STD_OK) @intCast(n) else status;
+    return if (status == SA_STD_OK) @intCast(n) else -status;
 }
 pub export fn sa_net_udp_join_multicast_v4(s: u64, m: ?[*]const u8, ml: u64, i: ?[*]const u8, il: u64) i32 {
     return sa_std_net_udp_join_multicast_v4(s, m, ml, i, il);

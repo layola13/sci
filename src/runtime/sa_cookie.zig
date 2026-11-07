@@ -95,7 +95,11 @@ const Cookie = struct {
     value: []u8,
     domain: []u8 = "",
     has_domain: bool = false,
-    host_only: bool = false,
+    // RFC 6265 5.3: a cookie with no Domain attribute is host-only.
+    // A Cookie is born domain-less, so it is born host-only; every
+    // path that gains a domain (parse, set_domain) must clear this.
+    // Invariant: host_only == !has_domain (W1-DEF-COOKIE-HOSTONLY).
+    host_only: bool = true,
     path: []u8 = "",
     has_path: bool = false,
     expires_at: ?i64 = null,
@@ -579,6 +583,7 @@ fn parseSetCookie(raw: []const u8) ParseError!*Cookie {
                     if (cookie.domain.len > 0) alloc.free(cookie.domain);
                     cookie.domain = nd;
                     cookie.has_domain = true;
+                    cookie.host_only = false;
                 }
             } else if (eqFold(aname, "path")) {
                 if (avalue.len > 0 and avalue[0] == '/') {
@@ -885,6 +890,7 @@ pub export fn sa_cookie_set_domain(handle: u64, bytes: ?[*]const u8, len: u64) i
     if (c.domain.len > 0) alloc.free(c.domain);
     c.domain = lowered;
     c.has_domain = true;
+    c.host_only = false;
     return OK;
 }
 

@@ -2940,6 +2940,88 @@ fn getUnixPeerCred(fd: std.posix.fd_t) !LinuxUCred {
     }
 }
 
+// W1-DEF-UNIX-DGRAM-PEERCRED-ZERO: for path-bound unix datagram
+// sockets the kernel answers SO_PEERCRED with the zero sentinel
+// (pid 0, uid/gid -1) even on connected sockets that carried
+// traffic -- verified empirically; socketpair endpoints do answer.
+// The only truthful credential source for such sockets is
+// SCM_CREDENTIALS ancillary data on received datagrams, so the
+// unix datagram receive path harvests it into this table and
+// sa_std_net_unix_datagram_peer_cred consults it. Entries are
+// keyed by (handle, fd) and revalidated against the live registry
+// on lookup, so a recycled handle/fd pair cannot resurrect a
+// stale credential. All access under registry_mutex.
+const PeerCredSlot = struct {
+    handle: u64 = 0,
+    fd: std.posix.fd_t = -1,
+    cred: LinuxUCred = .{ .pid = 0, .uid = 0, .gid = 0 },
+};
+
+var peer_cred_slots: [128]PeerCredSlot = blk: {
+    var slots: [128]PeerCredSlot = undefined;
+    for (&slots) |*slot| slot.* = .{};
+    break :blk slots;
+};
+var peer_cred_cursor: usize = 0;
+
+fn storeHarvestedPeerCredLocked(handle: u64, fd: std.posix.fd_t, cred: LinuxUCred) void {
+    for (&peer_cred_slots) |*slot| {
+        if (slot.handle == handle and slot.fd == fd) {
+            slot.cred = cred;
+            return;
+        }
+    }
+    peer_cred_slots[peer_cred_cursor] = .{ .handle = handle, .fd = fd, .cred = cred };
+    peer_cred_cursor = (peer_cred_cursor + 1) % peer_cred_slots.len;
+}
+
+fn harvestedPeerCredLocked(handle: u64, fd: std.posix.fd_t) ?LinuxUCred {
+    const resource = getResourceLocked(handle) orelse return null;
+    const live_fd = switch (resource.*) {
+        .udp_socket => |value| value,
+        else => return null,
+    };
+    if (live_fd != fd) return null;
+    for (&peer_cred_slots) |*slot| {
+        if (slot.handle == handle and slot.fd == fd) return slot.cred;
+    }
+    return null;
+}
+
+/// Unix datagram sockets in this std carry SO_PASSCRED from birth
+/// so the receive path can harvest SCM_CREDENTIALS (see above).
+/// Best effort: failure only means peer_cred reports NOT_FOUND
+/// for a connected socket instead of answering with a wrong or
+/// zero credential.
+fn armPeerCredHarvest(fd: std.posix.fd_t) void {
+    if (comptime !is_linux) return;
+    setSocketOptBool(fd, SOLT.SOCKET, SO_PASSCRED, true) catch {};
+}
+
+/// Extract the sender credential from a recvmsg control chain
+/// (SOL_SOCKET / SCM_CREDENTIALS), same walk as udp_recv_msg.
+fn scmCredentials(ctrl: []const u8) ?LinuxUCred {
+    var off: usize = 0;
+    while (off + 16 <= ctrl.len) {
+        const cmsg_len = @as(usize, @intCast(std.mem.readInt(u64, ctrl[off..][0..8], .little)));
+        if (cmsg_len < 16 or off + cmsg_len > ctrl.len) break;
+        const level = std.mem.readInt(i32, ctrl[off + 8 ..][0..4], .little);
+        const ctype = std.mem.readInt(i32, ctrl[off + 12 ..][0..4], .little);
+        const data = ctrl[off + 16 .. off + cmsg_len];
+        if (level == cmsg_level_socket and ctype == 2 and data.len >= @sizeOf(LinuxUCred)) {
+            return .{
+                .pid = std.mem.readInt(i32, data[0..4], .little),
+                .uid = std.mem.readInt(u32, data[4..8], .little),
+                .gid = std.mem.readInt(u32, data[8..12], .little),
+            };
+        }
+        const step = cmsgAlign(cmsg_len);
+        if (step == 0) break;
+        off += step;
+    }
+    return null;
+}
+
 fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var value: i32 = 0;
@@ -12325,17 +12407,23 @@ pub export fn sa_io_close(handle: u64) i32 {
     return sa_std_close(handle);
 }
 
-pub export fn sa_io_buffer_data(buffer: ?*const BufferHandle) ?[*]u8 {
-    return if (buffer) |buf| buf.bytes.ptr else null;
+// W1-DEF-IO-BUFFER-API: io buffers are registry handles, the same
+// BufferHandle resources sa_io_read_line registers and the
+// sa_fs_read_buffer_* family already serves. The old raw-pointer
+// form expected a *BufferHandle struct that no producer on this
+// surface ever hands out (read_line returns a handle), and free
+// ignored its argument entirely. All three now resolve the handle
+// through the registry, sharing the fs family's implementation.
+pub export fn sa_io_buffer_data(buffer: u64) ?[*]u8 {
+    return sa_fs_read_buffer_data(buffer);
 }
 
-pub export fn sa_io_buffer_len(buffer: ?*const BufferHandle) u64 {
-    return if (buffer) |buf| @as(u64, @intCast(buf.bytes.len)) else 0;
+pub export fn sa_io_buffer_len(buffer: u64) u64 {
+    return sa_fs_read_buffer_len(buffer);
 }
 
-pub export fn sa_io_buffer_free(buffer: ?*BufferHandle) i32 {
-    _ = buffer;
-    return finish(SA_STD_OK);
+pub export fn sa_io_buffer_free(buffer: u64) i32 {
+    return sa_fs_read_buffer_free(buffer);
 }
 
 const sa_fs_open_accmode_mask: u32 = 0x3;
@@ -12375,7 +12463,16 @@ pub export fn sa_fs_file_open(path_ptr: ?[*]const u8, path_len: u64, flags: u32)
 }
 
 pub export fn sa_fs_file_create(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    return sa_std_fs_open_write(path_ptr, path_len, 1, null);
+    // W1-DEF-FS-CREATE: this entry reports a status, not a handle --
+    // it creates (or truncates) the file and closes it immediately.
+    // The old delegation passed out=null to sa_std_fs_open_write,
+    // which rejects a null out slot, so create always failed with
+    // ERR_INVALID_ARGUMENT. Callers that need the open file use
+    // sa_fs_file_open / sa_std_fs_open_write instead.
+    var handle: u64 = 0;
+    const status = sa_std_fs_open_write(path_ptr, path_len, 1, &handle);
+    if (status != SA_STD_OK) return status;
+    return sa_std_close(handle);
 }
 
 pub export fn sa_fs_file_close(handle: u64) i32 {
@@ -13891,7 +13988,7 @@ pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var read: u64 = 0;
     const status = sa_std_net_tcp_stream_peek(stream, out, cap, &read);
-    if (status != SA_STD_OK) return status;
+    if (status != SA_STD_OK) return -status;
     return finish(@as(i32, @intCast(read)));
 }
 pub export fn sa_std_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
@@ -13902,7 +13999,14 @@ pub export fn sa_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64) 
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var written: u64 = 0;
     const status = sa_std_net_tcp_stream_write(stream, out, len, &written);
-    if (status != SA_STD_OK) return status;
+    // W1-DEF-NET-WRITE-AFTER-SHUTDOWN: this wrapper returns a byte
+    // count, so an error status must go out negated -- returning
+    // the positive code made a failed write (e.g. EPIPE after
+    // shutdown) indistinguishable from a successful short write.
+    // The inner std call already recorded last_error. The same
+    // convention applies to every plain count wrapper below
+    // (tcp peek, udp send/recv/peek/send_to/recv_from).
+    if (status != SA_STD_OK) return -status;
     return finish(@as(i32, @intCast(written)));
 }
 pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u64) Fallible(i32) {
@@ -15625,42 +15729,42 @@ pub export fn sa_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var written: u64 = 0;
     const status = sa_std_net_udp_send(socket, buf, len, &written);
-    if (status != SA_STD_OK) return status;
+    if (status != SA_STD_OK) return -status;
     return @as(i32, @intCast(written));
 }
 pub export fn sa_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var read: u64 = 0;
     const status = sa_std_net_udp_recv(socket, out, cap, &read);
-    if (status != SA_STD_OK) return status;
+    if (status != SA_STD_OK) return -status;
     return @as(i32, @intCast(read));
 }
 pub export fn sa_net_udp_peek(socket: u64, out: ?[*]u8, cap: u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var read: u64 = 0;
     const status = sa_std_net_udp_peek(socket, out, cap, &read);
-    if (status != SA_STD_OK) return status;
+    if (status != SA_STD_OK) return -status;
     return @as(i32, @intCast(read));
 }
 pub export fn sa_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var written: u64 = 0;
     const status = sa_std_net_udp_send_to(socket, buf, len, host_ptr, host_len, port, &written);
-    if (status != SA_STD_OK) return status;
+    if (status != SA_STD_OK) return -status;
     return @as(i32, @intCast(written));
 }
 pub export fn sa_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_addr: ?*u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var read: u64 = 0;
     const status = sa_std_net_udp_recv_from(socket, out, cap, &read, out_addr);
-    if (status != SA_STD_OK) return status;
+    if (status != SA_STD_OK) return -status;
     return @as(i32, @intCast(read));
 }
 pub export fn sa_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_addr: ?*u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     var read: u64 = 0;
     const status = sa_std_net_udp_peek_from(socket, out, cap, &read, out_addr);
-    if (status != SA_STD_OK) return status;
+    if (status != SA_STD_OK) return -status;
     return @as(i32, @intCast(read));
 }
 pub export fn sa_net_udp_close(socket: u64) i32 {
@@ -17621,10 +17725,36 @@ pub export fn sa_std_net_unix_datagram_peer_cred(socket: u64, out_pid: ?*i32, ou
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
     const cred = getUnixPeerCred(handle.fd) catch |err| return finishErr(err);
-    pid_ptr.* = cred.pid;
-    uid_ptr.* = cred.uid;
-    gid_ptr.* = cred.gid;
-    return finish(SA_STD_OK);
+    if (cred.pid != 0) {
+        pid_ptr.* = cred.pid;
+        uid_ptr.* = cred.uid;
+        gid_ptr.* = cred.gid;
+        return finish(SA_STD_OK);
+    }
+    // SO_PEERCRED answers only the zero sentinel for path-bound
+    // datagram sockets (see the harvest note at getUnixPeerCred).
+    // Fall back to the credential harvested from SCM_CREDENTIALS
+    // when this socket has received a datagram from its peer.
+    lockRegistry();
+    const harvested = harvestedPeerCredLocked(socket, handle.fd);
+    registry_mutex.unlock();
+    if (harvested) |hc| {
+        pid_ptr.* = hc.pid;
+        uid_ptr.* = hc.uid;
+        gid_ptr.* = hc.gid;
+        return finish(SA_STD_OK);
+    }
+    // A connected socket whose peer never sent us anything has no
+    // truthful credential source: report NOT_FOUND loudly instead
+    // of dressing the zero sentinel up as an answer. An
+    // unconnected socket keeps the documented zero sentinel
+    // (pid 0) with OK.
+    var peer_addr = NetAddress{};
+    var peer_len: SockLenT = @sizeOf(SockAddrStorageT);
+    lxGetpeername(handle.fd, peer_addr.sockAddrMut(), &peer_len) catch {
+        return finish(SA_STD_OK);
+    };
+    return finish(SA_STD_ERR_NOT_FOUND);
 }
 
 pub export fn sa_std_net_unix_datagram_unbound(out_handle: ?*u64) i32 {
@@ -17634,6 +17764,7 @@ pub export fn sa_std_net_unix_datagram_unbound(out_handle: ?*u64) i32 {
     if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
     const fd = lxSocket(AFT.UNIX, SOCKT.DGRAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
     errdefer lxClose(fd);
+    armPeerCredHarvest(fd);
     const handle = registerResource(.{ .udp_socket = fd }) catch |err| return finishErr(err);
     handle_ptr.* = handle;
     return finish(SA_STD_OK);
@@ -17654,6 +17785,7 @@ pub export fn sa_std_net_unix_datagram_bind(path_ptr: ?[*]const u8, path_len: u6
     const fd = lxSocket(AFT.UNIX, SOCKT.DGRAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
     errdefer lxClose(fd);
     lxBind(fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
+    armPeerCredHarvest(fd);
     const handle = registerResource(.{ .udp_socket = fd }) catch |err| return finishErr(err);
     handle_ptr.* = handle;
     return finish(SA_STD_OK);
@@ -17667,6 +17799,7 @@ pub export fn sa_std_net_unix_datagram_bind_addr(addr_handle: u64, out_handle: ?
     const fd = lxSocket(AFT.UNIX, SOCKT.DGRAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
     errdefer lxClose(fd);
     lxBind(fd, @as(*const SockAddrT, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
+    armPeerCredHarvest(fd);
     const handle = registerResource(.{ .udp_socket = fd }) catch |err| return finishErr(err);
     handle_ptr.* = handle;
     return finish(SA_STD_OK);
@@ -17717,6 +17850,8 @@ pub export fn sa_std_net_unix_datagram_pair(out_left: ?*u64, out_right: ?*u64) i
         if (owns_right_fd) lxClose(fds[1]);
     }
 
+    armPeerCredHarvest(fds[0]);
+    armPeerCredHarvest(fds[1]);
     const left_handle = registerResourceLocked(.{ .udp_socket = fds[0] }) catch |err| return finishErr(err);
     owns_left_fd = false;
     errdefer {
@@ -17740,6 +17875,7 @@ pub export fn sa_std_net_unix_datagram_connect(socket: u64, path_ptr: ?[*]const 
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
     lxConnect(handle.fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
+    armPeerCredHarvest(handle.fd);
     return finish(SA_STD_OK);
 }
 
@@ -17750,6 +17886,7 @@ pub export fn sa_std_net_unix_datagram_connect_addr(socket: u64, addr_handle: u6
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
     lxConnect(handle.fd, @as(*const SockAddrT, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
+    armPeerCredHarvest(handle.fd);
     return finish(SA_STD_OK);
 }
 
@@ -17916,9 +18053,29 @@ fn unixDatagramRecvFrom(socket: u64, out: ?[*]u8, cap: u64, flags: u32, out_read
     if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
     var addr: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
     @memset(&addr.path, 0);
-    var addr_len: SockLenT = @sizeOf(SockAddrUnT);
-    const read = lxRecvfrom(handle.fd, buffer, flags, @as(*SockAddrT, @ptrCast(&addr)), &addr_len) catch |err| return finishErr(err);
+    // recvmsg (not recvfrom) so SCM_CREDENTIALS ancillary data can
+    // be harvested for sa_std_net_unix_datagram_peer_cred; see the
+    // note at getUnixPeerCred. Peek receives do not harvest.
+    var control: [128]u8 align(8) = undefined;
+    var ziovec = std.posix.iovec{ .base = buffer.ptr, .len = buffer.len };
+    var msg: MsghdrT = std.mem.zeroes(MsghdrT);
+    msg.name = @as(*SockAddrT, @ptrCast(&addr));
+    msg.namelen = @as(SockLenT, @intCast(@sizeOf(SockAddrUnT)));
+    msg.iov = @ptrCast(&ziovec);
+    msg.iovlen = 1;
+    msg.control = @ptrCast(&control);
+    msg.controllen = control.len;
+    const read = portableRecvmsg(handle.fd, &msg, flags) catch |err| return finishErr(err);
     read_ptr.* = @as(u64, @intCast(read));
+    const addr_len: SockLenT = msg.namelen;
+    if ((flags & msg_peek) == 0) {
+        const ctrl = control[0..@as(usize, @intCast(msg.controllen))];
+        if (scmCredentials(ctrl)) |cred| {
+            lockRegistry();
+            storeHarvestedPeerCredLocked(socket, handle.fd, cred);
+            registry_mutex.unlock();
+        }
+    }
 
     var unix_addr = unixAddrFromSockaddr(std.heap.page_allocator, addr, addr_len) catch |err| return finishErr(err);
     while (!registry_mutex.tryLock()) {
@@ -18509,7 +18666,10 @@ test "exported tcp and udp socket setters update live handles" {
     const server_flags = try lxFcntl(server.fd, std.posix.F.GETFL, 0);
     try std.testing.expect((server_flags & (@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"))) != 0);
     var peek_buf: [1]u8 = undefined;
-    try std.testing.expectEqual(SA_STD_ERR_IO, sa_net_tcp_stream_peek(server_handle, &peek_buf, peek_buf.len));
+    // Plain count wrappers report errors negated (W1-DEF-NET-
+    // WRITE-AFTER-SHUTDOWN): peek's old +ERR_IO expectation was
+    // the conflated contract itself.
+    try std.testing.expectEqual(-SA_STD_ERR_IO, sa_net_tcp_stream_peek(server_handle, &peek_buf, peek_buf.len));
 
     try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_nodelay(server_handle, 1));
     try std.testing.expect(try getSocketOptBool(server.fd, IPPROTOT.TCP, tcp_nodelay));
