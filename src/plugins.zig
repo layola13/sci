@@ -3185,7 +3185,25 @@ fn installPluginDependencies(allocator: std.mem.Allocator, manifest: SapManifest
             try std.fs.path.join(allocator, &.{ manifest.root_dir, dep_path });
         defer allocator.free(resolved_path);
 
-        var dep_manifest = try parseSapManifest(allocator, resolved_path);
+        var dep_manifest = parseSapManifest(allocator, resolved_path) catch |err| {
+            // Name the dependency and the manifest path that was sought:
+            // a bare `try` here surfaces only "error: FileNotFound", with
+            // no hint which declared dependency is missing on disk
+            // (DEF-PLUGIN-DEP-ERR-OPAQUE). The original error is rethrown
+            // unchanged; the print is best-effort so it can never mask it.
+            // The flush is load-bearing where the writer is the CLI's
+            // buffered stdout stream: cli.execute flushes it only on the
+            // non-error path, so on this error path an unflushed line
+            // would be discarded with the pending buffer exactly when it
+            // matters. In-memory writers (sio.ManagedWriter) append
+            // immediately and declare no flush; the comptime check keeps
+            // both writer shapes valid.
+            stdout.print("plugin dependency {s}: cannot read manifest at {s}/sap.json: {s}\n", .{ dep.name, resolved_path, @errorName(err) }) catch {};
+            const StdoutT = @TypeOf(stdout);
+            const StdoutChild = if (@typeInfo(StdoutT) == .pointer) @typeInfo(StdoutT).pointer.child else StdoutT;
+            if (@hasDecl(StdoutChild, "flush")) stdout.flush() catch {};
+            return err;
+        };
         defer dep_manifest.deinit(allocator);
         if (!std.mem.eql(u8, dep_manifest.name, dep.name)) {
             try stdout.print("plugin dependency name mismatch: expected {s}, found {s}\n", .{ dep.name, dep_manifest.name });
