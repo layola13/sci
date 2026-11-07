@@ -3161,7 +3161,13 @@ fn installPluginDependencies(allocator: std.mem.Allocator, manifest: SapManifest
                 defer allocator.free(remote_spec);
                 const fetched_root = try fetchRemotePluginSource(allocator, remote_spec, stdout, options);
                 defer allocator.free(fetched_root);
-                var dep_manifest = try parseSapManifest(allocator, fetched_root);
+                var dep_manifest = parseSapManifest(allocator, fetched_root) catch |err| {
+            stdout.print("plugin dependency {s}: cannot read manifest at {s}/sap.json: {s}\n", .{ dep.name, fetched_root, @errorName(err) }) catch {};
+            const StdoutT = @TypeOf(stdout);
+            const StdoutChild = if (@typeInfo(StdoutT) == .pointer) @typeInfo(StdoutT).pointer.child else StdoutT;
+            if (@hasDecl(StdoutChild, "flush")) stdout.flush() catch {};
+            return err;
+        };
                 defer dep_manifest.deinit(allocator);
                 if (!std.mem.eql(u8, dep_manifest.name, dep.name)) {
                     try stdout.print("plugin dependency name mismatch: expected {s}, found {s}\n", .{ dep.name, dep_manifest.name });
