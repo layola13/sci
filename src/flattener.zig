@@ -13,6 +13,7 @@ const common_signature = @import("common/signature.zig");
 const common_trap = @import("common/trap.zig");
 const common_upstream = @import("common/upstream_loc.zig");
 const pkg_resolver = @import("pkg/resolver.zig");
+const decl_materialize = @import("decl_materialize.zig");
 
 pub const LineKind = classifier.LineKind;
 pub const InstructionForm = classifier.InstructionForm;
@@ -503,7 +504,10 @@ fn cloneCachedImport(allocator: std.mem.Allocator, cached: ImportSourceCacheEntr
     errdefer if (root_dir) |dir| allocator.free(dir);
     const package_identity = if (cached.package_identity) |identity| try allocator.dupe(u8, identity) else null;
     errdefer if (package_identity) |identity| allocator.free(identity);
-    const owned_source = if (borrow_source) null else try allocator.dupe(u8, cached.source);
+    // Materialized sources (@target blocks) are process-local reductions,
+    // not file bytes: a clone must own its copy rather than borrow the
+    // cached slice, whose lifetime is tied to the cache entry.
+    const owned_source = if (borrow_source and !decl_materialize.containsTargetBlocks(cached.source)) null else try allocator.dupe(u8, cached.source);
     errdefer if (owned_source) |source| allocator.free(source);
 
     return .{
@@ -549,6 +553,13 @@ fn cachedExpandedImportStillValid(entry: ExpandedImportCacheEntry) bool {
         const stat = statImportSourceCacheEntry(file.path) catch return false;
         if (stat.mtime != file.mtime or stat.size != file.size) return false;
     }
+    // Entries whose fragment was materialized for a compilation target
+    // (@target blocks) are process-local reductions and must never satisfy
+    // a later expansion: their source came from a materialized read, while
+    // the underlying file bytes (and the entry's file stats) still describe
+    // the unmaterialized source. Rejecting them here forces the slow path,
+    // which reads (and materializes) the file again.
+    if (std.mem.indexOf(u8, entry.source, "// @target-begin") != null) return false;
     return true;
 }
 
@@ -724,6 +735,12 @@ fn storeExpandedImportCacheEntry(
     layout_versions: []const LayoutVersion,
 ) !void {
     if (source.len == 0 and line_count == 0) return;
+    // Never store a fragment that was materialized for a compilation
+    // target (@target blocks): the fragment's file stats describe the
+    // unmaterialized sources, so a later hit would replay the reduction
+    // under validity evidence for different bytes (and the hit path cannot
+    // distinguish which import in the fragment was the hybrid one).
+    if (std.mem.indexOf(u8, source, "// @target-begin") != null) return;
     const cache_allocator = std.heap.page_allocator;
     const cache_key_copy = try cache_allocator.dupe(u8, cache_key);
     errdefer cache_allocator.free(cache_key_copy);
@@ -4392,7 +4409,8 @@ fn readImportFile(
         const deps = if (resolve_ctx) |ctx| ctx.dependencies else &.{};
         var options: pkg_resolver.ResolveOptions = .{};
         if (resolve_ctx) |ctx| options = ctx.options;
-        return try pkg_resolver.resolveImport(allocator, deps, base_dir, import_path, options);
+        const resolved = try pkg_resolver.resolveImport(allocator, deps, base_dir, import_path, options);
+        return try materializeImportedSource(allocator, resolved);
     }
 
     const cache_key = try buildImportSourceCacheKey(allocator, base_dir, import_path, resolve_ctx);
@@ -4424,11 +4442,68 @@ fn readImportFile(
     var options: pkg_resolver.ResolveOptions = .{};
     if (resolve_ctx) |ctx| options = ctx.options;
     const resolved = try pkg_resolver.resolveImport(allocator, deps, base_dir, import_path, options);
-    storeImportSourceCacheEntry(cache_key, resolved) catch |err| {
+    const materialized = try materializeImportedSource(allocator, resolved);
+    storeImportSourceCacheEntry(cache_key, materialized) catch |err| {
         // Import source caching is an optimization; resolution already succeeded and remains authoritative.
         _ = @errorName(err);
     };
-    return resolved;
+    return materialized;
+}
+
+/// DEF-WASM32-STD-HYBRID-INPROCESS-FLATTEN / client-expansion materialization
+/// (fork H, H1 form): imported sources that carry target-conditional
+/// declaration blocks (`// @target-begin` sections, today sa_std/core/mem.sa
+/// and sa_std/alloc/growvec.sa) are reduced to the single variant for the
+/// compilation target before the flattener splices them in. Without this,
+/// both variants enter the instruction stream and the verifier rejects the
+/// module with FallthroughForbidden (the non-selected variant's body blocks
+/// do not terminate the way the selected one's do). The materialization spec
+/// is shared with the build-time sa_std mirror (tools/decl_materialize.zig
+/// implements the same spec for the build graph); errors are loud.
+fn materializeImportedSource(
+    allocator: std.mem.Allocator,
+    resolved: pkg_resolver.ResolvedImport,
+) !pkg_resolver.ResolvedImport {
+    if (!decl_materialize.containsTargetBlocks(resolved.source)) return resolved;
+    var result = resolved;
+    const materialized = try decl_materialize.materialize(allocator, resolved.source, declTarget());
+    if (result.mapped) |mapped| {
+        if (builtin.os.tag == .windows) {
+            std.heap.page_allocator.free(mapped);
+        } else {
+            std.posix.munmap(mapped);
+        }
+        result.mapped = null;
+    } else if (result.owned_source) |owned| {
+        allocator.free(owned);
+    }
+    const owned = try allocator.dupe(u8, materialized);
+    allocator.free(materialized);
+    result.source = owned;
+    result.owned_source = owned;
+    result.source_sha256 = null;
+    return result;
+}
+
+/// The target imported sources are materialized for. The host binary is
+/// always a native build, and the flattener runs before any per-verb backend
+/// dispatch, so this is the host target: wasm32 only when the host itself is
+/// compiled for wasm32.
+fn declTarget() decl_materialize.DeclTarget {
+    return if (builtin.cpu.arch == .wasm32) .wasm32 else .native;
+}
+
+/// Root-source counterpart of materializeImportedSource: same spec, same
+/// target, applied to the compilation root handed to flattenInternal.
+fn materializeRootSource(
+    allocator: std.mem.Allocator,
+    source: []const u8,
+) !struct { source: []const u8, owned: ?[]u8 } {
+    if (!decl_materialize.containsTargetBlocks(source)) return .{ .source = source, .owned = null };
+    const materialized = try decl_materialize.materialize(allocator, source, declTarget());
+    const owned = try allocator.dupe(u8, materialized);
+    allocator.free(materialized);
+    return .{ .source = owned, .owned = owned };
 }
 
 pub fn readImportSourceFile(
@@ -5075,12 +5150,20 @@ pub fn findFirstForbiddenLine(source: []const u8) ?ForbiddenLine {
 
 fn flattenInternal(
     allocator: std.mem.Allocator,
-    source: []const u8,
+    source_in: []const u8,
     source_path: ?[]const u8,
     error_ctx: ?*ErrorContext,
     resolve_ctx: ?ResolveContext,
 ) !FlattenResult {
     if (error_ctx) |ctx| ctx.reset();
+    // The root source is a compilation input exactly like an imported one:
+    // when a caller hands the flattener a hybrid std file directly (the
+    // std-smoke tests flatten sa_std/hashset.sa et al. as roots), its
+    // @target blocks must be materialized too, not just spliced imports.
+    // Materialize here, at the single entry every flatten verb shares.
+    const mat_root = try materializeRootSource(allocator, source_in);
+    defer if (mat_root.owned) |owned| allocator.free(owned);
+    const source = mat_root.source;
     var expanded = try expandImports(allocator, source, source_path, error_ctx, resolve_ctx);
     defer expanded.deinit(allocator);
 
@@ -5248,6 +5331,13 @@ pub fn flattenFileWithContext(
     error_ctx: ?*ErrorContext,
 ) !FlattenResult {
     return flattenInternal(allocator, source, source_path, error_ctx, null);
+}
+
+/// Test-only: drop both import caches so a test observes pure per-call
+/// flattening (no cross-test fragment replay).
+pub fn clearImportCachesForTest() void {
+    clearImportSourceCacheForTest();
+    clearExpandedImportCacheForTest();
 }
 
 pub fn flattenFile(allocator: std.mem.Allocator, source_path: []const u8, source: []const u8) !FlattenResult {

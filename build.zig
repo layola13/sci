@@ -528,6 +528,23 @@ pub fn build(b: *std.Build) void {
     const fragment_smoke_step = b.step("fragment-smoke", "Run SAB fragment contract golden and negative corpus");
     fragment_smoke_step.dependOn(&run_fragment_smoke.step);
 
+    const decl_target_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/decl_target_flatten_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    decl_target_smoke_module.addImport("sio", sio_module);
+    decl_target_smoke_module.addImport("saasm", lib_module);
+    decl_target_smoke_module.addOptions("test_build_options", test_build_options);
+    const decl_target_smoke = b.addTest(.{
+        .root_module = decl_target_smoke_module,
+    });
+    const run_decl_target_smoke = b.addRunArtifact(decl_target_smoke);
+    run_decl_target_smoke.setCwd(repo_root_lazy);
+    test_step.dependOn(&run_decl_target_smoke.step);
+    const decl_target_smoke_step = b.step("decl-target-smoke", "Run flattener @target materialization regression (DEF-WASM32-STD-HYBRID-INPROCESS-FLATTEN)");
+    decl_target_smoke_step.dependOn(&run_decl_target_smoke.step);
+
     const c_matrix_module = b.createModule(.{
         .root_source_file = b.path("tests/c_matrix_smoke.zig"),
         .target = target,
