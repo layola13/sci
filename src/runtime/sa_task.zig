@@ -1626,13 +1626,34 @@ pub export fn sa_task_trap_info(handle: u64, out_code: ?*i32, out_msg_ptr: ?*?*c
     const oml = out_msg_len orelse return ERR_INVALID;
     const g = registryLookup(handle) orelse return ERR_INVALID_HANDLE;
     if (g.detached) return ERR_INVALID_HANDLE;
-    if (g.state.load(.acquire) != .done) return ERR_INVALID;
+    // The consume decision and the consume itself are one
+    // critical section (DEF-TASK-MONITOR-REAP-RACE): a bare-field
+    // read of trap_consumed outside sched_mu races goroutineExit,
+    // whose monitor delivery passes through this window on a
+    // freshly exited record (trap_held still false, consume not
+    // yet visible) — a monitor subscribing under sched_mu in
+    // that gap read trap_consumed == false and resurrected the
+    // exit as a fresh delivery instead of reporting
+    // ERR_INVALID_HANDLE. sched_mu is the scheduler lock every
+    // consumer of the exit fact already takes (goroutineExit's
+    // .done publication and monitor list snapshot, join's parked
+    // registration); the trap-record fields are only ever
+    // written under it or by the goroutine itself before the
+    // .done store, so reading them under it is race-free.
+    sched_mu.lock();
+    if (g.state.load(.acquire) != .done) {
+        sched_mu.unlock();
+        return ERR_INVALID;
+    }
     // Done but no held trap record (clean exit, already consumed,
     // or never held by a TRAPPED join): for this API the handle
     // has no record to give, which the handle-validity family
     // reports as ERR_INVALID_HANDLE — the same answer a fully
     // reaped handle gets from registryLookup above.
-    if (g.trap_consumed or !g.trapped or !g.trap_held) return ERR_INVALID_HANDLE;
+    if (g.trap_consumed or !g.trapped or !g.trap_held) {
+        sched_mu.unlock();
+        return ERR_INVALID_HANDLE;
+    }
     oc.* = g.trap_code;
     omp.* = @as(*const u8, @ptrCast(g.trap_msg[0..].ptr));
     oml.* = @intCast(g.trap_msg_len);
@@ -1644,6 +1665,7 @@ pub export fn sa_task_trap_info(handle: u64, out_code: ?*i32, out_msg_ptr: ?*?*c
     // makes the handle invalid from this point on.
     g.trap_consumed = true;
     g.trap_held = false;
+    sched_mu.unlock();
     registryRecycle(g, g.gen);
     return SA_TASK_OK;
 }
@@ -1673,6 +1695,26 @@ pub export fn sa_task_monitor(handle: u64, out_chan: ?*u64) i32 {
     };
     sub.* = .{ .chan_handle = chan_h };
     sched_mu.lock();
+    // Re-validate the handle INSIDE the critical section
+    // (DEF-TASK-MONITOR-REAP-RACE): registryLookup above only
+    // proves the slot held this generation at lookup time. The
+    // slot's two-phase reap can complete and the slot be
+    // recycled for a new spawn between the lookup and this
+    // lock; the new owner's registryAlloc resets the record
+    // (state back to .runnable), so without re-validation the
+    // .done branch below — or worse, the live-subscription
+    // branch — acted on the WRONG goroutine: a consumed handle
+    // was answered with a fresh channel and the successor's
+    // exit was delivered (or armed to be delivered) to the
+    // stale subscriber. The generation + state re-check under
+    // sched_mu closes the window: a reap that already landed
+    // shows .empty, a recycled slot shows the bumped gen.
+    if (g.gen != @as(u32, @truncate(handle >> 32)) or g.state.load(.acquire) == .empty) {
+        sched_mu.unlock();
+        _ = sa_chan_destroy(chan_h);
+        alloc.destroy(sub);
+        return ERR_INVALID_HANDLE;
+    }
     if (g.state.load(.acquire) == .done) {
         // A trap record already consumed by sa_task_trap_info
         // leaves the handle invalid even while the two-phase
@@ -1751,15 +1793,27 @@ pub export fn sa_task_sleep_ms(ms: u64) i32 {
 /// held for sa_task_trap_info (join keeps returning
 /// SA_TASK_TRAPPED until the info call consumes it).
 fn joinFinish(g: *Goroutine, gen: u32, status: i32) i32 {
+    // The trap-record decision is taken under sched_mu, the same
+    // critical section sa_task_trap_info consumes in and
+    // goroutineExit publishes .done in
+    // (DEF-TASK-MONITOR-REAP-RACE): a bare-field read here raced
+    // a concurrent trap_info consume, and a bare-field write of
+    // trap_held raced goroutineExit's monitor delivery.
+    sched_mu.lock();
     // A trap record already consumed by sa_task_trap_info leaves
     // the handle invalid: report that instead of replaying the
     // trap (or a clean status read from the not-yet-reaped
     // record). The consuming call already requested the reap.
-    if (g.trap_consumed) return ERR_INVALID_HANDLE;
+    if (g.trap_consumed) {
+        sched_mu.unlock();
+        return ERR_INVALID_HANDLE;
+    }
     if (status == SA_TASK_TRAPPED and g.trap_sink != null) {
         g.trap_held = true;
+        sched_mu.unlock();
         return status;
     }
+    sched_mu.unlock();
     registryRecycle(g, gen);
     return status;
 }
@@ -1773,10 +1827,21 @@ pub export fn sa_task_join(handle: u64) i32 {
     // it is an invalid-handle use, exactly like joining a handle
     // whose record a previous join already consumed.
     if (g.detached) return ERR_INVALID_HANDLE;
+    // The exit-fact read (state + trapped) is taken under
+    // sched_mu (DEF-TASK-MONITOR-REAP-RACE): goroutineExit
+    // publishes .done and snapshots the monitor list in that
+    // same critical section, so a status read outside it can
+    // catch the window where .done is visible but the trap
+    // record is not final yet and report a trapped exit as a
+    // clean SA_TASK_OK. joinFinish re-checks the consumed flag
+    // under the same lock before acting on the status.
+    sched_mu.lock();
     if (g.state.load(.acquire) == .done) {
         const status: i32 = if (g.trapped) SA_TASK_TRAPPED else SA_TASK_OK;
+        sched_mu.unlock();
         return joinFinish(g, g.gen, status);
     }
+    sched_mu.unlock();
     const node = alloc.create(WaitNode) catch return ERR_NOMEM;
     node.* = .{};
     var os_waiter: OsWaiter = .{};
@@ -4763,4 +4828,36 @@ test "sa_task.companion: monitor on consumed trap handle is rejected" {
     var mch: u64 = 0;
     try testing.expectEqual(ERR_INVALID_HANDLE, sa_task_monitor(h, &mch));
     try testing.expectEqual(@as(u64, 0), mch);
+}
+
+test "sa_task.companion: monitor rejects consumed handle under recycle churn (DEF-TASK-MONITOR-REAP-RACE)" {
+    if (!supported) return error.SkipZigTest;
+    // Stress regression for DEF-TASK-MONITOR-REAP-RACE. The
+    // single-shot test above only races when the suite's
+    // ambient load happens to land the consumed slot's reap
+    // inside monitor's lookup-to-lock window (it flipped in
+    // roughly 1 of 5-9 full-suite runs). Here the same
+    // spawn -> TRAPPED join -> trap_info consume -> monitor
+    // sequence runs back-to-back: every iteration's reap
+    // completes asynchronously on a carrier while the next
+    // iterations recycle the same registry slots at high
+    // generation counts, which is exactly the regime the race
+    // needs (measured on the pre-fix tree: first anomaly within
+    // a few hundred iterations, ~1-6% of iterations once slot
+    // generations pass a few hundred). Every monitor call on a
+    // consumed handle must return ERR_INVALID_HANDLE and hand
+    // out no channel.
+    var it: usize = 0;
+    while (it < 3000) : (it += 1) {
+        var h: u64 = 0;
+        try testing.expectEqual(SA_TASK_OK, sa_task_spawn_supervised(&supervisedTrapWorker, null, null, null, &h));
+        try testing.expectEqual(SA_TASK_TRAPPED, sa_task_join(h));
+        var code: i32 = 0;
+        var msg_ptr: ?*const u8 = null;
+        var msg_len: u64 = 0;
+        try testing.expectEqual(SA_TASK_OK, sa_task_trap_info(h, &code, &msg_ptr, &msg_len));
+        var mch: u64 = 0;
+        try testing.expectEqual(ERR_INVALID_HANDLE, sa_task_monitor(h, &mch));
+        try testing.expectEqual(@as(u64, 0), mch);
+    }
 }
