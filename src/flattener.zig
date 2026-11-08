@@ -51,6 +51,14 @@ pub const ResolveContext = struct {
     dependencies: []const pkg_resolver.Dependency = &.{},
     options: pkg_resolver.ResolveOptions = .{},
     package_identity: ?[]const u8 = null,
+    /// SAB-H1-ENROL (consult-forkh §3 conditions 3 and 4): a consumer
+    /// that knows the program's compilation target (the SAB std
+    /// loader, via the plugin front end) supplies it here so std
+    /// sources are materialized for that target. null keeps the
+    /// historic behaviour — materialize for the host target — which
+    /// is the only reading available to consumers without a program
+    /// target (judgment A).
+    decl_target: ?decl_materialize.DeclTarget = null,
 };
 
 pub const LayoutVersion = struct {
@@ -452,6 +460,11 @@ fn buildImportSourceCacheKey(
     } else {
         try appendCacheBytes(&out, "default");
     }
+    // SAB-H1-ENROL (condition 5): the import-source and expanded-import
+    // caches must not serve one target's materialization to a load for
+    // another target, so the effective materialization target is part
+    // of the key (entries remain stat-validated on top of the key).
+    try appendCacheBytes(&out, declTargetFor(resolve_ctx).targetName());
     return try out.toOwnedSlice();
 }
 
@@ -4410,7 +4423,7 @@ fn readImportFile(
         var options: pkg_resolver.ResolveOptions = .{};
         if (resolve_ctx) |ctx| options = ctx.options;
         const resolved = try pkg_resolver.resolveImport(allocator, deps, base_dir, import_path, options);
-        return try materializeImportedSource(allocator, resolved);
+        return try materializeImportedSource(allocator, resolved, resolve_ctx);
     }
 
     const cache_key = try buildImportSourceCacheKey(allocator, base_dir, import_path, resolve_ctx);
@@ -4442,7 +4455,7 @@ fn readImportFile(
     var options: pkg_resolver.ResolveOptions = .{};
     if (resolve_ctx) |ctx| options = ctx.options;
     const resolved = try pkg_resolver.resolveImport(allocator, deps, base_dir, import_path, options);
-    const materialized = try materializeImportedSource(allocator, resolved);
+    const materialized = try materializeImportedSource(allocator, resolved, resolve_ctx);
     storeImportSourceCacheEntry(cache_key, materialized) catch |err| {
         // Import source caching is an optimization; resolution already succeeded and remains authoritative.
         _ = @errorName(err);
@@ -4463,10 +4476,11 @@ fn readImportFile(
 fn materializeImportedSource(
     allocator: std.mem.Allocator,
     resolved: pkg_resolver.ResolvedImport,
+    resolve_ctx: ?ResolveContext,
 ) !pkg_resolver.ResolvedImport {
     if (!decl_materialize.containsTargetBlocks(resolved.source)) return resolved;
     var result = resolved;
-    const materialized = try decl_materialize.materialize(allocator, resolved.source, declTarget());
+    const materialized = try decl_materialize.materialize(allocator, resolved.source, declTargetFor(resolve_ctx));
     if (result.mapped) |mapped| {
         if (builtin.os.tag == .windows) {
             std.heap.page_allocator.free(mapped);
@@ -4493,14 +4507,28 @@ fn declTarget() decl_materialize.DeclTarget {
     return if (builtin.cpu.arch == .wasm32) .wasm32 else .native;
 }
 
+/// The materialization target a load must use: the consumer-supplied
+/// program target when the resolve context carries one, otherwise the
+/// host target (the only reading available at the sci-internal call
+/// sites, which have no program target — consult-forkh judgment A).
+/// An explicitly supplied target is never silently replaced by the
+/// host reading.
+fn declTargetFor(resolve_ctx: ?ResolveContext) decl_materialize.DeclTarget {
+    if (resolve_ctx) |ctx| {
+        if (ctx.decl_target) |target| return target;
+    }
+    return declTarget();
+}
+
 /// Root-source counterpart of materializeImportedSource: same spec, same
 /// target, applied to the compilation root handed to flattenInternal.
 fn materializeRootSource(
     allocator: std.mem.Allocator,
     source: []const u8,
+    resolve_ctx: ?ResolveContext,
 ) !struct { source: []const u8, owned: ?[]u8 } {
     if (!decl_materialize.containsTargetBlocks(source)) return .{ .source = source, .owned = null };
-    const materialized = try decl_materialize.materialize(allocator, source, declTarget());
+    const materialized = try decl_materialize.materialize(allocator, source, declTargetFor(resolve_ctx));
     const owned = try allocator.dupe(u8, materialized);
     allocator.free(materialized);
     return .{ .source = owned, .owned = owned };
@@ -5161,7 +5189,7 @@ fn flattenInternal(
     // std-smoke tests flatten sa_std/hashset.sa et al. as roots), its
     // @target blocks must be materialized too, not just spliced imports.
     // Materialize here, at the single entry every flatten verb shares.
-    const mat_root = try materializeRootSource(allocator, source_in);
+    const mat_root = try materializeRootSource(allocator, source_in, resolve_ctx);
     defer if (mat_root.owned) |owned| allocator.free(owned);
     const source = mat_root.source;
     var expanded = try expandImports(allocator, source, source_path, error_ctx, resolve_ctx);
