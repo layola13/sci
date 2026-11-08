@@ -171,7 +171,15 @@ fn assertJsMatrixStdoutViaSab(path: []const u8, expected_stdout: []const u8) !vo
     defer std.testing.allocator.free(js_name);
 
     const check_argv = [_][]const u8{ "sa", "check", source_path, "--emit-sab", sab_name };
-    const check_code = saasm.cli.execute(std.testing.allocator, check_argv[0..]) catch |err| {
+    // DEF-SUITE-LISTEN-STALL: executeWithWriters, not execute — execute
+    // writes "check ok: ..." to the real stdout, which is the
+    // std.zig.Server (--listen=-) protocol channel under `zig build`
+    // and deadlocks the run. See emit_sab_inprocess_smoke.zig.
+    var check_out = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer check_out.deinit();
+    var check_err = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer check_err.deinit();
+    const check_code = saasm.cli.executeWithWriters(std.testing.allocator, check_argv[0..], sio.managedWriter(&check_out), sio.managedWriter(&check_err)) catch |err| {
         std.debug.print("check --emit-sab errored: {s}: {s}\n", .{ path, @errorName(err) });
         return err;
     };

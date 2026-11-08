@@ -109,14 +109,32 @@ fn checkEmitSab(name: []const u8) !u8 {
     const sab_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.sab", .{name});
     defer std.testing.allocator.free(sab_name);
     const argv = [_][]const u8{ "sa", "check", src_name, "--emit-sab", sab_name };
-    return saasm.cli.execute(std.testing.allocator, argv[0..]);
+    // DEF-SUITE-LISTEN-STALL: never call cli.execute in-process from a
+    // test. execute() writes "check ok: ..." to the real process stdout,
+    // which under `zig build` is the std.zig.Server (--listen=-) protocol
+    // channel; the plain text corrupts the framing and both sides block
+    // on pipe reads forever. Capture through executeWithWriters instead
+    // (same rule cli_smoke documents for its check --emit-sab call).
+    var out = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer out.deinit();
+    var err = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer err.deinit();
+    const code = try saasm.cli.executeWithWriters(std.testing.allocator, argv[0..], sio.managedWriter(&out), sio.managedWriter(&err));
+    if (code == 0) try std.testing.expect(std.mem.indexOf(u8, out.items, "check ok") != null);
+    return code;
 }
 
 fn checkSab(name: []const u8) !u8 {
     const sab_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.sab", .{name});
     defer std.testing.allocator.free(sab_name);
     const argv = [_][]const u8{ "sa", "check", sab_name };
-    return saasm.cli.execute(std.testing.allocator, argv[0..]);
+    var out = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer out.deinit();
+    var err = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer err.deinit();
+    const code = try saasm.cli.executeWithWriters(std.testing.allocator, argv[0..], sio.managedWriter(&out), sio.managedWriter(&err));
+    if (code == 0) try std.testing.expect(std.mem.indexOf(u8, out.items, "check ok") != null);
+    return code;
 }
 
 test "check --emit-sab repeated in-process on identical streams (finding D)" {
