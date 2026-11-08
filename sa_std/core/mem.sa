@@ -182,7 +182,8 @@ L_DO_COPY:
     !src_null
     !dst_null
     !nonzero
-    !count
+    // No !count here: an `as` assignment moves its source register, so
+    // the conversion above already consumed count.
     !src
     !dst
     return

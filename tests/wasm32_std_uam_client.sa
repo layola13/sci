@@ -1,0 +1,73 @@
+// Regression corpus for DEF-WASM32-STD-WASM-USEAFTERMOVE (2026-11-08).
+//
+// The wasm32 variants of three sa_std functions performed a standalone
+// `as` conversion (which moves its source register) while the source
+// register still had a legitimate later use, so the wasm32-wasi std
+// unit failed to assemble with trap 1009 UseAfterMove and no wasm
+// sa_std archive could be produced at all:
+//
+//   site 1: sa_mem_copy_nonoverlapping (core/mem.sa) - a stale !count
+//           after `count_sz = count as u32`;
+//   site 2: sa_growvec_new (alloc/growvec.sa) - the shared
+//           `store gv+GrowVec_rsv, rsv as u64` after `rsv_sz = rsv as u32`;
+//   site 3: sa_growvec_free (alloc/growvec.sa) - the shared L_FREE_HANDLE
+//           !rsv after `rsv_sz = rsv as u32` (PhiStateConflict at the
+//           merge before the release itself was reached).
+//
+// This extern-only client exercises all three functions end to end
+// through the wasm32-wasi archive: growvec_new (site 2), a std mem
+// copy inside the growvec buffer (site 1), growvec_free (site 3).
+// Exit 42 = every check passed. On the unfixed tree the archive does
+// not exist, so the wasm build of this client cannot link; the
+// cli_smoke test below skips only when that archive was never built.
+@extern sa_growvec_new(elem_size: u64, max_elems: u64) -> ptr
+@extern sa_growvec_push(^gv: ptr, value: u64, elem_size: u64) -> ptr
+@extern sa_growvec_len(&gv: ptr) -> u64
+@extern sa_growvec_data_ptr(&gv: ptr) -> ptr
+@extern sa_growvec_free(^gv: ptr) -> void
+@extern sa_mem_copy_nonoverlapping(&dst: ptr, &src: ptr, count: u64) -> void
+
+@main() -> i32:
+L_ENTRY:
+    gv = call @sa_growvec_new(8, 4)
+    gv = call @sa_growvec_push(^gv, 111, 8)
+    gv = call @sa_growvec_push(^gv, 222, 8)
+    n = call @sa_growvec_len(&gv)
+    n_ok = eq n, 2
+    br n_ok -> L_N_OK, L_FAIL_N
+L_N_OK:
+    base = call @sa_growvec_data_ptr(&gv)
+    eight = add 0, 8
+    dst = ptr_add base, eight
+    call @sa_mem_copy_nonoverlapping(&dst, &base, 8)
+    v = load base+8 as u64
+    v_ok = eq v, 111
+    br v_ok -> L_V_OK, L_FAIL_V
+L_V_OK:
+    !n
+    !n_ok
+    !base
+    !eight
+    !dst
+    !v
+    !v_ok
+    call @sa_growvec_free(^gv)
+    ret = add 0, 42
+    return ret
+L_FAIL_N:
+    !n
+    !n_ok
+    call @sa_growvec_free(^gv)
+    ret1 = add 0, 7
+    return ret1
+L_FAIL_V:
+    !n
+    !n_ok
+    !base
+    !eight
+    !dst
+    !v
+    !v_ok
+    call @sa_growvec_free(^gv)
+    ret2 = add 0, 7
+    return ret2

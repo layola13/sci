@@ -1554,6 +1554,53 @@ test "wasm32 ptr slot convention: MAP_FAILED sentinel checks fire (DEF-WASM32-PT
     }
 }
 
+test "wasm32 std size_t conversion sites run end to end (DEF-WASM32-STD-WASM-USEAFTERMOVE)" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const node_probe = sio.Child.run(.{
+        .allocator = std.testing.allocator,
+        .argv = &.{ "node", "--version" },
+    }) catch return error.SkipZigTest;
+    defer std.testing.allocator.free(node_probe.stdout);
+    defer std.testing.allocator.free(node_probe.stderr);
+    switch (node_probe.term) {
+        .exited => |code| if (code != 0) return error.SkipZigTest,
+        else => return error.SkipZigTest,
+    }
+
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    // The client links sa_growvec_* / sa_mem_copy_nonoverlapping out of
+    // the wasm32-wasi sa_std archive. On the unfixed tree that archive
+    // cannot be built at all (the std unit dies with UseAfterMove), so
+    // its absence here means "not built in this tree state": skip.
+    // Build it with: zig build -Dtarget=wasm32-wasi
+    //   -Dcpu=baseline+atomics+bulk_memory sa-std-static
+    original_cwd.access("artifacts/sa_std/wasm32-wasi/libsa_std.a", .{}) catch
+        return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    defer original_cwd.setAsCwd() catch {};
+
+    // growvec_new (site 2) -> std mem copy inside the buffer (site 1)
+    // -> growvec_free (site 3); exit 42 only if every check passes.
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/wasm32_std_uam_client.sa");
+    defer std.testing.allocator.free(source_path);
+    const build_wasm_argv = [_][]const u8{ "sa", "build-wasm", source_path, "-o", "uam.wasm", "--target", "wasm32" };
+    const build_wasm_code = try saasm.cli.execute(std.testing.allocator, build_wasm_argv[0..]);
+    try std.testing.expectEqual(@as(u8, 0), build_wasm_code);
+
+    const node_result = try runWasmWithNode(std.testing.allocator, "uam.wasm", &.{ "sa", "uam.wasm" });
+    defer std.testing.allocator.free(node_result.stdout);
+    defer std.testing.allocator.free(node_result.stderr);
+    switch (node_result.term) {
+        .exited => |code| try std.testing.expectEqual(@as(u8, 42), code),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
 test "windows llvm builds and runs hello world executable" {
     if (builtin.os.tag != .windows or !saasm.build_options.llvm_enabled) return error.SkipZigTest;
 

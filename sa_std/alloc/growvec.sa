@@ -122,7 +122,9 @@ L_MMAP:
 L_MMAP_CALL:
     rsv_sz = rsv as u32
     base = call @mmap(0 as ptr, rsv_sz, 3, 34, -1, 0)
-    !rsv_sz
+    // The conversion consumed rsv; rebind it from the widened value
+    // (bounds-checked above, so unchanged) for the shared code below.
+    rsv = rsv_sz as u64
     !rsv_ok
 // @target-end
     fail_ptr = -1 as ptr
@@ -288,7 +290,10 @@ L_UNMAP_OVERFLOW:
 L_UNMAP_CALL:
     rsv_sz = rsv as u32
     rc = call @munmap(base, rsv_sz)
-    !rsv_sz
+    // The conversion consumed rsv; rebind it from the widened value
+    // (bounds-checked above, so unchanged) so the shared L_FREE_HANDLE
+    // release below sees rsv live on every incoming path.
+    rsv = rsv_sz as u64
     !rsv_ok
     !rc
     !base

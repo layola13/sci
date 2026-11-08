@@ -576,6 +576,29 @@ pub fn build(b: *std.Build) void {
     const cli_smoke_step = b.step("bc2sa-smoke", "Run the bc2sa real bitcode smoke tests");
     cli_smoke_step.dependOn(&run_cli_smoke.step);
 
+    const wasm32_std_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/cli_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    wasm32_std_smoke_module.addImport("sio", sio_module);
+    wasm32_std_smoke_module.addImport("saasm", lib_module);
+    wasm32_std_smoke_module.addOptions("build_options", build_options);
+    const wasm32_std_smoke = b.addTest(.{
+        .root_module = wasm32_std_smoke_module,
+        .filters = &.{
+            "wasm32 ptr slot convention: MAP_FAILED sentinel checks fire (DEF-WASM32-PTR-REPR)",
+            "wasm32 std size_t conversion sites run end to end (DEF-WASM32-STD-WASM-USEAFTERMOVE)",
+        },
+    });
+    const run_wasm32_std_smoke = b.addRunArtifact(wasm32_std_smoke);
+    run_wasm32_std_smoke.setCwd(repo_root_lazy);
+    addLlvmBinDirToRun(b, run_wasm32_std_smoke, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    run_wasm32_std_smoke.step.dependOn(&sync_sa_std_artifact.step);
+    if (enable_llvm) test_step.dependOn(&run_wasm32_std_smoke.step);
+    const wasm32_std_smoke_step = b.step("wasm32-std-smoke", "Run wasm32 std archive end-to-end smoke tests");
+    wasm32_std_smoke_step.dependOn(&run_wasm32_std_smoke.step);
+
     const cli_json_debug_smoke_module = b.createModule(.{
         .root_source_file = b.path("tests/cli_smoke.zig"),
         .target = target,
