@@ -4529,10 +4529,10 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
     }
     if (std.mem.eql(u8, arg, "--default-immutable")) {
         options.default_immutable = true;
-        // The build and verdict caches are keyed on the source content only,
-        // so a cached artifact from the mutable mode must never be reused for
-        // the immutable mode.
-        options.incremental_cache = false;
+        // No cache bypass is needed here anymore: the mutability mode is
+        // part of the project build cache key (see computeProjectBuildKey),
+        // so a cached artifact from the mutable mode can never be reused
+        // for the immutable mode — the two modes simply key differently.
         return true;
     }
     if (std.mem.startsWith(u8, arg, "--target=")) {
@@ -5905,16 +5905,246 @@ fn cacheBool(hasher: *std.crypto.hash.sha2.Sha256, value: bool) void {
     hasher.update(&.{if (value) 1 else 0});
 }
 
-const RuntimeArchiveFingerprint = struct { size: u64, mtime_ns: u64 };
+/// The spelling of a path as fed into a cache key. An absolute path under
+/// the project root is reduced to its project-relative form: the layout
+/// role of the file is part of the build's meaning, its checkout location
+/// is not. Relative paths are already location-free and pass through, as
+/// do absolute paths outside the project (no honest relative form exists
+/// for them; they stay exact and simply never share across trees).
+fn cacheKeyNormalizedPath(allocator: std.mem.Allocator, project_root_real: []const u8, path: []const u8) ![]u8 {
+    if (std.fs.path.isAbsolute(path) and
+        path.len > project_root_real.len and
+        std.mem.startsWith(u8, path, project_root_real) and
+        path[project_root_real.len] == std.fs.path.sep)
+    {
+        return allocator.dupe(u8, path[project_root_real.len + 1 ..]);
+    }
+    return allocator.dupe(u8, path);
+}
 
-fn runtimeArchiveFingerprint(allocator: std.mem.Allocator) ?RuntimeArchiveFingerprint {
-    const archive_path = saStdArchivePath(allocator) catch return null;
-    defer allocator.free(archive_path);
-    const stat = sio.cwd().statFile(archive_path) catch return null;
-    return .{
-        .size = stat.size,
-        .mtime_ns = @as(u64, @intCast(stat.mtime.toNanoseconds())),
+/// The spelling of one source-tree file as fed into the source tree hash:
+/// project files and std files are named by their root-relative layout
+/// ("proj/..." / "std/..."), so the same import closure hashes identically
+/// in every checkout. Files under neither root keep their real path.
+fn cacheKeyTreePath(
+    allocator: std.mem.Allocator,
+    real_path: []const u8,
+    project_root_real: []const u8,
+    std_root_real: []const u8,
+) ![]u8 {
+    if (real_path.len > project_root_real.len and
+        std.mem.startsWith(u8, real_path, project_root_real) and
+        real_path[project_root_real.len] == std.fs.path.sep)
+    {
+        return std.fmt.allocPrint(allocator, "proj/{s}", .{real_path[project_root_real.len + 1 ..]});
+    }
+    if (real_path.len > std_root_real.len and
+        std.mem.startsWith(u8, real_path, std_root_real) and
+        real_path[std_root_real.len] == std.fs.path.sep)
+    {
+        return std.fmt.allocPrint(allocator, "std/{s}", .{real_path[std_root_real.len + 1 ..]});
+    }
+    return allocator.dupe(u8, real_path);
+}
+
+// --- std tree semantic digest -------------------------------------------
+// The cache key identifies the linked sa_std runtime by a content digest
+// of the std source tree — the only "std version" that is a meaning.
+// Neither the archive's stat (mtime moves on byte-identical rebuilds) nor
+// its bytes (not reproducible across checkouts) can serve. The digest
+// covers every regular source file under the std root as (relative path,
+// content) pairs in sorted order; scratch/cache directories and the
+// built archive itself (a product of the tree that hermetic layouts
+// place inside it) are not std semantics and are skipped.
+
+const StdTreeDigestEntry = struct {
+    digest: [32]u8,
+    files: []SourceTreeFileStat,
+};
+
+var std_tree_digest_mutex: std.atomic.Mutex = .unlocked;
+var std_tree_digest_cache: ?std.StringHashMap(StdTreeDigestEntry) = null;
+
+fn stdTreeDigestCacheMap() *std.StringHashMap(StdTreeDigestEntry) {
+    if (std_tree_digest_cache == null) {
+        std_tree_digest_cache = std.StringHashMap(StdTreeDigestEntry).init(std.heap.page_allocator);
+    }
+    return &std_tree_digest_cache.?;
+}
+
+fn lockStdTreeDigestCache() void {
+    while (!std_tree_digest_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+}
+
+fn freeStdTreeDigestEntry(entry: StdTreeDigestEntry) void {
+    for (entry.files) |file| std.heap.page_allocator.free(file.path);
+    std.heap.page_allocator.free(entry.files);
+}
+
+fn stdTreeScratchDir(name: []const u8) bool {
+    return std.mem.eql(u8, name, ".sla-cache") or
+        std.mem.eql(u8, name, ".sa_cache") or
+        std.mem.eql(u8, name, ".zig-cache") or
+        std.mem.eql(u8, name, "zig-out") or
+        std.mem.eql(u8, name, ".git");
+}
+
+/// The built runtime archive is a product of the tree, not a source in
+/// it. Hermetic std-root layouts place the archive inside the tree; its
+/// bytes must still not enter the digest (they are not reproducible
+/// across checkouts, and the tree is the archive's identity, not the
+/// other way round).
+fn stdTreeArchiveName(name: []const u8) bool {
+    return std.mem.eql(u8, name, "libsa_std.a") or std.mem.eql(u8, name, "sa_std.lib");
+}
+
+/// Stream a file's contents into the hasher (no whole-file allocation,
+/// no size cap).
+fn hashFileContentsInto(hasher: *std.crypto.hash.sha2.Sha256, path: []const u8) !void {
+    var file = try sio.cwd().openFile(path, .{});
+    defer file.close();
+    var buf: [64 * 1024]u8 = undefined;
+    while (true) {
+        const n = try file.read(&buf);
+        if (n == 0) break;
+        hasher.update(buf[0..n]);
+    }
+}
+
+/// Collect (relative path, stat) for every regular file under dir,
+/// recursively. Symlinks to files count by their target's stat; symlinks
+/// to directories are not followed (cycle risk beats the exotic layout).
+fn collectStdTreeFiles(
+    allocator: std.mem.Allocator,
+    dir: sio.Dir,
+    prefix: []const u8,
+    out: *std.array_list.Managed(SourceTreeFileStat),
+) !void {
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        if (entry.kind == .directory) {
+            if (stdTreeScratchDir(entry.name)) continue;
+            var sub = try dir.openDir(entry.name, .{ .iterate = true });
+            defer sub.close();
+            const sub_prefix = if (prefix.len == 0)
+                try allocator.dupe(u8, entry.name)
+            else
+                try std.fs.path.join(allocator, &.{ prefix, entry.name });
+            defer allocator.free(sub_prefix);
+            try collectStdTreeFiles(allocator, sub, sub_prefix, out);
+        } else if (entry.kind == .file or entry.kind == .sym_link) {
+            if (stdTreeArchiveName(entry.name)) continue;
+            const stat = dir.statFile(entry.name) catch continue;
+            if (stat.kind != .file) continue;
+            const rel = if (prefix.len == 0)
+                try allocator.dupe(u8, entry.name)
+            else
+                try std.fs.path.join(allocator, &.{ prefix, entry.name });
+            errdefer allocator.free(rel);
+            try out.append(.{ .path = rel, .mtime = stat.mtime, .size = stat.size });
+        }
+    }
+}
+
+fn stdTreeStatLessThan(_: void, a: SourceTreeFileStat, b: SourceTreeFileStat) bool {
+    return std.mem.order(u8, a.path, b.path) == .lt;
+}
+
+/// Content digest of the std source tree at std_root, or null when the
+/// tree is absent/empty (callers then feed nothing, mirroring the old
+/// missing-archive behavior). Memoized per process: a memo entry is
+/// reused only when a fresh stat walk reproduces its exact file list
+/// (path + mtime + size), so edits, additions and removals all recompute.
+fn stdTreeDigest(allocator: std.mem.Allocator, std_root: []const u8) !?[32]u8 {
+    const root_real = sio.cwd().realpathAlloc(allocator, std_root) catch |err| switch (err) {
+        error.FileNotFound, error.AccessDenied, error.NotDir => return null,
+        else => return err,
     };
+    defer allocator.free(root_real);
+
+    var root_dir = sio.cwd().openDir(root_real, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound, error.AccessDenied, error.NotDir => return null,
+        else => return err,
+    };
+    defer root_dir.close();
+
+    // Fresh stat walk (relative paths) — the shape the memo validates
+    // against and the digest is computed over.
+    var files = std.array_list.Managed(SourceTreeFileStat).init(allocator);
+    defer {
+        for (files.items) |file| allocator.free(file.path);
+        files.deinit();
+    }
+    try collectStdTreeFiles(allocator, root_dir, "", &files);
+    if (files.items.len == 0) return null;
+    std.mem.sort(SourceTreeFileStat, files.items, {}, stdTreeStatLessThan);
+
+    {
+        lockStdTreeDigestCache();
+        defer std_tree_digest_mutex.unlock();
+        const cache = stdTreeDigestCacheMap();
+        if (cache.get(root_real)) |entry| {
+            if (stdTreeFileListsEqual(entry.files, files.items, root_real)) return entry.digest;
+        }
+    }
+
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    for (files.items) |file| {
+        const full_path = try std.fs.path.join(allocator, &.{ root_real, file.path });
+        defer allocator.free(full_path);
+        cacheBytes(&hasher, file.path);
+        try hashFileContentsInto(&hasher, full_path);
+        hasher.update(&[_]u8{0});
+    }
+    var digest: [32]u8 = undefined;
+    hasher.final(&digest);
+
+    {
+        lockStdTreeDigestCache();
+        defer std_tree_digest_mutex.unlock();
+        const cache = stdTreeDigestCacheMap();
+        const memo_files = try std.heap.page_allocator.alloc(SourceTreeFileStat, files.items.len);
+        var filled: usize = 0;
+        errdefer {
+            for (memo_files[0..filled]) |file| std.heap.page_allocator.free(file.path);
+            std.heap.page_allocator.free(memo_files);
+        }
+        for (files.items) |file| {
+            memo_files[filled] = .{
+                .path = try std.heap.page_allocator.dupe(u8, file.path),
+                .mtime = file.mtime,
+                .size = file.size,
+            };
+            filled += 1;
+        }
+        const memo_key = try std.heap.page_allocator.dupe(u8, root_real);
+        errdefer std.heap.page_allocator.free(memo_key);
+        const gop = try cache.getOrPut(memo_key);
+        if (gop.found_existing) {
+            std.heap.page_allocator.free(memo_key);
+            freeStdTreeDigestEntry(gop.value_ptr.*);
+        }
+        gop.value_ptr.* = .{ .digest = digest, .files = memo_files };
+    }
+    return digest;
+}
+
+/// A memo entry's stored file list holds root-relative paths; the fresh
+/// walk's list must match it exactly (same files, same stats) for the
+/// stored digest to still describe the tree. root_real is unused today —
+/// both lists are relative — but keeps the comparison anchored to one
+/// canonical root spelling if absolute forms are ever stored.
+fn stdTreeFileListsEqual(stored: []SourceTreeFileStat, fresh: []SourceTreeFileStat, root_real: []const u8) bool {
+    _ = root_real;
+    if (stored.len != fresh.len) return false;
+    for (stored, fresh) |a, b| {
+        if (!std.mem.eql(u8, a.path, b.path)) return false;
+        if (a.size != b.size) return false;
+        if (a.mtime.toNanoseconds() != b.mtime.toNanoseconds()) return false;
+    }
+    return true;
 }
 
 fn cacheCompilerVersion() []const u8 {
@@ -6078,7 +6308,9 @@ fn evictSourceTreeHashCacheIfNeeded(cache: *std.StringHashMap(SourceTreeHashCach
 }
 
 fn addSourceTreeDigestToHasher(hasher: *std.crypto.hash.sha2.Sha256, digest: [32]u8) void {
-    cacheBytes(hasher, "source-tree-digest-v1");
+    // v2: file identities inside the digest are root-relative layout
+    // names, not absolute real paths (see cacheKeyTreePath).
+    cacheBytes(hasher, "source-tree-digest-v2");
     hasher.update(&digest);
 }
 
@@ -6094,6 +6326,8 @@ fn hashResolvedSourceTreeUncached(
     visited: *std.StringHashMap(void),
     files: *std.array_list.Managed(SourceTreeFileStat),
     resolved_source: ?[]const u8,
+    project_root_real: []const u8,
+    std_root_real: []const u8,
 ) !void {
     const real_source_path = try sio.cwd().realpathAlloc(allocator, source_path);
     var owned_by_files = false;
@@ -6112,7 +6346,13 @@ fn hashResolvedSourceTreeUncached(
     try files.append(.{ .path = real_source_path, .mtime = stat.mtime, .size = stat.size });
     owned_by_files = true;
 
-    cacheBytes(hasher, real_source_path);
+    // Feed the file's layout identity, not its address on this machine:
+    // the same closure checked out at a different path must hash the
+    // same. `visited` above keeps using the real path — deduplication
+    // within one walk is a within-machine concern and stays exact.
+    const key_tree_path = try cacheKeyTreePath(allocator, real_source_path, project_root_real, std_root_real);
+    defer allocator.free(key_tree_path);
+    cacheBytes(hasher, key_tree_path);
     const owned_source = if (resolved_source == null) try loadSource(allocator, source_path) else null;
     defer if (owned_source) |source| allocator.free(source);
     const source = resolved_source orelse owned_source.?;
@@ -6131,7 +6371,7 @@ fn hashResolvedSourceTreeUncached(
         } };
         var imported = try flattener.readImportSourceFile(allocator, std.fs.path.dirname(source_path) orelse ".", import_path, resolve_ctx);
         defer imported.deinit(allocator);
-        try hashResolvedSourceTreeUncached(allocator, hasher, dependencies, plugin_import_roots, project_root, std_root, offline, imported.entry_path, visited, files, imported.source);
+        try hashResolvedSourceTreeUncached(allocator, hasher, dependencies, plugin_import_roots, project_root, std_root, offline, imported.entry_path, visited, files, imported.source, project_root_real, std_root_real);
     }
 }
 
@@ -6154,6 +6394,13 @@ fn hashResolvedSourceTree(
         return;
     }
 
+    // Canonical roots for the layout-relative file identities fed into
+    // the digest. Resolution itself keeps using the caller's spellings.
+    const project_root_real = sio.cwd().realpathAlloc(allocator, project_root) catch try allocator.dupe(u8, project_root);
+    defer allocator.free(project_root_real);
+    const std_root_real = sio.cwd().realpathAlloc(allocator, std_root) catch try allocator.dupe(u8, std_root);
+    defer allocator.free(std_root_real);
+
     var tree_hasher = std.crypto.hash.sha2.Sha256.init(.{});
     var visited = std.StringHashMap(void).init(allocator);
     defer {
@@ -6166,7 +6413,7 @@ fn hashResolvedSourceTree(
         for (files.items) |file| allocator.free(file.path);
         files.deinit();
     }
-    try hashResolvedSourceTreeUncached(allocator, &tree_hasher, dependencies, plugin_import_roots, project_root, std_root, offline, source_path, &visited, &files, null);
+    try hashResolvedSourceTreeUncached(allocator, &tree_hasher, dependencies, plugin_import_roots, project_root, std_root, offline, source_path, &visited, &files, null, project_root_real, std_root_real);
     var digest: [32]u8 = undefined;
     tree_hasher.final(&digest);
     try storeSourceTreeHashCacheEntry(cache_key, digest, files.items);
@@ -6188,30 +6435,54 @@ fn computeProjectBuildKey(
     hash_source_tree: bool,
     offline: bool,
     dce: DceMode,
+    default_immutable: bool,
 ) !ProjectCacheKey {
     const std_root = try stdRootFromEnv(allocator);
     defer allocator.free(std_root);
 
+    // Cache keys are semantic identities (cache-dedup P3): they are built
+    // only from what the build means — source contents, compiler version,
+    // flags, the std tree's content digest — never from where anything
+    // happens to live on disk. The checkout path of the project, the
+    // absolute spelling of the source path, and file timestamps of build
+    // products must not appear here, or the same meaning keys differently
+    // in every tree and sharing is impossible by construction. The domain
+    // literal carries a generation marker so entries minted by the old
+    // location-based formula can never be mistaken for semantic ones.
+    const project_root_real = sio.cwd().realpathAlloc(allocator, project_root) catch try allocator.dupe(u8, project_root);
+    defer allocator.free(project_root_real);
+    const key_source_path = try cacheKeyNormalizedPath(allocator, project_root_real, source_path);
+    defer allocator.free(key_source_path);
+
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    cacheBytes(&hasher, "sa-build-cache");
+    cacheBytes(&hasher, "sa-build-cache-v2");
     cacheBytes(&hasher, cacheCompilerVersion());
-    cacheBytes(&hasher, project_root);
     cacheBytes(&hasher, kind.dirName());
-    cacheBytes(&hasher, source_path);
+    cacheBytes(&hasher, key_source_path);
     cacheBytes(&hasher, target_name);
     cacheBytes(&hasher, source_suffix);
     cacheBool(&hasher, debug);
     cacheBool(&hasher, release_fast);
     cacheBool(&hasher, incremental);
     cacheBytes(&hasher, dce.name());
-    // Fingerprint the linked sa_std runtime archive (size+mtime): a rebuilt
-    // runtime must invalidate cached exes, otherwise stale-linked binaries
-    // are silently reused (observed: AVX-512-linked test exes kept running
-    // after the archive was rebuilt without AVX-512, SIGILL). Cheap stat,
-    // no content hashing; missing archive keeps old behavior.
-    if (runtimeArchiveFingerprint(allocator)) |fp| {
-        cacheU64(&hasher, fp.size);
-        cacheU64(&hasher, fp.mtime_ns);
+    // The mutability mode is a semantic dimension of the build, so it is
+    // part of the key: a mutable-mode artifact can never satisfy an
+    // immutable-mode request or vice versa. (This replaces the old
+    // --default-immutable cache bypass, which existed only because the
+    // key could not tell the two modes apart.)
+    cacheBool(&hasher, default_immutable);
+    // The linked sa_std runtime is identified by the semantic digest of
+    // the std source tree it is built from. The previous formula fed the
+    // archive's (size, mtime) stat pair: a byte-identical archive rebuild
+    // — the normal case when a suite loop rebuilds its tree each round —
+    // changed only the mtime and still invalidated every cached entry in
+    // every project (measured invalidation radius: 100%). The archive
+    // bytes themselves cannot key anything either: they are not
+    // reproducible across checkouts. The source tree is the version of
+    // the std that the archive means, so its content digest is the key.
+    if (try stdTreeDigest(allocator, std_root)) |digest| {
+        cacheBytes(&hasher, "std-tree-digest-v1");
+        hasher.update(&digest);
     }
     if (wasm) |target| {
         cacheBytes(&hasher, target.triple);
@@ -6221,14 +6492,21 @@ fn computeProjectBuildKey(
 
     const project_manifest = project_context.manifest;
     if (project_manifest) |*m| {
-        cacheBytes(&hasher, project_context.workspace_manifest_path);
+        // Manifest identity is the project-relative path (its layout role)
+        // plus its content; the absolute spelling would reintroduce the
+        // checkout location into the key.
+        const key_workspace_manifest_path = try cacheKeyNormalizedPath(allocator, project_root_real, project_context.workspace_manifest_path);
+        defer allocator.free(key_workspace_manifest_path);
+        cacheBytes(&hasher, key_workspace_manifest_path);
         if (projectPathExists(project_context.workspace_manifest_path)) {
             const workspace_manifest_bytes = try readTextFileAlloc(allocator, project_context.workspace_manifest_path);
             defer allocator.free(workspace_manifest_bytes);
             cacheBytes(&hasher, workspace_manifest_bytes);
         }
         if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
-            cacheBytes(&hasher, project_context.member_manifest_path);
+            const key_member_manifest_path = try cacheKeyNormalizedPath(allocator, project_root_real, project_context.member_manifest_path);
+            defer allocator.free(key_member_manifest_path);
+            cacheBytes(&hasher, key_member_manifest_path);
             if (projectPathExists(project_context.member_manifest_path)) {
                 const member_manifest_bytes = try readTextFileAlloc(allocator, project_context.member_manifest_path);
                 defer allocator.free(member_manifest_bytes);
@@ -6424,6 +6702,7 @@ fn projectCacheHit(
         projectCacheRemoveKey(allocator, project_root, kind, key);
         return err;
     };
+    projectCacheTouchEntry(allocator, project_root, kind, key);
     return true;
 }
 
@@ -6442,6 +6721,7 @@ fn projectCacheStore(
     try copyFileAlloc(allocator, artifact_path, cached_artifact);
     try copyFileAlloc(allocator, out_path, cached_output);
     try projectCacheWriteManifest(allocator, project_root, kind, key, cached_artifact, cached_output);
+    enforceProjectCacheBudget(allocator, project_root, kind, key);
 }
 
 fn projectCacheTestMetadataPath(allocator: std.mem.Allocator, project_root: []const u8, key: ProjectCacheKey) ![]u8 {
@@ -6511,6 +6791,136 @@ fn projectCacheStoreTest(
     try copyFileAlloc(allocator, out_path, cached_output);
     try projectCacheWriteTestMetadata(allocator, project_root, key, test_list);
     try projectCacheWriteManifest(allocator, project_root, .test_cache, key, cached_artifact, cached_output);
+    enforceProjectCacheBudget(allocator, project_root, .test_cache, key);
+}
+
+// --- cache budget: bounded, reachability-ordered eviction ---------------
+// Keys decide identity; this decides how much history the disk keeps.
+// The two are independent by design: eviction never changes what a key
+// means, only how long an unused meaning's products survive.
+
+/// Refresh an entry's last-used marker after a hit. Eviction ages an
+/// entry by the newest of (entry directory, manifest, this marker), so
+/// a hit moves the entry's clock without rewriting payload files.
+fn projectCacheTouchEntry(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) void {
+    const marker_path = projectCacheArtifactPath(allocator, project_root, kind, key, "last-used") catch return;
+    defer allocator.free(marker_path);
+    var file = sio.cwd().createFile(marker_path, .{ .truncate = true }) catch return;
+    defer file.close();
+    file.writeAll("1") catch {};
+}
+
+/// Per-project .sa_cache size budget in bytes. SA_CACHE_MAX_MB overrides
+/// (0 disables automatic eviction). The 2 GiB default sits far above a
+/// healthy working set: once keys are semantic, a project's entries stop
+/// churning, so the budget is a backstop against pathological growth —
+/// the failure mode where every round minted a fresh full set of keys
+/// and nothing ever deleted the old ones.
+fn projectCacheBudgetBytes() ?u64 {
+    const raw = sio.getEnvVarOwned(std.heap.page_allocator, "SA_CACHE_MAX_MB") catch return 2 * 1024 * 1024 * 1024;
+    defer std.heap.page_allocator.free(raw);
+    const mb = std.fmt.parseUnsigned(u64, std.mem.trim(u8, raw, " \t\r\n"), 10) catch return 2 * 1024 * 1024 * 1024;
+    if (mb == 0) return null;
+    return mb * 1024 * 1024;
+}
+
+fn cacheDirTreeSize(dir: sio.Dir, depth: usize) u64 {
+    if (depth > 16) return 0;
+    var total: u64 = 0;
+    var iter = dir.iterate();
+    while (iter.next() catch null) |entry| {
+        switch (entry.kind) {
+            .file, .sym_link => {
+                const stat = dir.statFile(entry.name) catch continue;
+                if (stat.kind == .file) total += stat.size;
+            },
+            .directory => {
+                var sub = dir.openDir(entry.name, .{ .iterate = true }) catch continue;
+                const sub_total = cacheDirTreeSize(sub, depth + 1);
+                sub.close();
+                total += sub_total;
+            },
+            else => {},
+        }
+    }
+    return total;
+}
+
+fn cacheEntryLastUsedNs(allocator: std.mem.Allocator, entry_dir_path: []const u8) i128 {
+    var latest: i128 = 0;
+    if (sio.cwd().statFile(entry_dir_path)) |stat| {
+        latest = @max(latest, stat.mtime.toNanoseconds());
+    } else |_| {}
+    for ([_][]const u8{ "manifest.json", "last-used" }) |name| {
+        const path = std.fs.path.join(allocator, &.{ entry_dir_path, name }) catch continue;
+        defer allocator.free(path);
+        if (sio.cwd().statFile(path)) |stat| {
+            latest = @max(latest, stat.mtime.toNanoseconds());
+        } else |_| {}
+    }
+    return latest;
+}
+
+const CacheEvictionCandidate = struct {
+    dir_path: []u8,
+    size: u64,
+    last_used_ns: i128,
+};
+
+fn cacheEvictionCandidateLessThan(_: void, a: CacheEvictionCandidate, b: CacheEvictionCandidate) bool {
+    return a.last_used_ns < b.last_used_ns;
+}
+
+/// After each store, if the project's .sa_cache exceeds the budget,
+/// delete least-recently-used entries until it fits. An entry that keeps
+/// being hit keeps a fresh last-used stamp and survives; entries whose
+/// meaning fell out of use age out first — reachability as observed by
+/// the cache itself. The just-stored entry is never a victim. Every
+/// failure is silent: eviction is housekeeping, never a build error.
+fn enforceProjectCacheBudget(allocator: std.mem.Allocator, project_root: []const u8, protected_kind: BuildCacheKind, protected_key: ProjectCacheKey) void {
+    const budget = projectCacheBudgetBytes() orelse return;
+    const protected_dir = projectCacheDir(allocator, project_root, protected_kind, protected_key) catch return;
+    defer allocator.free(protected_dir);
+    const cache_root = cacheRootPath(allocator, project_root) catch return;
+    defer allocator.free(cache_root);
+
+    var candidates = std.array_list.Managed(CacheEvictionCandidate).init(allocator);
+    defer {
+        for (candidates.items) |cand| allocator.free(cand.dir_path);
+        candidates.deinit();
+    }
+    var total: u64 = 0;
+    for ([_]BuildCacheKind{ .build_exe, .build_obj, .build_wasm, .build_obj_incremental, .test_cache }) |kind| {
+        const kind_path = std.fs.path.join(allocator, &.{ cache_root, kind.dirName() }) catch return;
+        defer allocator.free(kind_path);
+        var kind_dir = sio.cwd().openDir(kind_path, .{ .iterate = true }) catch continue;
+        defer kind_dir.close();
+        var iter = kind_dir.iterate();
+        while (iter.next() catch null) |entry| {
+            if (entry.kind != .directory or !isHexCacheKey(entry.name)) continue;
+            const dir_path = std.fs.path.join(allocator, &.{ kind_path, entry.name }) catch return;
+            var entry_dir = sio.cwd().openDir(dir_path, .{ .iterate = true }) catch {
+                allocator.free(dir_path);
+                continue;
+            };
+            const size = cacheDirTreeSize(entry_dir, 0);
+            entry_dir.close();
+            const last_used_ns = cacheEntryLastUsedNs(allocator, dir_path);
+            candidates.append(.{ .dir_path = dir_path, .size = size, .last_used_ns = last_used_ns }) catch {
+                allocator.free(dir_path);
+                return;
+            };
+            total += size;
+        }
+    }
+    if (total <= budget) return;
+    std.mem.sort(CacheEvictionCandidate, candidates.items, {}, cacheEvictionCandidateLessThan);
+    for (candidates.items) |cand| {
+        if (total <= budget) break;
+        if (std.mem.eql(u8, cand.dir_path, protected_dir)) continue;
+        sio.cwd().deleteTree(cand.dir_path) catch continue;
+        total -|= cand.size;
+    }
 }
 
 fn jsonBool(value: std.json.Value) !bool {
@@ -7548,7 +7958,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", compile_options.target_triple orelse "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", compile_options.target_triple orelse "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -7813,7 +8223,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", compile_options.target_triple orelse "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", compile_options.target_triple orelse "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -7850,7 +8260,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             }
             const size_bits = sizeBitsForTriple(compile_options.target_triple);
             if (incremental) {
-                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce);
+                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, compile_options.default_immutable);
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
                 emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
                     try printLlvmcEmitError(stderr, err, diagnostics_mode);
@@ -7884,7 +8294,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce, compile_options.default_immutable)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -9529,7 +9939,7 @@ fn executeTestInner(
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable)
     else
         null;
 
@@ -10980,6 +11390,103 @@ test "source tree hash cache LRU is opt-in" {
     var first_again_hasher = std.crypto.hash.sha2.Sha256.init(.{});
     try hashResolvedSourceTree(std.testing.allocator, &first_again_hasher, &.{}, &.{}, project_root, project_root, false, "a.sa");
     try std.testing.expectEqual(@as(usize, 3), test_source_tree_load_count);
+}
+
+test "std tree digest depends on content, not on location" {
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    defer original_cwd.setAsCwd() catch {};
+
+    // Two std trees with identical content at different locations must
+    // digest identically; editing content must change the digest;
+    // reverting the edit must restore it; scratch dirs are invisible.
+    var digests: [2][32]u8 = undefined;
+    for (0..2) |i| {
+        var tmp = std.testing.tmpDir(.{ .iterate = true });
+        defer tmp.cleanup();
+        var tdir: sio.Dir = .{ .inner = tmp.dir };
+        try tdir.setAsCwd();
+        try tdir.makePath("sa_std/core");
+        {
+            var file = try tdir.createFile("sa_std/core/probe.sa", .{ .truncate = true });
+            defer file.close();
+            try file.writeAll("#def probe_value = 7\n");
+        }
+        {
+            var file = try tdir.createFile("sa_std/top.sai", .{ .truncate = true });
+            defer file.close();
+            try file.writeAll("#def top_value = 1\n");
+        }
+        const digest = (try stdTreeDigest(std.testing.allocator, "sa_std")).?;
+        digests[i] = digest;
+
+        if (i == 0) {
+            try tdir.makePath("sa_std/.sla-cache");
+            {
+                var file = try tdir.createFile("sa_std/.sla-cache/residue", .{ .truncate = true });
+                defer file.close();
+                try file.writeAll("residue\n");
+            }
+            const with_residue = (try stdTreeDigest(std.testing.allocator, "sa_std")).?;
+            try std.testing.expectEqualSlices(u8, digest[0..], with_residue[0..]);
+
+            // The built archive inside the tree is a product, not a
+            // source: its presence must not move the digest either.
+            {
+                var file = try tdir.createFile("sa_std/libsa_std.a", .{ .truncate = true });
+                defer file.close();
+                try file.writeAll("not a real archive\n");
+            }
+            const with_archive = (try stdTreeDigest(std.testing.allocator, "sa_std")).?;
+            try std.testing.expectEqualSlices(u8, digest[0..], with_archive[0..]);
+
+            {
+                var file = try tdir.createFile("sa_std/core/probe.sa", .{ .truncate = true });
+                defer file.close();
+                try file.writeAll("#def probe_value = 8\n");
+            }
+            const edited = (try stdTreeDigest(std.testing.allocator, "sa_std")).?;
+            try std.testing.expect(!std.mem.eql(u8, digest[0..], edited[0..]));
+
+            {
+                var file = try tdir.createFile("sa_std/core/probe.sa", .{ .truncate = true });
+                defer file.close();
+                try file.writeAll("#def probe_value = 7\n");
+            }
+            const reverted = (try stdTreeDigest(std.testing.allocator, "sa_std")).?;
+            try std.testing.expectEqualSlices(u8, digest[0..], reverted[0..]);
+        }
+    }
+    try std.testing.expectEqualSlices(u8, digests[0][0..], digests[1][0..]);
+}
+
+test "cache key paths are project-relative, never checkout-absolute" {
+    const allocator = std.testing.allocator;
+    const root = "/home/tester/checkout";
+    const inside = try cacheKeyNormalizedPath(allocator, root, "/home/tester/checkout/src/main.sa");
+    defer allocator.free(inside);
+    try std.testing.expectEqualStrings("src/main.sa", inside);
+    // A sibling whose path merely shares the root as a string prefix is
+    // not inside the project and must stay exact.
+    const sibling_prefix = try cacheKeyNormalizedPath(allocator, root, "/home/tester/checkout2/main.sa");
+    defer allocator.free(sibling_prefix);
+    try std.testing.expectEqualStrings("/home/tester/checkout2/main.sa", sibling_prefix);
+    const relative = try cacheKeyNormalizedPath(allocator, root, "src/main.sa");
+    defer allocator.free(relative);
+    try std.testing.expectEqualStrings("src/main.sa", relative);
+}
+
+test "cache key tree paths tag project and std roots" {
+    const allocator = std.testing.allocator;
+    const proj = try cacheKeyTreePath(allocator, "/p/work/src/a.sa", "/p/work", "/p/std");
+    defer allocator.free(proj);
+    try std.testing.expectEqualStrings("proj/src/a.sa", proj);
+    const std_file = try cacheKeyTreePath(allocator, "/p/std/core/c.sa", "/p/work", "/p/std");
+    defer allocator.free(std_file);
+    try std.testing.expectEqualStrings("std/core/c.sa", std_file);
+    const outside = try cacheKeyTreePath(allocator, "/q/other.sa", "/p/work", "/p/std");
+    defer allocator.free(outside);
+    try std.testing.expectEqualStrings("/q/other.sa", outside);
 }
 
 test "flatten error mapping keeps import resolution and unsupported type hints specific" {
