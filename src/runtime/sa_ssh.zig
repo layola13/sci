@@ -491,13 +491,11 @@ const Ssh = struct {
     auth_user: *const fn (?*anyopaque) callconv(.c) ?[*:0]const u8,
     auth_password: *const fn (?*anyopaque) callconv(.c) ?[*:0]const u8,
     auth_reply_success: *const fn (?*anyopaque, c_int) callconv(.c) c_int,
-    auth_publickey: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+    auth_pubkey: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
     auth_publickey_state: *const fn (?*anyopaque) callconv(.c) c_int,
     auth_reply_pk_ok_simple: *const fn (?*anyopaque) callconv(.c) c_int,
-    publickey_to_string: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
-    string_data: *const fn (?*anyopaque) callconv(.c) ?[*]u8,
-    string_len: *const fn (?*anyopaque) callconv(.c) usize,
-    string_free: *const fn (?*anyopaque) callconv(.c) void,
+    pki_export_pubkey_base64: *const fn (?*anyopaque, *?[*:0]u8) callconv(.c) c_int,
+    string_free_char: *const fn (?[*:0]u8) callconv(.c) void,
     channel_open_reply_accept: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
     channel_request_reply_success: *const fn (?*anyopaque) callconv(.c) c_int,
     channel_request_command: *const fn (?*anyopaque) callconv(.c) ?[*:0]const u8,
@@ -548,13 +546,11 @@ fn loadSshNative() ?*const Ssh {
         .auth_user = lib.lookup(*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8, "ssh_message_auth_user") orelse return null,
         .auth_password = lib.lookup(*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8, "ssh_message_auth_password") orelse return null,
         .auth_reply_success = lib.lookup(*const fn (?*anyopaque, c_int) callconv(.c) c_int, "ssh_message_auth_reply_success") orelse return null,
-        .auth_publickey = lib.lookup(*const fn (?*anyopaque) callconv(.c) ?*anyopaque, "ssh_message_auth_publickey") orelse return null,
+        .auth_pubkey = lib.lookup(*const fn (?*anyopaque) callconv(.c) ?*anyopaque, "ssh_message_auth_pubkey") orelse return null,
         .auth_publickey_state = lib.lookup(*const fn (?*anyopaque) callconv(.c) c_int, "ssh_message_auth_publickey_state") orelse return null,
         .auth_reply_pk_ok_simple = lib.lookup(*const fn (?*anyopaque) callconv(.c) c_int, "ssh_message_auth_reply_pk_ok_simple") orelse return null,
-        .publickey_to_string = lib.lookup(*const fn (?*anyopaque) callconv(.c) ?*anyopaque, "publickey_to_string") orelse return null,
-        .string_data = lib.lookup(*const fn (?*anyopaque) callconv(.c) ?[*]u8, "ssh_string_data") orelse return null,
-        .string_len = lib.lookup(*const fn (?*anyopaque) callconv(.c) usize, "ssh_string_len") orelse return null,
-        .string_free = lib.lookup(*const fn (?*anyopaque) callconv(.c) void, "ssh_string_free") orelse return null,
+        .pki_export_pubkey_base64 = lib.lookup(*const fn (?*anyopaque, *?[*:0]u8) callconv(.c) c_int, "ssh_pki_export_pubkey_base64") orelse return null,
+        .string_free_char = lib.lookup(*const fn (?[*:0]u8) callconv(.c) void, "ssh_string_free_char") orelse return null,
         .channel_open_reply_accept = lib.lookup(*const fn (?*anyopaque) callconv(.c) ?*anyopaque, "ssh_message_channel_request_open_reply_accept") orelse return null,
         .channel_request_reply_success = lib.lookup(*const fn (?*anyopaque) callconv(.c) c_int, "ssh_message_channel_request_reply_success") orelse return null,
         .channel_request_command = lib.lookup(*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8, "ssh_message_channel_request_command") orelse return null,
@@ -671,35 +667,33 @@ pub export fn sa_std_ssh_server_auth_next(session_handle: ?*anyopaque, out_kind:
             return OK;
         }
         if (method == 4) { // publickey
-            // ssh_message_auth_publickey returns the legacy
-            // ssh_public_key (message-owned; never freed here). The
-            // ssh_key exporters (ssh_pki_export_pubkey_base64) expect
-            // the newer ssh_key and segfault on it in libssh 0.10, so
-            // take the legacy publickey_to_string blob and base64 it.
-            const key = ss.api.auth_publickey(msg) orelse {
+            // ssh_message_auth_pubkey returns the message-owned
+            // ssh_key (never freed here); export its base64 blob
+            // directly. The legacy route (ssh_message_auth_publickey
+            // + publickey_to_string) cannot be used: on libssh 0.10
+            // publickey_to_string returns NULL for a key taken from
+            // an auth message, which silently default-rejected every
+            // real publickey offer (DEF-SSH-AUTHNEXT-PUBKEY). The
+            // export below was verified byte-identical to the blob
+            // in the client's .pub file.
+            const key = ss.api.auth_pubkey(msg) orelse {
                 _ = ss.api.message_reply_default(msg);
                 ss.api.message_free(msg);
                 continue;
             };
-            const blob = ss.api.publickey_to_string(key) orelse {
+            var b64: ?[*:0]u8 = null;
+            if (ss.api.pki_export_pubkey_base64(key, &b64) != 0 or b64 == null) {
                 _ = ss.api.message_reply_default(msg);
                 ss.api.message_free(msg);
                 continue;
-            };
-            defer ss.api.string_free(blob);
-            const blob_len = ss.api.string_len(blob);
-            const blob_data = ss.api.string_data(blob) orelse {
-                _ = ss.api.message_reply_default(msg);
-                ss.api.message_free(msg);
-                continue;
-            };
-            const raw = blob_data[0..blob_len];
+            }
+            defer ss.api.string_free_char(b64);
+            const blob = std.mem.span(b64.?);
             const user_buf = ALLOC.dupe(u8, std.mem.span(user)) catch return ERR_NOMEM;
-            const key_buf = ALLOC.alloc(u8, std.base64.standard.Encoder.calcSize(raw.len)) catch {
+            const key_buf = ALLOC.dupe(u8, blob) catch {
                 ALLOC.free(user_buf);
                 return ERR_NOMEM;
             };
-            _ = std.base64.standard.Encoder.encode(key_buf, raw);
             user_slot.* = registerBuffer(user_buf) catch return ERR_NOMEM;
             secret_slot.* = registerBuffer(key_buf) catch return ERR_NOMEM;
             kind_slot.* = 2;
@@ -1024,9 +1018,10 @@ const ServerOutcome = struct {
     command: [256]u8 = @splat(0),
     command_len: usize = 0,
     err: i32 = -999,
+    pk_states: u32 = 0,
 };
 
-fn runTestServer(bind_handle: ?*anyopaque, expect_password: bool, outcome: *ServerOutcome) void {
+fn runTestServer(bind_handle: ?*anyopaque, expect_password: bool, expected_key_b64: []const u8, outcome: *ServerOutcome) void {
     var session: ?*anyopaque = null;
     if (sa_std_ssh_server_accept(bind_handle, &session) != OK) {
         outcome.err = -1;
@@ -1056,10 +1051,31 @@ fn runTestServer(bind_handle: ?*anyopaque, expect_password: bool, outcome: *Serv
                 _ = sa_std_ssh_server_auth_deny(session);
             }
         } else {
-            // pubkey: accept query (pk_ok) and the signed attempt
+            // Pubkey mode verifies for real: only a kind-2 attempt
+            // carrying the expected key blob counts. A password
+            // attempt (kind 1) means the client fell back because the
+            // publickey path failed -- record it as an error instead
+            // of masking it as a successful auth. Error codes: -6
+            // unexpected kind, -7 wrong user, -8 wrong key blob.
+            if (kind != 2) {
+                outcome.err = -6;
+                _ = sa_std_ssh_server_auth_deny(session);
+                return;
+            }
+            if (!std.mem.eql(u8, user_text, "root")) {
+                outcome.err = -7;
+                _ = sa_std_ssh_server_auth_deny(session);
+                return;
+            }
+            if (!std.mem.eql(u8, bufferText(secret_h), expected_key_b64)) {
+                outcome.err = -8;
+                _ = sa_std_ssh_server_auth_deny(session);
+                return;
+            }
+            if (state == 0) outcome.pk_states |= 1;
+            if (state == 1) outcome.pk_states |= 2;
             _ = sa_std_ssh_server_auth_accept(session);
-            if (kind == 2 and state == 1) authed = true;
-            if (kind == 1) authed = true;
+            if (state == 1) authed = true;
         }
         _ = sa_std_ssh_buffer_free(user_h);
         _ = sa_std_ssh_buffer_free(secret_h);
@@ -1118,8 +1134,29 @@ test "ssh server vs system ssh client: pubkey auth + exec" {
     try testing.expectEqual(OK, sa_std_ssh_server_listen(addr.ptr, addr.len, port, hk.ptr, hk.len, &bind_handle));
     defer _ = sa_std_ssh_server_bind_close(bind_handle);
 
+    // Expected secret for a publickey attempt: the base64 key blob
+    // from userkey.pub (second whitespace-separated field).
+    var cut_buf: [1024]u8 = undefined;
+    const cut_cmd = try std.fmt.bufPrint(&cut_buf, "cut -d' ' -f2 {s}/userkey.pub", .{dir});
+    const kres = try sio.Child.run(.{
+        .allocator = testing.allocator,
+        .argv = &.{ "sh", "-c", cut_cmd },
+        .max_output_bytes = 4096,
+    });
+    defer testing.allocator.free(kres.stdout);
+    defer testing.allocator.free(kres.stderr);
+    switch (kres.term) {
+        .exited => |code| if (code != 0) return error.ShellFailed,
+        else => return error.ShellFailed,
+    }
+    var exp_buf: [512]u8 = undefined;
+    const blob = std.mem.trim(u8, kres.stdout, " \r\n");
+    if (blob.len > exp_buf.len) return error.KeyBlobTooLong;
+    @memcpy(exp_buf[0..blob.len], blob);
+    const expected_b64 = exp_buf[0..blob.len];
+
     var outcome = ServerOutcome{};
-    const thread = try std.Thread.spawn(.{}, runTestServer, .{ bind_handle, false, &outcome });
+    const thread = try std.Thread.spawn(.{}, runTestServer, .{ bind_handle, false, expected_b64, &outcome });
     defer thread.join();
 
     var ssh_buf: [2048]u8 = undefined;
@@ -1132,6 +1169,11 @@ test "ssh server vs system ssh client: pubkey auth + exec" {
     defer testing.allocator.free(result.stdout);
     defer testing.allocator.free(result.stderr);
     try testing.expectEqual(@as(i32, 0), outcome.err);
+    try testing.expectEqualStrings("root", outcome.auth_user[0..outcome.auth_user_len]);
+    // Both publickey states must have been seen: query (0) then
+    // signed (1); a run that only surfaces a password fallback can
+    // never set either bit.
+    try testing.expectEqual(@as(u32, 3), outcome.pk_states);
     try testing.expectEqualStrings("echo marker-cmd", outcome.command[0..outcome.command_len]);
     try testing.expectEqualStrings("pong:echo marker-cmd", result.stdout);
     switch (result.term) {
@@ -1158,7 +1200,7 @@ test "ssh client+server: password auth + exec round trip" {
     defer _ = sa_std_ssh_server_bind_close(bind_handle);
 
     var outcome = ServerOutcome{};
-    const thread = try std.Thread.spawn(.{}, runTestServer, .{ bind_handle, true, &outcome });
+    const thread = try std.Thread.spawn(.{}, runTestServer, .{ bind_handle, true, "", &outcome });
     defer thread.join();
 
     var session: ?*anyopaque = null;
