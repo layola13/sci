@@ -244,9 +244,14 @@ pub export fn sa_std_dtls_server_ctx_free(ctx_handle: u64) i32 {
     return SA_STD_OK;
 }
 
-// For a stateless DTLS-style datagram accept we set the UDP fd directly via
-// SSL_set_fd (OpenSSL's BIO_dgram path can also be used, but set_fd is the
-// simplest real handshake path for a bound UDP socket).
+// DEF-NET-V6-DTLS (D4): the accept must attach a datagram BIO
+// (BIO_new_dgram), never SSL_set_fd. SSL_set_fd binds BIO_s_socket, a
+// stream BIO whose send() on an unconnected UDP socket fails with
+// EDESTADDRREQ, so the handshake can never answer the peer and
+// SSL_accept reports an IO error. BIO_s_datagram learns the peer
+// address from the first received datagram and addresses replies to
+// it. The fd stays owned by the caller (BIO_NOCLOSE == 0), so
+// SSL_free does not close it.
 pub export fn sa_std_dtls_server_accept(ctx_handle: u64, fd: i32, out_ssl: ?*u64) i32 {
     const slot = out_ssl orelse return SA_STD_ERR_INVALID_ARGUMENT;
     slot.* = 0;
@@ -254,10 +259,11 @@ pub export fn sa_std_dtls_server_accept(ctx_handle: u64, fd: i32, out_ssl: ?*u64
     const api = loadDtlsApi() orelse return SA_STD_ERR_UNSUPPORTED;
     const ctx: *SslCtx = ptrFromU64(SslCtx, ctx_handle);
     const ssl = api.new(ctx) orelse return SA_STD_ERR_IO;
-    if (api.set_fd(ssl, fd) != 1) {
+    const bio = api.bio_new_dgram(fd, 0) orelse {
         api.free(ssl);
         return SA_STD_ERR_IO;
-    }
+    };
+    api.set_bio(ssl, bio, bio);
     const rc = api.accept(ssl);
     if (rc != 1) {
         _ = api.shutdown(ssl);

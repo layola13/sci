@@ -2921,6 +2921,128 @@ fn getSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32) !bool {
     }
 }
 
+// DEF-NET-V6-DTLS (D1): raw setsockopt that surfaces kernel refusals as
+// errors. std.posix.setsockopt maps EINVAL/BADF/NOTSOCK to `unreachable`,
+// which aborts the whole process for a legitimate refusal -- notably
+// IPV6_V6ONLY on an already-bound socket, which the kernel only accepts
+// before bind. Callers that can honour the option another way need the
+// errno, not a trap.
+fn lxSetSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled: bool) !void {
+    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
+    var value: i32 = if (enabled) 1 else 0;
+    if (comptime is_linux) {
+        _ = try lxCheck(std.os.linux.setsockopt(fd, level, optname, @as([*]const u8, @ptrCast(&value)), @as(SockLenT, @sizeOf(i32))));
+        return;
+    }
+    try libcErrRc(libc.setsockopt(fd, level, @as(c_int, @intCast(optname)), @as(*const anyopaque, @ptrCast(&value)), @as(libc_socklen_t, @sizeOf(i32))));
+}
+
+// IPV6_V6ONLY is a bind-time option: once a socket is bound the kernel
+// refuses to change it (EINVAL). Every socket behind a registry handle
+// is already bound, so honour a post-bind change by rebuilding the
+// socket with the option applied before bind and swapping the fd in
+// the registry resource. Queued datagrams / pending connections on the
+// old socket are dropped -- the unavoidable price of changing a
+// bind-time option after bind. On a bind failure the pre-change socket
+// shape is restored best-effort so a failed change does not silently
+// destroy a working handle.
+fn rebuildTcpListenerV6Only(listener: u64, enabled: bool) !void {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(listener) orelse return error.InvalidHandle;
+    const server = switch (resource.*) {
+        .tcp_listener => |value| value,
+        else => return error.InvalidHandle,
+    };
+    const orig_only_v6 = getSocketOptBool(server.fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY) catch false;
+    const flags = lxFcntl(server.fd, std.posix.F.GETFL, 0) catch 0;
+    const nb_mask = @as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK");
+    const new_fd = try lxSocket(AFT.INET6, SOCKT.STREAM | SOCKT.CLOEXEC, IPPROTOT.TCP);
+    lxSetSocketOptBool(new_fd, SOLT.SOCKET, SOT.REUSEADDR, true) catch |err| {
+        lxClose(new_fd);
+        return err;
+    };
+    lxSetSocketOptBool(new_fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY, enabled) catch |err| {
+        lxClose(new_fd);
+        return err;
+    };
+    if (flags & nb_mask != 0) {
+        _ = lxFcntl(new_fd, std.posix.F.SETFL, nb_mask) catch {};
+    }
+    lxClose(server.fd);
+    lxBind(new_fd, server.addr.sockAddr(), server.addr.getOsSockLen()) catch |err| {
+        lxClose(new_fd);
+        const fallback = lxSocket(AFT.INET6, SOCKT.STREAM | SOCKT.CLOEXEC, IPPROTOT.TCP) catch return err;
+        lxSetSocketOptBool(fallback, SOLT.SOCKET, SOT.REUSEADDR, true) catch {};
+        lxSetSocketOptBool(fallback, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY, orig_only_v6) catch {};
+        if (flags & nb_mask != 0) {
+            _ = lxFcntl(fallback, std.posix.F.SETFL, nb_mask) catch {};
+        }
+        lxBind(fallback, server.addr.sockAddr(), server.addr.getOsSockLen()) catch {
+            lxClose(fallback);
+            return err;
+        };
+        resource.* = .{ .tcp_listener = .{ .fd = fallback, .addr = server.addr } };
+        lxListen(fallback, 128) catch {};
+        return err;
+    };
+    resource.* = .{ .tcp_listener = .{ .fd = new_fd, .addr = server.addr } };
+    try lxListen(new_fd, 128);
+}
+
+fn rebuildUdpSocketV6Only(socket: u64, enabled: bool) !void {
+    while (!registry_mutex.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer registry_mutex.unlock();
+    const resource = getResourceLocked(socket) orelse return error.InvalidHandle;
+    const old_fd = switch (resource.*) {
+        .udp_socket => |value| value,
+        else => return error.InvalidHandle,
+    };
+    var addr = NetAddress{};
+    var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
+    try lxGetsockname(old_fd, addr.sockAddrMut(), &addr_len);
+    addr.len = addr_len;
+    const orig_only_v6 = getSocketOptBool(old_fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY) catch false;
+    const broadcast = getSocketOptBool(old_fd, SOLT.SOCKET, SOT.BROADCAST) catch false;
+    const rcv_timeout = getSocketOptTimeval(old_fd, SOLT.SOCKET, SOT.RCVTIMEO) catch 0;
+    const snd_timeout = getSocketOptTimeval(old_fd, SOLT.SOCKET, SOT.SNDTIMEO) catch 0;
+    const flags = lxFcntl(old_fd, std.posix.F.GETFL, 0) catch 0;
+    const nb_mask = @as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK");
+    const prep = struct {
+        fn apply(fd: std.posix.fd_t, only_v6: bool, bcast: bool, rcv_ns: u64, snd_ns: u64, nb: usize) !void {
+            try lxSetSocketOptBool(fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY, only_v6);
+            if (bcast) try lxSetSocketOptBool(fd, SOLT.SOCKET, SOT.BROADCAST, true);
+            if (rcv_ns != 0) try setSocketOptTimeval(fd, SOLT.SOCKET, SOT.RCVTIMEO, rcv_ns);
+            if (snd_ns != 0) try setSocketOptTimeval(fd, SOLT.SOCKET, SOT.SNDTIMEO, snd_ns);
+            if (nb != 0) {
+                _ = try lxFcntl(fd, std.posix.F.SETFL, nb);
+            }
+        }
+    };
+    const new_fd = try lxSocket(AFT.INET6, SOCKT.DGRAM | SOCKT.CLOEXEC, IPPROTOT.UDP);
+    prep.apply(new_fd, enabled, broadcast, rcv_timeout, snd_timeout, flags & nb_mask) catch |err| {
+        lxClose(new_fd);
+        return err;
+    };
+    lxClose(old_fd);
+    lxBind(new_fd, addr.sockAddr(), addr.getOsSockLen()) catch |err| {
+        lxClose(new_fd);
+        const fallback = lxSocket(AFT.INET6, SOCKT.DGRAM | SOCKT.CLOEXEC, IPPROTOT.UDP) catch return err;
+        prep.apply(fallback, orig_only_v6, broadcast, rcv_timeout, snd_timeout, flags & nb_mask) catch {};
+        lxBind(fallback, addr.sockAddr(), addr.getOsSockLen()) catch {
+            lxClose(fallback);
+            return err;
+        };
+        resource.* = .{ .udp_socket = fallback };
+        return err;
+    };
+    resource.* = .{ .udp_socket = new_fd };
+}
+
 const LinuxUCred = extern struct {
     pid: i32,
     uid: u32,
@@ -14565,7 +14687,12 @@ pub export fn sa_std_net_tcp_listener_set_only_v6(listener: u64, enabled: i32) i
     if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
     const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
     if (family != AFT.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptBool(handle.fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY, enabled != 0) catch |err| return finishErr(err);
+    lxSetSocketOptBool(handle.fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY, enabled != 0) catch |err| {
+        // A bound socket refuses IPV6_V6ONLY with EINVAL (bind-time
+        // option); rebuild the socket with the option applied pre-bind.
+        if (err != error.InvalidArgument) return finishErr(err);
+        rebuildTcpListenerV6Only(listener, enabled != 0) catch |err2| return finishErr(err2);
+    };
     return finish(SA_STD_OK);
 }
 
@@ -14935,7 +15062,12 @@ pub export fn sa_std_net_udp_set_only_v6(socket: u64, enabled: i32) i32 {
     if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
     const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
     if (family != AFT.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptBool(handle.fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY, enabled != 0) catch |err| return finishErr(err);
+    lxSetSocketOptBool(handle.fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY, enabled != 0) catch |err| {
+        // A bound socket refuses IPV6_V6ONLY with EINVAL (bind-time
+        // option); rebuild the socket with the option applied pre-bind.
+        if (err != error.InvalidArgument) return finishErr(err);
+        rebuildUdpSocketV6Only(socket, enabled != 0) catch |err2| return finishErr(err2);
+    };
     return finish(SA_STD_OK);
 }
 
