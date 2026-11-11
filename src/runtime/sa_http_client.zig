@@ -1569,6 +1569,20 @@ const WebSocketOpcode = enum(u8) {
     pong = 10,
 };
 
+// Single-short-read helper shared by the v1 and v2 websocket
+// rawRead paths (see the NOTE at each call site).
+fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
+    if (comptime builtin.cpu.arch.isWasm()) {
+        var iov = [_]std.os.wasi.iovec_t{.{ .base = buf.ptr, .len = buf.len }};
+        var n: usize = 0;
+        const err = std.os.wasi.fd_read(fd, &iov, iov.len, &n);
+        if (err != .SUCCESS) return error.Io;
+        return n;
+    } else {
+        return std.posix.read(fd, buf);
+    }
+}
+
 const WebSocketHandle = struct {
     allocator: std.mem.Allocator,
     stream: ?std.Io.net.Stream = null,
@@ -1596,7 +1610,14 @@ const WebSocketHandle = struct {
         if (self.tls_client) |t| {
             return try t.reader.readSliceShort(buffer);
         }
-        return try self.frame_reader.interface.readSliceShort(buffer);
+        // NOTE(Zig 0.17): Stream.Reader is unusable with the Threaded
+        // backend (same reason as WebSocketV2.rawRead and sci sa_ws_client
+        // tcpRead); read the blocking socket fd directly with a single
+        // short-read shape. A Reader.readSliceShort loops until the buffer
+        // is full or EOF, so the 101 head-read loop blocked until the peer
+        // timed out (D5); a single posix read returns the bytes on hand.
+        const stream = self.stream orelse return error.EndOfStream;
+        return posixRead(stream.socket.handle, buffer);
     }
 
     fn rawWrite(self: *WebSocketHandle, bytes: []const u8) !void {
@@ -3610,19 +3631,6 @@ const WebSocketV2 = struct {
     close_sent: bool = false,
     closed: bool = false,
     io_mutex: std.atomic.Mutex = .unlocked,
-
-fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
-    if (comptime builtin.cpu.arch.isWasm()) {
-        var iov = [_]std.os.wasi.iovec_t{.{ .base = buf.ptr, .len = buf.len }};
-        var n: usize = 0;
-        const err = std.os.wasi.fd_read(fd, &iov, iov.len, &n);
-        if (err != .SUCCESS) return error.Io;
-        return n;
-    } else {
-        return std.posix.read(fd, buf);
-    }
-}
-
 
     fn rawRead(self: *WebSocketV2, buffer: []u8) V2Error!usize {
         if (self.tls_client) |t| {

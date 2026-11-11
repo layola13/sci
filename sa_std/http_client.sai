@@ -56,6 +56,7 @@
 @extern sa_http_fetch_bytes(&url: ptr, url_len: u64, &buf: ptr, cap: u64, &out_len: ptr) -> i32
 
 // Legacy blocking WebSocket ABI. New code should use the v2 surface below.
+// WebSocket control frames (v1 and v2 reads): ping is answered with pong automatically; pong frames are ignored and never delivered; read delivers opcodes 1 (text), 2 (binary), 8 (close).
 @extern sa_http_client_websocket_connect(client: ptr, &url: ptr, url_len: u64, &out_ws: ptr) -> u32
 @extern sa_http_websocket_read(ws: ptr, max_len: u64, &out_opcode: ptr, &out_ptr: ptr, &out_len: ptr) -> u32
 @extern sa_http_websocket_write(ws: ptr, opcode: u8, &data: ptr, data_len: u64) -> u32

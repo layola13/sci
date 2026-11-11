@@ -18,6 +18,7 @@
 @extern sa_http_server_resp_free(resp: ptr) -> u32
 @extern sa_http_server_req_free(req: ptr) -> u32
 @extern sa_http_server_free(server: ptr) -> u32
+// WebSocket control frames (v1 and v2 reads): ping is answered with pong automatically; pong frames are ignored and never delivered; read delivers opcodes 1 (text), 2 (binary), 8 (close).
 @extern sa_http_server_websocket_upgrade(req: ptr, &out_ws: ptr) -> u32
 @extern sa_http_server_websocket_read(ws: ptr, max_len: u64, &out_opcode: ptr, &out_data: ptr, &out_len: ptr) -> u32
 @extern sa_http_server_websocket_write(ws: ptr, opcode: u8, &data: ptr, data_len: u64) -> u32

@@ -2519,6 +2519,12 @@ pub export fn sa_http_server_websocket_upgrade(req: ?*anyopaque, out_ws: ?*?*any
     const connection = findHeader(request, "connection") orelse return @intFromEnum(AbiStatus.failed);
     if (!headerContainsToken(connection, "upgrade")) return @intFromEnum(AbiStatus.failed);
     const key = findHeader(request, "sec-websocket-key") orelse return @intFromEnum(AbiStatus.failed);
+    // DEF-WS-CLUSTER VERSION-TEXT: v1 upgrade accepted any
+    // Sec-WebSocket-Version (e.g. 99); v2 upgrade already requires "13".
+    // RFC 6455 4.1: the server MUST fail the handshake when the version
+    // is not 13. Check here so v1 matches v2 on both backends.
+    const version = findHeader(request, "sec-websocket-version") orelse return @intFromEnum(AbiStatus.failed);
+    if (!std.mem.eql(u8, version, "13")) return @intFromEnum(AbiStatus.failed);
 
     var accept_buf: [28]u8 = undefined;
     const accept = ws_net.websocketAccept(key, &accept_buf) catch return @intFromEnum(AbiStatus.failed);
