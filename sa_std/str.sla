@@ -4,10 +4,35 @@
 @import "sa_std/core/slice.sa"
 
 fn str_from_utf8(bytes: Slice<u8>) -> Result<String, i32> {
-    let ok: bool = STR_IS_UTF8(bytes);
+    // The input slice follows the std byte-slice convention: its
+    // elements are addressed individually (SLICE_GET), the same
+    // reads dns.sla and net_info.sla use. A Vec-backed slice's raw
+    // buffer is word-slot strided (sa_std/vec_packed.sla contract),
+    // so neither the packed extern behind STR_IS_UTF8 nor the raw
+    // mem_copy inside STRING_BUF_FROM_UTF8_UNCHECKED may see that
+    // buffer directly. The previous body handed it to both: valid
+    // multi-byte text was rejected, ASCII-led invalid text was
+    // accepted, and the returned String carried the slots' padding
+    // bytes (DEF-STR-UTF8-VALIDATE). Build the packed text
+    // element-wise (the net_info.sla collect idiom, which also
+    // avoids the STRING_BUF representation split registered there),
+    // then validate the packed image.
+    let text: String = format("");
+    let n: u64 = 0;
+    SLICE_GET_LEN(n, bytes);
+    let i: u64 = 0;
+    while i < n {
+        let b: u8 = 0;
+        SLICE_GET(b, bytes, i);
+        let one: [u8; 1] = [b];
+        let piece: String = one.iter().collect<String>();
+        text = format("{}{}", text, piece);
+        i = i + 1;
+    }
+    let tb = text.as_bytes();
+    let ok: bool = STR_IS_UTF8(tb);
     if ok != true {
         return Err(1);
     };
-    let text: String = STRING_BUF_FROM_UTF8_UNCHECKED(bytes);
     return Ok(text);
 }
