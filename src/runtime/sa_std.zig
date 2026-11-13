@@ -17168,7 +17168,10 @@ pub export fn sa_std_net_tcp_accept(listener_handle: u64, out_handle: ?*u64) i32
     while (!registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
-    const resource = getResourceLocked(listener_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
+    const resource = getResourceLocked(listener_handle) orelse {
+        registry_mutex.unlock();
+        return finish(SA_STD_ERR_INVALID_HANDLE);
+    };
     const listener = switch (resource.*) {
         .tcp_listener => |server| server,
         else => {

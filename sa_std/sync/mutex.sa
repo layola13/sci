@@ -39,6 +39,7 @@ L_MUTEX_LOCK_KEEP_BACKOFF:
 L_MUTEX_LOCK_DONE:
     !free
     !prev
+    !lock
     return
 
 [MACRO] MUTEX_NEW %out_mutex
