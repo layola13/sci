@@ -2130,6 +2130,13 @@ L_STR_EQ_SAME:
     !a
     return 1
 
+// Tombstone slots (state == HashMap_STATE_TOMB) are stepped over
+// without any key dereference. The SLA frontend remove transition
+// zeroes the slot key but leaves the removed key's content hash in
+// the slot, so a probe for that same key would otherwise hash-match
+// the tombstone and dereference its null key handle in
+// @map_str_key_eq (DEF-TOMBSTONE: get/contains_key on a removed key
+// with a fresh probe key segfaulted on both backends).
 @map_table_probe_str(&slots: ptr, cap: u64, hash: u64, &key: ptr, &out_index: ptr, &out_found: ptr) -> void:
 L_ENTRY:
     index_slot = stack_alloc 8
@@ -2163,9 +2170,29 @@ L_PROBE_STR_BODY:
     br is_empty -> L_PROBE_STR_EMPTY, L_PROBE_STR_NONEMPTY
 
 L_PROBE_STR_NONEMPTY:
+    is_tomb = eq state, HashMap_STATE_TOMB
+    br is_tomb -> L_PROBE_STR_STEP_TOMB, L_PROBE_STR_HASH
+
+L_PROBE_STR_HASH:
+    !is_tomb
     slot_hash = load slot+HashMapSlot_hash as u64
     hash_match = eq slot_hash, hash
     br hash_match -> L_PROBE_STR_KEY_CHECK, L_PROBE_STR_STEP
+
+L_PROBE_STR_STEP_TOMB:
+    next_index = add index, 1
+    wrapped = eq next_index, cap
+    next_remaining = sub remaining, 1
+    store remaining_slot+0, next_remaining as u64
+    !next_remaining
+    !is_tomb
+    !is_empty
+    !state
+    !slot
+    !slot_off
+    !index
+    !remaining
+    br wrapped -> L_PROBE_STR_WRAP, L_PROBE_STR_CONT
 
 L_PROBE_STR_STEP:
     next_index = add index, 1
