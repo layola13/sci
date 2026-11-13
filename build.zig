@@ -442,7 +442,64 @@ pub fn build(b: *std.Build) void {
         }
         asm_growvec.addArgs(&.{ "--no-incremental", "--target", triple, "-o" });
         const growvec_obj = asm_growvec.addOutputFileArg("sa_growvec_unit.o");
-        sa_std_static.root_module.addObjectFile(growvec_obj);
+        // The assembled unit's import closure (core/mem.sa, core/slice.sa,
+        // num.sa) contributes its own @export definitions, which the
+        // assembler emits as strong globals of the unit object
+        // (sa_mem_copy / sa_mem_set / sa_mem_copy_nonoverlapping).
+        // Text-backend clients include the same .sa sources textually and
+        // therefore define those symbols in their own TU; when such a
+        // client also pulls this member (for the GrowVec surface), lld
+        // reports duplicate symbols and the link fails.  Localize every
+        // global the unit's .sai does not declare, so the member exports
+        // exactly the surface the design note above promises: clients
+        // that already define the closure symbols never collide, and
+        // clients with unresolved GrowVec symbols pull exactly this
+        // member.  The keep list is read mechanically from growvec.sai,
+        // the same declaration file that defines the surface.
+        const growvec_sai_rel = "sa_std/growvec.sai";
+        const growvec_sai_abs = pathFromRoot(b, growvec_sai_rel);
+        const growvec_sai_raw = std.Io.Dir.readFileAlloc(.cwd(), b.graph.io, growvec_sai_abs, b.allocator, .limited(1024 * 1024)) catch |err|
+            std.debug.panic("failed to read {s}: {s}", .{ growvec_sai_rel, @errorName(err) });
+        var keeps_buf: std.ArrayList(u8) = .empty;
+        {
+            var lines = std.mem.splitScalar(u8, growvec_sai_raw, '\n');
+            while (lines.next()) |line| {
+                const t = std.mem.trim(u8, line, " \t\r");
+                if (!std.mem.startsWith(u8, t, "@extern ")) continue;
+                const rest = t["@extern ".len..];
+                const end = std.mem.indexOfAny(u8, rest, "( \t") orelse rest.len;
+                if (end == 0) continue;
+                keeps_buf.appendSlice(b.allocator, rest[0..end]) catch @panic("OOM");
+                keeps_buf.append(b.allocator, '\n') catch @panic("OOM");
+            }
+        }
+        if (keeps_buf.items.len == 0) std.debug.panic("no @extern declarations parsed from {s}", .{growvec_sai_rel});
+        const keeps_wf = b.addWriteFiles();
+        const keeps_file = keeps_wf.add("growvec_keeps.txt", keeps_buf.items);
+        const is_wasm_unit = target.result.cpu.arch == .wasm32;
+        // GNU objcopy cannot process wasm objects; LLVM objcopy can.
+        // A wasm unit built without llvm-objcopy keeps the raw object
+        // (the pre-fix behaviour for that target) and says so in the
+        // build output; native units require an objcopy -- a build
+        // that silently shipped the unlocalized member would recreate
+        // the duplicate-symbol defect, so absence is a loud failure.
+        const objcopy_prog: ?[]const u8 = if (is_wasm_unit)
+            b.findProgram(.{ .names = &.{"llvm-objcopy"} })
+        else
+            b.findProgram(.{ .names = &.{ "llvm-objcopy", "objcopy" } });
+        if (objcopy_prog) |prog| {
+            const localize = b.addSystemCommand(&.{prog});
+            localize.addArg("--keep-global-symbols");
+            localize.addFileArg(keeps_file);
+            localize.addFileArg(growvec_obj);
+            const localized_obj = localize.addOutputFileArg("sa_growvec_unit.o");
+            sa_std_static.root_module.addObjectFile(localized_obj);
+        } else if (is_wasm_unit) {
+            std.debug.print("sa-std-static: llvm-objcopy not found; wasm GrowVec unit archived unlocalized (non-surface globals retained)\n", .{});
+            sa_std_static.root_module.addObjectFile(growvec_obj);
+        } else {
+            std.debug.panic("sa-std-static: an objcopy (llvm-objcopy or objcopy) is required to localize the GrowVec archive unit", .{});
+        }
     }
     if (enable_llvm) installLlvmCDll(b, llvm_lib_dir, target.result.os.tag);
 
