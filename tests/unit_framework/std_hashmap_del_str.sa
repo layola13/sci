@@ -1,0 +1,158 @@
+@import "sa_std/collections/hashmap.sa"
+@import "sa_std/vec.sa"
+
+// DEF-REG12-BRIDGE-KEY (sci side): the _str delete family added to
+// sa_std/hashmap.sa — @sa_map_del_str + @sa_map_remove_entry_str and
+// the MAP_DEL_STR / MAP_REMOVE_ENTRY_STR macros. String keys are
+// Vec-shaped handles (24 bytes: ptr +0, cap +8, len +16, per
+// sa_std/alloc/vec.sal) and are content-keyed: a fresh equal-content
+// handle (a different stack slot) must hit the entry the original
+// handle inserted. Values are caller-owned pointers (stack cells
+// here so the test frame owns them throughout).
+// DEF-BRIDGE-DELSTR: the handles below are built at the full 24-byte
+// Vec layout. A 16-byte {ptr, len} handle leaves Vec_len (+16)
+// outside the allocation; the hash/eq readers then take the length
+// from adjacent stack and walk off the key bytes (signal 11, frame
+// layout permitting).
+
+@const DS_KEY = utf8:"alpha"
+@const DS_KEY_B = utf8:"bravo"
+
+@test "sa_map_del_str content key"():
+L_ENTRY:
+    EXPAND MAP_NEW map
+    cell_a = stack_alloc 8
+    store cell_a+0, 111 as u64
+    cell_b = stack_alloc 8
+    store cell_b+0, 222 as u64
+    bytes_a = &DS_KEY
+    key = stack_alloc 24
+    store key+0, bytes_a as u64
+    store key+8, 5 as u64
+    store key+16, 5 as u64
+    EXPAND MAP_INSERT_STR rep_a, old_a, map, key, cell_a
+    bytes_b = &DS_KEY_B
+    key_b = stack_alloc 24
+    store key_b+0, bytes_b as u64
+    store key_b+8, 5 as u64
+    store key_b+16, 5 as u64
+    EXPAND MAP_INSERT_STR rep_b, old_b, map, key_b, cell_b
+    EXPAND MAP_LEN len2, map
+    ok_len = eq len2, 2
+    probe = stack_alloc 24
+    store probe+0, bytes_a as u64
+    store probe+8, 5 as u64
+    store probe+16, 5 as u64
+    EXPAND MAP_DEL_STR old, map, probe
+    ok_old = eq old, cell_a
+    EXPAND MAP_LEN len1, map
+    ok_len1 = eq len1, 1
+    has_b = call @sa_map_contains_key_str(&map, &key_b)
+    ok_b = eq has_b, 1
+    probe2 = stack_alloc 24
+    store probe2+0, bytes_a as u64
+    store probe2+8, 5 as u64
+    store probe2+16, 5 as u64
+    EXPAND MAP_DEL_STR miss, map, probe2
+    ok_miss = eq miss, 0
+    ok1 = and ok_len, ok_old
+    ok2 = and ok1, ok_len1
+    ok3 = and ok2, ok_b
+    ok = and ok3, ok_miss
+    !bytes_b
+    !bytes_a
+    !miss
+    !has_b
+    !len1
+    !old
+    !len2
+    !old_b
+    !rep_b
+    !old_a
+    !rep_a
+    !ok_len
+    !ok_old
+    !ok_len1
+    !ok_b
+    !ok_miss
+    !ok1
+    !ok2
+    !ok3
+    EXPAND MAP_FREE map
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(7720)
+
+L_OK:
+    !ok
+    return
+
+@test "sa_map_remove_entry_str content key"():
+L_ENTRY:
+    EXPAND MAP_NEW map
+    cell = stack_alloc 8
+    store cell+0, 333 as u64
+    bytes_a = &DS_KEY
+    key = stack_alloc 24
+    store key+0, bytes_a as u64
+    store key+8, 5 as u64
+    store key+16, 5 as u64
+    EXPAND MAP_INSERT_STR rep, oldv, map, key, cell
+    probe = stack_alloc 24
+    store probe+0, bytes_a as u64
+    store probe+8, 5 as u64
+    store probe+16, 5 as u64
+    EXPAND MAP_REMOVE_ENTRY_STR rok, rkey, rvalue, map, probe
+    ok_flag = eq rok, 1
+    ok_val = eq rvalue, cell
+    stored_first = load rkey+0 as u64
+    ok_key = ne stored_first, 0
+    EXPAND MAP_LEN len0, map
+    ok_len = eq len0, 0
+    bytes_b = &DS_KEY_B
+    probe2 = stack_alloc 24
+    store probe2+0, bytes_b as u64
+    store probe2+8, 5 as u64
+    store probe2+16, 5 as u64
+    EXPAND MAP_REMOVE_ENTRY_STR rok2, rkey2, rvalue2, map, probe2
+    ok_flag2 = eq rok2, 0
+    ok_val2 = eq rvalue2, 0
+    ok1 = and ok_flag, ok_val
+    ok2 = and ok1, ok_key
+    ok3 = and ok2, ok_len
+    ok4 = and ok3, ok_flag2
+    ok = and ok4, ok_val2
+    !bytes_b
+    !bytes_a
+    !rvalue2
+    !rkey2
+    !rok2
+    !len0
+    !stored_first
+    !rvalue
+    !rkey
+    !rok
+    !oldv
+    !rep
+    !ok_flag
+    !ok_val
+    !ok_key
+    !ok_len
+    !ok_flag2
+    !ok_val2
+    !ok1
+    !ok2
+    !ok3
+    !ok4
+    EXPAND MAP_FREE map
+    br ok -> L_OK, L_FAIL
+
+L_FAIL:
+    !ok
+    panic(7721)
+
+L_OK:
+    !ok
+    return

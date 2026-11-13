@@ -2594,6 +2594,115 @@ L_ENTRY:
     !map
     return replaced
 
+@export sa_map_del_str(&map: ptr, &key: ptr) -> &ptr:
+L_ENTRY:
+    slots = load map+HashMap_slots as ptr
+    cap = load map+HashMap_cap as u64
+    len = load map+HashMap_len as u64
+    tombs = load map+HashMap_tombs as u64
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_DEL_STR_MISS_ZERO, L_DEL_STR_PROBE
+
+L_DEL_STR_PROBE:
+    seed = load map+HashMap_seed as u64
+    hash = call @map_hash_str_seed(&key, seed)
+    probe_index_slot = stack_alloc 8
+    probe_found_slot = stack_alloc 8
+    call @map_table_probe_str(&slots, cap, hash, &key, &probe_index_slot, &probe_found_slot)
+    probe_found = load probe_found_slot+0 as u64
+    found = ne probe_found, 0
+    br found -> L_DEL_STR_HIT, L_DEL_STR_MISS_PROBE
+
+L_DEL_STR_HIT:
+    probe_index = load probe_index_slot+0 as u64
+    slot_off = mul probe_index, HashMapSlot_SIZE
+    slot = ptr_add slots, slot_off
+    value = load slot+HashMapSlot_value as ptr
+    next_len = sub len, 1
+    next_tombs = add tombs, 1
+    store map+HashMap_len, next_len as u64
+    store map+HashMap_tombs, next_tombs as u64
+    store slot+HashMapSlot_hash, 0 as u64
+    store slot+HashMapSlot_key, 0 as ptr
+    store slot+HashMapSlot_value, 0 as ptr
+    store slot+HashMapSlot_state, HashMap_STATE_TOMB as u8
+    !slot
+    !slot_off
+    !probe_index
+    !probe_found
+    !hash
+    !seed
+    !cap
+    !len
+    !tombs
+    !next_len
+    !next_tombs
+    !cap_is_zero
+    !key
+    !slots
+    !map
+    return value
+
+L_DEL_STR_MISS_PROBE:
+    !probe_found
+    !hash
+    !seed
+    !key
+    !cap
+    !len
+    !tombs
+    !cap_is_zero
+    !slots
+    !map
+    return 0
+
+L_DEL_STR_MISS_ZERO:
+    !cap
+    !len
+    !tombs
+    !cap_is_zero
+    !key
+    !slots
+    !map
+    return 0
+
+@export sa_map_remove_entry_str(&map: ptr, &key: ptr, &out_key_slot: ptr, &out_value_slot: ptr) -> i32:
+L_ENTRY:
+    slot_slot = stack_alloc 8
+    found = call @map_probe_existing_str(&map, &key, &slot_slot)
+    found_nonzero = ne found, 0
+    br found_nonzero -> L_REMOVE_ENTRY_STR_HIT, L_REMOVE_ENTRY_STR_MISS
+
+L_REMOVE_ENTRY_STR_HIT:
+    slot = load slot_slot+0 as ptr
+    stored_key = load slot+HashMapSlot_key as ptr
+    stored_value = load slot+HashMapSlot_value as ptr
+    store out_key_slot+0, stored_key as ptr
+    store out_value_slot+0, stored_value as ptr
+    removed = call @sa_map_del_str(&map, &key)
+    !removed
+    !stored_value
+    !stored_key
+    !slot
+    !found_nonzero
+    !found
+    !out_value_slot
+    !out_key_slot
+    !key
+    !map
+    return 1
+
+L_REMOVE_ENTRY_STR_MISS:
+    store out_key_slot+0, 0 as ptr
+    store out_value_slot+0, 0 as ptr
+    !found_nonzero
+    !found
+    !out_value_slot
+    !out_key_slot
+    !key
+    !map
+    return 0
+
 [MACRO] MAP_TRY_GET_STR %out_found, %out_value, %map_reg, %key_reg
     __map_try_get_str_slot_%out_found = stack_alloc 8
     %out_found = call @sa_map_try_get_str(&%map_reg, &%key_reg, &__map_try_get_str_slot_%out_found)
@@ -2608,4 +2717,16 @@ L_ENTRY:
     __map_insert_str_old_%out_replaced = stack_alloc 8
     %out_replaced = call @sa_map_insert_str(&%map_reg, &%key_reg, &%value_reg, &__map_insert_str_old_%out_replaced)
     %out_old_value = load __map_insert_str_old_%out_replaced+0 as ptr
+[END_MACRO]
+
+[MACRO] MAP_DEL_STR %out_value, %map_reg, %key_reg
+    %out_value = call @sa_map_del_str(&%map_reg, &%key_reg)
+[END_MACRO]
+
+[MACRO] MAP_REMOVE_ENTRY_STR %out_ok, %out_key, %out_value, %map_reg, %key_reg
+    __map_remove_str_key_slot_%out_ok = stack_alloc 8
+    __map_remove_str_value_slot_%out_ok = stack_alloc 8
+    %out_ok = call @sa_map_remove_entry_str(&%map_reg, &%key_reg, &__map_remove_str_key_slot_%out_ok, &__map_remove_str_value_slot_%out_ok)
+    %out_key = load __map_remove_str_key_slot_%out_ok+0 as ptr
+    %out_value = load __map_remove_str_value_slot_%out_ok+0 as ptr
 [END_MACRO]
