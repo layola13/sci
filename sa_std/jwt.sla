@@ -430,6 +430,14 @@ fn jwt_split(token: Vec<u8>, alg: ptr, alg_len: u64) -> JwtParts {
     let alg_p: ptr = STR_PTR("");
     let alg_l: u64 = 0;
     let gst: i32 = sa_json_object_get_string(doc, STR_PTR("alg"), STR_LEN("alg"), &alg_p, &alg_l);
+    // sa_json_object_get_string returns a raw (ptr, len) range INTO
+    // the parsed document's storage, which sa_json_free releases.
+    // Copy the alg bytes out BEFORE freeing the document; reading
+    // them afterwards is use-after-free (DEF-JWT-SPLIT-SEGV).
+    let got: Vec<u8> = Vec::new();
+    if gst == SA_STD_OK {
+        got = jwt_vec_from_ptr(alg_p, alg_l);
+    };
     let _ = sa_json_free(doc);
     if gst != SA_STD_OK {
         return jwt_parts_fail(SA_JWT_ERR_FORMAT);
@@ -438,7 +446,6 @@ fn jwt_split(token: Vec<u8>, alg: ptr, alg_len: u64) -> JwtParts {
         return jwt_parts_fail(SA_JWT_ERR_ALG);
     };
     let want: Vec<u8> = jwt_vec_from_ptr(alg, alg_len);
-    let got: Vec<u8> = jwt_vec_from_ptr(alg_p, alg_l);
     let wsl: Slice<u8> = VEC_AS_SLICE(want);
     let gsl: Slice<u8> = VEC_AS_SLICE(got);
     let k: u64 = 0;
