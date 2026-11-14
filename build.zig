@@ -1143,6 +1143,14 @@ pub fn build(b: *std.Build) void {
     });
     sa_net_uring_module.addImport("sio", sio_module);
     sa_net_uring_module.addOptions("build_options", build_options);
+    sa_net_uring_module.addImport("sa_net_primitives", sa_net_primitives_module);
+    sa_net_uring_module.addImport("sa_ws_stream", sa_ws_stream_module);
+    if (target.result.os.tag == .linux) {
+        // Unicode normalization (ICU) for sa_unicode_normalize, reached
+        // through the sa_std.zig graph (same wiring as sa_std_unit_module).
+        sa_net_uring_module.linkSystemLibrary("icuuc", .{});
+        sa_net_uring_module.linkSystemLibrary("icudata", .{});
+    }
     // NOTE: imports sa_std.zig (swizzle/pthread C shims); link them here too.
     addHostThreadShimToModule(b, sa_net_uring_module, target.result.os.tag);
     addB64SwizzleToModule(b, sa_net_uring_module);
@@ -1211,6 +1219,7 @@ pub fn build(b: *std.Build) void {
     });
     sa_ws_client_module.addImport("sio", sio_module);
     sa_ws_client_module.addOptions("build_options", build_options);
+    sa_ws_client_module.addImport("sa_net_primitives", sa_net_primitives_module);
     const sa_ws_client_tests = b.addTest(.{
         .root_module = sa_ws_client_module,
     });
