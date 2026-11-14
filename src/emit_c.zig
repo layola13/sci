@@ -1105,6 +1105,10 @@ const HelperDef = struct {
 };
 
 const kRuntimeHelpers: []const HelperDef = &.{
+    .{ .name = "sa_install_sigpipe_ignore", .code =
+    \\#include <signal.h>
+    \\static void sa_install_sigpipe_ignore(void) { static int done = 0; if (done) return; done = 1; signal(SIGPIPE, SIG_IGN); }
+    , .deps = &.{} },
     .{ .name = "sa_panic", .code =
     \\static __attribute__((noreturn)) void sa_panic(sa_u64 code) { char b[24]; int n = 0; sa_u64 v = code; char t[24]; int m = 0; if (v == 0) t[m++] = '0'; while (v > 0) { t[m++] = (char)('0' + (v % 10)); v /= 10; } fputs("[sa-panic] code=", stderr); while (m > 0) b[n++] = t[--m]; fwrite(b, 1, (size_t)n, stderr); fputc('\n', stderr); exit(1); }
     , .deps = &.{} },
@@ -10188,6 +10192,15 @@ pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_pat
         defer bu.deinit();
         var bit = bu.iterator();
         while (bit.next()) |e| try used.put(e.key_ptr.*, {});
+    }
+    if (!need_stdlink) {
+        // The generated main unconditionally calls
+        // sa_install_sigpipe_ignore (the startup anchor that pulls
+        // the runtime archive into stdlink programs). A standalone
+        // (non-stdlink) C file has no archive to pull from, so the
+        // catalog definition above is emitted instead; stdlink
+        // programs keep resolving the symbol from libsa_std.a.
+        try used.put("sa_install_sigpipe_ignore", {});
     }
     if (need_stdlink) {
         // The sa_glue_* adapters emitted by the preamble call
