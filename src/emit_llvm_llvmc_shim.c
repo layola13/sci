@@ -1687,6 +1687,14 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 LLVMValueRef store_ptr = LLVMBuildPointerCast(e->builder, store_gep, LLVMPointerType(store_ty, 0), "store_ptr");
                 LLVMValueRef store_inst = LLVMBuildStore(e->builder, v2, store_ptr);
                 LLVMSetAlignment(store_inst, align_of(in->ty));
+                /* Provenance gate (mirrors emit_c/emit_js): a stored
+                 * value escapes into memory — ownership moves to the
+                 * container, so a later release of the source register
+                 * must not free it. Without this, release frees live
+                 * buffers whose pointers passed through a store
+                 * (linked_list push_back stores its node into the list
+                 * header, then its own !node freed the live node). */
+                if (in->operand2.kind == SA_OPER_REG && in->operand2.reg < reg_count) regs[in->operand2.reg].is_malloc = 0;
                 break;
             case SA_OP_ATOMIC_LOAD:
                 if (operand_addressable_value(e, &in->operand0, regs, reg_count, &v0, &t0) || operand_value(e, &in->operand1, regs, reg_count, &v1, &t1)) { free(regs); free(labels); return 1; }
@@ -1708,6 +1716,9 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 LLVMValueRef atomic_store_inst = LLVMBuildStore(e->builder, v2, atomic_store_ptr);
                 LLVMSetOrdering(atomic_store_inst, atomic_ordering(in->atomic_ordering));
                 LLVMSetAlignment(atomic_store_inst, align_of(in->ty));
+                /* Stored value escapes (see SA_OP_STORE): kill the
+                 * source register's owned-base provenance. */
+                if (in->operand2.kind == SA_OPER_REG && in->operand2.reg < reg_count) regs[in->operand2.reg].is_malloc = 0;
                 break;
             case SA_OP_ATOMIC_RMW:
                 if (operand_addressable_value(e, &in->operand0, regs, reg_count, &v0, &t0) || operand_value(e, &in->operand1, regs, reg_count, &v1, &t1) || operand_value(e, &in->operand2, regs, reg_count, &v2, &t2)) { free(regs); free(labels); return 1; }

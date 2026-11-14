@@ -946,6 +946,7 @@ test "native unit framework covers sa_std macro surface suites" {
         "tests/unit_framework/std_linked_list_clone_eq_macro_surface.sa",
         "tests/unit_framework/std_linked_list_clear_is_empty_macro_surface.sa",
         "tests/unit_framework/std_linked_list_default_macro_surface.sa",
+        "tests/unit_framework/std_release_store_escape_macro_surface.sa",
         "tests/unit_framework/std_rwlock_macro_surface.sa",
         "tests/unit_framework/std_rwlock_lock_spin_macro_surface.sa",
         "tests/unit_framework/std_sync_checked_behavior.sa",

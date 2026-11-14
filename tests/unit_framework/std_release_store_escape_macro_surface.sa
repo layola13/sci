@@ -1,0 +1,120 @@
+@import "sa_std/collections/linked_list.sa"
+@import "sa_std/vec.sa"
+
+// Regression (DEF-LINKEDLIST): a pointer stored into memory escapes —
+// ownership moves to the container. Releasing the source register
+// afterwards must NOT free the stored allocation. The LLVM native
+// emitter used to free it anyway (its release path ignored store
+// escapes), so linked_list push_back freed the node it had just linked
+// and every later walk read allocator metadata / segfaulted. The C and
+// JS emitters already gate this ("stored values escape (killed)").
+
+@release_escape_push(&box: ptr, value: u64) -> void:
+L_ENTRY:
+    old_tail = load box+8 as ptr
+    node = alloc 24
+    store node+0, old_tail as ptr
+    store node+8, 0 as u64
+    store node+16, value as u64
+    has_tail = ne old_tail, 0
+    br has_tail -> L_LINK, L_HEAD
+L_LINK:
+    !has_tail
+    store old_tail+8, node as ptr
+    jmp L_TAIL
+L_HEAD:
+    !has_tail
+    store box+0, node as ptr
+    jmp L_TAIL
+L_TAIL:
+    store box+8, node as ptr
+    n = load box+16 as u64
+    n2 = add n, 1
+    store box+16, n2 as u64
+    !n
+    !n2
+    !node
+    return
+
+@test "release after store escape keeps stored node alive"():
+L_ENTRY:
+    box = alloc 24
+    store box+0, 0 as u64
+    store box+8, 0 as u64
+    store box+16, 0 as u64
+    call @release_escape_push(&box, 77)
+    call @release_escape_push(&box, 78)
+    head = load box+0 as ptr
+    tail = load box+8 as ptr
+    cnt = load box+16 as u64
+    v1 = load head+16 as u64
+    nx = load head+8 as ptr
+    pv = load head+0 as ptr
+    v2 = load tail+16 as u64
+    a = eq cnt, 2
+    b = eq v1, 77
+    c = eq v2, 78
+    d = eq nx, tail
+    e = eq pv, 0
+    ab = and a, b
+    cd = and c, d
+    abcd = and ab, cd
+    ok = and abcd, e
+    !head
+    !tail
+    !cnt
+    !v1
+    !nx
+    !pv
+    !v2
+    !a
+    !b
+    !c
+    !d
+    !e
+    !ab
+    !cd
+    !abcd
+    !box
+    br ok -> L_OK, L_FAIL
+L_OK:
+    !ok
+    return 0
+L_FAIL:
+    !ok
+    panic(11009)
+
+@test "sa_std linked_list push to_vec clear after escape"():
+L_ENTRY:
+    EXPAND LINKED_LIST_NEW list
+    EXPAND LINKED_LIST_PUSH_BACK list, 10
+    EXPAND LINKED_LIST_PUSH_BACK list, 20
+    EXPAND LINKED_LIST_PUSH_BACK list, 30
+    EXPAND LINKED_LIST_TO_VEC vec_out, list
+    EXPAND VEC_GET_U64 x0, vec_out, 0
+    EXPAND VEC_GET_U64 x1, vec_out, 1
+    EXPAND VEC_GET_U64 x2, vec_out, 2
+    s1 = add x0, x1
+    sum = add s1, x2
+    EXPAND LINKED_LIST_CLEAR list
+    EXPAND LINKED_LIST_IS_EMPTY e, list
+    EXPAND LINKED_LIST_FREE list
+    EXPAND VEC_FREE vec_out
+    a = eq sum, 60
+    b = eq e, 1
+    ok = and a, b
+    !x0
+    !x1
+    !x2
+    !s1
+    !sum
+    !e
+    !a
+    !b
+    br ok -> L_OK, L_FAIL
+L_OK:
+    !ok
+    return 0
+L_FAIL:
+    !ok
+    panic(11010)
