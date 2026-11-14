@@ -64,17 +64,46 @@ fn buildRuntimeLib(
         defer allocator.free(cc_result.stderr);
         try expectSuccess(cc_result);
     }
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux) {
+        // The goroutine context primitives (sa_task_ctx.s) exist only for
+        // x86_64 Linux in this phase (see build.zig addTaskCtxToModule);
+        // the child link needs its object too.
+        const task_ctx_source = try std.fs.path.join(allocator, &.{ std.fs.path.dirname(runtime_source) orelse ".", "sa_task_ctx.s" });
+        defer allocator.free(task_ctx_source);
+        const cc_argv = [_][]const u8{ "zig", "cc", "-c", task_ctx_source, "-o", "sa_task_ctx.o" };
+        const cc_result = try runCommand(allocator, cc_argv[0..]);
+        defer allocator.free(cc_result.stdout);
+        defer allocator.free(cc_result.stderr);
+        try expectSuccess(cc_result);
+    }
+    const runtime_dir = std.fs.path.dirname(runtime_source) orelse ".";
+    const net_primitives_source = try std.fs.path.join(allocator, &.{ runtime_dir, "sa_net_primitives.zig" });
+    defer allocator.free(net_primitives_source);
+    const ws_stream_source = try std.fs.path.join(allocator, &.{ runtime_dir, "sa_ws_stream.zig" });
+    defer allocator.free(ws_stream_source);
     const root_flag = try std.fmt.allocPrint(allocator, "-Mroot={s}", .{runtime_source});
     defer allocator.free(root_flag);
     const sio_flag = try std.fmt.allocPrint(allocator, "-Msio={s}", .{sio_source});
     defer allocator.free(sio_flag);
+    const net_flag = try std.fmt.allocPrint(allocator, "-Msa_net_primitives={s}", .{net_primitives_source});
+    defer allocator.free(net_flag);
+    const ws_flag = try std.fmt.allocPrint(allocator, "-Msa_ws_stream={s}", .{ws_stream_source});
+    defer allocator.free(ws_flag);
     const build_lib_argv = [_][]const u8{
         "zig",
         "build-lib",
         "--dep",
         "sio",
+        "--dep",
+        "sa_net_primitives",
+        "--dep",
+        "sa_ws_stream",
         root_flag,
         sio_flag,
+        net_flag,
+        "--dep",
+        "sa_net_primitives",
+        ws_flag,
         "pthread_host.o",
         "sa_b64_swizzle.o",
         "-O",
@@ -82,7 +111,33 @@ fn buildRuntimeLib(
         "-lc",
         "-femit-bin=libsa_std.a",
     };
-    const build_lib_result = try runCommand(allocator, build_lib_argv[0..]);
+    const build_lib_argv_ctx = [_][]const u8{
+        "zig",
+        "build-lib",
+        "--dep",
+        "sio",
+        "--dep",
+        "sa_net_primitives",
+        "--dep",
+        "sa_ws_stream",
+        root_flag,
+        sio_flag,
+        net_flag,
+        "--dep",
+        "sa_net_primitives",
+        ws_flag,
+        "pthread_host.o",
+        "sa_b64_swizzle.o",
+        "sa_task_ctx.o",
+        "-O",
+        "Debug",
+        "-lc",
+        "-femit-bin=libsa_std.a",
+    };
+    const build_lib_result = if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux)
+        try runCommand(allocator, build_lib_argv_ctx[0..])
+    else
+        try runCommand(allocator, build_lib_argv[0..]);
     defer allocator.free(build_lib_result.stdout);
     defer allocator.free(build_lib_result.stderr);
     try expectSuccess(build_lib_result);
