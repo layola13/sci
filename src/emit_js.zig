@@ -13313,6 +13313,7 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         if (std.mem.eql(u8, fsig.name, "main")) has_main = true;
     }
     var stub_emitted = std.StringHashMap(void).init(allocator);
+    defer stub_emitted.deinit();
     // Extern-stub DCE (see collectReferencedJsNames): under
     // .std/.full an unbound extern that no emitted code references is
     // not emitted at all. Referenced unbound externs keep their trap
