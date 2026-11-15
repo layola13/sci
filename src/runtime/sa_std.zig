@@ -13087,10 +13087,32 @@ fn readDirEntriesLinux(path: []const u8, max_entries: usize) !DirEntriesHandle {
 
                 const owned_name = try std.heap.page_allocator.dupe(u8, name);
                 errdefer std.heap.page_allocator.free(owned_name);
+                // getdents d_ino is not canonical on all filesystems:
+                // on overlayfs a directory entry's d_ino differs from
+                // the inode statx reports for the same path, while
+                // FS_METADATA_INO reports the statx inode. Resolve
+                // through statx so FS_DIR_ENTRY_INO agrees with
+                // FS_METADATA_INO; fall back to d_ino when the entry
+                // cannot be statted (it vanished mid-read, or the
+                // joined path is too long).
+                var entry_ino: u64 = linux_entry.ino;
+                {
+                    var full_buf: [std.posix.PATH_MAX]u8 = undefined;
+                    const full_path = std.fmt.bufPrint(
+                        &full_buf,
+                        "{s}/{s}",
+                        .{ std.mem.trimEnd(u8, path, "/"), name },
+                    ) catch null;
+                    if (full_path) |fp| {
+                        if (lxStatxNoFollow(fp)) |stx| {
+                            entry_ino = stx.ino;
+                        } else |_| {}
+                    }
+                }
                 try out.append(.{
                     .name = owned_name,
                     .kind = dirEntryKindFromLinuxType(linux_entry.type),
-                    .ino = linux_entry.ino,
+                    .ino = entry_ino,
                 });
             }
         }

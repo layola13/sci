@@ -1882,7 +1882,7 @@ L_ENTRY:
     call @sa_assert_eq_i64(recv_b0, 116, 10418)
     call @sa_assert_eq_i64(recv_b1, 111, 10418)
     EXPAND NET_UNIX_ADDR_KIND recv_addr_kind, recv_addr
-    call @sa_assert_eq_i64(recv_addr_kind, SA_NET_UNIX_ADDR_UNNAMED, 10418)
+    call @sa_assert_eq_i64(recv_addr_kind, SA_NET_UNIX_ADDR_ABSTRACT, 10418)
     EXPAND NET_UNIX_ADDR_FREE recv_addr_free_status, recv_addr
     call @sa_assert_eq_i64(recv_addr_free_status, SA_NET_OK, 10418)
 

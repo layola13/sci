@@ -323,7 +323,13 @@ fn readUntilContains(handle: u64, needle: []const u8, acc: *std.array_list.Manag
 
 fn waitDone(handle: u64) !i32 {
     var rounds: usize = 0;
-    while (rounds < 200) : (rounds += 1) {
+    // 600 rounds x ~50ms poll ~= 30s wall: the 200-round (~10s) budget
+    // timed out once under full-suite contention (sa_pty exec-failure
+    // test, CI Linux graph at 095d1c9e) although the child exits 127
+    // immediately once scheduled; the spawn/wait mechanism itself is
+    // sound (waitpid WNOHANG + poll). Keep the bound finite so a hung
+    // child still fails loudly instead of hanging the suite.
+    while (rounds < 600) : (rounds += 1) {
         var done: u32 = 0;
         var status: i32 = 0;
         if (sa_pty_try_wait(handle, &done, &status) != OK) return error.WaitFailed;
