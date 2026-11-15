@@ -31,6 +31,7 @@ L_SEND_LOCK:
     !list
     !mtx
     !value
+    !chan
     return
 L_SEND_DISCONNECTED:
     !disconnected
@@ -38,6 +39,7 @@ L_SEND_DISCONNECTED:
     !list
     !mtx
     !value
+    !chan
     return
 
 @sa_mpsc_list_try_recv(&chan: ptr, &out_value: ptr) -> i32:

@@ -286,6 +286,7 @@ L_REHASH_END:
     !new_bytes_ok
     !old_cap_is_zero
     !map
+    !new_cap
     return
 
 L_REHASH_END_ZERO:
@@ -295,6 +296,7 @@ L_REHASH_END_ZERO:
     !new_bytes_ok
     !old_cap_is_zero
     !map
+    !new_cap
     return
 
 @map_probe_existing(&map: ptr, &key: ptr, &out_slot: ptr) -> i32:

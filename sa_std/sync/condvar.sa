@@ -25,6 +25,7 @@ L_RETRY:
 L_EMPTY:
     !has_waiter
     !waiters
+    !cond
     return 0
 L_DONE:
     !old_waiters
@@ -32,6 +33,7 @@ L_DONE:
     !released
     !has_waiter
     !waiters
+    !cond
     return 1
 @__condvar_wait_spin(cond: ptr, mutex: ptr) -> void:
 L_ENTRY:
@@ -87,6 +89,8 @@ L_RELOCK:
     !prev
     !has_note
     !note
+    !cond
+    !mutex
     return
 
 [MACRO] CONDVAR_NEW %out_cond

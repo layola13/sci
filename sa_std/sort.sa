@@ -82,6 +82,7 @@ L_END:
     !hi
     !elem_size
     !cmp_fn
+    !cmp_vt
     return pivot_index
 
 @sort_qsort_bounds(&base: ptr, lo: u64, hi: u64, elem_size: u64, &cmp_vt: ptr) -> void:
