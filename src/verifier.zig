@@ -3140,6 +3140,54 @@ const VerifierBufferPool = struct {
     }
 };
 
+/// Scan one finished function's exit state for live owned registers.
+///
+/// HOST-VERIFIER-SCOPE: this used to run only once, at the end of
+/// `verifyBody`, over the LAST function's state — so a leak in any
+/// earlier function was silently dropped (the `chunk_index + 1 ==
+/// chunks.len` gate in `verifyWorker` had the same effect on the
+/// parallel path). It is now called at every function boundary (see
+/// the `isDecl` arm) and at end of stream, so every function is
+/// checked. Returns the trap result on the first live register, or
+/// null when the function exits clean. `scope` is optional only so
+/// the check stays a no-op on streams without a scope; callers pass
+/// the finished function's scope.
+fn checkExitLeaks(
+    state: []const u16,
+    flags: []const u8,
+    origins: []const ?u32,
+    consumed_in_function: []const bool,
+    scope: ?*const FunctionRegScope,
+    metadata: *const CollectResult,
+    sax_context: ?SaxValidationContext,
+    location: inst.Instruction,
+    function_text: ?[]const u8,
+    is_ffi_wrapper: bool,
+) ?VerifyBodyResult {
+    for (state, 0..) |mask, idx| {
+        if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
+        // Only const data is exempt from the leak check; an immutable
+        // binding still owns its allocation and must be released.
+        if ((flags[idx] & regFlagImmutable) != 0) continue;
+        if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
+        // Raw pointers carry no ownership (release is a no-op for them);
+        // a live raw-pointer temp is never a leak, same as an ephemeral
+        // scalar temp.
+        if ((flags[idx] & regFlagRawPointer) != 0) continue;
+        if ((flags[idx] & regFlagBranchCondition) != 0) continue;
+        if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
+        if (idx < consumed_in_function.len and consumed_in_function[idx]) continue;
+        const leak_name = scope.?.nameOf(&metadata.symbols, @intCast(idx)) orelse metadata.symbols.lookupName(scope.?.globalId(@intCast(idx)));
+        if (sax_context) |ctx| {
+            if (is_ffi_wrapper and function_text != null and std.mem.containsAtLeast(u8, function_text.?, 1, "destroy")) {
+                return saxReport(ctx, .sax_state_leak, location, leak_name, null, mask, "live state remains at component teardown", null);
+            }
+        }
+        return trapReport(.memory_leak, location, function_text, is_ffi_wrapper, leak_name, null, mask, "live registers remain at function exit", null);
+    }
+    return null;
+}
+
 fn verifyBody(
     allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,
@@ -3223,6 +3271,19 @@ fn verifyBody(
         if (isDecl(item.kind)) {
             if (body_seen and !terminated and current_function_text != null) {
                 return trapReport(.fallthrough_forbidden, item, current_function_text, current_is_ffi_wrapper, null, null, null, "basic blocks must end with jmp, br, br_null, or return", "insert an explicit terminator before the next declaration");
+            }
+
+            // HOST-VERIFIER-SCOPE: check the just-finished function's
+            // exit state here, before its registers are reset for the
+            // next function. The end-of-stream check below only ever
+            // sees the last function; without this, a leak in any
+            // earlier function is silently dropped. The trap location
+            // is the previous function's terminator (the instruction
+            // just before this declaration).
+            if (check_exit_leaks and body_seen and terminated and !fatal_terminated) {
+                if (checkExitLeaks(state, flags, origins, consumed_in_function, if (current_scope) |*s| s else null, metadata, sax_context, instructions[inst_idx - 1], current_function_text, current_is_ffi_wrapper)) |trap_result| {
+                    return trap_result;
+                }
             }
 
             current_function_text = item.raw_text;
@@ -4165,26 +4226,8 @@ fn verifyBody(
 
     const current_is_bodyless_extern = current_sig != null and current_sig.?.kind == .external and !body_seen;
     if (check_exit_leaks and !fatal_terminated and !current_is_bodyless_extern) {
-        for (state, 0..) |mask, idx| {
-            if (mask == 0 or mask == maskOf(.consumed) or mask == maskOf(.untracked)) continue;
-            // Only const data is exempt from the leak check; an immutable
-            // binding still owns its allocation and must be released.
-            if ((flags[idx] & regFlagImmutable) != 0) continue;
-            if ((flags[idx] & regFlagEphemeralScalar) != 0) continue;
-            // Raw pointers carry no ownership (release is a no-op for them);
-            // a live raw-pointer temp is never a leak, same as an ephemeral
-            // scalar temp.
-            if ((flags[idx] & regFlagRawPointer) != 0) continue;
-            if ((flags[idx] & regFlagBranchCondition) != 0) continue;
-            if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
-            if (idx < consumed_in_function.len and consumed_in_function[idx]) continue;
-            const leak_name = current_scope.?.nameOf(&metadata.symbols, @intCast(idx)) orelse metadata.symbols.lookupName(current_scope.?.globalId(@intCast(idx)));
-            if (sax_context) |ctx| {
-                if (current_is_ffi_wrapper and current_function_text != null and std.mem.containsAtLeast(u8, current_function_text.?, 1, "destroy")) {
-                    return saxReport(ctx, .sax_state_leak, instructions[instructions.len - 1], leak_name, null, mask, "live state remains at component teardown", null);
-                }
-            }
-            return trapReport(.memory_leak, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper, leak_name, null, mask, "live registers remain at function exit", null);
+        if (checkExitLeaks(state, flags, origins, consumed_in_function, if (current_scope) |*s| s else null, metadata, sax_context, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper)) |trap_result| {
+            return trap_result;
         }
     }
 
@@ -4291,7 +4334,7 @@ fn verifyWorker(context: *ParallelVerifyContext, worker_index: usize) void {
             context.const_decls,
             context.metadata,
             chunk.sig_index,
-            context.check_exit_leaks and chunk_index + 1 == context.chunks.len,
+            context.check_exit_leaks,
             context.package_grants,
             context.sax_context,
             context.default_immutable,
@@ -7392,6 +7435,58 @@ test "owned alloc live at exit still traps memory leak" {
     const source =
         \\@main() -> i32:
         \\leak_0 = alloc 8
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.memory_leak, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "exit leak in a non-last function still traps memory leak" {
+    // HOST-VERIFIER-SCOPE: the exit-leak check used to examine only the
+    // last function in the stream (end-of-verifyBody state, plus a
+    // last-chunk-only gate on the parallel path), so a leak in an
+    // earlier function was silently dropped. A leak in the FIRST of
+    // two functions must trap even though the second exits clean.
+    const source =
+        \\@leaker() -> i32:
+        \\leak_0 = alloc 8
+        \\return 0
+        \\@main() -> i32:
+        \\box = alloc 4
+        \\!box
+        \\return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.memory_leak, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "exit leak in a middle function still traps memory leak" {
+    // HOST-VERIFIER-SCOPE: same scope defect as the test above, with
+    // the leak in the MIDDLE function — this pins the per-boundary
+    // check rather than any first/last-only variant.
+    const source =
+        \\@first() -> i32:
+        \\box = alloc 4
+        \\!box
+        \\return 0
+        \\@leaker() -> i32:
+        \\leak_0 = alloc 8
+        \\return 0
+        \\@main() -> i32:
+        \\box2 = alloc 4
+        \\!box2
         \\return 0
     ;
     var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
