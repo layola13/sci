@@ -9,6 +9,8 @@
 @btree_map_entry_cmp(&lhs: ptr, &rhs: ptr) -> i32:
 L_ENTRY:
     cmp = call @btree_map_entry_cmp_at(&lhs, &rhs, 0)
+    !lhs
+    !rhs
     return cmp
 
 @btree_map_entry_cmp_at(&lhs: ptr, &rhs: ptr, idx: u64) -> i32:
