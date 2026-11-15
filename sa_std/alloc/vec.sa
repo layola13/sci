@@ -55,6 +55,7 @@ L_ALLOC:
     !bytes_ok
     !has_bytes
     !cap
+    !elem_size
     return vec
 L_EMPTY:
     store vec+Vec_ptr, 0 as ptr
@@ -64,6 +65,7 @@ L_EMPTY:
     !bytes_ok
     !has_bytes
     !cap
+    !elem_size
     return vec
 
 @export sa_vec_len(&vec: ptr) -> u64:
@@ -653,6 +655,7 @@ L_ENTRY:
     len = load vec+Vec_len as u64
     vec = call @sa_vec_shrink_to(^vec, len, elem_size)
     !len
+    !elem_size
     return vec
 
 @export sa_vec_resize(^vec: ptr, new_len: u64, fill_value: u64, elem_size: u64) -> ^ptr:

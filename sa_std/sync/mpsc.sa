@@ -31,6 +31,8 @@ L_MPSC_TRY_SEND_FULL:
     !tail
     !head
     !cap
+    !chan
+    !value_slot
     return 0
 
 L_MPSC_TRY_SEND_RESERVE:
@@ -48,6 +50,8 @@ L_MPSC_TRY_SEND_RETRY:
     !tail
     !head
     !cap
+    !chan
+    !value_slot
     return 0
 
 L_MPSC_TRY_SEND_COMMIT:
@@ -72,6 +76,8 @@ L_MPSC_TRY_SEND_COMMIT:
     !tail
     !head
     !cap
+    !chan
+    !value_slot
     return 1
 
 @__mpsc_try_recv(&chan: ptr, &out_value_slot: ptr) -> i32:
@@ -87,6 +93,8 @@ L_MPSC_TRY_RECV_CORRUPT:
     !tail
     !head
     !cap
+    !chan
+    !out_value_slot
     return 0
 
 L_MPSC_TRY_RECV_ORDER_OK:
@@ -99,6 +107,8 @@ L_MPSC_TRY_RECV_EMPTY:
     !tail
     !head
     !cap
+    !chan
+    !out_value_slot
     return 0
 
 L_MPSC_TRY_RECV_CHECK:
@@ -121,6 +131,8 @@ L_MPSC_TRY_RECV_WAIT:
     !tail
     !head
     !cap
+    !chan
+    !out_value_slot
     return 0
 
 L_MPSC_TRY_RECV_COMMIT:
@@ -141,6 +153,8 @@ L_MPSC_TRY_RECV_COMMIT:
     !tail
     !head
     !cap
+    !chan
+    !out_value_slot
     return 1
 
 [MACRO] MPSC_NEW %out_chan, %cap
@@ -520,6 +534,8 @@ L_TO_TRY:
 L_TO_OK:
     !start
     !timeout_ns
+    !chan
+    !out_value_slot
     return 1
 L_TO_CHECK:
     now = call @sa_time_instant_ns()
@@ -553,6 +569,8 @@ L_TO_TIMEOUT:
     !ok
     !start
     !timeout_ns
+    !chan
+    !out_value_slot
     return 0
 
 [MACRO] MPSC_TRY_RECV_TIMEOUT_ERROR %out_ok, %out_error, %out_value, %chan, %timeout_ns
