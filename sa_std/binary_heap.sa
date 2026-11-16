@@ -2539,6 +2539,7 @@ L_BINARY_HEAP_INTO_ITER_SORTED_BUILD_ITER_%out_iter:
 
 [MACRO] BINARY_HEAP_PEEK_MUT_SET_U64 %out_old_value, %heap_reg, %value
     EXPAND BINARY_HEAP_TRY_PEEK_MUT_SET_U64 __binary_heap_peek_set_ok_%out_old_value, %out_old_value, %heap_reg, %value
+    !__binary_heap_peek_set_ok_%out_old_value
 [END_MACRO]
 
 // Rust method-name alias over BINARY_HEAP_PEEK_MUT_SET_U64.

@@ -13,6 +13,8 @@ L_ENTRY:
     EXPAND LINKED_LIST_NEW list
     store chan+MpscList_mutex, mtx as ptr
     store chan+MpscList_list, list as ptr
+    ^mtx
+    ^list
     return chan
 
 @sa_mpsc_list_send(&chan: ptr, value: u64) -> void:
