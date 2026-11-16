@@ -320,9 +320,34 @@ test "bcrypt: known-answer verify and hash roundtrip" {
 }
 
 test "keyring: library availability is reported honestly" {
-    // libsecret-1 is installed on the build box; the secret SERVICE
-    // roundtrip is asserted by demo D8 under dbus-run-session.
-    try std.testing.expectEqual(@as(u32, 1), sa_keyring_available());
+    // Environment disposition (CI-DISPOSITIONS 2026-11-16): the old
+    // version of this test assumed libsecret-1 is installed on every
+    // build box. That assumption is false on a stock CI runner (the
+    // GitHub ubuntu-24.04 image ships no libsecret-1-0), so the test
+    // failed there even though the code under test was behaving
+    // honestly. The test now probes for the soname exactly the way
+    // ensureSecret() does and branches on the result:
+    //   - library genuinely absent: absence must be reported as
+    //     exactly 0 (asserted below, unconditionally on this path),
+    //     and the presence-only assertion is skipped loudly.
+    //   - library present: availability must be reported as exactly
+    //     1. A present-but-unusable library (missing symbols) still
+    //     fails here -- the probe only gates on the soname loading.
+    // The secret SERVICE roundtrip is asserted by demo D8 under
+    // dbus-run-session.
+    const avail = sa_keyring_available();
+    // Environment-independent: the report is a strict boolean,
+    // never garbage.
+    try std.testing.expect(avail == 0 or avail == 1);
+    var probe = DynLib.open("libsecret-1.so.0") catch {
+        // Soname cannot be loaded in this environment: the honest
+        // report is exactly 0.
+        try std.testing.expectEqual(@as(u32, 0), avail);
+        std.debug.print("ENV-SKIP keyring: libsecret-1.so.0 absent in this environment \u{2014} presence assertions skipped (environment disposition, CI-DISPOSITIONS 2026-11-16)\n", .{});
+        return error.SkipZigTest;
+    };
+    probe.close();
+    try std.testing.expectEqual(@as(u32, 1), avail);
 }
 
 // ---------------- crypto suite (STD batch 4, 2026-10-28) ----------------
