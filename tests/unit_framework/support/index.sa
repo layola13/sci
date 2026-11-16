@@ -390,6 +390,7 @@ L_ENTRY:
     env = alloc SupportEnv_SIZE
     store env+SupportEnv_offset, 5 as i32
     result = call @support_closure_add_offset_call(&env, x)
+    !x
     !env
     return result
 
@@ -488,6 +489,7 @@ L_ENTRY:
 @support_counter_new_value(seed: i32) -> i32:
 L_ENTRY:
     counter = call @support_counter_new(seed)
+    !seed
     value = load counter+SupportCounter_value as i32
     !counter
     return value
@@ -1312,6 +1314,8 @@ L_ENTRY:
 @support_extern_c_abi_add_pair(a: i32, b: i32) -> i32:
 L_ENTRY:
     total = add a, b
+    !b
+    !a
     return total
 
 @support_raw_pointer_third_lane() -> i32:
@@ -1338,6 +1342,7 @@ L_ENTRY:
 @support_callback_add_one(x: i32) -> i32:
 L_ENTRY:
     result = add x, 1
+    !x
     return result
 
 @support_callback_apply(&cb: ptr, value: i32) -> i32:
@@ -1345,6 +1350,7 @@ L_ENTRY:
     vt = load cb+SupportFn_vtable as ptr
     invoke = load vt+SupportFn_invoke as ptr
     result = call_indirect invoke(value)
+    !value
     !invoke
     !vt
     !cb
@@ -1368,6 +1374,7 @@ L_ENTRY:
 L_ENTRY:
     raw = alloc 1
     result = call @support_opaque_value(raw)
+    !raw
     return result
 
 @support_sum_variadic_slice(&slice: ptr) -> i32:
@@ -3048,6 +3055,7 @@ L_ERR:
 @support_signal_handler(sig: i32) -> i32:
 L_ENTRY:
     result = add sig, 0
+    !sig
     return result
 
 @support_register_signal_model(&slot: ptr) -> i32:
@@ -3203,6 +3211,7 @@ L_ENTRY:
 L_OK:
     store ctx+SupportGlCtx_ready, 1 as i32
     store ctx+SupportGlCtx_phase, 1 as i32
+    !ctx
     !phase
     !ok_phase
     return 1
@@ -3221,6 +3230,7 @@ L_ENTRY:
 L_OK:
     store ctx+SupportGlCtx_swapped, 1 as i32
     store ctx+SupportGlCtx_phase, 2 as i32
+    !ctx
     !phase
     !ok_phase
     return 1
@@ -3674,12 +3684,15 @@ L_ERR:
 @support_lto_leaf(a: i32, b: i32) -> i32:
 L_ENTRY:
     sum = add a, b
+    !b
+    !a
     return sum
 
 @support_lto_inner(x: i32) -> i32:
 L_ENTRY:
     one = call @support_lto_leaf(x, 1)
     two = call @support_lto_leaf(x, 2)
+    !x
     three = call @support_lto_leaf(3, 4)
     total0 = add one, two
     total = add total0, three
@@ -3692,6 +3705,7 @@ L_ENTRY:
 @support_lto_cold_path(x: i32) -> i32:
 L_ENTRY:
     inner_total = call @support_lto_inner(x)
+    !x
     tail0 = call @support_lto_leaf(5, 6)
     tail = add inner_total, tail0
     !inner_total
@@ -3747,6 +3761,7 @@ L_AFTER_LOOP:
 @support_cfi_guarded_target(x: i32) -> i32:
 L_ENTRY:
     result = add x, 1
+    !x
     return result
 
 @support_control_flow_guard_cfi_value() -> i32:
@@ -4358,6 +4373,7 @@ L_MISS:
 @support_contract_callback_call(x: i32) -> i32:
 L_ENTRY:
     result = add x, 1
+    !x
     return result
 
 @support_contract_callback_registration_value() -> i32:
@@ -4696,11 +4712,8 @@ L_ENTRY:
     !value
     return next
 
-@ffi_wrapper support_ffi_callback_thunk_value() -> i32:
+@ffi_wrapper support_ffi_callback_thunk_impl(*state: ptr) -> i32:
 L_ENTRY:
-    state = alloc 16
-    store state+SupportFfiCallbackState_value, 289 as i32
-    store state+SupportFfiCallbackState_vtable, &SUPPORT_FFI_CALLBACK_VT as ptr
     view = assume_borrow state
     vt = load view+SupportFfiCallbackState_vtable as ptr
     fn = load vt+SupportFfiCallbackVTable_call as ptr
@@ -4711,6 +4724,15 @@ L_ENTRY:
     !fn
     !vt
     !view
+    return result
+
+@support_ffi_callback_thunk_value() -> i32:
+L_ENTRY:
+    state = alloc 16
+    store state+SupportFfiCallbackState_value, 289 as i32
+    store state+SupportFfiCallbackState_vtable, &SUPPORT_FFI_CALLBACK_VT as ptr
+    result = call @support_ffi_callback_thunk_impl(*state)
+    !state
     return result
 
 @ffi_wrapper support_eco_pair_sum(*slot: ptr) -> i32:
@@ -4728,7 +4750,9 @@ L_ENTRY:
 L_ENTRY:
     slot = alloc 8
     store slot+SupportEcoPair_a, value as i32
+    !value
     store slot+SupportEcoPair_b, delta as i32
+    !delta
     result = call @support_eco_pair_sum(*slot)
     !slot
     return result
@@ -4925,6 +4949,7 @@ L_REC:
 @support_double_u64(x: u64) -> u64:
 L_ENTRY:
     y = add x, x
+    !x
     return y
 
 @support_unwrap_or_i32(^opt: ptr, default: i32) -> i32:

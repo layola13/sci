@@ -722,6 +722,7 @@ L_ADDR_COPY:
     family_ok = eq family, SA_NET_AF_INET
     host_copy = alloc host_len
     call @sa_mem_copy(&host_copy, &host_src, host_len)
+    !host_src
     addr_free_res = call @sa_net_addr_free(addr)
     addr_free_status = load addr_free_res+0 as i32
     !addr_free_res
@@ -762,6 +763,7 @@ L_FAIL_CONNECT:
 
 L_CONNECT:
     connect_res = call @sa_net_tcp_connect(&host_copy, host_len, port)
+    !host_copy
     connect_status = load connect_res+0 as u32
     client = load connect_res+8 as u64
     !connect_res
