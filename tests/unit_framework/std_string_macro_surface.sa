@@ -782,9 +782,11 @@ L_ENTRY:
     EXPAND STRING_BUF_INTO_RAW_PARTS from_string_left_ptr, from_string_left_len, from_string_left_cap, from_string_left
     EXPAND STRING_BUF_INTO_RAW_PARTS from_string_suffix_ptr, from_string_suffix_len, from_string_suffix_cap, from_string_suffix
     store from_string_iter_data+0, from_string_left_ptr as ptr
+    !from_string_left_ptr
     store from_string_iter_data+8, from_string_left_cap as u64
     store from_string_iter_data+16, from_string_left_len as u64
     store from_string_iter_data+24, from_string_suffix_ptr as ptr
+    !from_string_suffix_ptr
     store from_string_iter_data+32, from_string_suffix_cap as u64
     store from_string_iter_data+40, from_string_suffix_len as u64
     from_string_iter = alloc Slice_SIZE
@@ -799,9 +801,11 @@ L_ENTRY:
     EXPAND STRING_BUF_INTO_RAW_PARTS extend_string_left_ptr, extend_string_left_len, extend_string_left_cap, extend_string_left
     EXPAND STRING_BUF_INTO_RAW_PARTS extend_string_suffix_ptr, extend_string_suffix_len, extend_string_suffix_cap, extend_string_suffix
     store extend_string_iter_data+0, extend_string_left_ptr as ptr
+    !extend_string_left_ptr
     store extend_string_iter_data+8, extend_string_left_cap as u64
     store extend_string_iter_data+16, extend_string_left_len as u64
     store extend_string_iter_data+24, extend_string_suffix_ptr as ptr
+    !extend_string_suffix_ptr
     store extend_string_iter_data+32, extend_string_suffix_cap as u64
     store extend_string_iter_data+40, extend_string_suffix_len as u64
     extend_string_iter = alloc Slice_SIZE
@@ -3276,44 +3280,87 @@ L_ENTRY:
 
     EXPAND STR_TRY_SPLIT_ONCE_CHAR ok_multi, left_multi, right_multi, multi_hay, 233
     EXPAND STR_TRY_RSPLIT_ONCE_CHAR rok_multi, rleft_multi, rright_multi, multi_hay, 233
+    !multi_hay
     EXPAND STRING_BUF_RSPLIT_ONCE_CHAR rok_multi_b, rleft_multi_b, rright_multi_b, multi_buf, 233
     EXPAND STR_TRY_SPLIT_ONCE_CHAR ok_invalid, left_invalid, right_invalid, pathish, 55296
     EXPAND STR_TRY_RSPLIT_ONCE_CHAR rok_invalid, rleft_invalid, rright_invalid, pathish, 55296
+    !pathish
 
     EXPAND STR_EQ eq_left0, left0, left_exp
+    !left0
     EXPAND STR_EQ eq_right0, right0, right_exp
+    !right0
     EXPAND STR_EQ eq_left1t, left1t, left_exp
+    !left1t
     EXPAND STR_EQ eq_right1t, right1t, right_exp
+    !right1t
     EXPAND STR_EQ eq_left1bt, left1bt, left_exp
+    !left1bt
     EXPAND STR_EQ eq_right1bt, right1bt, right_exp
+    !right1bt
     EXPAND STR_EQ eq_left0u, left0u, left_exp
+    !left0u
     EXPAND STR_EQ eq_right0u, right0u, right_exp
+    !right0u
     EXPAND STR_EQ eq_left1u, left1u, left_exp
+    !left1u
     EXPAND STR_EQ eq_right1u, right1u, right_exp
+    !right1u
     EXPAND STR_EQ eq_left1bu, left1bu, left_exp
+    !left1bu
+    !left_exp
     EXPAND STR_EQ eq_right1bu, right1bu, right_exp
+    !right1bu
+    !right_exp
     EXPAND STR_EQ eq_rleft0, rleft0, rleft_exp
+    !rleft0
     EXPAND STR_EQ eq_rright0, rright0, rright_exp
+    !rright0
     EXPAND STR_EQ eq_rleft1t, rleft1t, rleft_exp
+    !rleft1t
     EXPAND STR_EQ eq_rright1t, rright1t, rright_exp
+    !rright1t
     EXPAND STR_EQ eq_rleft1bt, rleft1bt, rleft_exp
+    !rleft1bt
     EXPAND STR_EQ eq_rright1bt, rright1bt, rright_exp
+    !rright1bt
     EXPAND STR_EQ eq_rleft0u, rleft0u, rleft_exp
+    !rleft0u
     EXPAND STR_EQ eq_rright0u, rright0u, rright_exp
+    !rright0u
     EXPAND STR_EQ eq_rleft1u, rleft1u, rleft_exp
+    !rleft1u
     EXPAND STR_EQ eq_rright1u, rright1u, rright_exp
+    !rright1u
     EXPAND STR_EQ eq_rleft1bu, rleft1bu, rleft_exp
+    !rleft1bu
+    !rleft_exp
     EXPAND STR_EQ eq_rright1bu, rright1bu, rright_exp
+    !rright1bu
+    !rright_exp
     EXPAND STR_EQ eq_multi_left, left_multi, multi_left_exp
+    !left_multi
+    !multi_left_exp
     EXPAND STR_EQ eq_multi_right, right_multi, multi_right_exp
+    !right_multi
+    !multi_right_exp
     EXPAND STR_EQ eq_rmulti_left, rleft_multi, multi_rleft_exp
+    !rleft_multi
     EXPAND STR_IS_EMPTY rmulti_right_empty, rright_multi
+    !rright_multi
     EXPAND STR_EQ eq_rmulti_left_b, rleft_multi_b, multi_rleft_exp
+    !rleft_multi_b
+    !multi_rleft_exp
     EXPAND STR_IS_EMPTY rmulti_right_b_empty, rright_multi_b
+    !rright_multi_b
     EXPAND STR_IS_EMPTY invalid_left_empty, left_invalid
+    !left_invalid
     EXPAND STR_IS_EMPTY invalid_right_empty, right_invalid
+    !right_invalid
     EXPAND STR_IS_EMPTY rinvalid_left_empty, rleft_invalid
+    !rleft_invalid
     EXPAND STR_IS_EMPTY rinvalid_right_empty, rright_invalid
+    !rright_invalid
 
     ok0_flag = eq ok0, 1
     ok1t_flag = eq ok1t, 1
