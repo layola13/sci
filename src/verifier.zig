@@ -3188,6 +3188,14 @@ fn checkExitLeaks(
     return null;
 }
 
+/// TRAP-PRECEDENCE: true when a trap report came from the
+/// function-exit leak scan (checkExitLeaks). Within this file that
+/// scan is the only producer of .memory_leak and .sax_state_leak
+/// reports, so the trap kind alone classifies it.
+fn isExitLeakReport(report: trap.TrapReport) bool {
+    return report.trap == .memory_leak or report.trap == .sax_state_leak;
+}
+
 fn verifyBody(
     allocator: std.mem.Allocator,
     instructions: []const inst.Instruction,
@@ -3263,6 +3271,15 @@ fn verifyBody(
     const call_depth: u16 = 0;
     var has_unbounded_loop = false;
     var last_seen_label: ?u32 = null;
+    // TRAP-PRECEDENCE: an exit leak is the LAST event of its function
+    // in execution order (its return). A trap raised anywhere the
+    // program reaches before that return -- in particular a call-site
+    // trap in a caller, which fires before the callee body runs at
+    // all -- must win over it, even when the leaking function is
+    // declared (and therefore verified) earlier in the stream. So a
+    // boundary exit leak is recorded here and only reported once the
+    // whole stream has been verified with no other trap.
+    var deferred_exit_leak: ?trap.TrapReport = null;
 
     for (instructions, 0..) |raw_item, inst_idx| {
         var item = raw_item;
@@ -3282,7 +3299,16 @@ fn verifyBody(
             // just before this declaration).
             if (check_exit_leaks and body_seen and terminated and !fatal_terminated) {
                 if (checkExitLeaks(state, flags, origins, consumed_in_function, if (current_scope) |*s| s else null, metadata, sax_context, instructions[inst_idx - 1], current_function_text, current_is_ffi_wrapper)) |trap_result| {
-                    return trap_result;
+                    // TRAP-PRECEDENCE: defer, do not return yet (see
+                    // deferred_exit_leak above). The first exit leak in
+                    // stream order is kept; any trap raised by a later
+                    // instruction returns immediately and wins.
+                    if (deferred_exit_leak == null) {
+                        deferred_exit_leak = switch (trap_result) {
+                            .trap => |report| report,
+                            .ok => null,
+                        };
+                    }
                 }
             }
 
@@ -4227,8 +4253,19 @@ fn verifyBody(
     const current_is_bodyless_extern = current_sig != null and current_sig.?.kind == .external and !body_seen;
     if (check_exit_leaks and !fatal_terminated and !current_is_bodyless_extern) {
         if (checkExitLeaks(state, flags, origins, consumed_in_function, if (current_scope) |*s| s else null, metadata, sax_context, instructions[instructions.len - 1], current_function_text, current_is_ffi_wrapper)) |trap_result| {
-            return trap_result;
+            if (deferred_exit_leak == null) {
+                deferred_exit_leak = switch (trap_result) {
+                    .trap => |report| report,
+                    .ok => null,
+                };
+            }
         }
+    }
+
+    // TRAP-PRECEDENCE: no other trap fired anywhere in the stream, so
+    // the deferred exit leak (if any) is the verdict.
+    if (deferred_exit_leak) |report| {
+        return .{ .trap = report };
     }
 
     if (current_scope) |*scope| {
@@ -4431,6 +4468,36 @@ fn verifyParallel(
     var gas_alloc_bytes: u64 = 0;
     var gas_steps: u64 = 0;
     var has_unbounded_loop = false;
+
+    // TRAP-PRECEDENCE (parallel path): chunks are single functions in
+    // declaration order, so a plain first-trap merge lets an exit leak
+    // in an early-declared callee pre-empt a trap that precedes it in
+    // execution order (e.g. the call-site trap in its caller, verified
+    // as a later chunk). Scan all chunk results first: the first
+    // non-exit-leak trap wins; an exit leak is reported only when no
+    // chunk raised anything else.
+    {
+        var deferred_leak: ?trap.TrapReport = null;
+        for (jobs) |*job| {
+            if (job.err) |err| return err;
+            const result = job.result orelse return error.UnexpectedResult;
+            switch (result) {
+                .trap => |report| {
+                    if (isExitLeakReport(report)) {
+                        if (deferred_leak == null) deferred_leak = report;
+                    } else {
+                        freeAnnotated(allocator, &annotated);
+                        return .{ .trap = report };
+                    }
+                },
+                .ok => {},
+            }
+        }
+        if (deferred_leak) |report| {
+            freeAnnotated(allocator, &annotated);
+            return .{ .trap = report };
+        }
+    }
 
     for (jobs, 0..) |*job, job_index| {
         if (job.err) |err| return err;
@@ -7495,6 +7562,58 @@ test "exit leak in a middle function still traps memory leak" {
     const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
     switch (verified) {
         .trap => |report| try std.testing.expectEqual(trap.Trap.memory_leak, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "call-site trap in caller beats exit leak in earlier-declared callee (serial)" {
+    // TRAP-PRECEDENCE (regression for the trap_baseline golden
+    // case demos/support/capability_mismatch.sa): @sink exits with
+    // its borrow parameter p still live, but @sink's exit is only
+    // reached through @main's call, and that call traps
+    // CapabilityMismatch at the call site -- earlier in execution
+    // order. Declaration order (@sink first) must not let the exit
+    // leak pre-empt the call-site trap.
+    const source =
+        \\@sink(&p: ptr, ^q: ptr) -> i32:
+        \\return 0
+        \\@main() -> i32:
+        \\value = alloc 8
+        \\result = call @sink(^value, ^value)
+        \\return result
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .jobs = 1 });
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.capability_mismatch, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+test "call-site trap in caller beats exit leak in earlier-declared callee (parallel)" {
+    // TRAP-PRECEDENCE (regression for the trap_baseline golden
+    // case demos/support/capability_mismatch.sa): @sink exits with
+    // its borrow parameter p still live, but @sink's exit is only
+    // reached through @main's call, and that call traps
+    // CapabilityMismatch at the call site -- earlier in execution
+    // order. Declaration order (@sink first) must not let the exit
+    // leak pre-empt the call-site trap.
+    const source =
+        \\@sink(&p: ptr, ^q: ptr) -> i32:
+        \\return 0
+        \\@main() -> i32:
+        \\value = alloc 8
+        \\result = call @sink(^value, ^value)
+        \\return result
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, .{ .jobs = 4 });
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.capability_mismatch, report.trap),
         .ok => return error.TestUnexpectedResult,
     }
 }

@@ -5598,19 +5598,11 @@ test "sab with corrupted param_ids traps CorruptedSignature without panic or tex
     defer original_cwd.setAsCwd() catch {};
 
     // The program needs a function with parameters so param_ids is populated
-    // in the encoded SAB. The by-value params must be released before
-    // `return`: the verifier's function-exit MemoryLeak check (which since
-    // the widened verifier runs at every function boundary, not only the
-    // last function) traps on live param registers -- @add2 is not the
-    // last function here, so the unreleased `a`/`b` used to be masked and
-    // now fail the emit step below with MemoryLeak 1012 before the
-    // corrupted-SAB cases ever run.
+    // in the encoded SAB.
     const sa_source =
         \\@add2(a: u64, b: u64) -> u64:
         \\L_ENTRY:
         \\    c = add a, b
-        \\    !a
-        \\    !b
         \\    return c
         \\@main() -> i32:
         \\L_MAIN:
