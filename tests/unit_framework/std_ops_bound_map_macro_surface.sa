@@ -3,11 +3,13 @@
 @add_ten(value: u64) -> u64:
 L_ENTRY:
     result = add value, 10
+    !value
     return result
 
 @times_two(value: u64) -> u64:
 L_ENTRY:
     result = mul value, 2
+    !value
     return result
 
 @test "sa_std ops Bound map copy cloned macros"():

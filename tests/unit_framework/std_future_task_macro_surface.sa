@@ -17,6 +17,7 @@
 @future_unit_double(value: u64) -> u64:
 L_ENTRY:
     doubled = add value, value
+    !value
     return doubled
 
 @future_unit_waker_clone(&self: ptr, &out_raw: ptr) -> void:

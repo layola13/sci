@@ -3,6 +3,7 @@
 @cell_add_three(value: u64) -> u64:
 L_ENTRY:
     out = add value, 3
+    !value
     return out
 
 @test "sa_std cell primitive i32 compatibility macros"():

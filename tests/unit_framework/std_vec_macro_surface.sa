@@ -401,6 +401,7 @@ L_ENTRY:
     extend_within_alias_flag_ok = eq extend_within_alias_ok, 1
     extend_within_alias_value_ok = eq extend_within_alias, 44
     len_after_extend_within_alias_ok = eq len_after_extend_within_alias, 7
+    !len_after_extend_within_alias
     after_append_flag_ok = eq after_append_ok, 1
     after_append_value_ok = eq after_append, 99
     append_src_len_after_ok = eq append_src_len_after, 0

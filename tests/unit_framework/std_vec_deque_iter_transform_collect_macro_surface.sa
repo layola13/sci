@@ -9,6 +9,7 @@ L_ENTRY:
 @vec_deque_iter_transform_is_even(value: u64) -> u64:
 L_ENTRY:
     rem = urem value, 2
+    !value
     out = eq rem, 0
     !rem
     return out

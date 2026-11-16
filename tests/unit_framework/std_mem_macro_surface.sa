@@ -150,10 +150,14 @@ L_ENTRY:
 
     ok_needs_drop = eq needs_drop, 0
     ok_maybe_ptr = eq maybe_ptr, maybe
+    !maybe_ptr
     ok_maybe_mut_ptr = eq maybe_mut_ptr, maybe
+    !maybe_mut_ptr
     ok_maybe_ref_ptr = eq maybe_ref_ptr, maybe
+    !maybe_ref_ptr
     ok_maybe_ref_value = eq maybe_ref_value, 66
     ok_maybe_init_mut_ptr = eq maybe_init_mut_ptr, maybe
+    !maybe_init_mut_ptr
     ok_maybe_value = eq maybe_value, 67
     ok_maybe_read = eq maybe_read, 67
     ok_maybe_bytes_ptr = eq maybe_bytes_ptr, maybe
@@ -165,10 +169,14 @@ L_ENTRY:
     ok_maybe_new = eq maybe_new_value, 77
     ok_maybe_after_drop = eq maybe_after_drop, 0
     ok_manual_ptr = eq manual_ptr, manual
+    !manual_ptr
     ok_manual_mut_ptr = eq manual_mut_ptr, manual
+    !manual_mut_ptr
     ok_manual_deref_ptr = eq manual_deref_ptr, manual
+    !manual_deref_ptr
     ok_manual_deref_value = eq manual_deref_value, 99
     ok_manual_deref_mut_ptr = eq manual_deref_mut_ptr, manual
+    !manual_deref_mut_ptr
     ok_manual_inner = eq manual_inner, 100
     ok_manual_taken = eq manual_taken, 100
     ok_manual_after_take = eq manual_after_take, 0

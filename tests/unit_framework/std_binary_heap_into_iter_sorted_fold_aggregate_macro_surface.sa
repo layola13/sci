@@ -3,7 +3,9 @@
 @binary_heap_into_iter_sorted_fold_tens(acc: u64, value: u64) -> u64:
 L_ENTRY:
     scaled = mul value, 10
+    !value
     out = add acc, scaled
+    !acc
     !scaled
     return out
 
@@ -36,7 +38,9 @@ L_ENTRY:
 @binary_heap_into_iter_sorted_reduce_tens(acc: u64, value: u64) -> u64:
 L_ENTRY:
     scaled = mul value, 10
+    !value
     out = add acc, scaled
+    !acc
     !scaled
     return out
 

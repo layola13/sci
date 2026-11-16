@@ -3,6 +3,7 @@
 @vec_deque_iter_fold_decimal(acc: u64, value: u64) -> u64:
 L_ENTRY:
     scaled = mul acc, 10
+    !acc
     out = add scaled, value
     !scaled
     !value
@@ -30,6 +31,7 @@ L_TRY_FOLD_STOP:
 @vec_deque_iter_reduce_sum(acc: u64, value: u64) -> u64:
 L_ENTRY:
     out = add acc, value
+    !acc
     !value
     return out
 

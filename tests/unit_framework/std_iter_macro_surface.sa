@@ -5,6 +5,7 @@
 @iter_is_even(value: u64) -> u64:
 L_ENTRY:
     rem = urem value, 2
+    !value
     out = eq rem, 0
     !rem
     return out
@@ -12,22 +13,27 @@ L_ENTRY:
 @iter_gt_four(value: u64) -> u64:
 L_ENTRY:
     out = ugt value, 4
+    !value
     return out
 
 @iter_lt_ten(value: u64) -> u64:
 L_ENTRY:
     out = ult value, 10
+    !value
     return out
 
 @iter_lt_four(value: u64) -> u64:
 L_ENTRY:
     out = ult value, 4
+    !value
     return out
 
 @iter_accumulate_tens(acc: u64, value: u64) -> u64:
 L_ENTRY:
     scaled = mul value, 10
+    !value
     out = add acc, scaled
+    !acc
     !scaled
     return out
 

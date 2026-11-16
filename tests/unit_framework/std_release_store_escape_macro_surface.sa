@@ -16,6 +16,7 @@ L_ENTRY:
     store node+0, old_tail as ptr
     store node+8, 0 as u64
     store node+16, value as u64
+    !value
     has_tail = ne old_tail, 0
     br has_tail -> L_LINK, L_HEAD
 L_LINK:
@@ -31,6 +32,7 @@ L_TAIL:
     n = load box+16 as u64
     n2 = add n, 1
     store box+16, n2 as u64
+    !box
     !n
     !n2
     !node

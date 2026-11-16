@@ -3,6 +3,7 @@
 @refcell_add_five(value: u64) -> u64:
 L_ENTRY:
     out = add value, 5
+    !value
     return out
 
 @test "sa_std refcell u64 borrow and mutation macros"():

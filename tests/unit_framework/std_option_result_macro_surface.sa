@@ -8,11 +8,13 @@
 @opt_double(value: u64) -> u64:
 L_ENTRY:
     out = mul value, 2
+    !value
     return out
 
 @opt_gt_five(value: u64) -> u64:
 L_ENTRY:
     out = ugt value, 5
+    !value
     return out
 
 @opt_default_value() -> u64:
@@ -29,6 +31,7 @@ L_ENTRY:
 L_ENTRY:
     opt = alloc Option_SIZE
     doubled = mul value, 2
+    !value
     EXPAND OPTION_SET_SOME opt, doubled
     !doubled
     return opt
@@ -40,12 +43,14 @@ L_ENTRY:
 @res_err_plus(value: u64) -> u64:
 L_ENTRY:
     out = add value, 100
+    !value
     return out
 
 @res_then_ok(value: u64) -> ptr:
 L_ENTRY:
     res = alloc Result_SIZE
     out = add value, 9
+    !value
     EXPAND RESULT_SET_OK res, out
     !out
     return res
@@ -54,6 +59,7 @@ L_ENTRY:
 L_ENTRY:
     res = alloc Result_SIZE
     out = add err, 1
+    !err
     EXPAND RESULT_SET_OK res, out
     !out
     return res

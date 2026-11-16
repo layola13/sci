@@ -3,12 +3,14 @@
 @add_ten(value: u64) -> u64:
 L_ENTRY:
     result = add value, 10
+    !value
     return result
 
 @times_three(value: u64) -> u64:
 L_ENTRY:
     doubled = mul value, 2
     result = add doubled, value
+    !value
     return result
 
 @test "sa_std ops ControlFlow value result and map macros"():

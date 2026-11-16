@@ -3,11 +3,13 @@
 @array_from_fn_double(index: u64) -> u64:
 L_ENTRY:
     out = mul index, 2
+    !index
     return out
 
 @array_map_plus_ten(value: u64) -> u64:
 L_ENTRY:
     out = add value, 10
+    !value
     return out
 
 @array_try_from_fn_until_three(index: u64, &out_value: ptr) -> u64:
@@ -16,6 +18,7 @@ L_ENTRY:
     br keep -> L_STORE, L_FAIL
 L_STORE:
     value = mul index, 5
+    !index
     store out_value+0, value as u64
     !value
     !out_value
@@ -29,6 +32,7 @@ L_FAIL:
 @array_try_from_fn_all(index: u64, &out_value: ptr) -> u64:
 L_ENTRY:
     value = add index, 11
+    !index
     store out_value+0, value as u64
     !value
     !out_value
@@ -40,6 +44,7 @@ L_ENTRY:
     br keep -> L_STORE, L_FAIL
 L_STORE:
     mapped = add value, 100
+    !value
     store out_value+0, mapped as u64
     !mapped
     !out_value
@@ -53,6 +58,7 @@ L_FAIL:
 @array_try_map_all(value: u64, &out_value: ptr) -> u64:
 L_ENTRY:
     mapped = add value, 200
+    !value
     store out_value+0, mapped as u64
     !mapped
     !out_value

@@ -415,6 +415,7 @@ L_XDG_ENTRY:
     EXPAND STR_EQ config_dirs_eq, config_dirs_slice, config_dirs_value
 
     EXPAND ENV_SET_VAR set_empty_data_dirs_status, data_dirs_key, empty_value
+    !empty_value
     EXPAND ENV_REMOVE_VAR remove_config_dirs_status, config_dirs_key
     default_data_dirs_slice = stack_alloc Slice_SIZE
     default_config_dirs_slice = stack_alloc Slice_SIZE

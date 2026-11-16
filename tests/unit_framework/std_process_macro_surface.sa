@@ -1542,6 +1542,7 @@ L_FAIL_PIDFD_SPAWN:
 L_PIDFD_BORROW:
     EXPAND PROCESS_PIDFD pidfd_status, pidfd, process
     pidfd_ok = eq pidfd_status, SA_PROCESS_OK
+    !pidfd_status
     br pidfd_ok -> L_HAVE_PIDFD, L_PIDFD_FALLBACK
 
 L_HAVE_PIDFD:

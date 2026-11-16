@@ -196,6 +196,7 @@ L_ENTRY:
     EXPAND FS_READ read_status, read_len, read_file, read_buf, 8
     EXPAND FS_CLOSE close_read_status, read_file
     EXPAND STR_FROM_PARTS read_view, read_buf, read_len
+    !read_buf
     EXPAND STR_FROM_PARTS hello_view, &FS_TEST_HELLO, FS_TEST_HELLO_LEN
     EXPAND STR_EQ read_eq, read_view, hello_view
 
@@ -241,6 +242,7 @@ L_FAIL_READ:
     call @sa_assert_eq_i64(len_status, SA_FS_OK, 940)
     call @sa_assert_eq_i64(file_len, FS_TEST_HELLO_LEN, 940)
     call @sa_assert_eq_i64(open_read_status, SA_FS_OK, 940)
+    !open_read_status
     call @sa_assert_eq_i64(read_status, SA_FS_OK, 940)
     call @sa_assert_eq_i64(read_len, FS_TEST_HELLO_LEN, 940)
     call @sa_assert_eq_i64(close_read_status, SA_FS_OK, 940)
@@ -317,6 +319,7 @@ L_TRUNCATE:
     EXPAND FS_CLOSE close_write_status, write_file
     EXPAND FS_LEN len2_status, file_len2, FS_TEST_PATH, FS_TEST_PATH_LEN
     EXPAND STR_FROM_PARTS exact_view, exact_buf, FS_TEST_HEY_LEN
+    !exact_buf
     EXPAND STR_FROM_PARTS hey_view, &FS_TEST_HEY, FS_TEST_HEY_LEN
     EXPAND STR_EQ exact_eq, exact_view, hey_view
 
@@ -365,6 +368,7 @@ L_FAIL_TRUNCATE:
     call @sa_test_debug_i64(&FS_DBG_FILE_LEN2, FS_DBG_FILE_LEN2_LEN, file_len2)
     call @sa_test_debug_i64(&FS_DBG_EXACT_EQ, FS_DBG_EXACT_EQ_LEN, exact_eq)
     call @sa_assert_eq_i64(create_status, SA_FS_OK, 941)
+    !create_status
     call @sa_assert_eq_i64(write_status, SA_FS_OK, 941)
     call @sa_assert_eq_i64(written_len, FS_TEST_HEY_LEN, 941)
     call @sa_assert_eq_i64(flush_status, SA_FS_OK, 941)

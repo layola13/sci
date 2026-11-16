@@ -173,7 +173,9 @@ L_ENTRY:
     be_b1_ptr = ptr_add be_buf, 1
     be_b7_ptr = ptr_add be_buf, 7
     be_b1 = load be_b1_ptr+0 as u8
+    !be_b1_ptr
     be_b7 = load be_b7_ptr+0 as u8
+    !be_b7_ptr
     EXPAND NUM_U64_WRITE_BE_BYTES write_be_short_ok, be_buf, 7, 81985529216486895
     EXPAND NUM_U64_WRITE_LE_BYTES write_le_ok, le_buf, 8, 81985529216486895
     EXPAND NUM_U64_FROM_LE_BYTES from_le_bytes, le_buf
@@ -181,7 +183,9 @@ L_ENTRY:
     le_b1_ptr = ptr_add le_buf, 1
     le_b7_ptr = ptr_add le_buf, 7
     le_b1 = load le_b1_ptr+0 as u8
+    !le_b1_ptr
     le_b7 = load le_b7_ptr+0 as u8
+    !le_b7_ptr
     EXPAND NUM_U64_WRITE_NE_BYTES write_ne_ok, ne_buf, 8, 81985529216486895
     EXPAND NUM_U64_FROM_NE_BYTES from_ne_bytes, ne_buf
     ne_b0 = load ne_buf+0 as u8
@@ -190,6 +194,7 @@ L_ENTRY:
     i64_b0 = load i64_buf+0 as u8
     i64_b7_ptr = ptr_add i64_buf, 7
     i64_b7 = load i64_b7_ptr+0 as u8
+    !i64_b7_ptr
     high_bit = shl 1, 63
     high_byte = shl 1, 56
     high_plus_one = add high_bit, 1
@@ -1560,6 +1565,7 @@ L_ENTRY:
     EXPAND NONZERO_U64_FROM_BE_BYTES u64_from_zero_ok, nz_u64_zero, zero_buf
     buf7 = ptr_add buf, 7
     u64_be_b7 = load buf7+0 as u8
+    !buf7
 
     EXPAND NONZERO_I64_NEW i64_new_ok, nz_i64, -8
     EXPAND NONZERO_I64_COUNT_ONES i64_ones, nz_i64

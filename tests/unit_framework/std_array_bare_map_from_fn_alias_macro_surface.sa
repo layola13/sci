@@ -3,11 +3,13 @@
 @array_from_fn_double(index: u64) -> u64:
 L_ENTRY:
     out = mul index, 2
+    !index
     return out
 
 @array_map_plus_ten(value: u64) -> u64:
 L_ENTRY:
     out = add value, 10
+    !value
     return out
 
 @test "sa_std array bare map/from_fn alias macro surface"():
