@@ -1857,17 +1857,18 @@ fn printVersion(writer: anytype) !void {
     try writer.print("sa {s}\n", .{ver});
 }
 
+    // NOTE (DEF-SCI-TMPWORKDIR-BASE64-SLASH): temp-dir names use url_safe base64. Standard base64 can emit slash, which turns the name into an absolute path and fails makePath with AccessDenied.
 const TmpWorkDir = struct {
     dir: sio.Dir,
     parent_dir: sio.Dir,
-    sub_path: [std.base64.standard.Encoder.calcSize(12)]u8,
+    sub_path: [std.base64.url_safe.Encoder.calcSize(12)]u8,
 
     fn init() !TmpWorkDir {
         var random_bytes: [12]u8 = undefined;
         sio.io().random(&random_bytes);
 
-        var sub_path: [std.base64.standard.Encoder.calcSize(12)]u8 = undefined;
-        _ = std.base64.standard.Encoder.encode(&sub_path, &random_bytes);
+        var sub_path: [std.base64.url_safe.Encoder.calcSize(12)]u8 = undefined;
+        _ = std.base64.url_safe.Encoder.encode(&sub_path, &random_bytes);
 
         const cwd = sio.cwd();
         try cwd.makePath(".zig-cache");
@@ -11623,4 +11624,22 @@ test "check --emit-sab roundtrips through compileSource without text fallback" {
     try std.testing.expectError(error.TruncatedSab, compileSource(std.testing.allocator, "bad.sab", .{}));
     try tdir.writeFile(.{ .sub_path = "fake.sab", .data = "this is not a sab binary" });
     try std.testing.expectError(error.InvalidSabMagic, compileSource(std.testing.allocator, "fake.sab", .{}));
+}
+
+test "TmpWorkDir.init generates url-safe temp-dir names (DEF-SCI-TMPWORKDIR-BASE64-SLASH)" {
+    // Standard base64 can emit slash as its first character (1/64 per call),
+    // turning the temp-dir name into an absolute path: makePath then tries
+    // to create it under the filesystem root and fails with AccessDenied.
+    // url_safe emits dash/underscore instead of plus/slash. A
+    // standard-base64 name fails this test with probability 1-(62/64)^16
+    // per sample (any plus/slash in 16 chars), so 512 samples fail it
+    // with probability 1-(62/64)^8192, i.e. for all practical purposes
+    // certainly -- far more sensitive than the 1/64 first-char defect.
+    var i: usize = 0;
+    while (i < 512) : (i += 1) {
+        var tmp = try TmpWorkDir.init();
+        try std.testing.expectEqual(@as(usize, 16), tmp.sub_path.len);
+        try std.testing.expect(std.mem.indexOfAny(u8, &tmp.sub_path, "/+") == null);
+        tmp.cleanup();
+    }
 }
