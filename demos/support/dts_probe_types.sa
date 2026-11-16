@@ -53,6 +53,8 @@ L_ENTRY:
 @export add_i64(a: i64, b: i64) -> i64:
 L_ENTRY:
     s = add a, b
+    !a
+    !b
     return s
 
 @export mem_i64(x: i64) -> i64:
@@ -60,6 +62,7 @@ L_ENTRY:
     slot = stack_alloc 8
     store slot+0, x as i64
     y = load slot+0 as i64
+    !x
     return y
 
 @export mem_u32(x: u32) -> u32:
@@ -67,6 +70,7 @@ L_ENTRY:
     slot = stack_alloc 4
     store slot+0, x as u32
     y = load slot+0 as u32
+    !x
     return y
 
 @export wide_i64() -> i64:
