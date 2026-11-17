@@ -1,0 +1,95 @@
+@import "sa_std/task.sai"
+@import "sa_std/ptr.sa"
+
+// Regression (DEF-SCI-HOST-JOIN-COMPLETED-SEGFAULT, re-adjudicated):
+// a task entry must be a callable machine address. An SA fn value's
+// bits are the address of its vtable record (data); the callable
+// address lives in vtable slot 0. Passing the vtable address itself
+// as the spawn entry (entry = &VT_W; call @sa_task_spawn(*entry, ...))
+// used to start the goroutine on a data address and kill the whole
+// process with signal 11 at whatever synchronization point came
+// next (join, sleep, recv). The host now rejects a non-executable
+// entry at spawn time with a nonzero status instead.
+
+@worker(p: ptr):
+L_ENTRY:
+    store p+0, 42 as u64
+    !p
+    return
+
+@const VT_W = vtable { call = @worker }
+
+@test "spawn rejects vtable address as entry"():
+L_ENTRY:
+    h = stack_alloc 8
+    store h+0, 0 as u64
+    entry = &VT_W
+    outp = ptr_add h, 0
+    rc = call @sa_task_spawn(*entry, 0, &outp)
+    !outp
+    ^entry
+    hv = load h+0 as u64
+    c1 = eq rc, 0
+    br c1 -> L_BAD, L_CHK
+
+L_CHK:
+    !c1
+    c2 = ne hv, 0
+    br c2 -> L_BAD2, L_OK
+
+L_BAD:
+    !c1
+    panic(8891)
+
+L_BAD2:
+    !c2
+    panic(8892)
+
+L_OK:
+    !c2
+    !rc
+    !hv
+    return
+
+@test "spawn accepts vtable slot0 entry and join returns"():
+L_ENTRY:
+    h = stack_alloc 16
+    store h+0, 0 as u64
+    store h+8, 0 as u64
+    vt = &VT_W
+    fncell = load vt+0 as ptr
+    addr = bitcast fncell as ptr
+    outp = ptr_add h, 0
+    flagp = ptr_add h, 8
+    rc = call @sa_task_spawn(*addr, flagp, &outp)
+    !outp
+    !flagp
+    hv = load h+0 as u64
+    s = call @sa_task_join(hv)
+    !hv
+    fv = load h+8 as u64
+    c1 = ne s, 0
+    br c1 -> L_BAD, L_CHK
+
+L_CHK:
+    !c1
+    c2 = ne fv, 42
+    br c2 -> L_BAD2, L_OK
+
+L_BAD:
+    !c1
+    panic(8893)
+
+L_BAD2:
+    !c2
+    panic(8894)
+
+L_OK:
+    !c2
+    !rc
+    !s
+    !fv
+    !fncell
+    !vt
+    !addr
+    return

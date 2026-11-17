@@ -1552,6 +1552,97 @@ const NetWaiter = struct {
 // in the Phase C section at the end of this file.
 
 // ---------------------------------------------------------------------
+// Entry validation (DEF-SCI-HOST-JOIN-COMPLETED-SEGFAULT,
+// re-adjudicated 2026-11-17): a task entry must be a callable
+// machine address. An SA fn value's bits are the address of its
+// vtable record (data); the callable address lives in vtable
+// slot 0, and correct callers pass the loaded slot (the SLA
+// extern-argument plan does exactly that load + cast). A caller
+// that passes the vtable address itself -- e.g. hand-written SA
+// `entry = &VT; call @sa_task_spawn(*entry, ...)` -- used to start
+// the goroutine on a data address: the trampoline jumped into a
+// non-executable page and the whole process died with SIGSEGV at
+// whatever synchronization point came next (join, sleep, recv),
+// which made the crash look like a defect in that point. Reject
+// a non-executable entry at the entry-taking calls with
+// ERR_INVALID instead -- the same loud channel as a null entry.
+// The executable-range set comes from /proc/self/maps, is cached
+// after the first read, and is re-read once on a miss (a mapping
+// created after the snapshot -- a JIT buffer, a late dlopen -- is
+// then honored). If the maps file cannot be read at all, the
+// cached set stays empty and entries are accepted: the check
+// guards against a known-invalid shape, it must not make spawn
+// unusable in restricted environments.
+
+const ExecRange = struct { lo: usize, hi: usize };
+
+var exec_ranges_mu: Mutex = .{};
+var exec_ranges: []ExecRange = &.{};
+var exec_ranges_loaded: bool = false;
+
+fn loadExecRangesLocked() void {
+    // Caller holds exec_ranges_mu. Rebuilds the cached set from
+    // /proc/self/maps; on any failure the previous set is kept.
+    const fd_rc = linux.openat(linux.AT.FDCWD, "/proc/self/maps", .{ .ACCMODE = .RDONLY }, 0);
+    if (@as(isize, @bitCast(fd_rc)) < 0) return;
+    const fd: linux.fd_t = @intCast(fd_rc);
+    defer _ = linux.close(fd);
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(alloc);
+    var chunk: [8192]u8 = undefined;
+    while (true) {
+        const rc = linux.read(fd, &chunk, chunk.len);
+        if (@as(isize, @bitCast(rc)) < 0) return;
+        if (rc == 0) break;
+        buf.appendSlice(alloc, chunk[0..rc]) catch return;
+        if (buf.items.len > (1 << 22)) break;
+    }
+    var ranges: std.ArrayList(ExecRange) = .empty;
+    var lines = std.mem.splitScalar(u8, buf.items, '\n');
+    while (lines.next()) |line| {
+        // Format: "<lo>-<hi> <perms> <off> <dev> <inode> [path]";
+        // perms is the second field and its third char is 'x'.
+        const dash = std.mem.indexOfScalar(u8, line, '-') orelse continue;
+        const lo = std.fmt.parseInt(usize, line[0..dash], 16) catch continue;
+        const sp1 = std.mem.indexOfScalarPos(u8, line, dash, ' ') orelse continue;
+        const hi = std.fmt.parseInt(usize, line[dash + 1 .. sp1], 16) catch continue;
+        const sp2 = std.mem.indexOfScalarPos(u8, line, sp1 + 1, ' ') orelse continue;
+        const perms = line[sp1 + 1 .. sp2];
+        if (perms.len < 3 or perms[2] != 'x') continue;
+        ranges.append(alloc, .{ .lo = lo, .hi = hi }) catch {
+            ranges.deinit(alloc);
+            return;
+        };
+    }
+    if (exec_ranges.len > 0) alloc.free(exec_ranges);
+    exec_ranges = ranges.toOwnedSlice(alloc) catch {
+        ranges.deinit(alloc);
+        return;
+    };
+}
+
+fn entryInExecRanges(addr: usize) bool {
+    for (exec_ranges) |r| {
+        if (addr >= r.lo and addr < r.hi) return true;
+    }
+    return false;
+}
+
+fn entryIsExecutable(entry: EntryFn) bool {
+    const addr = @intFromPtr(entry);
+    exec_ranges_mu.lock();
+    defer exec_ranges_mu.unlock();
+    if (!exec_ranges_loaded) {
+        loadExecRangesLocked();
+        exec_ranges_loaded = true;
+    }
+    if (entryInExecRanges(addr)) return true;
+    loadExecRangesLocked();
+    if (entryInExecRanges(addr)) return true;
+    return exec_ranges.len == 0;
+}
+
+// ---------------------------------------------------------------------
 // Phase A externs: spawn / yield / sleep / join / current.
 
 pub export fn sa_task_spawn(entry: ?*const anyopaque, arg: ?*anyopaque, out_handle: ?*u64) i32 {
@@ -1559,6 +1650,7 @@ pub export fn sa_task_spawn(entry: ?*const anyopaque, arg: ?*anyopaque, out_hand
     const out = out_handle orelse return ERR_INVALID;
     out.* = 0;
     const e: EntryFn = @ptrCast(@alignCast(entry orelse return ERR_INVALID));
+    if (!entryIsExecutable(e)) return ERR_INVALID;
     if (!ensureInit()) return ERR_UNSUPPORTED;
     const g = registryAlloc(e, arg) orelse return ERR_NOMEM;
     const region = allocStack(g.handle()) orelse {
@@ -1592,6 +1684,7 @@ pub export fn sa_task_spawn_supervised(entry: ?*const anyopaque, arg: ?*anyopaqu
     const out = out_handle orelse return ERR_INVALID;
     out.* = 0;
     const e: EntryFn = @ptrCast(@alignCast(entry orelse return ERR_INVALID));
+    if (!entryIsExecutable(e)) return ERR_INVALID;
     if (!ensureInit()) return ERR_UNSUPPORTED;
     const g = registryAlloc(e, arg) orelse return ERR_NOMEM;
     if (sink) |s| {
@@ -4398,6 +4491,12 @@ pub export fn sa_sync_once_do(handle: u64, entry: ?*const anyopaque, arg: ?*anyo
     }
     o.once_running = true;
     o.mu.unlock();
+    if (!entryIsExecutable(f)) {
+        o.mu.lock();
+        o.once_running = false;
+        o.mu.unlock();
+        return ERR_INVALID;
+    }
     f(arg);
     o.mu.lock();
     o.once_done = true;
@@ -4860,4 +4959,26 @@ test "sa_task.companion: monitor rejects consumed handle under recycle churn (DE
         try testing.expectEqual(ERR_INVALID_HANDLE, sa_task_monitor(h, &mch));
         try testing.expectEqual(@as(u64, 0), mch);
     }
+}
+
+// ---------------------------------------------------------------------
+// Entry validation test (DEF-SCI-HOST-JOIN-COMPLETED-SEGFAULT,
+// re-adjudicated): a data address passed as a task entry must be
+// rejected with ERR_INVALID at spawn time, never dispatched.
+
+var data_entry_cell: u64 = 0;
+
+test "sa_task.test.sched: spawn rejects a data address as entry" {
+    if (!supported) return error.SkipZigTest;
+    const data_entry: ?*const anyopaque = @ptrCast(&data_entry_cell);
+    var h: u64 = 999;
+    try testing.expectEqual(ERR_INVALID, sa_task_spawn(data_entry, null, &h));
+    try testing.expectEqual(@as(u64, 0), h);
+    try testing.expectEqual(ERR_INVALID, sa_task_spawn_supervised(data_entry, null, null, null, &h));
+    try testing.expectEqual(@as(u64, 0), h);
+    // Positive control: a real function entry is still accepted
+    // and joins cleanly.
+    try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&countingWorker, null, &h));
+    try testing.expect(h != 0);
+    try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
 }
