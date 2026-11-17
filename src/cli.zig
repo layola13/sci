@@ -2511,6 +2511,11 @@ const MemoryStageReporterContext = struct {
     previous_rss_bytes: ?u64 = null,
     peak_rss_bytes: ?u64 = null,
     live: bool = false,
+    // Verify sub-stage timing probe (SA_STAGE_TIMING=1): elapsed ms since
+    // verify start, printed per VerifyStageReporter event.
+    timing_live: bool = false,
+    timing_start: ?std.Io.Timestamp = null,
+    timing_prev_ns: u64 = 0,
 };
 
 fn writeVerifierMemoryStage(context: *MemoryStageReporterContext, stage: []const u8, completed: usize, total: usize) !void {
@@ -2519,6 +2524,15 @@ fn writeVerifierMemoryStage(context: *MemoryStageReporterContext, stage: []const
     if (rss) |value| {
         if (context.peak_rss_bytes == null or value > context.peak_rss_bytes.?) {
             context.peak_rss_bytes = value;
+        }
+    }
+
+    if (context.timing_live) {
+        if (context.timing_start) |start| {
+            const elapsed_ns = elapsedNs(start);
+            const delta_ns = elapsed_ns -| context.timing_prev_ns;
+            context.timing_prev_ns = elapsed_ns;
+            context.writer.print("[verify-stage] {s} {d:.3}ms (+{d:.3}ms)\n", .{ stage, @as(f64, @floatFromInt(elapsed_ns)) / 1_000_000.0, @as(f64, @floatFromInt(delta_ns)) / 1_000_000.0 }) catch {};
         }
     }
 
@@ -5737,8 +5751,10 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
         .previous_rss_bytes = if (memory_metrics) |memory| memory.after_flatten_rss_bytes else null,
         .peak_rss_bytes = if (memory_metrics) |memory| memory.peak_rss_bytes else null,
         .live = options.mem_report_live,
+        .timing_live = options.profile,
+        .timing_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null,
     };
-    const verifier_stage_reporter: ?referee.VerifyStageReporter = if (options.mem_report)
+    const verifier_stage_reporter: ?referee.VerifyStageReporter = if (options.mem_report or options.profile)
         .{ .context = &verifier_stage_context, .report_fn = reportVerifierMemoryStage }
     else
         null;

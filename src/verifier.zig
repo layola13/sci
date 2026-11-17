@@ -220,6 +220,8 @@ const CollectResult = struct {
     sig_index_by_name: std.StringHashMap(usize),
     const_vtables: std.array_list.Managed(ConstVTable),
     function_starts: std.array_list.Managed(usize),
+    // Const global ids, built once per verify call (OPTIMIZE-IMPL-1 step 2).
+    const_ids: std.AutoHashMap(u32, void),
 };
 
 var test_classify_line_count: if (builtin.is_test) usize else void = if (builtin.is_test) 0 else {};
@@ -608,19 +610,21 @@ fn constTrap(
     return trapReport(.const_mutation, item, function_text, is_ffi_wrapper, register, maskOf(.immutable), actual_mask, message, null);
 }
 
+/// Inverted seeding (OPTIMIZE-IMPL-1, step 2): the old loop visited EVERY
+/// const for EVERY function (O(F x C) findId + slotOf), which became the
+/// dominant residual quadratic once scopes went demand-driven. The scope
+/// already contains exactly the consts the function references, and
+/// reg_ids is slot-ordered, so iterate the scope and test membership.
 fn seedConstSymbols(
     state: []u16,
     flags: []u8,
     scope: *const FunctionRegScope,
-    symbols: *const symbol.SymbolTable,
-    const_decls: []const const_decl.ConstDecl,
+    const_ids: *const std.AutoHashMap(u32, void),
 ) void {
-    for (const_decls) |decl| {
-        if (symbols.findId(decl.name)) |id| {
-            const idx: usize = @intCast(scope.slotOf(id) orelse continue);
-            state[idx] = maskOf(.active) | maskOf(.immutable);
-            flags[idx] |= regFlagImmutable;
-        }
+    for (scope.reg_ids, 0..) |id, idx| {
+        if (!const_ids.contains(id)) continue;
+        state[idx] = maskOf(.active) | maskOf(.immutable);
+        flags[idx] |= regFlagImmutable;
     }
 }
 
@@ -2117,22 +2121,57 @@ fn addScopeReg(
     try reg_ids.append(reg_id);
 }
 
+/// Demand-driven const scoping (OPTIMIZE-IMPL-1): a const belongs to a
+/// function's scope iff the function references it -- as a `.reg` operand
+/// (handled by the per-instruction operand scan) or by NAME in the
+/// instruction text (call args, `store` `.text` values, `.op` `.text`
+/// operands -- none of which the operand scan sees). The old code added
+/// EVERY const to EVERY function (`for (const_decls)`), inflating each
+/// scope from ~10 regs to ~11k and making metadata + body quadratic.
+/// The name set is built ONCE per top-level call (never per function);
+/// the text scan is linear in the instruction text. False positives
+/// (a const name inside a string literal) only add one harmless slot;
+/// false negatives are impossible by construction: any name verifyBody
+/// can resolve through the scope is textually present here, and any
+/// id-based reference arrives as a `.reg` operand.
+fn addTextReferencedConsts(
+    raw_text: []const u8,
+    const_names: *const std.StringHashMap(void),
+    symbols: *const symbol.SymbolTable,
+    reg_ids: *std.array_list.Managed(u32),
+    reg_seen: *std.AutoHashMap(u32, void),
+) !void {
+    var i: usize = 0;
+    while (i < raw_text.len) {
+        const c = raw_text[i];
+        if (std.ascii.isAlphabetic(c) or c == '_') {
+            const start = i;
+            while (i < raw_text.len and (std.ascii.isAlphanumeric(raw_text[i]) or raw_text[i] == '_')) : (i += 1) {}
+            const token = raw_text[start..i];
+            if (const_names.contains(token)) {
+                // All @const decls precede function bodies in the .sa
+                // stream, and the const walk interns each decl name before
+                // any body instruction is scanned, so findId succeeds.
+                if (symbols.findId(token)) |id| {
+                    try addScopeReg(reg_ids, reg_seen, id);
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+}
+
 fn finalizeFunctionScope(
     sigs: *std.array_list.Managed(sig.FunctionSig),
     reg_ids: *std.array_list.Managed(u32),
-    reg_seen: *std.AutoHashMap(u32, void),
-    const_decls: []const const_decl.ConstDecl,
-    symbols: *const symbol.SymbolTable,
 ) !void {
     if (sigs.items.len == 0) {
         reg_ids.clearRetainingCapacity();
         return;
     }
-    for (const_decls) |decl| {
-        if (symbols.findId(decl.name)) |id| {
-            try addScopeReg(reg_ids, reg_seen, id);
-        }
-    }
+    // No const loop: text-referenced consts were added by the
+    // per-instruction scan in collectMetadata (see addTextReferencedConsts).
     const slice = try reg_ids.toOwnedSlice();
     sigs.items[sigs.items.len - 1].reg_ids = slice;
 }
@@ -2149,6 +2188,12 @@ fn buildFunctionRegScope(
     var seen = std.AutoHashMap(u32, void).init(allocator);
     defer seen.deinit();
 
+    var const_names = std.StringHashMap(void).init(allocator);
+    defer const_names.deinit();
+    for (const_decls) |decl| {
+        if (decl.name.len != 0) try const_names.put(decl.name, {});
+    }
+
     try reg_ids.ensureTotalCapacity(param_ids.len);
     try seen.ensureTotalCapacity(@intCast(param_ids.len));
     for (param_ids) |reg_id| {
@@ -2161,6 +2206,7 @@ fn buildFunctionRegScope(
                 try addScopeReg(&reg_ids, &seen, operand.reg);
             }
         }
+        try addTextReferencedConsts(item.raw_text, &const_names, symbols, &reg_ids, &seen);
 
         switch (item.kind) {
             .call, .call_indirect, .panic, .panic_msg, .return_, .native => {
@@ -2177,12 +2223,6 @@ fn buildFunctionRegScope(
                 } else |_| {}
             },
             else => {},
-        }
-    }
-
-    for (const_decls) |decl| {
-        if (symbols.findId(decl.name)) |id| {
-            try addScopeReg(&reg_ids, &seen, id);
         }
     }
 
@@ -2236,12 +2276,17 @@ pub fn populateTrustedRegScopes(
     var sig_index: usize = 0;
     var range_start: ?usize = null;
     var idx: usize = 0;
+    var const_names = std.StringHashMap(void).init(allocator);
+    defer const_names.deinit();
+    for (const_decls) |decl| {
+        if (decl.name.len != 0) try const_names.put(decl.name, {});
+    }
     while (idx <= instructions.len) : (idx += 1) {
         const at_decl = idx < instructions.len and isDecl(instructions[idx].kind);
         if (idx == instructions.len or at_decl) {
             if (range_start) |start| {
                 if (sig_index >= function_sigs.len) return error.InvalidTrustedScope;
-                try populateTrustedFunctionScope(allocator, instructions[start..idx], const_decls, &function_sigs[sig_index], symbols);
+                try populateTrustedFunctionScope(allocator, instructions[start..idx], &const_names, &function_sigs[sig_index], symbols);
                 sig_index += 1;
             }
             if (idx < instructions.len) range_start = idx + 1;
@@ -2253,7 +2298,7 @@ pub fn populateTrustedRegScopes(
 fn populateTrustedFunctionScope(
     allocator: std.mem.Allocator,
     body: []inst.Instruction,
-    const_decls: []const const_decl.ConstDecl,
+    const_names: *const std.StringHashMap(void),
     function_sig: *sig.FunctionSig,
     symbols: *const symbol.SymbolTable,
 ) !void {
@@ -2271,6 +2316,7 @@ fn populateTrustedFunctionScope(
                 try addScopeReg(&reg_ids, &seen, operand.reg);
             }
         }
+        try addTextReferencedConsts(item.raw_text, const_names, symbols, &reg_ids, &seen);
         if (parseInstructionCallForVerifier(allocator, symbols, item)) |parsed0| {
             var parsed = parsed0;
             defer parsed.deinit(allocator);
@@ -2283,12 +2329,6 @@ fn populateTrustedFunctionScope(
             }
         } else |_| {}
     }
-    for (const_decls) |decl| {
-        if (symbols.findId(decl.name)) |id| {
-            try addScopeReg(&reg_ids, &seen, id);
-        }
-    }
-
     var scope = try FunctionRegScope.init(allocator, try reg_ids.toOwnedSlice());
     errdefer scope.deinit();
     for (body) |*item| {
@@ -2328,6 +2368,14 @@ fn collectMetadata(
     defer current_reg_seen.deinit();
     var current_sig_index: usize = 0;
 
+    // Demand-driven const scoping: const names, built once (never per
+    // function -- rebuilding per function would reintroduce O(F x C)).
+    var const_names = std.StringHashMap(void).init(allocator);
+    defer const_names.deinit();
+    for (const_decls) |decl| {
+        if (decl.name.len != 0) try const_names.put(decl.name, {});
+    }
+
     var const_idx: usize = 0;
     for (instructions, 0..) |item, inst_idx| {
         while (const_idx < const_decls.len and const_decls[const_idx].expanded_line <= item.expanded_line) {
@@ -2343,7 +2391,7 @@ fn collectMetadata(
         if (isDecl(item.kind)) {
             const kind = parseDeclKind(item.kind).?;
             if (sigs.items.len != 0 and current_sig_index < sigs.items.len) {
-                try finalizeFunctionScope(&sigs, &current_reg_ids, &current_reg_seen, const_decls, &symbols);
+                try finalizeFunctionScope(&sigs, &current_reg_ids);
             }
             current_reg_ids.clearRetainingCapacity();
             current_reg_seen.clearRetainingCapacity();
@@ -2400,6 +2448,7 @@ fn collectMetadata(
                 try addScopeReg(&current_reg_ids, &current_reg_seen, operand.reg);
             }
         }
+        try addTextReferencedConsts(item.raw_text, &const_names, &symbols, &current_reg_ids, &current_reg_seen);
 
         if (parseInstructionCallForVerifier(allocator, &symbols, item)) |parsed0| {
             var parsed = parsed0;
@@ -2537,15 +2586,24 @@ fn collectMetadata(
     }
 
     if (sigs.items.len != 0) {
-        try finalizeFunctionScope(&sigs, &current_reg_ids, &current_reg_seen, const_decls, &symbols);
+        try finalizeFunctionScope(&sigs, &current_reg_ids);
     }
 
+    var const_ids = std.AutoHashMap(u32, void).init(allocator);
+    errdefer const_ids.deinit();
+    for (const_decls) |decl| {
+        if (decl.name.len != 0) {
+            const id = symbols.findId(decl.name) orelse try symbols.intern(decl.name);
+            try const_ids.put(id, {});
+        }
+    }
     return .{
         .symbols = symbols,
         .sigs = sigs,
         .sig_index_by_name = sig_index_by_name,
         .const_vtables = try collectConstVtables(allocator, const_decls, sigs.items),
         .function_starts = function_starts,
+        .const_ids = const_ids,
     };
 }
 
@@ -2630,12 +2688,21 @@ fn collectPredecodedMetadata(
         try function_starts.append(cloned.entry_inst_idx);
     }
 
+    var const_ids = std.AutoHashMap(u32, void).init(allocator);
+    errdefer const_ids.deinit();
+    for (const_decls) |decl| {
+        if (decl.name.len != 0) {
+            const id = symbols.findId(decl.name) orelse try symbols.intern(decl.name);
+            try const_ids.put(id, {});
+        }
+    }
     return .{
         .symbols = symbols,
         .sigs = sigs,
         .sig_index_by_name = sig_index_by_name,
         .const_vtables = try collectConstVtables(allocator, const_decls, sigs.items),
         .function_starts = function_starts,
+        .const_ids = const_ids,
     };
 }
 
@@ -3209,6 +3276,10 @@ fn verifyBody(
     sax_context: ?SaxValidationContext,
     default_immutable: bool,
 ) !VerifyBodyResult {
+    // const_decls no longer used here: const ids now ride metadata.const_ids
+    // (OPTIMIZE-IMPL-1 step 2). Kept in the signature to avoid churning the
+    // three verifyBody call sites and the parallel context.
+    _ = const_decls;
     std.debug.assert(classified_lines.len == instructions.len);
     var sig_index = sig_index_start;
     var state: []u16 = &.{};
@@ -3449,7 +3520,7 @@ fn verifyBody(
             atomic_history.clearRetainingCapacity();
             defined_labels.clearRetainingCapacity();
             if (current_scope) |scope| {
-                seedConstSymbols(state, flags, &scope, &metadata.symbols, const_decls);
+                seedConstSymbols(state, flags, &scope, &metadata.const_ids);
             }
 
             try annotated.append(.{
@@ -4759,6 +4830,7 @@ pub fn verifyWithOptions(
     defer freeFunctionStarts(&metadata.function_starts);
     var symbols_moved = false;
     defer if (!symbols_moved) metadata.symbols.deinit();
+    defer metadata.const_ids.deinit();
     if (options.stage_reporter) |reporter| reporter.report("after_metadata", metadata.sigs.items.len, instructions.len);
 
     if (try checkGpuSubset(allocator, instructions, &metadata)) |report| {
