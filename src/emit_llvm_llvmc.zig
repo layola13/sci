@@ -414,32 +414,25 @@ const BuildState = struct {
     symbols: *const @import("flattener/symbol.zig").SymbolTable,
     fsig: sig.FunctionSig,
     reg_operands_are_global_ids: bool,
-    const_names: std.StringHashMap(void),
+    const_names: *const std.StringHashMap(void),
     anon_string_names: *const std.StringHashMap([*:0]const u8),
-    const_decls: []const const_decl.ConstDecl,
     function_sigs: []const sig.FunctionSig,
     function_sig_index: *const std.StringHashMap(usize),
-    emitted_sig_index: *const std.StringHashMap(usize),
+    shared: *const SharedEmitTables,
 
     fn init(
         allocator: std.mem.Allocator,
         symbols: *const @import("flattener/symbol.zig").SymbolTable,
         fsig: sig.FunctionSig,
         reg_operands_are_global_ids: bool,
-        const_decls: []const const_decl.ConstDecl,
         function_sigs: []const sig.FunctionSig,
         function_sig_index: *const std.StringHashMap(usize),
-        emitted_sig_index: *const std.StringHashMap(usize),
+        shared: *const SharedEmitTables,
         anon_string_names: *const std.StringHashMap([*:0]const u8),
-    ) !BuildState {
-        var const_names = std.StringHashMap(void).init(allocator);
-        errdefer const_names.deinit();
-        for (const_decls) |decl| try const_names.put(decl.name, {});
-        return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .reg_operands_are_global_ids = reg_operands_are_global_ids, .const_names = const_names, .anon_string_names = anon_string_names, .const_decls = const_decls, .function_sigs = function_sigs, .function_sig_index = function_sig_index, .emitted_sig_index = emitted_sig_index };
-    }
-
-    fn deinit(self: *BuildState) void {
-        self.const_names.deinit();
+    ) BuildState {
+        // No per-function table build: const_names is the prep-built shared
+        // set (see SharedEmitTables), so this constructor cannot fail.
+        return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .reg_operands_are_global_ids = reg_operands_are_global_ids, .const_names = &shared.const_names, .anon_string_names = anon_string_names, .function_sigs = function_sigs, .function_sig_index = function_sig_index, .shared = shared };
     }
 
     fn calleeSig(self: *BuildState, name: []const u8) ?sig.FunctionSig {
@@ -654,20 +647,145 @@ fn buildFunctionSigIndex(allocator: std.mem.Allocator, sigs: []const sig.Functio
     return index;
 }
 
+/// One resolved vtable-slot candidate for the prefix-filtered indirect
+/// query: the declaring const name and the callee name (for the prefix
+/// predicate), plus the resolved sig index / emitted position.
+const IndirectSlotCandidate = struct {
+    decl_name: []const u8,
+    func_name: []const u8,
+    sig_idx: usize,
+    emitted_pos: usize,
+};
+
+/// Prep-built, read-only emit tables shared by every emitWorker.
+///
+/// This replaces two per-function string-keyed rebuilds that made codegen
+/// superlinear (synth 100k: 11,111 tasks x 11,111 const_decls):
+///   - BuildState.init rebuilt `const_names` (one StringHashMap put per
+///     const decl) for every function: ~123M puts @100k.
+///   - inferIndirectSigIndexFrom* rescanned every vtable const decl per
+///     pointer load and hashed each matching func_name into the 33k-entry
+///     `emitted_sig_index`.
+/// The integer key is the function-sig index: `emitted_pos_by_sig` maps a
+/// sig index to its emitted task position (maxInt(u32) = pruned/not
+/// emitted), so an indirect query is O(1) integer indexing after one
+/// prep-time resolution of each vtable slot's func_name. The three name
+/// aliases (name / llvm_name / emitted name) all resolve through
+/// function_sig_index to the same sig index, hence to the same task
+/// position. All tables are built once per emitLlvmc* call, live in the
+/// emit arena, and are only read by workers (concurrent reads are safe).
+const SharedEmitTables = struct {
+    const_names: std.StringHashMap(void),
+    emitted_pos_by_sig: []const u32,
+    indirect_by_slot: std.StringHashMap(?usize),
+    indirect_slot_candidates: std.StringHashMap([]const IndirectSlotCandidate),
+    indirect_by_offset: []const ?usize,
+};
+
 /// Index over EMITTED task order (not source order): DCE drops unreachable
 /// functions from emission, so positions in the C function table only match
-/// task order. Indirect-call inference must resolve through this map, or a
-/// Zig-side index lands on the wrong C function (e.g. a void ctor shadowing
-/// a closure) whenever anything was pruned.
-fn buildEmittedSigIndex(allocator: std.mem.Allocator, tasks: []const ParallelEmitTask) !std.StringHashMap(usize) {
-    var index = std.StringHashMap(usize).init(allocator);
-    errdefer index.deinit();
+/// task order. Indirect-call inference must resolve through the integer
+/// key (sig index -> task position), or a Zig-side index lands on the
+/// wrong C function (e.g. a void ctor shadowing a closure) whenever
+/// anything was pruned.
+fn buildSharedEmitTables(
+    allocator: std.mem.Allocator,
+    verified: anytype,
+    tasks: []const ParallelEmitTask,
+    function_sig_index: *const std.StringHashMap(usize),
+) !SharedEmitTables {
+    // Shared const-name set (was rebuilt per function in BuildState.init).
+    var const_names = std.StringHashMap(void).init(allocator);
+    errdefer const_names.deinit();
+    try const_names.ensureTotalCapacity(@intCast(verified.const_decls.len));
+    for (verified.const_decls) |decl| try const_names.put(decl.name, {});
+
+    // Integer-keyed emitted positions: sig index -> task position.
+    const emitted_pos_by_sig = try allocator.alloc(u32, verified.function_sigs.len);
+    @memset(emitted_pos_by_sig, std.math.maxInt(u32));
     for (tasks, 0..) |task, pos| {
-        try putFunctionSigAlias(&index, task.fsig.name, pos);
-        if (task.fsig.llvm_name) |llvm_name| try putFunctionSigAlias(&index, llvm_name, pos);
-        try putFunctionSigAlias(&index, emittedFunctionName(task.fsig), pos);
+        emitted_pos_by_sig[task.sig_idx] = @intCast(pos);
     }
-    return index;
+
+    // Merge slot candidates over sig indices (shape comparison on the true
+    // sigs). A null merge result is sticky: once a slot name is ambiguous
+    // the old helper returned null at once, and no later candidate may
+    // resurrect it.
+    var slot_merge = std.StringHashMap(?usize).init(allocator);
+    defer slot_merge.deinit();
+    var slot_candidates = std.StringHashMap(std.array_list.Managed(IndirectSlotCandidate)).init(allocator);
+    defer slot_candidates.deinit();
+    var max_slots: usize = 0;
+    for (verified.const_decls) |decl| {
+        switch (decl.value) {
+            .vtable => |literal| {
+                max_slots = @max(max_slots, literal.slots.len);
+                for (literal.slots) |slot| {
+                    const sig_idx = function_sig_index.get(slot.func_name) orelse continue;
+                    const emitted_pos_u32 = emitted_pos_by_sig[sig_idx];
+                    if (emitted_pos_u32 == std.math.maxInt(u32)) continue;
+                    const emitted_pos: usize = @intCast(emitted_pos_u32);
+                    const merge_entry = try slot_merge.getOrPut(slot.name);
+                    if (!merge_entry.found_existing) {
+                        merge_entry.value_ptr.* = sig_idx;
+                    } else if (merge_entry.value_ptr.*) |existing| {
+                        merge_entry.value_ptr.* = chooseIndirectSigIndex(verified.function_sigs, existing, sig_idx);
+                    }
+                    const cand_entry = try slot_candidates.getOrPut(slot.name);
+                    if (!cand_entry.found_existing) cand_entry.value_ptr.* = std.array_list.Managed(IndirectSlotCandidate).init(allocator);
+                    try cand_entry.value_ptr.append(.{ .decl_name = decl.name, .func_name = slot.func_name, .sig_idx = sig_idx, .emitted_pos = emitted_pos });
+                }
+            },
+            else => {},
+        }
+    }
+
+    var indirect_by_slot = std.StringHashMap(?usize).init(allocator);
+    errdefer indirect_by_slot.deinit();
+    var slot_it = slot_merge.iterator();
+    while (slot_it.next()) |entry| {
+        const resolved: ?usize = if (entry.value_ptr.*) |sig_idx| @intCast(emitted_pos_by_sig[sig_idx]) else null;
+        try indirect_by_slot.put(entry.key_ptr.*, resolved);
+    }
+
+    var indirect_slot_candidates = std.StringHashMap([]const IndirectSlotCandidate).init(allocator);
+    errdefer indirect_slot_candidates.deinit();
+    var cand_it = slot_candidates.iterator();
+    while (cand_it.next()) |entry| {
+        try indirect_slot_candidates.put(entry.key_ptr.*, try entry.value_ptr.toOwnedSlice());
+    }
+
+    // The offset query is a pure function of the slot position: precompute
+    // the merged resolution for every slot position once.
+    const indirect_by_offset = try allocator.alloc(?usize, max_slots);
+    for (indirect_by_offset, 0..) |*cell, slot_index| {
+        var resolved: ?usize = null;
+        var ambiguous = false;
+        for (verified.const_decls) |decl| {
+            switch (decl.value) {
+                .vtable => |literal| {
+                    if (slot_index >= literal.slots.len) continue;
+                    const slot = literal.slots[slot_index];
+                    const sig_idx = function_sig_index.get(slot.func_name) orelse continue;
+                    if (emitted_pos_by_sig[sig_idx] == std.math.maxInt(u32)) continue;
+                    resolved = chooseIndirectSigIndex(verified.function_sigs, resolved, sig_idx) orelse {
+                        ambiguous = true;
+                        break;
+                    };
+                },
+                else => {},
+            }
+        }
+        cell.* = if (ambiguous) null else if (resolved) |sig_idx| @as(usize, @intCast(emitted_pos_by_sig[sig_idx])) else null;
+    }
+
+    return .{
+        .const_names = const_names,
+        .emitted_pos_by_sig = emitted_pos_by_sig,
+        .indirect_by_slot = indirect_by_slot,
+        .indirect_slot_candidates = indirect_slot_candidates,
+        .indirect_by_offset = indirect_by_offset,
+    };
 }
 
 fn markReachableFunctionByName(reachable: *std.StringHashMap(void), sigs: []const sig.FunctionSig, sig_index: *const std.StringHashMap(usize), name: []const u8) !bool {
@@ -929,69 +1047,52 @@ fn normalizedContainsKey(buf: []u8, text: []const u8, key: []const u8) bool {
     return std.mem.indexOf(u8, normalized, key) != null;
 }
 
-fn chooseIndirectSigIndex(state: *BuildState, current: ?usize, candidate: usize) ?usize {
+/// Merge two indirect-call candidates by function shape. Both indices are
+/// SIG indices (not emitted positions): the old code indexed
+/// function_sigs by emitted position, which only coincides with the sig
+/// index while nothing was pruned -- under DCE pruning it compared the
+/// wrong pair of signatures.
+fn chooseIndirectSigIndex(function_sigs: []const sig.FunctionSig, current: ?usize, candidate: usize) ?usize {
     if (current) |existing| {
         if (existing == candidate) return existing;
-        if (functionSigShapeEqual(state.function_sigs[existing], state.function_sigs[candidate])) return existing;
+        if (functionSigShapeEqual(function_sigs[existing], function_sigs[candidate])) return existing;
         return null;
     }
     return candidate;
 }
 
 fn inferIndirectSigIndexFromSlot(state: *BuildState, slot_name: []const u8) ?usize {
-    var resolved: ?usize = null;
-    for (state.const_decls) |decl| {
-        switch (decl.value) {
-            .vtable => |literal| {
-                for (literal.slots) |slot| {
-                    if (!std.mem.eql(u8, slot.name, slot_name)) continue;
-                    const idx = state.emitted_sig_index.get(slot.func_name) orelse continue;
-                    resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
-                }
-            },
-            else => {},
-        }
-    }
-    return resolved;
+    // Prep-resolved merged answer for this slot name (null = no single
+    // resolution: absent or ambiguous, exactly as the old full scan).
+    return state.shared.indirect_by_slot.get(slot_name) orelse null;
 }
 
 fn inferIndirectSigIndexFromSlotWithPrefix(state: *BuildState, slot_name: []const u8, prefix_key: []const u8) ?usize {
     if (prefix_key.len == 0) return null;
+    const candidates = state.shared.indirect_slot_candidates.get(slot_name) orelse return null;
     var resolved: ?usize = null;
-    for (state.const_decls) |decl| {
-        switch (decl.value) {
-            .vtable => |literal| {
-                var decl_buf: [256]u8 = undefined;
-                const decl_match = normalizedContainsKey(&decl_buf, decl.name, prefix_key);
-                for (literal.slots) |slot| {
-                    if (!std.mem.eql(u8, slot.name, slot_name)) continue;
-                    var func_buf: [256]u8 = undefined;
-                    if (!decl_match and !normalizedContainsKey(&func_buf, slot.func_name, prefix_key)) continue;
-                    const idx = state.emitted_sig_index.get(slot.func_name) orelse continue;
-                    resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
-                }
-            },
-            else => {},
+    for (candidates) |cand| {
+        var decl_buf: [256]u8 = undefined;
+        const decl_match = normalizedContainsKey(&decl_buf, cand.decl_name, prefix_key);
+        if (!decl_match) {
+            var func_buf: [256]u8 = undefined;
+            if (!normalizedContainsKey(&func_buf, cand.func_name, prefix_key)) continue;
         }
+        resolved = chooseIndirectSigIndex(state.function_sigs, resolved, cand.sig_idx) orelse return null;
     }
-    return resolved;
+    if (resolved) |sig_idx| {
+        const pos = state.shared.emitted_pos_by_sig[sig_idx];
+        if (pos == std.math.maxInt(u32)) return null;
+        return @intCast(pos);
+    }
+    return null;
 }
 
 fn inferIndirectSigIndexFromOffset(state: *BuildState, offset: u64) ?usize {
     if (offset % 8 != 0) return null;
     const slot_index: usize = @intCast(offset / 8);
-    var resolved: ?usize = null;
-    for (state.const_decls) |decl| {
-        switch (decl.value) {
-            .vtable => |literal| {
-                if (slot_index >= literal.slots.len) continue;
-                const idx = state.emitted_sig_index.get(literal.slots[slot_index].func_name) orelse continue;
-                resolved = chooseIndirectSigIndex(state, resolved, idx) orelse return null;
-            },
-            else => {},
-        }
-    }
-    return resolved;
+    if (slot_index >= state.shared.indirect_by_offset.len) return null;
+    return state.shared.indirect_by_offset[slot_index];
 }
 
 fn inferIndirectSigIndexFromLoad(state: *BuildState, base: inst.Instruction) ?usize {
@@ -1280,6 +1381,7 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
 
 const ParallelEmitTask = struct {
     fsig: sig.FunctionSig,
+    sig_idx: usize,
     kind: CFuncKind,
     emit_main_wrapper: bool,
     start_idx: usize,
@@ -1302,7 +1404,7 @@ fn ParallelEmitContext(comptime VerifiedType: type) type {
         options: EmitOptions,
         anon_string_names: *const std.StringHashMap([*:0]const u8),
         function_sig_index: *const std.StringHashMap(usize),
-        emitted_sig_index: *const std.StringHashMap(usize),
+        shared_tables: *const SharedEmitTables,
         tasks: []const ParallelEmitTask,
         jobs: []ParallelEmitJob,
         next_task: std.atomic.Value(usize),
@@ -1388,11 +1490,7 @@ fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
 
         if (task.decl_kind != .extern_decl) {
             const body = context.verified.annotated[task.start_idx + 1 .. task.end_idx];
-            var state = BuildState.init(a, &context.verified.symbols, fsig, functionUsesGlobalRegIds(fsig, body), context.verified.const_decls, context.verified.function_sigs, context.function_sig_index, context.emitted_sig_index, context.anon_string_names) catch |err| {
-                job.err = err;
-                return;
-            };
-            defer state.deinit();
+            var state = BuildState.init(a, &context.verified.symbols, fsig, functionUsesGlobalRegIds(fsig, body), context.verified.function_sigs, context.function_sig_index, context.shared_tables, context.anon_string_names);
             for (body, task.start_idx + 1..) |body_item, annotated_idx| {
                 if (lowerInstruction(a, &state, body_item) catch |err| {
                     job.err = err;
@@ -1620,6 +1718,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
                 if (should_include) {
                     try tasks.append(.{
                         .fsig = fsig,
+                        .sig_idx = sig_index - 1,
                         .kind = c_kind,
                         .emit_main_wrapper = emit_wrapper,
                         .start_idx = idx,
@@ -1634,7 +1733,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         }
     }
 
-    var emitted_sig_index = try buildEmittedSigIndex(a, tasks.items);
+    var shared_tables = try buildSharedEmitTables(a, verified, tasks.items, &function_sig_index);
     const worker_count = chooseEmitWorkerCount(options.jobs, tasks.items.len);
     const jobs = try a.alloc(ParallelEmitJob, tasks.items.len);
     const job_backing_allocator = emitJobBackingAllocator(allocator, worker_count);
@@ -1654,7 +1753,7 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         .options = options,
         .anon_string_names = &anon_string_names,
         .function_sig_index = &function_sig_index,
-        .emitted_sig_index = &emitted_sig_index,
+        .shared_tables = &shared_tables,
         .tasks = tasks.items,
         .jobs = jobs,
         .next_task = std.atomic.Value(usize).init(0),
@@ -1903,6 +2002,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
                 if (should_include) {
                     try tasks.append(.{
                         .fsig = fsig,
+                        .sig_idx = sig_index - 1,
                         .kind = c_kind,
                         .emit_main_wrapper = emit_wrapper,
                         .start_idx = idx,
@@ -1917,7 +2017,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         }
     }
 
-    var emitted_sig_index = try buildEmittedSigIndex(a, tasks.items);
+    var shared_tables = try buildSharedEmitTables(a, verified, tasks.items, &function_sig_index);
     const worker_count = chooseEmitWorkerCount(options.jobs, tasks.items.len);
     const jobs = try a.alloc(ParallelEmitJob, tasks.items.len);
     const job_backing_allocator = emitJobBackingAllocator(allocator, worker_count);
@@ -1933,7 +2033,7 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         .options = options,
         .anon_string_names = &anon_string_names,
         .function_sig_index = &function_sig_index,
-        .emitted_sig_index = &emitted_sig_index,
+        .shared_tables = &shared_tables,
         .tasks = tasks.items,
         .jobs = jobs,
         .next_task = std.atomic.Value(usize).init(0),
@@ -2079,23 +2179,28 @@ test "assignOperand resolves localized const vtable slots without raw text" {
         .reg_ids = reg_ids[0..],
     };
 
-    var emitted_sig_index_test = std.StringHashMap(usize).init(std.testing.allocator);
-    defer emitted_sig_index_test.deinit();
+    var shared_tables = SharedEmitTables{
+        .const_names = std.StringHashMap(void).init(std.testing.allocator),
+        .emitted_pos_by_sig = &.{},
+        .indirect_by_slot = std.StringHashMap(?usize).init(std.testing.allocator),
+        .indirect_slot_candidates = std.StringHashMap([]const IndirectSlotCandidate).init(std.testing.allocator),
+        .indirect_by_offset = &.{},
+    };
+    defer shared_tables.const_names.deinit();
+    defer shared_tables.indirect_by_slot.deinit();
+    defer shared_tables.indirect_slot_candidates.deinit();
+    try shared_tables.const_names.put("SLA_THREAD_VT_0", {});
     var state = BuildState{
         .allocator = std.testing.allocator,
         .symbols = &symbols,
         .fsig = fsig,
         .reg_operands_are_global_ids = false,
-        .const_names = std.StringHashMap(void).init(std.testing.allocator),
+        .const_names = &shared_tables.const_names,
         .anon_string_names = &anon_string_names,
-        .const_decls = &.{},
         .function_sigs = &.{},
         .function_sig_index = &function_sig_index,
-        .emitted_sig_index = &emitted_sig_index_test,
+        .shared = &shared_tables,
     };
-    state.const_names = std.StringHashMap(void).init(std.testing.allocator);
-    defer state.const_names.deinit();
-    try state.const_names.put("SLA_THREAD_VT_0", {});
 
     var item = inst.makeInstruction(.borrow, 1, 0, null, "");
     item.operands[0] = .{ .reg = 1 };
