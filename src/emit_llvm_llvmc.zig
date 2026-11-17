@@ -2213,6 +2213,34 @@ test "assignOperand resolves localized const vtable slots without raw text" {
     try std.testing.expectEqualStrings("SLA_THREAD_VT_0", std.mem.sliceTo(got.name.?, 0));
 }
 
+test "chooseIndirectSigIndex merges by sig index after DCE pruning" {
+    // Regression for the latent index bug fixed in 737a27f: indirect-call
+    // merging used to receive EMITTED positions (from buildEmittedSigIndex)
+    // and index function_sigs with them. Emitted position == sig index only
+    // while nothing is pruned; once DCE drops a function the positions shift
+    // and the merge compares the wrong pair of signatures.
+    //
+    // Layout: sig 0 is pruned by DCE, so sig 1 (callee_a) lands at emitted
+    // position 0 and sig 2 (callee_b) at emitted position 1. A vtable slot
+    // merging callee_a (void) with callee_b (i32) must come back ambiguous
+    // (null): the two shapes differ. The old code compared function_sigs[0]
+    // (the pruned void fn) with function_sigs[1] (callee_a, also void) and
+    // wrongly merged them to 0.
+    const sigs = [_]sig.FunctionSig{
+        .{ .id = 0, .name = "pruned_fn", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false },
+        .{ .id = 1, .name = "callee_a", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false },
+        .{ .id = 2, .name = "callee_b", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .i32, .entry_inst_idx = 0, .is_ffi_wrapper = false },
+        .{ .id = 3, .name = "callee_c", .params = &.{}, .kind = .normal, .return_cap = null, .return_ty = .void, .entry_inst_idx = 0, .is_ffi_wrapper = false },
+    };
+
+    // Regression: void vs i32 shapes must not merge.
+    try std.testing.expectEqual(@as(?usize, null), chooseIndirectSigIndex(sigs[0..], 1, 2));
+    // Same-shape control: callee_a and callee_c are both void() -- merge keeps the first.
+    try std.testing.expectEqual(@as(?usize, 1), chooseIndirectSigIndex(sigs[0..], 1, 3));
+    // Identity control.
+    try std.testing.expectEqual(@as(?usize, 2), chooseIndirectSigIndex(sigs[0..], 2, 2));
+}
+
 test "llvmc backend can construct and write bitcode in memory" {
     var out_bytes: ?[*]u8 = null;
     var out_len: usize = 0;
