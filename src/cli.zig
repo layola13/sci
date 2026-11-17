@@ -285,6 +285,33 @@ fn finishProfileMetrics(metrics: *CompileMetrics, emit_ns: ?u64, link_ns: ?u64, 
     }
 }
 
+/// Stage timing (SA_STAGE_TIMING=1): env-gated wall-clock phase summary
+/// for build pipelines. When the variable is unset this is fully inert:
+/// no timers run, no output is produced, and compile behaviour is
+/// unchanged. When set, executeBuildExe forces phase profiling on and
+/// prints one `[stage-timing]` line per successful build; the language
+/// frontend dispatch in routeLanguageFrontend prints its own
+/// `[stage-timing] frontend:` line.
+fn stageTimingEnabled() bool {
+    return boolEnv("SA_STAGE_TIMING");
+}
+
+fn printStageTiming(writer: anytype, metrics: *const CompileMetrics) void {
+    const phases = metrics.phases orelse return;
+    writer.print(
+        "[stage-timing] load: {d:.3}ms setup: {d:.3}ms flatten: {d:.3}ms verify: {d:.3}ms emit: {d:.3}ms link: {d:.3}ms total: {d:.3}ms\n",
+        .{
+            @as(f64, @floatFromInt(phases.load_ns)) / 1_000_000.0,
+            @as(f64, @floatFromInt(phases.setup_ns)) / 1_000_000.0,
+            @as(f64, @floatFromInt(phases.flatten_ns)) / 1_000_000.0,
+            @as(f64, @floatFromInt(phases.verify_ns)) / 1_000_000.0,
+            @as(f64, @floatFromInt(phases.emit_ns orelse 0)) / 1_000_000.0,
+            @as(f64, @floatFromInt(phases.link_ns orelse 0)) / 1_000_000.0,
+            @as(f64, @floatFromInt(phases.total_ns orelse 0)) / 1_000_000.0,
+        },
+    ) catch {};
+}
+
 fn recordMetricMemoryAfterEmit(metrics: *CompileMetrics) void {
     if (metrics.memory) |*memory| memory.recordAfterEmit();
 }
@@ -7951,7 +7978,9 @@ fn executeRun(
     }
 }
 
-fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
+fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options_in: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
+    var compile_options = compile_options_in;
+    if (stageTimingEnabled()) compile_options.profile = true;
     const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
     const project_root_owned = compile_options.project_root == null;
     const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
@@ -7970,6 +7999,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             try makeExecutable(out_path);
             if (diagnostics_mode == .json or compile_options.mem_report) {
                 const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = true } };
+                if (stageTimingEnabled()) printStageTiming(stderr, &metrics);
                 try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
             }
             return 0;
@@ -8210,6 +8240,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
             if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = false };
 
+            if (stageTimingEnabled()) printStageTiming(stderr, &owned.metrics);
             try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
             return 0;
         },
@@ -10497,10 +10528,14 @@ fn routeLanguageFrontend(
     try fwd.append(source_path);
     try fwd.append("--out");
     try fwd.append(sa_path);
+    const frontend_start = if (stageTimingEnabled()) std.Io.Clock.awake.now(sio.io()) else null;
     const code = (try plugin_runtime.dispatchCommand(fwd.items, stdout, stderr, json_mode)) orelse {
         try stderr.print("error[SA-LANGUAGE-FRONTEND]: language frontend {s} does not provide a build command\n", .{frontend});
         return .{ .handled = 1 };
     };
+    if (frontend_start) |start| {
+        stderr.print("[stage-timing] frontend: {d:.3}ms\n", .{@as(f64, @floatFromInt(elapsedNs(start))) / 1_000_000.0}) catch {};
+    }
     if (code != 0) return .{ .handled = code };
 
     const generated = blk: {
