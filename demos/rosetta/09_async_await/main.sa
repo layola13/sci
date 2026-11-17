@@ -11,11 +11,13 @@ L_ENTRY:
     stage = load state+Run_stage as u32
     ready = eq stage, 1
     !stage
+    !state
     return ready
 
 @take_step(state: ptr) -> void:
 L_ENTRY:
     store state+Run_value, 1 as i32
+    !state
     return
 
 @poll_run(state: ptr) -> i32:
@@ -29,6 +31,7 @@ L_STATE_0:
     store state+Run_state, 1 as u32
     !state_id
     !is_state0
+    !state
     return 0
 
 L_STATE_1:
