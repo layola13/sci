@@ -2174,7 +2174,7 @@ fn trackWidths(widths: *WidthMap, allocator: std.mem.Allocator, symbols: anytype
             widthRemoveSlot(widths, base.operands[0]);
             widthRemoveSlot(widths, base.operands[1]);
         },
-        .store, .atomic_store, .fence, .release, .jmp, .br, .br_null, .panic, .panic_msg, .return_, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {},
+        .store, .atomic_store, .fence, .release, .jmp, .br, .br_null, .panic, .panic_msg, .return_, .native, .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl, .transfer => {},
     }
 }
 

@@ -8119,7 +8119,16 @@ fn provCUpdate(bases: *CBaseSet, allocator: std.mem.Allocator, symbols: anytype,
                         provCKillText(bases, symbols, fsig, arg.text);
                     }
                 }
-            } else |_| {}
+            } else |_| {
+                // Conservatively drop ALL owned-base knowledge on a call we
+                // cannot parse: the call may have overwritten or released
+                // any live base. Keeping a stale base would let a later
+                // `!reg` emit sa_free on an already-freed/rebound slot
+                // (double free). Mirrors trackWidths' clear-on-parse-failure.
+                // The Referee rejects invalid call syntax before emission, so
+                // this is a defence-in-depth path, not a normal occurrence.
+                bases.clearRetainingCapacity();
+            }
         },
         .load, .take, .ptr_add, .op, .borrow, .raw_cast, .assume_safe, .assume_borrow, .atomic_load, .atomic_rmw, .cmpxchg, .try_, .early_return, .va_start, .va_arg => {
             provCKillOp(bases, fsig, use_global, base.operands[0]);
@@ -8534,6 +8543,12 @@ fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols:
             try writer.writeAll("  sa_trap(\"panic_msg\");\n");
         },
         .move_ => {
+            try writer.print("  /* no-op {s}: {s} */\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
+        },
+        .transfer => {
+            // Verifier-visible ownership annotation: the preceding `store`
+            // already moved the bytes; the Referee consumed the semantic
+            // fact. No machine code (explicit, never an `unsupported` trap).
             try writer.print("  /* no-op {s}: {s} */\n", .{ @tagName(base.kind), std.mem.trim(u8, base.raw_text, " \t\r\n") });
         },
         .release => {

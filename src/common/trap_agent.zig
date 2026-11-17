@@ -73,6 +73,8 @@ pub fn allTraps() []const Trap {
         .corrupted_signature,
         .gpu_subset_violation,
         .undefined_macro,
+        .transfer_into_borrow,
+        .transfer_into_immutable,
     };
 }
 
@@ -138,6 +140,8 @@ pub fn trapStableCode(t: Trap) []const u8 {
         .sum_hash_mismatch => "SA-SYS-005",
         .corrupted_signature => "SA-VER-001",
         .gpu_subset_violation => "SA-VER-002",
+        .transfer_into_borrow => "SA-REF-100",
+        .transfer_into_immutable => "SA-REF-101",
     };
 }
 
@@ -203,6 +207,8 @@ pub fn explainTrap(t: Trap) TrapExplanation {
         .sum_hash_mismatch => .{ .stable_code = "SA-SYS-005", .summary = "A system/CLI-level guard refused the operation.", .fix_hint = "Resolve the environment/config/confirmation precondition." },
         .corrupted_signature => .{ .stable_code = "SA-VER-001", .summary = "The verifier found a function signature whose parameter bindings do not match the function's register scope.", .fix_hint = "Rebuild the module from source; the artifact is corrupted or was produced by an incompatible toolchain." },
         .gpu_subset_violation => .{ .stable_code = "SA-VER-002", .summary = "An @gpu function body uses an instruction outside the device-safe subset (host call, indirect call, raw cast, native escape, or panic).", .fix_hint = "Keep @gpu bodies to arithmetic, frame-local memory, branches, and calls to other @gpu functions; move host work into a normal function." },
+        .transfer_into_borrow => .{ .stable_code = "SA-REF-100", .summary = "An ownership `transfer` targeted a borrowed or interior-pointer container.", .fix_hint = "Transfer into a live owned root container, not a borrow view or interior pointer." },
+        .transfer_into_immutable => .{ .stable_code = "SA-REF-101", .summary = "An ownership `transfer` targeted an immutable container.", .fix_hint = "Transfer into a mutable owned container." },
     };
 }
 

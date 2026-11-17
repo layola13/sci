@@ -313,6 +313,7 @@ fn structuredInstForm(kind: inst.InstKind) ?classifier.InstructionForm {
         .va_start => .va_start,
         .va_arg => .va_arg,
         .va_end => .va_end,
+        .transfer => .transfer,
         else => null,
     };
 }
@@ -385,7 +386,7 @@ fn classifyStructuredInstruction(item: inst.Instruction, symbol_names: []const [
             addStructuredPart(&out, 1, operandName(symbol_names, item.operands[2]));
             addStructuredPart(&out, 2, operandName(symbol_names, item.operands[1]));
         },
-        .move_, .release, .return_, .panic, .panic_msg, .call_indirect, .try_ => {
+        .move_, .release, .return_, .panic, .panic_msg, .call_indirect, .try_, .transfer => {
             addStructuredPart(&out, 0, operandName(symbol_names, item.operands[0]));
             addStructuredPart(&out, 1, operandName(symbol_names, item.operands[1]));
         },
@@ -639,7 +640,7 @@ fn isTerminator(kind: inst.InstKind) bool {
 
 fn isExecKind(kind: inst.InstKind) bool {
     return switch (kind) {
-        .alloc, .stack_alloc, .load, .store, .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw, .fence, .borrow, .move_, .release, .assign, .op, .ptr_add, .jmp, .br, .br_null, .call, .call_indirect, .try_, .early_return, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow, .native, .va_start, .va_arg, .va_end => true,
+        .alloc, .stack_alloc, .load, .store, .atomic_load, .atomic_store, .cmpxchg, .atomic_rmw, .fence, .borrow, .move_, .release, .assign, .op, .ptr_add, .jmp, .br, .br_null, .call, .call_indirect, .try_, .early_return, .panic, .panic_msg, .return_, .take, .raw_cast, .assume_safe, .assume_borrow, .native, .va_start, .va_arg, .va_end, .transfer => true,
         else => false,
     };
 }
@@ -2430,7 +2431,7 @@ fn collectMetadata(
             .va_end => {
                 _ = try symbols.intern(classified.parts[0]);
             },
-            .move_, .release, .raw_cast, .assume_safe, .assume_borrow => {
+            .move_, .release, .raw_cast, .assume_safe, .assume_borrow, .transfer => {
                 _ = try symbols.intern(classified.parts[0]);
                 if (classified.part_count > 1 and isIdentLike(classified.parts[1])) {
                     _ = try symbols.intern(classified.parts[1]);
@@ -3703,6 +3704,57 @@ fn verifyBody(
             .move_ => {
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags)) |tr| return tr;
                 if (consumeSourceValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, false, &interior)) |tr| return tr;
+            },
+            .transfer => {
+                // `transfer <container>, <value>`: ownership of `value` moves
+                // into `container`. Verifier-visible annotation (runtime
+                // no-op); the preceding `store` already did the data move.
+                if (item.operands[0] != .reg or item.operands[1] != .reg) {
+                    return trapReport(.transfer_into_borrow, item, current_function_text, current_is_ffi_wrapper, null, null, null, "transfer requires register operands", null);
+                }
+                const ci: usize = @intCast(item.operands[0].reg);
+                // Destination must be a live OWNED root. Transferring into a
+                // borrow view / interior pointer would leak the value when the
+                // borrow ends -- this is the check the old bare `^` marker
+                // (emitForgetMovedValue) could never perform.
+                const cmask = state[ci];
+                if ((cmask & (maskOf(.borrow_view) | maskOf(.ffi_borrow) | maskOf(.interior_ptr))) != 0 or
+                    hasInteriorTree(state, interior_first_child, item.operands[0].reg))
+                {
+                    return trapReport(.transfer_into_borrow, item, current_function_text, current_is_ffi_wrapper, classified.parts[0], maskOf(.active), cmask, "cannot transfer ownership into a borrowed container", null);
+                }
+                // Use the combined predicate: an @const hard constant (flag)
+                // OR a Rust-style immutable binding (capability bit 0x0100).
+                // A transfer writes ownership into the container, so an
+                // immutable binding must reject it just as const data does.
+                if (isImmutableConst(state, flags, item.operands[0].reg)) {
+                    return trapReport(.transfer_into_immutable, item, current_function_text, current_is_ffi_wrapper, classified.parts[0], maskOf(.active), cmask, "cannot transfer ownership into an immutable container", null);
+                }
+                if ((cmask & maskOf(.active)) == 0) {
+                    return trapReport(.use_after_move, item, current_function_text, current_is_ffi_wrapper, classified.parts[0], maskOf(.active), cmask, "cannot transfer into a consumed container", null);
+                }
+                if (hasActiveBorrowRefs(locks, item.operands[0].reg)) {
+                    return trapReport(.borrow_conflict, item, current_function_text, current_is_ffi_wrapper, classified.parts[0], maskOf(.active), cmask, "container has active borrows", null);
+                }
+                // Value retires exactly like a `^` move-out -> Consumed, so
+                // the function-exit leak check is satisfied without an
+                // opaque emitter-side marker.
+                if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
+                if (consumeSourceValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags, origins, locks, interior_parent, interior_first_child, interior_next_sibling, false, &interior)) |tr| return tr;
+                // Record the obligation on the container with a single
+                // `owns_children` bit. This is deliberately a boolean, not a
+                // count: deep-drop pairing is NOT implemented and is not
+                // planned for the verifier. The deep-drop sequence lives in
+                // sa_std macros whose register-level effects the Referee
+                // cannot observe (see sala SAB whitepaper §4.1 / DESIGN §4.5),
+                // so a child counter would be a value with no consumer. A
+                // count would also have to be threaded through label
+                // snapshots, join merges and parallel workers -- a wide,
+                // regression-prone change for data nothing reads. The bit is
+                // sufficient for v1 diagnostics ("this container received an
+                // ownership transfer"); pairing belongs to the SLA/codegen
+                // layer, which owns the DropPlan and can see the drops.
+                state[ci] |= maskOf(.owns_children);
             },
             .assign => {
                 const dst_id = item.operands[0].reg;

@@ -12,6 +12,10 @@ pub const CapabilityMask = enum(u16) {
     fallible = 0x80,
     immutable = 0x0100,
     interior_ptr = 0x0200,
+    /// Set on a container that has received one or more `transfer`red owned
+    /// values. Lets the Referee record and report ownership obligations that
+    /// were previously invisible (emitter-side `^` move-out markers).
+    owns_children = 0x0400,
 };
 
 pub const Transition = struct {
@@ -35,6 +39,7 @@ pub fn maskName(mask: u16) []const u8 {
         0x80 => "Fallible",
         0x0100 => "Immutable",
         0x0200 => "InteriorPtr",
+        0x0400 => "OwnsChildren",
         else => "Composite",
     };
 }
@@ -50,6 +55,7 @@ pub const Op = enum(u8) {
     ffi_raw_cast,
     ffi_assume_safe,
     ffi_assume_borrow,
+    transfer_own,
 };
 
 pub const TrapKind = enum(u8) {
@@ -61,6 +67,8 @@ pub const TrapKind = enum(u8) {
     illegal_unsafe_context,
     ffi_ownership_violation,
     stack_escape,
+    transfer_into_borrow,
+    transfer_into_immutable,
 };
 
 pub const TRUTH_TABLE = [_]Transition{
@@ -81,10 +89,18 @@ pub const TRUTH_TABLE = [_]Transition{
     .{ .prev_mask = 0x40, .op = .ffi_assume_borrow, .legal = true, .new_mask = 0x33, .trap = null },
     .{ .prev_mask = 0x100, .op = .alloc, .legal = true, .new_mask = 0x100, .trap = null },
     .{ .prev_mask = 0x200, .op = .move_, .legal = true, .new_mask = 0x200, .trap = null },
+    // Ownership transfer into a container: the value retires exactly like a
+    // move-out (Active -> Consumed), but the destination must be a live owned
+    // root. Documented here for spec/test parity; the verifier implements the
+    // destination checks imperatively in its main switch.
+    .{ .prev_mask = 0x01, .op = .transfer_own, .legal = true, .new_mask = 0x08, .trap = null },
+    .{ .prev_mask = 0x10, .op = .transfer_own, .legal = false, .new_mask = 0x00, .trap = .transfer_into_borrow },
+    // Active|Immutable (0x101): an immutable binding cannot receive ownership.
+    .{ .prev_mask = 0x101, .op = .transfer_own, .legal = false, .new_mask = 0x00, .trap = .transfer_into_immutable },
 };
 
 test "truth table contains canonical transitions" {
-    try std.testing.expectEqual(@as(usize, 17), TRUTH_TABLE.len);
+    try std.testing.expectEqual(@as(usize, 20), TRUTH_TABLE.len);
     try std.testing.expect(TRUTH_TABLE[0].legal);
     try std.testing.expectEqual(@as(u16, 0x01), TRUTH_TABLE[0].new_mask);
     try std.testing.expectEqual(@as(?TrapKind, .read_write_conflict), TRUTH_TABLE[4].trap);

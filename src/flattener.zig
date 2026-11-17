@@ -1751,6 +1751,7 @@ fn mapInstKind(form: InstructionForm) InstKind {
         .va_start => .va_start,
         .va_arg => .va_arg,
         .va_end => .va_end,
+        .transfer => .transfer,
         .unknown => .native,
     };
 }
@@ -2032,6 +2033,12 @@ fn emitParsedLine(
                 .move_ => {
                     const reg = try symbols.intern(classified.parts[0]);
                     inst.operands[0] = .{ .reg = reg };
+                },
+                .transfer => {
+                    const container = try symbols.intern(classified.parts[0]);
+                    const value = try symbols.intern(classified.parts[1]);
+                    inst.operands[0] = .{ .reg = container };
+                    inst.operands[1] = .{ .reg = value };
                 },
                 .release => {
                     const reg = try symbols.intern(classified.parts[0]);

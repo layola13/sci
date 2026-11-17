@@ -305,6 +305,13 @@ pub const InstKind = enum(u8) {
     va_end,
     // @gpu function declaration (appended last for the same reason).
     gpu_decl,
+    // Ownership-transfer annotation (appended last: SAB encodes the kind as a
+    // raw byte, so existing values must not move). `transfer <container>,
+    // <value>` makes an ownership transfer into a container visible to the
+    // Referee: `value` goes Active -> Consumed, and `container` is validated
+    // as a live owned root. Runtime no-op (the preceding `store` does the
+    // actual data movement).
+    transfer,
 };
 
 pub const Instruction = struct {

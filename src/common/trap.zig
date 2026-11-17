@@ -63,6 +63,8 @@ pub const Trap = enum(u8) {
     corrupted_signature,
     gpu_subset_violation,
     undefined_macro,
+    transfer_into_borrow,
+    transfer_into_immutable,
 };
 
 pub const TrapReport = struct {
@@ -174,6 +176,8 @@ pub fn trapName(trap: Trap) []const u8 {
         .corrupted_signature => "CorruptedSignature",
         .gpu_subset_violation => "GpuSubsetViolation",
         .undefined_macro => "UndefinedMacro",
+        .transfer_into_borrow => "TransferIntoBorrow",
+        .transfer_into_immutable => "TransferIntoImmutable",
     };
 }
 
@@ -239,6 +243,8 @@ pub fn trapCode(trap: Trap) u32 {
         .corrupted_signature => 1058,
         .gpu_subset_violation => 1059,
         .undefined_macro => 1060,
+        .transfer_into_borrow => 1061,
+        .transfer_into_immutable => 1062,
     };
 }
 

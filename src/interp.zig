@@ -2080,6 +2080,11 @@ const Interpreter = struct {
                 .move_ => {
                     // Referee already enforced ownership semantics.
                 },
+                .transfer => {
+                    // Ownership-transfer annotation: the preceding `store`
+                    // already moved the bytes; the Referee consumed the fact.
+                    // No interpreter-side effect.
+                },
                 .release => {
                     const reg_id = base.operands[0].reg;
                     if (regs.get(reg_id)) |value| {

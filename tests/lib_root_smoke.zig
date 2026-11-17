@@ -168,3 +168,121 @@ test "release packager defaults to latest git tag" {
     try std.testing.expect(std.mem.containsAtLeast(u8, release_script, 1, "VERSION=\"$(latest_source_tag)\""));
     try std.testing.expectEqual(@as(usize, 0), std.mem.count(u8, release_script, "describe --tags --exact-match"));
 }
+
+// ---- transfer annotation (verifier-visible ownership transfer) -------------
+// Regression for the `transfer <container>, <value>` IR primitive: it makes an
+// ownership transfer visible to the Referee so a missing retire is a verifier
+// error at the transfer site (instead of an opaque exit leak), and a transfer
+// into a borrowed/immutable container is rejected outright. These five cases
+// mirror the CLI reproduction corpus (01_ok / 02_into_borrow / 03_double /
+// 04_missing_baseline / 05_immutable).
+
+fn expectTransferTrap(source: []const u8, expected: saasm.common.trap.Trap) !void {
+    var flat = try saasm.flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+    const verified = try saasm.referee.verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(expected, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+fn expectTransferTrapWithOptions(source: []const u8, options: saasm.referee.VerifyOptions, expected: saasm.common.trap.Trap) !void {
+    var flat = try saasm.flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+    const verified = try saasm.referee.verifyWithOptions(std.testing.allocator, flat.instructions, flat.const_decls, options);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(expected, report.trap),
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+            return error.TestUnexpectedResult;
+        },
+    }
+}
+
+test "transfer: valid ownership transfer into owned root verifies" {
+    const source =
+        \\@main() -> i32:
+        \\v = alloc 64
+        \\tmp = alloc 8
+        \\store v+0, tmp
+        \\transfer v, tmp
+        \\!v
+        \\return 0
+    ;
+    var flat = try saasm.flattener.flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+    const verified = try saasm.referee.verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+        },
+        .trap => return error.TestUnexpectedResult,
+    }
+}
+
+test "transfer: ownership into a borrowed container is rejected" {
+    try expectTransferTrap(
+        \\@main() -> i32:
+        \\v = alloc 64
+        \\b = &v
+        \\tmp = alloc 8
+        \\transfer b, tmp
+        \\return 0
+    , .transfer_into_borrow);
+}
+
+test "transfer: double transfer is rejected as use-after-move" {
+    try expectTransferTrap(
+        \\@main() -> i32:
+        \\v = alloc 64
+        \\w = alloc 64
+        \\tmp = alloc 8
+        \\transfer v, tmp
+        \\transfer w, tmp
+        \\!v
+        \\!w
+        \\return 0
+    , .use_after_move);
+}
+
+test "transfer: ownership into an immutable container is rejected" {
+    try expectTransferTrap(
+        \\@const MSG = utf8:"ok"
+        \\@main() -> i32:
+        \\tmp = alloc 8
+        \\transfer MSG, tmp
+        \\return 0
+    , .transfer_into_immutable);
+}
+
+test "transfer: missing transfer still leaks (baseline reproduction)" {
+    try expectTransferTrap(
+        \\@main() -> i32:
+        \\v = alloc 64
+        \\tmp = alloc 8
+        \\store v+0, tmp
+        \\!v
+        \\return 0
+    , .memory_leak);
+}
+
+// Capability-bit path (gap 2): under --default-immutable an `alloc` binding
+// carries the immutable capability bit (0x0100) rather than the @const flag.
+// The transfer check must reject via isImmutableConst, not just isConstData.
+test "transfer: immutable capability bit rejects transfer (default-immutable mode)" {
+    try expectTransferTrapWithOptions(
+        \\@main() -> i32:
+        \\v = alloc 64
+        \\tmp = alloc 8
+        \\transfer v, tmp
+        \\!v
+        \\return 0
+    , .{ .default_immutable = true }, .transfer_into_immutable);
+}

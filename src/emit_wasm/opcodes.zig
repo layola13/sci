@@ -527,7 +527,7 @@ pub fn mapLoadStore(kind: inst.InstKind, prim_ty: sig.PrimType, target: Target, 
 
 pub fn mapInstruction(base: inst.Instruction, options: MapOptions) MapError!Mapping {
     return switch (base.kind) {
-        .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .borrow, .move_, .release, .assign, .raw_cast, .assume_safe, .assume_borrow => .{ .noop = {} },
+        .label, .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .borrow, .move_, .release, .assign, .raw_cast, .assume_safe, .assume_borrow, .transfer => .{ .noop = {} },
         .alloc => .{ .import_call = allocImportBinding(options.target, options.malloc_module) },
         .stack_alloc => error.UnsupportedInstruction,
         .load, .take, .store => blk: {

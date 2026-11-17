@@ -62,6 +62,7 @@ pub const InstructionForm = enum {
     va_start,
     va_arg,
     va_end,
+    transfer,
     unknown,
 };
 
@@ -756,6 +757,21 @@ fn classifyDirect(line: *ClassifiedLine, trimmed: []const u8) bool {
         line.* = makeLine(.instruction, line.raw, line.trimmed);
         line.inst_form = .move_;
         addPart(line, 0, rest);
+        return true;
+    }
+
+    // `transfer <container>, <value>` — ownership of `value` moves into
+    // `container` (verifier-visible annotation, runtime no-op).
+    if (startsWithWord(trimmed, "transfer")) {
+        const rest = std.mem.trimStart(u8, trimmed["transfer".len..], " \t");
+        const pair = parseCommaPair(rest) orelse return false;
+        const container = std.mem.trim(u8, pair.left, " \t");
+        const value = std.mem.trim(u8, pair.right, " \t");
+        if (container.len == 0 or value.len == 0) return false;
+        line.* = makeLine(.instruction, line.raw, line.trimmed);
+        line.inst_form = .transfer;
+        addPart(line, 0, container);
+        addPart(line, 1, value);
         return true;
     }
 

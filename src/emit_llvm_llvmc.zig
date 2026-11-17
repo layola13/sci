@@ -1242,6 +1242,9 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
         },
         .return_ => .{ .op = .ret, .dst = 0, .operand0 = if (base.operands[0] == .none) none else try state.operand(base.operands[0]), .operand1 = none, .operand2 = none, .ty = try cType(returnTypeForSig(state.fsig.return_cap, state.fsig.return_ty)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = base.operands[0] != .none, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .move_ => null,
+        // Ownership-transfer annotation: the preceding `store` already moved
+        // the bytes; the Referee consumed the semantic fact. No machine code.
+        .transfer => null,
         .release => .{
             .op = .release,
             .dst = 0,
