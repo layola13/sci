@@ -8759,13 +8759,27 @@ fn generateLibGlueSa(arena: std.mem.Allocator, contract: LibContract) ![]u8 {
             try writer.writeAll(entry.name);
             try writer.writeAll("(");
             try writeLibArgNames(writer, entry);
-            try writer.writeAll(")\n    return\n\n");
+            try writer.writeAll(")\n");
         } else {
             try writer.writeAll("    r = call @sa_lib_fwd_");
             try writer.writeAll(entry.name);
             try writer.writeAll("(");
             try writeLibArgNames(writer, entry);
-            try writer.writeAll(")\n    return r\n\n");
+            try writer.writeAll(")\n");
+        }
+        // SA call arguments are read-checked but NOT consumed: the caller
+        // keeps ownership and must retire every parameter at its own exit.
+        // The generated wrapper owns its parameters, so release them here or
+        // Referee reports MemoryLeak at the wrapper's return. For by-value
+        // params `!x` consumes; for borrowed `&x` params `!x` clears the
+        // borrow state (both leave the register Consumed at the exit).
+        for (entry.params) |param| {
+            try writer.print("    !{s}\n", .{param.name});
+        }
+        if (std.mem.eql(u8, entry.return_type, "void")) {
+            try writer.writeAll("    return\n\n");
+        } else {
+            try writer.writeAll("    return r\n\n");
         }
     }
     return try aw.toOwnedSlice();
