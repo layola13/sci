@@ -3280,6 +3280,13 @@ fn verifyBody(
     // (OPTIMIZE-IMPL-1 step 2). Kept in the signature to avoid churning the
     // three verifyBody call sites and the parallel context.
     _ = const_decls;
+    // OPTIMIZE-VERIFY-FIX: one reusable snapshot scratch instead of
+    // allocator.dupe() per exec instruction (timer probe: dupe was ~94%
+    // of snapshot_diff, ~5.9us per 40B alloc @100k serial). Grown on
+    // demand; the delta diffState computes is unchanged, so the
+    // annotated stream and all output bytes are identical.
+    var snapshot_scratch: []u16 = &.{};
+    defer allocator.free(snapshot_scratch);
     std.debug.assert(classified_lines.len == instructions.len);
     var sig_index = sig_index_start;
     var state: []u16 = &.{};
@@ -3579,8 +3586,13 @@ fn verifyBody(
 
         body_seen = true;
         gas_steps += 1;
-        const snapshot_before = try allocator.dupe(u16, state);
-        defer allocator.free(snapshot_before);
+        if (snapshot_scratch.len < state.len) {
+            const grown = try allocator.alloc(u16, state.len);
+            allocator.free(snapshot_scratch);
+            snapshot_scratch = grown;
+        }
+        const snapshot_before = snapshot_scratch[0..state.len];
+        @memcpy(snapshot_before, state);
 
         switch (item.kind) {
             .alloc => {
