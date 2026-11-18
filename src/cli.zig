@@ -5787,10 +5787,14 @@ fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options:
     return switch (verified) {
         .ok => |ok| blk: {
             incr_verify.recordVerified(content_hash);
-            var names = std.array_list.Managed([]const u8).init(allocator);
-            defer names.deinit();
-            for (ok.function_sigs) |fs| names.append(fs.name) catch {};
-            incr_verify.recordResultFromInstructions(content_hash, flat.instructions, names.items);
+            // NOTE: no recordResultFromInstructions call here on purpose
+            // (LINE-OPT-INCR-SNAPSHOT-FIX, R320 opt1_stop). The B-B result
+            // snapshot it built is a write-only cache: hasResult has zero
+            // call sites and its documented consumer restoreMinimal()
+            // does not exist, while recording deep-clones every
+            // instruction through page_allocator (~+1.9 GiB peak on a
+            // 100k cold compile). The verdict-only cache above
+            // (recordVerified) is the live cache and is untouched.
             var metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
             metrics.cache = .{ .kind = "verdict", .hit = false };
             break :blk .{ .ok = .{ .flat = flat, .verified = ok, .metrics = metrics } };
@@ -9540,10 +9544,14 @@ fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, 
     return switch (verified) {
         .ok => |ok| blk: {
             incr_verify.recordVerified(content_hash);
-            var names = std.array_list.Managed([]const u8).init(allocator);
-            defer names.deinit();
-            for (ok.function_sigs) |fs| names.append(fs.name) catch {};
-            incr_verify.recordResultFromInstructions(content_hash, flat.instructions, names.items);
+            // NOTE: no recordResultFromInstructions call here on purpose
+            // (LINE-OPT-INCR-SNAPSHOT-FIX, R320 opt1_stop). The B-B result
+            // snapshot it built is a write-only cache: hasResult has zero
+            // call sites and its documented consumer restoreMinimal()
+            // does not exist, while recording deep-clones every
+            // instruction through page_allocator (~+1.9 GiB peak on a
+            // 100k cold compile). The verdict-only cache above
+            // (recordVerified) is the live cache and is untouched.
             var metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
             metrics.cache = .{ .kind = "verdict", .hit = false };
             break :blk .{ .ok = .{ .flat = flat, .verified = ok, .metrics = metrics } };
