@@ -1009,6 +1009,14 @@ fn boolEnv(name: []const u8) bool {
     return value.len != 0 and !std.mem.eql(u8, value, "0") and !std.mem.eql(u8, value, "false") and !std.mem.eql(u8, value, "False");
 }
 
+fn cguSeqShardCount() ?usize {
+    const value = sio.getEnvVarOwned(std.heap.page_allocator, "SA_CGU_SEQ_SHARDS") catch return null;
+    defer std.heap.page_allocator.free(value);
+    const n = std.fmt.parseInt(usize, std.mem.trim(u8, value, " \t\r\n"), 10) catch return null;
+    if (n < 2 or n > 64) return null;
+    return n;
+}
+
 fn stdinIsTty() bool {
     if (comptime @import("builtin").os.tag == .windows) return false;
     _ = std.posix.tcgetattr(std.posix.STDIN_FILENO) catch return false;
@@ -8103,10 +8111,11 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 break :blk std.Thread.getCpuCount() catch 1;
             };
             const emission_workers = @max(@min(worker_count, 4), 1);
-            const use_cgu = (compile_options.jobs_explicit and emission_workers > 1 and owned.verified.function_sigs.len >= 100);
+            const seq_shards = cguSeqShardCount();
+            const use_cgu = seq_shards != null or (compile_options.jobs_explicit and emission_workers > 1 and owned.verified.function_sigs.len >= 100);
 
             if (use_cgu) {
-                const cgu_count = @min(@max(emission_workers, 2), 4);
+                const cgu_count = if (seq_shards) |n| n else @min(@max(emission_workers, 2), 4);
 
                 const cgu_obj_paths = try allocator.alloc([]const u8, cgu_count);
                 defer {
@@ -8191,27 +8200,36 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     };
                 }
 
-                var cgu_emit_threads = try allocator.alloc(std.Thread, cgu_count - 1);
-                defer allocator.free(cgu_emit_threads);
+                const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
+                if (seq_shards != null) {
+                    // LINE-OPT-CGU-SHARD prototype: sequential shard
+                    // emission. Each shard's emit call builds and deinits
+                    // its own arenas, so shard i's C fragments and LLVM
+                    // module are released before shard i+1 starts; peak
+                    // emit residency is one shard's working set.
+                    for (cgu_emit_workers) |*w| w.run();
+                } else {
+                    var cgu_emit_threads = try allocator.alloc(std.Thread, cgu_count - 1);
+                    defer allocator.free(cgu_emit_threads);
 
-                var started_cgu_emit: usize = 0;
-                errdefer {
+                    var started_cgu_emit: usize = 0;
+                    errdefer {
+                        while (started_cgu_emit > 0) {
+                            started_cgu_emit -= 1;
+                            cgu_emit_threads[started_cgu_emit].join();
+                        }
+                    }
+
+                    while (started_cgu_emit < cgu_count - 1) : (started_cgu_emit += 1) {
+                        cgu_emit_threads[started_cgu_emit] = try std.Thread.spawn(.{}, CguEmitWorker.run, .{&cgu_emit_workers[started_cgu_emit + 1]});
+                    }
+
+                    cgu_emit_workers[0].run();
+
                     while (started_cgu_emit > 0) {
                         started_cgu_emit -= 1;
                         cgu_emit_threads[started_cgu_emit].join();
                     }
-                }
-
-                const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                while (started_cgu_emit < cgu_count - 1) : (started_cgu_emit += 1) {
-                    cgu_emit_threads[started_cgu_emit] = try std.Thread.spawn(.{}, CguEmitWorker.run, .{&cgu_emit_workers[started_cgu_emit + 1]});
-                }
-
-                cgu_emit_workers[0].run();
-
-                while (started_cgu_emit > 0) {
-                    started_cgu_emit -= 1;
-                    cgu_emit_threads[started_cgu_emit].join();
                 }
 
                 for (cgu_emit_workers) |w| {
