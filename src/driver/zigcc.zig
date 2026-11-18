@@ -295,6 +295,15 @@ pub fn argvForWasm(
     // explicit vector kernels scalarize. Placed after -O so the existing
     // positional argv tests are unaffected.
     try argv.items.append("-mcpu=generic+simd128");
+    if (!debug) {
+        // Mirror argvForExe: the emitted bitcode carries DWARF (cc1 runs
+        // with -debug-info-kind=constructor) and wasm-ld copies those
+        // sections into the output -- on hello they are ~1.2 MB of the
+        // 1.45 MB module. The sa_std archive is already stripped at build
+        // time (04fd392d); this flag covers the program-object half.
+        // Placed after -O/-mcpu so the positional argv tests are unaffected.
+        try argv.items.append("-Wl,--strip-debug");
+    }
     try argv.items.append(artifact_path);
     if (sa_std_archive_path) |archive| {
         try argv.items.append(archive);
