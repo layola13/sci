@@ -172,6 +172,33 @@ pub fn build(b: *std.Build) void {
     const sync_sa_std_artifact = b.addUpdateSourceFiles();
     sync_sa_std_artifact.addCopyFileToSource(sa_std_static.getEmittedBin(), targetSaStdSyncPath(b, target));
 
+    // EXPERIMENT (wasm link speed): split toml/yaml out of the single
+    // sa_std object into independent archive members. wasi builds skip
+    // their comptime force-import in sa_std.zig (if !is_wasm guard), so
+    // these standalone objects provide the 60 ABI symbols instead. A
+    // program that never calls toml/yaml never pulls these members, so
+    // wasm-ld does not parse their symbol tables -> faster link. Native
+    // builds are untouched (guard keeps the original union there).
+    if (target.result.os.tag == .wasi) {
+        const split_units = [_][]const u8{ "sa_toml.zig", "sa_yaml.zig" };
+        for (split_units) |unit| {
+            const unit_mod = b.createModule(.{
+                .root_source_file = b.path(b.fmt("src/runtime/{s}", .{unit})),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+                .strip = true,
+            });
+            unit_mod.addImport("sio", sio_module);
+            const unit_lib = b.addLibrary(.{
+                .name = b.fmt("sa_std_{s}", .{std.fs.path.stem(unit)}),
+                .root_module = unit_mod,
+                .linkage = .static,
+            });
+            sa_std_static.root_module.addObjectFile(unit_lib.getEmittedBin());
+        }
+    }
+
     const sa_std_shared_module = b.createModule(.{
         .root_source_file = b.path(sa_std_root),
         .target = target,
