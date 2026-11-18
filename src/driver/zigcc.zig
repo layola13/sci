@@ -51,6 +51,74 @@ fn zigExe() []const u8 {
     return "zig";
 }
 
+var zig_cache_dir_resolved: bool = false;
+var zig_cache_dir_cache: ?[]const u8 = null;
+
+/// Directory holding the toolchain's prewarmed zig global cache, when
+/// the toolchain ships one ('zig build sa-runtime-bundle' produces it
+/// under <prefix>/share/sa/zig-cache, next to bin/sa).
+///
+/// 'zig cc' compiles its own support libraries (compiler_rt, the libc
+/// stubs, ubsan) from Zig source on first use and caches them in the
+/// per-user global cache: a single hello-world link writes ~45 MB
+/// under ~/.cache/zig. That cache is content-keyed, so a copy prewarmed
+/// at toolchain build time hits on any machine running the same zig
+/// version; pointing the child 'zig cc' at the shipped copy keeps first
+/// use from compiling — or writing — any of it under the user's HOME.
+///
+/// Resolution order:
+/// 1. ZIG_GLOBAL_CACHE_DIR already set in our own environment: the
+///    user's setting flows to the child untouched (return null).
+/// 2. SA_ZIG_GLOBAL_CACHE_DIR: explicit override (packaging / prewarm).
+/// 3. <dir of the sa executable>/../share/sa/zig-cache, when that
+///    directory exists and is writable (a read-only install falls back
+///    to the default per-user cache instead of failing links).
+fn toolchainZigCacheDir() ?[]const u8 {
+    while (!zig_exe_mu.tryLock()) {
+        std.Thread.yield() catch {};
+    }
+    defer zig_exe_mu.unlock();
+    if (zig_cache_dir_resolved) return zig_cache_dir_cache;
+    zig_cache_dir_resolved = true;
+    zig_cache_dir_cache = resolveToolchainZigCacheDir();
+    return zig_cache_dir_cache;
+}
+
+fn resolveToolchainZigCacheDir() ?[]const u8 {
+    const alloc = std.heap.page_allocator;
+    if (sio.getEnvVarOwned(alloc, "ZIG_GLOBAL_CACHE_DIR")) |v| {
+        alloc.free(v);
+        return null;
+    } else |_| {}
+    if (sio.getEnvVarOwned(alloc, "SA_ZIG_GLOBAL_CACHE_DIR")) |dir| {
+        if (dir.len > 0) return dir;
+        alloc.free(dir);
+    } else |_| {}
+    const exe_path = sio.selfExePathAlloc(alloc) catch return null;
+    defer alloc.free(exe_path);
+    const exe_dir = std.fs.path.dirname(exe_path) orelse return null;
+    const candidate = std.fs.path.join(alloc, &.{ exe_dir, "..", "share", "sa", "zig-cache" }) catch return null;
+    // Only redirect when the shipped cache is actually usable: zig must
+    // be able to write the program's own objects into it.
+    sio.cwd().access(candidate, .{ .read = true, .write = true }) catch {
+        alloc.free(candidate);
+        return null;
+    };
+    return candidate;
+}
+
+/// Environment for a 'zig cc' child: the live environment, plus
+/// ZIG_GLOBAL_CACHE_DIR pointing at the toolchain's prewarmed cache
+/// when one resolves (see toolchainZigCacheDir). Returns null when no
+/// override applies, so the child inherits the live environment as-is.
+fn zigChildEnvMap(allocator: std.mem.Allocator) !?sio.EnvMap {
+    const dir = toolchainZigCacheDir() orelse return null;
+    var env = try sio.getEnvMap(allocator);
+    errdefer env.deinit();
+    try env.put("ZIG_GLOBAL_CACHE_DIR", dir);
+    return env;
+}
+
 pub fn argvForExe(
     allocator: std.mem.Allocator,
     artifact_path: []const u8,
@@ -237,9 +305,12 @@ pub fn argvForWasm(
 }
 
 fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+    var env_map = try zigChildEnvMap(allocator);
+    defer if (env_map) |*m| m.deinit();
     return try sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
+        .env_map = if (env_map) |*m| m else null,
     });
 }
 
@@ -248,6 +319,9 @@ fn runProcessFast(allocator: std.mem.Allocator, argv: []const []const u8) !sio.C
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
+    var env_map = try zigChildEnvMap(allocator);
+    defer if (env_map) |*m| m.deinit();
+    if (env_map) |*m| child.env_map = m;
     try child.spawn();
     try child.waitForSpawn();
     return try child.wait();

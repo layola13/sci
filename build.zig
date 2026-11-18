@@ -355,6 +355,74 @@ pub fn build(b: *std.Build) void {
     const install_sa_exe = b.addInstallArtifact(exe, .{});
     b.getInstallStep().dependOn(&install_sa_exe.step);
 
+    // -- Shippable runtime bundle -------------------------------------
+    // 'zig build sa-runtime-bundle' assembles what a distribution needs
+    // so that first use compiles nothing on the user's machine:
+    //   * the prebuilt sa_std archives (the plain install step already
+    //     emits lib/<archive>; the wasm32-wasi archive comes from
+    //     'zig build -Dtarget=wasm32-wasi sa-std-static'), and
+    //   * a prewarmed zig global cache under share/sa/zig-cache.
+    // 'zig cc' builds its support libraries (compiler_rt, libc stubs)
+    // from source on first use and would otherwise write ~45 MB into
+    // the user's ~/.cache/zig on every machine. The cache is
+    // content-keyed, so the prewarmed copy hits for any install path
+    // on the same zig version; src/driver/zigcc.zig points 'zig cc'
+    // children at it via ZIG_GLOBAL_CACHE_DIR whenever it is present
+    // and writable.
+    const runtime_bundle_step = b.step("sa-runtime-bundle", "Install the toolchain and prewarm the shippable zig cache (share/sa/zig-cache)");
+    runtime_bundle_step.dependOn(b.getInstallStep());
+    {
+        // Default: the default install prefix (zig-out) — i.e. exactly
+        // the share/sa/zig-cache the installed sa resolves next to
+        // bin/sa. Packagers installing elsewhere pass the matching
+        // directory explicitly and ship it as <prefix>/share/sa/zig-cache.
+        const bundle_cache_dir = b.option([]const u8, "runtime-bundle-cache-dir", "Directory the sa-runtime-bundle step prewarms as the shippable zig global cache.") orelse pathFromRoot(b, "zig-out/share/sa/zig-cache");
+        const wf = b.addWriteFiles();
+        const smoke_sa = wf.add("runtime_bundle_smoke.sa",
+            \\@import "sa_std/io/print.sai"
+            \\
+            \\@main() -> i32:
+            \\L_ENTRY:
+            \\    @const S = utf8:"ok"
+            \\    call @sa_print_bytes(&S, 2)
+            \\    return 0
+            \\
+        );
+        // The prewarm runs invoke the just-built 'sa', whose zigExe()
+        // resolves 'zig' against PATH; make sure the zig running this
+        // build is findable even when it was invoked by absolute path.
+        const zig_bin_dir = std.fs.path.dirname(b.graph.zig_exe) orelse "";
+        const prev_path = b.graph.environ_map.get("PATH") orelse "";
+        const prewarm_path = if (zig_bin_dir.len == 0) prev_path else b.fmt("{s}{c}{s}", .{ zig_bin_dir, std.fs.path.delimiter, prev_path });
+        const prewarm_native = b.addRunArtifact(exe);
+        prewarm_native.addArg("build-exe");
+        prewarm_native.addFileArg(smoke_sa);
+        prewarm_native.addArg("-o");
+        _ = prewarm_native.addOutputFileArg("runtime_bundle_smoke");
+        prewarm_native.setEnvironmentVariable("PATH", prewarm_path);
+        prewarm_native.setEnvironmentVariable("ZIG_GLOBAL_CACHE_DIR", bundle_cache_dir);
+        prewarm_native.setEnvironmentVariable("SA_ZIG_GLOBAL_CACHE_DIR", bundle_cache_dir);
+        prewarm_native.step.dependOn(&install_sa_std_static.step);
+        prewarm_native.step.dependOn(&sync_sa_std_artifact.step);
+        runtime_bundle_step.dependOn(&prewarm_native.step);
+        // The wasm32-wasi link configuration has its own support
+        // objects; prewarm it too when the cross archive has been built.
+        if (std.Io.Dir.cwd().access(b.graph.io, "artifacts/sa_std/wasm32-wasi/libsa_std.a", .{})) {
+            const prewarm_wasm = b.addRunArtifact(exe);
+            prewarm_wasm.addArg("build-wasm");
+            prewarm_wasm.addFileArg(smoke_sa);
+            prewarm_wasm.addArg("-o");
+            _ = prewarm_wasm.addOutputFileArg("runtime_bundle_smoke.wasm");
+            prewarm_wasm.addArgs(&.{ "--target", "wasm32" });
+            prewarm_wasm.setEnvironmentVariable("PATH", prewarm_path);
+            prewarm_wasm.setEnvironmentVariable("ZIG_GLOBAL_CACHE_DIR", bundle_cache_dir);
+            prewarm_wasm.setEnvironmentVariable("SA_ZIG_GLOBAL_CACHE_DIR", bundle_cache_dir);
+            runtime_bundle_step.dependOn(&prewarm_wasm.step);
+        } else |_| {
+            std.debug.print("sa-runtime-bundle: artifacts/sa_std/wasm32-wasi/libsa_std.a missing; skipping wasm cache prewarm (build it with: zig build -Dtarget=wasm32-wasi sa-std-static)\n", .{});
+        }
+    }
+
     // -- SA-implemented std units in the static sa_std archive -----------
     // A few .sai externs are implemented in SA source rather than in the
     // Zig runtime (today exactly the GrowVec family:
