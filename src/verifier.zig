@@ -166,10 +166,18 @@ const ParallelVerifyJob = struct {
     result: ?VerifyBodyResult = null,
     err: ?anyerror = null,
     worker_index: usize = 0,
+    /// Stream-merge publication state: 0 = pending, 1 = ok published,
+    /// 2 = trap published, 3 = error, 4 = consumed by the merger.
+    /// Written by the owning worker with .release after result/err are
+    /// set; read by the merger with .acquire.
+    state: std.atomic.Value(u8) = std.atomic.Value(u8).init(0),
 };
 
 const ParallelVerifyWorker = struct {
-    gpa: std.heap.DebugAllocator(.{}) = .{},
+    // thread_safe: the stream merger frees a worker's published chunk
+    // result from the merger thread while the worker is already
+    // verifying its next chunk with the same allocator.
+    gpa: std.heap.DebugAllocator(.{ .thread_safe = true }) = .{},
 
     fn allocator(self: *ParallelVerifyWorker) std.mem.Allocator {
         return self.gpa.allocator();
@@ -212,6 +220,7 @@ const ParallelVerifyContext = struct {
     check_exit_leaks: bool,
     default_immutable: bool,
     next_chunk: std.atomic.Value(usize),
+    workers_done: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 };
 
 const CollectResult = struct {
@@ -4491,6 +4500,7 @@ fn chooseVerifyWorkerCount(requested_jobs: ?usize, chunk_count: usize) usize {
 }
 
 fn verifyWorker(context: *ParallelVerifyContext, worker_index: usize) void {
+    defer _ = context.workers_done.fetchAdd(1, .release);
     const worker_allocator = context.workers[worker_index].allocator();
     while (true) {
         const chunk_index = context.next_chunk.fetchAdd(1, .monotonic);
@@ -4512,9 +4522,46 @@ fn verifyWorker(context: *ParallelVerifyContext, worker_index: usize) void {
             context.default_immutable,
         ) catch |err| {
             job.err = err;
+            job.state.store(3, .release);
             return;
         };
         job.result = result;
+        job.state.store(switch (result) {
+            .ok => 1,
+            .trap => 2,
+        }, .release);
+    }
+}
+
+/// Merge one published chunk result into the final annotated list,
+/// dup'ing per-instruction delta changes into `allocator`; the worker
+/// copy is freed with the owning worker's allocator and the job is
+/// marked consumed (state 4). Only called for .ok results.
+fn mergeJobIntoList(
+    allocator: std.mem.Allocator,
+    workers: []ParallelVerifyWorker,
+    job: *ParallelVerifyJob,
+    annotated: *std.array_list.Managed(AnnotatedInstruction),
+) !void {
+    const ok = job.result.?.ok;
+    defer {
+        freeAnnotatedSlice(workers[job.worker_index].allocator(), ok.annotated);
+        job.result = null;
+        job.state.store(4, .release);
+    }
+    for (ok.annotated) |item| {
+        const delta_changes = if (item.delta.changes.len == 0)
+            emptyRegStateDelta().changes
+        else
+            try allocator.dupe(RegStateChange, item.delta.changes);
+        var delta_owned = false;
+        defer if (!delta_owned and delta_changes.len != 0) allocator.free(delta_changes);
+        try annotated.append(.{
+            .base = item.base,
+            .delta = .{ .changes = delta_changes },
+            .gas_step_cost = item.gas_step_cost,
+        });
+        delta_owned = true;
     }
 }
 
@@ -4575,7 +4622,7 @@ fn verifyParallel(
     _ = context.allocator;
     _ = context.requested_jobs;
 
-    const spawned_count = worker_count - 1;
+    const spawned_count = worker_count;
     var threads = try allocator.alloc(std.Thread, spawned_count);
     defer allocator.free(threads);
     var started_threads: usize = 0;
@@ -4587,22 +4634,63 @@ fn verifyParallel(
     }
 
     while (started_threads < spawned_count) : (started_threads += 1) {
-        threads[started_threads] = try std.Thread.spawn(.{}, verifyWorker, .{ &context, started_threads + 1 });
+        threads[started_threads] = try std.Thread.spawn(.{}, verifyWorker, .{ &context, started_threads });
     }
-
-    verifyWorker(&context, 0);
-
-    while (started_threads > 0) {
-        started_threads -= 1;
-        threads[started_threads].join();
-    }
-    if (stage_reporter) |reporter| reporter.report("parallel_after_body", chunks.len, chunks.len);
 
     var annotated = std.array_list.Managed(AnnotatedInstruction).init(allocator);
     errdefer freeAnnotated(allocator, &annotated);
     var gas_alloc_bytes: u64 = 0;
     var gas_steps: u64 = 0;
     var has_unbounded_loop = false;
+
+    // STREAM-MERGE (LINE-OPT-VERIFY-STREAMMERGE): the calling thread
+    // merges chunk results into the final annotated list in chunk
+    // order at a watermark, freeing each worker-side copy as soon as
+    // its chunk is consumed. Previously every chunk result stayed
+    // resident in the workers' allocators until all bodies had
+    // finished, and the merged copy was built only after the join, so
+    // the verify in-body peak carried the full result payload plus
+    // per-worker retained transients. Trap and error results are
+    // never consumed here: the watermark stops at them, the workers
+    // are joined, and the precedence scan below decides them exactly
+    // as before; any chunk the stream did not reach is merged by the
+    // tail loop after the join.
+    var merged_count: usize = 0;
+    stream: while (merged_count < jobs.len) {
+        const job = &jobs[merged_count];
+        switch (job.state.load(.acquire)) {
+            1 => {
+                const ok = job.result.?.ok;
+                gas_alloc_bytes += ok.gas.max_alloc_bytes;
+                switch (ok.gas.max_instruction_steps) {
+                    .bounded => |steps| gas_steps += steps,
+                    .unbounded => |unbounded| {
+                        gas_steps += unbounded.bounded_prefix;
+                        has_unbounded_loop = true;
+                    },
+                }
+                if (ok.has_unbounded_loop) has_unbounded_loop = true;
+                try mergeJobIntoList(allocator, workers, job, &annotated);
+                merged_count += 1;
+                if (stage_reporter) |reporter| {
+                    if (merged_count == jobs.len or merged_count % 128 == 0) {
+                        reporter.report("parallel_merge", merged_count, jobs.len);
+                    }
+                }
+            },
+            2, 3 => break :stream,
+            else => {
+                if (context.workers_done.load(.acquire) >= started_threads) break :stream;
+                std.Thread.yield() catch {};
+            },
+        }
+    }
+
+    while (started_threads > 0) {
+        started_threads -= 1;
+        threads[started_threads].join();
+    }
+    if (stage_reporter) |reporter| reporter.report("parallel_after_body", chunks.len, chunks.len);
 
     // TRAP-PRECEDENCE (parallel path): chunks are single functions in
     // declaration order, so a plain first-trap merge lets an exit leak
@@ -4615,7 +4703,8 @@ fn verifyParallel(
         var deferred_leak: ?trap.TrapReport = null;
         for (jobs) |*job| {
             if (job.err) |err| return err;
-            const result = job.result orelse return error.UnexpectedResult;
+            if (job.result == null) continue; // already consumed by the stream merge (was .ok)
+            const result = job.result.?;
             switch (result) {
                 .trap => |report| {
                     if (isExitLeakReport(report)) {
@@ -4636,7 +4725,7 @@ fn verifyParallel(
 
     for (jobs, 0..) |*job, job_index| {
         if (job.err) |err| return err;
-        const result = job.result orelse return error.UnexpectedResult;
+        const result = job.result orelse continue; // already consumed by the stream merge
         switch (result) {
             .trap => |report| {
                 freeAnnotated(allocator, &annotated);
