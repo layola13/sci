@@ -299,6 +299,13 @@ pub fn argvForWasm(
     if (sa_std_archive_path) |archive| {
         try argv.items.append(archive);
     }
+    // The user's .sa.bc may carry DWARF from the LLVM emitter even when the
+    // sa_std archive is stripped. Strip it at link time: cuts link ~25ms and
+    // output from 1.25MB to ~1.8KB. Placed right before -o so the leading
+    // positional argv indices (used by tests) stay unchanged.
+    if (!debug) {
+        try argv.items.append("-Wl,--strip-debug");
+    }
     try argv.items.append("-o");
     try argv.items.append(out_path);
     return argv;
@@ -695,7 +702,16 @@ test "argv helpers choose the requested optimization" {
     try std.testing.expectEqualStrings("-O3", wasm_fast.slice()[6]);
     var wasm_std = try argvForWasm(std.testing.allocator, "input.bc", "out.wasm", .{ .triple = "wasm32-wasi" }, .release_fast, false, "/repo/libsa_std.a");
     defer wasm_std.deinit();
-    try std.testing.expectEqualStrings("/repo/libsa_std.a", wasm_std.slice()[wasm_std.slice().len - 3]);
+    // Locate the archive by value, not by fixed offset: --strip-debug is now
+    // appended just before -o and would shift a trailing index.
+    var saw_archive = false;
+    var saw_strip = false;
+    for (wasm_std.slice()) |arg| {
+        if (std.mem.eql(u8, arg, "/repo/libsa_std.a")) saw_archive = true;
+        if (std.mem.eql(u8, arg, "-Wl,--strip-debug")) saw_strip = true;
+    }
+    try std.testing.expect(saw_archive);
+    try std.testing.expect(saw_strip);
 }
 
 test "argv helpers for library targets carry the export control" {
