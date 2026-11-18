@@ -50,11 +50,44 @@ const CompileOk = struct {
     flat: flattener.FlattenResult,
     verified: referee.VerifyOk,
     metrics: CompileMetrics,
+    /// Set by releaseFlatInstructions(): the flat.instructions storage was
+    /// freed at the emit seam, so the per-item allocations it shares with
+    /// verified.annotated[].base (upstream_loc.file, native_reg_names) are
+    /// released from the annotated copies in deinit instead of via
+    /// flat.deinit's (then empty) per-item loop.
+    flat_instructions_released: bool = false,
 
     fn deinit(self: *CompileOk, allocator: std.mem.Allocator) void {
+        if (self.flat_instructions_released) {
+            // Mirrors FlattenResult.deinit's per-item frees, minus
+            // package_identity (already freed at the seam). The annotated
+            // base entries are shallow copies of the flat instructions, so
+            // these pointers are the same allocations, freed exactly once.
+            for (self.verified.annotated) |ann| {
+                if (ann.base.upstream_loc) |loc| allocator.free(loc.file);
+                if (ann.base.native_reg_names.len != 0) allocator.free(ann.base.native_reg_names);
+            }
+        }
         self.verified.deinit(allocator);
         self.flat.deinit(allocator);
         self.* = undefined;
+    }
+
+    /// Emit-seam release of the flat instruction store: after
+    /// compileSource, emit consumes only verified.annotated, so the flat
+    /// array (one of the two full-size instruction copies held in
+    /// residency) is dead. Frees the per-item package_identity strings
+    /// (flat-owned; the emit paths never read them) and the array body.
+    /// Per-item allocations shared with annotated[].base
+    /// (upstream_loc.file, native_reg_names) deliberately stay alive for
+    /// emit; deinit releases them (see above).
+    fn releaseFlatInstructions(self: *CompileOk, allocator: std.mem.Allocator) void {
+        for (self.flat.instructions) |ins| {
+            if (ins.package_identity) |identity| allocator.free(identity);
+        }
+        allocator.free(self.flat.instructions);
+        self.flat.instructions = &.{};
+        self.flat_instructions_released = true;
     }
 };
 
@@ -8043,6 +8076,12 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             var owned = ok;
             defer owned.deinit(allocator);
             rejectNpmBindsUnlessJs("sa build-exe", &owned.flat, stderr) catch return 1;
+            // verify->emit seam: rejectNpmBindsUnlessJs is the last reader
+            // of owned.flat above; everything below consumes owned.verified
+            // (plus flat.loc_table / flat.def_dict only). Release the flat
+            // instruction store before emit so its residency does not
+            // stack under the emit peak.
+            owned.releaseFlatInstructions(allocator);
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             const std_archive_path = saStdArchivePathForTarget(allocator, compile_options.target_triple) catch |err| {
