@@ -32,6 +32,10 @@ pub const EmitOptions = struct {
     std_root: ?[]const u8 = null,
     selected_test_names: []const []const u8 = &.{},
     target_triple: ?[]const u8 = null,
+    /// EXPERIMENTAL: mark fadd/fmul/fsub/fdiv with LLVM 'fast' math flags so
+    /// the optimizer can vectorize floating-point reductions (matmul 3x).
+    /// Changes IEEE float semantics (reassociation / NaN); opt-in only.
+    fast_math: bool = false,
 };
 
 const std = @import("std");

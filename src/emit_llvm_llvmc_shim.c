@@ -33,6 +33,16 @@ void LLVMDisposeTargetData(LLVMTargetDataRef target_data);
 #include <llvm-c/Transforms/Utils.h>
 #include <llvm-c/Transforms/Vectorize.h>
 
+/* LLVM 14 has no C API for fast-math flags. Call the C++ method
+ * llvm::Instruction::setFast(bool) via its mangled symbol (verified working).
+ * Used only when SaModule.fast_math is set (opt-in): marks fadd/fmul/fsub/fdiv
+ * with 'fast' so LLVM vectorizes FP reductions (matmul 903ms -> ~320ms). */
+extern void _ZN4llvm11Instruction7setFastEb(void *inst, unsigned char set);
+static LLVMValueRef sa_fast_float(unsigned char fast_math, LLVMValueRef v) {
+    if (v && fast_math) _ZN4llvm11Instruction7setFastEb((void *)v, 1);
+    return v;
+}
+
 typedef enum { SA_T_VOID=0, SA_T_I1=1, SA_T_I8=2, SA_T_I16=3, SA_T_I32=4, SA_T_I64=5, SA_T_F32=6, SA_T_F64=7, SA_T_PTR=8, SA_T_U8=9, SA_T_U16=10, SA_T_U32=11, SA_T_U64=12 } SaType;
 typedef enum { SA_F_NORMAL=0, SA_F_EXTERNAL=1, SA_F_EXPORTED=2, SA_F_TEST=3 } SaFuncKind;
 typedef enum { SA_OP_NONE=0, SA_OP_LABEL=1, SA_OP_ALLOC=2, SA_OP_STACK_ALLOC=3, SA_OP_LOAD=4, SA_OP_STORE=5, SA_OP_BINOP=6, SA_OP_PTR_ADD=7, SA_OP_JMP=8, SA_OP_BR=9, SA_OP_CALL=10, SA_OP_RET=11, SA_OP_PANIC=12, SA_OP_PANIC_MSG=13, SA_OP_ATOMIC_LOAD=14, SA_OP_ATOMIC_STORE=15, SA_OP_ATOMIC_RMW=16, SA_OP_CMPXCHG=17, SA_OP_FENCE=18, SA_OP_TRY=19, SA_OP_CALL_INDIRECT=20, SA_OP_ASSIGN=21, SA_OP_RELEASE=22, SA_OP_TAKE=23, SA_OP_VA_START=24, SA_OP_VA_ARG=25, SA_OP_VA_END=26, SA_OP_BITCAST=27 } SaOp;
@@ -109,6 +119,7 @@ typedef struct {
     unsigned char test_mode;
     unsigned char debug;
     unsigned char is_cgu;
+    unsigned char fast_math;
     const char *source_file;
     const char *source_dir;
     const SaConst *consts;
@@ -129,6 +140,7 @@ typedef struct {
     unsigned short size_bits;
     unsigned char is_cgu;
     unsigned char wasm_compat;
+    unsigned char fast_math;
     LLVMTypeRef i8_ty;
     LLVMTypeRef i32_ty;
     LLVMTypeRef i64_ty;
@@ -1269,10 +1281,10 @@ static LLVMValueRef build_binop(EmitCtx *e, SaBinaryOp op, LLVMValueRef lhs, LLV
         case SA_BIN_ULE: return LLVMBuildZExt(e->builder, LLVMBuildICmp(e->builder, LLVMIntULE, lhs, rhs, "cmp"), e->i64_ty, "bool64");
         case SA_BIN_UGT: return LLVMBuildZExt(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGT, lhs, rhs, "cmp"), e->i64_ty, "bool64");
         case SA_BIN_UGE: return LLVMBuildZExt(e->builder, LLVMBuildICmp(e->builder, LLVMIntUGE, lhs, rhs, "cmp"), e->i64_ty, "bool64");
-        case SA_BIN_FADD: return LLVMBuildFAdd(e->builder, lhs, rhs, "fop");
-        case SA_BIN_FSUB: return LLVMBuildFSub(e->builder, lhs, rhs, "fop");
-        case SA_BIN_FMUL: return LLVMBuildFMul(e->builder, lhs, rhs, "fop");
-        case SA_BIN_FDIV: return LLVMBuildFDiv(e->builder, lhs, rhs, "fop");
+        case SA_BIN_FADD: return sa_fast_float(e->fast_math, LLVMBuildFAdd(e->builder, lhs, rhs, "fop"));
+        case SA_BIN_FSUB: return sa_fast_float(e->fast_math, LLVMBuildFSub(e->builder, lhs, rhs, "fop"));
+        case SA_BIN_FMUL: return sa_fast_float(e->fast_math, LLVMBuildFMul(e->builder, lhs, rhs, "fop"));
+        case SA_BIN_FDIV: return sa_fast_float(e->fast_math, LLVMBuildFDiv(e->builder, lhs, rhs, "fop"));
         case SA_BIN_FCMP_EQ: return LLVMBuildZExt(e->builder, LLVMBuildFCmp(e->builder, LLVMRealOEQ, lhs, rhs, "fcmp"), e->i64_ty, "bool64");
         case SA_BIN_FCMP_NE: return LLVMBuildZExt(e->builder, LLVMBuildFCmp(e->builder, LLVMRealUNE, lhs, rhs, "fcmp"), e->i64_ty, "bool64");
         case SA_BIN_FCMP_LT: return LLVMBuildZExt(e->builder, LLVMBuildFCmp(e->builder, LLVMRealOLT, lhs, rhs, "fcmp"), e->i64_ty, "bool64");
@@ -3673,6 +3685,7 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
     e->size_bits = m->size_bits;
     e->is_cgu = m->is_cgu;
     e->wasm_compat = m->wasm_compat;
+    e->fast_math = m->fast_math;
     e->target_triple = m->target_triple;
     if (m->function_count > UINT_MAX) {
         dispose_emit_ctx(e);

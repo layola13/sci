@@ -637,6 +637,9 @@ const CompileOptions = struct {
     /// Rust-style mutability: allocations bind immutable values and writing
     /// through them requires an explicit exclusive borrow.
     default_immutable: bool = false,
+    /// EXPERIMENTAL: mark LLVM fadd/fmul/fsub/fdiv with 'fast' math flags
+    /// so FP reductions vectorize (matmul ~2.5x). Opt-in; changes FP semantics.
+    fast_math: bool = false,
 };
 
 const TestCommandOptions = struct {
@@ -4545,6 +4548,10 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
     if (consumeMemReportOption(arg, options)) return true;
     if (try consumePermissionSetOption(arg, args, index, options)) return true;
     if (consumeAllowOption(arg, options)) return true;
+    if (std.mem.eql(u8, arg, "--fast-math")) {
+        options.fast_math = true;
+        return true;
+    }
     if (std.mem.eql(u8, arg, "--offline")) {
         options.offline = true;
         return true;
@@ -8226,7 +8233,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             } else {
                 try ensureParentDir(artifact_path);
                 const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
+                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
                     try printLlvmcEmitError(stderr, err, diagnostics_mode);
                     return 1;
                 };
@@ -8321,12 +8328,12 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             if (incremental) {
                 const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, compile_options.default_immutable);
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
-                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
+                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
                     try printLlvmcEmitError(stderr, err, diagnostics_mode);
                     return 1;
                 };
             } else {
-                emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path, out_path, opt_level) catch |err| {
+                emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path, out_path, opt_level) catch |err| {
                     try printLlvmcEmitError(stderr, err, diagnostics_mode);
                     return 1;
                 };
@@ -8422,7 +8429,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
             const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path) catch |err| {
+            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root }, artifact_path) catch |err| {
                 try printLlvmcEmitError(stderr, err, diagnostics_mode);
                 return 1;
             };
@@ -9043,7 +9050,7 @@ fn executeBuildLib(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             const size_bits = sizeBitsForTriple(compile_options.target_triple);
 
             try ensureParentDir(artifact_path);
-            emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, compile_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path, object_path, emitOptLevel(debug, optimization)) catch |err| {
+            emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, compile_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path, object_path, emitOptLevel(debug, optimization)) catch |err| {
                 try printLlvmcEmitError(stderr, err, diagnostics_mode);
                 return 1;
             };
@@ -10124,7 +10131,7 @@ fn executeTestInner(
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path) catch |err| {
+            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path) catch |err| {
                 try printLlvmcEmitError(stderr, err, diagnostics_mode);
                 return 1;
             };
