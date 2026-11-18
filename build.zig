@@ -137,6 +137,13 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        // The wasm sa_std archive is a single 8009-function object built in
+        // Debug mode; ~4.4 MB (32%) of its 14 MB is DWARF that consumers never
+        // use (a program's own debug info lives in its .sa.bc, emitted
+        // separately). Stripping at build time keeps the runtime object small
+        // so `sa build-wasm`'s link step does not have to parse/relocate it.
+        // Native archives keep debug info for debugger-friendly dev builds.
+        .strip = if (target.result.os.tag == .wasi) true else null,
     });
     sa_std_static_module.addImport("sio", sio_module);
     sa_std_static_module.addImport("sa_net_primitives", sa_net_primitives_module);

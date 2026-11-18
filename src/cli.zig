@@ -6536,6 +6536,13 @@ fn computeProjectBuildKey(
         cacheBytes(&hasher, target.triple);
         cacheBool(&hasher, target.no_entry);
         cacheU64(&hasher, target.size_bits);
+        // The wasm sa_std archive is stripped at build time (see build.zig:
+        // `.strip = true` for wasi). The std source-tree digest alone cannot
+        // distinguish a stripped from an unstripped archive built from the
+        // same source, so cache entries minted before this change would be
+        // revived with the old 14 MB runtime. Bump this generation marker to
+        // invalidate them; byte-identical function is preserved.
+        cacheBytes(&hasher, "wasm-std-stripped-v1");
     }
 
     const project_manifest = project_context.manifest;
