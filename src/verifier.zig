@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const sio = @import("sio");
 
 const call = @import("referee/call.zig");
 const cap = @import("common/capability.zig");
@@ -3251,6 +3252,18 @@ fn checkExitLeaks(
         // a live raw-pointer temp is never a leak, same as an ephemeral
         // scalar temp.
         if ((flags[idx] & regFlagRawPointer) != 0) continue;
+        // A borrow view of hard const data (@const) carries no ownership
+        // and its referent can never be retired while borrowed (const
+        // data is never locked, moved, or released); a live borrow of
+        // const data at function exit is never a leak, same as a live
+        // raw-pointer temp. A borrow view of an owned value is NOT
+        // exempted: the move path does not check borrow locks, so the
+        // exit scan on the view is the backstop that catches
+        // move-while-borrowed.
+        if ((mask & maskOf(.borrow_view)) != 0) {
+            const origin = origins[idx];
+            if (origin != null and isConstData(flags, origin.?)) continue;
+        }
         if ((flags[idx] & regFlagBranchCondition) != 0) continue;
         if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
         if (idx < consumed_in_function.len and consumed_in_function[idx]) continue;
@@ -3923,6 +3936,17 @@ fn verifyBody(
                 if (!current_is_ffi_wrapper) return trapReport(.illegal_unsafe_context, item, current_function_text, current_is_ffi_wrapper, null, null, null, "raw pointer and assume_* instructions are only legal inside @ffi_wrapper", null);
                 if (readCheck(item, current_function_text, current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, state, flags)) |tr| return tr;
                 if (assignValue(item, current_function_text, current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, state, flags, maskOf(.active), &interior)) |tr| return tr;
+                // A safe pointer carries no more ownership than the raw
+                // pointer it reinterprets: propagate the raw-pointer flag
+                // from the input, like .assign does. A load of .ptr is
+                // flagged regFlagRawPointer, so the db bench shape (f =
+                // load vt+0 as ptr; s = assume_safe f) leaves s exempt
+                // from the exit scan; assume_safe of an owned value stays
+                // tracked (alloc never sets the flag), so the
+                // move-while-aliased backstop is preserved.
+                if ((flags[@intCast(item.operands[1].reg)] & regFlagRawPointer) != 0) {
+                    flags[@intCast(item.operands[0].reg)] |= regFlagRawPointer;
+                }
             },
             .assume_borrow => {
                 if (!current_is_ffi_wrapper) return trapReport(.illegal_unsafe_context, item, current_function_text, current_is_ffi_wrapper, null, null, null, "raw pointer and assume_* instructions are only legal inside @ffi_wrapper", null);
@@ -4269,6 +4293,15 @@ fn verifyBody(
                     // them); a live raw-pointer temp is never a leak, same as
                     // an ephemeral scalar temp.
                     if ((flags[idx] & regFlagRawPointer) != 0) continue;
+                    // Same const-borrow exemption as the function-exit scan
+                    // (checkExitLeaks): a live borrow view of @const data is
+                    // never a leak; a borrow view of an owned value is not
+                    // exempted, so the scan stays the backstop for
+                    // move-while-borrowed.
+                    if ((mask & maskOf(.borrow_view)) != 0) {
+                        const origin = origins[idx];
+                        if (origin != null and isConstData(flags, origin.?)) continue;
+                    }
                     if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;
                     if (idx < consumed_in_function.len and consumed_in_function[idx]) continue;
                     const src_name = current_scope.?.nameOf(&metadata.symbols, src_id) orelse metadata.symbols.lookupName(current_scope.?.globalId(src_id)) orelse "";
@@ -6503,23 +6536,24 @@ fn verifyPackageIntrinsicProgram(
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
 
-    try tmp.dir.makePath("sa_vendor/github.com/example/pkg");
+    try tdir.makePath("sa_vendor/github.com/example/pkg");
 
-    var pkg_main = try tmp.dir.createFile("sa_vendor/github.com/example/pkg/index.sa", .{ .truncate = true });
+    var pkg_main = try tdir.createFile("sa_vendor/github.com/example/pkg/index.sa", .{ .truncate = true });
     try pkg_main.writeAll(package_body);
     pkg_main.close();
 
-    var main_file = try tmp.dir.createFile("main.sa", .{ .truncate = true });
+    var main_file = try tdir.createFile("main.sa", .{ .truncate = true });
     try main_file.writeAll(root_source);
     main_file.close();
 
-    const source_text = try tmp.dir.readFileAlloc(allocator, "main.sa", 4096);
+    const source_text = try tdir.readFileAlloc(allocator, "main.sa", 4096);
     defer allocator.free(source_text);
 
-    const path = try tmp.dir.realpathAlloc(allocator, "main.sa");
+    const path = try tdir.realpathAlloc(allocator, "main.sa");
     defer allocator.free(path);
-    const project_root = try tmp.dir.realpathAlloc(allocator, ".");
+    const project_root = try tdir.realpathAlloc(allocator, ".");
     defer allocator.free(project_root);
 
     var flat = try @import("flattener.zig").flattenFileWithPackages(
@@ -7735,6 +7769,149 @@ test "owned alloc live at exit still traps memory leak" {
     const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
     switch (verified) {
         .trap => |report| try std.testing.expectEqual(trap.Trap.memory_leak, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+// Regression (LINE-DB-VERIFIER-EXITLIVE): a borrow view of @const data
+// left live at function exit is not a leak — the db concurrent-bench
+// shape (worker_vt = &QUERY_WORKER_VT in @ffi_wrapper spawn_query_worker)
+// was rejected with error[MemoryLeak] by the exit scan, although a
+// borrow of a const global owns nothing and its referent can never be
+// retired while borrowed.
+test "borrow of const data left live at exit is not a leak" {
+    const source =
+        \\@const VT = vtable { call = @worker }
+        \\@worker(*slot: ptr) -> i32:
+        \\    return 0
+        \\@main() -> i32:
+        \\    vt = &VT
+        \\    f = load vt+0 as ptr
+        \\    return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| {
+            std.debug.print("unexpected trap: {s}\n", .{@tagName(report.trap)});
+            return error.TestUnexpectedResult;
+        },
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+        },
+    }
+}
+
+// Negative control for the const-borrow exit exemption: moving an owned
+// value while a borrow of it is live must still trap — the move path does
+// not check borrow locks, so the exit scan on the borrow view is the
+// backstop that catches move-while-borrowed, and the exemption must never
+// silence it (the view's origin here is an owned alloc, not const data).
+test "move-while-borrowed still traps at exit" {
+    const source =
+        \\@main() -> i32:
+        \\    x = alloc 8
+        \\    b = &x
+        \\    y = x
+        \\    return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.memory_leak, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+// Negative control for the const-borrow exit exemption: an owned alloc
+// with a live borrow of it must still trap .memory_leak — the exemption
+// applies to the borrow view only when its origin is const data, never
+// to the owned referent itself.
+test "owned alloc with live borrow still traps memory leak" {
+    const source =
+        \\@main() -> i32:
+        \\    x = alloc 8
+        \\    b = &x
+        \\    return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| try std.testing.expectEqual(trap.Trap.memory_leak, report.trap),
+        .ok => return error.TestUnexpectedResult,
+    }
+}
+
+// Regression (LINE-DB-VERIFIER-EXITLIVE): assume_safe must propagate the
+// raw-pointer flag from its input, like .assign does. The db bench shape
+// loads a function pointer from a @const vtable (f = load vt+0 as ptr,
+// flagged regFlagRawPointer) and reinterprets it (s = assume_safe f);
+// without propagation s is a plain Active register and the exit scan
+// rejects it, even though it owns nothing.
+test "assume_safe of const-loaded raw pointer is not a leak" {
+    const source =
+        \\@const VT = vtable { call = @worker }
+        \\@extern pthread_spawn(*entry: ptr, *arg: ptr) -> i32
+        \\@worker(*slot: ptr) -> i32:
+        \\    return 0
+        \\@ffi_wrapper spawn(*slot: ptr) -> i32:
+        \\    vt = &VT
+        \\    f = load vt+0 as ptr
+        \\    s = assume_safe f
+        \\    h = call @pthread_spawn(*s, *slot)
+        \\    !slot
+        \\    return h
+        \\@main() -> i32:
+        \\    return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| {
+            std.debug.print("unexpected trap: {s} on {s}\n", .{ @tagName(report.trap), report.register_buf[0..] });
+            return error.TestUnexpectedResult;
+        },
+        .ok => |ok| {
+            var owned = ok;
+            owned.deinit(std.testing.allocator);
+        },
+    }
+}
+
+// Negative control for the assume_safe propagation: assume_safe of an
+// owned alloc must NOT inherit any exemption (alloc never sets the
+// raw-pointer flag). Releasing the owner while the safe alias lives must
+// still trap — and the trap must name s itself, proving s stays tracked
+// (a move-then-release shape would leave the moved-to owner live and
+// trap on that instead, proving nothing about s).
+test "assume_safe of owned alloc still traps at exit" {
+    const source =
+        \\@ffi_wrapper wrap(*slot: ptr) -> i32:
+        \\    x = alloc 8
+        \\    s = assume_safe x
+        \\    !x
+        \\    return 0
+        \\@main() -> i32:
+        \\    return 0
+    ;
+    var flat = try @import("flattener.zig").flatten(std.testing.allocator, source);
+    defer flat.deinit(std.testing.allocator);
+
+    const verified = try verify(std.testing.allocator, flat.instructions, flat.const_decls);
+    switch (verified) {
+        .trap => |report| {
+            try std.testing.expectEqual(trap.Trap.memory_leak, report.trap);
+            try std.testing.expectEqualStrings("s", std.mem.sliceTo(&report.register_buf, 0));
+        },
         .ok => return error.TestUnexpectedResult,
     }
 }
