@@ -1133,6 +1133,45 @@ fn fireTimers() void {
     if (fired > 0) wakeDemand(fired);
 }
 
+/// DEF-SLA-RUNTIME-CARRIER-LIVELOCK (timer starvation): the
+/// dedicated timer thread. Carrier-side timer service is gated
+/// on a null findWork() in carrierMain, and moving the call to
+/// the carrier loop top does not fix it either (tested: the
+/// wedge persists at the baseline signature): when carriers are
+/// trapped inside runGoroutine behind goroutines that neither
+/// park through the scheduler nor exit (futex churn in channel
+/// ops), no carrier ever reaches any fireTimers() call site, and
+/// a goroutine parked in a timed select starves with its
+/// deadline long past (minim8-256 writer: 100 ms select timer
+/// expired ~28 s, never fired). This thread's only job is
+/// fireTimers(); its service is independent of carrier progress.
+/// It sleeps on wake_word until the next deadline: timerAdd
+/// bumps wake_word via wakeCarriers(), so a timer armed after
+/// the sleep begins either changes the word before the futex
+/// wait (which then returns immediately) or is picked up within
+/// the wait cap (10 ms, the same cap carrierMain applies to net
+/// waiters). All fire paths are already safe from a non-carrier
+/// thread: enqueueWake/enqueueWakeNext fall back to the global
+/// queue when carrier_self is null, and the timer heap is
+/// mutex-guarded against carrier-side fireTimers() calls.
+fn timerMain() void {
+    var observed = wake_word.load(.acquire);
+    while (true) {
+        fireTimers();
+        var timeout_ns: u64 = 10 * std.time.ns_per_ms;
+        if (timerNextDeadline()) |d| {
+            const delta = d - monotonicNs();
+            if (delta <= 0) {
+                timeout_ns = 0;
+            } else if (delta < timeout_ns) {
+                timeout_ns = @intCast(delta);
+            }
+        }
+        futexWait(&wake_word, observed, timeout_ns);
+        observed = wake_word.load(.acquire);
+    }
+}
+
 // ---------------------------------------------------------------------
 // Core goroutine context operations (called on a goroutine stack).
 
@@ -1511,6 +1550,10 @@ fn initScheduler() void {
         c.thread = std.Thread.spawn(.{}, carrierMain, .{c}) catch processTrap("sa_task: cannot spawn carrier thread");
         if (c.thread) |t| t.detach();
     }
+    // Timer service must not depend on carrier progress (see
+    // timerMain): one dedicated thread for the process lifetime.
+    const timer_thread = std.Thread.spawn(.{}, timerMain, .{}) catch processTrap("sa_task: cannot spawn timer thread");
+    timer_thread.detach();
 }
 
 // ---------------------------------------------------------------------
