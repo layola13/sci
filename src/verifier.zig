@@ -686,18 +686,17 @@ fn parseVtableSlotName(text: []const u8) ?[]const u8 {
     return slot;
 }
 
-fn parseVtableSlots(allocator: std.mem.Allocator, literal: const_decl.VTableLiteral, sigs: []const sig.FunctionSig) ![]ConstVTableSlot {
+/// LINE-OPT-VERIFY-MERGE (metadata adjacency index): vtable slots used to
+/// resolve their function by a LINEAR scan over all sigs -- O(V x F), and
+/// the slot names share the "sla__f" prefix so each comparison walks most
+/// of the name. The caller already owns sig_index_by_name (first index
+/// per name, same first-match semantics as the scan), so resolve in O(1).
+fn parseVtableSlots(allocator: std.mem.Allocator, literal: const_decl.VTableLiteral, sigs: []const sig.FunctionSig, sig_index_by_name: *const std.StringHashMap(usize)) ![]ConstVTableSlot {
     var slots = std.array_list.Managed(ConstVTableSlot).init(allocator);
     errdefer slots.deinit();
     for (literal.slots) |slot| {
-        var sig_match: ?sig.FunctionSig = null;
-        for (sigs) |item| {
-            if (std.mem.eql(u8, item.name, slot.func_name)) {
-                sig_match = item;
-                break;
-            }
-        }
-        const resolved = sig_match orelse return error.UnknownRegister;
+        const sig_idx = sig_index_by_name.get(slot.func_name) orelse return error.UnknownRegister;
+        const resolved = sigs[sig_idx];
         try slots.append(.{
             .slot_name = slot.name,
             .function_name = slot.func_name,
@@ -711,6 +710,7 @@ fn collectConstVtables(
     allocator: std.mem.Allocator,
     const_decls: []const const_decl.ConstDecl,
     sigs: []const sig.FunctionSig,
+    sig_index_by_name: *const std.StringHashMap(usize),
 ) !std.array_list.Managed(ConstVTable) {
     var out = std.array_list.Managed(ConstVTable).init(allocator);
     errdefer {
@@ -723,7 +723,7 @@ fn collectConstVtables(
             .vtable => |literal| {
                 const name_copy = try allocator.dupe(u8, decl.name);
                 errdefer allocator.free(name_copy);
-                const slots = try parseVtableSlots(allocator, literal, sigs);
+                const slots = try parseVtableSlots(allocator, literal, sigs, sig_index_by_name);
                 try out.append(.{
                     .name = name_copy,
                     .slots = slots,
@@ -2610,7 +2610,7 @@ fn collectMetadata(
         .symbols = symbols,
         .sigs = sigs,
         .sig_index_by_name = sig_index_by_name,
-        .const_vtables = try collectConstVtables(allocator, const_decls, sigs.items),
+        .const_vtables = try collectConstVtables(allocator, const_decls, sigs.items, &sig_index_by_name),
         .function_starts = function_starts,
         .const_ids = const_ids,
     };
@@ -2709,7 +2709,7 @@ fn collectPredecodedMetadata(
         .symbols = symbols,
         .sigs = sigs,
         .sig_index_by_name = sig_index_by_name,
-        .const_vtables = try collectConstVtables(allocator, const_decls, sigs.items),
+        .const_vtables = try collectConstVtables(allocator, const_decls, sigs.items, &sig_index_by_name),
         .function_starts = function_starts,
         .const_ids = const_ids,
     };
