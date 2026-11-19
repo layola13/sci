@@ -670,6 +670,9 @@ const CompileOptions = struct {
     /// Rust-style mutability: allocations bind immutable values and writing
     /// through them requires an explicit exclusive borrow.
     default_immutable: bool = false,
+    /// EXPERIMENTAL: mark LLVM fadd/fmul/fsub/fdiv with 'fast' math flags
+    /// so FP reductions vectorize (matmul ~2.5x). Opt-in; changes FP semantics.
+    fast_math: bool = false,
 };
 
 const TestCommandOptions = struct {
@@ -1329,6 +1332,8 @@ fn writeCompileOptionsHelp(writer: anytype) !void {
     try writer.writeAll("  --jobs auto|N                  Set parallel compile jobs\n");
     try writer.writeAll("  --dce no|std|full              Select dead-code elimination level\n");
     try writer.writeAll("  --no-incremental               Disable the default project build cache\n");
+    try writer.writeAll("  --fast-math                    Let LLVM reassociate FP ops and vectorize reductions\n");
+    try writer.writeAll("                                 (changes IEEE semantics; opt-in, cached separately)\n");
     try writer.writeAll("  --project-root <dir>           Use a specific project root for package resolution and .sa_cache\n");
     try writer.writeAll("  --profile                      Include compile phase timings in JSON metrics\n");
     try writer.writeAll("  --mem-report                   Print compile RSS stage samples; JSON mode includes metrics\n");
@@ -4586,6 +4591,10 @@ fn consumeCompileOption(arg: []const u8, args: []const []const u8, index: *usize
     if (consumeMemReportOption(arg, options)) return true;
     if (try consumePermissionSetOption(arg, args, index, options)) return true;
     if (consumeAllowOption(arg, options)) return true;
+    if (std.mem.eql(u8, arg, "--fast-math")) {
+        options.fast_math = true;
+        return true;
+    }
     if (std.mem.eql(u8, arg, "--offline")) {
         options.offline = true;
         return true;
@@ -6509,6 +6518,36 @@ fn hashResolvedSourceTree(
     addSourceTreeDigestToHasher(hasher, digest);
 }
 
+/// Fold the semantic build-mode flags into a project build key. Kept as a
+/// helper so the cache-dimension regression (e.g. --fast-math must key
+/// separately) can be unit-tested without a full project tree.
+fn cacheBuildSemanticFlags(
+    hasher: *std.crypto.hash.sha2.Sha256,
+    debug: bool,
+    release_fast: bool,
+    incremental: bool,
+    dce: DceMode,
+    default_immutable: bool,
+    fast_math: bool,
+) void {
+    cacheBool(hasher, debug);
+    cacheBool(hasher, release_fast);
+    cacheBool(hasher, incremental);
+    cacheBytes(hasher, dce.name());
+    // The mutability mode is a semantic dimension of the build, so it is
+    // part of the key: a mutable-mode artifact can never satisfy an
+    // immutable-mode request or vice versa. (This replaces the old
+    // --default-immutable cache bypass, which existed only because the
+    // key could not tell the two modes apart.)
+    cacheBool(hasher, default_immutable);
+    // --fast-math changes the LLVM IR (fast flags on every FP op) and the
+    // resulting binary's floating-point semantics. It must be a semantic
+    // dimension of the key: otherwise a cached artifact built without the
+    // flag silently satisfies a --fast-math request (and vice versa), which
+    // is why the flag previously required --no-incremental to take effect.
+    cacheBool(hasher, fast_math);
+}
+
 fn computeProjectBuildKey(
     allocator: std.mem.Allocator,
     project_context: *const ProjectContext,
@@ -6525,6 +6564,7 @@ fn computeProjectBuildKey(
     offline: bool,
     dce: DceMode,
     default_immutable: bool,
+    fast_math: bool,
 ) !ProjectCacheKey {
     const std_root = try stdRootFromEnv(allocator);
     defer allocator.free(std_root);
@@ -6550,16 +6590,7 @@ fn computeProjectBuildKey(
     cacheBytes(&hasher, key_source_path);
     cacheBytes(&hasher, target_name);
     cacheBytes(&hasher, source_suffix);
-    cacheBool(&hasher, debug);
-    cacheBool(&hasher, release_fast);
-    cacheBool(&hasher, incremental);
-    cacheBytes(&hasher, dce.name());
-    // The mutability mode is a semantic dimension of the build, so it is
-    // part of the key: a mutable-mode artifact can never satisfy an
-    // immutable-mode request or vice versa. (This replaces the old
-    // --default-immutable cache bypass, which existed only because the
-    // key could not tell the two modes apart.)
-    cacheBool(&hasher, default_immutable);
+    cacheBuildSemanticFlags(&hasher, debug, release_fast, incremental, dce, default_immutable, fast_math);
     // The linked sa_std runtime is identified by the semantic digest of
     // the std source tree it is built from. The previous formula fed the
     // archive's (size, mtime) stat pair: a byte-identical archive rebuild
@@ -7414,6 +7445,7 @@ fn buildIncrementalObject(
                                 .opt_level = opt_level,
                                 .function_task_index = task_idx,
                                 .dce = compile_options.dce,
+                                .fast_math = compile_options.fast_math,
                                 .std_root = emit_std_root,
                             },
                             object_path,
@@ -8056,7 +8088,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", compile_options.target_triple orelse "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", compile_options.target_triple orelse "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -8143,6 +8175,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     debug_val: bool,
                     jobs_val: ?usize,
                     dce_val: DceMode,
+                    fast_math_val: bool,
                     cgu_idx_val: usize,
                     cgu_count_val: usize,
                     object_path_val: []const u8,
@@ -8166,6 +8199,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                                 .codegen_unit_index = self.cgu_idx_val,
                                 .codegen_unit_count = self.cgu_count_val,
                                 .dce = self.dce_val,
+                                .fast_math = self.fast_math_val,
                                 .std_root = self.std_root_val,
                                 .target_triple = self.target_triple_val,
                             },
@@ -8191,6 +8225,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                         .debug_val = debug,
                         .jobs_val = if (compile_options.jobs) |j| if (j > 1) 1 else j else 1,
                         .dce_val = compile_options.dce,
+                        .fast_math_val = compile_options.fast_math,
                         .cgu_idx_val = i,
                         .cgu_count_val = cgu_count,
                         .object_path_val = cgu_obj_paths[i],
@@ -8283,7 +8318,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             } else {
                 try ensureParentDir(artifact_path);
                 const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
+                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
                     try printLlvmcEmitError(stderr, err, diagnostics_mode);
                     return 1;
                 };
@@ -8339,7 +8374,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", compile_options.target_triple orelse "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", compile_options.target_triple orelse "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -8376,14 +8411,14 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             }
             const size_bits = sizeBitsForTriple(compile_options.target_triple);
             if (incremental) {
-                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, compile_options.default_immutable);
+                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math);
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
-                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
+                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
                     try printLlvmcEmitError(stderr, err, diagnostics_mode);
                     return 1;
                 };
             } else {
-                emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path, out_path, opt_level) catch |err| {
+                emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path, out_path, opt_level) catch |err| {
                     try printLlvmcEmitError(stderr, err, diagnostics_mode);
                     return 1;
                 };
@@ -8410,7 +8445,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce, compile_options.default_immutable)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -8479,7 +8514,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
             defer allocator.free(emit_std_root);
             try ensureParentDir(artifact_path);
             const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root }, artifact_path) catch |err| {
+            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root }, artifact_path) catch |err| {
                 try printLlvmcEmitError(stderr, err, diagnostics_mode);
                 return 1;
             };
@@ -9100,7 +9135,7 @@ fn executeBuildLib(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             const size_bits = sizeBitsForTriple(compile_options.target_triple);
 
             try ensureParentDir(artifact_path);
-            emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, compile_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path, object_path, emitOptLevel(debug, optimization)) catch |err| {
+            emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, compile_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path, object_path, emitOptLevel(debug, optimization)) catch |err| {
                 try printLlvmcEmitError(stderr, err, diagnostics_mode);
                 return 1;
             };
@@ -10073,7 +10108,7 @@ fn executeTestInner(
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
     else
         null;
 
@@ -10181,7 +10216,7 @@ fn executeTestInner(
             const emit_std_root = try stdRootFromEnv(allocator);
             defer allocator.free(emit_std_root);
             const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path) catch |err| {
+            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path) catch |err| {
                 try printLlvmcEmitError(stderr, err, diagnostics_mode);
                 return 1;
             };
@@ -11625,6 +11660,25 @@ test "cache key tree paths tag project and std roots" {
     const outside = try cacheKeyTreePath(allocator, "/q/other.sa", "/p/work", "/p/std");
     defer allocator.free(outside);
     try std.testing.expectEqualStrings("/q/other.sa", outside);
+}
+
+test "fast-math is a separate build cache dimension" {
+    var off = std.crypto.hash.sha2.Sha256.init(.{});
+    var on = std.crypto.hash.sha2.Sha256.init(.{});
+    cacheBuildSemanticFlags(&off, false, true, false, .std, false, false);
+    cacheBuildSemanticFlags(&on, false, true, false, .std, false, true);
+    var off_digest: [32]u8 = undefined;
+    var on_digest: [32]u8 = undefined;
+    off.final(&off_digest);
+    on.final(&on_digest);
+    try std.testing.expect(!std.mem.eql(u8, &off_digest, &on_digest));
+    // The flag must not collapse with a different mode either: the default
+    // artifact may never satisfy a --fast-math request once cached.
+    var other = std.crypto.hash.sha2.Sha256.init(.{});
+    cacheBuildSemanticFlags(&other, false, true, false, .std, false, false);
+    var other_digest: [32]u8 = undefined;
+    other.final(&other_digest);
+    try std.testing.expectEqualSlices(u8, &off_digest, &other_digest);
 }
 
 test "flatten error mapping keeps import resolution and unsupported type hints specific" {
