@@ -4523,8 +4523,28 @@ fn buildVerifyChunks(
     return try chunks.toOwnedSlice();
 }
 
-fn chooseVerifyWorkerCount(requested_jobs: ?usize, chunk_count: usize) usize {
+/// Adaptive serial dispatch (LINE-VERIFY-MERGE-REDISPATCH): the parallel
+/// path pays a fixed per-chunk cost of ~0.22-0.34 ms (worker job setup
+/// through the thread-safe DebugAllocator plus stream-merge bookkeeping,
+/// measured on the function-size sweep, InstaBox main, 4 workers), so on
+/// modules made of many small functions it loses to the serial path at
+/// every tier (2.0-2.8x at mean chunk size <= ~410 instructions). The
+/// parallel path only wins once chunks are large (measured crossover
+/// band: mean chunk size ~800-1,100 instructions) or there are too few
+/// chunks for the fixed cost to accumulate. Force serial in the proven
+/// loss zone only: many chunks AND small mean chunk size. Everywhere
+/// else the requested worker count stands. This can only ever downgrade
+/// to serial, never upgrade past the requested count.
+const adaptive_serial_min_chunks: usize = 256;
+const adaptive_serial_max_mean_chunk_inst: usize = 1024;
+
+fn chooseVerifyWorkerCount(requested_jobs: ?usize, chunk_count: usize, total_instructions: usize) usize {
     if (chunk_count < 2) return 1;
+    if (chunk_count >= adaptive_serial_min_chunks and
+        total_instructions / chunk_count < adaptive_serial_max_mean_chunk_inst)
+    {
+        return 1;
+    }
     if (requested_jobs) |jobs| {
         return if (jobs <= 1) 1 else @min(jobs, chunk_count);
     }
@@ -4612,7 +4632,7 @@ fn verifyParallel(
     stage_reporter: ?VerifyStageReporter,
     default_immutable: bool,
 ) !VerifyBodyResult {
-    const worker_count = chooseVerifyWorkerCount(requested_jobs, chunks.len);
+    const worker_count = chooseVerifyWorkerCount(requested_jobs, chunks.len, instructions.len);
     if (worker_count <= 1) {
         return verifyBody(allocator, instructions, classified_lines, const_decls, metadata, 0, check_exit_leaks, package_grants, sax_context, default_immutable);
     }
@@ -4974,7 +4994,7 @@ pub fn verifyWithOptions(
     const chunks = try buildVerifyChunks(allocator, instructions);
     defer allocator.free(chunks);
     if (options.stage_reporter) |reporter| reporter.report("after_chunks", chunks.len, instructions.len);
-    const worker_count = chooseVerifyWorkerCount(options.jobs, chunks.len);
+    const worker_count = chooseVerifyWorkerCount(options.jobs, chunks.len, instructions.len);
 
     const body_result = if (worker_count > 1 and chunks.len > 0) blk: {
         const parallel = try verifyParallel(allocator, instructions, classified_lines, const_decls, &metadata, options.package_grants, options.sax_context, chunks, options.jobs, options.check_exit_leaks, options.stage_reporter, options.default_immutable);
