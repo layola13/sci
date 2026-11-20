@@ -10638,7 +10638,19 @@ fn routeLanguageFrontend(
     // itself (`sa <frontend> build ...`); the legacy two-layer
     // deprecation notice is for user-typed invocations, not routing.
     plugin_runtime.suppress_legacy_frontend_notice = true;
-    const frontend = plugin_runtime.languageFrontendForExtension(ext) orelse return null;
+    const frontend = plugin_runtime.languageFrontendForExtension(ext) orelse {
+        // LINE-HOST-BUILDEXE-GOCHAN: a source file whose extension no
+        // installed frontend owns must fail loudly here. Falling through
+        // to the host pipeline feeds the file to the SA flattener, which
+        // reports a misleading ForbiddenSyntax trap on the first `fn`
+        // brace (DEF-SCI-HOST-BUILDEXE-GOCHAN-FORBIDDEN). The host can
+        // only meaningfully consume .sa/.sab directly; anything else
+        // reaching the flattener is a routing failure, not SA syntax.
+        // (An installed frontend is visible only in dev mode
+        // SA_PLUGIN_DEV=1; without it the extension is unowned too.)
+        try stderr.print("error[SA-LANGUAGE-FRONTEND]: no installed language frontend owns {s} files; install a language frontend plugin for {s} sources (dev mode: SA_PLUGIN_DEV=1) or pass a .sa source\n", .{ ext, ext });
+        return .{ .handled = 1 };
+    };
     if (candidate_count > 1) {
         try stderr.print("error[SA-LANGUAGE-FRONTEND]: multiple language source files are not supported in one invocation yet\n", .{});
         return .{ .handled = 1 };

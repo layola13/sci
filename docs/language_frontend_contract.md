@@ -25,7 +25,13 @@ value is rejected with `InvalidSapManifest`; there is no fallback.
   `build-wasm`, `build-js`, `build-c`, `build-obj` — when the positional
   source file's extension is registered, the host routes through the
   frontend before running its own pipeline. With no frontend registered
-  for the extension, host behavior is exactly as before this contract.
+  for the extension, the host fails loudly with
+  `error[SA-LANGUAGE-FRONTEND]: no installed language frontend owns ...`
+  instead of feeding the file to the SA flattener (which used to report
+  a misleading ForbiddenSyntax trap on the first `fn` brace;
+  DEF-SCI-HOST-BUILDEXE-GOCHAN-FORBIDDEN). Bare project verbs keep
+  their old meaning when no project frontend is selected (see
+  `routeProjectVerb`).
 - Two further routing surfaces exist beyond the list above (added
   2026-11-05): `run` also routes through the frontend (non-terminal
   routing in `routeLanguageFrontend`), `build-lib` enters through the
