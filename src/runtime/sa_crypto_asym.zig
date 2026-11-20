@@ -125,6 +125,7 @@ const oid_rsa_encryption = [_]u8{ 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01
 const oid_ec_public_key = [_]u8{ 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01 };
 const oid_p256 = [_]u8{ 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07 };
 const oid_ed25519 = [_]u8{ 0x2b, 0x65, 0x70 };
+const oid_rsa_pss = [_]u8{ 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0a };
 const oid_cn = [_]u8{ 0x55, 0x04, 0x03 };
 
 fn oidIs(e: Elem, oid: []const u8) bool {
@@ -852,6 +853,12 @@ pub export fn sa_ecdsa_signature_der_to_raw(der_ptr: ?[*]const u8, der_len: u64,
 
 pub export fn sa_ecdsa_signature_raw_to_der(raw_ptr: ?[*]const u8, out_ptr: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
     const raw = raw_ptr orelse return ERR_INVALID;
+    // std's Signature.toDer panics on a zero integer component: its
+    // DER encoder trims a zero r/s to an empty slice and then indexes
+    // element 0 of it. A valid ECDSA r/s lies in [1, n-1], so a zero
+    // component is invalid input for this face -- reject it with the
+    // error code instead of crashing the host.
+    if (std.mem.allEqual(u8, raw[0..32], 0) or std.mem.allEqual(u8, raw[32..64], 0)) return ERR_INVALID;
     const sig = std.crypto.sign.ecdsa.EcdsaP256Sha256.Signature.fromBytes(raw[0..64].*);
     var buf: [72]u8 = undefined;
     const der = sig.toDer(&buf);
@@ -963,14 +970,30 @@ pub export fn sa_x509_subject_cn(cert_ptr: ?[*]const u8, cert_len: u64, out_ptr:
 pub export fn sa_x509_public_key(cert_ptr: ?[*]const u8, cert_len: u64, out_ptr: ?[*]u8, cap: u64, out_len: ?*u64, out_algo: ?*u32) i32 {
     const cert = inSlice(cert_ptr, cert_len) orelse return ERR_INVALID;
     const oa = out_algo orelse return ERR_INVALID;
-    const parsed = std.crypto.Certificate.parse(.{ .buffer = cert, .index = 0 }) catch return ERR_INVALID;
-    oa.* = switch (parsed.pub_key_algo) {
-        .rsaEncryption => 1,
-        .X9_62_id_ecPublicKey => 2,
-        .curveEd25519 => 3,
-        .rsassa_pss => 4,
-    };
-    return writeOut(out_ptr, cap, out_len, parsed.pubKey());
+    // Walk the certificate with this module's own bounds-checked DER
+    // reader (the same machinery as the sibling x509 faces).
+    // std.crypto.Certificate.parse is not truncation-safe: its
+    // element reader indexes the buffer without a bounds check and
+    // panics on short or malformed input, which would crash the host
+    // on untrusted certificates. Every step here instead fails with
+    // error.Invalid, mapped to ERR_INVALID.
+    const parts = certParts(cert) catch return ERR_INVALID;
+    var s = seqOf(parts.spki) catch return ERR_INVALID;
+    const alg = s.next() catch return ERR_INVALID;
+    const oid = algOid(alg) catch return ERR_INVALID;
+    const bits = s.next() catch return ERR_INVALID;
+    const key = bitStringBytes(bits) catch return ERR_INVALID;
+    oa.* = if (oidIs(oid, &oid_rsa_encryption))
+        1
+    else if (oidIs(oid, &oid_ec_public_key))
+        2
+    else if (oidIs(oid, &oid_ed25519))
+        3
+    else if (oidIs(oid, &oid_rsa_pss))
+        4
+    else
+        return ERR_INVALID;
+    return writeOut(out_ptr, cap, out_len, key);
 }
 
 /// Days from civil (Howard Hinnant's algorithm), proleptic
@@ -1063,6 +1086,22 @@ test "der: ecdsa signature raw<->der conversions" {
     try std.testing.expectEqual(OK, sa_ecdsa_signature_raw_to_der(&raw, &buf, buf.len, &len));
     try std.testing.expectEqual(OK, sa_ecdsa_signature_der_to_raw(&buf, len, &back));
     try std.testing.expectEqualSlices(u8, &raw, &back);
+}
+
+test "der: ecdsa raw_to_der rejects a zero r or s instead of panicking" {
+    // Regression: std's Signature.toDer panics on a zero integer
+    // component (empty trimmed slice, index 0). The face must reject
+    // zero components with ERR_INVALID; the wrap_crypto_smoke corpus
+    // test feeds an all-zero raw signature here.
+    var raw: [64]u8 = @splat(0);
+    var buf: [72]u8 = undefined;
+    var len: u64 = 0;
+    try std.testing.expectEqual(ERR_INVALID, sa_ecdsa_signature_raw_to_der(&raw, &buf, buf.len, &len));
+    raw[63] = 2; // r = 0, s = 2
+    try std.testing.expectEqual(ERR_INVALID, sa_ecdsa_signature_raw_to_der(&raw, &buf, buf.len, &len));
+    raw[31] = 1;
+    raw[63] = 0; // r = 1, s = 0
+    try std.testing.expectEqual(ERR_INVALID, sa_ecdsa_signature_raw_to_der(&raw, &buf, buf.len, &len));
 }
 
 test "jwk: tiny RSA key encodes to the hand-computed SPKI" {
@@ -1322,6 +1361,27 @@ test "openssl fixtures: x509 minimal surface on EC, RSA and Ed25519 certs" {
     try std.testing.expectEqual(OK, sa_x509_validity(&fx_ec_cert, fx_ec_cert.len, &nb, &na));
     try std.testing.expectEqual(@as(i64, 1793192894), nb);
     try std.testing.expectEqual(@as(i64, 2108552894), na);
+}
+
+test "x509 public_key: garbage and truncated certs are rejected, not panics" {
+    // Regression: this face used to delegate to
+    // std.crypto.Certificate.parse, whose element reader indexes the
+    // buffer without a bounds check and panics on truncated input
+    // (the wrap_crypto_smoke corpus test feeds the 5-byte "hello").
+    // Every strict prefix of a valid cert must fail with ERR_INVALID,
+    // because the outer SEQUENCE length never matches a prefix.
+    var pkbuf: [1200]u8 = undefined;
+    var pklen: usize = 0;
+    var algo: u32 = 0;
+    try std.testing.expectEqual(ERR_INVALID, sa_x509_public_key("hello", 5, &pkbuf, pkbuf.len, &pklen, &algo));
+    const cuts = [_]usize{ 0, 1, 2, 5, fx_ec_cert.len / 3, fx_ec_cert.len / 2, fx_ec_cert.len - 1 };
+    for (cuts) |cut| {
+        try std.testing.expectEqual(ERR_INVALID, sa_x509_public_key(&fx_ec_cert, cut, &pkbuf, pkbuf.len, &pklen, &algo));
+    }
+    // Same length, wrong outer tag.
+    var corrupt = fx_ec_cert;
+    corrupt[0] = 0x31;
+    try std.testing.expectEqual(ERR_INVALID, sa_x509_public_key(&corrupt, corrupt.len, &pkbuf, pkbuf.len, &pklen, &algo));
 }
 
 test "rsa generate: keypair mints, JWK round-trips, sign/verify agree" {
