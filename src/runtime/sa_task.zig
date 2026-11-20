@@ -847,6 +847,19 @@ var global_runq_head: ?*Goroutine = null;
 var global_runq_tail: ?*Goroutine = null;
 var live_count: std.atomic.Value(usize) = .init(0);
 var wake_word: std.atomic.Value(u32) = .init(0);
+// DEF-SLA-RUNTIME-TIMER-THREAD-WAKE-STEAL: the dedicated timer
+// thread sleeps on its OWN futex word, never on wake_word. It
+// used to share wake_word with the carriers, but wakeDemand's
+// nudge is quota-sized (min(n, idle_carriers) — carriers only),
+// so the timer thread could consume the single nudge an enqueue
+// aimed at the one idle carrier; a carrier whose futexWait has
+// no deadline from its own view (no timer armed, no net waiter,
+// deadlock guard unarmed) then slept forever with runnable work
+// queued (cap-0 rendezvous loops wedged with every thread parked
+// in futex_wait and zero CPU). Only timerAdd bumps this word:
+// the timer thread's waits are already bounded by the next
+// deadline and a 10 ms cap, so no other path needs to reach it.
+var timer_wake_word: std.atomic.Value(u32) = .init(0);
 // sched-wake batch: carriers currently parked in futexWait
 // in carrierMain. Maintained only around the sleep section:
 // incremented before the last pre-sleep findWork check,
@@ -887,6 +900,14 @@ fn wakeCarriers() void {
     // carrier is guaranteed to re-evaluate, which is what the
     // stranded-timer race required.
     wakeDemand(1);
+}
+
+fn wakeTimerThread() void {
+    // The timer thread is the only waiter on timer_wake_word, so
+    // a quota of one is exact — no carrier can steal this nudge
+    // and it cannot steal a carrier nudge in return.
+    _ = timer_wake_word.fetchAdd(1, .release);
+    futexWake(&timer_wake_word, 1);
 }
 
 fn globalPush(g: *Goroutine) void {
@@ -1095,6 +1116,12 @@ fn timerAdd(deadline: i64, target: TimerTarget, gen: u64) bool {
     // stranded-timer race required — waking all was coarse
     // but never load-bearing.
     wakeCarriers();
+    // The dedicated timer thread no longer shares wake_word
+    // (DEF-SLA-RUNTIME-TIMER-THREAD-WAKE-STEAL): nudge it on its
+    // private word so it re-evaluates the heap now instead of at
+    // its 10 ms wait cap — above all when the new entry is the
+    // earliest deadline.
+    wakeTimerThread();
     return true;
 }
 
@@ -1145,17 +1172,21 @@ fn fireTimers() void {
 /// deadline long past (minim8-256 writer: 100 ms select timer
 /// expired ~28 s, never fired). This thread's only job is
 /// fireTimers(); its service is independent of carrier progress.
-/// It sleeps on wake_word until the next deadline: timerAdd
-/// bumps wake_word via wakeCarriers(), so a timer armed after
-/// the sleep begins either changes the word before the futex
-/// wait (which then returns immediately) or is picked up within
-/// the wait cap (10 ms, the same cap carrierMain applies to net
-/// waiters). All fire paths are already safe from a non-carrier
-/// thread: enqueueWake/enqueueWakeNext fall back to the global
-/// queue when carrier_self is null, and the timer heap is
-/// mutex-guarded against carrier-side fireTimers() calls.
+/// It sleeps on timer_wake_word — its private futex word —
+/// until the next deadline: timerAdd bumps that word via
+/// wakeTimerThread(), so a timer armed after the sleep begins
+/// either changes the word before the futex wait (which then
+/// returns immediately) or is picked up within the wait cap
+/// (10 ms, the same cap carrierMain applies to net waiters).
+/// Sharing the carriers' wake_word instead let this thread eat
+/// quota-sized carrier nudges (DEF-SLA-RUNTIME-TIMER-THREAD-
+/// WAKE-STEAL). All fire paths are already safe from a
+/// non-carrier thread: enqueueWake/enqueueWakeNext fall back to
+/// the global queue when carrier_self is null, and the timer
+/// heap is mutex-guarded against carrier-side fireTimers()
+/// calls.
 fn timerMain() void {
-    var observed = wake_word.load(.acquire);
+    var observed = timer_wake_word.load(.acquire);
     while (true) {
         fireTimers();
         var timeout_ns: u64 = 10 * std.time.ns_per_ms;
@@ -1167,8 +1198,8 @@ fn timerMain() void {
                 timeout_ns = @intCast(delta);
             }
         }
-        futexWait(&wake_word, observed, timeout_ns);
-        observed = wake_word.load(.acquire);
+        futexWait(&timer_wake_word, observed, timeout_ns);
+        observed = timer_wake_word.load(.acquire);
     }
 }
 
