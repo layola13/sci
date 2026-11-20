@@ -8144,7 +8144,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             };
             const emission_workers = @max(@min(worker_count, 4), 1);
             const seq_shards = cguSeqShardCount();
-            const use_cgu = seq_shards != null or (compile_options.jobs_explicit and emission_workers > 1 and owned.verified.function_sigs.len >= 100);
+            const use_cgu = seq_shards != null or (emission_workers > 1 and owned.verified.function_sigs.len >= 100);
 
             if (use_cgu) {
                 const cgu_count = if (seq_shards) |n| n else @min(@max(emission_workers, 2), 4);
