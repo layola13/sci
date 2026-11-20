@@ -1020,6 +1020,20 @@ fn cguSeqShardCount() ?usize {
     return n;
 }
 
+// LINE-PEAK50-EMIT Form 1: size-gated sequential CGU emission.
+// Sequential emission cuts the 50k peak from ~466 MB to ~277 MB (box,
+// SA_CGU_SEQ_SHARDS=4): the CModule + LLVM IR of four concurrent shards
+// no longer coexist. But sequential costs ~30% wall time at 10k (local
+// rig: 1.22 s vs 0.94 s), which would flip the 10k time leg (box margin
+// only 9.5%). So sequential is the default only above this fn-count gate;
+// small modules keep the parallel path. synth10k = 1111 fns, synth50k =
+// 5555 fns; the threshold sits between them.
+const cgu_seq_fn_threshold: usize = 2048;
+
+fn cguForceParallel() bool {
+    return boolEnv("SA_CGU_PARALLEL");
+}
+
 fn stdinIsTty() bool {
     if (comptime @import("builtin").os.tag == .windows) return false;
     _ = std.posix.tcgetattr(std.posix.STDIN_FILENO) catch return false;
@@ -8145,6 +8159,12 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             const emission_workers = @max(@min(worker_count, 4), 1);
             const seq_shards = cguSeqShardCount();
             const use_cgu = seq_shards != null or (emission_workers > 1 and owned.verified.function_sigs.len >= 100);
+            // LINE-PEAK50-EMIT Form 1: sequential shards when explicitly
+            // requested (SA_CGU_SEQ_SHARDS wins over the parallel opt-in)
+            // or, by default, for large modules (fn count above the gate).
+            // SA_CGU_PARALLEL=1 opts back into the old parallel path for
+            // large modules.
+            const sequential_cgu = seq_shards != null or (!cguForceParallel() and owned.verified.function_sigs.len > cgu_seq_fn_threshold);
 
             if (use_cgu) {
                 const cgu_count = if (seq_shards) |n| n else @min(@max(emission_workers, 2), 4);
@@ -8223,7 +8243,12 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                         .source_path_val = source_path,
                         .size_bits_val = size_bits,
                         .debug_val = debug,
-                        .jobs_val = if (compile_options.jobs) |j| if (j > 1) 1 else j else 1,
+                        // LINE-PEAK50-EMIT Form 1: a sequential shard may
+                        // use the full worker pool for its internal
+                        // ParallelEmitJob codegen (same CModule output, less
+                        // wall time); parallel shards keep jobs=1 to avoid
+                        // oversubscription (4 shards x N workers).
+                        .jobs_val = if (sequential_cgu) emission_workers else if (compile_options.jobs) |j| if (j > 1) 1 else j else 1,
                         .dce_val = compile_options.dce,
                         .fast_math_val = compile_options.fast_math,
                         .cgu_idx_val = i,
@@ -8236,12 +8261,13 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                 }
 
                 const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                if (seq_shards != null) {
-                    // LINE-OPT-CGU-SHARD prototype: sequential shard
-                    // emission. Each shard's emit call builds and deinits
-                    // its own arenas, so shard i's C fragments and LLVM
-                    // module are released before shard i+1 starts; peak
-                    // emit residency is one shard's working set.
+                if (sequential_cgu) {
+                    // Sequential shard emission (LINE-OPT-CGU-SHARD
+                    // prototype, now the Form 1 default for large modules).
+                    // Each shard's emit call builds and deinits its own
+                    // arenas, so shard i's C fragments and LLVM module are
+                    // released before shard i+1 starts; peak emit residency
+                    // is one shard's working set.
                     for (cgu_emit_workers) |*w| w.run();
                 } else {
                     var cgu_emit_threads = try allocator.alloc(std.Thread, cgu_count - 1);
