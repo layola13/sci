@@ -695,6 +695,20 @@ pub export fn sa_std_tls_client_start_tls(fd: i32, host_ptr: ?[*]const u8, host_
     if (host_slice.len == 0) return SA_STD_ERR_INVALID_ARGUMENT;
     const cfg = if (config == 0) null else configFromU64(config);
     if (config != 0 and cfg == null) return SA_STD_ERR_INVALID_ARGUMENT;
+    // DEF-SCI-TLS-STARTTLS-NONSOCKET-ABORT: the fd must be an
+    // already-connected socket. A non-socket fd (e.g. stdin) makes the
+    // handshake's socket syscalls fail with ENOTSOCK, which the std.Io
+    // runtime treats as a programmer bug and aborts on (SIGABRT) instead
+    // of returning an error. Reject it up front with an error code.
+    // getpeername succeeds only on a connected socket: ENOTSOCK for a
+    // non-socket fd, ENOTCONN for an unconnected socket (both violate the
+    // "already-connected TCP stream" contract in tls_client.sai).
+    var peer: std.posix.sockaddr = undefined;
+    var peer_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr);
+    std.posix.getpeername(fd, &peer, &peer_len) catch |err| return switch (err) {
+        error.FileDescriptorNotASocket, error.SocketUnconnected => SA_STD_ERR_INVALID_ARGUMENT,
+        else => SA_STD_ERR_IO,
+    };
     const addr = std.Io.net.IpAddress.parseIp4("0.0.0.0", 0) catch return SA_STD_ERR_IO;
     const stream = std.Io.net.Stream{ .socket = .{ .handle = @intCast(fd), .address = addr } };
     return connectImpl(stream, host_slice, 0, cfg, slot);
@@ -1278,4 +1292,15 @@ test "start_tls upgrades a plaintext connection after a STARTTLS preamble" {
     try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_tls_client_close(handle));
     thread.join();
     try testing.expectEqual(@as(i32, 0), arg.accept_rc);
+}
+
+test "start_tls returns an error on a non-socket fd instead of aborting" {
+    if (comptime builtin.os.tag == .windows) return;
+    // DEF-SCI-TLS-STARTTLS-NONSOCKET-ABORT: a non-socket fd (here stdin,
+    // the exact shape the wrap smoke test hits) used to make the
+    // handshake abort (SIGABRT, NOTSOCK). It must return an error code.
+    const host = "localhost";
+    var handle: u64 = 0;
+    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_tls_client_start_tls(0, host.ptr, host.len, 0, &handle));
+    try testing.expectEqual(@as(u64, 0), handle);
 }
