@@ -55,6 +55,17 @@ const tripleIsWindows = @import("compile.zig").tripleIsWindows;
 const sizeBitsForTriple = @import("compile.zig").sizeBitsForTriple;
 const pkg_fetch = @import("../pkg/fetch.zig");
 const emit_js_types = @import("../emit_js/types.zig");
+const LibTargetFamily = @import("types.zig").LibTargetFamily;
+const elapsedNs = @import("compile.zig").elapsedNs;
+const recordMetricMemoryAfterEmit = @import("compile.zig").recordMetricMemoryAfterEmit;
+const writeSuccessDiagnostics = @import("errors.zig").writeSuccessDiagnostics;
+const attachBackendIrMetrics = @import("compile.zig").attachBackendIrMetrics;
+const finishProfileMetrics = @import("types.zig").finishProfileMetrics;
+const memoryEndPrevious = @import("types.zig").memoryEndPrevious;
+const recordMetricMemoryEnd = @import("compile.zig").recordMetricMemoryEnd;
+const test_meta = @import("../test_meta.zig");
+const writeMemoryStageSampleForOptions = @import("compile.zig").writeMemoryStageSampleForOptions;
+const bc2sa = @import("../llvm2sa.zig");
 
 pub fn executeWithWritersAndOptionsImpl(
     allocator: std.mem.Allocator,
@@ -766,4 +777,17 @@ pub fn libSharedSuffix(family: LibTargetFamily) []const u8 {
         .pe => ".dll",
         .mach_o => ".dylib",
     };
+}
+
+pub fn libStaticSuffix(family: LibTargetFamily) []const u8 {
+    return switch (family) {
+        .elf, .mach_o => ".a",
+        .pe => "_static.lib",
+    };
+}
+
+pub fn parseTarget(text: []const u8) !WasmTarget {
+    if (std.mem.eql(u8, text, "wasm32")) return .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
+    if (std.mem.eql(u8, text, "wasm64")) return .{ .triple = "wasm64-freestanding", .no_entry = true, .size_bits = 64 };
+    return error.InvalidTarget;
 }
