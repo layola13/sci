@@ -9,6 +9,9 @@ const trap = @import("../common/trap.zig");
 const test_meta = @import("../test_meta.zig");
 const driver = @import("../driver/zigcc.zig");
 const plugins = @import("../plugins.zig");
+const pkg_fetch = @import("../pkg/fetch.zig");
+const freeOwnedStringSlice = @import("compile.zig").freeOwnedStringSlice;
+const pkg_resolver = @import("../pkg/resolver.zig");
 /// Shared types for the CLI (moved out of cli.zig).
 
 pub const Command = enum {
@@ -590,4 +593,120 @@ pub const StdinLineReader = struct {
     pub fn takeDelimiterExclusive(self: StdinLineReader, delimiter: u8) ![]u8 {
         return try self.inner.takeDelimiterExclusive(delimiter);
     }
+};
+
+pub const InstallArgs = struct {
+    options: pkg_fetch.FetchOptions = .{},
+    identity: ?[]const u8 = null,
+    ref: []const u8 = "HEAD",
+    package_name: ?[]const u8 = null,
+};
+
+pub const SkillSection = struct {
+    name: []const u8,
+    summary: []const u8,
+    items: []const []const u8,
+};
+
+pub const FixPlanStep = struct {
+    action: []const u8,
+    target: []const u8,
+    detail: []const u8,
+};
+
+pub const CacheCleanOptions = struct {
+    dry_run: bool = false,
+    max_age_days: u64 = 30,
+    include_frontend_project_cache: bool = false,
+};
+
+pub const SaStdSurface = struct {
+    files: []const []const u8,
+    macros: []const []const u8,
+    externs: []const []const u8,
+
+    pub     fn deinit(self: SaStdSurface, allocator: std.mem.Allocator) void {
+        freeOwnedStringSlice(allocator, self.files);
+        freeOwnedStringSlice(allocator, self.macros);
+        freeOwnedStringSlice(allocator, self.externs);
+    }
+};
+
+pub const SaPluginsSurface = struct {
+    root: ?[]const u8,
+    plugins: []const []const u8,
+    declarations: []const []const u8,
+    notes: []const []const u8,
+
+    pub     fn deinit(self: SaPluginsSurface, allocator: std.mem.Allocator) void {
+        if (self.root) |root| allocator.free(root);
+        freeOwnedStringSlice(allocator, self.plugins);
+        freeOwnedStringSlice(allocator, self.declarations);
+        freeOwnedStringSlice(allocator, self.notes);
+    }
+};
+
+pub const CacheCleanStats = struct {
+    scanned: usize = 0,
+    removed: usize = 0,
+    kept: usize = 0,
+};
+
+pub const AgentSkillPaths = struct {
+    sa_codex: []const u8,
+    sa_claude: []const u8,
+    plugins_codex: []const u8,
+    plugins_claude: []const u8,
+
+    pub     fn deinit(self: AgentSkillPaths, allocator: std.mem.Allocator) void {
+        allocator.free(self.sa_codex);
+        allocator.free(self.sa_claude);
+        allocator.free(self.plugins_codex);
+        allocator.free(self.plugins_claude);
+    }
+};
+
+pub const FixPlan = struct {
+    steps: []const FixPlanStep,
+    rationale: []const []const u8,
+};
+
+pub const FunctionSizeEntry = struct {
+    name: []const u8,
+    instruction_count: u64,
+    byte_count: u64,
+};
+
+pub const GraphNodeKind = enum {
+    source_file,
+    function,
+    call_target,
+};
+
+pub const GraphNode = struct {
+    id: []const u8,
+    kind: GraphNodeKind,
+    label: []const u8,
+};
+
+pub const GraphEdgeKind = enum {
+    imports,
+    calls,
+};
+
+pub const GraphEdge = struct {
+    from: []const u8,
+    to: []const u8,
+    kind: GraphEdgeKind,
+};
+
+pub const GraphBuildContext = struct {
+    allocator: std.mem.Allocator,
+    node_map: *std.StringHashMap(usize),
+    nodes: *std.array_list.Managed(GraphNode),
+    edges: *std.array_list.Managed(GraphEdge),
+    dependencies: []const pkg_resolver.Dependency,
+    plugin_import_roots: []const []const u8,
+    project_root: []const u8,
+    offline: bool,
 };
