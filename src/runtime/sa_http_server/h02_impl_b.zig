@@ -189,7 +189,7 @@ pub fn HttpServer_connCompact(conn: *ConnState) void {
     }
 
 pub fn HttpServer_connFill(conn: *ConnState) !void {
-        connCompact(conn);
+        HttpServer_connCompact(conn);
         if (conn.read_len >= conn.read_buffer.len) return error.HttpHeadersOversize;
         const fd = conn.stream.socket.handle;
         const rc = std.c.read(fd, conn.read_buffer.ptr + conn.read_len, conn.read_buffer.len - conn.read_len);
@@ -208,7 +208,7 @@ pub fn HttpServer_parseHead(self: *HttpServer, conn: *ConnState, max_body_len: u
             const avail = conn.read_buffer[conn.request_start..conn.read_len];
             if (std.mem.indexOf(u8, avail, "\r\n\r\n")) |_| break;
             if (avail.len >= 64 * 1024) return error.HttpHeadersOversize;
-            try connFill(conn);
+            try HttpServer_connFill(conn);
         }
         const avail = conn.read_buffer[conn.request_start..conn.read_len];
         const head_end = std.mem.indexOf(u8, avail, "\r\n\r\n") orelse return error.HttpHeadersUnreadable;
@@ -341,7 +341,7 @@ pub fn HttpServer_isPeerClosed(stream: std.Io.net.Stream) bool {
         if (comptime builtin.cpu.arch.isWasm()) {
             return true;
         } else {
-            return isPeerClosedNative(stream);
+            return HttpServer_isPeerClosedNative(stream);
         }
     }
 

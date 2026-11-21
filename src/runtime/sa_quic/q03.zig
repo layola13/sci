@@ -287,18 +287,18 @@ pub const H3Session = struct {
     pending_requests: std.ArrayListUnmanaged(i64) = .empty,
     last_error: i64 = 0,
 
-    fn ensureStream(self: *H3Session, id: i64) !*H3StreamState {
+    pub fn ensureStream(self: *H3Session, id: i64) !*H3StreamState {
         if (self.streams.get(id)) |s| return s;
         const s = try std.heap.page_allocator.create(H3StreamState);
         s.* = .{};
         try self.streams.put(std.heap.page_allocator, id, s);
         return s;
     }
-    fn getStream(self: *H3Session, id: i64) ?*H3StreamState {
+    pub fn getStream(self: *H3Session, id: i64) ?*H3StreamState {
         return self.streams.get(id);
     }
 
-    fn maybeBind(self: *H3Session) void {
+    pub fn maybeBind(self: *H3Session) void {
         if (self.bound) return;
         const qc = self.qc orelse return;
         if (!qc.handshake_done) return;
@@ -316,7 +316,7 @@ pub const H3Session = struct {
         self.bound = true;
     }
 
-    fn feedStreamData(self: *H3Session, stream_id: i64, bytes: []const u8, fin: bool) c_int {
+    pub fn feedStreamData(self: *H3Session, stream_id: i64, bytes: []const u8, fin: bool) c_int {
         const ha = loadH3Api() orelse return -1;
         const ng = loadNgApi() orelse return -1;
         const qc = self.qc orelse return -1;
@@ -367,7 +367,7 @@ pub const H3Session = struct {
         }
     }
 
-    fn ackedStreamData(self: *H3Session, stream_id: i64, datalen: u64) c_int {
+    pub fn ackedStreamData(self: *H3Session, stream_id: i64, datalen: u64) c_int {
         const ha = loadH3Api() orelse return -1;
         const h3 = self.h3 orelse return -1;
         _ = ha.add_ack_offset(h3, stream_id, datalen);
@@ -420,7 +420,7 @@ pub const H3Session = struct {
         return H3_WRITE_BLOCKED;
     }
 
-    fn destroy(self: *H3Session) void {
+    pub fn destroy(self: *H3Session) void {
         const ha = loadH3Api();
         if (self.h3) |h| {
             if (ha) |a| a.conn_del(h);

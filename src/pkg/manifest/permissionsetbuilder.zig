@@ -392,7 +392,7 @@ pub const PackageBuilder = struct {
         };
     }
 
-    fn deinit(self: *PackageBuilder) void {
+    pub fn deinit(self: *PackageBuilder) void {
         self.allocator.free(self.file);
         if (self.name) |name| self.allocator.free(name);
         if (self.version) |version| self.allocator.free(version);

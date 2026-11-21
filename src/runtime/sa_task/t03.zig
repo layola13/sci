@@ -1,5 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const carrier_self = @import("t02.zig").carrier_self;
+const current_g = @import("t02.zig").current_g;
 const Carrier = @import("t02.zig").Carrier;
 const ERR_INVALID = @import("t01.zig").ERR_INVALID;
 const ERR_INVALID_HANDLE = @import("t01.zig").ERR_INVALID_HANDLE;
@@ -20,7 +22,6 @@ const cfg_carriers = @import("t01.zig").cfg_carriers;
 const cfg_idle_backoff_ns = @import("t01.zig").cfg_idle_backoff_ns;
 const cfg_idle_backoff_passes = @import("t01.zig").cfg_idle_backoff_passes;
 const cfg_stack_cap = @import("t01.zig").cfg_stack_cap;
-const cfg_stack_initial = @import("t01.zig").cfg_stack_initial;
 const chanLookup = @import("t04.zig").chanLookup;
 const chanRelease = @import("t05.zig").chanRelease;
 const chanTrySend = @import("t05.zig").chanTrySend;
@@ -53,7 +54,6 @@ const registryLookup = @import("t01.zig").registryLookup;
 const registryRecycle = @import("t01.zig").registryRecycle;
 const registry_mu = @import("t01.zig").registry_mu;
 const sa_task_ctx_arm = @import("t01.zig").sa_task_ctx_arm;
-const sched_mu = @import("t02.zig").sched_mu;
 const sleepNs = @import("t01.zig").sleepNs;
 const supported = @import("t01.zig").supported;
 const switchToCarrier = @import("t02.zig").switchToCarrier;
@@ -61,6 +61,8 @@ const timerMain = @import("t02.zig").timerMain;
 const timerNextDeadline = @import("t02.zig").timerNextDeadline;
 const wakeCarriers = @import("t02.zig").wakeCarriers;
 const wake_word = @import("t02.zig").wake_word;
+const t01 = @import("t01.zig");
+const t02 = @import("t02.zig");
 
 pub fn deliverMonitor(sub: *MonitorSub, watched: u64, trapped: bool, trap_code: i32) void {
     const ch = chanLookup(sub.chan_handle) orelse return;
@@ -74,7 +76,7 @@ pub fn deliverMonitor(sub: *MonitorSub, watched: u64, trapped: bool, trap_code: 
 pub fn goroutineExit() noreturn {
     const g = current_g orelse unreachable;
     // Fire join waiters.
-    sched_mu.lock();
+    t02.sched_mu.lock();
     const waiters = g.join_waiters;
     g.join_waiters = null;
     // Monitor subscriptions snapshot under the same lock that
@@ -84,7 +86,7 @@ pub fn goroutineExit() noreturn {
     const subs = g.monitors;
     g.monitors = null;
     g.state.store(.done, .release);
-    sched_mu.unlock();
+    t02.sched_mu.unlock();
     // Deposit the stack with our carrier for post-switch freeing
     // (the struct may be recycled only after that handoff).
     if (carrier_self) |c| c.exit_region = g.region;
@@ -192,7 +194,7 @@ pub fn runGoroutine(c: *Carrier, g: *Goroutine) void {
     // The goroutine has fully switched out; complete any deferred
     // wake/requeue recorded during its switch-out window.
     var requeue = false;
-    sched_mu.lock();
+    t02.sched_mu.lock();
     if (g.transition) {
         g.transition = false;
         if (g.state.load(.acquire) == .parked and g.unpark_pending) {
@@ -204,7 +206,7 @@ pub fn runGoroutine(c: *Carrier, g: *Goroutine) void {
             requeue = true;
         }
     }
-    sched_mu.unlock();
+    t02.sched_mu.unlock();
     if (requeue) enqueueRunnable(g);
     if (c.exit_region) |region| {
         c.exit_region = null;
@@ -226,13 +228,13 @@ pub fn runGoroutine(c: *Carrier, g: *Goroutine) void {
 pub fn runnableTotal() usize {
     var total: usize = 0;
     for (carriers) |*c| total += c.runq_len_snapshot();
-    sched_mu.lock();
+    t02.sched_mu.lock();
     var n = global_runq_head;
     while (n) |g| {
         total += 1;
         n = g.qnext;
     }
-    sched_mu.unlock();
+    t02.sched_mu.unlock();
     return total;
 }
 
@@ -393,13 +395,13 @@ pub fn initScheduler() void {
         // DEF-R2: initial commit per task (see the stack
         // allocation section for the redefinition note).
         const clamped = std.math.clamp(kib, 64, 8192);
-        cfg_stack_initial = clamped * 1024;
+        t01.cfg_stack_initial = clamped * 1024;
     }
     if (envUsize("SA_TASK_STACK_CAP_KIB")) |kib| {
         const clamped = std.math.clamp(kib, 1024, 1024 * 1024);
         cfg_stack_cap = clamped * 1024;
     }
-    if (cfg_stack_cap < cfg_stack_initial) cfg_stack_cap = cfg_stack_initial;
+    if (cfg_stack_cap < t01.cfg_stack_initial) cfg_stack_cap = t01.cfg_stack_initial;
     const cpu = std.Thread.getCpuCount() catch 1;
     var want = envUsize("SA_TASK_CARRIERS") orelse cpu;
     want = std.math.clamp(want, 1, 128);
@@ -643,9 +645,9 @@ pub export fn sa_task_trap_info(handle: u64, out_code: ?*i32, out_msg_ptr: ?*?*c
     // registration); the trap-record fields are only ever
     // written under it or by the goroutine itself before the
     // .done store, so reading them under it is race-free.
-    sched_mu.lock();
+    t02.sched_mu.lock();
     if (g.state.load(.acquire) != .done) {
-        sched_mu.unlock();
+        t02.sched_mu.unlock();
         return ERR_INVALID;
     }
     // Done but no held trap record (clean exit, already consumed,
@@ -654,7 +656,7 @@ pub export fn sa_task_trap_info(handle: u64, out_code: ?*i32, out_msg_ptr: ?*?*c
     // reports as ERR_INVALID_HANDLE — the same answer a fully
     // reaped handle gets from registryLookup above.
     if (g.trap_consumed or !g.trapped or !g.trap_held) {
-        sched_mu.unlock();
+        t02.sched_mu.unlock();
         return ERR_INVALID_HANDLE;
     }
     oc.* = g.trap_code;
@@ -668,7 +670,7 @@ pub export fn sa_task_trap_info(handle: u64, out_code: ?*i32, out_msg_ptr: ?*?*c
     // makes the handle invalid from this point on.
     g.trap_consumed = true;
     g.trap_held = false;
-    sched_mu.unlock();
+    t02.sched_mu.unlock();
     registryRecycle(g, g.gen);
     return SA_TASK_OK;
 }

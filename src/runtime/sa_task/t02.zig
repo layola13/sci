@@ -237,9 +237,9 @@ pub var idle_carriers: std.atomic.Value(usize) = .init(0);
 
 pub var deadlock_armed: std.atomic.Value(bool) = .init(false);
 
-threadlocal var current_g: ?*Goroutine = null;
+pub threadlocal var current_g: ?*Goroutine = null;
 
-threadlocal var carrier_self: ?*Carrier = null;
+pub threadlocal var carrier_self: ?*Carrier = null;
 
 /// Wake discipline (sched-wake batch, replaces wake-all).
 /// Every enqueue bumps wake_word first (release): that bump is

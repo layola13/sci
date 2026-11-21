@@ -13,6 +13,7 @@ const widthBits = @import("widths.zig").widthBits;
 const widthIsFloat = @import("widths.zig").widthIsFloat;
 const widthIsSigned = @import("widths.zig").widthIsSigned;
 const widthOfOperand = @import("widths.zig").widthOfOperand;
+const CEmitError = @import("../emit_c.zig").CEmitError;
 
 pub fn cOperandKind(widths: *const WidthMap, fsig: sig.FunctionSig, use_global: bool, op: inst.Operand) COpndKind {
     if (widthOfOperand(widths, fsig, use_global, op)) |w| {

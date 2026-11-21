@@ -2,6 +2,7 @@ const std = @import("std");
 const sio = @import("sio");
 const forbidden = @import("forbidden.zig");
 const common_instruction = @import("../common/instruction.zig");
+const InstKind = @import("../common/instruction.zig").InstKind;
 const buildArithmeticExpr = @import("tests_10.zig").buildArithmeticExpr;
 const buildMacroPbtProgram = @import("expandimportsinto.zig").buildMacroPbtProgram;
 const expectOperandImmI64 = @import("tests_10.zig").expectOperandImmI64;

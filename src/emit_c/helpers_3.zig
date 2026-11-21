@@ -1,6 +1,6 @@
 const HelperDef = @import("types.zig").HelperDef;
 
-pub const chunk_3: [_]HelperDef = .{
+pub const chunk_3: [47]HelperDef = .{
     .{ .name = "sa_mp_builder_finish", .code =
     \\static int sa_mp_builder_finish(sa_u64 h, sa_u64 out_slot) {
     \\  sa_mp_t *mp = sa_mp_find(h); sa_u64 bh;

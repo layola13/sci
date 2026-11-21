@@ -1,4 +1,7 @@
-pub fn emitRegexCompile(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexCompile(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // POSIX regcomp over a NUL-terminated guest copy; the
     // compiled form lives in a C-side table (host pointers).
     // Bad patterns yield 0, mirroring the interpreter.
@@ -16,7 +19,10 @@ pub fn emitRegexCompile(writer: anytype, name: []const u8, uniform_arity: usize,
     try writer.writeAll(" sa_u64 h = sa_alloc(8); o->h = h; return h; } } }\n");
 }
 
-pub fn emitRegexMatch(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexMatch(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Match header lives in guest memory: [text_base][magic|n]
     // then n (start,end) pairs. Embedded NUL or no-match yields
     // 0, mirroring the interpreter.
@@ -43,7 +49,10 @@ pub fn emitRegexMatch(writer: anytype, name: []const u8, uniform_arity: usize, g
     try writer.writeAll(" return h; } } }\n");
 }
 
-pub fn emitRegexGroupPtr(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexGroupPtr(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
     try writer.writeAll(" (void)hh;");
     try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
@@ -56,7 +65,10 @@ pub fn emitRegexGroupPtr(writer: anytype, name: []const u8, uniform_arity: usize
     try writer.writeAll(" return sa_load_u64(a0) + so; } }\n");
 }
 
-pub fn emitRegexGroupLen(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexGroupLen(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
     try writer.writeAll(" (void)hh;");
     try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
@@ -69,7 +81,10 @@ pub fn emitRegexGroupLen(writer: anytype, name: []const u8, uniform_arity: usize
     try writer.writeAll(" return eo - so; } }\n");
 }
 
-pub fn emitRegexGroupStart(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexGroupStart(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
     try writer.writeAll(" (void)hh;");
     try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
@@ -82,26 +97,38 @@ pub fn emitRegexGroupStart(writer: anytype, name: []const u8, uniform_arity: usi
     try writer.writeAll(" return so; } }\n");
 }
 
-pub fn emitRegexGroupCount(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexGroupCount(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_regex_t *r = sa_regex_find(a0);");
     try writer.writeAll(" if (r == 0) return 0;");
     try writer.writeAll(" return (sa_u64)r->rx.re_nsub + 1; } }\n");
 }
 
-pub fn emitRegexFree(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexFree(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_regex_t *r = sa_regex_find(a0);");
     try writer.writeAll(" if (r == 0) return 0;");
     try writer.writeAll(" regfree(&r->rx); r->h = 0; return 0; } }\n");
 }
 
-pub fn emitRegexMatchFree(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexMatchFree(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Guest-side match regions live in the bump arena (no free);
     // dropping is a no-op that still validates nothing and
     // returns OK, matching observable behavior.
     try writer.writeAll(" return 0; }\n");
 }
 
-pub fn emitRegexMatchAll(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexMatchAll(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" {");
     try writer.writeAll(" sa_regex_t *r = sa_regex_find(a0);");
     try writer.writeAll(" if (r == 0) return 0;");
@@ -116,7 +143,10 @@ pub fn emitRegexMatchAll(writer: anytype, name: []const u8, uniform_arity: usize
     try writer.writeAll(" return sa_regex_collect_block(r, tp, a2); } }\n");
 }
 
-pub fn emitRegexMatchListCount(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexMatchListCount(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 24);");
     try writer.writeAll(" (void)hh;");
     try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
@@ -124,7 +154,10 @@ pub fn emitRegexMatchListCount(writer: anytype, name: []const u8, uniform_arity:
     try writer.writeAll(" return hdr1 & (sa_u64)0xFFFFFFFFu; } }\n");
 }
 
-pub fn emitRegexMatchListAt(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexMatchListAt(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 24);");
     try writer.writeAll(" (void)hh;");
     try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
@@ -143,11 +176,17 @@ pub fn emitRegexMatchListAt(writer: anytype, name: []const u8, uniform_arity: us
     try writer.writeAll(" return h; } }\n");
 }
 
-pub fn emitRegexMatchListFree(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexMatchListFree(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" return 0; }\n");
 }
 
-pub fn emitRegexReplace(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexReplace(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" {");
     try writer.writeAll(" sa_regex_t *r = sa_regex_find(a0);");
     try writer.writeAll(" if (r == 0) return 0;");
@@ -162,7 +201,10 @@ pub fn emitRegexReplace(writer: anytype, name: []const u8, uniform_arity: usize,
     try writer.writeAll(" return sa_regex_build_replace(r, tp, a2, a3, a4, 0); } }\n");
 }
 
-pub fn emitRegexReplaceAll(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexReplaceAll(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" {");
     try writer.writeAll(" sa_regex_t *r = sa_regex_find(a0);");
     try writer.writeAll(" if (r == 0) return 0;");
@@ -177,7 +219,10 @@ pub fn emitRegexReplaceAll(writer: anytype, name: []const u8, uniform_arity: usi
     try writer.writeAll(" return sa_regex_build_replace(r, tp, a2, a3, a4, 1); } }\n");
 }
 
-pub fn emitRegexBufferData(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexBufferData(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
     try writer.writeAll(" (void)hh;");
     try writer.writeAll(" sa_u64 hdr = sa_load_u64(a0);");
@@ -185,7 +230,10 @@ pub fn emitRegexBufferData(writer: anytype, name: []const u8, uniform_arity: usi
     try writer.writeAll(" return a0 + 16; } }\n");
 }
 
-pub fn emitRegexBufferLen(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexBufferLen(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
     try writer.writeAll(" (void)hh;");
     try writer.writeAll(" sa_u64 hdr = sa_load_u64(a0);");
@@ -193,11 +241,17 @@ pub fn emitRegexBufferLen(writer: anytype, name: []const u8, uniform_arity: usiz
     try writer.writeAll(" return sa_load_u64(a0 + 8); } }\n");
 }
 
-pub fn emitRegexBufferFree(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexBufferFree(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" return 0; }\n");
 }
 
-pub fn emitRegexSplit(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexSplit(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" {");
     try writer.writeAll(" sa_regex_t *r = sa_regex_find(a0);");
     try writer.writeAll(" if (r == 0) return 0;");
@@ -212,7 +266,10 @@ pub fn emitRegexSplit(writer: anytype, name: []const u8, uniform_arity: usize, g
     try writer.writeAll(" return sa_regex_split_block(r, tp, a2, a3); } }\n");
 }
 
-pub fn emitRegexSplitCount(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexSplitCount(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
     try writer.writeAll(" (void)hh;");
     try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
@@ -220,7 +277,10 @@ pub fn emitRegexSplitCount(writer: anytype, name: []const u8, uniform_arity: usi
     try writer.writeAll(" return hdr1 & (sa_u64)0xFFFFFFFFu; } }\n");
 }
 
-pub fn emitRegexSplitPtr(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexSplitPtr(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
     try writer.writeAll(" (void)hh;");
     try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
@@ -232,7 +292,10 @@ pub fn emitRegexSplitPtr(writer: anytype, name: []const u8, uniform_arity: usize
     try writer.writeAll(" return sa_load_u64(a0) + (sa_u64)so; } }\n");
 }
 
-pub fn emitRegexSplitLen(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexSplitLen(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t hh = sa_checked_addr(a0, 16);");
     try writer.writeAll(" (void)hh;");
     try writer.writeAll(" sa_u64 hdr1 = sa_load_u64(a0 + 8);");
@@ -245,46 +308,69 @@ pub fn emitRegexSplitLen(writer: anytype, name: []const u8, uniform_arity: usize
     try writer.writeAll(" return (sa_u64)(eo - so); } }\n");
 }
 
-pub fn emitRegexSplitFree(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitRegexSplitFree(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" return 0; }\n");
 }
 
-pub fn emitTaskOut0(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTaskOut0(writer: anytype, name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint64_t v = 0; int32_t st = ");
     try writer.writeAll(name);
     try writer.writeAll("(&v); sa_store_u64(a0, v); return (sa_u64)(sa_i64)st; } }\n");
 }
 
-pub fn emitTaskHandleRet(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTaskHandleRet(writer: anytype, name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" return (sa_u64)(sa_i64)");
     try writer.writeAll(name);
     try writer.writeAll("(a0); }\n");
 }
 
-pub fn emitTaskNoargsRet(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTaskNoargsRet(writer: anytype, name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" return (sa_u64)(sa_i64)");
     try writer.writeAll(name);
     try writer.writeAll("(); }\n");
 }
 
-pub fn emitTaskHandleOut1(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTaskHandleOut1(writer: anytype, name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint64_t v = 0; int32_t st = ");
     try writer.writeAll(name);
     try writer.writeAll("(a0, &v); sa_store_u64(a1, v); return (sa_u64)(sa_i64)st; } }\n");
 }
 
-pub fn emitTaskSpawn(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTaskSpawn(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_glue_task_ctx *c = (sa_glue_task_ctx *)malloc(sizeof(sa_glue_task_ctx)); uint64_t v = 0; int32_t st; c->entry = a0; c->arg = a1; st = sa_task_spawn(sa_glue_task_entry, c, &v); if (st != 0) { free(c); } sa_store_u64(a2, v); return (sa_u64)(sa_i64)st; } }\n");
 }
 
-pub fn emitTaskSpawnSupervised(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTaskSpawnSupervised(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_glue_task_ctx *c = (sa_glue_task_ctx *)malloc(sizeof(sa_glue_task_ctx)); uint64_t v = 0; int32_t st; c->entry = a0; c->arg = a1; c->sink = a2; c->sink_ctx = a3; st = sa_task_spawn_supervised(sa_glue_task_entry_keep, c, sa_glue_trap_sink, c, &v); if (st != 0) { free(c); } sa_store_u64(a4, v); return (sa_u64)(sa_i64)st; } }\n");
 }
 
-pub fn emitTaskTrapInfo(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTaskTrapInfo(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { int32_t code = 0; const uint8_t *hp = 0; uint64_t hn = 0; int32_t st = sa_task_trap_info(a0, &code, &hp, &hn); sa_store_u32(a1, (sa_u64)(uint32_t)code); sa_glue_out_str(a2, a3, hp, hn); return (sa_u64)(sa_i64)st; } }\n");
 }
 
-pub fn emitTaskNetWait(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTaskNetWait(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t r = 0; int32_t st = sa_task_net_wait(a0, (uint32_t)a1, (sa_i64)a2, &r); sa_store_u32(a3, (sa_u64)r); return (sa_u64)(sa_i64)st; } }\n");
 }

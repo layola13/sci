@@ -38,7 +38,7 @@ pub const alloc = std.heap.page_allocator;
 pub const Mutex = struct {
     state: std.atomic.Value(u32) = .init(0),
 
-    fn lock(m: *Mutex) void {
+    pub fn lock(m: *Mutex) void {
         if (m.state.cmpxchgStrong(0, 1, .acquire, .monotonic) == null) return;
         while (true) {
             const s = m.state.swap(2, .acquire);
@@ -253,7 +253,7 @@ pub const Goroutine = struct {
     // Goroutine struct) forever, ~4,231 B/spawn of unbounded RSS.
     detached: bool = false,
 
-    fn handle(g: *const Goroutine) u64 {
+    pub fn handle(g: *const Goroutine) u64 {
         return (@as(u64, g.gen) << 32) | @as(u64, g.slot);
     }
 };

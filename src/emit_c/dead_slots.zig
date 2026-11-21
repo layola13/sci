@@ -18,6 +18,7 @@ const widthBits = @import("widths.zig").widthBits;
 const widthIsFloat = @import("widths.zig").widthIsFloat;
 const widthIsSigned = @import("widths.zig").widthIsSigned;
 const widthOfOperand = @import("widths.zig").widthOfOperand;
+const CEmitError = @import("../emit_c.zig").CEmitError;
 
 /// Best-effort slot resolution for liveness: reg/symbol/text operands that
 /// denote a local slot. Returns null for immediates, labels, funcs, consts.

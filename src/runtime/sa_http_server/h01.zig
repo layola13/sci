@@ -302,7 +302,7 @@ pub const ResponseHeaderBag = struct {
     extra: std.array_list.Managed(Header),
     byte_len: usize = 0,
 
-    fn init(allocator: std.mem.Allocator, content_type: []const u8) ResponseHeaderBag {
+    pub fn init(allocator: std.mem.Allocator, content_type: []const u8) ResponseHeaderBag {
         return .{
             .allocator = allocator,
             .content_type = content_type,
@@ -310,7 +310,7 @@ pub const ResponseHeaderBag = struct {
         };
     }
 
-    fn deinit(self: *ResponseHeaderBag) void {
+    pub fn deinit(self: *ResponseHeaderBag) void {
         if (self.owns_content_type) self.allocator.free(self.content_type);
         for (self.extra.items) |header| {
             self.allocator.free(header.name);
@@ -319,7 +319,7 @@ pub const ResponseHeaderBag = struct {
         self.extra.deinit();
     }
 
-    fn setContentType(self: *ResponseHeaderBag, value: []const u8) !void {
+    pub fn setContentType(self: *ResponseHeaderBag, value: []const u8) !void {
         if (!validHeaderValue(value)) return error.InvalidArgument;
         const total = std.math.add(usize, value.len, self.byte_len) catch return error.StreamTooLong;
         if (total > max_v2_message_bytes) return error.StreamTooLong;
@@ -329,7 +329,7 @@ pub const ResponseHeaderBag = struct {
         self.owns_content_type = true;
     }
 
-    fn add(self: *ResponseHeaderBag, name: []const u8, value: []const u8) !void {
+    pub fn add(self: *ResponseHeaderBag, name: []const u8, value: []const u8) !void {
         if (!validHeaderName(name) or !validHeaderValue(value)) return error.InvalidArgument;
         if (std.ascii.eqlIgnoreCase(name, "content-type")) return self.setContentType(value);
         if (std.ascii.eqlIgnoreCase(name, "content-length") or
@@ -348,7 +348,7 @@ pub const ResponseHeaderBag = struct {
         self.byte_len += new_size;
     }
 
-    fn write(self: *const ResponseHeaderBag, writer: anytype) !void {
+    pub fn write(self: *const ResponseHeaderBag, writer: anytype) !void {
         try writer.print("content-type: {s}\r\n", .{self.content_type});
         for (self.extra.items) |header| {
             try writer.print("{s}: {s}\r\n", .{ header.name, header.value });

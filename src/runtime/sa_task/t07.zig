@@ -32,6 +32,7 @@ const timerAdd = @import("t02.zig").timerAdd;
 const unpark = @import("t02.zig").unpark;
 const unparkNoWake = @import("t02.zig").unparkNoWake;
 const wakeDemand = @import("t02.zig").wakeDemand;
+const t02 = @import("t02.zig");
 
 test "sa_task.test.select: default takes precedence over zero timeout" {
     if (!supported) return error.SkipZigTest;
@@ -591,7 +592,7 @@ pub export fn sa_task_net_wait(handle: u64, interest: u32, timeout_ns: i64, read
         .gen = net_gen_counter.fetchAdd(1, .seq_cst) + 1,
     };
     var os_waiter: OsWaiter = .{};
-    if (current_g) |me| {
+    if (t02.current_g) |me| {
         nw.g = me;
         me.wait_kind = .net;
         parkBegin();
@@ -612,7 +613,7 @@ pub export fn sa_task_net_wait(handle: u64, interest: u32, timeout_ns: i64, read
         }
     }
     var status: i32 = SA_TASK_OK;
-    if (current_g) |me| {
+    if (t02.current_g) |me| {
         parkSwitch();
         me.wait_kind = .none;
         status = me.wake_status;

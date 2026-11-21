@@ -109,7 +109,7 @@ pub const HttpServer = struct {
     /// Accepts served since boot (drives the env-gated hist dump).
     hist_served: CounterAtomic = CounterAtomic.init(0),
 
-    fn histRecord(self: *HttpServer, segment: usize, value: u64) void {
+    pub fn histRecord(self: *HttpServer, segment: usize, value: u64) void {
         _ = self.hist[segment][histBucketFor(value)].fetchAdd(1, .monotonic);
     }
 
@@ -150,7 +150,7 @@ pub const HttpServer = struct {
     /// but with a 1s poll slice so stopServing() is noticed promptly, and a
     /// bounded head parse (slowloris guard). Returns error.WouldBlock on
     /// timeout or when stopping so the worker loop can re-check.
-    fn acceptWorker(self: *HttpServer, stopping: *const std.atomic.Value(bool)) !*HttpRequest {
+    pub fn acceptWorker(self: *HttpServer, stopping: *const std.atomic.Value(bool)) !*HttpRequest {
         return HttpServer_acceptWorker(self, stopping);
     }
 
@@ -199,7 +199,7 @@ pub const HttpServer = struct {
         return HttpServer_acceptWithBodyLimitAndTimeout(self, max_body_len, timeout_ms);
     }
 
-    fn acceptConfigured(self: *HttpServer, max_body_len: usize, receive_timeout_ms: ?u32) !*HttpRequest {
+    pub fn acceptConfigured(self: *HttpServer, max_body_len: usize, receive_timeout_ms: ?u32) !*HttpRequest {
         return HttpServer_acceptConfigured(self, max_body_len, receive_timeout_ms);
     }
 
@@ -311,11 +311,11 @@ pub const HttpServer = struct {
         return HttpServer_newConn(self, accepted);
     }
 
-    fn destroyConn(self: *HttpServer, conn: *ConnState, close_stream: bool) void {
+    pub fn destroyConn(self: *HttpServer, conn: *ConnState, close_stream: bool) void {
         return HttpServer_destroyConn(self, conn, close_stream);
     }
 
-    fn popRecycled(self: *HttpServer) ?*ConnState {
+    pub fn popRecycled(self: *HttpServer) ?*ConnState {
         return HttpServer_popRecycled(self);
     }
 

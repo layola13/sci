@@ -253,14 +253,14 @@ fn cParamsCovered(t: []const u8, uniform_arity: usize) bool {
 /// definitions; fail the build loudly instead of emitting broken C).
 /// NOTE: emit_c unit tests are not wired into any test binary, so this
 /// runtime check (not a test block) is the enforced guard.
-fn cBodyBalanced(t: []const u8) bool {
+pub fn cBodyBalanced(t: []const u8) bool {
     if (!std.mem.endsWith(u8, t, "}\n")) return false;
     return cBracesBalanced(t);
 }
 
 /// Brace balance ignoring string/char literals. Used for catalog helper
 /// bodies (which the preamble writes with its own trailing newline).
-fn cBracesBalanced(t: []const u8) bool {
+pub fn cBracesBalanced(t: []const u8) bool {
     var depth: i32 = 0;
     var in_str = false;
     var in_chr = false;

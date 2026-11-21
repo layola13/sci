@@ -25,6 +25,8 @@ const writeExternBinding = @import("binding_emit.zig").writeExternBinding;
 const writePreamble = @import("preamble.zig").writePreamble;
 const writeTfHeader = @import("tf_emit.zig").writeTfHeader;
 const writeTfMachinery = @import("tf_emit.zig").writeTfMachinery;
+const CEmitError = @import("../emit_c.zig").CEmitError;
+const cBodyBalanced = @import("../emit_c.zig").cBodyBalanced;
 
 pub fn emitCToString(allocator: std.mem.Allocator, verified: anytype, source_path: []const u8, size_bits: u16, c_opt: CEmitOptions) ![]u8 {
     // Extern variadic batch: the C emitter's uniform-arity model has no

@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const current_g = @import("t02.zig").current_g;
 const Channel = @import("t04.zig").Channel;
 const ERR_INVALID = @import("t01.zig").ERR_INVALID;
 const ERR_INVALID_HANDLE = @import("t01.zig").ERR_INVALID_HANDLE;

@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 const sio = @import("sio");
 const pkg_resolver = @import("../pkg/resolver.zig");
 const decl_materialize = @import("../decl_materialize.zig");
+const ClassifiedLine = @import("line_classifier.zig").ClassifiedLine;
+const LineKind = @import("line_classifier.zig").LineKind;
 const declTargetFor = @import("injectimportedfile.zig").declTargetFor;
 const deinitOwnedSourceLines = @import("appendexpandedimportcachehit.zig").deinitOwnedSourceLines;
 

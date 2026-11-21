@@ -538,7 +538,7 @@ pub const QuicConn = struct {
     h3: ?*H3Session = null,
     listener: ?*QuicListener = null,
 
-    fn path(self: *QuicConn) NgPath {
+    pub fn path(self: *QuicConn) NgPath {
         return .{
             .local = .{ .addr = @ptrCast(&self.local), .addrlen = self.local_len },
             .remote = .{ .addr = @ptrCast(&self.peer), .addrlen = self.peer_len },
@@ -552,10 +552,10 @@ pub const QuicConn = struct {
             _ = lxSendTo(self.fd, bytes.ptr, bytes.len, 0, &self.peer, self.peer_len);
         }
     }
-    fn getStream(self: *QuicConn, id: i64) ?*RawStream {
+    pub fn getStream(self: *QuicConn, id: i64) ?*RawStream {
         return self.streams.get(id);
     }
-    fn ensureStream(self: *QuicConn, id: i64) !*RawStream {
+    pub fn ensureStream(self: *QuicConn, id: i64) !*RawStream {
         if (self.streams.get(id)) |s| return s;
         const s = try std.heap.page_allocator.create(RawStream);
         s.* = .{};

@@ -26,6 +26,7 @@ const sa_task_sleep_ms = @import("t04.zig").sa_task_sleep_ms;
 const sa_task_spawn = @import("t03.zig").sa_task_spawn;
 const supported = @import("t01.zig").supported;
 const testing = @import("t04.zig").testing;
+const t02 = @import("t02.zig");
 
 // ---------------------------------------------------------------------
 // Phase C: sync primitives on the park queues (Mutex / RwLock /
@@ -196,7 +197,7 @@ pub var os_owner_counter: std.atomic.Value(u64) = .init(0);
 /// goroutines use their handle; OS threads use a stable
 /// per-thread key in a reserved high range.
 pub fn ownerKey() u64 {
-    if (current_g) |g| return g.handle();
+    if (t02.current_g) |g| return g.handle();
     if (os_owner_seq == 0) {
         os_owner_seq = os_owner_counter.fetchAdd(1, .seq_cst) + 1;
     }
@@ -209,7 +210,7 @@ pub fn ownerKey() u64 {
 pub fn syncEnqueue(o: *SyncObj, os_waiter: ?*OsWaiter, is_writer: bool) ?*WaitNode {
     const node = alloc.create(WaitNode) catch return null;
     node.* = .{ .owner_key = ownerKey(), .flag = if (is_writer) 1 else 0 };
-    if (current_g) |me| {
+    if (t02.current_g) |me| {
         node.g = me;
     } else {
         node.os = os_waiter;
@@ -221,7 +222,7 @@ pub fn syncEnqueue(o: *SyncObj, os_waiter: ?*OsWaiter, is_writer: bool) ?*WaitNo
 /// Complete a park started under o.mu (parkBegin was called by
 /// the caller before releasing o.mu on the goroutine path).
 pub fn syncPark(kind: WaitKind, os_waiter: *OsWaiter) i32 {
-    if (current_g) |me| {
+    if (t02.current_g) |me| {
         me.wait_kind = kind;
         parkSwitch();
         me.wait_kind = .none;
@@ -257,7 +258,7 @@ pub export fn sa_sync_mutex_lock(handle: u64) i32 {
         return ERR_NOMEM;
     };
     _ = node;
-    if (current_g != null) parkBegin();
+    if (t02.current_g != null) parkBegin();
     o.mu.unlock();
     return syncPark(.mutex, &os_waiter);
 }
@@ -354,7 +355,7 @@ pub export fn sa_sync_rwlock_rlock(handle: u64) i32 {
         o.mu.unlock();
         return ERR_NOMEM;
     };
-    if (current_g != null) parkBegin();
+    if (t02.current_g != null) parkBegin();
     o.mu.unlock();
     return syncPark(.rwlock, &os_waiter);
 }
@@ -397,7 +398,7 @@ pub export fn sa_sync_rwlock_lock(handle: u64) i32 {
         o.mu.unlock();
         return ERR_NOMEM;
     };
-    if (current_g != null) parkBegin();
+    if (t02.current_g != null) parkBegin();
     o.mu.unlock();
     return syncPark(.rwlock, &os_waiter);
 }
@@ -472,7 +473,7 @@ pub export fn sa_sync_waitgroup_wait(handle: u64) i32 {
         o.mu.unlock();
         return ERR_NOMEM;
     };
-    if (current_g != null) parkBegin();
+    if (t02.current_g != null) parkBegin();
     o.mu.unlock();
     return syncPark(.waitgroup, &os_waiter);
 }
@@ -495,7 +496,7 @@ pub export fn sa_sync_once_do(handle: u64, entry: ?*const anyopaque, arg: ?*anyo
             o.mu.unlock();
             return ERR_NOMEM;
         };
-        if (current_g != null) parkBegin();
+        if (t02.current_g != null) parkBegin();
         o.mu.unlock();
         return syncPark(.once, &os_waiter);
     }

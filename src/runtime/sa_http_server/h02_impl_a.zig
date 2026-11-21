@@ -51,7 +51,7 @@ pub fn HttpServer_init(allocator: std.mem.Allocator) !*HttpServer {
         if (comptime builtin.cpu.arch.isWasm()) {
             return error.UnsupportedPlatform;
         } else {
-            return initNative(allocator);
+            return HttpServer_initNative(allocator);
         }
     }
 
@@ -259,7 +259,7 @@ pub fn HttpServer_pollAcceptEx(self: *HttpServer, timeout_ms: u32) PollOutcome {
         if (fds[nrec].revents & std.posix.POLL.IN != 0) {
             recycled_ready = true;
             var tmp: [64]u8 = undefined;
-            while (posixRead(self.wake_pipe[0], &tmp)) |n| {
+            while (HttpServer_posixRead(self.wake_pipe[0], &tmp)) |n| {
                 if (n == 0) break;
             } else |_| {}
         }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const current_g = @import("t02.zig").current_g;
 const Channel = @import("t04.zig").Channel;
 const ERR_INVALID = @import("t01.zig").ERR_INVALID;
 const ERR_INVALID_HANDLE = @import("t01.zig").ERR_INVALID_HANDLE;
@@ -20,7 +21,6 @@ const alloc = @import("t01.zig").alloc;
 const chanLookup = @import("t04.zig").chanLookup;
 const chan_free = @import("t04.zig").chan_free;
 const chan_gens = @import("t04.zig").chan_gens;
-const chan_registry_mu = @import("t04.zig").chan_registry_mu;
 const chan_slots = @import("t04.zig").chan_slots;
 const ensureInit = @import("t03.zig").ensureInit;
 const fireNode = @import("t02.zig").fireNode;
@@ -30,6 +30,7 @@ const raiseTrap = @import("t03.zig").raiseTrap;
 const supported = @import("t01.zig").supported;
 const unpark = @import("t02.zig").unpark;
 const waitNodeAlloc = @import("t02.zig").waitNodeAlloc;
+const t04 = @import("t04.zig");
 
 pub fn chanRelease(ch: *Channel) void {
     if (ch.refs.fetchSub(1, .seq_cst) == 1) {
@@ -330,7 +331,7 @@ pub export fn sa_chan_make(capacity: u32, out_handle: ?*u64) i32 {
             return ERR_NOMEM;
         };
     }
-    chan_registry_mu.lock();
+    t04.chan_registry_mu.lock();
     if (chan_free.pop()) |idx| {
         ch.slot_idx = idx;
         ch.gen = chan_gens.items[idx] +% 1;
@@ -341,20 +342,20 @@ pub export fn sa_chan_make(capacity: u32, out_handle: ?*u64) i32 {
         ch.slot_idx = @intCast(chan_slots.items.len);
         ch.gen = 1;
         chan_slots.append(alloc, ch) catch {
-            chan_registry_mu.unlock();
+            t04.chan_registry_mu.unlock();
             if (ch.buf.len > 0) alloc.free(ch.buf);
             alloc.destroy(ch);
             return ERR_NOMEM;
         };
         chan_gens.append(alloc, 1) catch {
             _ = chan_slots.pop();
-            chan_registry_mu.unlock();
+            t04.chan_registry_mu.unlock();
             if (ch.buf.len > 0) alloc.free(ch.buf);
             alloc.destroy(ch);
             return ERR_NOMEM;
         };
     }
-    chan_registry_mu.unlock();
+    t04.chan_registry_mu.unlock();
     out.* = ch.handle();
     return SA_TASK_OK;
 }
@@ -363,28 +364,28 @@ pub export fn sa_chan_destroy(handle: u64) i32 {
     if (!supported) return ERR_UNSUPPORTED;
     const idx: u32 = @truncate(handle);
     const gen: u32 = @truncate(handle >> 32);
-    chan_registry_mu.lock();
+    t04.chan_registry_mu.lock();
     if (idx >= chan_slots.items.len) {
-        chan_registry_mu.unlock();
+        t04.chan_registry_mu.unlock();
         return ERR_INVALID_HANDLE;
     }
     const ch = chan_slots.items[idx] orelse {
-        chan_registry_mu.unlock();
+        t04.chan_registry_mu.unlock();
         return ERR_INVALID_HANDLE;
     };
     if (ch.gen != gen or ch.dead) {
-        chan_registry_mu.unlock();
+        t04.chan_registry_mu.unlock();
         return ERR_INVALID_HANDLE;
     }
     ch.dead = true;
-    chan_registry_mu.unlock();
+    t04.chan_registry_mu.unlock();
     ch.mu.lock();
     chanFireAllOnDestroy(ch);
     ch.mu.unlock();
-    chan_registry_mu.lock();
+    t04.chan_registry_mu.lock();
     chan_slots.items[idx] = null;
     chan_free.append(alloc, idx) catch {};
-    chan_registry_mu.unlock();
+    t04.chan_registry_mu.unlock();
     chanRelease(ch); // drop the handle's base reference
     return SA_TASK_OK;
 }

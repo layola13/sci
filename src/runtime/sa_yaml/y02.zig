@@ -98,7 +98,7 @@ pub const SplitResult = struct {
     ranges: []DocRange,
     alloc: std.mem.Allocator,
 
-    fn deinit(self: *SplitResult) void {
+    pub fn deinit(self: *SplitResult) void {
         self.alloc.free(self.lines);
         self.alloc.free(self.ranges);
     }

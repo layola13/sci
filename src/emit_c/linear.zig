@@ -28,6 +28,8 @@ const tagToPrim = @import("ident.zig").tagToPrim;
 const trackWidths = @import("widths.zig").trackWidths;
 const widthOfOperand = @import("widths.zig").widthOfOperand;
 const writeCStrEscaped = @import("ident.zig").writeCStrEscaped;
+const last_c_inst = @import("../emit_c.zig").last_c_inst;
+const last_c_func = @import("../emit_c.zig").last_c_func;
 
 pub fn emitLinearInstruction(writer: anytype, allocator: std.mem.Allocator, symbols: anytype, fsig: sig.FunctionSig, use_global: bool, const_addrs: anytype, fn_idx: anytype, base: inst.Instruction, widths: *WidthMap, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32, dead: *const std.AutoHashMap(u32, void), bases: *CBaseSet) !void {
     last_c_inst = base.raw_text;
