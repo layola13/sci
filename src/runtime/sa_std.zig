@@ -1,6 +1,6 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const sio = @import("sio");
+pub const builtin = @import("builtin");
+pub const sio = @import("sio");
 
 // Runtime permission policy core (sala 16_policy phase 1): pure decision
 // logic, referenced here so the module and its unit tests join every
@@ -315,8 +315,8 @@ test "DEF-R7: SIGPIPE ignored at startup; closed-pipe write surfaces BrokenPipe"
 // std.os.linux has no wasm syscalls. Provide minimal layout-compatible
 // aliases so signatures type-check; bodies return UNSUPPORTED via
 // `if (comptime is_wasm)` guards.
-const is_wasm = builtin.cpu.arch.isWasm();
-const is_linux = builtin.os.tag == .linux;
+pub const is_wasm = builtin.cpu.arch.isWasm();
+pub const is_linux = builtin.os.tag == .linux;
 const WasiSockAddrUn = extern struct { family: u16 = 0, path: [108]u8 = undefined };
 const WasiSockAddrIn = extern struct { port: u16 = 0, addr: u32 = 0, zero: [8]u8 = undefined };
 const WasiSockAddrIn6 = extern struct { port: u16 = 0, flowinfo: u32 = 0, addr: [16]u8 = undefined, scope_id: u32 = 0 };
@@ -371,7 +371,7 @@ const WasiAF = struct {
     pub const INET: u16 = 2;
     pub const INET6: u16 = 10;
 };
-const AFT = if (is_wasm) WasiAF else std.posix.AF;
+pub const AFT = if (is_wasm) WasiAF else std.posix.AF;
 const WasiSOL = struct {
     pub const SOCKET: u32 = 1;
 };
@@ -785,40 +785,232 @@ comptime {
     _ = &@import("sa_std/json.zig").sa_json_array_push_bool;
     _ = &@import("sa_std/json.zig").sa_json_array_push_null;
     _ = &@import("sa_std/json.zig").sa_json_array_push_node;
-    _ = &@import("sa_std/json.zig").sa_json_scanner_new;
-    _ = &@import("sa_std/json.zig").sa_json_scanner_feed;
-    _ = &@import("sa_std/json.zig").sa_json_scanner_end_input;
-    _ = &@import("sa_std/json.zig").sa_json_scanner_next;
-    _ = &@import("sa_std/json.zig").sa_json_scanner_free;
-    _ = &@import("sa_std/json.zig").sa_json_stream_new;
-    _ = &@import("sa_std/json.zig").sa_json_stream_next;
-    _ = &@import("sa_std/json.zig").sa_json_stream_get_slice_ptr;
-    _ = &@import("sa_std/json.zig").sa_json_stream_get_slice_len;
-    _ = &@import("sa_std/json.zig").sa_json_stream_free;
-    _ = &@import("sa_std/json.zig").sa_json_writer_free;
-    _ = &@import("sa_std/json.zig").sa_json_writer_new;
-    _ = &@import("sa_std/json.zig").sa_json_writer_begin_object;
-    _ = &@import("sa_std/json.zig").sa_json_writer_end_object;
-    _ = &@import("sa_std/json.zig").sa_json_writer_begin_array;
-    _ = &@import("sa_std/json.zig").sa_json_writer_end_array;
-    _ = &@import("sa_std/json.zig").sa_json_writer_object_field;
-    _ = &@import("sa_std/json.zig").sa_json_writer_field_string;
-    _ = &@import("sa_std/json.zig").sa_json_writer_field_bool;
-    _ = &@import("sa_std/json.zig").sa_json_writer_field_i64;
-    _ = &@import("sa_std/json.zig").sa_json_writer_field_f64;
-    _ = &@import("sa_std/json.zig").sa_json_writer_field_null;
-    _ = &@import("sa_std/json.zig").sa_json_writer_field_node;
-    _ = &@import("sa_std/json.zig").sa_json_writer_write_bool;
-    _ = &@import("sa_std/json.zig").sa_json_writer_write_i64;
-    _ = &@import("sa_std/json.zig").sa_json_writer_write_f64;
-    _ = &@import("sa_std/json.zig").sa_json_writer_write_string;
-    _ = &@import("sa_std/json.zig").sa_json_writer_write_null;
-    _ = &@import("sa_std/json.zig").sa_json_writer_write_node;
-    _ = &@import("sa_std/json.zig").sa_json_writer_finish;
-    _ = &@import("sa_std/json.zig").sa_json_writer_finish_buffer;
+    _ = &@import("sa_std/json_io.zig").sa_json_scanner_new;
+    _ = &@import("sa_std/json_io.zig").sa_json_scanner_feed;
+    _ = &@import("sa_std/json_io.zig").sa_json_scanner_end_input;
+    _ = &@import("sa_std/json_io.zig").sa_json_scanner_next;
+    _ = &@import("sa_std/json_io.zig").sa_json_scanner_free;
+    _ = &@import("sa_std/json_io.zig").sa_json_stream_new;
+    _ = &@import("sa_std/json_io.zig").sa_json_stream_next;
+    _ = &@import("sa_std/json_io.zig").sa_json_stream_get_slice_ptr;
+    _ = &@import("sa_std/json_io.zig").sa_json_stream_get_slice_len;
+    _ = &@import("sa_std/json_io.zig").sa_json_stream_free;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_free;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_new;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_begin_object;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_end_object;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_begin_array;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_end_array;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_object_field;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_field_string;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_field_bool;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_field_i64;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_field_f64;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_field_null;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_field_node;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_write_bool;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_write_i64;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_write_f64;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_write_string;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_write_null;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_write_node;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_finish;
+    _ = &@import("sa_std/json_io.zig").sa_json_writer_finish_buffer;
     _ = &@import("sa_std/json.zig").sa_json_buffer_data;
     _ = &@import("sa_std/json.zig").sa_json_buffer_len;
     _ = &@import("sa_std/json.zig").sa_json_buffer_free;
+    _ = &@import("sa_std/fs.zig").sa_fs_file_open;
+    _ = &@import("sa_std/fs.zig").sa_fs_file_create;
+    _ = &@import("sa_std/fs.zig").sa_fs_file_close;
+    _ = &@import("sa_std/fs.zig").sa_fs_file_read;
+    _ = &@import("sa_std/fs.zig").sa_fs_file_read_exact;
+    _ = &@import("sa_std/fs.zig").sa_fs_file_write;
+    _ = &@import("sa_std/fs.zig").sa_fs_file_write_all;
+    _ = &@import("sa_std/fs.zig").sa_fs_file_flush;
+    _ = &@import("sa_std/fs.zig").sa_fs_file_sync_data;
+    _ = &@import("sa_std/fs.zig").sa_fs_file_sync;
+    _ = &@import("sa_std/fs.zig").sa_fs_file_truncate;
+    _ = &@import("sa_std/fs.zig").sa_fs_file_seek;
+    _ = &@import("sa_std/fs.zig").sa_fs_read_file;
+    _ = &@import("sa_std/fs.zig").sa_fs_read_to_string;
+    _ = &@import("sa_std/fs.zig").sa_fs_write_file;
+    _ = &@import("sa_std/fs.zig").sa_fs_read_buffer_data;
+    _ = &@import("sa_std/fs.zig").sa_fs_read_buffer_len;
+    _ = &@import("sa_std/fs.zig").sa_fs_read_buffer_free;
+    _ = &@import("sa_std/fs.zig").sa_fs_read_file_base64;
+    _ = &@import("sa_std/fs.zig").sa_fs_write_file_base64;
+    _ = &@import("sa_std/fs.zig").sa_fs_read_dir_json;
+    _ = &@import("sa_std/fs.zig").sa_fs_dir_buffer_data;
+    _ = &@import("sa_std/fs.zig").sa_fs_dir_buffer_len;
+    _ = &@import("sa_std/fs.zig").sa_fs_dir_buffer_free;
+    _ = &@import("sa_std/fs.zig").sa_fs_read_dir_entries;
+    _ = &@import("sa_std/fs.zig").sa_fs_dir_entries_len;
+    _ = &@import("sa_std/fs.zig").sa_fs_dir_entries_free;
+    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_name_ptr;
+    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_name_len;
+    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_file_name_ptr;
+    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_file_name_len;
+    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_kind;
+    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_ino;
+    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_free;
+    _ = &@import("sa_std/fs.zig").sa_fs_metadata;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_json;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_file;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_directory;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_symlink;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_block_device;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_char_device;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_fifo;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_socket;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_modified_ms;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_created_ms;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_accessed_ms;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_changed_ms;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_len;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_mode;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_uid;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_gid;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_ino;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_dev;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_nlink;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_rdev;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_blksize;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_blocks;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_dev;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_ino;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_mode;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_nlink;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_uid;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_gid;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_rdev;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_size;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_atime;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_atime_nsec;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_mtime;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_mtime_nsec;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_ctime;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_ctime_nsec;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_blksize;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_blocks;
+    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_free;
+    _ = &@import("sa_std/fs.zig").sa_fs_remove_file;
+    _ = &@import("sa_std/fs.zig").sa_fs_rename;
+    _ = &@import("sa_std/fs.zig").sa_fs_make_dir;
+    _ = &@import("sa_std/fs.zig").sa_fs_make_dir_mode;
+    _ = &@import("sa_std/fs.zig").sa_fs_mkdir_p;
+    _ = &@import("sa_std/fs.zig").sa_fs_create_dir;
+    _ = &@import("sa_std/fs.zig").sa_fs_create_dir_mode;
+    _ = &@import("sa_std/fs.zig").sa_fs_remove_dir;
+    _ = &@import("sa_std/fs.zig").sa_fs_remove_dir_all;
+    _ = &@import("sa_std/fs.zig").sa_fs_remove_path;
+    _ = &@import("sa_std/fs.zig").sa_fs_copy_file;
+    _ = &@import("sa_std/fs.zig").sa_fs_set_permissions;
+    _ = &@import("sa_std/fs.zig").sa_fs_set_times_ms;
+    _ = &@import("sa_std/fs.zig").sa_fs_hard_link;
+    _ = &@import("sa_std/fs.zig").sa_fs_symlink;
+    _ = &@import("sa_std/fs.zig").sa_fs_chown;
+    _ = &@import("sa_std/fs.zig").sa_fs_lchown;
+    _ = &@import("sa_std/fs.zig").sa_fs_fchown;
+    _ = &@import("sa_std/fs.zig").sa_fs_chroot;
+    _ = &@import("sa_std/fs.zig").sa_fs_mkfifo;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_connect;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_read;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_peek;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_write;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_write_all;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_read_exact;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_flush;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_peer_addr;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_shutdown;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_set_read_timeout;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_set_write_timeout;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_set_nonblocking;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_set_nodelay;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_set_ttl;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_close;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_listener_bind;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_listener_accept;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_listener_local_addr;
+    _ = &@import("sa_std/net.zig").sa_net_tcp_listener_close;
+    _ = &@import("sa_std/net.zig").sa_net_udp_set_read_timeout;
+    _ = &@import("sa_std/net.zig").sa_net_udp_set_write_timeout;
+    _ = &@import("sa_std/net.zig").sa_net_udp_set_nonblocking;
+    _ = &@import("sa_std/net.zig").sa_net_udp_set_broadcast;
+    _ = &@import("sa_std/net.zig").sa_net_udp_set_ttl;
+    _ = &@import("sa_std/net.zig").sa_net_udp_set_multicast_loop_v4;
+    _ = &@import("sa_std/net.zig").sa_net_udp_set_multicast_ttl_v4;
+    _ = &@import("sa_std/net.zig").sa_net_udp_join_multicast_v4;
+    _ = &@import("sa_std/net.zig").sa_net_udp_leave_multicast_v4;
+    _ = &@import("sa_std/net.zig").sa_net_udp_join_multicast_v6;
+    _ = &@import("sa_std/net.zig").sa_net_udp_leave_multicast_v6;
+    _ = &@import("sa_std/net.zig").sa_net_udp_bind;
+    _ = &@import("sa_std/net.zig").sa_net_udp_connect;
+    _ = &@import("sa_std/net.zig").sa_net_udp_local_addr;
+    _ = &@import("sa_std/net.zig").sa_net_udp_send;
+    _ = &@import("sa_std/net.zig").sa_net_udp_recv;
+    _ = &@import("sa_std/net.zig").sa_net_udp_peek;
+    _ = &@import("sa_std/net.zig").sa_net_udp_send_to;
+    _ = &@import("sa_std/net.zig").sa_net_udp_recv_from;
+    _ = &@import("sa_std/net.zig").sa_net_udp_peek_from;
+    _ = &@import("sa_std/net.zig").sa_net_udp_close;
+    _ = &@import("sa_std/net.zig").sa_net_addr_host;
+    _ = &@import("sa_std/net.zig").sa_net_addr_host_len;
+    _ = &@import("sa_std/net.zig").sa_net_addr_port;
+    _ = &@import("sa_std/net.zig").sa_net_addr_family;
+    _ = &@import("sa_std/net.zig").sa_net_addr_scope_id;
+    _ = &@import("sa_std/net.zig").sa_net_addr_free;
+    _ = &@import("sa_std/net.zig").sa_net_ipv4_parse_ascii;
+    _ = &@import("sa_std/net.zig").sa_net_socket_addr_v4_parse_ascii;
+    _ = &@import("sa_std/net.zig").sa_net_ipv6_parse_ascii;
+    _ = &@import("sa_std/net.zig").sa_net_socket_addr_v6_parse_ascii;
+    _ = &@import("sa_std/net.zig").sa_net_ipv4_format_ascii;
+    _ = &@import("sa_std/net.zig").sa_net_ipv6_format_ascii;
+    _ = &@import("sa_std/net.zig").sa_net_socket_addr_v4_format_ascii;
+    _ = &@import("sa_std/net.zig").sa_net_socket_addr_v6_format_ascii;
+    _ = &@import("sa_std/net.zig").sa_net_unix_addr_kind;
+    _ = &@import("sa_std/net.zig").sa_net_unix_addr_is_unnamed;
+    _ = &@import("sa_std/net.zig").sa_net_unix_addr_path_ptr;
+    _ = &@import("sa_std/net.zig").sa_net_unix_addr_path_len;
+    _ = &@import("sa_std/net.zig").sa_net_unix_addr_abstract_ptr;
+    _ = &@import("sa_std/net.zig").sa_net_unix_addr_abstract_len;
+    _ = &@import("sa_std/net.zig").sa_net_unix_addr_free;
+    _ = &@import("sa_std/deno.zig").sa_deno_cwd;
+    _ = &@import("sa_std/deno.zig").sa_deno_chdir;
+    _ = &@import("sa_std/deno.zig").sa_deno_env_set;
+    _ = &@import("sa_std/deno.zig").sa_deno_env_delete;
+    _ = &@import("sa_std/deno.zig").sa_deno_random_uuid;
+    _ = &@import("sa_std/deno.zig").sa_deno_make_temp_dir;
+    _ = &@import("sa_std/deno.zig").sa_deno_make_temp_file;
+    _ = &@import("sa_std/deno.zig").sa_deno_args_json;
+    _ = &@import("sa_std/deno.zig").sa_deno_btoa;
+    _ = &@import("sa_std/deno.zig").sa_deno_atob;
+    _ = &@import("sa_std/deno.zig").sa_deno_text_encode;
+    _ = &@import("sa_std/deno.zig").sa_deno_text_decode;
+    _ = &@import("sa_std/deno.zig").sa_deno_chat_sse_to_responses;
+    _ = &@import("sa_std/deno.zig").sa_deno_chat_json_to_responses;
+    _ = &@import("sa_std/deno.zig").sa_deno_responses_sse_normalize;
+    _ = &@import("sa_std/deno.zig").sa_deno_responses_json_normalize;
+    _ = &@import("sa_std/deno.zig").sa_deno_responses_request_normalize;
+    _ = &@import("sa_std/deno.zig").sa_deno_responses_chat_fallback_request;
+    _ = &@import("sa_std/deno.zig").sa_deno_jsonrpc_params_string_literal;
+    _ = &@import("sa_std/deno.zig").sa_deno_version_json;
+    _ = &@import("sa_std/deno.zig").sa_deno_version_deno;
+    _ = &@import("sa_std/deno.zig").sa_deno_build_json;
+    _ = &@import("sa_std/deno.zig").sa_deno_build_os;
+    _ = &@import("sa_std/deno.zig").sa_deno_build_platform_family;
+    _ = &@import("sa_std/deno.zig").sa_deno_date_now_iso;
+    _ = &@import("sa_std/deno.zig").sa_deno_hostname;
+    _ = &@import("sa_std/deno.zig").sa_deno_os_release;
+    _ = &@import("sa_std/deno.zig").sa_deno_os_uptime;
+    _ = &@import("sa_std/deno.zig").sa_deno_loadavg;
+    _ = &@import("sa_std/deno.zig").sa_deno_system_memory_info;
+    _ = &@import("sa_std/deno.zig").sa_deno_network_interfaces;
+    _ = &@import("sa_std/deno.zig").sa_deno_pid;
+    _ = &@import("sa_std/deno.zig").sa_deno_ppid;
+    _ = &@import("sa_std/deno.zig").sa_deno_uid;
+    _ = &@import("sa_std/deno.zig").sa_deno_gid;
+    _ = &@import("sa_std/deno.zig").sa_deno_exec_path;
+    _ = &@import("sa_std/deno.zig").sa_deno_memory_usage;
     if (builtin.os.tag == .linux) {
         _ = &@import("sa_pty.zig").sa_pty_spawn;
         _ = &@import("sa_pty.zig").sa_pty_read;
@@ -943,7 +1135,7 @@ const tcp_nodelay: u32 = 1;
 // --- FreeBSD compat (zig 0.14 std leaves several POSIX surfaces
 // unimplemented for freebsd: uname, TCP consts, if_nametoindex) ---
 const fbsd_sys_nmln: usize = 256;
-const fbsd_utsname = extern struct {
+pub const fbsd_utsname = extern struct {
     sysname: [fbsd_sys_nmln]u8,
     nodename: [fbsd_sys_nmln]u8,
     release: [fbsd_sys_nmln]u8,
@@ -978,10 +1170,7 @@ pub const SA_STD_ERR_ALREADY_EXISTS: i32 = 11;
 pub const SA_STD_ERR_UNKNOWN: i32 = 127;
 
 /// Mirrors C sa_net_iov in sa_std.h. Layout must stay { u8* base; usize len; }.
-pub const sa_net_iov = extern struct {
-    base: [*]u8,
-    len: usize,
-};
+pub const sa_net_iov = @import("sa_std/net.zig").sa_net_iov;
 
 /// Cap on iovec entries accepted per vectored call. Matches POSIX IOV_MAX where
 /// available and stays comfortably below common OS hard limits.
@@ -1115,7 +1304,7 @@ const BufferHandle = struct {
     allocator: std.mem.Allocator,
     bytes: []u8,
 
-    fn deinit(self: *BufferHandle) void {
+    pub fn deinit(self: *BufferHandle) void {
         if (self.bytes.len != 0) self.allocator.free(self.bytes);
         self.bytes = &.{};
     }
@@ -1126,7 +1315,7 @@ const MetadataHandle = struct {
     stat: sio.Stat,
     raw: RawStat,
 
-    fn deinit(self: *MetadataHandle) void {
+    pub fn deinit(self: *MetadataHandle) void {
         _ = self;
     }
 };
@@ -1141,7 +1330,7 @@ const DirEntriesHandle = struct {
     allocator: std.mem.Allocator,
     entries: []DirEntrySnapshot,
 
-    fn deinit(self: *DirEntriesHandle) void {
+    pub fn deinit(self: *DirEntriesHandle) void {
         for (self.entries) |entry| {
             if (entry.name.len != 0) self.allocator.free(entry.name);
         }
@@ -1156,7 +1345,7 @@ const DirEntryHandle = struct {
     kind: u32,
     ino: u64,
 
-    fn deinit(self: *DirEntryHandle) void {
+    pub fn deinit(self: *DirEntryHandle) void {
         if (self.name.len != 0) self.allocator.free(self.name);
         self.name = &.{};
     }
@@ -1193,9 +1382,9 @@ const NetAddrListHandle = struct {
         self.next_index = 0;
     }
 };
-const SA_NET_UNIX_ADDR_UNNAMED: u32 = 0;
-const SA_NET_UNIX_ADDR_PATHNAME: u32 = 1;
-const SA_NET_UNIX_ADDR_ABSTRACT: u32 = 2;
+pub const SA_NET_UNIX_ADDR_UNNAMED: u32 = 0;
+pub const SA_NET_UNIX_ADDR_PATHNAME: u32 = 1;
+pub const SA_NET_UNIX_ADDR_ABSTRACT: u32 = 2;
 
 const UnixAddrHandle = struct {
     allocator: std.mem.Allocator,
@@ -1483,7 +1672,7 @@ pub const JsonScannerHandle = struct {
         return handle;
     }
 
-    fn deinit(self: *JsonScannerHandle) void {
+    pub fn deinit(self: *JsonScannerHandle) void {
         self.pending_text.deinit();
         self.scanner.deinit();
         if (self.pending_input_owned and self.pending_input.len != 0) self.allocator.free(self.pending_input);
@@ -1493,7 +1682,7 @@ pub const JsonScannerHandle = struct {
         self.current_token = SA_JSON_TOKEN_INVALID;
     }
 
-    fn destroy(self: *JsonScannerHandle) void {
+    pub fn destroy(self: *JsonScannerHandle) void {
         self.deinit();
         self.allocator.destroy(self);
     }
@@ -1521,7 +1710,7 @@ pub const JsonStreamHandle = struct {
         return handle;
     }
 
-    fn deinit(self: *JsonStreamHandle) void {
+    pub fn deinit(self: *JsonStreamHandle) void {
         self.scanner.destroy();
         if (self.owned_input.len != 0) self.allocator.free(self.owned_input);
         self.owned_input = &.{};
@@ -1555,7 +1744,7 @@ pub const JsonWriterHandle = struct {
         return handle;
     }
 
-    fn deinit(self: *JsonWriterHandle) void {
+    pub fn deinit(self: *JsonWriterHandle) void {
         self.aw.deinit();
         self.allocator.destroy(self);
     }
@@ -2362,7 +2551,7 @@ const EnvHandle = struct {
     }
 };
 
-const TimeDate = extern struct {
+pub const TimeDate = extern struct {
     unix_ms: i64,
     unix_ns: i64,
     year: u16,
@@ -2386,7 +2575,7 @@ const Timeval = std.posix.timeval;
 const TimevalSec = @TypeOf(@as(Timeval, .{ .sec = 0, .usec = 0 }).sec);
 const TimevalUsec = @TypeOf(@as(Timeval, .{ .sec = 0, .usec = 0 }).usec);
 const LingerOption = extern struct { onoff: i32, linger: i32 };
-const Timespec = std.posix.timespec;
+pub const Timespec = std.posix.timespec;
 const TimespecSec = @TypeOf(@as(Timespec, .{ .sec = 0, .nsec = 0 }).sec);
 const TimespecNsec = @TypeOf(@as(Timespec, .{ .sec = 0, .nsec = 0 }).nsec);
 
@@ -2761,7 +2950,7 @@ pub fn finish(status: i32) i32 {
     return status;
 }
 
-fn mapError(err: anyerror) i32 {
+pub fn mapError(err: anyerror) i32 {
     return switch (err) {
         error.InvalidArgument => SA_STD_ERR_INVALID_ARGUMENT,
         error.InvalidHandle => SA_STD_ERR_INVALID_HANDLE,
@@ -2834,7 +3023,7 @@ pub fn finishErr(err: anyerror) i32 {
     return finish(mapError(err));
 }
 
-fn fillUtcNow(out: *TimeDate) !void {
+pub fn fillUtcNow(out: *TimeDate) !void {
     const now_ts = std.Io.Clock.real.now(sio.io());
     const unix_ms = now_ts.toMilliseconds();
     const unix_s = @divFloor(unix_ms, std.time.ms_per_s);
@@ -2875,7 +3064,7 @@ fn monotonicNowNs() !u64 {
     return @intCast(now_ns);
 }
 
-fn lenAsUsize(len: u64) !usize {
+pub fn lenAsUsize(len: u64) !usize {
     if (len > @as(u64, @intCast(std.math.maxInt(usize)))) return error.InvalidArgument;
     return @as(usize, @intCast(len));
 }
@@ -2894,14 +3083,14 @@ fn constU32s(ptr: ?[*]const u32, len: u64) ![]const u32 {
     return p[0..n];
 }
 
-fn mutBytes(ptr: ?[*]u8, len: u64) ![]u8 {
+pub fn mutBytes(ptr: ?[*]u8, len: u64) ![]u8 {
     const n = try lenAsUsize(len);
     if (n == 0) return empty_mut_bytes[0..];
     const p = ptr orelse return error.InvalidArgument;
     return p[0..n];
 }
 
-fn pathBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
+pub fn pathBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
     const path = try constBytes(ptr, len);
     if (path.len == 0) return error.InvalidArgument;
     if (std.mem.indexOfScalar(u8, path, 0) != null) return error.InvalidArgument;
@@ -3574,7 +3763,7 @@ fn takeResourceLocked(handle: u64) ?Resource {
     return resource;
 }
 
-fn handleToFd(handle: u64) !std.posix.fd_t {
+pub fn handleToFd(handle: u64) !std.posix.fd_t {
     return switch (handle) {
         SA_STD_STDIN => std.posix.STDIN_FILENO,
         SA_STD_STDOUT => std.posix.STDOUT_FILENO,
@@ -3608,7 +3797,7 @@ fn timeSpecMs(ts: anytype) i64 {
     return nsToMs(sec * std.time.ns_per_s + nsec);
 }
 
-fn metadataU64Field(handle: u64, comptime field: []const u8) u64 {
+pub fn metadataU64Field(handle: u64, comptime field: []const u8) u64 {
     while (!registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -3636,7 +3825,7 @@ fn metadataU64Field(handle: u64, comptime field: []const u8) u64 {
     };
 }
 
-fn metadataI64TimeFieldMs(handle: u64, comptime field: []const u8) i64 {
+pub fn metadataI64TimeFieldMs(handle: u64, comptime field: []const u8) i64 {
     while (!registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -3648,7 +3837,7 @@ fn metadataI64TimeFieldMs(handle: u64, comptime field: []const u8) i64 {
     };
 }
 
-fn metadataI64TimeFieldSec(handle: u64, comptime field: []const u8) i64 {
+pub fn metadataI64TimeFieldSec(handle: u64, comptime field: []const u8) i64 {
     while (!registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -3660,7 +3849,7 @@ fn metadataI64TimeFieldSec(handle: u64, comptime field: []const u8) i64 {
     };
 }
 
-fn metadataI64TimeFieldNsec(handle: u64, comptime field: []const u8) i64 {
+pub fn metadataI64TimeFieldNsec(handle: u64, comptime field: []const u8) i64 {
     while (!registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -4408,7 +4597,7 @@ fn filePwriteAll(f: sio.File, buffer: []const u8, offset: u64) !void {
     return try f.inner.writePositionalAll(sio.io(), buffer, offset);
 }
 
-fn fileSeekBy(f: sio.File, offset: i64) !void {
+pub fn fileSeekBy(f: sio.File, offset: i64) !void {
     if (comptime builtin.cpu.arch.isWasm()) {
         return error.Unsupported;
     } else {
@@ -4421,7 +4610,7 @@ fn fileSeekBy(f: sio.File, offset: i64) !void {
     }
 }
 
-fn fileSeekFromEnd(f: sio.File, offset: i64) !void {
+pub fn fileSeekFromEnd(f: sio.File, offset: i64) !void {
     const len = try f.length();
     const new_pos = @as(i64, @intCast(len)) + offset;
     if (new_pos < 0) return error.InvalidArgument;
@@ -4438,7 +4627,7 @@ fn fileGetPos(f: sio.File) !u64 {
     }
 }
 
-fn fileSetEndPos(f: sio.File, new_size: u64) !void {
+pub fn fileSetEndPos(f: sio.File, new_size: u64) !void {
     try f.inner.setLength(sio.io(), new_size);
 }
 
@@ -4510,7 +4699,7 @@ fn lxCheck(rc: usize) !usize {
 // --- libc fallbacks (macOS/FreeBSD) ---------------------------------------
 const libc_socklen_t = std.c.socklen_t;
 
-const libc = struct {
+pub const libc = struct {
     extern "c" fn socket(domain: c_int, socket_type: c_int, protocol: c_int) c_int;
     extern "c" fn bind(fd: c_int, addr: *const SockAddrT, len: libc_socklen_t) c_int;
     extern "c" fn listen(fd: c_int, backlog: c_int) c_int;
@@ -4657,7 +4846,7 @@ fn lxConnect(fd: std.posix.fd_t, addr: *const SockAddrT, len: SockLenT) !void {
     try libcErrRc(libc.connect(fd, addr, @intCast(len)));
 }
 
-fn lxShutdown(fd: std.posix.fd_t, how: i32) !void {
+pub fn lxShutdown(fd: std.posix.fd_t, how: i32) !void {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         _ = try lxCheck(std.os.linux.shutdown(fd, how));
@@ -4753,7 +4942,7 @@ fn lxChdir(path: []const u8) !void {
     try libcErrRc(libc.chdir(&z));
 }
 
-fn lxChroot(path: [*:0]const u8) !void {
+pub fn lxChroot(path: [*:0]const u8) !void {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         _ = try lxCheck(std.os.linux.chroot(path));
@@ -4833,7 +5022,7 @@ fn lxUnlink(path: []const u8) !void {
     try libcErrRc(libc.unlink(&z));
 }
 
-fn lxMkdirat(dirfd: std.posix.fd_t, path: []const u8, mode: std.posix.mode_t) !void {
+pub fn lxMkdirat(dirfd: std.posix.fd_t, path: []const u8, mode: std.posix.mode_t) !void {
     if (comptime is_wasm) return error.Unsupported;
     const z = try std.posix.toPosixPath(path);
     if (comptime is_linux) {
@@ -4843,7 +5032,7 @@ fn lxMkdirat(dirfd: std.posix.fd_t, path: []const u8, mode: std.posix.mode_t) !v
     try libcErrRc(libc.mkdirat(dirfd, &z, @intCast(mode)));
 }
 
-fn lxFchmodat(dirfd: std.posix.fd_t, path: []const u8, mode: std.posix.mode_t) !void {
+pub fn lxFchmodat(dirfd: std.posix.fd_t, path: []const u8, mode: std.posix.mode_t) !void {
     if (comptime is_wasm) return error.Unsupported;
     const z = try std.posix.toPosixPath(path);
     if (comptime is_linux) {
@@ -4853,7 +5042,7 @@ fn lxFchmodat(dirfd: std.posix.fd_t, path: []const u8, mode: std.posix.mode_t) !
     try libcErrRc(libc.fchmodat(dirfd, &z, @intCast(mode), 0));
 }
 
-fn lxLink(old: []const u8, new: []const u8) !void {
+pub fn lxLink(old: []const u8, new: []const u8) !void {
     if (comptime is_wasm) return error.Unsupported;
     const old_z = try std.posix.toPosixPath(old);
     const new_z = try std.posix.toPosixPath(new);
@@ -4864,7 +5053,7 @@ fn lxLink(old: []const u8, new: []const u8) !void {
     try libcErrRc(libc.link(&old_z, &new_z));
 }
 
-fn lxFutimens(fd: std.posix.fd_t, times: *const [2]std.posix.timespec) !void {
+pub fn lxFutimens(fd: std.posix.fd_t, times: *const [2]std.posix.timespec) !void {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         _ = try lxCheck(std.os.linux.futimens(fd, times));
@@ -5227,7 +5416,7 @@ fn rawStatFromIo(st: sio.Stat) RawStat {
     };
 }
 
-fn lxStatxNoFollow(path: []const u8) !RawStat {
+pub fn lxStatxNoFollow(path: []const u8) !RawStat {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         const z = try std.posix.toPosixPath(path);
@@ -5255,7 +5444,7 @@ fn lxStatxNoFollow(path: []const u8) !RawStat {
     return rawStatFromIo(st);
 }
 
-fn statFromRaw(raw: RawStat) sio.Stat {
+pub fn statFromRaw(raw: RawStat) sio.Stat {
     const kind: std.Io.File.Kind = switch (raw.mode & std.posix.S.IFMT) {
         std.posix.S.IFDIR => .directory,
         std.posix.S.IFREG => .file,
@@ -5283,7 +5472,7 @@ fn statxDevId(major: u32, minor: u32) u64 {
     return (@as(u64, major) << 32) | @as(u64, minor);
 }
 
-fn tsToMs(ts: std.Io.Timestamp) i64 {
+pub fn tsToMs(ts: std.Io.Timestamp) i64 {
     return nsToMs(@as(i128, ts.toNanoseconds()));
 }
 
@@ -5346,14 +5535,14 @@ fn longestSuffixPrefix(text: []const u8, prefix: []const u8) usize {
     return 0;
 }
 
-fn openOwnedBuffer(bytes: []u8) !u64 {
+pub fn openOwnedBuffer(bytes: []u8) !u64 {
     return registerResource(.{ .fmt = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
         std.heap.page_allocator.free(bytes);
         return err;
     };
 }
 
-fn openOwnedByteBuffer(bytes: []u8) !u64 {
+pub fn openOwnedByteBuffer(bytes: []u8) !u64 {
     return registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
         std.heap.page_allocator.free(bytes);
         return err;
@@ -5449,11 +5638,11 @@ const ListWriter = struct {
     }
 };
 
-fn listWriter(list: *std.array_list.Managed(u8)) ListWriter {
+pub fn listWriter(list: *std.array_list.Managed(u8)) ListWriter {
     return .{ .list = list };
 }
 
-fn stringifyToList(list: *std.array_list.Managed(u8), value: anytype) !void {
+pub fn stringifyToList(list: *std.array_list.Managed(u8), value: anytype) !void {
     var aw: std.Io.Writer.Allocating = .init(list.allocator);
     defer aw.deinit();
     try std.json.Stringify.value(value, .{}, &aw.writer);
@@ -5480,7 +5669,7 @@ fn jsonRpcParamLookupKey(key: []const u8) []const u8 {
     return key;
 }
 
-fn jsonRpcParamsStringLiteralAlloc(body: []const u8, key: []const u8, fallback: []const u8, emit_null_if_missing: bool) ![]u8 {
+pub fn jsonRpcParamsStringLiteralAlloc(body: []const u8, key: []const u8, fallback: []const u8, emit_null_if_missing: bool) ![]u8 {
     const lookup_key = jsonRpcParamLookupKey(key);
     if (lookup_key.len != 0) {
         var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, body, .{}) catch null;
@@ -6028,7 +6217,7 @@ fn appendOutputComma(out: *std.array_list.Managed(u8), count: *usize) !void {
     count.* += 1;
 }
 
-fn denoChatJsonToResponses(chat_body: []const u8, req_body: []const u8) ![]u8 {
+pub fn denoChatJsonToResponses(chat_body: []const u8, req_body: []const u8) ![]u8 {
     var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, chat_body, .{}) catch {
         return std.heap.page_allocator.dupe(u8, chat_body);
     };
@@ -6352,7 +6541,7 @@ fn nativeResponsesJsonNeedsNormalize(root: std.json.ObjectMap, output_text_reaso
     };
 }
 
-fn denoResponsesJsonNormalize(body: []const u8) ![]u8 {
+pub fn denoResponsesJsonNormalize(body: []const u8) ![]u8 {
     var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, body, .{}) catch {
         return std.heap.page_allocator.dupe(u8, body);
     };
@@ -6819,7 +7008,7 @@ fn shouldSkipResponsesFallbackField(key: []const u8) bool {
         std.mem.eql(u8, key, "response_format");
 }
 
-fn denoResponsesChatFallbackRequest(body: []const u8, default_model: []const u8, plan_mode_like: bool) !?[]u8 {
+pub fn denoResponsesChatFallbackRequest(body: []const u8, default_model: []const u8, plan_mode_like: bool) !?[]u8 {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -6982,7 +7171,7 @@ fn normalizeResponsesRequestValue(allocator: std.mem.Allocator, value: *std.json
     }
 }
 
-fn denoResponsesRequestNormalize(body: []const u8) ![]u8 {
+pub fn denoResponsesRequestNormalize(body: []const u8) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     var value = std.json.parseFromSliceLeaky(std.json.Value, arena.allocator(), body, .{}) catch {
@@ -7061,7 +7250,7 @@ fn appendNormalizedResponsesSseBlock(out: *std.array_list.Managed(u8), event_lin
     try out.appendSlice("\n\n");
 }
 
-fn denoResponsesSseNormalize(sse_body: []const u8) ![]u8 {
+pub fn denoResponsesSseNormalize(sse_body: []const u8) ![]u8 {
     var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer out.deinit();
     var data_buffer = std.array_list.Managed(u8).init(std.heap.page_allocator);
@@ -7213,7 +7402,7 @@ fn appendChatSseDataChunk(
     }
 }
 
-fn denoChatSseToResponses(chat_body: []const u8, req_body: []const u8) ![]u8 {
+pub fn denoChatSseToResponses(chat_body: []const u8, req_body: []const u8) ![]u8 {
     var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer out.deinit();
     var splitter = ThoughtStreamSplitter.init(std.heap.page_allocator);
@@ -7309,7 +7498,7 @@ fn denoChatSseToResponses(chat_body: []const u8, req_body: []const u8) ![]u8 {
     return try out.toOwnedSlice();
 }
 
-fn envKeyBytes(key_ptr: ?[*]const u8, key_len: u64) ![]const u8 {
+pub fn envKeyBytes(key_ptr: ?[*]const u8, key_len: u64) ![]const u8 {
     const key = try constBytes(key_ptr, key_len);
     if (key.len == 0) return error.InvalidArgument;
     if (std.mem.indexOfScalar(u8, key, 0) != null) return error.InvalidArgument;
@@ -7668,57 +7857,15 @@ pub export fn sa_std_println(data: ?[*]const u8, len: u64) Fallible(i32) {
     return ok(i32, 0);
 }
 
-pub export fn sa_deno_cwd() u64 {
-    const cwd = sio.getCwdAlloc(std.heap.page_allocator) catch return 0;
-    return openOwnedByteBuffer(cwd) catch return 0;
-}
+pub const sa_deno_cwd = @import("sa_std/deno.zig").sa_deno_cwd;
 
-pub export fn sa_deno_chdir(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    sio.changeCurDir(path) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_deno_chdir = @import("sa_std/deno.zig").sa_deno_chdir;
 
-pub export fn sa_deno_env_set(key_ptr: ?[*]const u8, key_len: u64, value_ptr: ?[*]const u8, value_len: u64) i32 {
-    const key = envKeyBytes(key_ptr, key_len) catch |err| return finishErr(err);
-    const value = constBytes(value_ptr, value_len) catch |err| return finishErr(err);
-    if (std.mem.indexOfScalar(u8, value, 0) != null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const key_z = std.heap.page_allocator.dupeSentinel(u8, key, 0) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(key_z);
-    const value_z = std.heap.page_allocator.dupeSentinel(u8, value, 0) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(value_z);
-    if (setenv(key_z.ptr, value_z.ptr, 1) != 0) return finish(SA_STD_ERR_IO);
-    return finish(SA_STD_OK);
-}
+pub const sa_deno_env_set = @import("sa_std/deno.zig").sa_deno_env_set;
 
-pub export fn sa_deno_env_delete(key_ptr: ?[*]const u8, key_len: u64) i32 {
-    const key = envKeyBytes(key_ptr, key_len) catch |err| return finishErr(err);
-    const key_z = std.heap.page_allocator.dupeSentinel(u8, key, 0) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(key_z);
-    if (unsetenv(key_z.ptr) != 0) return finish(SA_STD_ERR_IO);
-    return finish(SA_STD_OK);
-}
+pub const sa_deno_env_delete = @import("sa_std/deno.zig").sa_deno_env_delete;
 
-pub export fn sa_deno_random_uuid() u64 {
-    var bytes: [16]u8 = undefined;
-    sio.io().random(&bytes);
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-
-    var text: [36]u8 = undefined;
-    _ = std.fmt.bufPrint(
-        &text,
-        "{x:0>2}{x:0>2}{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}",
-        .{
-            bytes[0],  bytes[1],  bytes[2],  bytes[3],
-            bytes[4],  bytes[5],  bytes[6],  bytes[7],
-            bytes[8],  bytes[9],  bytes[10], bytes[11],
-            bytes[12], bytes[13], bytes[14], bytes[15],
-        },
-    ) catch return 0;
-    const owned = std.heap.page_allocator.dupe(u8, &text) catch return 0;
-    return openOwnedBuffer(owned) catch return 0;
-}
+pub const sa_deno_random_uuid = @import("sa_std/deno.zig").sa_deno_random_uuid;
 
 fn tempRootAlloc(allocator: std.mem.Allocator) ![]u8 {
     if (envValueFromCurrentProcess("TMPDIR")) |value| {
@@ -7733,7 +7880,7 @@ fn tempRootAlloc(allocator: std.mem.Allocator) ![]u8 {
     return allocator.dupe(u8, "/tmp");
 }
 
-fn tempPathAlloc(
+pub fn tempPathAlloc(
     allocator: std.mem.Allocator,
     prefix: []const u8,
     suffix: []const u8,
@@ -7748,75 +7895,15 @@ fn tempPathAlloc(
     return std.fs.path.join(allocator, &.{ root, name });
 }
 
-pub export fn sa_deno_make_temp_dir(prefix_ptr: ?[*]const u8, prefix_len: u64) Fallible(u64) {
-    const prefix = constBytes(prefix_ptr, prefix_len) catch |err| return fail(u64, mapError(err));
-    if (std.mem.indexOfScalar(u8, prefix, 0) != null) return fail(u64, SA_STD_ERR_INVALID_ARGUMENT);
-    const allocator = std.heap.page_allocator;
-    var attempts: u32 = 0;
-    while (attempts < 100) : (attempts += 1) {
-        const path = tempPathAlloc(allocator, prefix, "") catch |err| return fail(u64, mapError(err));
-        sio.cwd().makeDir(path) catch |err| {
-            allocator.free(path);
-            if (err == error.PathAlreadyExists) continue;
-            return fail(u64, mapError(err));
-        };
-        const handle = openOwnedByteBuffer(path) catch |err| return fail(u64, mapError(err));
-        return ok(u64, handle);
-    }
-    return fail(u64, SA_STD_ERR_IO);
-}
+pub const sa_deno_make_temp_dir = @import("sa_std/deno.zig").sa_deno_make_temp_dir;
 
-pub export fn sa_deno_make_temp_file(
-    prefix_ptr: ?[*]const u8,
-    prefix_len: u64,
-    suffix_ptr: ?[*]const u8,
-    suffix_len: u64,
-) Fallible(u64) {
-    const prefix = constBytes(prefix_ptr, prefix_len) catch |err| return fail(u64, mapError(err));
-    const suffix = constBytes(suffix_ptr, suffix_len) catch |err| return fail(u64, mapError(err));
-    if (std.mem.indexOfScalar(u8, prefix, 0) != null) return fail(u64, SA_STD_ERR_INVALID_ARGUMENT);
-    if (std.mem.indexOfScalar(u8, suffix, 0) != null) return fail(u64, SA_STD_ERR_INVALID_ARGUMENT);
-    const allocator = std.heap.page_allocator;
-    var attempts: u32 = 0;
-    while (attempts < 100) : (attempts += 1) {
-        const path = tempPathAlloc(allocator, prefix, suffix) catch |err| return fail(u64, mapError(err));
-        const file = sio.cwd().createFile(path, .{ .read = true, .exclusive = true }) catch |err| {
-            allocator.free(path);
-            if (err == error.PathAlreadyExists) continue;
-            return fail(u64, mapError(err));
-        };
-        file.close();
-        const handle = openOwnedByteBuffer(path) catch |err| return fail(u64, mapError(err));
-        return ok(u64, handle);
-    }
-    return fail(u64, SA_STD_ERR_IO);
-}
+pub const sa_deno_make_temp_file = @import("sa_std/deno.zig").sa_deno_make_temp_file;
 
-pub export fn sa_deno_args_json() u64 {
-    var args = sio.argsAlloc(std.heap.page_allocator) catch return 0;
-    defer sio.argsFree(std.heap.page_allocator, args);
+pub const sa_deno_args_json = @import("sa_std/deno.zig").sa_deno_args_json;
 
-    const deno_args = if (args.len > 0) args[1..] else args[0..0];
-    const json = std.json.Stringify.valueAlloc(std.heap.page_allocator, deno_args, .{}) catch return 0;
-    return openOwnedByteBuffer(json) catch return 0;
-}
+pub const sa_deno_btoa = @import("sa_std/deno.zig").sa_deno_btoa;
 
-pub export fn sa_deno_btoa(data_ptr: ?[*]const u8, len: u64) u64 {
-    const bytes = constBytes(data_ptr, len) catch return 0;
-    const encoded_len = std.base64.standard.Encoder.calcSize(bytes.len);
-    const encoded = std.heap.page_allocator.alloc(u8, encoded_len) catch return 0;
-    _ = std.base64.standard.Encoder.encode(encoded, bytes);
-    return openOwnedBuffer(encoded) catch return 0;
-}
-
-pub export fn sa_deno_atob(data_ptr: ?[*]const u8, len: u64) u64 {
-    const encoded = constBytes(data_ptr, len) catch return 0;
-    const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(encoded) catch return 0;
-    const decoded = std.heap.page_allocator.alloc(u8, decoded_len) catch return 0;
-    errdefer std.heap.page_allocator.free(decoded);
-    std.base64.standard.Decoder.decode(decoded, encoded) catch return 0;
-    return openOwnedBuffer(decoded) catch return 0;
-}
+pub const sa_deno_atob = @import("sa_std/deno.zig").sa_deno_atob;
 
 // SIMD hex decoder: native bulk-decode fast path (mirrors the sa_hexdec
 // JS host-codec shim contract). Decodes ASCII hex pairs into bytes at
@@ -8108,136 +8195,33 @@ test "sa_mfind_u8 hit/miss/edges match memmem contract" {
     try std.testing.expectEqual(@as(u64, 8), sa_mfind_u8(hay.ptr, 8, null, 1));
 }
 
-pub export fn sa_deno_text_encode(data_ptr: ?[*]const u8, len: u64) u64 {
-    const bytes = constBytes(data_ptr, len) catch return 0;
-    const owned = std.heap.page_allocator.dupe(u8, bytes) catch return 0;
-    return openOwnedByteBuffer(owned) catch return 0;
-}
+pub const sa_deno_text_encode = @import("sa_std/deno.zig").sa_deno_text_encode;
 
-pub export fn sa_deno_text_decode(data_ptr: ?[*]const u8, len: u64) u64 {
-    const bytes = constBytes(data_ptr, len) catch return 0;
-    const owned = std.heap.page_allocator.dupe(u8, bytes) catch return 0;
-    return openOwnedByteBuffer(owned) catch return 0;
-}
+pub const sa_deno_text_decode = @import("sa_std/deno.zig").sa_deno_text_decode;
 
-pub export fn sa_deno_chat_sse_to_responses(
-    chat_body_ptr: ?[*]const u8,
-    chat_body_len: u64,
-    req_body_ptr: ?[*]const u8,
-    req_body_len: u64,
-) u64 {
-    const chat_body = constBytes(chat_body_ptr, chat_body_len) catch return 0;
-    const req_body = constBytes(req_body_ptr, req_body_len) catch return 0;
-    const converted = denoChatSseToResponses(chat_body, req_body) catch return 0;
-    return openOwnedByteBuffer(converted) catch return 0;
-}
+pub const sa_deno_chat_sse_to_responses = @import("sa_std/deno.zig").sa_deno_chat_sse_to_responses;
 
-pub export fn sa_deno_chat_json_to_responses(
-    chat_body_ptr: ?[*]const u8,
-    chat_body_len: u64,
-    req_body_ptr: ?[*]const u8,
-    req_body_len: u64,
-) u64 {
-    const chat_body = constBytes(chat_body_ptr, chat_body_len) catch return 0;
-    const req_body = constBytes(req_body_ptr, req_body_len) catch return 0;
-    const converted = denoChatJsonToResponses(chat_body, req_body) catch return 0;
-    return openOwnedByteBuffer(converted) catch return 0;
-}
+pub const sa_deno_chat_json_to_responses = @import("sa_std/deno.zig").sa_deno_chat_json_to_responses;
 
-pub export fn sa_deno_responses_sse_normalize(
-    sse_body_ptr: ?[*]const u8,
-    sse_body_len: u64,
-) u64 {
-    const sse_body = constBytes(sse_body_ptr, sse_body_len) catch return 0;
-    const converted = denoResponsesSseNormalize(sse_body) catch return 0;
-    return openOwnedByteBuffer(converted) catch return 0;
-}
+pub const sa_deno_responses_sse_normalize = @import("sa_std/deno.zig").sa_deno_responses_sse_normalize;
 
-pub export fn sa_deno_responses_json_normalize(
-    body_ptr: ?[*]const u8,
-    body_len: u64,
-) u64 {
-    const body = constBytes(body_ptr, body_len) catch return 0;
-    const converted = denoResponsesJsonNormalize(body) catch return 0;
-    return openOwnedByteBuffer(converted) catch return 0;
-}
+pub const sa_deno_responses_json_normalize = @import("sa_std/deno.zig").sa_deno_responses_json_normalize;
 
-pub export fn sa_deno_responses_request_normalize(
-    body_ptr: ?[*]const u8,
-    body_len: u64,
-) u64 {
-    const body = constBytes(body_ptr, body_len) catch return 0;
-    const converted = denoResponsesRequestNormalize(body) catch return 0;
-    return openOwnedByteBuffer(converted) catch return 0;
-}
+pub const sa_deno_responses_request_normalize = @import("sa_std/deno.zig").sa_deno_responses_request_normalize;
 
-pub export fn sa_deno_responses_chat_fallback_request(
-    body_ptr: ?[*]const u8,
-    body_len: u64,
-    default_model_ptr: ?[*]const u8,
-    default_model_len: u64,
-    plan_mode_like: u8,
-) u64 {
-    const body = constBytes(body_ptr, body_len) catch return 0;
-    const default_model = constBytes(default_model_ptr, default_model_len) catch return 0;
-    const converted = denoResponsesChatFallbackRequest(body, default_model, plan_mode_like != 0) catch return 0;
-    const actual = converted orelse return 0;
-    return openOwnedByteBuffer(actual) catch return 0;
-}
+pub const sa_deno_responses_chat_fallback_request = @import("sa_std/deno.zig").sa_deno_responses_chat_fallback_request;
 
-pub export fn sa_deno_jsonrpc_params_string_literal(
-    body_ptr: ?[*]const u8,
-    body_len: u64,
-    key_ptr: ?[*]const u8,
-    key_len: u64,
-    fallback_ptr: ?[*]const u8,
-    fallback_len: u64,
-    emit_null_if_missing: u8,
-) u64 {
-    const body = constBytes(body_ptr, body_len) catch return 0;
-    const key = constBytes(key_ptr, key_len) catch return 0;
-    const fallback = constBytes(fallback_ptr, fallback_len) catch return 0;
-    const literal = jsonRpcParamsStringLiteralAlloc(body, key, fallback, emit_null_if_missing != 0) catch return 0;
-    return openOwnedByteBuffer(literal) catch return 0;
-}
+pub const sa_deno_jsonrpc_params_string_literal = @import("sa_std/deno.zig").sa_deno_jsonrpc_params_string_literal;
 
-pub export fn sa_deno_version_json() u64 {
-    const json = std.fmt.allocPrint(
-        std.heap.page_allocator,
-        "{{\"deno\":\"sa-std\",\"v8\":\"\",\"typescript\":\"\",\"sci\":\"{s}\"}}",
-        .{builtin.zig_version_string},
-    ) catch return 0;
-    return openOwnedByteBuffer(json) catch return 0;
-}
+pub const sa_deno_version_json = @import("sa_std/deno.zig").sa_deno_version_json;
 
-pub export fn sa_deno_version_deno() u64 {
-    const owned = std.heap.page_allocator.dupe(u8, "sa-std") catch return 0;
-    return openOwnedByteBuffer(owned) catch return 0;
-}
+pub const sa_deno_version_deno = @import("sa_std/deno.zig").sa_deno_version_deno;
 
-pub export fn sa_deno_build_json() u64 {
-    const os = @tagName(builtin.os.tag);
-    const arch = @tagName(builtin.cpu.arch);
-    const vendor = @tagName(builtin.abi);
-    const json = std.fmt.allocPrint(
-        std.heap.page_allocator,
-        "{{\"os\":\"{s}\",\"arch\":\"{s}\",\"target\":\"{s}-{s}\"}}",
-        .{ os, arch, arch, vendor },
-    ) catch return 0;
-    return openOwnedByteBuffer(json) catch return 0;
-}
+pub const sa_deno_build_json = @import("sa_std/deno.zig").sa_deno_build_json;
 
-pub export fn sa_deno_build_os() u64 {
-    const os = @tagName(builtin.os.tag);
-    const owned = std.heap.page_allocator.dupe(u8, os) catch return 0;
-    return openOwnedByteBuffer(owned) catch return 0;
-}
+pub const sa_deno_build_os = @import("sa_std/deno.zig").sa_deno_build_os;
 
-pub export fn sa_deno_build_platform_family() u64 {
-    const family = if (builtin.os.tag == .windows) "windows" else "unix";
-    const owned = std.heap.page_allocator.dupe(u8, family) catch return 0;
-    return openOwnedByteBuffer(owned) catch return 0;
-}
+pub const sa_deno_build_platform_family = @import("sa_std/deno.zig").sa_deno_build_platform_family;
 
 /// Zero-padded decimal append. (std.fmt `{d:04}` on 0.14 misplaces the
 /// sign, emitting `+` for positives, so ISO dates pad manually instead.)
@@ -8256,7 +8240,7 @@ fn appendPadded(out: *std.array_list.Managed(u8), val: i64, width: usize) !void 
 }
 
 /// UTC `YYYY-MM-DDTHH:MM:SS.sssZ` append shared by the ISO formatters.
-fn appendIsoUtc(out: *std.array_list.Managed(u8), year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, milli: i64) !void {
+pub fn appendIsoUtc(out: *std.array_list.Managed(u8), year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, milli: i64) !void {
     try appendPadded(out, year, 4);
     try out.append('-');
     try appendPadded(out, month, 2);
@@ -8273,19 +8257,13 @@ fn appendIsoUtc(out: *std.array_list.Managed(u8), year: i64, month: i64, day: i6
     try out.append('Z');
 }
 
-pub export fn sa_deno_date_now_iso() u64 {
-    var date: TimeDate = undefined;
-    fillUtcNow(&date) catch return 0;
-    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    appendIsoUtc(&out, date.year, date.month, date.day, date.hour, date.minute, date.second, date.millisecond) catch return 0;
-    return openOwnedByteBuffer(out.toOwnedSlice() catch return 0) catch return 0;
-}
+pub const sa_deno_date_now_iso = @import("sa_std/deno.zig").sa_deno_date_now_iso;
 
 const struct_sockaddr = extern struct {
     sa_family: u16,
     sa_data: [14]u8,
 };
-const struct_ifaddrs = extern struct {
+pub const struct_ifaddrs = extern struct {
     ifa_next: ?*struct_ifaddrs,
     ifa_name: [*:0]const u8,
     ifa_flags: c_uint,
@@ -8301,227 +8279,17 @@ extern fn getifaddrs(ifap: *?*struct_ifaddrs) c_int;
 extern fn freeifaddrs(ifa: ?*struct_ifaddrs) void;
 extern fn inet_ntop(af: c_int, src: ?*const anyopaque, dst: [*]u8, size: c_uint) ?[*:0]const u8;
 
-pub export fn sa_deno_hostname() u64 {
-    // FreeBSD: std.posix.uname is void in zig 0.14; call libc directly.
-    if (comptime builtin.os.tag == .freebsd) {
-        var uts: fbsd_utsname = undefined;
-        if (uname(&uts) != 0) return 0;
-        const nodename = std.mem.sliceTo(uts.nodename[0..], 0);
-        const owned = std.heap.page_allocator.dupe(u8, nodename) catch return 0;
-        return openOwnedByteBuffer(owned) catch return 0;
-    }
-    const uname_val = std.posix.uname();
-    const nodename = std.mem.sliceTo(&uname_val.nodename, 0);
-    const owned = std.heap.page_allocator.dupe(u8, nodename) catch return 0;
-    return openOwnedByteBuffer(owned) catch return 0;
-}
+pub const sa_deno_hostname = @import("sa_std/deno.zig").sa_deno_hostname;
 
-pub export fn sa_deno_os_release() u64 {
-    if (comptime builtin.os.tag == .freebsd) {
-        var uts: fbsd_utsname = undefined;
-        if (uname(&uts) != 0) return 0;
-        const release = std.mem.sliceTo(uts.release[0..], 0);
-        const owned = std.heap.page_allocator.dupe(u8, release) catch return 0;
-        return openOwnedByteBuffer(owned) catch return 0;
-    }
-    const uname_val = std.posix.uname();
-    const release = std.mem.sliceTo(&uname_val.release, 0);
-    const owned = std.heap.page_allocator.dupe(u8, release) catch return 0;
-    return openOwnedByteBuffer(owned) catch return 0;
-}
+pub const sa_deno_os_release = @import("sa_std/deno.zig").sa_deno_os_release;
 
-pub export fn sa_deno_os_uptime() f64 {
-    var file = sio.openFileAbsolute("/proc/uptime", .{}) catch return -1.0;
-    defer file.close();
-    var buf: [64]u8 = undefined;
-    const n = file.read(&buf) catch return -1.0;
-    const content = buf[0..n];
-    const space_idx = std.mem.indexOfScalar(u8, content, ' ') orelse content.len;
-    const uptime_str = std.mem.trim(u8, content[0..space_idx], " \t\r\n");
-    return std.fmt.parseFloat(f64, uptime_str) catch -1.0;
-}
+pub const sa_deno_os_uptime = @import("sa_std/deno.zig").sa_deno_os_uptime;
 
-pub export fn sa_deno_loadavg(out_ptr: ?*f64) i32 {
-    const ptr = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var file = sio.openFileAbsolute("/proc/loadavg", .{}) catch return finish(SA_STD_ERR_IO);
-    defer file.close();
-    var buf: [64]u8 = undefined;
-    const n = file.read(&buf) catch return finish(SA_STD_ERR_IO);
-    const content = buf[0..n];
-    var it = std.mem.tokenizeScalar(u8, content, ' ');
-    const l1_str = it.next() orelse return finish(SA_STD_ERR_IO);
-    const l2_str = it.next() orelse return finish(SA_STD_ERR_IO);
-    const l3_str = it.next() orelse return finish(SA_STD_ERR_IO);
-    const l1 = std.fmt.parseFloat(f64, l1_str) catch return finish(SA_STD_ERR_IO);
-    const l2 = std.fmt.parseFloat(f64, l2_str) catch return finish(SA_STD_ERR_IO);
-    const l3 = std.fmt.parseFloat(f64, l3_str) catch return finish(SA_STD_ERR_IO);
-    const dest: [*]f64 = @ptrCast(ptr);
-    dest[0] = l1;
-    dest[1] = l2;
-    dest[2] = l3;
-    return finish(SA_STD_OK);
-}
+pub const sa_deno_loadavg = @import("sa_std/deno.zig").sa_deno_loadavg;
 
-pub export fn sa_deno_system_memory_info() u64 {
-    var file = sio.openFileAbsolute("/proc/meminfo", .{}) catch return 0;
-    defer file.close();
-    var buf: [2048]u8 = undefined;
-    const n = file.read(&buf) catch return 0;
-    const content = buf[0..n];
+pub const sa_deno_system_memory_info = @import("sa_std/deno.zig").sa_deno_system_memory_info;
 
-    var total: u64 = 0;
-    var free: u64 = 0;
-    var available: u64 = 0;
-    var buffers: u64 = 0;
-    var cached: u64 = 0;
-    var swapTotal: u64 = 0;
-    var swapFree: u64 = 0;
-
-    var it = std.mem.tokenizeScalar(u8, content, '\n');
-    while (it.next()) |line| {
-        var line_it = std.mem.tokenizeAny(u8, line, " \t:");
-        const key = line_it.next() orelse continue;
-        const val_str = line_it.next() orelse continue;
-        const val = std.fmt.parseInt(u64, val_str, 10) catch continue;
-        const bytes = val * 1024;
-        if (std.mem.eql(u8, key, "MemTotal")) {
-            total = bytes;
-        } else if (std.mem.eql(u8, key, "MemFree")) {
-            free = bytes;
-        } else if (std.mem.eql(u8, key, "MemAvailable")) {
-            available = bytes;
-        } else if (std.mem.eql(u8, key, "Buffers")) {
-            buffers = bytes;
-        } else if (std.mem.eql(u8, key, "Cached")) {
-            cached = bytes;
-        } else if (std.mem.eql(u8, key, "SwapTotal")) {
-            swapTotal = bytes;
-        } else if (std.mem.eql(u8, key, "SwapFree")) {
-            swapFree = bytes;
-        }
-    }
-
-    var out_buf: [512]u8 = undefined;
-    const json = std.fmt.bufPrint(&out_buf, "{{\"total\":{d},\"free\":{d},\"available\":{d},\"buffers\":{d},\"cached\":{d},\"swapTotal\":{d},\"swapFree\":{d}}}", .{ total, free, available, buffers, cached, swapTotal, swapFree }) catch return 0;
-
-    const owned = std.heap.page_allocator.dupe(u8, json) catch return 0;
-    return openOwnedByteBuffer(owned) catch return 0;
-}
-
-pub export fn sa_deno_network_interfaces() u64 {
-    var ifap: ?*struct_ifaddrs = null;
-    if (getifaddrs(&ifap) != 0) return 0;
-    defer {
-        if (ifap) |ptr| freeifaddrs(ptr);
-    }
-
-    var list = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    errdefer list.deinit();
-    list.append('[') catch return 0;
-
-    var first = true;
-    var current = ifap;
-    while (current) |ifa| : (current = ifa.ifa_next) {
-        const addr_ptr = ifa.ifa_addr orelse continue;
-        const family = addr_ptr.sa_family;
-        if (family != 2 and family != 10) continue;
-
-        const name = std.mem.sliceTo(ifa.ifa_name, 0);
-
-        var ip_buf: [46]u8 = undefined;
-        const family_str = if (family == 2) "IPv4" else "IPv6";
-        const af: c_int = if (family == 2) 2 else 10;
-
-        const ip_src = if (family == 2)
-            @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
-                sa_family: u16,
-                sin_port: u16,
-                sin_addr: [4]u8,
-            }, @ptrCast(addr_ptr)).sin_addr))
-        else
-            @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
-                sa_family: u16,
-                sin6_port: u16,
-                sin6_flowinfo: u32,
-                sin6_addr: [16]u8,
-                sin6_scope_id: u32,
-            }, @ptrCast(addr_ptr)).sin6_addr));
-
-        const ip_z = inet_ntop(af, ip_src, &ip_buf, ip_buf.len) orelse continue;
-        const ip_str = std.mem.sliceTo(ip_z, 0);
-
-        var mask_buf: [46]u8 = undefined;
-        var cidr: u32 = 0;
-        var mask_str: []const u8 = "000.000.000.000";
-        if (ifa.ifa_netmask) |mask_ptr| {
-            const mask_src = if (family == 2)
-                @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
-                    sa_family: u16,
-                    sin_port: u16,
-                    sin_addr: [4]u8,
-                }, @ptrCast(mask_ptr)).sin_addr))
-            else
-                @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
-                    sa_family: u16,
-                    sin6_port: u16,
-                    sin6_flowinfo: u32,
-                    sin6_addr: [16]u8,
-                    sin6_scope_id: u32,
-                }, @ptrCast(mask_ptr)).sin6_addr));
-            if (inet_ntop(af, mask_src, &mask_buf, mask_buf.len)) |mask_z| {
-                mask_str = std.mem.sliceTo(mask_z, 0);
-            }
-
-            if (family == 2) {
-                const sin_addr = @as(*align(1) const extern struct {
-                    sa_family: u16,
-                    sin_port: u16,
-                    sin_addr: [4]u8,
-                }, @ptrCast(mask_ptr)).sin_addr;
-                const mask_val = @as(u32, @bitCast(sin_addr));
-                cidr = @popCount(mask_val);
-            } else {
-                const sin6_addr = @as(*align(1) const extern struct {
-                    sa_family: u16,
-                    sin6_port: u16,
-                    sin6_flowinfo: u32,
-                    sin6_addr: [16]u8,
-                    sin6_scope_id: u32,
-                }, @ptrCast(mask_ptr)).sin6_addr;
-                for (sin6_addr) |b| {
-                    cidr += @popCount(b);
-                }
-            }
-        }
-
-        var mac_buf: [32]u8 = undefined;
-        var mac_path_buf: [128]u8 = undefined;
-        const mac_path = std.fmt.bufPrint(&mac_path_buf, "/sys/class/net/{s}/address", .{name}) catch "";
-        var mac_str: []const u8 = "00:00:00:00:00:00";
-        if (mac_path.len != 0) {
-            if (sio.openFileAbsolute(mac_path, .{})) |mac_file| {
-                defer mac_file.close();
-                if (mac_file.read(&mac_buf)) |mac_len| {
-                    mac_str = std.mem.trim(u8, mac_buf[0..mac_len], " \t\r\n");
-                } else |_| {}
-            } else |_| {}
-        }
-
-        if (!first) {
-            list.append(',') catch return 0;
-        }
-        first = false;
-
-        var json_buf: [512]u8 = undefined;
-        const entry = std.fmt.bufPrint(&json_buf, "{{\"name\":\"{s}\",\"family\":\"{s}\",\"address\":\"{s}\",\"netmask\":\"{s}\",\"scopeid\":null,\"cidr\":\"{s}/{d}\",\"mac\":\"{s}\"}}", .{ name, family_str, ip_str, mask_str, ip_str, cidr, mac_str }) catch return 0;
-
-        list.appendSlice(entry) catch return 0;
-    }
-
-    list.append(']') catch return 0;
-    const owned = list.toOwnedSlice() catch return 0;
-    return openOwnedByteBuffer(owned) catch return 0;
-}
+pub const sa_deno_network_interfaces = @import("sa_std/deno.zig").sa_deno_network_interfaces;
 
 extern fn getpid() c_int;
 extern fn getppid() c_int;
@@ -8735,47 +8503,17 @@ test "net interface addresses json: snapshot contains loopback" {
     try std.testing.expect(std.mem.indexOf(u8, bytes, "\"prefix_len\":8") != null);
 }
 
-pub export fn sa_deno_pid() u32 {
-    return @intCast(getpid());
-}
+pub const sa_deno_pid = @import("sa_std/deno.zig").sa_deno_pid;
 
-pub export fn sa_deno_ppid() u32 {
-    return @intCast(getppid());
-}
+pub const sa_deno_ppid = @import("sa_std/deno.zig").sa_deno_ppid;
 
-pub export fn sa_deno_uid() u32 {
-    return @intCast(getuid());
-}
+pub const sa_deno_uid = @import("sa_std/deno.zig").sa_deno_uid;
 
-pub export fn sa_deno_gid() u32 {
-    return @intCast(getgid());
-}
+pub const sa_deno_gid = @import("sa_std/deno.zig").sa_deno_gid;
 
-pub export fn sa_deno_exec_path() u64 {
-    const path = sio.selfExePathAlloc(std.heap.page_allocator) catch return 0;
-    return openOwnedByteBuffer(path) catch return 0;
-}
+pub const sa_deno_exec_path = @import("sa_std/deno.zig").sa_deno_exec_path;
 
-pub export fn sa_deno_memory_usage() u64 {
-    var file = sio.openFileAbsolute("/proc/self/statm", .{}) catch return 0;
-    defer file.close();
-    var buf: [64]u8 = undefined;
-    const n = file.read(&buf) catch return 0;
-    const content = buf[0..n];
-    var it = std.mem.tokenizeScalar(u8, content, ' ');
-    _ = it.next() orelse return 0;
-    const rss_pages_str = it.next() orelse return 0;
-    const rss_pages = std.fmt.parseInt(u64, rss_pages_str, 10) catch return 0;
-
-    const page_size: u64 = @intCast(getpagesize());
-    const rss = rss_pages * page_size;
-
-    var out_buf: [256]u8 = undefined;
-    const json = std.fmt.bufPrint(&out_buf, "{{\"rss\":{d},\"heapTotal\":{d},\"heapUsed\":{d},\"external\":0}}", .{ rss, rss, rss }) catch return 0;
-
-    const owned = std.heap.page_allocator.dupe(u8, json) catch return 0;
-    return openOwnedByteBuffer(owned) catch return 0;
-}
+pub const sa_deno_memory_usage = @import("sa_std/deno.zig").sa_deno_memory_usage;
 
 pub const sa_json_parse = @import("sa_std/json.zig").sa_json_parse;
 
@@ -11731,58 +11469,14 @@ pub export fn sa_io_buffer_free(buffer: u64) i32 {
     return sa_fs_read_buffer_free(buffer);
 }
 
-const sa_fs_open_accmode_mask: u32 = 0x3;
+const saFsOpenFile = @import("sa_std/fs.zig").saFsOpenFile;
+pub const sa_fs_open_accmode_mask = @import("sa_std/fs.zig").sa_fs_open_accmode_mask;
 
-fn saFsOpenFile(path: []const u8, flags: u32, create_mode: u32, custom_flags: u32) !sio.File {
-    if (builtin.os.tag != .linux) return error.Unsupported;
+pub const sa_fs_file_open = @import("sa_std/fs.zig").sa_fs_file_open;
 
-    const read = (flags & 1) != 0;
-    const write = (flags & 2) != 0;
-    const create = (flags & 4) != 0;
-    const truncate = (flags & 8) != 0;
-    const append = (flags & 16) != 0;
-    const wants_write = write or append;
+pub const sa_fs_file_create = @import("sa_std/fs.zig").sa_fs_file_create;
 
-    var open_flags: std.posix.O = .{};
-    open_flags.ACCMODE = if (read and wants_write)
-        .RDWR
-    else if (wants_write)
-        .WRONLY
-    else
-        .RDONLY;
-    open_flags.CREAT = create;
-    open_flags.TRUNC = truncate;
-    open_flags.APPEND = append;
-
-    const merged_bits = @as(u32, @bitCast(open_flags)) | (custom_flags & ~sa_fs_open_accmode_mask);
-    const merged_flags: std.posix.O = @bitCast(merged_bits);
-    const fd = try std.posix.openat(std.posix.AT.FDCWD, path, merged_flags, @as(std.posix.mode_t, @intCast(create_mode)));
-    return .{ .inner = .{ .handle = fd, .flags = .{ .nonblocking = false } } };
-}
-
-pub export fn sa_fs_file_open(path_ptr: ?[*]const u8, path_len: u64, flags: u32) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const file = saFsOpenFile(path, flags, 0o666, 0) catch |err| return finishErr(err);
-    const handle = registerResource(.{ .file = file }) catch |err| return finishErr(err);
-    return @as(i32, @intCast(handle));
-}
-
-pub export fn sa_fs_file_create(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    // W1-DEF-FS-CREATE: this entry reports a status, not a handle --
-    // it creates (or truncates) the file and closes it immediately.
-    // The old delegation passed out=null to sa_std_fs_open_write,
-    // which rejects a null out slot, so create always failed with
-    // ERR_INVALID_ARGUMENT. Callers that need the open file use
-    // sa_fs_file_open / sa_std_fs_open_write instead.
-    var handle: u64 = 0;
-    const status = sa_std_fs_open_write(path_ptr, path_len, 1, &handle);
-    if (status != SA_STD_OK) return status;
-    return sa_std_close(handle);
-}
-
-pub export fn sa_fs_file_close(handle: u64) i32 {
-    return sa_std_close(handle);
-}
+pub const sa_fs_file_close = @import("sa_std/fs.zig").sa_fs_file_close;
 
 pub export fn sa_std_fs_open_options(path_ptr: ?[*]const u8, path_len: u64, flags: u32, create_mode: u32, custom_flags: u32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -11836,9 +11530,7 @@ pub export fn sa_std_fs_file_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
 pub export fn sa_std_fs_file_read(handle: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
     return sa_std_read(handle, out, cap, out_read);
 }
-pub export fn sa_fs_file_read(handle: u64, out: ?[*]u8, cap: u64) i32 {
-    return sa_std_read(handle, out, cap, null);
-}
+pub const sa_fs_file_read = @import("sa_std/fs.zig").sa_fs_file_read;
 
 pub export fn sa_std_fs_file_read_at(handle: u64, out: ?[*]u8, cap: u64, offset: u64, out_read: ?*u64) i32 {
     if (out_read) |ptr| ptr.* = 0;
@@ -11876,9 +11568,7 @@ pub export fn sa_std_fs_file_read_exact_at(handle: u64, out: ?[*]u8, len: u64, o
     };
 }
 
-pub export fn sa_fs_file_read_exact(handle: u64, out: ?[*]u8, len: u64) i32 {
-    return sa_io_read_exact(handle, out, len);
-}
+pub const sa_fs_file_read_exact = @import("sa_std/fs.zig").sa_fs_file_read_exact;
 pub export fn sa_std_fs_file_write(handle: u64, out: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
     return sa_std_write(handle, out, len, out_written);
 }
@@ -11918,82 +11608,17 @@ pub export fn sa_std_fs_file_write_all_at(handle: u64, out: ?[*]const u8, len: u
     };
 }
 
-pub export fn sa_fs_file_write(handle: u64, out: ?[*]const u8, len: u64) i32 {
-    return sa_io_write_all(handle, out, len);
-}
-pub export fn sa_fs_file_write_all(handle: u64, out: ?[*]const u8, len: u64) i32 {
-    return sa_io_write_all(handle, out, len);
-}
-pub export fn sa_fs_file_flush(handle: u64) i32 {
-    _ = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_file_write = @import("sa_std/fs.zig").sa_fs_file_write;
+pub const sa_fs_file_write_all = @import("sa_std/fs.zig").sa_fs_file_write_all;
+pub const sa_fs_file_flush = @import("sa_std/fs.zig").sa_fs_file_flush;
 
-pub export fn sa_fs_file_sync_data(handle: u64) i32 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .file => |f| {
-            std.posix.fdatasync(f.inner.handle) catch |err| return finishErr(err);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_fs_file_sync_data = @import("sa_std/fs.zig").sa_fs_file_sync_data;
 
-pub export fn sa_fs_file_sync(handle: u64) i32 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .file => |f| {
-            f.sync() catch |err| return finishErr(err);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_fs_file_sync = @import("sa_std/fs.zig").sa_fs_file_sync;
 
-pub export fn sa_fs_file_truncate(handle: u64, new_size: u64) i32 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .file => |f| {
-            fileSetEndPos(f, new_size) catch |err| return finishErr(err);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_fs_file_truncate = @import("sa_std/fs.zig").sa_fs_file_truncate;
 
-pub export fn sa_fs_file_seek(handle: u64, whence: u32, offset: i64) i32 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .file => |f| {
-            const seek_result = switch (whence) {
-                0 => f.seekTo(@as(u64, @intCast(offset))),
-                1 => fileSeekBy(f, offset),
-                2 => fileSeekFromEnd(f, offset),
-                else => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-            };
-            seek_result catch |err| return finishErr(err);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_fs_file_seek = @import("sa_std/fs.zig").sa_fs_file_seek;
 
 pub export fn sa_std_fs_file_seek(handle: u64, whence: u32, offset: i64, out_pos: ?*u64) i32 {
     const pos_ptr = out_pos orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -12019,18 +11644,7 @@ pub export fn sa_std_fs_file_seek(handle: u64, whence: u32, offset: i64, out_pos
     };
 }
 
-pub export fn sa_fs_read_file(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64) Fallible(u64) {
-    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
-    const file = sio.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return fail(u64, mapError(err));
-    defer file.close();
-    const cap = lenAsUsize(max_bytes) catch |err| return fail(u64, mapError(err));
-    const bytes = file.readToEndAlloc(std.heap.page_allocator, cap) catch |err| return fail(u64, mapError(err));
-    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
-        std.heap.page_allocator.free(bytes);
-        return fail(u64, mapError(err));
-    };
-    return ok(u64, handle);
-}
+pub const sa_fs_read_file = @import("sa_std/fs.zig").sa_fs_read_file;
 
 pub export fn sa_std_fs_read_file(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -12041,19 +11655,7 @@ pub export fn sa_std_fs_read_file(path_ptr: ?[*]const u8, path_len: u64, max_byt
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_fs_read_to_string(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64) Fallible(u64) {
-    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
-    const file = sio.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return fail(u64, mapError(err));
-    defer file.close();
-    const cap = lenAsUsize(max_bytes) catch |err| return fail(u64, mapError(err));
-    const bytes = file.readToEndAlloc(std.heap.page_allocator, cap) catch |err| return fail(u64, mapError(err));
-    if (!std.unicode.utf8ValidateSlice(bytes)) {
-        std.heap.page_allocator.free(bytes);
-        return fail(u64, SA_STD_ERR_INVALID_ARGUMENT);
-    }
-    const handle = openOwnedByteBuffer(bytes) catch |err| return fail(u64, mapError(err));
-    return ok(u64, handle);
-}
+pub const sa_fs_read_to_string = @import("sa_std/fs.zig").sa_fs_read_to_string;
 
 pub export fn sa_std_fs_read_to_string(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -12064,59 +11666,15 @@ pub export fn sa_std_fs_read_to_string(path_ptr: ?[*]const u8, path_len: u64, ma
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_fs_write_file(path_ptr: ?[*]const u8, path_len: u64, buf: ?[*]const u8, len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
-    const file = sio.cwd().createFile(path, .{ .read = true, .truncate = true }) catch |err| return finishErr(err);
-    defer file.close();
-    file.writeAll(bytes) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_write_file = @import("sa_std/fs.zig").sa_fs_write_file;
 
-pub export fn sa_fs_read_buffer_data(handle: u64) ?[*]u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return null;
-    return switch (resource.*) {
-        .buffer => |*buf| buf.bytes.ptr,
-        else => null,
-    };
-}
+pub const sa_fs_read_buffer_data = @import("sa_std/fs.zig").sa_fs_read_buffer_data;
 
-pub export fn sa_fs_read_buffer_len(handle: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .buffer => |*buf| @as(u64, @intCast(buf.bytes.len)),
-        else => 0,
-    };
-}
+pub const sa_fs_read_buffer_len = @import("sa_std/fs.zig").sa_fs_read_buffer_len;
 
-pub export fn sa_fs_read_buffer_free(handle: u64) i32 {
-    return sa_std_close(handle);
-}
+pub const sa_fs_read_buffer_free = @import("sa_std/fs.zig").sa_fs_read_buffer_free;
 
-pub export fn sa_fs_read_file_base64(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64) Fallible(u64) {
-    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
-    const file = sio.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return fail(u64, mapError(err));
-    defer file.close();
-    const cap = lenAsUsize(max_bytes) catch |err| return fail(u64, mapError(err));
-    const bytes = file.readToEndAlloc(std.heap.page_allocator, cap) catch |err| return fail(u64, mapError(err));
-    defer std.heap.page_allocator.free(bytes);
-    const encoded_len = std.base64.standard.Encoder.calcSize(bytes.len);
-    const encoded = std.heap.page_allocator.alloc(u8, encoded_len) catch |err| return fail(u64, mapError(err));
-    _ = std.base64.standard.Encoder.encode(encoded, bytes);
-    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = encoded } }) catch |err| {
-        std.heap.page_allocator.free(encoded);
-        return fail(u64, mapError(err));
-    };
-    return ok(u64, handle);
-}
+pub const sa_fs_read_file_base64 = @import("sa_std/fs.zig").sa_fs_read_file_base64;
 
 pub export fn sa_std_fs_read_file_base64(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -12127,20 +11685,9 @@ pub export fn sa_std_fs_read_file_base64(path_ptr: ?[*]const u8, path_len: u64, 
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_fs_write_file_base64(path_ptr: ?[*]const u8, path_len: u64, encoded_ptr: ?[*]const u8, encoded_len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const encoded = constBytes(encoded_ptr, encoded_len) catch |err| return finishErr(err);
-    const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(encoded) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const decoded = std.heap.page_allocator.alloc(u8, decoded_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(decoded);
-    std.base64.standard.Decoder.decode(decoded, encoded) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const file = sio.cwd().createFile(path, .{ .read = true, .truncate = true }) catch |err| return finishErr(err);
-    defer file.close();
-    file.writeAll(decoded) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_write_file_base64 = @import("sa_std/fs.zig").sa_fs_write_file_base64;
 
-fn writeJsonBoolField(writer: anytype, name: []const u8, value: bool) !void {
+pub fn writeJsonBoolField(writer: anytype, name: []const u8, value: bool) !void {
     try writer.writeAll("\"");
     try writer.writeAll(name);
     try writer.writeAll("\":");
@@ -12175,7 +11722,7 @@ fn writeMetadataJson(writer: anytype, stat: sio.Stat) !void {
     try writer.writeAll("}");
 }
 
-fn writeMetadataJsonExt(writer: anytype, stat: sio.Stat, raw: RawStat) !void {
+pub fn writeMetadataJsonExt(writer: anytype, stat: sio.Stat, raw: RawStat) !void {
     try writer.writeAll("{");
     try writeJsonIntField(writer, "createdAtMs", tsToMs(stat.ctime));
     try writer.writeAll(",");
@@ -12231,7 +11778,7 @@ fn dirEntryKindFromIo(kind: std.Io.File.Kind) u32 {
     };
 }
 
-fn readDirEntriesLinux(path: []const u8, max_entries: usize) !DirEntriesHandle {
+pub fn readDirEntriesLinux(path: []const u8, max_entries: usize) !DirEntriesHandle {
     if (comptime is_wasm) return error.Unsupported;
 
     var out = std.array_list.Managed(DirEntrySnapshot).init(std.heap.page_allocator);
@@ -12320,7 +11867,7 @@ fn readDirEntriesLinux(path: []const u8, max_entries: usize) !DirEntriesHandle {
     return .{ .allocator = std.heap.page_allocator, .entries = try out.toOwnedSlice() };
 }
 
-fn metadataModeMatches(handle: u64, mode_bits: u64) u8 {
+pub fn metadataModeMatches(handle: u64, mode_bits: u64) u8 {
     while (!registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -12332,7 +11879,7 @@ fn metadataModeMatches(handle: u64, mode_bits: u64) u8 {
     };
 }
 
-fn mkdirPathWithMode(path: []const u8, mode: std.posix.mode_t) !void {
+pub fn mkdirPathWithMode(path: []const u8, mode: std.posix.mode_t) !void {
     if (comptime is_wasm) return error.Unsupported;
     if (path.len == 0) return error.BadPathName;
 
@@ -12360,41 +11907,7 @@ fn mkdirPathWithMode(path: []const u8, mode: std.posix.mode_t) !void {
     }
 }
 
-pub export fn sa_fs_read_dir_json(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64) Fallible(u64) {
-    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
-    var dir = sio.cwd().openDir(path, .{ .iterate = true }) catch |err| return fail(u64, mapError(err));
-    defer dir.close();
-
-    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    errdefer out.deinit();
-    const writer = listWriter(&out);
-    writer.writeAll("{\"entries\":[") catch |err| return fail(u64, mapError(err));
-    const limit = lenAsUsize(max_entries) catch |err| return fail(u64, mapError(err));
-    var it = dir.iterate();
-    var count: usize = 0;
-    var first = true;
-    while (count < limit) {
-        const maybe_entry = it.next() catch |err| return fail(u64, mapError(err));
-        const entry = maybe_entry orelse break;
-        if (!first) writer.writeAll(",") catch |err| return fail(u64, mapError(err));
-        first = false;
-        writer.writeAll("{\"name\":") catch |err| return fail(u64, mapError(err));
-        stringifyToList(writer.list, entry.name) catch |err| return fail(u64, mapError(err));
-        writer.writeAll(",") catch |err| return fail(u64, mapError(err));
-        writeJsonBoolField(writer, "isDirectory", entry.kind == .directory) catch |err| return fail(u64, mapError(err));
-        writer.writeAll(",") catch |err| return fail(u64, mapError(err));
-        writeJsonBoolField(writer, "isFile", entry.kind == .file) catch |err| return fail(u64, mapError(err));
-        writer.writeAll("}") catch |err| return fail(u64, mapError(err));
-        count += 1;
-    }
-    writer.writeAll("]}") catch |err| return fail(u64, mapError(err));
-    const bytes = out.toOwnedSlice() catch |err| return fail(u64, mapError(err));
-    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
-        std.heap.page_allocator.free(bytes);
-        return fail(u64, mapError(err));
-    };
-    return ok(u64, handle);
-}
+pub const sa_fs_read_dir_json = @import("sa_std/fs.zig").sa_fs_read_dir_json;
 
 pub export fn sa_std_fs_read_dir_json(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -12405,28 +11918,13 @@ pub export fn sa_std_fs_read_dir_json(path_ptr: ?[*]const u8, path_len: u64, max
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_fs_dir_buffer_data(handle: u64) ?[*]u8 {
-    return sa_fs_read_buffer_data(handle);
-}
+pub const sa_fs_dir_buffer_data = @import("sa_std/fs.zig").sa_fs_dir_buffer_data;
 
-pub export fn sa_fs_dir_buffer_len(handle: u64) u64 {
-    return sa_fs_read_buffer_len(handle);
-}
+pub const sa_fs_dir_buffer_len = @import("sa_std/fs.zig").sa_fs_dir_buffer_len;
 
-pub export fn sa_fs_dir_buffer_free(handle: u64) i32 {
-    return sa_fs_read_buffer_free(handle);
-}
+pub const sa_fs_dir_buffer_free = @import("sa_std/fs.zig").sa_fs_dir_buffer_free;
 
-pub export fn sa_fs_read_dir_entries(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64) Fallible(u64) {
-    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
-    const limit = lenAsUsize(max_entries) catch |err| return fail(u64, mapError(err));
-    var entries = readDirEntriesLinux(path, limit) catch |err| return fail(u64, mapError(err));
-    const handle = registerResource(.{ .dir_entries = entries }) catch |err| {
-        entries.deinit();
-        return fail(u64, mapError(err));
-    };
-    return ok(u64, handle);
-}
+pub const sa_fs_read_dir_entries = @import("sa_std/fs.zig").sa_fs_read_dir_entries;
 
 pub export fn sa_std_fs_read_dir_entries(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -12437,17 +11935,7 @@ pub export fn sa_std_fs_read_dir_entries(path_ptr: ?[*]const u8, path_len: u64, 
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_fs_dir_entries_len(handle: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .dir_entries => |*entries| @as(u64, @intCast(entries.entries.len)),
-        else => 0,
-    };
-}
+pub const sa_fs_dir_entries_len = @import("sa_std/fs.zig").sa_fs_dir_entries_len;
 
 pub export fn sa_std_fs_dir_entries_get(handle: u64, index: u64, out_entry_handle: ?*u64) i32 {
     const out_handle_ptr = out_entry_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -12480,77 +11968,23 @@ pub export fn sa_std_fs_dir_entries_get(handle: u64, index: u64, out_entry_handl
     };
 }
 
-pub export fn sa_fs_dir_entries_free(handle: u64) i32 {
-    return sa_std_close(handle);
-}
+pub const sa_fs_dir_entries_free = @import("sa_std/fs.zig").sa_fs_dir_entries_free;
 
-pub export fn sa_fs_dir_entry_name_ptr(handle: u64) ?[*]u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return null;
-    return switch (resource.*) {
-        .dir_entry => |*entry| entry.name.ptr,
-        else => null,
-    };
-}
+pub const sa_fs_dir_entry_name_ptr = @import("sa_std/fs.zig").sa_fs_dir_entry_name_ptr;
 
-pub export fn sa_fs_dir_entry_name_len(handle: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .dir_entry => |*entry| @as(u64, @intCast(entry.name.len)),
-        else => 0,
-    };
-}
+pub const sa_fs_dir_entry_name_len = @import("sa_std/fs.zig").sa_fs_dir_entry_name_len;
 
-pub export fn sa_fs_dir_entry_file_name_ptr(handle: u64) ?[*]u8 {
-    return sa_fs_dir_entry_name_ptr(handle);
-}
+pub const sa_fs_dir_entry_file_name_ptr = @import("sa_std/fs.zig").sa_fs_dir_entry_file_name_ptr;
 
-pub export fn sa_fs_dir_entry_file_name_len(handle: u64) u64 {
-    return sa_fs_dir_entry_name_len(handle);
-}
+pub const sa_fs_dir_entry_file_name_len = @import("sa_std/fs.zig").sa_fs_dir_entry_file_name_len;
 
-pub export fn sa_fs_dir_entry_kind(handle: u64) u32 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .dir_entry => |*entry| entry.kind,
-        else => 0,
-    };
-}
+pub const sa_fs_dir_entry_kind = @import("sa_std/fs.zig").sa_fs_dir_entry_kind;
 
-pub export fn sa_fs_dir_entry_ino(handle: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .dir_entry => |*entry| entry.ino,
-        else => 0,
-    };
-}
+pub const sa_fs_dir_entry_ino = @import("sa_std/fs.zig").sa_fs_dir_entry_ino;
 
-pub export fn sa_fs_dir_entry_free(handle: u64) i32 {
-    return sa_std_close(handle);
-}
+pub const sa_fs_dir_entry_free = @import("sa_std/fs.zig").sa_fs_dir_entry_free;
 
-pub export fn sa_fs_metadata(path_ptr: ?[*]const u8, path_len: u64) Fallible(u64) {
-    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
-    const stx = lxStatxNoFollow(path) catch |err| return fail(u64, mapError(err));
-    const stat = statFromRaw(stx);
-    const handle = registerResource(.{ .metadata = .{ .allocator = std.heap.page_allocator, .stat = stat, .raw = stx } }) catch |err| return fail(u64, mapError(err));
-    return ok(u64, handle);
-}
+pub const sa_fs_metadata = @import("sa_std/fs.zig").sa_fs_metadata;
 
 pub export fn sa_std_fs_metadata(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -12561,20 +11995,7 @@ pub export fn sa_std_fs_metadata(path_ptr: ?[*]const u8, path_len: u64, out_hand
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_fs_metadata_json(path_ptr: ?[*]const u8, path_len: u64) Fallible(u64) {
-    const path = pathBytes(path_ptr, path_len) catch |err| return fail(u64, mapError(err));
-    const stx = lxStatxNoFollow(path) catch |err| return fail(u64, mapError(err));
-    const stat = statFromRaw(stx);
-    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    errdefer out.deinit();
-    writeMetadataJsonExt(listWriter(&out), stat, stx) catch |err| return fail(u64, mapError(err));
-    const bytes = out.toOwnedSlice() catch |err| return fail(u64, mapError(err));
-    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
-        std.heap.page_allocator.free(bytes);
-        return fail(u64, mapError(err));
-    };
-    return ok(u64, handle);
-}
+pub const sa_fs_metadata_json = @import("sa_std/fs.zig").sa_fs_metadata_json;
 
 pub export fn sa_std_fs_metadata_json(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -12585,207 +12006,81 @@ pub export fn sa_std_fs_metadata_json(path_ptr: ?[*]const u8, path_len: u64, out
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_fs_metadata_is_file(handle: u64) u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .metadata => |*metadata| if (metadata.stat.kind == .file) 1 else 0,
-        else => 0,
-    };
-}
+pub const sa_fs_metadata_is_file = @import("sa_std/fs.zig").sa_fs_metadata_is_file;
 
-pub export fn sa_fs_metadata_is_directory(handle: u64) u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .metadata => |*metadata| if (metadata.stat.kind == .directory) 1 else 0,
-        else => 0,
-    };
-}
+pub const sa_fs_metadata_is_directory = @import("sa_std/fs.zig").sa_fs_metadata_is_directory;
 
-pub export fn sa_fs_metadata_is_symlink(handle: u64) u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .metadata => |*metadata| if (metadata.stat.kind == .sym_link) 1 else 0,
-        else => 0,
-    };
-}
+pub const sa_fs_metadata_is_symlink = @import("sa_std/fs.zig").sa_fs_metadata_is_symlink;
 
-pub export fn sa_fs_metadata_is_block_device(handle: u64) u8 {
-    return metadataModeMatches(handle, std.posix.S.IFBLK);
-}
+pub const sa_fs_metadata_is_block_device = @import("sa_std/fs.zig").sa_fs_metadata_is_block_device;
 
-pub export fn sa_fs_metadata_is_char_device(handle: u64) u8 {
-    return metadataModeMatches(handle, std.posix.S.IFCHR);
-}
+pub const sa_fs_metadata_is_char_device = @import("sa_std/fs.zig").sa_fs_metadata_is_char_device;
 
-pub export fn sa_fs_metadata_is_fifo(handle: u64) u8 {
-    return metadataModeMatches(handle, std.posix.S.IFIFO);
-}
+pub const sa_fs_metadata_is_fifo = @import("sa_std/fs.zig").sa_fs_metadata_is_fifo;
 
-pub export fn sa_fs_metadata_is_socket(handle: u64) u8 {
-    return metadataModeMatches(handle, std.posix.S.IFSOCK);
-}
+pub const sa_fs_metadata_is_socket = @import("sa_std/fs.zig").sa_fs_metadata_is_socket;
 
-pub export fn sa_fs_metadata_modified_ms(handle: u64) i64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .metadata => |*metadata| tsToMs(metadata.stat.mtime),
-        else => 0,
-    };
-}
+pub const sa_fs_metadata_modified_ms = @import("sa_std/fs.zig").sa_fs_metadata_modified_ms;
 
-pub export fn sa_fs_metadata_created_ms(handle: u64) i64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .metadata => |*metadata| tsToMs(metadata.stat.ctime),
-        else => 0,
-    };
-}
+pub const sa_fs_metadata_created_ms = @import("sa_std/fs.zig").sa_fs_metadata_created_ms;
 
-pub export fn sa_fs_metadata_accessed_ms(handle: u64) i64 {
-    return metadataI64TimeFieldMs(handle, "atim");
-}
+pub const sa_fs_metadata_accessed_ms = @import("sa_std/fs.zig").sa_fs_metadata_accessed_ms;
 
-pub export fn sa_fs_metadata_changed_ms(handle: u64) i64 {
-    return metadataI64TimeFieldMs(handle, "ctim");
-}
+pub const sa_fs_metadata_changed_ms = @import("sa_std/fs.zig").sa_fs_metadata_changed_ms;
 
-pub export fn sa_fs_metadata_len(handle: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .metadata => |*metadata| metadata.stat.size,
-        else => 0,
-    };
-}
+pub const sa_fs_metadata_len = @import("sa_std/fs.zig").sa_fs_metadata_len;
 
-pub export fn sa_fs_metadata_mode(handle: u64) u32 {
-    return @as(u32, @intCast(metadataU64Field(handle, "mode")));
-}
+pub const sa_fs_metadata_mode = @import("sa_std/fs.zig").sa_fs_metadata_mode;
 
-pub export fn sa_fs_metadata_uid(handle: u64) u32 {
-    return @as(u32, @intCast(metadataU64Field(handle, "uid")));
-}
+pub const sa_fs_metadata_uid = @import("sa_std/fs.zig").sa_fs_metadata_uid;
 
-pub export fn sa_fs_metadata_gid(handle: u64) u32 {
-    return @as(u32, @intCast(metadataU64Field(handle, "gid")));
-}
+pub const sa_fs_metadata_gid = @import("sa_std/fs.zig").sa_fs_metadata_gid;
 
-pub export fn sa_fs_metadata_ino(handle: u64) u64 {
-    return metadataU64Field(handle, "ino");
-}
+pub const sa_fs_metadata_ino = @import("sa_std/fs.zig").sa_fs_metadata_ino;
 
-pub export fn sa_fs_metadata_dev(handle: u64) u64 {
-    return metadataU64Field(handle, "dev");
-}
+pub const sa_fs_metadata_dev = @import("sa_std/fs.zig").sa_fs_metadata_dev;
 
-pub export fn sa_fs_metadata_nlink(handle: u64) u64 {
-    return metadataU64Field(handle, "nlink");
-}
+pub const sa_fs_metadata_nlink = @import("sa_std/fs.zig").sa_fs_metadata_nlink;
 
-pub export fn sa_fs_metadata_rdev(handle: u64) u64 {
-    return metadataU64Field(handle, "rdev");
-}
+pub const sa_fs_metadata_rdev = @import("sa_std/fs.zig").sa_fs_metadata_rdev;
 
-pub export fn sa_fs_metadata_blksize(handle: u64) u64 {
-    return metadataU64Field(handle, "blksize");
-}
+pub const sa_fs_metadata_blksize = @import("sa_std/fs.zig").sa_fs_metadata_blksize;
 
-pub export fn sa_fs_metadata_blocks(handle: u64) u64 {
-    return metadataU64Field(handle, "blocks");
-}
+pub const sa_fs_metadata_blocks = @import("sa_std/fs.zig").sa_fs_metadata_blocks;
 
-pub export fn sa_fs_metadata_st_dev(handle: u64) u64 {
-    return sa_fs_metadata_dev(handle);
-}
+pub const sa_fs_metadata_st_dev = @import("sa_std/fs.zig").sa_fs_metadata_st_dev;
 
-pub export fn sa_fs_metadata_st_ino(handle: u64) u64 {
-    return sa_fs_metadata_ino(handle);
-}
+pub const sa_fs_metadata_st_ino = @import("sa_std/fs.zig").sa_fs_metadata_st_ino;
 
-pub export fn sa_fs_metadata_st_mode(handle: u64) u32 {
-    return sa_fs_metadata_mode(handle);
-}
+pub const sa_fs_metadata_st_mode = @import("sa_std/fs.zig").sa_fs_metadata_st_mode;
 
-pub export fn sa_fs_metadata_st_nlink(handle: u64) u64 {
-    return sa_fs_metadata_nlink(handle);
-}
+pub const sa_fs_metadata_st_nlink = @import("sa_std/fs.zig").sa_fs_metadata_st_nlink;
 
-pub export fn sa_fs_metadata_st_uid(handle: u64) u32 {
-    return sa_fs_metadata_uid(handle);
-}
+pub const sa_fs_metadata_st_uid = @import("sa_std/fs.zig").sa_fs_metadata_st_uid;
 
-pub export fn sa_fs_metadata_st_gid(handle: u64) u32 {
-    return sa_fs_metadata_gid(handle);
-}
+pub const sa_fs_metadata_st_gid = @import("sa_std/fs.zig").sa_fs_metadata_st_gid;
 
-pub export fn sa_fs_metadata_st_rdev(handle: u64) u64 {
-    return sa_fs_metadata_rdev(handle);
-}
+pub const sa_fs_metadata_st_rdev = @import("sa_std/fs.zig").sa_fs_metadata_st_rdev;
 
-pub export fn sa_fs_metadata_st_size(handle: u64) u64 {
-    return sa_fs_metadata_len(handle);
-}
+pub const sa_fs_metadata_st_size = @import("sa_std/fs.zig").sa_fs_metadata_st_size;
 
-pub export fn sa_fs_metadata_st_atime(handle: u64) i64 {
-    return metadataI64TimeFieldSec(handle, "atim");
-}
+pub const sa_fs_metadata_st_atime = @import("sa_std/fs.zig").sa_fs_metadata_st_atime;
 
-pub export fn sa_fs_metadata_st_atime_nsec(handle: u64) i64 {
-    return metadataI64TimeFieldNsec(handle, "atim");
-}
+pub const sa_fs_metadata_st_atime_nsec = @import("sa_std/fs.zig").sa_fs_metadata_st_atime_nsec;
 
-pub export fn sa_fs_metadata_st_mtime(handle: u64) i64 {
-    return metadataI64TimeFieldSec(handle, "mtim");
-}
+pub const sa_fs_metadata_st_mtime = @import("sa_std/fs.zig").sa_fs_metadata_st_mtime;
 
-pub export fn sa_fs_metadata_st_mtime_nsec(handle: u64) i64 {
-    return metadataI64TimeFieldNsec(handle, "mtim");
-}
+pub const sa_fs_metadata_st_mtime_nsec = @import("sa_std/fs.zig").sa_fs_metadata_st_mtime_nsec;
 
-pub export fn sa_fs_metadata_st_ctime(handle: u64) i64 {
-    return metadataI64TimeFieldSec(handle, "ctim");
-}
+pub const sa_fs_metadata_st_ctime = @import("sa_std/fs.zig").sa_fs_metadata_st_ctime;
 
-pub export fn sa_fs_metadata_st_ctime_nsec(handle: u64) i64 {
-    return metadataI64TimeFieldNsec(handle, "ctim");
-}
+pub const sa_fs_metadata_st_ctime_nsec = @import("sa_std/fs.zig").sa_fs_metadata_st_ctime_nsec;
 
-pub export fn sa_fs_metadata_st_blksize(handle: u64) u64 {
-    return sa_fs_metadata_blksize(handle);
-}
+pub const sa_fs_metadata_st_blksize = @import("sa_std/fs.zig").sa_fs_metadata_st_blksize;
 
-pub export fn sa_fs_metadata_st_blocks(handle: u64) u64 {
-    return sa_fs_metadata_blocks(handle);
-}
+pub const sa_fs_metadata_st_blocks = @import("sa_std/fs.zig").sa_fs_metadata_st_blocks;
 
-pub export fn sa_fs_metadata_free(handle: u64) Fallible(i32) {
-    const status = sa_std_close(handle);
-    if (status != SA_STD_OK) return fail(i32, status);
-    return ok(i32, 0);
-}
+pub const sa_fs_metadata_free = @import("sa_std/fs.zig").sa_fs_metadata_free;
 
 pub export fn sa_std_fs_metadata_free(handle: u64) i32 {
     return sa_std_close(handle);
@@ -12804,28 +12099,13 @@ pub export fn sa_std_fs_canonicalize(path_ptr: ?[*]const u8, path_len: u64, out_
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_fs_remove_file(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    return sa_std_fs_remove(path_ptr, path_len);
-}
+pub const sa_fs_remove_file = @import("sa_std/fs.zig").sa_fs_remove_file;
 
-pub export fn sa_fs_rename(from_path: ?[*]const u8, from_len: u64, to_path: ?[*]const u8, to_len: u64) i32 {
-    const from = pathBytes(from_path, from_len) catch |err| return finishErr(err);
-    const to = pathBytes(to_path, to_len) catch |err| return finishErr(err);
-    sio.cwd().rename(from, sio.cwd(), to) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_rename = @import("sa_std/fs.zig").sa_fs_rename;
 
-pub export fn sa_fs_make_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    sio.cwd().makePath(path) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_make_dir = @import("sa_std/fs.zig").sa_fs_make_dir;
 
-pub export fn sa_fs_make_dir_mode(path_ptr: ?[*]const u8, path_len: u64, mode: u32) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    mkdirPathWithMode(path, @as(std.posix.mode_t, @intCast(mode))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_make_dir_mode = @import("sa_std/fs.zig").sa_fs_make_dir_mode;
 
 /// One mkdir -p segment: create the directory, or accept an existing
 /// one only when it really is a directory. An existing non-directory
@@ -12842,7 +12122,7 @@ fn mkdirPOne(prefix: []const u8) !void {
     };
 }
 
-fn mkdirP(path: []const u8) !void {
+pub fn mkdirP(path: []const u8) !void {
     if (path.len == 0) return error.InvalidArgument;
     var index: usize = 0;
     while (index <= path.len) {
@@ -12860,11 +12140,7 @@ fn mkdirP(path: []const u8) !void {
 /// mkdir -p (2026-10-26): create every missing directory along the
 /// path. Existing directories along the way (including the final
 /// segment) are success; the TS mkdirSync(recursive) counterpart.
-pub export fn sa_fs_mkdir_p(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    mkdirP(path) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_mkdir_p = @import("sa_std/fs.zig").sa_fs_mkdir_p;
 
 test "sa_fs_mkdir_p creates nested dirs, is idempotent, and rejects file paths" {
     const alloc = std.testing.allocator;
@@ -12908,50 +12184,21 @@ test "sa_std_fs_open_create_excl: second create reports ALREADY_EXISTS" {
     try std.testing.expectEqual(@as(u64, 0), second);
 }
 
-pub export fn sa_fs_create_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    sio.cwd().makeDir(path) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_create_dir = @import("sa_std/fs.zig").sa_fs_create_dir;
 
-pub export fn sa_fs_create_dir_mode(path_ptr: ?[*]const u8, path_len: u64, mode: u32) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    lxMkdirat(std.posix.AT.FDCWD, path, @as(std.posix.mode_t, @intCast(mode))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_create_dir_mode = @import("sa_std/fs.zig").sa_fs_create_dir_mode;
 
-pub export fn sa_fs_remove_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    sio.cwd().deleteDir(path) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_remove_dir = @import("sa_std/fs.zig").sa_fs_remove_dir;
 
-pub export fn sa_fs_remove_dir_all(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    sio.cwd().deleteTree(path) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_remove_dir_all = @import("sa_std/fs.zig").sa_fs_remove_dir_all;
 
-pub export fn sa_fs_remove_path(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    sio.cwd().deleteTree(path) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_remove_path = @import("sa_std/fs.zig").sa_fs_remove_path;
 
-pub export fn sa_fs_copy_file(from_path: ?[*]const u8, from_len: u64, to_path: ?[*]const u8, to_len: u64) i32 {
-    const from = pathBytes(from_path, from_len) catch |err| return finishErr(err);
-    const to = pathBytes(to_path, to_len) catch |err| return finishErr(err);
-    sio.cwd().copyFile(from, sio.cwd(), to, .{}) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_copy_file = @import("sa_std/fs.zig").sa_fs_copy_file;
 
-pub export fn sa_fs_set_permissions(path_ptr: ?[*]const u8, path_len: u64, mode: u32) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    lxFchmodat(std.posix.AT.FDCWD, path, @as(std.posix.mode_t, @intCast(mode))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_set_permissions = @import("sa_std/fs.zig").sa_fs_set_permissions;
 
-fn timespecFromUnixMs(unix_ms: i64) !Timespec {
+pub fn timespecFromUnixMs(unix_ms: i64) !Timespec {
     const sec = @divFloor(unix_ms, 1000);
     const rem_ms = @mod(unix_ms, 1000);
     const sec_value = std.math.cast(TimespecSec, sec) orelse return error.InvalidArgument;
@@ -12959,40 +12206,21 @@ fn timespecFromUnixMs(unix_ms: i64) !Timespec {
     return .{ .sec = sec_value, .nsec = nsec_value };
 }
 
-pub export fn sa_fs_set_times_ms(path_ptr: ?[*]const u8, path_len: u64, accessed_ms: i64, modified_ms: i64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const atime = timespecFromUnixMs(accessed_ms) catch |err| return finishErr(err);
-    const mtime = timespecFromUnixMs(modified_ms) catch |err| return finishErr(err);
-    const file = sio.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return finishErr(err);
-    defer file.close();
-    var times = [2]Timespec{ atime, mtime };
-    lxFutimens(file.inner.handle, &times) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_set_times_ms = @import("sa_std/fs.zig").sa_fs_set_times_ms;
 
-pub export fn sa_fs_hard_link(from_path: ?[*]const u8, from_len: u64, to_path: ?[*]const u8, to_len: u64) i32 {
-    const from = pathBytes(from_path, from_len) catch |err| return finishErr(err);
-    const to = pathBytes(to_path, to_len) catch |err| return finishErr(err);
-    lxLink(from, to) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_hard_link = @import("sa_std/fs.zig").sa_fs_hard_link;
 
-pub export fn sa_fs_symlink(target_path: ?[*]const u8, target_len: u64, link_path: ?[*]const u8, link_len: u64) i32 {
-    const target = pathBytes(target_path, target_len) catch |err| return finishErr(err);
-    const link = pathBytes(link_path, link_len) catch |err| return finishErr(err);
-    sio.cwd().symLink(target, link, .{}) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_symlink = @import("sa_std/fs.zig").sa_fs_symlink;
 
-fn chownId(value: u32, enabled: u32) std.c.uid_t {
+pub fn chownId(value: u32, enabled: u32) std.c.uid_t {
     return if (enabled != 0) @as(std.c.uid_t, @intCast(value)) else ~@as(std.c.uid_t, 0);
 }
 
-fn groupId(value: u32, enabled: u32) std.c.gid_t {
+pub fn groupId(value: u32, enabled: u32) std.c.gid_t {
     return if (enabled != 0) @as(std.c.gid_t, @intCast(value)) else ~@as(std.c.gid_t, 0);
 }
 
-fn finishErrnoAny(e: anytype) i32 {
+pub fn finishErrnoAny(e: anytype) i32 {
     const n = @tagName(e);
     if (std.mem.eql(u8, n, "SUCCESS")) return finish(SA_STD_OK);
     if (std.mem.eql(u8, n, "INTR")) return finish(SA_STD_ERR_IO);
@@ -13004,11 +12232,11 @@ fn finishErrnoAny(e: anytype) i32 {
     return finish(SA_STD_ERR_IO);
 }
 
-fn finishChownErrno(rc: usize) i32 {
+pub fn finishChownErrno(rc: usize) i32 {
     return finishErrnoAny(std.os.linux.errno(rc));
 }
 
-fn chownPath(path_ptr: ?[*]const u8, path_len: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32, nofollow: bool) i32 {
+pub fn chownPath(path_ptr: ?[*]const u8, path_len: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32, nofollow: bool) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
     if (comptime is_linux) {
@@ -13035,61 +12263,15 @@ fn chownPath(path_ptr: ?[*]const u8, path_len: u64, uid: u32, gid: u32, has_uid:
     return finishErrnoAny(std.posix.errno(rc));
 }
 
-pub export fn sa_fs_chown(path_ptr: ?[*]const u8, path_len: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32) i32 {
-    return chownPath(path_ptr, path_len, uid, gid, has_uid, has_gid, false);
-}
+pub const sa_fs_chown = @import("sa_std/fs.zig").sa_fs_chown;
 
-pub export fn sa_fs_lchown(path_ptr: ?[*]const u8, path_len: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32) i32 {
-    return chownPath(path_ptr, path_len, uid, gid, has_uid, has_gid, true);
-}
+pub const sa_fs_lchown = @import("sa_std/fs.zig").sa_fs_lchown;
 
-pub export fn sa_fs_fchown(handle: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const fd = handleToFd(handle) catch return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (comptime is_linux) {
-        const rc = std.os.linux.fchown(fd, chownId(uid, has_uid), groupId(gid, has_gid));
-        switch (std.os.linux.errno(rc)) {
-            .INTR => return finish(SA_STD_ERR_IO),
-            else => return finishChownErrno(rc),
-        }
-    }
-    const rc = libc.fchown(fd, chownId(uid, has_uid), groupId(gid, has_gid));
-    return finishErrnoAny(std.posix.errno(rc));
-}
+pub const sa_fs_fchown = @import("sa_std/fs.zig").sa_fs_fchown;
 
-pub export fn sa_fs_chroot(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const path_z = std.posix.toPosixPath(path) catch |err| return finishErr(err);
-    lxChroot(&path_z) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_fs_chroot = @import("sa_std/fs.zig").sa_fs_chroot;
 
-pub export fn sa_fs_mkfifo(path_ptr: ?[*]const u8, path_len: u64, mode: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const path_z = std.posix.toPosixPath(path) catch |err| return finishErr(err);
-    const file_mode: std.c.mode_t = @intCast(std.posix.S.IFIFO | mode);
-    if (comptime is_linux) {
-        const result = std.os.linux.mknodat(std.posix.AT.FDCWD, &path_z, std.posix.S.IFIFO | mode, 0);
-        switch (std.os.linux.errno(result)) {
-            .SUCCESS => return finish(SA_STD_OK),
-            .INTR => return sa_fs_mkfifo(path_ptr, path_len, mode),
-            .ACCES, .PERM => return finish(SA_STD_ERR_ACCESS),
-            .EXIST => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-            .NOENT => return finish(SA_STD_ERR_NOT_FOUND),
-            .NAMETOOLONG, .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-            else => return finish(SA_STD_ERR_IO),
-        }
-    }
-    const result = libc.mknod(&path_z, file_mode, 0);
-    if (std.posix.errno(result) == .INTR) return sa_fs_mkfifo(path_ptr, path_len, mode);
-    return finishErrnoAny(std.posix.errno(result));
-}
+pub const sa_fs_mkfifo = @import("sa_std/fs.zig").sa_fs_mkfifo;
 
 pub export fn sa_std_fs_read_link(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -13106,13 +12288,7 @@ pub export fn sa_std_fs_read_link(path_ptr: ?[*]const u8, path_len: u64, out_han
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32) Fallible(u64) {
-    if (comptime is_wasm) return fail(u64, SA_STD_ERR_UNSUPPORTED);
-    var handle: u64 = 0;
-    const status = sa_std_net_tcp_connect(host_ptr, host_len, port, &handle);
-    if (status != SA_STD_OK) return fail(u64, status);
-    return ok(u64, handle);
-}
+pub const sa_net_tcp_connect = @import("sa_std/net.zig").sa_net_tcp_connect;
 
 pub export fn sa_std_net_to_socket_addr_list(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
     const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -13276,13 +12452,7 @@ pub export fn sa_std_net_tcp_stream_write_vectored(stream: u64, iovs: [*]const s
     written_ptr.* = @as(u64, @intCast(written));
     return finish(SA_STD_OK);
 }
-pub export fn sa_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64) Fallible(u64) {
-    if (comptime is_wasm) return fail(u64, SA_STD_ERR_UNSUPPORTED);
-    var read: u64 = 0;
-    const status = sa_std_net_tcp_stream_read(stream, out, cap, &read);
-    if (status != SA_STD_OK) return fail(u64, status);
-    return ok(u64, read);
-}
+pub const sa_net_tcp_stream_read = @import("sa_std/net.zig").sa_net_tcp_stream_read;
 pub export fn sa_std_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -13311,58 +12481,15 @@ pub export fn sa_std_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64, out
     read_ptr.* = @as(u64, @intCast(read));
     return finish(SA_STD_OK);
 }
-pub export fn sa_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    var read: u64 = 0;
-    const status = sa_std_net_tcp_stream_peek(stream, out, cap, &read);
-    if (status != SA_STD_OK) return -status;
-    return finish(@as(i32, @intCast(read)));
-}
+pub const sa_net_tcp_stream_peek = @import("sa_std/net.zig").sa_net_tcp_stream_peek;
 pub export fn sa_std_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     return sa_std_write(stream, out, len, out_written);
 }
-pub export fn sa_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    var written: u64 = 0;
-    const status = sa_std_net_tcp_stream_write(stream, out, len, &written);
-    // W1-DEF-NET-WRITE-AFTER-SHUTDOWN: this wrapper returns a byte
-    // count, so an error status must go out negated -- returning
-    // the positive code made a failed write (e.g. EPIPE after
-    // shutdown) indistinguishable from a successful short write.
-    // The inner std call already recorded last_error. The same
-    // convention applies to every plain count wrapper below
-    // (tcp peek, udp send/recv/peek/send_to/recv_from).
-    if (status != SA_STD_OK) return -status;
-    return finish(@as(i32, @intCast(written)));
-}
-pub export fn sa_net_tcp_stream_write_all(stream: u64, out: ?[*]const u8, len: u64) Fallible(i32) {
-    if (comptime is_wasm) return fail(i32, SA_STD_ERR_UNSUPPORTED);
-    const status = sa_io_write_all(stream, out, len);
-    if (status != SA_STD_OK) return fail(i32, status);
-    return ok(i32, 0);
-}
-pub export fn sa_net_tcp_stream_read_exact(stream: u64, out: ?[*]u8, len: u64) Fallible(i32) {
-    if (comptime is_wasm) return fail(i32, SA_STD_ERR_UNSUPPORTED);
-    var remaining: u64 = len;
-    var cursor: u64 = 0;
-    while (remaining != 0) {
-        var chunk: u64 = 0;
-        // wasm32-wasi: pointer arithmetic needs usize offset; checked cast.
-        const cursor_usize = std.math.cast(usize, cursor) orelse return fail(i32, SA_STD_ERR_INVALID_ARGUMENT);
-        const status = sa_std_net_tcp_stream_read(stream, if (out) |p| p + cursor_usize else null, remaining, &chunk);
-        if (status != SA_STD_OK) return fail(i32, status);
-        if (chunk == 0) return fail(i32, SA_STD_ERR_IO);
-        cursor += chunk;
-        remaining -= chunk;
-    }
-    return ok(i32, 0);
-}
-pub export fn sa_net_tcp_stream_flush(stream: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    _ = stream;
-    return finish(SA_STD_OK);
-}
+pub const sa_net_tcp_stream_write = @import("sa_std/net.zig").sa_net_tcp_stream_write;
+pub const sa_net_tcp_stream_write_all = @import("sa_std/net.zig").sa_net_tcp_stream_write_all;
+pub const sa_net_tcp_stream_read_exact = @import("sa_std/net.zig").sa_net_tcp_stream_read_exact;
+pub const sa_net_tcp_stream_flush = @import("sa_std/net.zig").sa_net_tcp_stream_flush;
 pub export fn sa_std_net_tcp_stream_peer_addr(stream: u64, out_handle: ?*u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -13410,91 +12537,22 @@ pub export fn sa_std_net_tcp_stream_local_addr(stream: u64, out_handle: ?*u64) i
         else => finish(SA_STD_ERR_INVALID_HANDLE),
     };
 }
-pub export fn sa_net_tcp_stream_peer_addr(stream: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    var handle: u64 = 0;
-    const status = sa_std_net_tcp_stream_peer_addr(stream, &handle);
-    if (status != SA_STD_OK) return status;
-    return finish(@as(i32, @intCast(handle)));
-}
-pub export fn sa_net_tcp_stream_shutdown(stream: u64, how: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .tcp_stream => |s| {
-            const shutdown: i32 = switch (how) {
-                0 => std.posix.SHUT.RD,
-                1 => std.posix.SHUT.WR,
-                2 => std.posix.SHUT.RDWR,
-                else => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-            };
-            lxShutdown(s, shutdown) catch |err| return finishErr(err);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
-pub export fn sa_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_tcp_stream_set_read_timeout(stream, timeout_ns);
-}
+pub const sa_net_tcp_stream_peer_addr = @import("sa_std/net.zig").sa_net_tcp_stream_peer_addr;
+pub const sa_net_tcp_stream_shutdown = @import("sa_std/net.zig").sa_net_tcp_stream_shutdown;
+pub const sa_net_tcp_stream_set_read_timeout = @import("sa_std/net.zig").sa_net_tcp_stream_set_read_timeout;
 
-pub export fn sa_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_tcp_stream_set_write_timeout(stream, timeout_ns);
-}
+pub const sa_net_tcp_stream_set_write_timeout = @import("sa_std/net.zig").sa_net_tcp_stream_set_write_timeout;
 
-pub export fn sa_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_tcp_stream_set_nonblocking(stream, enabled);
-}
+pub const sa_net_tcp_stream_set_nonblocking = @import("sa_std/net.zig").sa_net_tcp_stream_set_nonblocking;
 
-pub export fn sa_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_tcp_stream_set_nodelay(stream, enabled);
-}
+pub const sa_net_tcp_stream_set_nodelay = @import("sa_std/net.zig").sa_net_tcp_stream_set_nodelay;
 
-pub export fn sa_net_tcp_stream_set_ttl(stream: u64, ttl: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_tcp_stream_set_ttl(stream, ttl);
-}
-pub export fn sa_net_tcp_stream_close(stream: u64) Fallible(i32) {
-    if (comptime is_wasm) return fail(i32, SA_STD_ERR_UNSUPPORTED);
-    const status = sa_std_close(stream);
-    if (status != SA_STD_OK) return fail(i32, status);
-    return ok(i32, 0);
-}
-pub export fn sa_net_tcp_listener_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) Fallible(u64) {
-    if (comptime is_wasm) return fail(u64, SA_STD_ERR_UNSUPPORTED);
-    var handle: u64 = 0;
-    const status = sa_std_net_tcp_listen(host_ptr, host_len, port, &handle, null);
-    if (status != SA_STD_OK) return fail(u64, status);
-    return ok(u64, handle);
-}
-pub export fn sa_net_tcp_listener_accept(listener: u64) Fallible(u64) {
-    if (comptime is_wasm) return fail(u64, SA_STD_ERR_UNSUPPORTED);
-    var handle: u64 = 0;
-    const status = sa_std_net_tcp_accept(listener, &handle);
-    if (status != SA_STD_OK) return fail(u64, status);
-    return ok(u64, handle);
-}
-pub export fn sa_net_tcp_listener_local_addr(listener: u64) Fallible(u64) {
-    if (comptime is_wasm) return fail(u64, SA_STD_ERR_UNSUPPORTED);
-    var handle: u64 = 0;
-    const status = sa_std_net_tcp_listener_local_addr(listener, &handle);
-    if (status != SA_STD_OK) return fail(u64, status);
-    return ok(u64, handle);
-}
-pub export fn sa_net_tcp_listener_close(listener: u64) Fallible(i32) {
-    if (comptime is_wasm) return fail(i32, SA_STD_ERR_UNSUPPORTED);
-    const status = sa_std_close(listener);
-    if (status != SA_STD_OK) return fail(i32, status);
-    return ok(i32, 0);
-}
+pub const sa_net_tcp_stream_set_ttl = @import("sa_std/net.zig").sa_net_tcp_stream_set_ttl;
+pub const sa_net_tcp_stream_close = @import("sa_std/net.zig").sa_net_tcp_stream_close;
+pub const sa_net_tcp_listener_bind = @import("sa_std/net.zig").sa_net_tcp_listener_bind;
+pub const sa_net_tcp_listener_accept = @import("sa_std/net.zig").sa_net_tcp_listener_accept;
+pub const sa_net_tcp_listener_local_addr = @import("sa_std/net.zig").sa_net_tcp_listener_local_addr;
+pub const sa_net_tcp_listener_close = @import("sa_std/net.zig").sa_net_tcp_listener_close;
 
 pub export fn sa_std_net_tcp_stream_try_clone(stream: u64, out_handle: ?*u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
@@ -14176,60 +13234,27 @@ pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_l
     lxConnect(fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
-pub export fn sa_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_udp_set_read_timeout(socket, timeout_ns);
-}
+pub const sa_net_udp_set_read_timeout = @import("sa_std/net.zig").sa_net_udp_set_read_timeout;
 
-pub export fn sa_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_udp_set_write_timeout(socket, timeout_ns);
-}
+pub const sa_net_udp_set_write_timeout = @import("sa_std/net.zig").sa_net_udp_set_write_timeout;
 
-pub export fn sa_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_udp_set_nonblocking(socket, enabled);
-}
+pub const sa_net_udp_set_nonblocking = @import("sa_std/net.zig").sa_net_udp_set_nonblocking;
 
-pub export fn sa_net_udp_set_broadcast(socket: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_udp_set_broadcast(socket, enabled);
-}
+pub const sa_net_udp_set_broadcast = @import("sa_std/net.zig").sa_net_udp_set_broadcast;
 
-pub export fn sa_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_udp_set_ttl(socket, ttl);
-}
+pub const sa_net_udp_set_ttl = @import("sa_std/net.zig").sa_net_udp_set_ttl;
 
-pub export fn sa_net_udp_set_multicast_loop_v4(socket: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_udp_set_multicast_loop_v4(socket, enabled);
-}
+pub const sa_net_udp_set_multicast_loop_v4 = @import("sa_std/net.zig").sa_net_udp_set_multicast_loop_v4;
 
-pub export fn sa_net_udp_set_multicast_ttl_v4(socket: u64, ttl: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_udp_set_multicast_ttl_v4(socket, ttl);
-}
+pub const sa_net_udp_set_multicast_ttl_v4 = @import("sa_std/net.zig").sa_net_udp_set_multicast_ttl_v4;
 
-pub export fn sa_net_udp_join_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_udp_join_multicast_v4(socket, multi_host_ptr, multi_host_len, interface_host_ptr, interface_host_len);
-}
+pub const sa_net_udp_join_multicast_v4 = @import("sa_std/net.zig").sa_net_udp_join_multicast_v4;
 
-pub export fn sa_net_udp_leave_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_udp_leave_multicast_v4(socket, multi_host_ptr, multi_host_len, interface_host_ptr, interface_host_len);
-}
+pub const sa_net_udp_leave_multicast_v4 = @import("sa_std/net.zig").sa_net_udp_leave_multicast_v4;
 
-pub export fn sa_net_udp_join_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_udp_join_multicast_v6(socket, multi_host_ptr, multi_host_len, interface_index);
-}
+pub const sa_net_udp_join_multicast_v6 = @import("sa_std/net.zig").sa_net_udp_join_multicast_v6;
 
-pub export fn sa_net_udp_leave_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_udp_leave_multicast_v6(socket, multi_host_ptr, multi_host_len, interface_index);
-}
+pub const sa_net_udp_leave_multicast_v6 = @import("sa_std/net.zig").sa_net_udp_leave_multicast_v6;
 
 pub export fn sa_std_net_udp_connect_addr(socket: u64, addr_handle: u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
@@ -15044,159 +14069,22 @@ pub export fn sa_std_net_udp_recv_multi(socket: u64, out: ?[*]u8, buf_cap: u64, 
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    var handle: u64 = 0;
-    const status = sa_std_net_udp_bind(host_ptr, host_len, port, &handle);
-    if (status != SA_STD_OK) return status;
-    return @as(i32, @intCast(handle));
-}
-pub export fn sa_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_udp_connect(socket, host_ptr, host_len, port);
-}
-pub export fn sa_net_udp_local_addr(socket: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    var handle: u64 = 0;
-    const status = sa_std_net_udp_local_addr(socket, &handle);
-    if (status != SA_STD_OK) return status;
-    return @as(i32, @intCast(handle));
-}
-pub export fn sa_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    var written: u64 = 0;
-    const status = sa_std_net_udp_send(socket, buf, len, &written);
-    if (status != SA_STD_OK) return -status;
-    return @as(i32, @intCast(written));
-}
-pub export fn sa_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    var read: u64 = 0;
-    const status = sa_std_net_udp_recv(socket, out, cap, &read);
-    if (status != SA_STD_OK) return -status;
-    return @as(i32, @intCast(read));
-}
-pub export fn sa_net_udp_peek(socket: u64, out: ?[*]u8, cap: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    var read: u64 = 0;
-    const status = sa_std_net_udp_peek(socket, out, cap, &read);
-    if (status != SA_STD_OK) return -status;
-    return @as(i32, @intCast(read));
-}
-pub export fn sa_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    var written: u64 = 0;
-    const status = sa_std_net_udp_send_to(socket, buf, len, host_ptr, host_len, port, &written);
-    if (status != SA_STD_OK) return -status;
-    return @as(i32, @intCast(written));
-}
-pub export fn sa_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_addr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    var read: u64 = 0;
-    const status = sa_std_net_udp_recv_from(socket, out, cap, &read, out_addr);
-    if (status != SA_STD_OK) return -status;
-    return @as(i32, @intCast(read));
-}
-pub export fn sa_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_addr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    var read: u64 = 0;
-    const status = sa_std_net_udp_peek_from(socket, out, cap, &read, out_addr);
-    if (status != SA_STD_OK) return -status;
-    return @as(i32, @intCast(read));
-}
-pub export fn sa_net_udp_close(socket: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_close(socket);
-}
-pub export fn sa_net_addr_host(addr: u64) ?[*]u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(addr) orelse {
-        _ = finish(SA_STD_ERR_INVALID_HANDLE);
-        return null;
-    };
-    return switch (resource.*) {
-        .net_addr => |net_addr| net_addr.host.ptr,
-        else => {
-            _ = finish(SA_STD_ERR_INVALID_HANDLE);
-            return null;
-        },
-    };
-}
-pub export fn sa_net_addr_host_len(addr: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(addr) orelse {
-        _ = finish(SA_STD_ERR_INVALID_HANDLE);
-        return 0;
-    };
-    return switch (resource.*) {
-        .net_addr => |net_addr| @as(u64, @intCast(net_addr.host.len)),
-        else => {
-            _ = finish(SA_STD_ERR_INVALID_HANDLE);
-            return 0;
-        },
-    };
-}
-pub export fn sa_net_addr_port(addr: u64) u32 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(addr) orelse {
-        _ = finish(SA_STD_ERR_INVALID_HANDLE);
-        return 0;
-    };
-    return switch (resource.*) {
-        .net_addr => |net_addr| @as(u32, net_addr.addr.getPort()),
-        else => {
-            _ = finish(SA_STD_ERR_INVALID_HANDLE);
-            return 0;
-        },
-    };
-}
-pub export fn sa_net_addr_family(addr: u64) u32 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(addr) orelse {
-        _ = finish(SA_STD_ERR_INVALID_HANDLE);
-        return 0;
-    };
-    return switch (resource.*) {
-        .net_addr => |net_addr| @as(u32, @intCast(net_addr.addr.storage.family)),
-        else => {
-            _ = finish(SA_STD_ERR_INVALID_HANDLE);
-            return 0;
-        },
-    };
-}
+pub const sa_net_udp_bind = @import("sa_std/net.zig").sa_net_udp_bind;
+pub const sa_net_udp_connect = @import("sa_std/net.zig").sa_net_udp_connect;
+pub const sa_net_udp_local_addr = @import("sa_std/net.zig").sa_net_udp_local_addr;
+pub const sa_net_udp_send = @import("sa_std/net.zig").sa_net_udp_send;
+pub const sa_net_udp_recv = @import("sa_std/net.zig").sa_net_udp_recv;
+pub const sa_net_udp_peek = @import("sa_std/net.zig").sa_net_udp_peek;
+pub const sa_net_udp_send_to = @import("sa_std/net.zig").sa_net_udp_send_to;
+pub const sa_net_udp_recv_from = @import("sa_std/net.zig").sa_net_udp_recv_from;
+pub const sa_net_udp_peek_from = @import("sa_std/net.zig").sa_net_udp_peek_from;
+pub const sa_net_udp_close = @import("sa_std/net.zig").sa_net_udp_close;
+pub const sa_net_addr_host = @import("sa_std/net.zig").sa_net_addr_host;
+pub const sa_net_addr_host_len = @import("sa_std/net.zig").sa_net_addr_host_len;
+pub const sa_net_addr_port = @import("sa_std/net.zig").sa_net_addr_port;
+pub const sa_net_addr_family = @import("sa_std/net.zig").sa_net_addr_family;
 
-pub export fn sa_net_addr_scope_id(addr: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(addr) orelse {
-        _ = finish(SA_STD_ERR_INVALID_HANDLE);
-        return 0;
-    };
-    return switch (resource.*) {
-        .net_addr => |net_addr| switch (net_addr.addr.storage.family) {
-            AFT.INET6 => @as(u64, @intCast(net_addr.addr.in6ScopeId())),
-            else => 0,
-        },
-        else => {
-            _ = finish(SA_STD_ERR_INVALID_HANDLE);
-            return 0;
-        },
-    };
-}
+pub const sa_net_addr_scope_id = @import("sa_std/net.zig").sa_net_addr_scope_id;
 
 pub export fn sa_std_net_addr_format(addr: u64, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
     const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -15220,13 +14108,9 @@ pub export fn sa_std_net_addr_format(addr: u64, out: ?[*]u8, out_cap: u64, out_l
     };
 }
 
-pub export fn sa_net_addr_free(addr: u64) Fallible(i32) {
-    const status = sa_std_close(addr);
-    if (status != SA_STD_OK) return fail(i32, status);
-    return ok(i32, 0);
-}
+pub const sa_net_addr_free = @import("sa_std/net.zig").sa_net_addr_free;
 
-fn parseIpv4Ascii(text: []const u8) ?[4]u8 {
+pub fn parseIpv4Ascii(text: []const u8) ?[4]u8 {
     var parts: [4]u8 = undefined;
     var index: usize = 0;
     var part_index: usize = 0;
@@ -15253,7 +14137,7 @@ fn parseIpv4Ascii(text: []const u8) ?[4]u8 {
     return parts;
 }
 
-fn parsePortAscii(text: []const u8) ?u16 {
+pub fn parsePortAscii(text: []const u8) ?u16 {
     if (text.len == 0) return null;
     var value: u32 = 0;
     for (text) |byte| {
@@ -15264,41 +14148,11 @@ fn parsePortAscii(text: []const u8) ?u16 {
     return @as(u16, @intCast(value));
 }
 
-pub export fn sa_net_ipv4_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_addr: ?[*]u8) i32 {
-    const out = out_addr orelse return 0;
-    out[0] = 0;
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 0;
+pub const sa_net_ipv4_parse_ascii = @import("sa_std/net.zig").sa_net_ipv4_parse_ascii;
 
-    const text = constBytes(text_ptr, text_len) catch return 0;
-    const parts = parseIpv4Ascii(text) orelse return 0;
+pub const sa_net_socket_addr_v4_parse_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v4_parse_ascii;
 
-    out[0] = parts[0];
-    out[1] = parts[1];
-    out[2] = parts[2];
-    out[3] = parts[3];
-    return 1;
-}
-
-pub export fn sa_net_socket_addr_v4_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_socket_addr: ?[*]u8) i32 {
-    const out = out_socket_addr orelse return 0;
-    for (out[0..8]) |*byte| byte.* = 0;
-
-    const text = constBytes(text_ptr, text_len) catch return 0;
-    const colon = std.mem.lastIndexOfScalar(u8, text, ':') orelse return 0;
-    const ip = parseIpv4Ascii(text[0..colon]) orelse return 0;
-    const port = parsePortAscii(text[colon + 1 ..]) orelse return 0;
-
-    out[0] = ip[0];
-    out[1] = ip[1];
-    out[2] = ip[2];
-    out[3] = ip[3];
-    std.mem.writeInt(u16, out[4..6], port, .little);
-    return 1;
-}
-
-fn writeIpv6SegmentsNative(out: []u8, octets: *const [16]u8) void {
+pub fn writeIpv6SegmentsNative(out: []u8, octets: *const [16]u8) void {
     var index: usize = 0;
     while (index < 8) : (index += 1) {
         const seg = std.mem.readInt(u16, octets[index * 2 ..][0..2], .big);
@@ -15307,7 +14161,7 @@ fn writeIpv6SegmentsNative(out: []u8, octets: *const [16]u8) void {
     }
 }
 
-fn parseIpv6Ascii(text: []const u8) ?struct { octets: [16]u8, scope_id: u32 } {
+pub fn parseIpv6Ascii(text: []const u8) ?struct { octets: [16]u8, scope_id: u32 } {
     // FreeBSD: Ip6Address.resolve reaches unimplemented if_nametoindex.
     if (comptime builtin.os.tag == .freebsd) {
         const parsed = parseIp6FreebsdParts(text) orelse return null;
@@ -15320,7 +14174,7 @@ fn parseIpv6Ascii(text: []const u8) ?struct { octets: [16]u8, scope_id: u32 } {
     };
 }
 
-fn parseSocketAddrV6Ascii(text: []const u8) ?struct { octets: [16]u8, port: u16, scope_id: u32 } {
+pub fn parseSocketAddrV6Ascii(text: []const u8) ?struct { octets: [16]u8, port: u16, scope_id: u32 } {
     if (text.len < 4 or text[0] != '[') return null;
     const close = std.mem.lastIndexOfScalar(u8, text, ']') orelse return null;
     if (close == 0 or close + 1 >= text.len or text[close + 1] != ':') return null;
@@ -15335,30 +14189,11 @@ fn parseSocketAddrV6Ascii(text: []const u8) ?struct { octets: [16]u8, port: u16,
     };
 }
 
-pub export fn sa_net_ipv6_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_addr: ?[*]u8) i32 {
-    const out = out_addr orelse return 0;
-    @memset(out[0..16], 0);
+pub const sa_net_ipv6_parse_ascii = @import("sa_std/net.zig").sa_net_ipv6_parse_ascii;
 
-    const text = constBytes(text_ptr, text_len) catch return 0;
-    const parsed = parseIpv6Ascii(text) orelse return 0;
-    writeIpv6SegmentsNative(out[0..16], &parsed.octets);
-    return 1;
-}
+pub const sa_net_socket_addr_v6_parse_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v6_parse_ascii;
 
-pub export fn sa_net_socket_addr_v6_parse_ascii(text_ptr: ?[*]const u8, text_len: u64, out_socket_addr: ?[*]u8) i32 {
-    const out = out_socket_addr orelse return 0;
-    @memset(out[0..32], 0);
-
-    const text = constBytes(text_ptr, text_len) catch return 0;
-    const parsed = parseSocketAddrV6Ascii(text) orelse return 0;
-    writeIpv6SegmentsNative(out[0..16], &parsed.octets);
-    std.mem.writeInt(u16, out[16..18], parsed.port, .little);
-    std.mem.writeInt(u32, out[20..24], 0, .little);
-    std.mem.writeInt(u32, out[24..28], parsed.scope_id, .little);
-    return 1;
-}
-
-fn readIpv6SegmentsNative(raw: *const [16]u8) [8]u16 {
+pub fn readIpv6SegmentsNative(raw: *const [16]u8) [8]u16 {
     var segments: [8]u16 = undefined;
     var i: usize = 0;
     while (i < 8) : (i += 1) {
@@ -15367,7 +14202,7 @@ fn readIpv6SegmentsNative(raw: *const [16]u8) [8]u16 {
     return segments;
 }
 
-fn formatIpv6Segments(buffer: []u8, segments: *const [8]u16) ![]u8 {
+pub fn formatIpv6Segments(buffer: []u8, segments: *const [8]u16) ![]u8 {
     var longest_start: usize = 8;
     var longest_len: usize = 0;
     var current_start: usize = 0;
@@ -15409,61 +14244,13 @@ fn formatIpv6Segments(buffer: []u8, segments: *const [8]u16) ![]u8 {
 }
 
 // sa_net_format_ascii_batch_v1
-pub export fn sa_net_ipv4_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const len_ptr = out_len orelse return 0;
-    len_ptr.* = 0;
-    const addr = addr_ptr orelse return 0;
-    const buffer = mutBytes(out, out_cap) catch return 0;
-    const text = std.fmt.bufPrint(buffer, "{d}.{d}.{d}.{d}", .{ addr[0], addr[1], addr[2], addr[3] }) catch return 0;
-    len_ptr.* = @as(u64, @intCast(text.len));
-    return 1;
-}
+pub const sa_net_ipv4_format_ascii = @import("sa_std/net.zig").sa_net_ipv4_format_ascii;
 
-pub export fn sa_net_ipv6_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const len_ptr = out_len orelse return 0;
-    len_ptr.* = 0;
-    const addr_raw = addr_ptr orelse return 0;
-    const buffer = mutBytes(out, out_cap) catch return 0;
-    var raw: [16]u8 = undefined;
-    @memcpy(raw[0..], addr_raw[0..16]);
-    const segments = readIpv6SegmentsNative(&raw);
-    const text = formatIpv6Segments(buffer, &segments) catch return 0;
-    len_ptr.* = @as(u64, @intCast(text.len));
-    return 1;
-}
+pub const sa_net_ipv6_format_ascii = @import("sa_std/net.zig").sa_net_ipv6_format_ascii;
 
-pub export fn sa_net_socket_addr_v4_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const len_ptr = out_len orelse return 0;
-    len_ptr.* = 0;
-    const addr = addr_ptr orelse return 0;
-    const buffer = mutBytes(out, out_cap) catch return 0;
-    const port = std.mem.readInt(u16, addr[4..6], .little);
-    const text = std.fmt.bufPrint(buffer, "{d}.{d}.{d}.{d}:{d}", .{ addr[0], addr[1], addr[2], addr[3], port }) catch return 0;
-    len_ptr.* = @as(u64, @intCast(text.len));
-    return 1;
-}
+pub const sa_net_socket_addr_v4_format_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v4_format_ascii;
 
-pub export fn sa_net_socket_addr_v6_format_ascii(addr_ptr: ?[*]const u8, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const len_ptr = out_len orelse return 0;
-    len_ptr.* = 0;
-    const addr = addr_ptr orelse return 0;
-    const buffer = mutBytes(out, out_cap) catch return 0;
-    var raw: [16]u8 = undefined;
-    @memcpy(raw[0..], addr[0..16]);
-    const segments = readIpv6SegmentsNative(&raw);
-    const port = std.mem.readInt(u16, addr[16..18], .little);
-    const scope_id = std.mem.readInt(u32, addr[24..28], .little);
-    var ip_buf: [64]u8 = undefined;
-    const ip_text = formatIpv6Segments(&ip_buf, &segments) catch return 0;
-    if (scope_id == 0) {
-        const text = std.fmt.bufPrint(buffer, "[{s}]:{d}", .{ ip_text, port }) catch return 0;
-        len_ptr.* = @as(u64, @intCast(text.len));
-        return 1;
-    }
-    const text = std.fmt.bufPrint(buffer, "[{s}%{d}]:{d}", .{ ip_text, scope_id, port }) catch return 0;
-    len_ptr.* = @as(u64, @intCast(text.len));
-    return 1;
-}
+pub const sa_net_socket_addr_v6_format_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v6_format_ascii;
 
 pub export fn sa_fmt_i64(value: i64, base: u32) u64 {
     const bytes = formatInteger(value, base) catch return 0;
@@ -17468,75 +16255,19 @@ pub export fn sa_std_net_unix_connect_addr(addr_handle: u64, out_handle: ?*u64) 
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_net_unix_addr_kind(addr: u64) u32 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(addr) orelse return SA_NET_UNIX_ADDR_UNNAMED;
-    return switch (resource.*) {
-        .unix_addr => |unix_addr| unix_addr.kind,
-        else => SA_NET_UNIX_ADDR_UNNAMED,
-    };
-}
+pub const sa_net_unix_addr_kind = @import("sa_std/net.zig").sa_net_unix_addr_kind;
 
-pub export fn sa_net_unix_addr_is_unnamed(addr: u64) u8 {
-    return if (sa_net_unix_addr_kind(addr) == SA_NET_UNIX_ADDR_UNNAMED) 1 else 0;
-}
+pub const sa_net_unix_addr_is_unnamed = @import("sa_std/net.zig").sa_net_unix_addr_is_unnamed;
 
-pub export fn sa_net_unix_addr_path_ptr(addr: u64) ?[*]u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(addr) orelse return null;
-    return switch (resource.*) {
-        .unix_addr => |unix_addr| if (unix_addr.kind == SA_NET_UNIX_ADDR_PATHNAME and unix_addr.bytes.len != 0) unix_addr.bytes.ptr else null,
-        else => null,
-    };
-}
+pub const sa_net_unix_addr_path_ptr = @import("sa_std/net.zig").sa_net_unix_addr_path_ptr;
 
-pub export fn sa_net_unix_addr_path_len(addr: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(addr) orelse return 0;
-    return switch (resource.*) {
-        .unix_addr => |unix_addr| if (unix_addr.kind == SA_NET_UNIX_ADDR_PATHNAME) @as(u64, @intCast(unix_addr.bytes.len)) else 0,
-        else => 0,
-    };
-}
+pub const sa_net_unix_addr_path_len = @import("sa_std/net.zig").sa_net_unix_addr_path_len;
 
-pub export fn sa_net_unix_addr_abstract_ptr(addr: u64) ?[*]u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(addr) orelse return null;
-    return switch (resource.*) {
-        .unix_addr => |unix_addr| if (unix_addr.kind == SA_NET_UNIX_ADDR_ABSTRACT and unix_addr.bytes.len != 0) unix_addr.bytes.ptr else null,
-        else => null,
-    };
-}
+pub const sa_net_unix_addr_abstract_ptr = @import("sa_std/net.zig").sa_net_unix_addr_abstract_ptr;
 
-pub export fn sa_net_unix_addr_abstract_len(addr: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(addr) orelse return 0;
-    return switch (resource.*) {
-        .unix_addr => |unix_addr| if (unix_addr.kind == SA_NET_UNIX_ADDR_ABSTRACT) @as(u64, @intCast(unix_addr.bytes.len)) else 0,
-        else => 0,
-    };
-}
+pub const sa_net_unix_addr_abstract_len = @import("sa_std/net.zig").sa_net_unix_addr_abstract_len;
 
-pub export fn sa_net_unix_addr_free(addr: u64) Fallible(i32) {
-    const status = sa_std_close(addr);
-    if (status != SA_STD_OK) return fail(i32, status);
-    return ok(i32, 0);
-}
+pub const sa_net_unix_addr_free = @import("sa_std/net.zig").sa_net_unix_addr_free;
 
 // ---- TLS/network fingerprint primitives (JA3 / JA4) ----
 //
