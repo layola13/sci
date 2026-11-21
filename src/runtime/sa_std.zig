@@ -1,4 +1,5 @@
-const std = @import("std");
+pub const std = @import("std");
+test "sa_std_tests" { std.testing.refAllDecls(@import("sa_std/sa_std_tests.zig")); }
 pub const builtin = @import("builtin");
 pub const sio = @import("sio");
 
@@ -26,7 +27,7 @@ pub const sa_identity = @import("sa_identity.zig");
 /// dedicated SA_STD_ERR_PERMISSION_DENIED status; getters without a
 /// status channel (env, time, random) deny by returning zero, and
 /// every denial is audit-logged through the installed sink.
-fn policyAllows(resource: sa_policy.Resource) bool {
+pub fn policyAllows(resource: sa_policy.Resource) bool {
     // On wasm there is no ELF-constructor guarantee, so the first gated
     // call installs the policy lazily (policyBootstrap is idempotent).
     if (comptime is_wasm) policyBootstrap();
@@ -167,7 +168,7 @@ var policy_bootstrap_attempted: bool = false;
 
 var sigpipe_ignore_installed: bool = false;
 
-fn applySigpipeIgnore() void {
+pub fn applySigpipeIgnore() void {
     // NOTE: do NOT gate this on @hasDecl(std.posix.SIG, "PIPE") —
     // that is false on this Zig version (PIPE is an enum member, not
     // a declaration), which is exactly why the http server's earlier
@@ -287,28 +288,6 @@ comptime {
     }
 }
 
-test "DEF-R7: SIGPIPE ignored at startup; closed-pipe write surfaces BrokenPipe" {
-    if (comptime is_wasm or builtin.os.tag != .linux) return error.SkipZigTest;
-    // Apply directly (not the one-shot install): the unit runner
-    // shuffles test order by seed, and peer tests may have installed
-    // and later restored a different disposition before this test.
-    applySigpipeIgnore();
-    // The disposition itself is the policy: SIG_IGN, not a handler and
-    // not SIG_DFL.
-    var current: std.posix.Sigaction = undefined;
-    std.posix.sigaction(std.posix.SIG.PIPE, null, &current);
-    try std.testing.expectEqual(std.posix.SIG.IGN, current.handler.handler);
-    // A write to a pipe with no readers must surface error.BrokenPipe
-    // (mapped by callers to SA_STD_ERR_IO) — and the test process
-    // surviving to evaluate this expectation is itself the assertion
-    // that SIGPIPE did not kill it.
-    var fds: [2]std.posix.fd_t = undefined;
-    if (std.c.pipe(&fds) != 0) return error.Unexpected;
-    defer _ = std.c.close(fds[1]);
-    _ = std.c.close(fds[0]);
-    const rc = std.os.linux.write(fds[1], "x", 1);
-    try std.testing.expectEqual(std.os.linux.E.PIPE, std.os.linux.errno(rc));
-}
 
 // wasm32-wasi compat (stage1: archive must compile; sockets/process/dlopen
 // stubbed to UNSUPPORTED): SockAddrT/W/SIG are `void` on wasi, and
@@ -322,13 +301,13 @@ const WasiSockAddrIn = extern struct { port: u16 = 0, addr: u32 = 0, zero: [8]u8
 const WasiSockAddrIn6 = extern struct { port: u16 = 0, flowinfo: u32 = 0, addr: [16]u8 = undefined, scope_id: u32 = 0 };
 const WasiSockAddrStorage = extern struct { family: u16 = 0, __pad: [126]u8 = undefined };
 const WasiSockAddr = extern struct { family: u16 = 0, data: [14]u8 = undefined };
-const SockAddrUnT = if (is_wasm) WasiSockAddrUn else std.posix.sockaddr.un;
+pub const SockAddrUnT = if (is_wasm) WasiSockAddrUn else std.posix.sockaddr.un;
 const SockAddrInT = if (is_wasm) WasiSockAddrIn else std.posix.sockaddr.in;
 const SockAddrIn6T = if (is_wasm) WasiSockAddrIn6 else std.posix.sockaddr.in6;
-const SockAddrStorageT = if (is_wasm) WasiSockAddrStorage else std.posix.sockaddr.storage;
-const SockAddrT = if (is_wasm) WasiSockAddr else std.posix.sockaddr;
-const SockLenT = if (is_wasm) u32 else std.posix.socklen_t;
-fn makeSockAddrStorage() SockAddrStorageT {
+pub const SockAddrStorageT = if (is_wasm) WasiSockAddrStorage else std.posix.sockaddr.storage;
+pub const SockAddrT = if (is_wasm) WasiSockAddr else std.posix.sockaddr;
+pub const SockLenT = if (is_wasm) u32 else std.posix.socklen_t;
+pub fn makeSockAddrStorage() SockAddrStorageT {
     if (comptime is_wasm) return .{ .family = 0 };
     switch (builtin.os.tag) {
         .linux, .illumos, .windows, .serenity, .haiku, .wasi, .emscripten => return .{ .family = 0 },
@@ -360,11 +339,11 @@ const WasiW = struct {
         return 0;
     }
 };
-const WT = if (is_wasm) WasiW else std.posix.W;
+pub const WT = if (is_wasm) WasiW else std.posix.W;
 const WasiSIG = struct {
     pub const KILL: u8 = 9;
 };
-const SIGT = if (is_wasm) WasiSIG else std.posix.SIG;
+pub const SIGT = if (is_wasm) WasiSIG else std.posix.SIG;
 // wasi-libc has no AF/SOL (void via std.c); Linux-value dummies for compile.
 const WasiAF = struct {
     pub const UNIX: u16 = 1;
@@ -375,7 +354,7 @@ pub const AFT = if (is_wasm) WasiAF else std.posix.AF;
 const WasiSOL = struct {
     pub const SOCKET: u32 = 1;
 };
-const SOLT = if (is_wasm) WasiSOL else std.posix.SOL;
+pub const SOLT = if (is_wasm) WasiSOL else std.posix.SOL;
 const WasiSO = struct {
     pub const REUSEADDR: u32 = 2;
     pub const TYPE: u32 = 3;
@@ -391,33 +370,33 @@ const WasiSO = struct {
     pub const SNDTIMEO: u32 = 21;
     pub const ACCEPTCONN: u32 = 30;
 };
-const SOT = if (is_wasm) WasiSO else std.posix.SO;
+pub const SOT = if (is_wasm) WasiSO else std.posix.SO;
 const WasiIPPROTO = struct {
     pub const IP: u32 = 0;
     pub const TCP: u32 = 6;
     pub const UDP: u32 = 17;
     pub const IPV6: u32 = 41;
 };
-const IPPROTOT = if (is_wasm) WasiIPPROTO else std.posix.IPPROTO;
+pub const IPPROTOT = if (is_wasm) WasiIPPROTO else std.posix.IPPROTO;
 const WasiSOCK = struct {
     pub const STREAM: u32 = 1;
     pub const DGRAM: u32 = 2;
     pub const NONBLOCK: u32 = 2048;
     pub const CLOEXEC: u32 = 524288;
 };
-const SOCKT = if (is_wasm) WasiSOCK else std.posix.SOCK;
+pub const SOCKT = if (is_wasm) WasiSOCK else std.posix.SOCK;
 // Linux-only socket options/constants fall back to neutral values elsewhere;
 // the export functions that use them are compiled out of non-Linux builds.
-const TCP_QUICKACK: u32 = if (is_linux) std.os.linux.TCP.QUICKACK else 0;
-const TCP_DEFER_ACCEPT: u32 = if (is_linux) std.os.linux.TCP.DEFER_ACCEPT else 0;
-const TCP_KEEPIDLE: u32 = if (is_linux) std.os.linux.TCP.KEEPIDLE else if (builtin.os.tag == .freebsd) 256 else std.posix.TCP.KEEPALIVE;
-const TCP_KEEPINTVL: u32 = if (is_linux) std.os.linux.TCP.KEEPINTVL else std.posix.TCP.KEEPINTVL;
-const TCP_KEEPCNT: u32 = if (is_linux) std.os.linux.TCP.KEEPCNT else std.posix.TCP.KEEPCNT;
-const SO_PASSCRED: u32 = if (is_linux) std.os.linux.SO.PASSCRED else 0;
-const SO_MARK: u32 = if (is_linux) std.os.linux.SO.MARK else 0;
+pub const TCP_QUICKACK: u32 = if (is_linux) std.os.linux.TCP.QUICKACK else 0;
+pub const TCP_DEFER_ACCEPT: u32 = if (is_linux) std.os.linux.TCP.DEFER_ACCEPT else 0;
+pub const TCP_KEEPIDLE: u32 = if (is_linux) std.os.linux.TCP.KEEPIDLE else if (builtin.os.tag == .freebsd) 256 else std.posix.TCP.KEEPALIVE;
+pub const TCP_KEEPINTVL: u32 = if (is_linux) std.os.linux.TCP.KEEPINTVL else std.posix.TCP.KEEPINTVL;
+pub const TCP_KEEPCNT: u32 = if (is_linux) std.os.linux.TCP.KEEPCNT else std.posix.TCP.KEEPCNT;
+pub const SO_PASSCRED: u32 = if (is_linux) std.os.linux.SO.PASSCRED else 0;
+pub const SO_MARK: u32 = if (is_linux) std.os.linux.SO.MARK else 0;
 const WasiMsghdr = extern struct { name: ?*anyopaque = null, namelen: u32 = 0, iov: ?*anyopaque = null, iovlen: usize = 0, control: ?*anyopaque = null, controllen: usize = 0, flags: u32 = 0 };
-const MsghdrT = if (is_wasm) WasiMsghdr else std.posix.msghdr;
-const MsghdrConstT = if (is_wasm) WasiMsghdr else std.posix.msghdr_const;
+pub const MsghdrT = if (is_wasm) WasiMsghdr else std.posix.msghdr;
+pub const MsghdrConstT = if (is_wasm) WasiMsghdr else std.posix.msghdr_const;
 // Pull the new sa_std protocol runtimes (http2/tls_server/dtls/quic) export
 // functions into the library object. Zig only emits `pub export fn`s of a
 // transitively-imported module when the root source actually retains the
@@ -1011,6 +990,376 @@ comptime {
     _ = &@import("sa_std/deno.zig").sa_deno_gid;
     _ = &@import("sa_std/deno.zig").sa_deno_exec_path;
     _ = &@import("sa_std/deno.zig").sa_deno_memory_usage;
+    _ = &@import("sa_std/regex.zig").sa_regex_compile;
+    _ = &@import("sa_std/regex.zig").sa_regex_match;
+    _ = &@import("sa_std/regex.zig").sa_regex_group_ptr;
+    _ = &@import("sa_std/regex.zig").sa_regex_group_len;
+    _ = &@import("sa_std/regex.zig").sa_regex_group_start;
+    _ = &@import("sa_std/regex.zig").sa_regex_group_count;
+    _ = &@import("sa_std/regex.zig").sa_regex_free;
+    _ = &@import("sa_std/regex.zig").sa_regex_match_free;
+    _ = &@import("sa_std/regex.zig").sa_regex_match_all;
+    _ = &@import("sa_std/regex.zig").sa_regex_match_list_count;
+    _ = &@import("sa_std/regex.zig").sa_regex_match_list_at;
+    _ = &@import("sa_std/regex.zig").sa_regex_match_list_free;
+    _ = &@import("sa_std/regex.zig").sa_regex_replace;
+    _ = &@import("sa_std/regex.zig").sa_regex_replace_all;
+    _ = &@import("sa_std/regex.zig").sa_regex_buffer_data;
+    _ = &@import("sa_std/regex.zig").sa_regex_buffer_len;
+    _ = &@import("sa_std/regex.zig").sa_regex_buffer_free;
+    _ = &@import("sa_std/regex.zig").sa_regex_split;
+    _ = &@import("sa_std/regex.zig").sa_regex_split_count;
+    _ = &@import("sa_std/regex.zig").sa_regex_split_ptr;
+    _ = &@import("sa_std/regex.zig").sa_regex_split_len;
+    _ = &@import("sa_std/regex.zig").sa_regex_split_free;
+    _ = &@import("sa_std/time.zig").sa_time_instant_ns;
+    _ = &@import("sa_std/time.zig").sa_time_unix_s;
+    _ = &@import("sa_std/time.zig").sa_time_unix_ms;
+    _ = &@import("sa_std/time.zig").sa_time_iso_from_unix_ms;
+    _ = &@import("sa_std/time.zig").sa_time_parse_iso;
+    _ = &@import("sa_std/time.zig").sa_time_get_full_year;
+    _ = &@import("sa_std/time.zig").sa_time_get_month;
+    _ = &@import("sa_std/time.zig").sa_time_get_date;
+    _ = &@import("sa_std/time.zig").sa_time_get_hours;
+    _ = &@import("sa_std/time.zig").sa_time_get_minutes;
+    _ = &@import("sa_std/time.zig").sa_time_get_seconds;
+    _ = &@import("sa_std/time.zig").sa_time_get_milliseconds;
+    _ = &@import("sa_std/time.zig").sa_time_get_day;
+    _ = &@import("sa_std/time.zig").sa_time_format_utc;
+    _ = &@import("sa_std/time.zig").sa_time_set_field;
+    _ = &@import("sa_std/time.zig").sa_time_unix_ns;
+    _ = &@import("sa_std/time.zig").sa_time_utc_now;
+    _ = &@import("sa_std/time.zig").sa_time_sleep_ns;
+    _ = &@import("sa_std/time.zig").sa_time_sleep_ms;
+    _ = &@import("sa_std/string.zig").sa_string_concat;
+    _ = &@import("sa_std/string.zig").sa_string_from_char_code;
+    _ = &@import("sa_std/string.zig").sa_string_index_of;
+    _ = &@import("sa_std/string.zig").sa_string_last_index_of;
+    _ = &@import("sa_std/string.zig").sa_string_starts_with;
+    _ = &@import("sa_std/string.zig").sa_string_ends_with;
+    _ = &@import("sa_std/string.zig").sa_string_to_lower_ascii;
+    _ = &@import("sa_std/string.zig").sa_string_to_upper_ascii;
+    _ = &@import("sa_std/string.zig").sa_string_repeat;
+    _ = &@import("sa_std/string.zig").sa_string_pad_start;
+    _ = &@import("sa_std/string.zig").sa_string_pad_end;
+    _ = &@import("sa_std/string.zig").sa_string_replace;
+    _ = &@import("sa_std/string.zig").sa_string_code_point_at;
+    _ = &@import("sa_std/string.zig").sa_string_from_code_point;
+    _ = &@import("sa_std/env.zig").sa_env_get;
+    _ = &@import("sa_std/env.zig").sa_env_current_dir;
+    _ = &@import("sa_std/env.zig").sa_env_set_current_dir;
+    _ = &@import("sa_std/env.zig").sa_env_temp_dir;
+    _ = &@import("sa_std/env.zig").sa_env_current_exe;
+    _ = &@import("sa_std/env.zig").sa_env_home_dir;
+    _ = &@import("sa_std/env.zig").sa_env_args_json;
+    _ = &@import("sa_std/env.zig").sa_env_vars_json;
+    _ = &@import("sa_std/env.zig").sa_env_split_paths_json;
+    _ = &@import("sa_std/env.zig").sa_env_join_paths_json;
+    _ = &@import("sa_std/env.zig").sa_env_xdg_data_home_dir;
+    _ = &@import("sa_std/env.zig").sa_env_xdg_config_home_dir;
+    _ = &@import("sa_std/env.zig").sa_env_xdg_state_home_dir;
+    _ = &@import("sa_std/env.zig").sa_env_xdg_cache_home_dir;
+    _ = &@import("sa_std/env.zig").sa_env_xdg_data_dirs;
+    _ = &@import("sa_std/env.zig").sa_env_xdg_config_dirs;
+    _ = &@import("sa_std/env.zig").sa_env_has;
+    _ = &@import("sa_std/env.zig").sa_env_set_var;
+    _ = &@import("sa_std/env.zig").sa_env_remove_var;
+    _ = &@import("sa_std/env.zig").sa_env_buffer_data;
+    _ = &@import("sa_std/env.zig").sa_env_buffer_len;
+    _ = &@import("sa_std/env.zig").sa_env_buffer_free;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_i64;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_i64_into;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_u64;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_u64_into;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_f64;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_f64_into;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_bool;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_bool_into;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_bytes;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_bytes_into;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_buffer_data;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_buffer_len;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_buffer_write_to;
+    _ = &@import("sa_std/fmt.zig").sa_fmt_buffer_free;
+    _ = &@import("sa_std/io.zig").sa_io_read_line;
+    _ = &@import("sa_std/io.zig").sa_io_stdin;
+    _ = &@import("sa_std/io.zig").sa_io_stdout;
+    _ = &@import("sa_std/io.zig").sa_io_stderr;
+    _ = &@import("sa_std/io.zig").sa_io_read;
+    _ = &@import("sa_std/io.zig").sa_io_read_exact;
+    _ = &@import("sa_std/io.zig").sa_io_write;
+    _ = &@import("sa_std/io.zig").sa_io_write_all;
+    _ = &@import("sa_std/io.zig").sa_io_flush;
+    _ = &@import("sa_std/io.zig").sa_io_close;
+    _ = &@import("sa_std/io.zig").sa_io_buffer_data;
+    _ = &@import("sa_std/io.zig").sa_io_buffer_len;
+    _ = &@import("sa_std/io.zig").sa_io_buffer_free;
+    _ = &@import("sa_std/str.zig").sa_str_is_ascii;
+    _ = &@import("sa_std/str.zig").sa_str_eq_ignore_ascii_case;
+    _ = &@import("sa_std/str.zig").sa_str_utf8_char_count;
+    _ = &@import("sa_std/str.zig").sa_str_utf8_validate;
+    _ = &@import("sa_std/str.zig").sa_str_utf8_char_at;
+    _ = &@import("sa_std/str.zig").sa_str_utf8_char_at_byte;
+    _ = &@import("sa_std/str.zig").sa_str_utf8_lossy_next;
+    _ = &@import("sa_std/str.zig").sa_str_utf8_char_range_at;
+    _ = &@import("sa_std/str.zig").sa_str_trim_ascii_start_index;
+    _ = &@import("sa_std/str.zig").sa_str_trim_ascii_end_len;
+    _ = &@import("sa_std/term.zig").sa_term_raw_enter;
+    _ = &@import("sa_std/term.zig").sa_term_raw_leave;
+    _ = &@import("sa_std/term.zig").sa_term_winsize;
+    _ = &@import("sa_std/term.zig").sa_term_epoll_create;
+    _ = &@import("sa_std/term.zig").sa_term_epoll_ctl;
+    _ = &@import("sa_std/term.zig").sa_term_epoll_wait;
+    _ = &@import("sa_std/term.zig").sa_term_epoll_close;
+    _ = &@import("sa_std/math.zig").sa_math_floor;
+    _ = &@import("sa_std/math.zig").sa_math_ceil;
+    _ = &@import("sa_std/math.zig").sa_math_sqrt;
+    _ = &@import("sa_std/math.zig").sa_math_sin;
+    _ = &@import("sa_std/math.zig").sa_math_cos;
+    _ = &@import("sa_std/math.zig").sa_math_pow;
+    _ = &@import("sa_std/math.zig").sa_math_random;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_error_code_from_status;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_error_code_from_posix_errno;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_error_code_from_wsa_error;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_error_code_name;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_error_platform;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_error_code_from_native_error;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_hostname;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_interface_addresses_json;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_to_socket_addr_list;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_addr_list_next;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_addr_list_remaining;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_addr_list_reset;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_addr_list_free;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_addr_reverse_lookup;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_to_socket_addr_first;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read_vectored;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write_vectored;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_peek;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_peer_addr;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_local_addr;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_try_clone;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_nonblocking;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_poll_wait;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_nodelay;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_linger;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_linger;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_quickack;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_quickack;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_deferaccept;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_deferaccept;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_keepalive;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_keepalive;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_keepalive_params;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_reuseaddr;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_reuseport;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_read_timeout;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_write_timeout;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_ttl;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read_timeout;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write_timeout;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_nodelay;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_ttl;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_recv_buffer_size;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_recv_buffer_size;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_send_buffer_size;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_send_buffer_size;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_take_error;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_try_clone;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_only_v6;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_only_v6;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_nonblocking;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_ttl;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_ttl;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_take_error;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_try_clone;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_bind;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_raw_socket;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_send_file;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_from_raw_fd;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_local_addr;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_peer_addr;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_connect;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_connect_addr;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_only_v6;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_only_v6;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_nonblocking;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_broadcast;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_ttl;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_read_timeout;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_write_timeout;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_recv_buffer_size;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_buffer_size;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_send_buffer_size;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_buffer_size;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_read_timeout;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_write_timeout;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_broadcast;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_loop_v4;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_ttl_v4;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_loop_v4;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_ttl_v4;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_loop_v6;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_hops_v6;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_loop_v6;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_hops_v6;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_if_v4;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_if_v4;
+    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_if_v6;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_if_v6;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_join_multicast_v4;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_leave_multicast_v4;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_join_multicast_v6;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_leave_multicast_v6;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_ttl;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_take_error;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_send;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_recv;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_peek;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_to;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_from;
+    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_peek_from;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_vectored;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_to_vectored;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_from_vectored;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_socket_setsockopt;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_socket_getsockopt;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_socket_setsockopt_int;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_socket_getsockopt_int;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_msg;
+    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_multi;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_addr_format;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listen;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_accept;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_accept_addr;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_local_addr;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_from_raw_fd;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout_addr;
+    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout_all;
+    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_from_raw_fd;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_listen;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_addr_from_abstract_name;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_addr_from_pathname;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_listen_addr;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_accept;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_accept_addr;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_pair;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_local_addr;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_try_clone;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_from_raw_fd;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_local_addr;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_try_clone;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_from_raw_fd;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_peer_addr;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_set_passcred;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_passcred;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_set_mark;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_peer_cred;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peer_cred;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_unbound;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_bind;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_bind_addr;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_pair;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_connect;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_connect_addr;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_try_clone;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_from_raw_fd;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_local_addr;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peer_addr;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_set_passcred;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_passcred;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_set_mark;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_shutdown;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_send_to;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_send_to_addr;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_recv_from;
+    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peek_from;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_connect;
+    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_connect_addr;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_ja3_hash;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_sha256_hex;
+    _ = &@import("sa_std/std_net.zig").sa_std_net_ja4_hash12;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_run;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_run_cwd;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_spawn;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_cwd;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream_cwd;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_bidi;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_bidi_cwd;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_run_command_ext;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_command_ext;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream_command_ext;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_run_command_ext_pidfd;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_command_ext_pidfd;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream_command_ext_pidfd;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_run_command_ext_uid_gid;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_command_ext_uid_gid;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream_command_ext_uid_gid;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_run_command_ext_groups;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_command_ext_groups;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream_command_ext_groups;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_run_command_ext_chroot;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_command_ext_chroot;
+    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream_command_ext_chroot;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_exec_command_ext;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_id;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_parent_id;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_user_id;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_group_id;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_abort;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_child_id;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_wait;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_wait_raw;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_try_wait;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_try_wait_raw;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_kill;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_send_signal;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_send_process_group_signal;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_kill_process_group;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_pidfd;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_into_pidfd;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_exit_status_code;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_exit_status_signal;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_exit_status_core_dumped;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_exit_status_stopped_signal;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_exit_status_continued;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_read_stdout;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_read_stderr;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_exec_capture;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_exec_capture_cwd;
+    _ = &@import("sa_std/std_process.zig").sa_std_process_close;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_open_read;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_open_write;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_remove;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_exists;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_try_exists;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_len;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_open_options;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_open_create_excl;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_from_raw_fd;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_read;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_read_at;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_read_exact_at;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_write;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_write_at;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_write_all_at;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_seek;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_read_file;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_read_to_string;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_read_file_base64;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_read_dir_json;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_read_dir_entries;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_dir_entries_get;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_metadata;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_metadata_json;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_metadata_free;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_canonicalize;
+    _ = &@import("sa_std/std_fs.zig").sa_std_fs_read_link;
     if (builtin.os.tag == .linux) {
         _ = &@import("sa_pty.zig").sa_pty_spawn;
         _ = &@import("sa_pty.zig").sa_pty_read;
@@ -1125,13 +1474,13 @@ pub const SA_STD_ERR_UNSUPPORTED: i32 = 8;
 
 // --- Cross-platform compat: Linux-first, macOS via conditionals ---
 // waitid/pidfd flags are Linux-only; 0 elsewhere (pidfd path is Linux-only).
-const w_exited: u32 = if (builtin.os.tag == .linux) WT.EXITED else 0;
-const w_nohang: u32 = if (builtin.os.tag == .linux) WT.NOHANG else 0;
+pub const w_exited: u32 = if (builtin.os.tag == .linux) WT.EXITED else 0;
+pub const w_nohang: u32 = if (builtin.os.tag == .linux) WT.NOHANG else 0;
 // MSG_PEEK: std.posix.MSG is Linux-only in zig 0.14; Darwin value is 0x2.
-const msg_peek: u32 = if (builtin.os.tag == .linux) std.posix.MSG.PEEK else 0x2;
+pub const msg_peek: u32 = if (builtin.os.tag == .linux) std.posix.MSG.PEEK else 0x2;
 // TCP_NODELAY == 1 on Linux, macOS and FreeBSD. Spell it out: std.posix.TCP
 // is void on FreeBSD in zig 0.14, and std.os.linux.TCP.* are Linux values.
-const tcp_nodelay: u32 = 1;
+pub const tcp_nodelay: u32 = 1;
 // --- FreeBSD compat (zig 0.14 std leaves several POSIX surfaces
 // unimplemented for freebsd: uname, TCP consts, if_nametoindex) ---
 const fbsd_sys_nmln: usize = 256;
@@ -1148,7 +1497,7 @@ extern fn if_nametoindex(ifname: [*:0]const u8) c_uint;
 // exactly "recvmsg" — macOS dylibs reject undefined symbols, unlike ELF .so.
 extern "c" fn recvmsg(sockfd: std.posix.fd_t, msg: *MsghdrT, flags: c_int) isize;
 extern "c" fn __error() *c_int;
-fn portableRecvmsg(fd: std.posix.fd_t, msg: *MsghdrT, flags: u32) !usize {
+pub fn portableRecvmsg(fd: std.posix.fd_t, msg: *MsghdrT, flags: u32) !usize {
     if (builtin.os.tag == .linux) {
         const rc = std.os.linux.recvmsg(fd, @as(*std.os.linux.msghdr, @ptrCast(msg)), flags);
         return switch (std.os.linux.errno(rc)) {
@@ -1185,16 +1534,16 @@ pub const SA_FS_FILE_DIR: u32 = 2;
 pub const SA_FS_FILE_SYMLINK: u32 = 3;
 pub const SA_FS_FILE_OTHER: u32 = 255;
 
-const IP_MULTICAST_TTL_OPT: u32 = 33;
-const IP_MULTICAST_LOOP_OPT: u32 = 34;
-const IP_MULTICAST_IF_OPT: u32 = 32;
-const IP_ADD_MEMBERSHIP_OPT: u32 = 35;
-const IP_DROP_MEMBERSHIP_OPT: u32 = 36;
-const IPV6_JOIN_GROUP_OPT: u32 = 20;
-const IPV6_LEAVE_GROUP_OPT: u32 = 21;
-const IPV6_MULTICAST_HOPS_OPT: u32 = 18;
-const IPV6_MULTICAST_LOOP_OPT: u32 = 19;
-const IPV6_MULTICAST_IF_OPT: u32 = 17;
+pub const IP_MULTICAST_TTL_OPT: u32 = 33;
+pub const IP_MULTICAST_LOOP_OPT: u32 = 34;
+pub const IP_MULTICAST_IF_OPT: u32 = 32;
+pub const IP_ADD_MEMBERSHIP_OPT: u32 = 35;
+pub const IP_DROP_MEMBERSHIP_OPT: u32 = 36;
+pub const IPV6_JOIN_GROUP_OPT: u32 = 20;
+pub const IPV6_LEAVE_GROUP_OPT: u32 = 21;
+pub const IPV6_MULTICAST_HOPS_OPT: u32 = 18;
+pub const IPV6_MULTICAST_LOOP_OPT: u32 = 19;
+pub const IPV6_MULTICAST_IF_OPT: u32 = 17;
 
 pub const SA_PLUGIN_DESCRIPTOR_SYMBOL: [:0]const u8 = "saasm_plugin_descriptor_v1";
 
@@ -1351,17 +1700,17 @@ const DirEntryHandle = struct {
     }
 };
 
-const NetAddrHandle = struct {
+pub const NetAddrHandle = struct {
     allocator: std.mem.Allocator,
     host: []u8,
     addr: NetAddress,
 
-    fn deinit(self: *NetAddrHandle) void {
+    pub fn deinit(self: *NetAddrHandle) void {
         if (self.host.len != 0) self.allocator.free(self.host);
         self.host = &.{};
     }
 
-    fn init(allocator: std.mem.Allocator, address: NetAddress) !NetAddrHandle {
+    pub fn init(allocator: std.mem.Allocator, address: NetAddress) !NetAddrHandle {
         const host = try addressHostText(allocator, address);
         return .{
             .allocator = allocator,
@@ -1376,7 +1725,7 @@ const NetAddrListHandle = struct {
     addresses: []NetAddress,
     next_index: usize = 0,
 
-    fn deinit(self: *NetAddrListHandle) void {
+    pub fn deinit(self: *NetAddrListHandle) void {
         if (self.addresses.len != 0) self.allocator.free(self.addresses);
         self.addresses = &.{};
         self.next_index = 0;
@@ -1391,7 +1740,7 @@ const UnixAddrHandle = struct {
     kind: u32,
     bytes: []u8,
 
-    fn deinit(self: *UnixAddrHandle) void {
+    pub fn deinit(self: *UnixAddrHandle) void {
         if (self.bytes.len != 0) self.allocator.free(self.bytes);
         self.bytes = &.{};
     }
@@ -1399,7 +1748,7 @@ const UnixAddrHandle = struct {
 
 const unix_sockaddr_path_offset: usize = if (is_wasm) 2 else @offsetOf(SockAddrUnT, "path");
 
-fn unixAddrFromSockaddr(allocator: std.mem.Allocator, addr: SockAddrUnT, len_raw: SockLenT) !UnixAddrHandle {
+pub fn unixAddrFromSockaddr(allocator: std.mem.Allocator, addr: SockAddrUnT, len_raw: SockLenT) !UnixAddrHandle {
     var len = @as(usize, @intCast(len_raw));
     if (len == 0) len = unix_sockaddr_path_offset;
     if (len <= unix_sockaddr_path_offset) {
@@ -1424,7 +1773,7 @@ fn unixAddrFromSockaddr(allocator: std.mem.Allocator, addr: SockAddrUnT, len_raw
     return .{ .allocator = allocator, .kind = SA_NET_UNIX_ADDR_PATHNAME, .bytes = path };
 }
 
-fn registerUnixAddrOutLocked(addr: SockAddrUnT, len: SockLenT, out_handle: *u64) i32 {
+pub fn registerUnixAddrOutLocked(addr: SockAddrUnT, len: SockLenT, out_handle: *u64) i32 {
     var unix_addr = unixAddrFromSockaddr(std.heap.page_allocator, addr, len) catch |err| return finishErr(err);
     const handle = registerResourceLocked(.{ .unix_addr = unix_addr }) catch |err| {
         unix_addr.deinit();
@@ -1434,7 +1783,7 @@ fn registerUnixAddrOutLocked(addr: SockAddrUnT, len: SockLenT, out_handle: *u64)
     return finish(SA_STD_OK);
 }
 
-fn unixSockAddrFromHandle(handle: u64) !UnixSockAddr {
+pub fn unixSockAddrFromHandle(handle: u64) !UnixSockAddr {
     // wasm32-wasi has no unix sockets; stub to keep archive compilable.
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     while (!registry_mutex.tryLock()) {
@@ -1467,7 +1816,7 @@ fn unixSockAddrFromHandle(handle: u64) !UnixSockAddr {
     };
 }
 
-fn registerNetAddrList(host: []const u8, port: u16) !u64 {
+pub fn registerNetAddrList(host: []const u8, port: u16) !u64 {
     var list = try netGetAddressList(std.heap.page_allocator, host, port);
     defer list.deinit();
     if (list.addrs.len == 0) return error.HostLacksNetworkAddresses;
@@ -1478,7 +1827,7 @@ fn registerNetAddrList(host: []const u8, port: u16) !u64 {
         .addresses = addresses,
     } });
 }
-fn registerNetAddrOutLocked(address: NetAddress, out_handle: *u64) i32 {
+pub fn registerNetAddrOutLocked(address: NetAddress, out_handle: *u64) i32 {
     var net_addr = NetAddrHandle.init(std.heap.page_allocator, address) catch |err| return finishErr(err);
     const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
         net_addr.deinit();
@@ -1517,7 +1866,7 @@ fn addressHostText(allocator: std.mem.Allocator, address: NetAddress) ![]u8 {
     };
 }
 
-fn addressSocketText(allocator: std.mem.Allocator, address: NetAddress) ![]u8 {
+pub fn addressSocketText(allocator: std.mem.Allocator, address: NetAddress) ![]u8 {
     return switch (address.storage.family) {
         AFT.INET, AFT.INET6 => blk: {
             const host = try addressHostText(allocator, address);
@@ -1750,13 +2099,13 @@ pub const JsonWriterHandle = struct {
     }
 };
 
-const RegexHandle = struct {
+pub const RegexHandle = struct {
     allocator: std.mem.Allocator,
     pattern_z: []u8,
     compiled: RegexC,
     compiled_valid: bool = false,
 
-    fn init(allocator: std.mem.Allocator, pattern: []const u8, cflags: c_int) !*RegexHandle {
+    pub fn init(allocator: std.mem.Allocator, pattern: []const u8, cflags: c_int) !*RegexHandle {
         if (std.mem.indexOfScalar(u8, pattern, 0) != null) return error.InvalidArgument;
         const owned_pattern = try allocator.alloc(u8, pattern.len + 1);
         errdefer allocator.free(owned_pattern);
@@ -1779,25 +2128,25 @@ const RegexHandle = struct {
         return handle;
     }
 
-    fn deinit(self: *RegexHandle) void {
+    pub fn deinit(self: *RegexHandle) void {
         if (self.compiled_valid) regfree(&self.compiled);
         if (self.pattern_z.len != 0) self.allocator.free(self.pattern_z);
         self.pattern_z = &.{};
         self.compiled_valid = false;
     }
 
-    fn destroy(self: *RegexHandle) void {
+    pub fn destroy(self: *RegexHandle) void {
         self.deinit();
         self.allocator.destroy(self);
     }
 };
 
-const RegexMatchHandle = struct {
+pub const RegexMatchHandle = struct {
     allocator: std.mem.Allocator,
     text_z: []u8,
     matches: []RegexMatchC,
 
-    fn init(allocator: std.mem.Allocator, text: []const u8, group_count: usize) !*RegexMatchHandle {
+    pub fn init(allocator: std.mem.Allocator, text: []const u8, group_count: usize) !*RegexMatchHandle {
         const owned_text = try allocator.alloc(u8, text.len + 1);
         errdefer allocator.free(owned_text);
         @memcpy(owned_text[0..text.len], text);
@@ -1814,27 +2163,27 @@ const RegexMatchHandle = struct {
         return handle;
     }
 
-    fn deinit(self: *RegexMatchHandle) void {
+    pub fn deinit(self: *RegexMatchHandle) void {
         if (self.matches.len != 0) self.allocator.free(self.matches);
         if (self.text_z.len != 0) self.allocator.free(self.text_z);
         self.matches = &.{};
         self.text_z = &.{};
     }
 
-    fn destroy(self: *RegexMatchHandle) void {
+    pub fn destroy(self: *RegexMatchHandle) void {
         self.deinit();
         self.allocator.destroy(self);
     }
 };
 
-const RegexMatchListHandle = struct {
+pub const RegexMatchListHandle = struct {
     allocator: std.mem.Allocator,
     text_z: []u8,
     // One group-offset array per match; every inner slice has
     // regexGroupCount(regex) entries (group 0 = the whole match).
     matches: [][]RegexMatchC,
 
-    fn destroy(self: *RegexMatchListHandle) void {
+    pub fn destroy(self: *RegexMatchListHandle) void {
         for (self.matches) |groups| {
             if (groups.len != 0) self.allocator.free(groups);
         }
@@ -1852,7 +2201,7 @@ const RegexSplitListHandle = struct {
     // an empty piece by the accessors).
     pieces: []RegexMatchC,
 
-    fn destroy(self: *RegexSplitListHandle) void {
+    pub fn destroy(self: *RegexSplitListHandle) void {
         if (self.pieces.len != 0) self.allocator.free(self.pieces);
         if (self.text_z.len != 0) self.allocator.free(self.text_z);
         self.allocator.destroy(self);
@@ -1879,11 +2228,11 @@ fn regexErrorToZig(rc: c_int) anyerror {
     };
 }
 
-fn regexGroupCount(regex_handle: *RegexHandle) usize {
+pub fn regexGroupCount(regex_handle: *RegexHandle) usize {
     return @as(usize, @intCast(regex_handle.compiled.re_nsub)) + 1;
 }
 
-fn regexMatchHandle(regex_handle: *RegexHandle, text: []const u8) !*RegexMatchHandle {
+pub fn regexMatchHandle(regex_handle: *RegexHandle, text: []const u8) !*RegexMatchHandle {
     if (std.mem.indexOfScalar(u8, text, 0) != null) return error.InvalidArgument;
     const allocator = regex_handle.allocator;
     const owned_text = try allocator.alloc(u8, text.len + 1);
@@ -1916,7 +2265,7 @@ fn regexMatchHandle(regex_handle: *RegexHandle, text: []const u8) !*RegexMatchHa
 
 // Copies text into an owned NUL-terminated buffer, rejecting embedded NUL
 // bytes exactly like regexMatchHandle does.
-fn regexOwnedTextZ(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
+pub fn regexOwnedTextZ(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     if (std.mem.indexOfScalar(u8, text, 0) != null) return error.InvalidArgument;
     const owned = try allocator.alloc(u8, text.len + 1);
     @memcpy(owned[0..text.len], text);
@@ -1938,7 +2287,7 @@ fn regexExecRange(regex_handle: *RegexHandle, text_z: []const u8, start: usize, 
 // one byte — the byte-level form of the JS global-exec loop (JS advances
 // one code point; this engine is byte-oriented). Caller owns the returned
 // outer slice and every inner groups slice.
-fn regexCollectMatches(allocator: std.mem.Allocator, regex_handle: *RegexHandle, text_z: []const u8) ![][]RegexMatchC {
+pub fn regexCollectMatches(allocator: std.mem.Allocator, regex_handle: *RegexHandle, text_z: []const u8) ![][]RegexMatchC {
     const text_len = text_z.len - 1;
     const group_count = regexGroupCount(regex_handle);
     var list = std.array_list.Managed([]RegexMatchC).init(allocator);
@@ -2082,7 +2431,7 @@ fn regexBuildReplace(allocator: std.mem.Allocator, regex_handle: *RegexHandle, t
 // keep rm_so < 0. `limit` caps the TOTAL piece count (groups included);
 // limit == 0 means no limit in this API (JS limit 0 returns [] — a
 // deliberate divergence, documented in regex.sai).
-fn regexSplitHandle(allocator: std.mem.Allocator, regex_handle: *RegexHandle, text_z: []u8, limit: u64) !*RegexSplitListHandle {
+pub fn regexSplitHandle(allocator: std.mem.Allocator, regex_handle: *RegexHandle, text_z: []u8, limit: u64) !*RegexSplitListHandle {
     const text_len = text_z.len - 1;
     errdefer allocator.free(text_z);
     const group_count = regexGroupCount(regex_handle);
@@ -2597,19 +2946,19 @@ const TerminalSession = struct {
     }
 };
 
-const SaProcessArgv = extern struct {
+pub const SaProcessArgv = extern struct {
     data: [*]const u8,
     len: u64,
 };
 
-const SaTermWinsize = extern struct {
+pub const SaTermWinsize = extern struct {
     row: u16,
     col: u16,
     xpixel: u16,
     ypixel: u16,
 };
 
-const SaTermEpollEvent = extern struct {
+pub const SaTermEpollEvent = extern struct {
     events: u32,
     data: u64,
 };
@@ -2648,12 +2997,12 @@ const ProcessHandle = struct {
     }
 };
 
-const TcpListener = struct {
+pub const TcpListener = struct {
     fd: std.posix.fd_t,
     addr: NetAddress,
 };
 
-const Resource = union(enum) {
+pub const Resource = union(enum) {
     file: sio.File,
     dynamic_lib: *DynamicLibHandle,
     tcp_stream: std.posix.fd_t,
@@ -2682,7 +3031,7 @@ const Resource = union(enum) {
     terminal_session: TerminalSession,
     process: ProcessHandle,
 
-    fn close(self: *Resource) !void {
+    pub fn close(self: *Resource) !void {
         switch (self.*) {
             .file => |file| file.close(),
             .dynamic_lib => |handle| {
@@ -2725,10 +3074,10 @@ const Resource = union(enum) {
 
 pub var registry_mutex: std.atomic.Mutex = .unlocked;
 var registry_slots = std.array_list.Managed(?Resource).init(std.heap.page_allocator);
-var pthread_registry_mutex: std.atomic.Mutex = .unlocked;
-var pthread_slots = std.array_list.Managed(?*PthreadHandle).init(std.heap.page_allocator);
-var pthread_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
-var raw_pthread_owners = std.array_list.Managed(RawPthreadOwner).init(std.heap.page_allocator);
+pub var pthread_registry_mutex: std.atomic.Mutex = .unlocked;
+pub var pthread_slots = std.array_list.Managed(?*PthreadHandle).init(std.heap.page_allocator);
+pub var pthread_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
+pub var raw_pthread_owners = std.array_list.Managed(RawPthreadOwner).init(std.heap.page_allocator);
 threadlocal var last_error: i32 = SA_STD_OK;
 var compatibility_mmap_page: [4096]u8 = std.mem.zeroes([4096]u8);
 var compatibility_dlopen_cookie: [1]u8 = .{0};
@@ -2760,7 +3109,7 @@ const PthreadTask = struct {
     destroy_on_finish: bool = false,
 };
 
-const PthreadHandle = struct {
+pub const PthreadHandle = struct {
     thread: std.c.pthread_t,
     task: *PthreadTask,
     joined: bool = false,
@@ -2835,7 +3184,7 @@ fn joinPthreadHandle(thread: std.c.pthread_t) !void {
     };
 }
 
-fn allocPthreadHandle(handle: *PthreadHandle) !i32 {
+pub fn allocPthreadHandle(handle: *PthreadHandle) !i32 {
     while (!pthread_registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -2861,7 +3210,7 @@ fn takePthreadHandle(handle: i32) !*PthreadHandle {
     return pthread_slots.items[idx] orelse return error.InvalidHandle;
 }
 
-fn freePthreadHandle(handle: i32) !*PthreadHandle {
+pub fn freePthreadHandle(handle: i32) !*PthreadHandle {
     if (handle <= 0) return error.InvalidHandle;
     const idx: usize = @intCast(handle - 1);
     while (!pthread_registry_mutex.tryLock()) {
@@ -2915,35 +3264,6 @@ fn removeRawPthreadOwner(raw: u64) ?*PthreadTask {
     return null;
 }
 
-test "pthread handle registry reuses freed slots without a linear scan" {
-    while (!pthread_registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    pthread_slots.clearRetainingCapacity();
-    pthread_free_slots.clearRetainingCapacity();
-    raw_pthread_owners.clearRetainingCapacity();
-    pthread_registry_mutex.unlock();
-
-    var first: PthreadHandle = undefined;
-    var second: PthreadHandle = undefined;
-    const first_handle = try allocPthreadHandle(&first);
-    const second_handle = try allocPthreadHandle(&second);
-    try std.testing.expectEqual(@as(i32, 1), first_handle);
-    try std.testing.expectEqual(@as(i32, 2), second_handle);
-
-    try std.testing.expectEqual(@as(*PthreadHandle, &first), try freePthreadHandle(first_handle));
-    var replacement: PthreadHandle = undefined;
-    const replacement_handle = try allocPthreadHandle(&replacement);
-    try std.testing.expectEqual(first_handle, replacement_handle);
-
-    while (!pthread_registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    pthread_slots.clearRetainingCapacity();
-    pthread_free_slots.clearRetainingCapacity();
-    raw_pthread_owners.clearRetainingCapacity();
-    pthread_registry_mutex.unlock();
-}
 
 pub fn finish(status: i32) i32 {
     last_error = status;
@@ -3050,7 +3370,7 @@ pub fn fillUtcNow(out: *TimeDate) !void {
     };
 }
 
-fn monotonicNowNs() !u64 {
+pub fn monotonicNowNs() !u64 {
     // Raw monotonic-clock reading (ns since boot), the same contract
     // sa_time_unix_ns already uses for the wall clock: callers diff two
     // readings, and a reading of 0 is reserved for policy denial or
@@ -3097,25 +3417,20 @@ pub fn pathBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
     return path;
 }
 
-fn hostBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
+pub fn hostBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
     const host = try constBytes(ptr, len);
     if (host.len == 0) return error.InvalidArgument;
     if (std.mem.indexOfScalar(u8, host, 0) != null) return error.InvalidArgument;
     return host;
 }
 
-test "runtime network host bytes reject embedded nul" {
-    const bad = "127.0.0.1\x00.example";
-    try std.testing.expectError(error.InvalidArgument, hostBytes(bad.ptr, bad.len));
-    try std.testing.expectEqualStrings("127.0.0.1", try hostBytes("127.0.0.1".ptr, "127.0.0.1".len));
-}
 
-fn portFromU32(port: u32) !u16 {
+pub fn portFromU32(port: u32) !u16 {
     if (port > std.math.maxInt(u16)) return error.InvalidArgument;
     return @as(u16, @intCast(port));
 }
 
-fn timevalFromNs(ns: u64) !Timeval {
+pub fn timevalFromNs(ns: u64) !Timeval {
     const sec = ns / std.time.ns_per_s;
     const usec = (ns % std.time.ns_per_s) / std.time.ns_per_us;
     return .{
@@ -3124,7 +3439,7 @@ fn timevalFromNs(ns: u64) !Timeval {
     };
 }
 
-fn nsFromTimeval(tv: Timeval) !u64 {
+pub fn nsFromTimeval(tv: Timeval) !u64 {
     const sec = std.math.cast(u64, tv.sec) orelse return error.InvalidArgument;
     const usec = std.math.cast(u64, tv.usec) orelse return error.InvalidArgument;
     const sec_ns = std.math.mul(u64, sec, std.time.ns_per_s) catch return error.InvalidArgument;
@@ -3132,34 +3447,34 @@ fn nsFromTimeval(tv: Timeval) !u64 {
     return std.math.add(u64, sec_ns, usec_ns) catch return error.InvalidArgument;
 }
 
-fn setSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled: bool) !void {
+pub fn setSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled: bool) !void {
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var value: i32 = if (enabled) 1 else 0;
     try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&value));
 }
 
-fn setSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32, value: i32) !void {
+pub fn setSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32, value: i32) !void {
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var mutable = value;
     try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&mutable));
 }
 
-fn setSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32, value: u32) !void {
+pub fn setSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32, value: u32) !void {
     var mutable = value;
     try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&mutable));
 }
 
-fn setSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32, ns: u64) !void {
+pub fn setSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32, ns: u64) !void {
     const tv = try timevalFromNs(ns);
     try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&tv));
 }
 
-fn setSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32, value: u8) !void {
+pub fn setSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32, value: u8) !void {
     var mutable = value;
     try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&mutable));
 }
 
-fn setSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, bytes: []const u8) !void {
+pub fn setSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, bytes: []const u8) !void {
     try std.posix.setsockopt(fd, level, optname, bytes);
 }
 
@@ -3168,14 +3483,14 @@ fn lingerSeconds(timeout_ns: u64) !i32 {
     return std.math.cast(i32, seconds) orelse error.InvalidArgument;
 }
 
-fn setSocketOptLinger(fd: std.posix.fd_t, enabled: bool, timeout_ns: u64) !void {
+pub fn setSocketOptLinger(fd: std.posix.fd_t, enabled: bool, timeout_ns: u64) !void {
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     const seconds = if (enabled) try lingerSeconds(timeout_ns) else 0;
     var value = LingerOption{ .onoff = if (enabled) 1 else 0, .linger = seconds };
     try std.posix.setsockopt(fd, SOLT.SOCKET, SOT.LINGER, std.mem.asBytes(&value));
 }
 
-fn getSocketOptLinger(fd: std.posix.fd_t) !LingerOption {
+pub fn getSocketOptLinger(fd: std.posix.fd_t) !LingerOption {
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var value = LingerOption{ .onoff = 0, .linger = 0 };
     var len: SockLenT = @sizeOf(LingerOption);
@@ -3189,7 +3504,7 @@ fn getSocketOptLinger(fd: std.posix.fd_t) !LingerOption {
     }
 }
 
-fn getSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32) !bool {
+pub fn getSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32) !bool {
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var value: i32 = 0;
     var len: SockLenT = @sizeOf(i32);
@@ -3209,7 +3524,7 @@ fn getSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32) !bool {
 // IPV6_V6ONLY on an already-bound socket, which the kernel only accepts
 // before bind. Callers that can honour the option another way need the
 // errno, not a trap.
-fn lxSetSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled: bool) !void {
+pub fn lxSetSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled: bool) !void {
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var value: i32 = if (enabled) 1 else 0;
     if (comptime is_linux) {
@@ -3228,7 +3543,7 @@ fn lxSetSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled: boo
 // bind-time option after bind. On a bind failure the pre-change socket
 // shape is restored best-effort so a failed change does not silently
 // destroy a working handle.
-fn rebuildTcpListenerV6Only(listener: u64, enabled: bool) !void {
+pub fn rebuildTcpListenerV6Only(listener: u64, enabled: bool) !void {
     while (!registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -3274,7 +3589,7 @@ fn rebuildTcpListenerV6Only(listener: u64, enabled: bool) !void {
     try lxListen(new_fd, 128);
 }
 
-fn rebuildUdpSocketV6Only(socket: u64, enabled: bool) !void {
+pub fn rebuildUdpSocketV6Only(socket: u64, enabled: bool) !void {
     while (!registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -3331,7 +3646,7 @@ const LinuxUCred = extern struct {
     gid: u32,
 };
 
-fn getUnixPeerCred(fd: std.posix.fd_t) !LinuxUCred {
+pub fn getUnixPeerCred(fd: std.posix.fd_t) !LinuxUCred {
     var value: LinuxUCred = .{ .pid = 0, .uid = 0, .gid = 0 };
     var len: SockLenT = @sizeOf(LinuxUCred);
     const rc = std.os.linux.getsockopt(fd, SOLT.SOCKET, std.os.linux.SO.PEERCRED, @as([*]u8, @ptrCast(&value)), &len);
@@ -3379,7 +3694,7 @@ fn storeHarvestedPeerCredLocked(handle: u64, fd: std.posix.fd_t, cred: LinuxUCre
     peer_cred_cursor = (peer_cred_cursor + 1) % peer_cred_slots.len;
 }
 
-fn harvestedPeerCredLocked(handle: u64, fd: std.posix.fd_t) ?LinuxUCred {
+pub fn harvestedPeerCredLocked(handle: u64, fd: std.posix.fd_t) ?LinuxUCred {
     const resource = getResourceLocked(handle) orelse return null;
     const live_fd = switch (resource.*) {
         .udp_socket => |value| value,
@@ -3397,7 +3712,7 @@ fn harvestedPeerCredLocked(handle: u64, fd: std.posix.fd_t) ?LinuxUCred {
 /// Best effort: failure only means peer_cred reports NOT_FOUND
 /// for a connected socket instead of answering with a wrong or
 /// zero credential.
-fn armPeerCredHarvest(fd: std.posix.fd_t) void {
+pub fn armPeerCredHarvest(fd: std.posix.fd_t) void {
     if (comptime !is_linux) return;
     setSocketOptBool(fd, SOLT.SOCKET, SO_PASSCRED, true) catch {};
 }
@@ -3426,7 +3741,7 @@ fn scmCredentials(ctrl: []const u8) ?LinuxUCred {
     return null;
 }
 
-fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
+pub fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var value: i32 = 0;
     var len: SockLenT = @sizeOf(i32);
@@ -3440,7 +3755,7 @@ fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
     }
 }
 
-fn getSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32) !u64 {
+pub fn getSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32) !u64 {
     var tv: Timeval = .{ .sec = 0, .usec = 0 };
     var len: SockLenT = @sizeOf(Timeval);
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&tv)), &len);
@@ -3453,7 +3768,7 @@ fn getSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32) !u64 {
     }
 }
 
-fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
+pub fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
     var value: u8 = 0;
     var len: SockLenT = @sizeOf(u8);
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
@@ -3466,7 +3781,7 @@ fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
     }
 }
 
-fn getSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32) !u32 {
+pub fn getSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32) !u32 {
     var value: u32 = 0;
     var len: SockLenT = @sizeOf(u32);
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
@@ -3479,7 +3794,7 @@ fn getSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32) !u32 {
     }
 }
 
-fn getSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, out: []u8) !void {
+pub fn getSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, out: []u8) !void {
     var len: SockLenT = @intCast(out.len);
     const rc = std.os.linux.getsockopt(fd, level, optname, out.ptr, &len);
     switch (std.os.linux.errno(rc)) {
@@ -3490,37 +3805,37 @@ fn getSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, out: []u8) !v
     }
 }
 
-fn socketAddressFamily(fd: std.posix.fd_t) !u16 {
+pub fn socketAddressFamily(fd: std.posix.fd_t) !u16 {
     var storage: SockAddrStorageT = makeSockAddrStorage();
     var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
     try lxGetsockname(fd, @ptrCast(&storage), &addr_len);
     return storage.family;
 }
 
-fn socketIsUnix(fd: std.posix.fd_t) !bool {
+pub fn socketIsUnix(fd: std.posix.fd_t) !bool {
     return (try socketAddressFamily(fd)) == AFT.UNIX;
 }
 
-fn socketIsInet(fd: std.posix.fd_t) !bool {
+pub fn socketIsInet(fd: std.posix.fd_t) !bool {
     const family = try socketAddressFamily(fd);
     return family == AFT.INET or family == AFT.INET6;
 }
 
-fn socketIsStream(fd: std.posix.fd_t) !bool {
+pub fn socketIsStream(fd: std.posix.fd_t) !bool {
     const socket_type = try getSocketOptInt(fd, SOLT.SOCKET, std.os.linux.SO.TYPE);
     return socket_type == @as(i32, @intCast(SOCKT.STREAM));
 }
 
-fn socketIsDatagram(fd: std.posix.fd_t) !bool {
+pub fn socketIsDatagram(fd: std.posix.fd_t) !bool {
     const socket_type = try getSocketOptInt(fd, SOLT.SOCKET, std.os.linux.SO.TYPE);
     return socket_type == @as(i32, @intCast(SOCKT.DGRAM));
 }
 
-fn socketAcceptConn(fd: std.posix.fd_t) !bool {
+pub fn socketAcceptConn(fd: std.posix.fd_t) !bool {
     return try getSocketOptBool(fd, SOLT.SOCKET, std.os.linux.SO.ACCEPTCONN);
 }
 
-fn getUnixSockAddr(fd: std.posix.fd_t, peer: bool) !struct { addr: SockAddrUnT, len: SockLenT } {
+pub fn getUnixSockAddr(fd: std.posix.fd_t, peer: bool) !struct { addr: SockAddrUnT, len: SockLenT } {
     var addr: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
     @memset(&addr.path, 0);
     var len: SockLenT = @sizeOf(SockAddrUnT);
@@ -3532,7 +3847,7 @@ fn getUnixSockAddr(fd: std.posix.fd_t, peer: bool) !struct { addr: SockAddrUnT, 
     return .{ .addr = addr, .len = len };
 }
 
-fn parseIp4Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !NetAddress {
+pub fn parseIp4Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !NetAddress {
     const host = hostBytes(host_ptr, host_len) catch |err| return err;
     const port16 = portFromU32(port) catch |err| return err;
     // FreeBSD: the old net resolveIp bottoms out in if_nametoindex,
@@ -3578,7 +3893,7 @@ fn parseV6HalfFreebsd(s: []const u8, out: *[16]u8) ?usize {
 // Numeric IPv6 parser for FreeBSD: the old Ip6Address.resolve/parse and
 // Address.resolveIp all reach if_nametoindex (unimplemented for freebsd in
 // zig 0.14). Handles full, "::"-compressed and embedded-IPv4 forms.
-fn parseIpv6NumericFreebsd(text: []const u8) ?[16]u8 {
+pub fn parseIpv6NumericFreebsd(text: []const u8) ?[16]u8 {
     if (text.len == 0 or text.len > 45) return null;
     var left = text;
     var right: []const u8 = "";
@@ -3616,7 +3931,7 @@ fn parseIpv6NumericFreebsd(text: []const u8) ?[16]u8 {
 // "addr" or "addr%zone" (numeric zone, or interface name via libc
 // if_nametoindex which FreeBSD provides). Shared by parseIp6Address and
 // parseIpv6Ascii on FreeBSD.
-fn parseIp6FreebsdParts(host: []const u8) ?struct { addr: [16]u8, scope_id: u32 } {
+pub fn parseIp6FreebsdParts(host: []const u8) ?struct { addr: [16]u8, scope_id: u32 } {
     var addr_text = host;
     var scope_id: u32 = 0;
     if (std.mem.indexOfScalar(u8, host, '%')) |pct| {
@@ -3637,30 +3952,9 @@ fn parseIp6FreebsdParts(host: []const u8) ?struct { addr: [16]u8, scope_id: u32 
     return .{ .addr = octets, .scope_id = scope_id };
 }
 
-test "parseIpv6NumericFreebsd handles full, compressed and embedded forms" {
-    const t = std.testing;
-    try t.expectEqualSlices(u8, &std.mem.zeroes([16]u8), &parseIpv6NumericFreebsd("::").?);
-    try t.expectEqualSlices(u8, &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, &parseIpv6NumericFreebsd("::1").?);
-    try t.expectEqualSlices(u8, &[_]u8{ 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8 }, &parseIpv6NumericFreebsd("1:2:3:4:5:6:7:8").?);
-    try t.expectEqualSlices(u8, &[_]u8{ 0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, &parseIpv6NumericFreebsd("fe80::1").?);
-    try t.expectEqualSlices(u8, &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1 }, &parseIpv6NumericFreebsd("::ffff:192.168.0.1").?);
-    try t.expect(parseIpv6NumericFreebsd("") == null);
-    try t.expect(parseIpv6NumericFreebsd("1:2:3") == null);
-    try t.expect(parseIpv6NumericFreebsd("1:2:3:4:5:6:7:8:9") == null);
-    try t.expect(parseIpv6NumericFreebsd("1::2::3") == null);
-    try t.expect(parseIpv6NumericFreebsd("1:2:3:4:5:6:7:8::") == null);
-    try t.expect(parseIpv6NumericFreebsd("gggg::1") == null);
-}
 
-test "parseIp6FreebsdParts splits numeric scopes" {
-    const t = std.testing;
-    const p = parseIp6FreebsdParts("fe80::1%3").?;
-    try t.expectEqual(@as(u32, 3), p.scope_id);
-    try t.expectEqualSlices(u8, &[_]u8{ 0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, &p.addr);
-    try t.expect(parseIp6FreebsdParts("::1%") == null);
-}
 
-fn parseIp6Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !NetAddress {
+pub fn parseIp6Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !NetAddress {
     const host = hostBytes(host_ptr, host_len) catch |err| return err;
     const port16 = portFromU32(port) catch |err| return err;
     if (comptime builtin.os.tag == .freebsd) {
@@ -3672,27 +3966,27 @@ fn parseIp6Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !NetAddress
     return address;
 }
 
-fn resolveFirstAddressFromParts(host: []const u8, port16: u16) !NetAddress {
+pub fn resolveFirstAddressFromParts(host: []const u8, port16: u16) !NetAddress {
     var list = try netGetAddressList(std.heap.page_allocator, host, port16);
     defer list.deinit();
     if (list.addrs.len == 0) return error.HostLacksNetworkAddresses;
     return list.addrs[0];
 }
 
-fn resolveFirstSocketAddress(host_ptr: ?[*]const u8, host_len: u64, port: u32) !NetAddress {
+pub fn resolveFirstSocketAddress(host_ptr: ?[*]const u8, host_len: u64, port: u32) !NetAddress {
     const host = hostBytes(host_ptr, host_len) catch |err| return err;
     const port16 = portFromU32(port) catch |err| return err;
     return resolveFirstAddressFromParts(host, port16);
 }
 
-fn makeIpv4Membership(multicast_addr: NetAddress, interface_addr: NetAddress) IpMreqC {
+pub fn makeIpv4Membership(multicast_addr: NetAddress, interface_addr: NetAddress) IpMreqC {
     return .{
         .imr_multiaddr = .{ .s_addr = multicast_addr.in4AddrU32() },
         .imr_interface = .{ .s_addr = interface_addr.in4AddrU32() },
     };
 }
 
-fn makeIpv6Membership(multicast_addr: NetAddress, interface_index: u32) Ipv6MreqC {
+pub fn makeIpv6Membership(multicast_addr: NetAddress, interface_index: u32) Ipv6MreqC {
     return .{
         .ipv6mr_multiaddr = multicast_addr.in6AddrBytes(),
         .ipv6mr_interface = interface_index,
@@ -3707,7 +4001,7 @@ fn socketFdFromHandle(handle: u64) !std.posix.fd_t {
     return try handleToFd(handle);
 }
 
-fn ensureSocketHandle(handle: u64) !struct { fd: std.posix.fd_t, kind: enum { tcp_stream, tcp_listener, udp_socket } } {
+pub fn ensureSocketHandle(handle: u64) !struct { fd: std.posix.fd_t, kind: enum { tcp_stream, tcp_listener, udp_socket } } {
     while (!registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -3755,7 +4049,7 @@ pub fn registerResource(resource: Resource) !u64 {
     return try registerResourceLocked(resource);
 }
 
-fn takeResourceLocked(handle: u64) ?Resource {
+pub fn takeResourceLocked(handle: u64) ?Resource {
     const idx = dynamicIndex(handle) orelse return null;
     if (idx >= registry_slots.items.len) return null;
     const resource = registry_slots.items[idx] orelse return null;
@@ -3861,7 +4155,7 @@ pub fn metadataI64TimeFieldNsec(handle: u64, comptime field: []const u8) i64 {
     };
 }
 
-fn applyRawMode(term: *std.posix.termios) void {
+pub fn applyRawMode(term: *std.posix.termios) void {
     term.iflag.IGNBRK = false;
     term.iflag.BRKINT = false;
     term.iflag.PARMRK = false;
@@ -3957,7 +4251,7 @@ const IoPlan = union(enum) {
     invalid,
 };
 
-fn lockRegistry() void {
+pub fn lockRegistry() void {
     while (!registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -4001,7 +4295,7 @@ fn ioPlanLocked(handle: u64, is_write: bool) IoPlan {
 /// DEF-R5: snapshot a tcp_stream / udp_socket fd under the
 /// registry lock and drop the lock before any blocking syscall
 /// (see the IoPlan note above).
-fn tcpStreamFd(handle: u64) ?std.posix.fd_t {
+pub fn tcpStreamFd(handle: u64) ?std.posix.fd_t {
     lockRegistry();
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return null;
@@ -4011,7 +4305,7 @@ fn tcpStreamFd(handle: u64) ?std.posix.fd_t {
     };
 }
 
-fn udpSocketFd(handle: u64) ?std.posix.fd_t {
+pub fn udpSocketFd(handle: u64) ?std.posix.fd_t {
     lockRegistry();
     defer registry_mutex.unlock();
     const resource = getResourceLocked(handle) orelse return null;
@@ -4023,7 +4317,7 @@ fn udpSocketFd(handle: u64) ?std.posix.fd_t {
 
 /// Read once from a handle without holding the registry mutex
 /// across a blocking syscall (see the IoPlan note above).
-fn readHandle(handle: u64, buffer: []u8) !usize {
+pub fn readHandle(handle: u64, buffer: []u8) !usize {
     lockRegistry();
     switch (ioPlanLocked(handle, false)) {
         .fd, .file_fd => |fd| {
@@ -4051,7 +4345,7 @@ fn readHandle(handle: u64, buffer: []u8) !usize {
 /// locked implementation: fd writes are a single write(2),
 /// while file writes write all bytes (sio.File.write is
 /// writeAll).
-fn writeHandle(handle: u64, data: []const u8) !usize {
+pub fn writeHandle(handle: u64, data: []const u8) !usize {
     lockRegistry();
     switch (ioPlanLocked(handle, true)) {
         .fd => |fd| {
@@ -4136,7 +4430,7 @@ fn argvFromBlob(allocator: std.mem.Allocator, blob: []const u8) ![]const []const
     return args[0..index];
 }
 
-fn argvFromEntries(allocator: std.mem.Allocator, argv_ptr: ?[*]const SaProcessArgv, argv_len: u64) ![]const []const u8 {
+pub fn argvFromEntries(allocator: std.mem.Allocator, argv_ptr: ?[*]const SaProcessArgv, argv_len: u64) ![]const []const u8 {
     const count = try lenAsUsize(argv_len);
     if (count == 0) return error.InvalidArgument;
     const entries = argv_ptr orelse return error.InvalidArgument;
@@ -4151,7 +4445,7 @@ fn argvFromEntries(allocator: std.mem.Allocator, argv_ptr: ?[*]const SaProcessAr
     return args;
 }
 
-fn envpFromCurrentProcess(arena: std.mem.Allocator) ![:null]const ?[*:0]const u8 {
+pub fn envpFromCurrentProcess(arena: std.mem.Allocator) ![:null]const ?[*:0]const u8 {
     var count: usize = 0;
     while (environ[count] != null) : (count += 1) {}
 
@@ -4215,29 +4509,29 @@ fn rawWaitStatus(status: i32) u32 {
     return @bitCast(status);
 }
 
-fn waitStatusCode(raw: i32) u32 {
+pub fn waitStatusCode(raw: i32) u32 {
     return statusFromWaitStatus(rawWaitStatus(raw));
 }
 
-fn waitStatusSignal(raw: i32) i32 {
+pub fn waitStatusSignal(raw: i32) i32 {
     const status = rawWaitStatus(raw);
     if (!WT.IFSIGNALED(status)) return -1;
     return @as(i32, @bitCast(@backingInt(WT.TERMSIG(status))));
 }
 
-fn waitStatusCoreDumped(raw: i32) u8 {
+pub fn waitStatusCoreDumped(raw: i32) u8 {
     const status = rawWaitStatus(raw);
     if (!WT.IFSIGNALED(status)) return 0;
     return if ((status & 0x80) != 0) 1 else 0;
 }
 
-fn waitStatusStoppedSignal(raw: i32) i32 {
+pub fn waitStatusStoppedSignal(raw: i32) i32 {
     const status = rawWaitStatus(raw);
     if (!WT.IFSTOPPED(status)) return -1;
     return @as(i32, @bitCast(@backingInt(WT.STOPSIG(status))));
 }
 
-fn waitStatusContinued(raw: i32) u8 {
+pub fn waitStatusContinued(raw: i32) u8 {
     return if (rawWaitStatus(raw) == 0xffff) 1 else 0;
 }
 
@@ -4276,7 +4570,7 @@ fn openPidfd(pid: std.posix.pid_t) ?std.posix.fd_t {
     };
 }
 
-fn waitPidfdStatus(fd: std.posix.fd_t, options: u32) error{ ProcessNotFound, InvalidArgument, PermissionDenied, Unexpected }!?u32 {
+pub fn waitPidfdStatus(fd: std.posix.fd_t, options: u32) error{ ProcessNotFound, InvalidArgument, PermissionDenied, Unexpected }!?u32 {
     if (comptime builtin.os.tag != .linux) return null;
     var siginfo: std.posix.siginfo_t = undefined;
     while (true) {
@@ -4294,7 +4588,7 @@ fn waitPidfdStatus(fd: std.posix.fd_t, options: u32) error{ ProcessNotFound, Inv
     return waitStatusFromSiginfo(siginfo);
 }
 
-fn sendSignalToPidfd(fd: std.posix.fd_t, signum: u8, flags: u32) !void {
+pub fn sendSignalToPidfd(fd: std.posix.fd_t, signum: u8, flags: u32) !void {
     const result = std.os.linux.pidfd_send_signal(fd, @fromBackingInt(@intCast(signum)), null, flags);
     switch (std.os.linux.errno(result)) {
         .SUCCESS => return,
@@ -4305,7 +4599,7 @@ fn sendSignalToPidfd(fd: std.posix.fd_t, signum: u8, flags: u32) !void {
     }
 }
 
-fn sendSignalToProcessGroup(pgid: std.posix.pid_t, signum: u8) !void {
+pub fn sendSignalToProcessGroup(pgid: std.posix.pid_t, signum: u8) !void {
     const target: std.posix.pid_t = -pgid;
     var attempts: u8 = 0;
     while (true) : (attempts += 1) {
@@ -4333,7 +4627,7 @@ fn errnoToSetupError(errno: std.posix.E) anyerror {
     };
 }
 
-fn applyProcessCommandExtSetup(cwd: ?[]const u8, config: ProcessSpawnConfig, chroot_path_z: ?[*:0]const u8) !void {
+pub fn applyProcessCommandExtSetup(cwd: ?[]const u8, config: ProcessSpawnConfig, chroot_path_z: ?[*:0]const u8) !void {
     // wasm32-wasi has no process spawn; stub (linux errno types mismatch wasi).
     if (comptime is_wasm) return error.Unsupported;
     if (config.groups) |groups| try lxSetgroups(groups);
@@ -4345,7 +4639,7 @@ fn applyProcessCommandExtSetup(cwd: ?[]const u8, config: ProcessSpawnConfig, chr
     if (config.setsid) try lxSetsid();
 }
 
-fn finalizeProcessExit(proc: *ProcessHandle, status: u32) !void {
+pub fn finalizeProcessExit(proc: *ProcessHandle, status: u32) !void {
     proc.code = statusFromWaitStatus(status);
     proc.raw_status = status;
     proc.exited = true;
@@ -4367,7 +4661,7 @@ fn finalizeProcessExit(proc: *ProcessHandle, status: u32) !void {
     proc.stderr_pos = 0;
 }
 
-fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8, config: ProcessSpawnConfig) !SpawnResult {
+pub fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8, config: ProcessSpawnConfig) !SpawnResult {
     // wasm32-wasi has no fork/exec/pipe2-CLOEXEC; stub.
     if (comptime is_wasm) return error.Unsupported;
     if (argv.len == 0) return error.InvalidArgument;
@@ -4567,19 +4861,19 @@ fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const
     }
 }
 
-fn spawnProcessCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8) !SpawnResult {
+pub fn spawnProcessCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8) !SpawnResult {
     return spawnProcessConfiguredCwd(allocator, argv, mode, cwd, .{});
 }
 
-fn spawnProcess(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode) !SpawnResult {
+pub fn spawnProcess(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode) !SpawnResult {
     return spawnProcessCwd(allocator, argv, mode, null);
 }
 
-fn filePread(f: sio.File, buffer: []u8, offset: u64) !usize {
+pub fn filePread(f: sio.File, buffer: []u8, offset: u64) !usize {
     return try f.inner.readPositional(sio.io(), &.{buffer}, offset);
 }
 
-fn filePreadAll(f: sio.File, buffer: []u8, offset: u64) !usize {
+pub fn filePreadAll(f: sio.File, buffer: []u8, offset: u64) !usize {
     var index: usize = 0;
     while (index != buffer.len) {
         const n = try f.inner.readPositional(sio.io(), &.{buffer[index..]}, offset + index);
@@ -4589,11 +4883,11 @@ fn filePreadAll(f: sio.File, buffer: []u8, offset: u64) !usize {
     return index;
 }
 
-fn filePwrite(f: sio.File, buffer: []const u8, offset: u64) !usize {
+pub fn filePwrite(f: sio.File, buffer: []const u8, offset: u64) !usize {
     return try f.inner.writePositional(sio.io(), &.{buffer}, offset);
 }
 
-fn filePwriteAll(f: sio.File, buffer: []const u8, offset: u64) !void {
+pub fn filePwriteAll(f: sio.File, buffer: []const u8, offset: u64) !void {
     return try f.inner.writePositionalAll(sio.io(), buffer, offset);
 }
 
@@ -4617,7 +4911,7 @@ pub fn fileSeekFromEnd(f: sio.File, offset: i64) !void {
     try f.seekTo(@as(u64, @intCast(new_pos)));
 }
 
-fn fileGetPos(f: sio.File) !u64 {
+pub fn fileGetPos(f: sio.File) !u64 {
     if (comptime builtin.cpu.arch.isWasm()) {
         return error.Unsupported;
     } else {
@@ -4684,7 +4978,7 @@ fn errnoToAny(e: anytype) anyerror {
     return error.Unexpected;
 }
 
-fn lxErr(e: std.os.linux.E) anyerror {
+pub fn lxErr(e: std.os.linux.E) anyerror {
     if (comptime is_wasm) return error.Unsupported;
     return errnoToAny(e);
 }
@@ -4761,7 +5055,7 @@ fn libcUsize(rc: isize) !usize {
     return @intCast(rc);
 }
 
-fn lxClose(fd: std.posix.fd_t) void {
+pub fn lxClose(fd: std.posix.fd_t) void {
     if (comptime is_wasm) return;
     if (comptime is_linux) {
         _ = std.os.linux.close(fd);
@@ -4784,19 +5078,19 @@ fn lxRead(fd: std.posix.fd_t, buf: []u8) !usize {
     return try libcUsize(libc.read(fd, buf.ptr, buf.len));
 }
 
-fn lxReadv(fd: std.posix.fd_t, iov: []std.posix.iovec) !usize {
+pub fn lxReadv(fd: std.posix.fd_t, iov: []std.posix.iovec) !usize {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) return try lxCheck(std.os.linux.readv(fd, iov.ptr, iov.len));
     return try libcUsize(libc.readv(fd, iov.ptr, @intCast(iov.len)));
 }
 
-fn lxWritev(fd: std.posix.fd_t, iov: []const std.posix.iovec_const) !usize {
+pub fn lxWritev(fd: std.posix.fd_t, iov: []const std.posix.iovec_const) !usize {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) return try lxCheck(std.os.linux.writev(fd, iov.ptr, iov.len));
     return try libcUsize(libc.writev(fd, iov.ptr, @intCast(iov.len)));
 }
 
-fn lxSocket(domain: u32, sock_type: u32, protocol: u32) !std.posix.fd_t {
+pub fn lxSocket(domain: u32, sock_type: u32, protocol: u32) !std.posix.fd_t {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         const rc = try lxCheck(std.os.linux.socket(domain, sock_type, protocol));
@@ -4805,7 +5099,7 @@ fn lxSocket(domain: u32, sock_type: u32, protocol: u32) !std.posix.fd_t {
     return try libcFd(libc.socket(@intCast(domain), @intCast(sock_type), @intCast(protocol)));
 }
 
-fn lxBind(fd: std.posix.fd_t, addr: *const SockAddrT, len: SockLenT) !void {
+pub fn lxBind(fd: std.posix.fd_t, addr: *const SockAddrT, len: SockLenT) !void {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         _ = try lxCheck(std.os.linux.bind(fd, addr, len));
@@ -4814,7 +5108,7 @@ fn lxBind(fd: std.posix.fd_t, addr: *const SockAddrT, len: SockLenT) !void {
     try libcErrRc(libc.bind(fd, addr, @intCast(len)));
 }
 
-fn lxListen(fd: std.posix.fd_t, backlog: u32) !void {
+pub fn lxListen(fd: std.posix.fd_t, backlog: u32) !void {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         _ = try lxCheck(std.os.linux.listen(fd, backlog));
@@ -4823,7 +5117,7 @@ fn lxListen(fd: std.posix.fd_t, backlog: u32) !void {
     try libcErrRc(libc.listen(fd, @intCast(backlog)));
 }
 
-fn lxAccept(fd: std.posix.fd_t, addr: ?*SockAddrT, len: ?*SockLenT, flags: u32) !std.posix.fd_t {
+pub fn lxAccept(fd: std.posix.fd_t, addr: ?*SockAddrT, len: ?*SockLenT, flags: u32) !std.posix.fd_t {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         const rc = try lxCheck(std.os.linux.accept4(fd, addr, len, flags));
@@ -4837,7 +5131,7 @@ fn lxAccept(fd: std.posix.fd_t, addr: ?*SockAddrT, len: ?*SockLenT, flags: u32) 
     return new_fd;
 }
 
-fn lxConnect(fd: std.posix.fd_t, addr: *const SockAddrT, len: SockLenT) !void {
+pub fn lxConnect(fd: std.posix.fd_t, addr: *const SockAddrT, len: SockLenT) !void {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         _ = try lxCheck(std.os.linux.connect(fd, @ptrCast(addr), len));
@@ -4855,41 +5149,41 @@ pub fn lxShutdown(fd: std.posix.fd_t, how: i32) !void {
     try libcErrRc(libc.shutdown(fd, @intCast(how)));
 }
 
-fn lxSend(fd: std.posix.fd_t, bytes: []const u8, flags: u32) !usize {
+pub fn lxSend(fd: std.posix.fd_t, bytes: []const u8, flags: u32) !usize {
     if (comptime is_wasm) return error.Unsupported;
     if (bytes.len == 0) return 0;
     if (comptime is_linux) return try lxCheck(std.os.linux.sendto(fd, bytes.ptr, bytes.len, flags, null, 0));
     return try libcUsize(libc.sendto(fd, bytes.ptr, bytes.len, @intCast(flags), null, 0));
 }
 
-fn lxRecv(fd: std.posix.fd_t, buf: []u8, flags: u32) !usize {
+pub fn lxRecv(fd: std.posix.fd_t, buf: []u8, flags: u32) !usize {
     if (comptime is_wasm) return error.Unsupported;
     if (buf.len == 0) return 0;
     if (comptime is_linux) return try lxCheck(std.os.linux.recvfrom(fd, buf.ptr, buf.len, flags, null, null));
     return try libcUsize(libc.recvfrom(fd, buf.ptr, buf.len, @intCast(flags), null, null));
 }
 
-fn lxSendto(fd: std.posix.fd_t, bytes: []const u8, flags: u32, addr: ?*const SockAddrT, len: SockLenT) !usize {
+pub fn lxSendto(fd: std.posix.fd_t, bytes: []const u8, flags: u32, addr: ?*const SockAddrT, len: SockLenT) !usize {
     if (comptime is_wasm) return error.Unsupported;
     if (bytes.len == 0) return 0;
     if (comptime is_linux) return try lxCheck(std.os.linux.sendto(fd, bytes.ptr, bytes.len, flags, addr, len));
     return try libcUsize(libc.sendto(fd, bytes.ptr, bytes.len, @intCast(flags), addr, @intCast(len)));
 }
 
-fn lxRecvfrom(fd: std.posix.fd_t, buf: []u8, flags: u32, addr: ?*SockAddrT, len: ?*SockLenT) !usize {
+pub fn lxRecvfrom(fd: std.posix.fd_t, buf: []u8, flags: u32, addr: ?*SockAddrT, len: ?*SockLenT) !usize {
     if (comptime is_wasm) return error.Unsupported;
     if (buf.len == 0) return 0;
     if (comptime is_linux) return try lxCheck(std.os.linux.recvfrom(fd, buf.ptr, buf.len, flags, addr, len));
     return try libcUsize(libc.recvfrom(fd, buf.ptr, buf.len, @intCast(flags), addr, @ptrCast(len)));
 }
 
-fn lxSendmsg(fd: std.posix.fd_t, msg: *const MsghdrConstT, flags: u32) !usize {
+pub fn lxSendmsg(fd: std.posix.fd_t, msg: *const MsghdrConstT, flags: u32) !usize {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) return try lxCheck(std.os.linux.sendmsg(fd, msg, flags));
     return try libcUsize(libc.sendmsg(fd, msg, @intCast(flags)));
 }
 
-fn lxDup(old: std.posix.fd_t) !std.posix.fd_t {
+pub fn lxDup(old: std.posix.fd_t) !std.posix.fd_t {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         const rc = try lxCheck(std.os.linux.dup(old));
@@ -4998,7 +5292,7 @@ fn lxSetpgid(pid: std.posix.pid_t, pgid: std.posix.pid_t) !void {
     try libcErrRc(libc.setpgid(@intCast(pid), @intCast(pgid)));
 }
 
-fn lxFcntl(fd: std.posix.fd_t, cmd: i32, arg: usize) !usize {
+pub fn lxFcntl(fd: std.posix.fd_t, cmd: i32, arg: usize) !usize {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) return try lxCheck(std.os.linux.fcntl(fd, cmd, arg));
     const rc = libc.fcntl(fd, @intCast(cmd), @as(c_int, @intCast(arg)));
@@ -5012,7 +5306,7 @@ fn lxIsatty(fd: std.posix.fd_t) bool {
     return true;
 }
 
-fn lxUnlink(path: []const u8) !void {
+pub fn lxUnlink(path: []const u8) !void {
     if (comptime is_wasm) return error.Unsupported;
     const z = try std.posix.toPosixPath(path);
     if (comptime is_linux) {
@@ -5062,7 +5356,7 @@ pub fn lxFutimens(fd: std.posix.fd_t, times: *const [2]std.posix.timespec) !void
     try libcErrRc(libc.futimens(fd, times));
 }
 
-fn lxKill(pid: std.posix.pid_t, sig: u8) !void {
+pub fn lxKill(pid: std.posix.pid_t, sig: u8) !void {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         _ = try lxCheck(std.os.linux.kill(pid, @fromBackingInt(@intCast(sig))));
@@ -5071,7 +5365,7 @@ fn lxKill(pid: std.posix.pid_t, sig: u8) !void {
     try libcErrRc(libc.kill(@intCast(pid), @intCast(sig)));
 }
 
-fn lxGetsockname(fd: std.posix.fd_t, addr: *SockAddrT, len: *SockLenT) !void {
+pub fn lxGetsockname(fd: std.posix.fd_t, addr: *SockAddrT, len: *SockLenT) !void {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         _ = try lxCheck(std.os.linux.getsockname(fd, addr, len));
@@ -5080,7 +5374,7 @@ fn lxGetsockname(fd: std.posix.fd_t, addr: *SockAddrT, len: *SockLenT) !void {
     try libcErrRc(libc.getsockname(fd, addr, @ptrCast(len)));
 }
 
-fn lxGetpeername(fd: std.posix.fd_t, addr: *SockAddrT, len: *SockLenT) !void {
+pub fn lxGetpeername(fd: std.posix.fd_t, addr: *SockAddrT, len: *SockLenT) !void {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         _ = try lxCheck(std.os.linux.getpeername(fd, addr, len));
@@ -5089,7 +5383,7 @@ fn lxGetpeername(fd: std.posix.fd_t, addr: *SockAddrT, len: *SockLenT) !void {
     try libcErrRc(libc.getpeername(fd, addr, @ptrCast(len)));
 }
 
-fn lxGetsockoptError(fd: std.posix.fd_t) !void {
+pub fn lxGetsockoptError(fd: std.posix.fd_t) !void {
     if (comptime is_wasm) return error.Unsupported;
     var value: i32 = 0;
     var len: SockLenT = @sizeOf(i32);
@@ -5104,20 +5398,20 @@ fn lxGetsockoptError(fd: std.posix.fd_t) !void {
     }
 }
 
-fn lxEpollCreate1(flags: u32) !std.posix.fd_t {
+pub fn lxEpollCreate1(flags: u32) !std.posix.fd_t {
     if (comptime !is_linux) return error.Unsupported;
     if (comptime is_wasm) return error.Unsupported;
     const rc = try lxCheck(std.os.linux.epoll_create1(flags));
     return @as(std.posix.fd_t, @bitCast(@as(u32, @truncate(rc))));
 }
 
-fn lxEpollCtl(epfd: std.posix.fd_t, op: u32, fd: std.posix.fd_t, event: ?*std.os.linux.epoll_event) !void {
+pub fn lxEpollCtl(epfd: std.posix.fd_t, op: u32, fd: std.posix.fd_t, event: ?*std.os.linux.epoll_event) !void {
     if (comptime !is_linux) return error.Unsupported;
     if (comptime is_wasm) return error.Unsupported;
     _ = try lxCheck(std.os.linux.epoll_ctl(epfd, op, fd, event));
 }
 
-fn lxEpollWait(epfd: std.posix.fd_t, events: []std.os.linux.epoll_event, timeout_ms: i32) usize {
+pub fn lxEpollWait(epfd: std.posix.fd_t, events: []std.os.linux.epoll_event, timeout_ms: i32) usize {
     if (comptime !is_linux) return 0;
     if (comptime is_wasm) return;
     const rc = std.os.linux.epoll_wait(epfd, events.ptr, @as(u32, @intCast(events.len)), timeout_ms);
@@ -5130,7 +5424,7 @@ const LxWaitResult = struct {
     status: u32,
 };
 
-fn lxWaitpid(pid: std.posix.pid_t, flags: u32) LxWaitResult {
+pub fn lxWaitpid(pid: std.posix.pid_t, flags: u32) LxWaitResult {
     if (comptime is_wasm) return .{ .pid = 0, .status = 0 };
     var status: i32 = 0;
     if (comptime is_linux) {
@@ -5152,7 +5446,7 @@ fn lxWaitpid(pid: std.posix.pid_t, flags: u32) LxWaitResult {
 }
 
 /// Old std.posix.execvpeZ: exec with PATH search. Reimplemented on execve.
-fn lxExecvpeZ(file: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) anyerror {
+pub fn lxExecvpeZ(file: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) anyerror {
     if (comptime is_wasm) return error.Unsupported;
     const do_exec = struct {
         fn run(path: [*:0]const u8, av: [*:null]const ?[*:0]const u8, ev: [*:null]const ?[*:0]const u8) anyerror {
@@ -5197,7 +5491,7 @@ fn lxExit(code: u8) noreturn {
 // 0.17 compat: socket addresses (old net Address type removed).
 // Raw sockaddr storage + constructors; DNS via std.Io.net.
 // ---------------------------------------------------------------------------
-const NetAddress = struct {
+pub const NetAddress = struct {
     storage: SockAddrStorageT = makeSockAddrStorage(),
     len: SockLenT = @sizeOf(SockAddrStorageT),
 
@@ -5316,7 +5610,7 @@ const NetAddressList = struct {
     }
 };
 
-fn netGetAddressList(allocator: std.mem.Allocator, host: []const u8, port: u16) !NetAddressList {
+pub fn netGetAddressList(allocator: std.mem.Allocator, host: []const u8, port: u16) !NetAddressList {
     if (std.Io.net.IpAddress.parse(host, port)) |ip| {
         const addrs = try allocator.alloc(NetAddress, 1);
         addrs[0] = NetAddress.fromIp(ip);
@@ -5476,13 +5770,13 @@ pub fn tsToMs(ts: std.Io.Timestamp) i64 {
     return nsToMs(@as(i128, ts.toNanoseconds()));
 }
 
-fn cryptoRandomU64() u64 {
+pub fn cryptoRandomU64() u64 {
     var rb: [8]u8 = undefined;
     sio.io().random(&rb);
     return std.mem.readInt(u64, &rb, .little);
 }
 
-fn formatInteger(value: anytype, base: u32) ![]u8 {
+pub fn formatInteger(value: anytype, base: u32) ![]u8 {
     const actual_base: u8 = switch (base) {
         2, 8, 10 => @as(u8, @intCast(base)),
         16, 17 => 16,
@@ -5495,21 +5789,21 @@ fn formatInteger(value: anytype, base: u32) ![]u8 {
     return std.heap.page_allocator.dupe(u8, text);
 }
 
-fn formatFloat(value: f64, precision: u32) ![]u8 {
+pub fn formatFloat(value: f64, precision: u32) ![]u8 {
     var buf: [256]u8 = undefined;
     const text = try std.fmt.bufPrint(&buf, "{d:.[1]}", .{ value, @as(usize, @intCast(precision)) });
     return std.heap.page_allocator.dupe(u8, text);
 }
 
-fn formatBool(value: bool) ![]u8 {
+pub fn formatBool(value: bool) ![]u8 {
     return std.heap.page_allocator.dupe(u8, if (value) "true" else "false");
 }
 
-fn formatBytes(bytes: []const u8) ![]u8 {
+pub fn formatBytes(bytes: []const u8) ![]u8 {
     return std.heap.page_allocator.dupe(u8, bytes);
 }
 
-fn writeFormattedInto(out: ?[*]u8, out_cap: u64, out_len: ?*u64, text: []const u8) i32 {
+pub fn writeFormattedInto(out: ?[*]u8, out_cap: u64, out_len: ?*u64, text: []const u8) i32 {
     if (out_len) |ptr| ptr.* = @as(u64, @intCast(text.len));
     if (out_cap == 0) return finish(SA_STD_OK);
     const buffer = mutBytes(out, out_cap) catch |err| return finishErr(err);
@@ -5518,7 +5812,7 @@ fn writeFormattedInto(out: ?[*]u8, out_cap: u64, out_len: ?*u64, text: []const u
     return finish(SA_STD_OK);
 }
 
-fn stringConcat(left: []const u8, right: []const u8) ![]u8 {
+pub fn stringConcat(left: []const u8, right: []const u8) ![]u8 {
     var bytes = try std.heap.page_allocator.alloc(u8, left.len + right.len);
     if (left.len != 0) std.mem.copyForwards(u8, bytes[0..left.len], left);
     if (right.len != 0) std.mem.copyForwards(u8, bytes[left.len .. left.len + right.len], right);
@@ -5549,7 +5843,7 @@ pub fn openOwnedByteBuffer(bytes: []u8) !u64 {
     };
 }
 
-fn openOwnedEnvBuffer(bytes: []u8) !u64 {
+pub fn openOwnedEnvBuffer(bytes: []u8) !u64 {
     return registerResource(.{ .env = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
         std.heap.page_allocator.free(bytes);
         return err;
@@ -7506,7 +7800,7 @@ pub fn envKeyBytes(key_ptr: ?[*]const u8, key_len: u64) ![]const u8 {
     return key;
 }
 
-fn envValueFromCurrentProcess(key: []const u8) ?[]const u8 {
+pub fn envValueFromCurrentProcess(key: []const u8) ?[]const u8 {
     const key_z = std.heap.page_allocator.dupeSentinel(u8, key, 0) catch return null;
     defer std.heap.page_allocator.free(key_z);
 
@@ -7515,7 +7809,7 @@ fn envValueFromCurrentProcess(key: []const u8) ?[]const u8 {
     return std.mem.span(value);
 }
 
-fn envGetOwned(key: []const u8) ![]u8 {
+pub fn envGetOwned(key: []const u8) ![]u8 {
     const value = envValueFromCurrentProcess(key) orelse return error.FileNotFound;
     return std.heap.page_allocator.dupe(u8, value);
 }
@@ -7531,7 +7825,7 @@ fn appendEnvVarJson(pairs: *std.array_list.Managed(EnvVarJson), entry: []const u
     try pairs.append(.{ .key = entry[0..eq], .value = entry[eq + 1 ..] });
 }
 
-fn envVarsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
+pub fn envVarsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
     var pairs = std.array_list.Managed(EnvVarJson).init(allocator);
     defer pairs.deinit();
 
@@ -7545,7 +7839,7 @@ fn envVarsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
     return std.json.Stringify.valueAlloc(allocator, pairs.items, .{});
 }
 
-fn processArgsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
+pub fn processArgsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
     if (builtin.os.tag == .linux) {
         const file = sio.openFileAbsolute("/proc/self/cmdline", .{}) catch |err| switch (err) {
             error.FileNotFound, error.AccessDenied => null,
@@ -7572,7 +7866,7 @@ fn processArgsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
     return std.json.Stringify.valueAlloc(allocator, args, .{});
 }
 
-fn envSplitPathsJsonAlloc(allocator: std.mem.Allocator, path_list: []const u8) ![]u8 {
+pub fn envSplitPathsJsonAlloc(allocator: std.mem.Allocator, path_list: []const u8) ![]u8 {
     var parts = std.array_list.Managed([]const u8).init(allocator);
     defer parts.deinit();
 
@@ -7584,7 +7878,7 @@ fn envSplitPathsJsonAlloc(allocator: std.mem.Allocator, path_list: []const u8) !
     return std.json.Stringify.valueAlloc(allocator, parts.items, .{});
 }
 
-fn envJoinPathsJsonAlloc(allocator: std.mem.Allocator, paths_json: []const u8) ![]u8 {
+pub fn envJoinPathsJsonAlloc(allocator: std.mem.Allocator, paths_json: []const u8) ![]u8 {
     const parsed = try std.json.parseFromSlice([]const []const u8, allocator, paths_json, .{});
     defer parsed.deinit();
 
@@ -7601,7 +7895,7 @@ fn xdgHomeDirAlloc(allocator: std.mem.Allocator) ![]u8 {
     return allocator.dupe(u8, home);
 }
 
-fn xdgHomeSubdirAlloc(allocator: std.mem.Allocator, env_key: []const u8, fallback_home_subdir: []const u8) ![]u8 {
+pub fn xdgHomeSubdirAlloc(allocator: std.mem.Allocator, env_key: []const u8, fallback_home_subdir: []const u8) ![]u8 {
     if (envValueFromCurrentProcess(env_key)) |value| {
         if (value.len != 0) return allocator.dupe(u8, value);
     }
@@ -7610,7 +7904,7 @@ fn xdgHomeSubdirAlloc(allocator: std.mem.Allocator, env_key: []const u8, fallbac
     return std.fs.path.join(allocator, &.{ home, fallback_home_subdir });
 }
 
-fn xdgDirsAlloc(allocator: std.mem.Allocator, env_key: []const u8, default_value: []const u8) ![]u8 {
+pub fn xdgDirsAlloc(allocator: std.mem.Allocator, env_key: []const u8, default_value: []const u8) ![]u8 {
     if (envValueFromCurrentProcess(env_key)) |value| {
         if (value.len != 0) return allocator.dupe(u8, value);
     }
@@ -7677,82 +7971,13 @@ pub export fn sa_std_last_error() i32 {
     return last_error;
 }
 
-pub export fn sa_std_net_error_code_from_status(status: i32) i32 {
-    return switch (status) {
-        SA_STD_OK => 0,
-        SA_STD_ERR_INVALID_ARGUMENT => 10,
-        SA_STD_ERR_INVALID_HANDLE => 11,
-        SA_STD_ERR_NOT_FOUND => 12,
-        SA_STD_ERR_ACCESS => 8,
-        SA_STD_ERR_NO_MEMORY => 13,
-        SA_STD_ERR_IO => 14,
-        SA_STD_ERR_NET => 15,
-        SA_STD_ERR_UNSUPPORTED => 9,
-        SA_STD_ERR_TRUNCATED => 14,
-        else => 1,
-    };
-}
+pub const sa_std_net_error_code_from_status = @import("sa_std/std_net.zig").sa_std_net_error_code_from_status;
 
-pub export fn sa_std_net_error_code_from_posix_errno(errno: i32) i32 {
-    return switch (errno) {
-        0 => 0,
-        1, 13 => 8,
-        2, 20 => 12,
-        4 => 24,
-        9 => 11,
-        11 => 6,
-        12 => 13,
-        14, 22 => 10,
-        17 => 23,
-        32 => 22,
-        98 => 16,
-        99 => 17,
-        100 => 27,
-        101 => 15,
-        103 => 19,
-        104 => 18,
-        107 => 20,
-        110 => 4,
-        111 => 3,
-        113 => 21,
-        -2, -4, -5 => 2,
-        -3 => 4,
-        -6, -7 => 9,
-        -8 => 10,
-        -10 => 13,
-        -11 => 14,
-        else => 1,
-    };
-}
+pub const sa_std_net_error_code_from_posix_errno = @import("sa_std/std_net.zig").sa_std_net_error_code_from_posix_errno;
 
-pub export fn sa_std_net_error_code_from_wsa_error(native_error: i32) i32 {
-    return switch (native_error) {
-        0 => 0,
-        10004 => 24,
-        10013 => 8,
-        10022 => 10,
-        10024, 10055 => 13,
-        10035, 10036, 10037 => 6,
-        10038 => 11,
-        10040 => 26,
-        10041, 10042, 10043, 10044, 10045, 10046, 10047 => 9,
-        10048 => 16,
-        10049 => 17,
-        10050, 10052 => 27,
-        10051 => 15,
-        10053 => 19,
-        10054 => 18,
-        10057, 10058 => 20,
-        10060 => 4,
-        10061 => 3,
-        10064, 10065 => 21,
-        11001, 11003, 11004 => 2,
-        11002 => 4,
-        else => 1,
-    };
-}
+pub const sa_std_net_error_code_from_wsa_error = @import("sa_std/std_net.zig").sa_std_net_error_code_from_wsa_error;
 
-fn netErrorCodeName(code: i32) []const u8 {
+pub fn netErrorCodeName(code: i32) []const u8 {
     return switch (code) {
         0 => "ok",
         1 => "unknown",
@@ -7787,34 +8012,13 @@ fn netErrorCodeName(code: i32) []const u8 {
     };
 }
 
-pub export fn sa_std_net_error_code_name(code: i32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const name = netErrorCodeName(code);
-    if (out_len) |len_ptr| len_ptr.* = @as(u64, @intCast(name.len));
-    if (out_cap == 0) return finish(SA_STD_OK);
-    const cap = lenAsUsize(out_cap) catch |err| return finishErr(err);
-    const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const copy_len = @min(cap, name.len);
-    @memcpy(out_ptr[0..copy_len], name[0..copy_len]);
-    if (copy_len != name.len) return finish(SA_STD_ERR_TRUNCATED);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_error_code_name = @import("sa_std/std_net.zig").sa_std_net_error_code_name;
 
-pub export fn sa_std_net_error_platform() i32 {
-    return 1;
-}
+pub const sa_std_net_error_platform = @import("sa_std/std_net.zig").sa_std_net_error_platform;
 
-pub export fn sa_std_net_error_code_from_native_error(native_error: i32) i32 {
-    return sa_std_net_error_code_from_posix_errno(native_error);
-}
+pub const sa_std_net_error_code_from_native_error = @import("sa_std/std_net.zig").sa_std_net_error_code_from_native_error;
 
-pub export fn sa_std_net_hostname(out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    _ = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    // wasm32-wasi: no HOST_NAME_MAX / gethostname; stub as unsupported.
-    if (comptime builtin.cpu.arch.isWasm()) return finish(SA_STD_ERR_UNSUPPORTED);
-    var buffer: [std.posix.HOST_NAME_MAX]u8 = undefined;
-    const name = std.posix.gethostname(&buffer) catch |err| return finishErr(err);
-    return writeFormattedInto(out, out_cap, out_len, name);
-}
+pub const sa_std_net_hostname = @import("sa_std/std_net.zig").sa_std_net_hostname;
 
 pub export fn sa_std_error_name(code: i32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
     const name = statusName(code);
@@ -7867,7 +8071,7 @@ pub const sa_deno_env_delete = @import("sa_std/deno.zig").sa_deno_env_delete;
 
 pub const sa_deno_random_uuid = @import("sa_std/deno.zig").sa_deno_random_uuid;
 
-fn tempRootAlloc(allocator: std.mem.Allocator) ![]u8 {
+pub fn tempRootAlloc(allocator: std.mem.Allocator) ![]u8 {
     if (envValueFromCurrentProcess("TMPDIR")) |value| {
         if (value.len != 0) return allocator.dupe(u8, value);
     }
@@ -7964,45 +8168,8 @@ pub export fn sa_hexdec_simd(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8)
     return @intCast(w);
 }
 
-test "sa_hexdec_simd clean mixed-case roundtrips" {
-    const hex = "0123456789abcdefABCDEF";
-    var out: [11]u8 = undefined;
-    const w = sa_hexdec_simd(hex.ptr, hex.len, &out);
-    try std.testing.expectEqual(@as(u64, 11), w);
-    const wn: usize = @intCast(w);
-    try std.testing.expectEqualSlices(u8, &.{ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xAB, 0xCD, 0xEF }, out[0..wn]);
-}
 
-test "sa_hexdec_simd vector block then scalar tail" {
-    // 64 clean chars exercise two vector iterations; 66 exercise tail.
-    const hex64 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    var out64: [32]u8 = undefined;
-    try std.testing.expectEqual(@as(u64, 32), sa_hexdec_simd(hex64.ptr, hex64.len, &out64));
-    try std.testing.expectEqual(@as(u8, 0x01), out64[0]);
-    try std.testing.expectEqual(@as(u8, 0xef), out64[31]);
-    const hex66 = hex64 ++ "AB";
-    var out66: [33]u8 = undefined;
-    try std.testing.expectEqual(@as(u64, 33), sa_hexdec_simd(hex66.ptr, hex66.len, &out66));
-    try std.testing.expectEqual(@as(u8, 0xAB), out66[32]);
-}
 
-test "sa_hexdec_simd stops at invalid char and odd tail" {
-    const bad = "00zz00";
-    var out_bad: [3]u8 = undefined;
-    try std.testing.expectEqual(@as(u64, 1), sa_hexdec_simd(bad.ptr, bad.len, &out_bad));
-    try std.testing.expectEqual(@as(u8, 0x00), out_bad[0]);
-    // Invalid inside the second vector block falls back to scalar stop.
-    const bad64 = "0123456789abcdef0123456789abcdef" ++ "zz" ++ "0123456789abcdef";
-    var out_bad64: [34]u8 = undefined;
-    try std.testing.expectEqual(@as(u64, 16), sa_hexdec_simd(bad64.ptr, bad64.len, &out_bad64));
-    const odd = "ABC";
-    var out_odd: [2]u8 = undefined;
-    try std.testing.expectEqual(@as(u64, 1), sa_hexdec_simd(odd.ptr, odd.len, &out_odd));
-    try std.testing.expectEqual(@as(u8, 0xAB), out_odd[0]);
-    try std.testing.expectEqual(@as(u64, 0), sa_hexdec_simd(null, 10, &out_odd));
-    try std.testing.expectEqual(@as(u64, 0), sa_hexdec_simd(odd.ptr, odd.len, null));
-    try std.testing.expectEqual(@as(u64, 0), sa_hexdec_simd(odd.ptr, 0, &out_odd));
-}
 
 // SIMD base64 decoder: native bulk-decode fast path. Decodes clean
 // A-Za-z0-9+/ quanta at 32 input chars per vector iteration with a
@@ -8099,70 +8266,9 @@ pub export fn sa_b64dec_simd(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8)
     return @intCast(w);
 }
 
-test "sa_b64dec_simd clean alphabet roundtrips" {
-    const txt = "ABCDabcd01236789";
-    var out: [12]u8 = undefined;
-    const w = sa_b64dec_simd(txt.ptr, txt.len, &out);
-    try std.testing.expectEqual(@as(u64, 12), w);
-    const wn: usize = @intCast(w);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 16, 131, 105, 183, 29, 211, 93, 183, 235, 191, 61 }, out[0..wn]);
-}
 
-test "sa_b64dec_simd vector width then invalid stop" {
-    const clean64 = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
-    var out64: [48]u8 = undefined;
-    try std.testing.expectEqual(@as(u64, 48), sa_b64dec_simd(clean64.ptr, clean64.len, &out64));
-    try std.testing.expectEqual(@as(u8, 4), out64[0]);
-    try std.testing.expectEqual(@as(u8, 16), out64[1]);
-    try std.testing.expectEqual(@as(u8, 65), out64[2]);
-    try std.testing.expectEqual(@as(u8, 65), out64[47]);
-    const bad = "BBBB!!!!";
-    var out_bad: [6]u8 = undefined;
-    try std.testing.expectEqual(@as(u64, 3), sa_b64dec_simd(bad.ptr, bad.len, &out_bad));
-    const bad40 = ("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB") ++ "!!!!!!!!";
-    var out_bad40: [30]u8 = undefined;
-    try std.testing.expectEqual(@as(u64, 24), sa_b64dec_simd(bad40.ptr, bad40.len, &out_bad40));
-    try std.testing.expectEqual(@as(u64, 0), sa_b64dec_simd(null, 8, &out_bad));
-    try std.testing.expectEqual(@as(u64, 0), sa_b64dec_simd(bad.ptr, bad.len, null));
-    try std.testing.expectEqual(@as(u64, 0), sa_b64dec_simd(bad.ptr, 0, &out_bad));
-}
 
-test "sa_b64dec_simd avx2 block invalid rewinds to scalar" {
-    // 128B input, invalid byte inside the first 64B vector block: the AVX2
-    // path must stop before it (scalar re-decode), exactly like the
-    // portable path (peer_b64mid shape, wider).
-    var mid: [128]u8 = @splat(@as(u8, 'B'));
-    mid[5] = '!';
-    var out_mid: [96]u8 = undefined;
-    try std.testing.expectEqual(@as(u64, 3), sa_b64dec_simd(&mid, mid.len, &out_mid));
-    try std.testing.expectEqual(@as(u8, 4), out_mid[0]);
-    try std.testing.expectEqual(@as(u8, 16), out_mid[1]);
-    try std.testing.expectEqual(@as(u8, 65), out_mid[2]);
-    var clean128: [128]u8 = @splat(@as(u8, 'B'));
-    var out128: [96]u8 = undefined;
-    try std.testing.expectEqual(@as(u64, 96), sa_b64dec_simd(&clean128, clean128.len, &out128));
-    try std.testing.expectEqual(@as(u8, 65), out128[95]);
-}
 
-test "base64: sa_deno_btoa -> sa_deno_atob roundtrip via fmt buffer handles" {
-    const data = "hello, sa_std!";
-    const enc = sa_deno_btoa(data.ptr, data.len);
-    try std.testing.expect(enc != 0);
-    defer _ = sa_fmt_buffer_free(enc);
-    const enc_ptr = sa_fmt_buffer_data(enc) orelse return error.TestUnexpectedResult;
-    const enc_len = sa_fmt_buffer_len(enc);
-    try std.testing.expectEqualStrings("aGVsbG8sIHNhX3N0ZCE=", enc_ptr[0..@intCast(enc_len)]);
-
-    const dec = sa_deno_atob(enc_ptr, enc_len);
-    try std.testing.expect(dec != 0);
-    defer _ = sa_fmt_buffer_free(dec);
-    const dec_ptr = sa_fmt_buffer_data(dec) orelse return error.TestUnexpectedResult;
-    const dec_len = sa_fmt_buffer_len(dec);
-    try std.testing.expectEqualStrings(data, dec_ptr[0..@intCast(dec_len)]);
-
-    // Invalid input is an explicit 0 handle, never a partial decode.
-    try std.testing.expectEqual(@as(u64, 0), sa_deno_atob("!!!".ptr, 3));
-}
 
 // Bulk substring search for native peers (mirrors the sa_mfind_u8 JS
 // fused shim contract): returns the first index of needle in haystack,
@@ -8178,22 +8284,6 @@ pub export fn sa_mfind_u8(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]cons
     return hay.len;
 }
 
-test "sa_mfind_u8 hit/miss/edges match memmem contract" {
-    const hay = "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh";
-    const hit0 = "abc";
-    try std.testing.expectEqual(@as(u64, 0), sa_mfind_u8(hay.ptr, hay.len, hit0.ptr, hit0.len));
-    const hitmid = "fgha";
-    try std.testing.expectEqual(@as(u64, 5), sa_mfind_u8(hay.ptr, hay.len, hitmid.ptr, hitmid.len));
-    const miss = "zzzzzzzz";
-    try std.testing.expectEqual(@as(u64, hay.len), sa_mfind_u8(hay.ptr, hay.len, miss.ptr, miss.len));
-    const empty = "";
-    try std.testing.expectEqual(@as(u64, 0), sa_mfind_u8(hay.ptr, hay.len, empty.ptr, empty.len));
-    const toolong = "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh";
-    try std.testing.expectEqual(@as(u64, hay.len), sa_mfind_u8(hay.ptr, hay.len, toolong.ptr, toolong.len));
-    var one: [1]u8 = .{0xFF};
-    try std.testing.expectEqual(@as(u64, 8), sa_mfind_u8(null, 8, &one, 1));
-    try std.testing.expectEqual(@as(u64, 8), sa_mfind_u8(hay.ptr, 8, null, 1));
-}
 
 pub const sa_deno_text_encode = @import("sa_std/deno.zig").sa_deno_text_encode;
 
@@ -8291,10 +8381,10 @@ pub const sa_deno_system_memory_info = @import("sa_std/deno.zig").sa_deno_system
 
 pub const sa_deno_network_interfaces = @import("sa_std/deno.zig").sa_deno_network_interfaces;
 
-extern fn getpid() c_int;
+pub extern fn getpid() c_int;
 extern fn getppid() c_int;
-extern fn getuid() c_uint;
-extern fn getgid() c_uint;
+pub extern fn getuid() c_uint;
+pub extern fn getgid() c_uint;
 extern fn getpagesize() c_int;
 
 // ---- local network information: interface address snapshot ----
@@ -8337,7 +8427,7 @@ fn appendJsonEscapedString(list: *std.array_list.Managed(u8), text: []const u8) 
     try list.append('"');
 }
 
-fn buildInterfaceAddressesJson(allocator: std.mem.Allocator) ![]u8 {
+pub fn buildInterfaceAddressesJson(allocator: std.mem.Allocator) ![]u8 {
     var ifap: ?*struct_ifaddrs = null;
     if (getifaddrs(&ifap) != 0) return error.GetifaddrsFailed;
     defer {
@@ -8480,28 +8570,8 @@ fn buildInterfaceAddressesJson(allocator: std.mem.Allocator) ![]u8 {
     return list.toOwnedSlice();
 }
 
-pub export fn sa_std_net_interface_addresses_json(out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const bytes = buildInterfaceAddressesJson(std.heap.page_allocator) catch |err| switch (err) {
-        error.OutOfMemory => return finish(SA_STD_ERR_NO_MEMORY),
-        else => return finish(SA_STD_ERR_IO),
-    };
-    const handle = openOwnedByteBuffer(bytes) catch return finish(SA_STD_ERR_NO_MEMORY);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_interface_addresses_json = @import("sa_std/std_net.zig").sa_std_net_interface_addresses_json;
 
-test "net interface addresses json: snapshot contains loopback" {
-    const bytes = try buildInterfaceAddressesJson(std.testing.allocator);
-    defer std.testing.allocator.free(bytes);
-    try std.testing.expect(bytes.len >= 2);
-    try std.testing.expectEqual(@as(u8, '['), bytes[0]);
-    try std.testing.expectEqual(@as(u8, ']'), bytes[bytes.len - 1]);
-    try std.testing.expect(std.mem.indexOf(u8, bytes, "\"name\":\"lo\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, bytes, "\"address\":\"127.0.0.1\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, bytes, "\"prefix_len\":8") != null);
-}
 
 pub const sa_deno_pid = @import("sa_std/deno.zig").sa_deno_pid;
 
@@ -8642,184 +8712,30 @@ pub const sa_json_writer_finish = @import("sa_std/json.zig").sa_json_writer_fini
 
 pub const sa_json_writer_finish_buffer = @import("sa_std/json.zig").sa_json_writer_finish_buffer;
 
-pub export fn sa_regex_compile(pattern: ?[*]const u8, pattern_len: u64, cflags: i32) u64 {
-    const input = constBytes(pattern, pattern_len) catch return 0;
-    const handle = RegexHandle.init(std.heap.page_allocator, input, cflags) catch return 0;
-    return registerResource(.{ .regex = handle }) catch |err| {
-        handle.destroy();
-        _ = finishErr(err);
-        return 0;
-    };
-}
+pub const sa_regex_compile = @import("sa_std/regex.zig").sa_regex_compile;
 
-pub export fn sa_regex_match(regex: u64, text: ?[*]const u8, text_len: u64) u64 {
-    const input = constBytes(text, text_len) catch return 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(regex) orelse return 0;
-    const regex_handle = switch (resource.*) {
-        .regex => |handle| handle,
-        else => return 0,
-    };
-    const match_handle = regexMatchHandle(regex_handle, input) catch return 0;
-    return registerResourceLocked(.{ .regex_match = match_handle }) catch |err| {
-        match_handle.destroy();
-        _ = finishErr(err);
-        return 0;
-    };
-}
+pub const sa_regex_match = @import("sa_std/regex.zig").sa_regex_match;
 
-pub export fn sa_regex_group_ptr(match: u64, group_idx: u32) ?[*]const u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(match) orelse return null;
-    const match_handle = switch (resource.*) {
-        .regex_match => |handle| handle,
-        else => return null,
-    };
-    const idx = @as(usize, @intCast(group_idx));
-    if (idx >= match_handle.matches.len) return null;
-    const reg = match_handle.matches[idx];
-    if (reg.rm_so < 0 or reg.rm_eo < 0) return null;
-    const start: usize = @intCast(reg.rm_so);
-    return match_handle.text_z[start..].ptr;
-}
+pub const sa_regex_group_ptr = @import("sa_std/regex.zig").sa_regex_group_ptr;
 
-pub export fn sa_regex_group_len(match: u64, group_idx: u32) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(match) orelse return 0;
-    const match_handle = switch (resource.*) {
-        .regex_match => |handle| handle,
-        else => return 0,
-    };
-    const idx = @as(usize, @intCast(group_idx));
-    if (idx >= match_handle.matches.len) return 0;
-    const reg = match_handle.matches[idx];
-    if (reg.rm_so < 0 or reg.rm_eo < 0) return 0;
-    return @as(u64, @intCast(reg.rm_eo - reg.rm_so));
-}
+pub const sa_regex_group_len = @import("sa_std/regex.zig").sa_regex_group_len;
 
-pub export fn sa_regex_group_start(match: u64, group_idx: u32) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(match) orelse return 0;
-    const match_handle = switch (resource.*) {
-        .regex_match => |handle| handle,
-        else => return 0,
-    };
-    const idx = @as(usize, @intCast(group_idx));
-    if (idx >= match_handle.matches.len) return 0;
-    const reg = match_handle.matches[idx];
-    if (reg.rm_so < 0 or reg.rm_eo < 0) return 0;
-    return @as(u64, @intCast(reg.rm_so));
-}
+pub const sa_regex_group_start = @import("sa_std/regex.zig").sa_regex_group_start;
 
-pub export fn sa_regex_group_count(regex: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(regex) orelse return 0;
-    const regex_handle = switch (resource.*) {
-        .regex => |handle| handle,
-        else => return 0,
-    };
-    return @as(u64, @intCast(regexGroupCount(regex_handle)));
-}
+pub const sa_regex_group_count = @import("sa_std/regex.zig").sa_regex_group_count;
 
-pub export fn sa_regex_free(regex: u64) Fallible(i32) {
-    const status = sa_std_close(regex);
-    if (status != SA_STD_OK) return fail(i32, status);
-    return ok(i32, 0);
-}
+pub const sa_regex_free = @import("sa_std/regex.zig").sa_regex_free;
 
-pub export fn sa_regex_match_free(match: u64) Fallible(i32) {
-    const status = sa_std_close(match);
-    if (status != SA_STD_OK) return fail(i32, status);
-    return ok(i32, 0);
-}
-pub export fn sa_regex_match_all(regex: u64, text: ?[*]const u8, text_len: u64) u64 {
-    const input = constBytes(text, text_len) catch return 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(regex) orelse return 0;
-    const regex_handle = switch (resource.*) {
-        .regex => |handle| handle,
-        else => return 0,
-    };
-    const allocator = regex_handle.allocator;
-    const text_z = regexOwnedTextZ(allocator, input) catch return 0;
-    const matches = regexCollectMatches(allocator, regex_handle, text_z) catch {
-        allocator.free(text_z);
-        return 0;
-    };
-    const handle = allocator.create(RegexMatchListHandle) catch {
-        for (matches) |groups| allocator.free(groups);
-        allocator.free(matches);
-        allocator.free(text_z);
-        return 0;
-    };
-    handle.* = .{ .allocator = allocator, .text_z = text_z, .matches = matches };
-    return registerResourceLocked(.{ .regex_match_list = handle }) catch |err| {
-        handle.destroy();
-        _ = finishErr(err);
-        return 0;
-    };
-}
+pub const sa_regex_match_free = @import("sa_std/regex.zig").sa_regex_match_free;
+pub const sa_regex_match_all = @import("sa_std/regex.zig").sa_regex_match_all;
 
-pub export fn sa_regex_match_list_count(list: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(list) orelse return 0;
-    return switch (resource.*) {
-        .regex_match_list => |handle| @as(u64, @intCast(handle.matches.len)),
-        else => 0,
-    };
-}
+pub const sa_regex_match_list_count = @import("sa_std/regex.zig").sa_regex_match_list_count;
 
-pub export fn sa_regex_match_list_at(list: u64, index: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(list) orelse return 0;
-    const list_handle = switch (resource.*) {
-        .regex_match_list => |handle| handle,
-        else => return 0,
-    };
-    const idx: usize = @intCast(index);
-    if (idx >= list_handle.matches.len) return 0;
-    const allocator = list_handle.allocator;
-    const text = list_handle.text_z[0 .. list_handle.text_z.len - 1];
-    const match_handle = RegexMatchHandle.init(allocator, text, list_handle.matches[idx].len) catch return 0;
-    @memcpy(match_handle.matches, list_handle.matches[idx]);
-    return registerResourceLocked(.{ .regex_match = match_handle }) catch |err| {
-        match_handle.destroy();
-        _ = finishErr(err);
-        return 0;
-    };
-}
+pub const sa_regex_match_list_at = @import("sa_std/regex.zig").sa_regex_match_list_at;
 
-pub export fn sa_regex_match_list_free(list: u64) Fallible(i32) {
-    const status = sa_std_close(list);
-    if (status != SA_STD_OK) return fail(i32, status);
-    return ok(i32, 0);
-}
+pub const sa_regex_match_list_free = @import("sa_std/regex.zig").sa_regex_match_list_free;
 
-fn regexReplaceBuffer(regex: u64, text: ?[*]const u8, text_len: u64, replacement: ?[*]const u8, replacement_len: u64, global: bool) u64 {
+pub fn regexReplaceBuffer(regex: u64, text: ?[*]const u8, text_len: u64, replacement: ?[*]const u8, replacement_len: u64, global: bool) u64 {
     const input = constBytes(text, text_len) catch return 0;
     const repl = constBytes(replacement, replacement_len) catch return 0;
     while (!registry_mutex.tryLock()) {
@@ -8847,117 +8763,25 @@ fn regexReplaceBuffer(regex: u64, text: ?[*]const u8, text_len: u64, replacement
     };
 }
 
-pub export fn sa_regex_replace(regex: u64, text: ?[*]const u8, text_len: u64, replacement: ?[*]const u8, replacement_len: u64) u64 {
-    return regexReplaceBuffer(regex, text, text_len, replacement, replacement_len, false);
-}
+pub const sa_regex_replace = @import("sa_std/regex.zig").sa_regex_replace;
 
-pub export fn sa_regex_replace_all(regex: u64, text: ?[*]const u8, text_len: u64, replacement: ?[*]const u8, replacement_len: u64) u64 {
-    return regexReplaceBuffer(regex, text, text_len, replacement, replacement_len, true);
-}
+pub const sa_regex_replace_all = @import("sa_std/regex.zig").sa_regex_replace_all;
 
-pub export fn sa_regex_buffer_data(buffer: u64) ?[*]u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(buffer) orelse return null;
-    return switch (resource.*) {
-        .regex_buffer => |handle| handle.bytes.ptr,
-        else => null,
-    };
-}
+pub const sa_regex_buffer_data = @import("sa_std/regex.zig").sa_regex_buffer_data;
 
-pub export fn sa_regex_buffer_len(buffer: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(buffer) orelse return 0;
-    return switch (resource.*) {
-        .regex_buffer => |handle| @as(u64, @intCast(handle.bytes.len)),
-        else => 0,
-    };
-}
+pub const sa_regex_buffer_len = @import("sa_std/regex.zig").sa_regex_buffer_len;
 
-pub export fn sa_regex_buffer_free(buffer: u64) Fallible(i32) {
-    const status = sa_std_close(buffer);
-    if (status != SA_STD_OK) return fail(i32, status);
-    return ok(i32, 0);
-}
+pub const sa_regex_buffer_free = @import("sa_std/regex.zig").sa_regex_buffer_free;
 
-pub export fn sa_regex_split(regex: u64, text: ?[*]const u8, text_len: u64, limit: u64) u64 {
-    const input = constBytes(text, text_len) catch return 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(regex) orelse return 0;
-    const regex_handle = switch (resource.*) {
-        .regex => |handle| handle,
-        else => return 0,
-    };
-    const allocator = regex_handle.allocator;
-    const text_z = regexOwnedTextZ(allocator, input) catch return 0;
-    const handle = regexSplitHandle(allocator, regex_handle, text_z, limit) catch return 0;
-    return registerResourceLocked(.{ .regex_split_list = handle }) catch |err| {
-        handle.destroy();
-        _ = finishErr(err);
-        return 0;
-    };
-}
+pub const sa_regex_split = @import("sa_std/regex.zig").sa_regex_split;
 
-pub export fn sa_regex_split_count(list: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(list) orelse return 0;
-    return switch (resource.*) {
-        .regex_split_list => |handle| @as(u64, @intCast(handle.pieces.len)),
-        else => 0,
-    };
-}
+pub const sa_regex_split_count = @import("sa_std/regex.zig").sa_regex_split_count;
 
-pub export fn sa_regex_split_ptr(list: u64, index: u64) ?[*]const u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(list) orelse return null;
-    const list_handle = switch (resource.*) {
-        .regex_split_list => |handle| handle,
-        else => return null,
-    };
-    const idx: usize = @intCast(index);
-    if (idx >= list_handle.pieces.len) return null;
-    const piece = list_handle.pieces[idx];
-    if (piece.rm_so < 0) return null;
-    const start: usize = @intCast(piece.rm_so);
-    return list_handle.text_z[start..].ptr;
-}
+pub const sa_regex_split_ptr = @import("sa_std/regex.zig").sa_regex_split_ptr;
 
-pub export fn sa_regex_split_len(list: u64, index: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(list) orelse return 0;
-    const list_handle = switch (resource.*) {
-        .regex_split_list => |handle| handle,
-        else => return 0,
-    };
-    const idx: usize = @intCast(index);
-    if (idx >= list_handle.pieces.len) return 0;
-    const piece = list_handle.pieces[idx];
-    if (piece.rm_so < 0 or piece.rm_eo < 0) return 0;
-    return @as(u64, @intCast(piece.rm_eo - piece.rm_so));
-}
+pub const sa_regex_split_len = @import("sa_std/regex.zig").sa_regex_split_len;
 
-pub export fn sa_regex_split_free(list: u64) Fallible(i32) {
-    const status = sa_std_close(list);
-    if (status != SA_STD_OK) return fail(i32, status);
-    return ok(i32, 0);
-}
+pub const sa_regex_split_free = @import("sa_std/regex.zig").sa_regex_split_free;
 
 // ---------------------------------------------------------------------------
 // Unicode normalization (ICU unorm2) for tsgosa String.prototype.normalize.
@@ -9068,242 +8892,15 @@ pub export fn sa_host_is_bun() i32 {
     return 0;
 }
 
-test "unicode: normalize NFC/NFD/NFKC/NFKD vectors (JS oracle)" {
-    const Case = struct { input: []const u8, form: i32, expected: []const u8 };
-    const cases = [_]Case{
-        .{ .input = "e\u{301}", .form = 0, .expected = "\u{e9}" },
-        .{ .input = "e\u{301}", .form = 1, .expected = "e\u{301}" },
-        .{ .input = "\u{e9}", .form = 1, .expected = "e\u{301}" },
-        .{ .input = "\u{fb01}", .form = 3, .expected = "fi" },
-        .{ .input = "\u{fb01}", .form = 2, .expected = "fi" },
-        .{ .input = "\u{fb01}", .form = 0, .expected = "\u{fb01}" },
-        .{ .input = "\u{b2}", .form = 3, .expected = "2" },
-        .{ .input = "\u{b2}", .form = 0, .expected = "\u{b2}" },
-        .{ .input = "\u{1100}\u{1161}", .form = 0, .expected = "\u{ac00}" },
-        .{ .input = "\u{ac00}", .form = 1, .expected = "\u{1100}\u{1161}" },
-        .{ .input = "\u{c5}", .form = 1, .expected = "A\u{30a}" },
-        .{ .input = "\u{2126}", .form = 0, .expected = "\u{3a9}" },
-        .{ .input = "", .form = 0, .expected = "" },
-        .{ .input = "hello", .form = 3, .expected = "hello" },
-        .{ .input = "caf\u{e9}", .form = 1, .expected = "cafe\u{301}" },
-    };
-    for (cases) |c| {
-        const n = sa_unicode_normalize(c.input.ptr, c.input.len, c.form, null, 0);
-        try std.testing.expectEqual(@as(i64, @intCast(c.expected.len)), n);
-        var buf: [256]u8 = undefined;
-        const m = sa_unicode_normalize(c.input.ptr, c.input.len, c.form, &buf, buf.len);
-        try std.testing.expectEqual(@as(i64, @intCast(c.expected.len)), m);
-        try std.testing.expectEqualStrings(c.expected, buf[0..@intCast(m)]);
-    }
-}
 
-test "unicode: exact-fit buffers succeed (terminator warning is not failure)" {
-    // Input exact fit: "hello" is 5 UTF-8 bytes -> 5 UTF-16 units in a
-    // 5-unit buffer (ICU sets -124, content correct). Fill exact fit: a
-    // 5-byte output buffer for a 5-byte result (same warning, must succeed).
-    const input = "hello";
-    const n = sa_unicode_normalize(input.ptr, input.len, 0, null, 0);
-    try std.testing.expectEqual(@as(i64, 5), n);
-    var buf: [5]u8 = undefined;
-    const m = sa_unicode_normalize(input.ptr, input.len, 0, &buf, buf.len);
-    try std.testing.expectEqual(@as(i64, 5), m);
-    try std.testing.expectEqualStrings("hello", buf[0..@intCast(m)]);
-}
 
-test "unicode: small output buffer reports needed length without writing" {
-    const input = "e\u{301}";
-    var buf: [1]u8 = .{0xAA};
-    const n = sa_unicode_normalize(input.ptr, input.len, 0, &buf, buf.len);
-    try std.testing.expectEqual(@as(i64, 2), n);
-    try std.testing.expectEqual(@as(u8, 0xAA), buf[0]);
-}
 
-test "regex: replace expands group references" {
-    const pat: []const u8 = "([a-z]+)@([a-z]+)";
-    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
-    try std.testing.expect(re != 0);
-    defer _ = sa_regex_free(re);
 
-    const text: []const u8 = "user@host";
-    const repl: []const u8 = "$2/$1";
-    const buf = sa_regex_replace(re, text.ptr, text.len, repl.ptr, repl.len);
-    try std.testing.expect(buf != 0);
-    defer _ = sa_regex_buffer_free(buf);
-    const out = sa_regex_buffer_data(buf).?[0..@intCast(sa_regex_buffer_len(buf))];
-    try std.testing.expectEqualStrings("host/user", out);
 
-    // $& whole match, $$ literal dollar, $` prefix, $' suffix, and an
-    // out-of-range $9 that must stay literal.
-    const text2: []const u8 = "x user@host y";
-    const repl2: []const u8 = "[$&|$$|$`|$'|$9]";
-    const buf2 = sa_regex_replace(re, text2.ptr, text2.len, repl2.ptr, repl2.len);
-    try std.testing.expect(buf2 != 0);
-    defer _ = sa_regex_buffer_free(buf2);
-    const out2 = sa_regex_buffer_data(buf2).?[0..@intCast(sa_regex_buffer_len(buf2))];
-    try std.testing.expectEqualStrings("x [user@host|$|x | y|$9] y", out2);
-}
 
-test "regex: replace is first-only and replace_all is global" {
-    const pat: []const u8 = "([a-z])([0-9])";
-    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
-    try std.testing.expect(re != 0);
-    defer _ = sa_regex_free(re);
-    const text: []const u8 = "a1 b2";
-    const repl: []const u8 = "$2$1";
 
-    const buf = sa_regex_replace(re, text.ptr, text.len, repl.ptr, repl.len);
-    try std.testing.expect(buf != 0);
-    defer _ = sa_regex_buffer_free(buf);
-    try std.testing.expectEqualStrings("1a b2", sa_regex_buffer_data(buf).?[0..@intCast(sa_regex_buffer_len(buf))]);
 
-    const buf2 = sa_regex_replace_all(re, text.ptr, text.len, repl.ptr, repl.len);
-    try std.testing.expect(buf2 != 0);
-    defer _ = sa_regex_buffer_free(buf2);
-    try std.testing.expectEqualStrings("1a 2b", sa_regex_buffer_data(buf2).?[0..@intCast(sa_regex_buffer_len(buf2))]);
 
-    const plain: []const u8 = "zz";
-    const buf3 = sa_regex_replace_all(re, plain.ptr, plain.len, repl.ptr, repl.len);
-    try std.testing.expect(buf3 != 0);
-    defer _ = sa_regex_buffer_free(buf3);
-    try std.testing.expectEqualStrings("zz", sa_regex_buffer_data(buf3).?[0..@intCast(sa_regex_buffer_len(buf3))]);
-}
-
-test "regex: replace_all expands empty matches like the JS global loop" {
-    const pat: []const u8 = "x*";
-    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
-    try std.testing.expect(re != 0);
-    defer _ = sa_regex_free(re);
-    const text: []const u8 = "ab";
-    const repl: []const u8 = "-";
-    const buf = sa_regex_replace_all(re, text.ptr, text.len, repl.ptr, repl.len);
-    try std.testing.expect(buf != 0);
-    defer _ = sa_regex_buffer_free(buf);
-    try std.testing.expectEqualStrings("-a-b-", sa_regex_buffer_data(buf).?[0..@intCast(sa_regex_buffer_len(buf))]);
-}
-
-test "regex: match_all collects matches with capture groups" {
-    const pat: []const u8 = "([a-z])([0-9])";
-    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
-    try std.testing.expect(re != 0);
-    defer _ = sa_regex_free(re);
-    const text: []const u8 = "a1 b2 c";
-    const list = sa_regex_match_all(re, text.ptr, text.len);
-    try std.testing.expect(list != 0);
-    defer _ = sa_regex_match_list_free(list);
-    try std.testing.expectEqual(@as(u64, 2), sa_regex_match_list_count(list));
-
-    const m0 = sa_regex_match_list_at(list, 0);
-    try std.testing.expect(m0 != 0);
-    defer _ = sa_regex_match_free(m0);
-    try std.testing.expectEqual(@as(u64, 0), sa_regex_group_start(m0, 0));
-    try std.testing.expectEqualStrings("a1", sa_regex_group_ptr(m0, 0).?[0..@intCast(sa_regex_group_len(m0, 0))]);
-    try std.testing.expectEqualStrings("a", sa_regex_group_ptr(m0, 1).?[0..@intCast(sa_regex_group_len(m0, 1))]);
-    try std.testing.expectEqualStrings("1", sa_regex_group_ptr(m0, 2).?[0..@intCast(sa_regex_group_len(m0, 2))]);
-
-    const m1 = sa_regex_match_list_at(list, 1);
-    try std.testing.expect(m1 != 0);
-    defer _ = sa_regex_match_free(m1);
-    try std.testing.expectEqual(@as(u64, 3), sa_regex_group_start(m1, 0));
-    try std.testing.expectEqualStrings("b2", sa_regex_group_ptr(m1, 0).?[0..@intCast(sa_regex_group_len(m1, 0))]);
-
-    try std.testing.expectEqual(@as(u64, 0), sa_regex_match_list_at(list, 2));
-}
-
-test "regex: match_all reports the trailing empty match" {
-    const pat: []const u8 = "a*";
-    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
-    try std.testing.expect(re != 0);
-    defer _ = sa_regex_free(re);
-    const text: []const u8 = "b";
-    const list = sa_regex_match_all(re, text.ptr, text.len);
-    try std.testing.expect(list != 0);
-    defer _ = sa_regex_match_list_free(list);
-    try std.testing.expectEqual(@as(u64, 2), sa_regex_match_list_count(list));
-    const m0 = sa_regex_match_list_at(list, 0);
-    try std.testing.expect(m0 != 0);
-    defer _ = sa_regex_match_free(m0);
-    try std.testing.expectEqual(@as(u64, 0), sa_regex_group_start(m0, 0));
-    try std.testing.expectEqual(@as(u64, 0), sa_regex_group_len(m0, 0));
-    const m1 = sa_regex_match_list_at(list, 1);
-    try std.testing.expect(m1 != 0);
-    defer _ = sa_regex_match_free(m1);
-    try std.testing.expectEqual(@as(u64, 1), sa_regex_group_start(m1, 0));
-    try std.testing.expectEqual(@as(u64, 0), sa_regex_group_len(m1, 0));
-}
-
-test "regex: split leading trailing and consecutive separators" {
-    const pat: []const u8 = ",";
-    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
-    try std.testing.expect(re != 0);
-    defer _ = sa_regex_free(re);
-
-    const text: []const u8 = "a,,b,";
-    const list = sa_regex_split(re, text.ptr, text.len, 0);
-    try std.testing.expect(list != 0);
-    defer _ = sa_regex_split_free(list);
-    try std.testing.expectEqual(@as(u64, 4), sa_regex_split_count(list));
-    try std.testing.expectEqualStrings("a", sa_regex_split_ptr(list, 0).?[0..@intCast(sa_regex_split_len(list, 0))]);
-    try std.testing.expectEqualStrings("", sa_regex_split_ptr(list, 1).?[0..@intCast(sa_regex_split_len(list, 1))]);
-    try std.testing.expectEqualStrings("b", sa_regex_split_ptr(list, 2).?[0..@intCast(sa_regex_split_len(list, 2))]);
-    try std.testing.expectEqualStrings("", sa_regex_split_ptr(list, 3).?[0..@intCast(sa_regex_split_len(list, 3))]);
-
-    const text2: []const u8 = ",a";
-    const list2 = sa_regex_split(re, text2.ptr, text2.len, 0);
-    try std.testing.expect(list2 != 0);
-    defer _ = sa_regex_split_free(list2);
-    try std.testing.expectEqual(@as(u64, 2), sa_regex_split_count(list2));
-    try std.testing.expectEqualStrings("", sa_regex_split_ptr(list2, 0).?[0..@intCast(sa_regex_split_len(list2, 0))]);
-    try std.testing.expectEqualStrings("a", sa_regex_split_ptr(list2, 1).?[0..@intCast(sa_regex_split_len(list2, 1))]);
-
-    const text3: []const u8 = "abc";
-    const list3 = sa_regex_split(re, text3.ptr, text3.len, 0);
-    try std.testing.expect(list3 != 0);
-    defer _ = sa_regex_split_free(list3);
-    try std.testing.expectEqual(@as(u64, 1), sa_regex_split_count(list3));
-    try std.testing.expectEqualStrings("abc", sa_regex_split_ptr(list3, 0).?[0..@intCast(sa_regex_split_len(list3, 0))]);
-
-    const empty: []const u8 = "";
-    const list4 = sa_regex_split(re, empty.ptr, empty.len, 0);
-    try std.testing.expect(list4 != 0);
-    defer _ = sa_regex_split_free(list4);
-    try std.testing.expectEqual(@as(u64, 1), sa_regex_split_count(list4));
-    try std.testing.expectEqual(@as(u64, 0), sa_regex_split_len(list4, 0));
-}
-
-test "regex: split inserts capture groups and honors limit" {
-    const pat: []const u8 = "([0-9])";
-    const re = sa_regex_compile(pat.ptr, pat.len, SA_REGEX_EXTENDED);
-    try std.testing.expect(re != 0);
-    defer _ = sa_regex_free(re);
-    const text: []const u8 = "a1b2c";
-
-    const list = sa_regex_split(re, text.ptr, text.len, 0);
-    try std.testing.expect(list != 0);
-    defer _ = sa_regex_split_free(list);
-    try std.testing.expectEqual(@as(u64, 5), sa_regex_split_count(list));
-    try std.testing.expectEqualStrings("a", sa_regex_split_ptr(list, 0).?[0..@intCast(sa_regex_split_len(list, 0))]);
-    try std.testing.expectEqualStrings("1", sa_regex_split_ptr(list, 1).?[0..@intCast(sa_regex_split_len(list, 1))]);
-    try std.testing.expectEqualStrings("b", sa_regex_split_ptr(list, 2).?[0..@intCast(sa_regex_split_len(list, 2))]);
-    try std.testing.expectEqualStrings("2", sa_regex_split_ptr(list, 3).?[0..@intCast(sa_regex_split_len(list, 3))]);
-    try std.testing.expectEqualStrings("c", sa_regex_split_ptr(list, 4).?[0..@intCast(sa_regex_split_len(list, 4))]);
-
-    const list2 = sa_regex_split(re, text.ptr, text.len, 3);
-    try std.testing.expect(list2 != 0);
-    defer _ = sa_regex_split_free(list2);
-    try std.testing.expectEqual(@as(u64, 3), sa_regex_split_count(list2));
-    try std.testing.expectEqualStrings("b", sa_regex_split_ptr(list2, 2).?[0..@intCast(sa_regex_split_len(list2, 2))]);
-
-    // Empty input whose pattern matches at 0 splits to zero pieces (JS).
-    const pat2: []const u8 = "a*";
-    const re2 = sa_regex_compile(pat2.ptr, pat2.len, SA_REGEX_EXTENDED);
-    try std.testing.expect(re2 != 0);
-    defer _ = sa_regex_free(re2);
-    const empty: []const u8 = "";
-    const list3 = sa_regex_split(re2, empty.ptr, empty.len, 0);
-    try std.testing.expect(list3 != 0);
-    defer _ = sa_regex_split_free(list3);
-    try std.testing.expectEqual(@as(u64, 0), sa_regex_split_count(list3));
-}
 
 
 pub const sa_json_buffer_data = @import("sa_std/json.zig").sa_json_buffer_data;
@@ -9312,20 +8909,11 @@ pub const sa_json_buffer_len = @import("sa_std/json.zig").sa_json_buffer_len;
 
 pub const sa_json_buffer_free = @import("sa_std/json.zig").sa_json_buffer_free;
 
-pub export fn sa_time_instant_ns() u64 {
-    if (!policyAllows(.time)) return 0;
-    return monotonicNowNs() catch return 0;
-}
+pub const sa_time_instant_ns = @import("sa_std/time.zig").sa_time_instant_ns;
 
-pub export fn sa_time_unix_s() i64 {
-    if (!policyAllows(.time)) return 0;
-    return sio.timestampSeconds();
-}
+pub const sa_time_unix_s = @import("sa_std/time.zig").sa_time_unix_s;
 
-pub export fn sa_time_unix_ms() i64 {
-    if (!policyAllows(.time)) return 0;
-    return std.Io.Clock.real.now(sio.io()).toMilliseconds();
-}
+pub const sa_time_unix_ms = @import("sa_std/time.zig").sa_time_unix_ms;
 
 /// Shared civil split: i64 unix millis to (days since epoch, millis
 /// within day, Hinnant y/m/d, h/mi/s/ms). Negative inputs fold via
@@ -9341,7 +8929,7 @@ const CivilParts = struct {
     days: i64,
 };
 
-fn civilParts(ms: i64) CivilParts {
+pub fn civilParts(ms: i64) CivilParts {
     const ms_per_day: i64 = 86400000;
     var days = @divFloor(ms, ms_per_day);
     var day_ms = @mod(ms, ms_per_day);
@@ -9375,169 +8963,37 @@ fn civilParts(ms: i64) CivilParts {
 /// path). Negative inputs (pre-1970) fold correctly via floored
 /// division (Howard Hinnant civil_from_days). Fresh buffer handle read
 /// back via `sa_fmt_buffer_data`/`sa_fmt_buffer_len` like concat.
-pub export fn sa_time_iso_from_unix_ms(ms: i64) u64 {
-    const ms_per_day: i64 = 86400000;
-    // Floored division: afternoon negatives land on the right day.
-    var days = @divFloor(ms, ms_per_day);
-    var day_ms = @mod(ms, ms_per_day);
-    if (day_ms < 0) {
-        day_ms += ms_per_day;
-        days -= 1;
-    }
-    // Hinnant civil_from_days (days since 1970-01-01 -> y/m/d).
-    const z: i64 = days + 719468;
-    const era: i64 = if (z >= 0) @divFloor(z, 146097) else @divFloor(z - 146096, 146097);
-    const doe: i64 = z - era * 146097;
-    const yoe: i64 = @divFloor(doe - @divFloor(doe, 1460) + @divFloor(doe, 36524) - @divFloor(doe, 146096), 365);
-    const y: i64 = yoe + era * 400;
-    const doy: i64 = doe - (365 * yoe + @divFloor(yoe, 4) - @divFloor(yoe, 100));
-    const mp: i64 = @divFloor(5 * doy + 2, 153);
-    const day: i64 = doy - @divFloor(153 * mp + 2, 5) + 1;
-    const month: i64 = if (mp < 10) mp + 3 else mp - 9;
-    const year: i64 = if (month <= 2) y + 1 else y;
-    const hour: i64 = @divFloor(day_ms, 3600000);
-    const minute: i64 = @divFloor(@mod(day_ms, 3600000), 60000);
-    const second: i64 = @divFloor(@mod(day_ms, 60000), 1000);
-    const milli: i64 = @mod(day_ms, 1000);
-    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    appendIsoUtc(&out, year, month, day, hour, minute, second, milli) catch return 0;
-    return openOwnedBuffer(out.toOwnedSlice() catch return 0) catch return 0;
-}
+pub const sa_time_iso_from_unix_ms = @import("sa_std/time.zig").sa_time_iso_from_unix_ms;
 
 /// Strict-ISO `Date.parse`: `YYYY-MM-DD[THH:MM:SS[.sss]][Z|±HH:MM]`
 /// to unix millis. Plain i32 status (0 ok, 2 invalid); range-checked
 /// (leap days, h<24, m/s<60); date-only means UTC midnight per JS.
 /// Inverse Hinnant days_from_civil; years 0..9999 keep i64 arithmetic
 /// exact (bounded well inside range, no checked ops needed).
-pub export fn sa_time_parse_iso(iso_ptr: ?[*]const u8, iso_len: u64, out_ms: ?*i64) i32 {
-    const out = out_ms orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const bytes = constBytes(iso_ptr, iso_len) catch |err| return finishErr(err);
-    const bad = finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var p: usize = 0;
-    const take = struct {
-        fn digits(b: []const u8, pos: *usize, n: usize) ?i64 {
-            if (pos.* + n > b.len) return null;
-            var v: i64 = 0;
-            for (b[pos.*..][0..n]) |c| {
-                if (c < '0' or c > '9') return null;
-                v = v * 10 + @as(i64, c - '0');
-            }
-            pos.* += n;
-            return v;
-        }
-    }.digits;
-    const year = take(bytes, &p, 4) orelse return bad;
-    if (p >= bytes.len or bytes[p] != '-') return bad;
-    p += 1;
-    const month = take(bytes, &p, 2) orelse return bad;
-    if (p >= bytes.len or bytes[p] != '-') return bad;
-    p += 1;
-    const day = take(bytes, &p, 2) orelse return bad;
-    var hour: i64 = 0;
-    var minute: i64 = 0;
-    var second: i64 = 0;
-    var milli: i64 = 0;
-    if (p < bytes.len) {
-        if (bytes[p] != 'T' and bytes[p] != 't' and bytes[p] != ' ') return bad;
-        p += 1;
-        hour = take(bytes, &p, 2) orelse return bad;
-        if (p >= bytes.len or bytes[p] != ':') return bad;
-        p += 1;
-        minute = take(bytes, &p, 2) orelse return bad;
-        if (p >= bytes.len or bytes[p] != ':') return bad;
-        p += 1;
-        second = take(bytes, &p, 2) orelse return bad;
-        if (p < bytes.len and bytes[p] == '.') {
-            p += 1;
-            const fstart = p;
-            while (p < bytes.len and bytes[p] >= '0' and bytes[p] <= '9') : (p += 1) {}
-            const flen = p - fstart;
-            if (flen == 0 or flen > 3) return bad;
-            var f: i64 = 0;
-            for (bytes[fstart..p]) |c| f = f * 10 + @as(i64, c - '0');
-            milli = if (flen == 1) f * 100 else if (flen == 2) f * 10 else f;
-        }
-    }
-    var offset_min: i64 = 0;
-    if (p < bytes.len) {
-        if (bytes[p] == 'Z' or bytes[p] == 'z') {
-            p += 1;
-        } else if (bytes[p] == '+' or bytes[p] == '-') {
-            const neg = bytes[p] == '-';
-            p += 1;
-            const oh = take(bytes, &p, 2) orelse return bad;
-            if (p >= bytes.len or bytes[p] != ':') return bad;
-            p += 1;
-            const om = take(bytes, &p, 2) orelse return bad;
-            if (oh > 23 or om > 59) return bad;
-            offset_min = oh * 60 + om;
-            if (neg) offset_min = -offset_min;
-        } else {
-            return bad;
-        }
-    }
-    if (p != bytes.len) return bad;
-    if (month < 1 or month > 12) return bad;
-    const leap = @mod(year, 4) == 0 and (@mod(year, 100) != 0 or @mod(year, 400) == 0);
-    const dim: i64 = switch (month) {
-        1, 3, 5, 7, 8, 10, 12 => 31,
-        4, 6, 9, 11 => 30,
-        else => if (leap) 29 else 28,
-    };
-    if (day < 1 or day > dim) return bad;
-    if (hour > 23 or minute > 59 or second > 59) return bad;
-    // days_from_civil (Hinnant), April-based.
-    const y: i64 = if (month <= 2) year - 1 else year;
-    const era: i64 = if (y >= 0) @divFloor(y, 400) else @divFloor(y - 399, 400);
-    const yoe: i64 = y - era * 400;
-    const mp: i64 = @mod(month - 3, 12);
-    const doy: i64 = @divFloor(153 * mp + 2, 5) + day - 1;
-    const doe: i64 = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy;
-    const days: i64 = era * 146097 + doe - 719468;
-    out.* = ((days * 86400 + hour * 3600 + minute * 60 + second) * 1000 + milli) - offset_min * 60000;
-    return finish(SA_STD_OK);
-}
+pub const sa_time_parse_iso = @import("sa_std/time.zig").sa_time_parse_iso;
 
 /// JS Date getters over i64 unix millis (UTC; month 0-based like JS,
 /// day 0=Sunday like JS: 1970-01-01 was a Thursday).
-pub export fn sa_time_get_full_year(ms: i64) i64 {
-    return civilParts(ms).year;
-}
+pub const sa_time_get_full_year = @import("sa_std/time.zig").sa_time_get_full_year;
 
-pub export fn sa_time_get_month(ms: i64) i64 {
-    return civilParts(ms).month - 1;
-}
+pub const sa_time_get_month = @import("sa_std/time.zig").sa_time_get_month;
 
-pub export fn sa_time_get_date(ms: i64) i64 {
-    return civilParts(ms).day;
-}
+pub const sa_time_get_date = @import("sa_std/time.zig").sa_time_get_date;
 
-pub export fn sa_time_get_hours(ms: i64) i64 {
-    return civilParts(ms).hour;
-}
+pub const sa_time_get_hours = @import("sa_std/time.zig").sa_time_get_hours;
 
-pub export fn sa_time_get_minutes(ms: i64) i64 {
-    return civilParts(ms).minute;
-}
+pub const sa_time_get_minutes = @import("sa_std/time.zig").sa_time_get_minutes;
 
-pub export fn sa_time_get_seconds(ms: i64) i64 {
-    return civilParts(ms).second;
-}
+pub const sa_time_get_seconds = @import("sa_std/time.zig").sa_time_get_seconds;
 
-pub export fn sa_time_get_milliseconds(ms: i64) i64 {
-    return civilParts(ms).milli;
-}
+pub const sa_time_get_milliseconds = @import("sa_std/time.zig").sa_time_get_milliseconds;
 
-pub export fn sa_time_get_day(ms: i64) i64 {
-    const days = civilParts(ms).days;
-    return @mod(days + 4, 7);
-}
+pub const sa_time_get_day = @import("sa_std/time.zig").sa_time_get_day;
 
-const weekdayNames = [_][]const u8{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
-const monthNames = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+pub const weekdayNames = [_][]const u8{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+pub const monthNames = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
-fn appendTwo(out: *std.array_list.Managed(u8), val: i64) !void {
+pub fn appendTwo(out: *std.array_list.Managed(u8), val: i64) !void {
     var tmp: [32]u8 = undefined;
     const s = try std.fmt.bufPrint(&tmp, "{d}", .{val});
     var i: usize = s.len;
@@ -9545,7 +9001,7 @@ fn appendTwo(out: *std.array_list.Managed(u8), val: i64) !void {
     try out.appendSlice(s);
 }
 
-fn appendFour(out: *std.array_list.Managed(u8), val: i64) !void {
+pub fn appendFour(out: *std.array_list.Managed(u8), val: i64) !void {
     var tmp: [32]u8 = undefined;
     const s = try std.fmt.bufPrint(&tmp, "{d}", .{val});
     var i: usize = s.len;
@@ -9556,76 +9012,9 @@ fn appendFour(out: *std.array_list.Managed(u8), val: i64) !void {
 /// Fixed UTC string forms for Date toString/toDateString/toTimeString/
 /// toUTCString (fmt 0..3), byte-exact with Node under UTC. Years use the
 /// same 4-digit zero pad as the ISO path (documented bound 0..9999).
-pub export fn sa_time_format_utc(ms: i64, fmt_id: u64) u64 {
-    if (fmt_id > 3) {
-        const empty = std.heap.page_allocator.alloc(u8, 0) catch return 0;
-        return openOwnedBuffer(empty) catch return 0;
-    }
-    const c = civilParts(ms);
-    const wday: usize = @as(usize, @intCast(@mod(c.days + 4, 7)));
-    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    errdefer out.deinit();
-    switch (fmt_id) {
-        // "Wed Jan 01 2020 00:00:00 GMT+0000 (Coordinated Universal Time)"
-        0 => {
-            out.appendSlice(weekdayNames[wday]) catch return 0;
-            out.append(' ') catch return 0;
-            out.appendSlice(monthNames[@as(usize, @intCast(c.month - 1))]) catch return 0;
-            out.append(' ') catch return 0;
-            appendTwo(&out, c.day) catch return 0;
-            out.append(' ') catch return 0;
-            appendFour(&out, c.year) catch return 0;
-            out.append(' ') catch return 0;
-            appendTwo(&out, c.hour) catch return 0;
-            out.append(':') catch return 0;
-            appendTwo(&out, c.minute) catch return 0;
-            out.append(':') catch return 0;
-            appendTwo(&out, c.second) catch return 0;
-            out.appendSlice(" GMT+0000 (Coordinated Universal Time)") catch return 0;
-        },
-        // "Wed Jan 01 2020"
-        1 => {
-            out.appendSlice(weekdayNames[wday]) catch return 0;
-            out.append(' ') catch return 0;
-            out.appendSlice(monthNames[@as(usize, @intCast(c.month - 1))]) catch return 0;
-            out.append(' ') catch return 0;
-            appendTwo(&out, c.day) catch return 0;
-            out.append(' ') catch return 0;
-            appendFour(&out, c.year) catch return 0;
-        },
-        // "00:00:00 GMT+0000 (Coordinated Universal Time)"
-        2 => {
-            appendTwo(&out, c.hour) catch return 0;
-            out.append(':') catch return 0;
-            appendTwo(&out, c.minute) catch return 0;
-            out.append(':') catch return 0;
-            appendTwo(&out, c.second) catch return 0;
-            out.appendSlice(" GMT+0000 (Coordinated Universal Time)") catch return 0;
-        },
-        // "Wed, 01 Jan 2020 00:00:00 GMT"
-        3 => {
-            out.appendSlice(weekdayNames[wday]) catch return 0;
-            out.appendSlice(", ") catch return 0;
-            appendTwo(&out, c.day) catch return 0;
-            out.append(' ') catch return 0;
-            out.appendSlice(monthNames[@as(usize, @intCast(c.month - 1))]) catch return 0;
-            out.append(' ') catch return 0;
-            appendFour(&out, c.year) catch return 0;
-            out.append(' ') catch return 0;
-            appendTwo(&out, c.hour) catch return 0;
-            out.append(':') catch return 0;
-            appendTwo(&out, c.minute) catch return 0;
-            out.append(':') catch return 0;
-            appendTwo(&out, c.second) catch return 0;
-            out.appendSlice(" GMT") catch return 0;
-        },
-        else => unreachable,
-    }
-    const text = out.toOwnedSlice() catch return 0;
-    return openOwnedBuffer(text) catch return 0;
-}
+pub const sa_time_format_utc = @import("sa_std/time.zig").sa_time_format_utc;
 
-fn daysFromCivil(y_in: i64, m_in: i64, d: i64) i64 {
+pub fn daysFromCivil(y_in: i64, m_in: i64, d: i64) i64 {
     const y: i64 = if (m_in <= 2) y_in - 1 else y_in;
     const era: i64 = if (y >= 0) @divFloor(y, 400) else @divFloor(y - 399, 400);
     const yoe: i64 = y - era * 400;
@@ -9640,60 +9029,15 @@ fn daysFromCivil(y_in: i64, m_in: i64, d: i64) i64 {
 /// exactly like JS (setMonth(13), setDate(0), setHours(25), negatives).
 /// Unknown field ids return the input unchanged (frontends only ever
 /// send 0..6 via fixed table extras).
-pub export fn sa_time_set_field(ms: i64, field: u64, value: i64) i64 {
-    const c = civilParts(ms);
-    var y = c.year;
-    var mo = c.month;
-    var d = c.day;
-    var tod: i64 = c.hour * 3600000 + c.minute * 60000 + c.second * 1000 + c.milli;
-    switch (field) {
-        0 => y = value,
-        1 => {
-            const tm = y * 12 + value;
-            y = @divFloor(tm, 12);
-            mo = @mod(tm, 12) + 1;
-        },
-        2 => d = value,
-        3 => tod = value * 3600000 + @mod(tod, 3600000),
-        4 => tod = (tod - @mod(tod, 3600000)) + value * 60000 + @mod(tod, 60000),
-        5 => tod = (tod - @mod(tod, 60000)) + value * 1000 + @mod(tod, 1000),
-        6 => tod = tod - @mod(tod, 1000) + value,
-        else => return ms,
-    }
-    // Fold months once more (setFullYear keeps mo; setMonth pre-folded).
-    const tm = y * 12 + (mo - 1);
-    const y2 = @divFloor(tm, 12);
-    const m2 = @mod(tm, 12) + 1;
-    // Day overflow rolls through the 1st plus offset.
-    const days = daysFromCivil(y2, m2, 1) + (d - 1);
-    // Time-of-day overflow rolls across days.
-    const total_days = days + @divFloor(tod, 86400000);
-    const tod_norm = tod - @divFloor(tod, 86400000) * 86400000;
-    return (total_days * 86400) * 1000 + tod_norm;
-}
+pub const sa_time_set_field = @import("sa_std/time.zig").sa_time_set_field;
 
-pub export fn sa_time_unix_ns() i64 {
-    if (!policyAllows(.time)) return 0;
-    const ts = std.Io.Clock.real.now(sio.io()).toNanoseconds();
-    return std.math.cast(i64, ts) orelse std.math.maxInt(i64);
-}
+pub const sa_time_unix_ns = @import("sa_std/time.zig").sa_time_unix_ns;
 
-pub export fn sa_time_utc_now(out_date: ?*TimeDate) i32 {
-    const ptr = out_date orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (!policyAllows(.time)) return finish(SA_STD_ERR_PERMISSION_DENIED);
-    fillUtcNow(ptr) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_time_utc_now = @import("sa_std/time.zig").sa_time_utc_now;
 
-pub export fn sa_time_sleep_ns(ns: u64) i32 {
-    sio.io().sleep(.fromNanoseconds(@as(i96, @intCast(ns))), .awake) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_time_sleep_ns = @import("sa_std/time.zig").sa_time_sleep_ns;
 
-pub export fn sa_time_sleep_ms(ms: u64) i32 {
-    const ns = std.math.mul(u64, ms, std.time.ns_per_ms) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    return sa_time_sleep_ns(ns);
-}
+pub const sa_time_sleep_ms = @import("sa_std/time.zig").sa_time_sleep_ms;
 
 pub export fn sa_std_write(handle: u64, data: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
     if (out_written) |ptr| ptr.* = 0;
@@ -9725,37 +9069,7 @@ pub export fn sa_std_close(handle: u64) i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_io_read_line(handle: u64, max_bytes: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const limit = lenAsUsize(max_bytes) catch |err| return finishErr(err);
-
-    var list = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer list.deinit();
-
-    var count: usize = 0;
-    while (count < limit) {
-        var ch: [1]u8 = undefined;
-        const read = readHandle(handle, ch[0..]) catch |err| return finishErr(err);
-        if (read == 0) break;
-        if (ch[0] == '\n') break;
-        if (ch[0] == '\r') continue;
-        list.append(ch[0]) catch |err| return finishErr(err);
-        count += 1;
-    }
-
-    const bytes = list.toOwnedSlice() catch |err| return finishErr(err);
-    errdefer std.heap.page_allocator.free(bytes);
-    const resource = Resource{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } };
-    lockRegistry();
-    defer registry_mutex.unlock();
-    const buf_handle = registerResourceLocked(resource) catch |err| {
-        std.heap.page_allocator.free(bytes);
-        return finishErr(err);
-    };
-    handle_ptr.* = buf_handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_io_read_line = @import("sa_std/io.zig").sa_io_read_line;
 
 // Compatibility shims for the rosetta demos that model host APIs directly.
 pub fn fd_open(path_ptr: ?[*]const u8) callconv(.c) i32 {
@@ -10087,187 +9401,36 @@ comptime {
     }
 }
 
-pub export fn sa_std_fs_open_read(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    if (!policyAllows(.{ .fs = .{ .path = path, .write = false } })) return finish(SA_STD_ERR_PERMISSION_DENIED);
-    const file = sio.cwd().openFile(path, .{ .mode = .read_only }) catch |err| return finishErr(err);
-    errdefer file.close();
-    const handle = registerResource(.{ .file = file }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_open_read = @import("sa_std/std_fs.zig").sa_std_fs_open_read;
 
-pub export fn sa_std_fs_open_write(path_ptr: ?[*]const u8, path_len: u64, truncate: u32, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    if (!policyAllows(.{ .fs = .{ .path = path, .write = true } })) return finish(SA_STD_ERR_PERMISSION_DENIED);
-    const file = sio.cwd().createFile(path, .{ .read = true, .truncate = truncate != 0 }) catch |err| return finishErr(err);
-    errdefer file.close();
-    const handle = registerResource(.{ .file = file }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_open_write = @import("sa_std/std_fs.zig").sa_std_fs_open_write;
 
-pub export fn sa_std_fs_remove(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    sio.cwd().deleteFile(path) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_remove = @import("sa_std/std_fs.zig").sa_std_fs_remove;
 
-pub export fn sa_std_fs_exists(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    sio.cwd().access(path, .{}) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_exists = @import("sa_std/std_fs.zig").sa_std_fs_exists;
 
-pub export fn sa_std_fs_try_exists(path_ptr: ?[*]const u8, path_len: u64, out_exists: ?*u8) i32 {
-    const exists_ptr = out_exists orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    exists_ptr.* = 0;
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    sio.cwd().access(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return finish(SA_STD_OK),
-        else => return finishErr(err),
-    };
-    exists_ptr.* = 1;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_try_exists = @import("sa_std/std_fs.zig").sa_std_fs_try_exists;
 
-pub export fn sa_std_fs_len(path_ptr: ?[*]const u8, path_len: u64, out_len: ?*u64) i32 {
-    const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    len_ptr.* = 0;
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const stat = sio.cwd().statFile(path) catch |err| return finishErr(err);
-    len_ptr.* = stat.size;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_len = @import("sa_std/std_fs.zig").sa_std_fs_len;
 
-pub export fn sa_std_process_run(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const result = spawnProcess(std.heap.page_allocator, argv, .capture) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_run = @import("sa_std/std_process.zig").sa_std_process_run;
 
-pub export fn sa_std_process_run_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
-    const result = spawnProcessCwd(std.heap.page_allocator, argv, .capture, cwd) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_run_cwd = @import("sa_std/std_process.zig").sa_std_process_run_cwd;
 
-pub export fn sa_std_process_spawn(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const result = spawnProcess(std.heap.page_allocator, argv, .inherit) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn = @import("sa_std/std_process.zig").sa_std_process_spawn;
 
-pub export fn sa_std_process_spawn_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
-    const result = spawnProcessCwd(std.heap.page_allocator, argv, .inherit, cwd) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_cwd = @import("sa_std/std_process.zig").sa_std_process_spawn_cwd;
 
-pub export fn sa_std_process_spawn_stream(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    process_ptr.* = 0;
-    stdout_ptr.* = 0;
-    stderr_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const result = spawnProcess(std.heap.page_allocator, argv, .stream) catch |err| return finishErr(err);
-    process_ptr.* = result.process;
-    stdout_ptr.* = result.stdout orelse 0;
-    stderr_ptr.* = result.stderr orelse 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_stream = @import("sa_std/std_process.zig").sa_std_process_spawn_stream;
 
-pub export fn sa_std_process_spawn_stream_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    process_ptr.* = 0;
-    stdout_ptr.* = 0;
-    stderr_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
-    const result = spawnProcessCwd(std.heap.page_allocator, argv, .stream, cwd) catch |err| return finishErr(err);
-    process_ptr.* = result.process;
-    stdout_ptr.* = result.stdout orelse 0;
-    stderr_ptr.* = result.stderr orelse 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_stream_cwd = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_cwd;
 
 
-pub export fn sa_std_process_spawn_bidi(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_process: ?*u64, out_stdin: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdin_ptr = out_stdin orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    process_ptr.* = 0;
-    stdin_ptr.* = 0;
-    stdout_ptr.* = 0;
-    stderr_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, null, .{ .stdin = true }) catch |err| return finishErr(err);
-    process_ptr.* = result.process;
-    stdin_ptr.* = result.stdin orelse 0;
-    stdout_ptr.* = result.stdout orelse 0;
-    stderr_ptr.* = result.stderr orelse 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_bidi = @import("sa_std/std_process.zig").sa_std_process_spawn_bidi;
 
-pub export fn sa_std_process_spawn_bidi_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_process: ?*u64, out_stdin: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdin_ptr = out_stdin orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    process_ptr.* = 0;
-    stdin_ptr.* = 0;
-    stdout_ptr.* = 0;
-    stderr_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, .{ .stdin = true }) catch |err| return finishErr(err);
-    process_ptr.* = result.process;
-    stdin_ptr.* = result.stdin orelse 0;
-    stdout_ptr.* = result.stdout orelse 0;
-    stderr_ptr.* = result.stderr orelse 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_bidi_cwd = @import("sa_std/std_process.zig").sa_std_process_spawn_bidi_cwd;
 
-fn processCommandExtConfig(arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32) !ProcessSpawnConfig {
+pub fn processCommandExtConfig(arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32) !ProcessSpawnConfig {
     if (has_process_group != 0 and process_group < 0) return error.InvalidArgument;
     return .{
         .arg0 = if (has_arg0 != 0) try constBytes(arg0_ptr, arg0_len) else null,
@@ -10281,564 +9444,69 @@ fn processCommandExtConfig(arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32,
     };
 }
 
-pub export fn sa_std_process_run_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .capture, cwd, config) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_run_command_ext = @import("sa_std/std_process.zig").sa_std_process_run_command_ext;
 
-pub export fn sa_std_process_spawn_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .inherit, cwd, config) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_command_ext = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext;
 
-pub export fn sa_std_process_spawn_stream_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    process_ptr.* = 0;
-    stdout_ptr.* = 0;
-    stderr_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, config) catch |err| return finishErr(err);
-    process_ptr.* = result.process;
-    stdout_ptr.* = result.stdout orelse 0;
-    stderr_ptr.* = result.stderr orelse 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_stream_command_ext = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext;
 
-pub export fn sa_std_process_run_command_ext_pidfd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, create_pidfd, 0, 0, 0, 0, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .capture, cwd, config) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_run_command_ext_pidfd = @import("sa_std/std_process.zig").sa_std_process_run_command_ext_pidfd;
 
-pub export fn sa_std_process_spawn_command_ext_pidfd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, create_pidfd, 0, 0, 0, 0, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .inherit, cwd, config) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_command_ext_pidfd = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext_pidfd;
 
-pub export fn sa_std_process_spawn_stream_command_ext_pidfd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    process_ptr.* = 0;
-    stdout_ptr.* = 0;
-    stderr_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, create_pidfd, 0, 0, 0, 0, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, config) catch |err| return finishErr(err);
-    process_ptr.* = result.process;
-    stdout_ptr.* = result.stdout orelse 0;
-    stderr_ptr.* = result.stderr orelse 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_stream_command_ext_pidfd = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext_pidfd;
 
-pub export fn sa_std_process_run_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, uid, has_uid, gid, has_gid, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .capture, cwd, config) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_run_command_ext_uid_gid = @import("sa_std/std_process.zig").sa_std_process_run_command_ext_uid_gid;
 
-pub export fn sa_std_process_spawn_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, uid, has_uid, gid, has_gid, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .inherit, cwd, config) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_command_ext_uid_gid = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext_uid_gid;
 
-pub export fn sa_std_process_spawn_stream_command_ext_uid_gid(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    process_ptr.* = 0;
-    stdout_ptr.* = 0;
-    stderr_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, uid, has_uid, gid, has_gid, null, 0, 0, null, 0, 0) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, config) catch |err| return finishErr(err);
-    process_ptr.* = result.process;
-    stdout_ptr.* = result.stdout orelse 0;
-    stderr_ptr.* = result.stderr orelse 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_stream_command_ext_uid_gid = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext_uid_gid;
 
-pub export fn sa_std_process_run_command_ext_groups(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, groups_ptr, groups_len, has_groups, null, 0, 0) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .capture, cwd, config) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_run_command_ext_groups = @import("sa_std/std_process.zig").sa_std_process_run_command_ext_groups;
 
-pub export fn sa_std_process_spawn_command_ext_groups(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, groups_ptr, groups_len, has_groups, null, 0, 0) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .inherit, cwd, config) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_command_ext_groups = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext_groups;
 
-pub export fn sa_std_process_spawn_stream_command_ext_groups(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    process_ptr.* = 0;
-    stdout_ptr.* = 0;
-    stderr_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, groups_ptr, groups_len, has_groups, null, 0, 0) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, config) catch |err| return finishErr(err);
-    process_ptr.* = result.process;
-    stdout_ptr.* = result.stdout orelse 0;
-    stderr_ptr.* = result.stderr orelse 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_stream_command_ext_groups = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext_groups;
 
-pub export fn sa_std_process_run_command_ext_chroot(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, null, 0, 0, chroot_ptr, chroot_len, has_chroot) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .capture, cwd, config) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_run_command_ext_chroot = @import("sa_std/std_process.zig").sa_std_process_run_command_ext_chroot;
 
-pub export fn sa_std_process_spawn_command_ext_chroot(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, null, 0, 0, chroot_ptr, chroot_len, has_chroot) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .inherit, cwd, config) catch |err| return finishErr(err);
-    handle_ptr.* = result.process;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_command_ext_chroot = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext_chroot;
 
-pub export fn sa_std_process_spawn_stream_command_ext_chroot(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32, out_process: ?*u64, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const process_ptr = out_process orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    process_ptr.* = 0;
-    stdout_ptr.* = 0;
-    stderr_ptr.* = 0;
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, 0, 0, 0, 0, null, 0, 0, chroot_ptr, chroot_len, has_chroot) catch |err| return finishErr(err);
-    const result = spawnProcessConfiguredCwd(std.heap.page_allocator, argv, .stream, cwd, config) catch |err| return finishErr(err);
-    process_ptr.* = result.process;
-    stdout_ptr.* = result.stdout orelse 0;
-    stderr_ptr.* = result.stderr orelse 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_process_spawn_stream_command_ext_chroot = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext_chroot;
 
-pub export fn sa_std_process_exec_command_ext(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, has_cwd: u32, arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const argv = argvFromEntries(std.heap.page_allocator, argv_ptr, argv_len) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(argv);
-    if (argv.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const cwd = if (has_cwd != 0) pathBytes(cwd_ptr, cwd_len) catch |err| return finishErr(err) else null;
-    const config = processCommandExtConfig(arg0_ptr, arg0_len, has_arg0, process_group, has_process_group, setsid, 0, uid, has_uid, gid, has_gid, groups_ptr, groups_len, has_groups, chroot_ptr, chroot_len, has_chroot) catch |err| return finishErr(err);
-    if (config.arg0) |arg0| {
-        if (std.mem.indexOfScalar(u8, arg0, 0) != null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    }
+pub const sa_std_process_exec_command_ext = @import("sa_std/std_process.zig").sa_std_process_exec_command_ext;
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const exec_path = (arena.allocator().dupeSentinel(u8, argv[0], 0) catch |err| return finishErr(err)).ptr;
-    const child_argv = arena.allocator().alloc(?[*:0]const u8, argv.len + 1) catch |err| return finishErr(err);
-    for (argv, 0..) |arg, i| {
-        const child_arg = if (i == 0 and config.arg0 != null) config.arg0.? else arg;
-        child_argv[i] = (arena.allocator().dupeSentinel(u8, child_arg, 0) catch |err| return finishErr(err)).ptr;
-    }
-    child_argv[argv.len] = null;
-    const envp = envpFromCurrentProcess(arena.allocator()) catch |err| return finishErr(err);
-    const chroot_path_z: ?[*:0]const u8 = if (config.chroot_path) |path| (arena.allocator().dupeSentinel(u8, path, 0) catch |err| return finishErr(err)).ptr else null;
+pub const sa_std_process_id = @import("sa_std/std_process.zig").sa_std_process_id;
 
-    applyProcessCommandExtSetup(cwd, config, chroot_path_z) catch |err| return finishErr(err);
-    const argv_z: [*:null]const ?[*:0]const u8 = @ptrCast(child_argv.ptr);
-    const envp_z: [*:null]const ?[*:0]const u8 = @ptrCast(envp.ptr);
-    const exec_err = lxExecvpeZ(exec_path, argv_z, envp_z);
-    return finishErr(exec_err);
-}
+pub const sa_std_process_parent_id = @import("sa_std/std_process.zig").sa_std_process_parent_id;
 
-pub export fn sa_std_process_id() u32 {
-    if (comptime is_wasm) return 0;
-    return @intCast(getpid());
-}
+pub const sa_std_process_user_id = @import("sa_std/std_process.zig").sa_std_process_user_id;
 
-pub export fn sa_std_process_parent_id() u32 {
-    if (comptime is_wasm) return 0;
-    return @intCast(getppid());
-}
+pub const sa_std_process_group_id = @import("sa_std/std_process.zig").sa_std_process_group_id;
 
-pub export fn sa_std_process_user_id() u32 {
-    if (comptime is_wasm) return 0;
-    if (comptime is_linux) return @intCast(std.os.linux.getuid());
-    return @intCast(getuid());
-}
+pub const sa_std_process_abort = @import("sa_std/std_process.zig").sa_std_process_abort;
 
-pub export fn sa_std_process_group_id() u32 {
-    if (comptime is_wasm) return 0;
-    if (comptime is_linux) return @intCast(std.os.linux.getgid());
-    return @intCast(getgid());
-}
+pub const sa_std_process_child_id = @import("sa_std/std_process.zig").sa_std_process_child_id;
 
-pub export fn sa_std_process_abort() noreturn {
-    if (comptime is_wasm) std.process.abort();
-    std.process.abort();
-}
+pub const sa_std_process_wait = @import("sa_std/std_process.zig").sa_std_process_wait;
 
-pub export fn sa_std_process_child_id(handle: u64, out_pid: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const pid_ptr = out_pid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    pid_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .process => |*proc| {
-            pid_ptr.* = @intCast(proc.pid);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_process_wait_raw = @import("sa_std/std_process.zig").sa_std_process_wait_raw;
 
-pub export fn sa_std_process_wait(handle: u64, out_code: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    code_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .process => |*proc| {
-            if (!proc.exited) {
-                if (proc.pidfd) |fd| {
-                    const raw_status = waitPidfdStatus(fd, w_exited) catch |err| return finishErr(err);
-                    finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
-                } else {
-                    const waited = lxWaitpid(proc.pid, 0);
-                    finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
-                }
-            }
-            code_ptr.* = proc.code;
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_process_try_wait = @import("sa_std/std_process.zig").sa_std_process_try_wait;
 
-pub export fn sa_std_process_wait_raw(handle: u64, out_raw: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    raw_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .process => |*proc| {
-            if (!proc.exited) {
-                if (proc.pidfd) |fd| {
-                    const raw_status = waitPidfdStatus(fd, w_exited) catch |err| return finishErr(err);
-                    finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
-                } else {
-                    const waited = lxWaitpid(proc.pid, 0);
-                    finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
-                }
-            }
-            raw_ptr.* = @bitCast(proc.raw_status);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_process_try_wait_raw = @import("sa_std/std_process.zig").sa_std_process_try_wait_raw;
 
-pub export fn sa_std_process_try_wait(handle: u64, out_ready: ?*i32, out_code: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    ready_ptr.* = 0;
-    code_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .process => |*proc| {
-            if (!proc.exited) {
-                if (proc.pidfd) |fd| {
-                    const raw_status = waitPidfdStatus(fd, w_exited | w_nohang) catch |err| return finishErr(err);
-                    if (raw_status == null) return finish(SA_STD_OK);
-                    finalizeProcessExit(proc, raw_status.?) catch |err| return finishErr(err);
-                } else {
-                    const waited = lxWaitpid(proc.pid, WT.NOHANG);
-                    if (waited.pid == 0) return finish(SA_STD_OK);
-                    finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
-                }
-            }
-            ready_ptr.* = 1;
-            code_ptr.* = proc.code;
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_process_kill = @import("sa_std/std_process.zig").sa_std_process_kill;
 
-pub export fn sa_std_process_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    ready_ptr.* = 0;
-    raw_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .process => |*proc| {
-            if (!proc.exited) {
-                if (proc.pidfd) |fd| {
-                    const raw_status = waitPidfdStatus(fd, w_exited | w_nohang) catch |err| return finishErr(err);
-                    if (raw_status == null) return finish(SA_STD_OK);
-                    finalizeProcessExit(proc, raw_status.?) catch |err| return finishErr(err);
-                } else {
-                    const waited = lxWaitpid(proc.pid, WT.NOHANG);
-                    if (waited.pid == 0) return finish(SA_STD_OK);
-                    finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
-                }
-            }
-            ready_ptr.* = 1;
-            raw_ptr.* = @bitCast(proc.raw_status);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_process_send_signal = @import("sa_std/std_process.zig").sa_std_process_send_signal;
 
-pub export fn sa_std_process_kill(handle: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .process => |*proc| {
-            if (!proc.exited) {
-                if (proc.pidfd) |fd| {
-                    sendSignalToPidfd(fd, @backingInt(SIGT.KILL), 0) catch |err| switch (err) {
-                        error.ProcessNotFound => {},
-                        else => return finishErr(err),
-                    };
-                    const raw_status = waitPidfdStatus(fd, w_exited) catch |err| return finishErr(err);
-                    finalizeProcessExit(proc, raw_status orelse return finish(SA_STD_OK)) catch |err| return finishErr(err);
-                } else {
-                    std.posix.kill(proc.pid, SIGT.KILL) catch |err| switch (err) {
-                        error.ProcessNotFound => {},
-                        else => return finishErr(err),
-                    };
-                    const waited = lxWaitpid(proc.pid, 0);
-                    finalizeProcessExit(proc, waited.status) catch |err| return finishErr(err);
-                }
-            }
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_process_send_process_group_signal = @import("sa_std/std_process.zig").sa_std_process_send_process_group_signal;
 
-pub export fn sa_std_process_send_signal(handle: u64, signum: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (signum < 0 or signum > std.math.maxInt(u8)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .process => |*proc| {
-            if (proc.exited) return finish(SA_STD_ERR_INVALID_HANDLE);
-            if (proc.pidfd) |fd| {
-                sendSignalToPidfd(fd, @as(u8, @intCast(signum)), 0) catch |err| switch (err) {
-                    error.InvalidArgument => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-                    error.PermissionDenied => return finish(SA_STD_ERR_ACCESS),
-                    error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                    else => return finishErr(err),
-                };
-                return finish(SA_STD_OK);
-            }
-            lxKill(proc.pid, @as(u8, @intCast(signum))) catch |err| switch (err) {
-                error.InvalidArgument => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-                error.PermissionDenied => return finish(SA_STD_ERR_ACCESS),
-                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                else => return finishErr(err),
-            };
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_process_kill_process_group = @import("sa_std/std_process.zig").sa_std_process_kill_process_group;
 
-pub export fn sa_std_process_send_process_group_signal(handle: u64, signum: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (signum < 0 or signum > 64) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .process => |*proc| {
-            if (proc.exited) return finish(SA_STD_ERR_INVALID_HANDLE);
-            const pgid = proc.process_group orelse proc.pid;
-            if (pgid <= 0) return finish(SA_STD_ERR_INVALID_HANDLE);
-            sendSignalToProcessGroup(pgid, @as(u8, @intCast(signum))) catch |err| switch (err) {
-                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                error.PermissionDenied => return finish(SA_STD_ERR_ACCESS),
-                else => return finishErr(err),
-            };
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_process_pidfd = @import("sa_std/std_process.zig").sa_std_process_pidfd;
 
-pub export fn sa_std_process_kill_process_group(handle: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_process_send_process_group_signal(handle, @backingInt(SIGT.KILL));
-}
-
-pub export fn sa_std_process_pidfd(handle: u64, out_pidfd: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const pidfd_ptr = out_pidfd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    pidfd_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .process => |*proc| {
-            const pidfd = proc.pidfd orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-            const dup_fd = lxDup(pidfd) catch |err| return finishErr(err);
-            const dup_handle = registerResourceLocked(.{ .owned_fd = .{ .fd = dup_fd } }) catch |err| {
-                lxClose(dup_fd);
-                return finishErr(err);
-            };
-            pidfd_ptr.* = dup_handle;
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
-
-pub export fn sa_std_process_into_pidfd(handle: u64, out_pidfd: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const pidfd_ptr = out_pidfd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    pidfd_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .process => |*proc| {
-            const pidfd = proc.pidfd orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-            proc.pidfd = null;
-            const pidfd_handle = registerResourceLocked(.{ .owned_fd = .{ .fd = pidfd } }) catch |err| {
-                proc.pidfd = pidfd;
-                return finishErr(err);
-            };
-            pidfd_ptr.* = pidfd_handle;
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_process_into_pidfd = @import("sa_std/std_process.zig").sa_std_process_into_pidfd;
 
 pub export fn sa_std_pidfd_kill(handle: u64) i32 {
     if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
@@ -10979,44 +9647,19 @@ pub export fn sa_std_pidfd_try_wait(handle: u64, out_ready: ?*i32, out_code: ?*u
     };
 }
 
-pub export fn sa_std_process_exit_status_code(raw: i32) u32 {
-    if (comptime is_wasm) {
-        return 127;
-    }
-    return waitStatusCode(raw);
-}
+pub const sa_std_process_exit_status_code = @import("sa_std/std_process.zig").sa_std_process_exit_status_code;
 
-pub export fn sa_std_process_exit_status_signal(raw: i32) i32 {
-    if (comptime is_wasm) {
-        return -1;
-    }
-    return waitStatusSignal(raw);
-}
+pub const sa_std_process_exit_status_signal = @import("sa_std/std_process.zig").sa_std_process_exit_status_signal;
 
-pub export fn sa_std_process_exit_status_core_dumped(raw: i32) u8 {
-    if (comptime is_wasm) {
-        return 0;
-    }
-    return waitStatusCoreDumped(raw);
-}
+pub const sa_std_process_exit_status_core_dumped = @import("sa_std/std_process.zig").sa_std_process_exit_status_core_dumped;
 
-pub export fn sa_std_process_exit_status_stopped_signal(raw: i32) i32 {
-    if (comptime is_wasm) {
-        return -1;
-    }
-    return waitStatusStoppedSignal(raw);
-}
+pub const sa_std_process_exit_status_stopped_signal = @import("sa_std/std_process.zig").sa_std_process_exit_status_stopped_signal;
 
-pub export fn sa_std_process_exit_status_continued(raw: i32) u8 {
-    if (comptime is_wasm) {
-        return 0;
-    }
-    return waitStatusContinued(raw);
-}
+pub const sa_std_process_exit_status_continued = @import("sa_std/std_process.zig").sa_std_process_exit_status_continued;
 
 const ProcessOutputStream = enum { stdout, stderr };
 
-fn readProcessOutput(handle: u64, stream: ProcessOutputStream, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
+pub fn readProcessOutput(handle: u64, stream: ProcessOutputStream, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
     if (out_read) |ptr| ptr.* = 0;
     const output = mutBytes(out, out_cap) catch |err| return finishErr(err);
     while (!registry_mutex.tryLock()) {
@@ -11047,98 +9690,15 @@ fn readProcessOutput(handle: u64, stream: ProcessOutputStream, out: ?[*]u8, out_
     };
 }
 
-pub export fn sa_std_process_read_stdout(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return readProcessOutput(handle, .stdout, out, out_cap, out_read);
-}
+pub const sa_std_process_read_stdout = @import("sa_std/std_process.zig").sa_std_process_read_stdout;
 
-pub export fn sa_std_process_read_stderr(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return readProcessOutput(handle, .stderr, out, out_cap, out_read);
-}
+pub const sa_std_process_read_stderr = @import("sa_std/std_process.zig").sa_std_process_read_stderr;
 
-pub export fn sa_std_process_exec_capture(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, out_code: ?*u32, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    code_ptr.* = 0;
-    stdout_ptr.* = 0;
-    stderr_ptr.* = 0;
+pub const sa_std_process_exec_capture = @import("sa_std/std_process.zig").sa_std_process_exec_capture;
 
-    var process: u64 = 0;
-    var run_status = sa_std_process_run(argv_ptr, argv_len, &process);
-    if (run_status != SA_STD_OK) return run_status;
-    errdefer _ = sa_std_process_close(process);
+pub const sa_std_process_exec_capture_cwd = @import("sa_std/std_process.zig").sa_std_process_exec_capture_cwd;
 
-    run_status = sa_std_process_wait(process, code_ptr);
-    if (run_status != SA_STD_OK) return run_status;
-
-    var stdout_buf: [8192]u8 = undefined;
-    var stdout_len: u64 = 0;
-    run_status = sa_std_process_read_stdout(process, &stdout_buf, stdout_buf.len, &stdout_len);
-    if (run_status != SA_STD_OK) return run_status;
-
-    var stderr_buf: [8192]u8 = undefined;
-    var stderr_len: u64 = 0;
-    run_status = sa_std_process_read_stderr(process, &stderr_buf, stderr_buf.len, &stderr_len);
-    if (run_status != SA_STD_OK) return run_status;
-
-    const stdout_owned = std.heap.page_allocator.dupe(u8, stdout_buf[0..@as(usize, @intCast(stdout_len))]) catch |err| return finishErr(err);
-    errdefer std.heap.page_allocator.free(stdout_owned);
-    const stderr_owned = std.heap.page_allocator.dupe(u8, stderr_buf[0..@as(usize, @intCast(stderr_len))]) catch |err| return finishErr(err);
-    errdefer std.heap.page_allocator.free(stderr_owned);
-
-    stdout_ptr.* = openOwnedByteBuffer(stdout_owned) catch |err| return finishErr(err);
-    errdefer _ = sa_std_close(stdout_ptr.*);
-    stderr_ptr.* = openOwnedByteBuffer(stderr_owned) catch |err| return finishErr(err);
-    _ = sa_std_process_close(process);
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_process_exec_capture_cwd(argv_ptr: ?[*]const SaProcessArgv, argv_len: u64, cwd_ptr: ?[*]const u8, cwd_len: u64, out_code: ?*u32, out_stdout: ?*u64, out_stderr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stdout_ptr = out_stdout orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const stderr_ptr = out_stderr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    code_ptr.* = 0;
-    stdout_ptr.* = 0;
-    stderr_ptr.* = 0;
-
-    var process: u64 = 0;
-    var run_status = sa_std_process_run_cwd(argv_ptr, argv_len, cwd_ptr, cwd_len, &process);
-    if (run_status != SA_STD_OK) return run_status;
-    errdefer _ = sa_std_process_close(process);
-
-    run_status = sa_std_process_wait(process, code_ptr);
-    if (run_status != SA_STD_OK) return run_status;
-
-    var stdout_buf: [8192]u8 = undefined;
-    var stdout_len: u64 = 0;
-    run_status = sa_std_process_read_stdout(process, &stdout_buf, stdout_buf.len, &stdout_len);
-    if (run_status != SA_STD_OK) return run_status;
-
-    var stderr_buf: [8192]u8 = undefined;
-    var stderr_len: u64 = 0;
-    run_status = sa_std_process_read_stderr(process, &stderr_buf, stderr_buf.len, &stderr_len);
-    if (run_status != SA_STD_OK) return run_status;
-
-    const stdout_owned = std.heap.page_allocator.dupe(u8, stdout_buf[0..@as(usize, @intCast(stdout_len))]) catch |err| return finishErr(err);
-    errdefer std.heap.page_allocator.free(stdout_owned);
-    const stderr_owned = std.heap.page_allocator.dupe(u8, stderr_buf[0..@as(usize, @intCast(stderr_len))]) catch |err| return finishErr(err);
-    errdefer std.heap.page_allocator.free(stderr_owned);
-
-    stdout_ptr.* = openOwnedByteBuffer(stdout_owned) catch |err| return finishErr(err);
-    errdefer _ = sa_std_close(stdout_ptr.*);
-    stderr_ptr.* = openOwnedByteBuffer(stderr_owned) catch |err| return finishErr(err);
-    _ = sa_std_process_close(process);
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_process_close(handle: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_close(handle);
-}
+pub const sa_std_process_close = @import("sa_std/std_process.zig").sa_std_process_close;
 
 pub export fn sa_std_fd_as_raw(handle: u64, out_fd: ?*i32) i32 {
     const fd_ptr = out_fd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -11254,201 +9814,45 @@ pub export fn sa_thread_yield_now() i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_term_raw_enter(handle: u64, out_session: ?*u64) i32 {
-    // WASI has no ttys (no tcgetattr/tcsetattr in wasi-libc).
-    if (is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const session_ptr = out_session orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    session_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
+pub const sa_term_raw_enter = @import("sa_std/term.zig").sa_term_raw_enter;
 
-    const fd = handleToFd(handle) catch |err| return finishErr(err);
-    const original = std.posix.tcgetattr(fd) catch |err| return finishErr(err);
-    var raw = original;
-    applyRawMode(&raw);
-    std.posix.tcsetattr(fd, .FLUSH, raw) catch |err| return finishErr(err);
+pub const sa_term_raw_leave = @import("sa_std/term.zig").sa_term_raw_leave;
 
-    const session = registerResourceLocked(.{ .terminal_session = .{ .fd = fd, .saved = original } }) catch |err| {
-        std.posix.tcsetattr(fd, .FLUSH, original) catch |restore_err| return finishErr(restore_err);
-        return finishErr(err);
-    };
-    session_ptr.* = session;
-    return finish(SA_STD_OK);
-}
+pub const sa_term_winsize = @import("sa_std/term.zig").sa_term_winsize;
 
-pub export fn sa_term_raw_leave(session_handle: u64) i32 {
-    return sa_std_close(session_handle);
-}
+pub const sa_term_epoll_create = @import("sa_std/term.zig").sa_term_epoll_create;
 
-pub export fn sa_term_winsize(handle: u64, out_size: ?*SaTermWinsize) i32 {
-    const size_ptr = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    size_ptr.* = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
+pub const sa_term_epoll_create_linux = @import("sa_std/term.zig").sa_term_epoll_create_linux;
 
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const fd = handleToFd(handle) catch |err| return finishErr(err);
-    const WinSize = extern struct { row: u16, col: u16, xpixel: u16, ypixel: u16 };
-    var wsz: WinSize = undefined;
-    while (true) {
-        const e: std.posix.E = if (comptime is_linux)
-            std.os.linux.errno(std.os.linux.ioctl(fd, std.os.linux.T.IOCGWINSZ, @intFromPtr(&wsz)))
-        else
-            std.posix.errno(libc.ioctl(fd, 0x40087468, @as(*anyopaque, @ptrCast(&wsz))));
-        switch (e) {
-            .SUCCESS => {
-                size_ptr.* = .{
-                    .row = wsz.row,
-                    .col = wsz.col,
-                    .xpixel = wsz.xpixel,
-                    .ypixel = wsz.ypixel,
-                };
-                return finish(SA_STD_OK);
-            },
-            .INTR => continue,
-            .BADF => return finish(SA_STD_ERR_INVALID_HANDLE),
-            .NOTTY => return finish(SA_STD_ERR_UNSUPPORTED),
-            else => return finish(SA_STD_ERR_IO),
-        }
-    }
-}
+pub const sa_term_epoll_ctl = @import("sa_std/term.zig").sa_term_epoll_ctl;
 
-pub export fn sa_term_epoll_create(flags: u32, out_handle: ?*u64) i32 {
-    if (comptime builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_term_epoll_create_linux(flags, out_handle);
-}
+pub const sa_term_epoll_ctl_linux = @import("sa_std/term.zig").sa_term_epoll_ctl_linux;
 
-fn sa_term_epoll_create_linux(flags: u32, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const cloexec_flag: u32 = @as(u32, @intCast(std.os.linux.EPOLL.CLOEXEC));
-    if ((flags & ~cloexec_flag) != 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const fd = lxEpollCreate1(flags) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const handle = registerResourceLocked(.{ .owned_fd = .{ .fd = fd } }) catch |err| {
-        lxClose(fd);
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_term_epoll_wait = @import("sa_std/term.zig").sa_term_epoll_wait;
 
-pub export fn sa_term_epoll_ctl(epoll_handle: u64, op: u32, target_handle: u64, events: u32, data: u64) i32 {
-    if (comptime builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_term_epoll_ctl_linux(epoll_handle, op, target_handle, events, data);
-}
+pub const sa_term_epoll_wait_linux = @import("sa_std/term.zig").sa_term_epoll_wait_linux;
 
-fn sa_term_epoll_ctl_linux(epoll_handle: u64, op: u32, target_handle: u64, events: u32, data: u64) i32 {
-    if (op != std.os.linux.EPOLL.CTL_ADD and op != std.os.linux.EPOLL.CTL_MOD and op != std.os.linux.EPOLL.CTL_DEL) {
-        return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    }
-    if (op != std.os.linux.EPOLL.CTL_DEL and events == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
+pub const sa_term_epoll_close = @import("sa_std/term.zig").sa_term_epoll_close;
 
-    const epoll_fd = handleToFd(epoll_handle) catch |err| return finishErr(err);
-    const target_fd = handleToFd(target_handle) catch |err| return finishErr(err);
-    var event: std.os.linux.epoll_event = .{
-        .events = events,
-        .data = .{ .u64 = data },
-    };
-    const event_ptr = if (op == std.os.linux.EPOLL.CTL_DEL) null else &event;
-    lxEpollCtl(epoll_fd, op, target_fd, event_ptr) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_term_epoll_close_linux = @import("sa_std/term.zig").sa_term_epoll_close_linux;
 
-pub export fn sa_term_epoll_wait(epoll_handle: u64, out_events: ?[*]SaTermEpollEvent, max_events: u64, timeout_ms: i32, out_count: ?*u64) i32 {
-    if (comptime builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_term_epoll_wait_linux(epoll_handle, out_events, max_events, timeout_ms, out_count);
-}
+pub const sa_io_stdin = @import("sa_std/io.zig").sa_io_stdin;
 
-fn sa_term_epoll_wait_linux(epoll_handle: u64, out_events: ?[*]SaTermEpollEvent, max_events: u64, timeout_ms: i32, out_count: ?*u64) i32 {
-    const events_ptr = out_events orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const count_ptr = out_count orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    count_ptr.* = 0;
-    const event_count = lenAsUsize(max_events) catch |err| return finishErr(err);
-    if (event_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+pub const sa_io_stdout = @import("sa_std/io.zig").sa_io_stdout;
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
+pub const sa_io_stderr = @import("sa_std/io.zig").sa_io_stderr;
 
-    const epoll_fd = handleToFd(epoll_handle) catch |err| return finishErr(err);
-    const kernel_events = std.heap.page_allocator.alloc(std.os.linux.epoll_event, event_count) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(kernel_events);
+pub const sa_io_read = @import("sa_std/io.zig").sa_io_read;
 
-    const ready = lxEpollWait(epoll_fd, kernel_events, timeout_ms);
-    for (kernel_events[0..ready], 0..) |event, i| {
-        events_ptr[i] = .{
-            .events = event.events,
-            .data = event.data.u64,
-        };
-    }
-    count_ptr.* = @as(u64, @intCast(ready));
-    return finish(SA_STD_OK);
-}
+pub const sa_io_read_exact = @import("sa_std/io.zig").sa_io_read_exact;
 
-pub export fn sa_term_epoll_close(handle: u64) i32 {
-    if (comptime builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_term_epoll_close_linux(handle);
-}
+pub const sa_io_write = @import("sa_std/io.zig").sa_io_write;
 
-fn sa_term_epoll_close_linux(handle: u64) i32 {
-    return sa_std_close(handle);
-}
+pub const sa_io_write_all = @import("sa_std/io.zig").sa_io_write_all;
 
-pub export fn sa_io_stdin() u64 {
-    return SA_STD_STDIN;
-}
+pub const sa_io_flush = @import("sa_std/io.zig").sa_io_flush;
 
-pub export fn sa_io_stdout() u64 {
-    return SA_STD_STDOUT;
-}
-
-pub export fn sa_io_stderr() u64 {
-    return SA_STD_STDERR;
-}
-
-pub export fn sa_io_read(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
-    return sa_std_read(handle, out, out_cap, out_read);
-}
-
-pub export fn sa_io_read_exact(handle: u64, out: ?[*]u8, len: u64) i32 {
-    var count: u64 = 0;
-    const status = sa_std_read(handle, out, len, &count);
-    if (status != SA_STD_OK or count != len) return finish(SA_STD_ERR_IO);
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_io_write(handle: u64, data: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
-    return sa_std_write(handle, data, len, out_written);
-}
-
-pub export fn sa_io_write_all(handle: u64, data: ?[*]const u8, len: u64) i32 {
-    var written: u64 = 0;
-    const status = sa_std_write(handle, data, len, &written);
-    if (status != SA_STD_OK or written != len) return finish(SA_STD_ERR_IO);
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_io_flush(handle: u64) i32 {
-    _ = handle;
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_io_close(handle: u64) i32 {
-    return sa_std_close(handle);
-}
+pub const sa_io_close = @import("sa_std/io.zig").sa_io_close;
 
 // W1-DEF-IO-BUFFER-API: io buffers are registry handles, the same
 // BufferHandle resources sa_io_read_line registers and the
@@ -11457,19 +9861,13 @@ pub export fn sa_io_close(handle: u64) i32 {
 // surface ever hands out (read_line returns a handle), and free
 // ignored its argument entirely. All three now resolve the handle
 // through the registry, sharing the fs family's implementation.
-pub export fn sa_io_buffer_data(buffer: u64) ?[*]u8 {
-    return sa_fs_read_buffer_data(buffer);
-}
+pub const sa_io_buffer_data = @import("sa_std/io.zig").sa_io_buffer_data;
 
-pub export fn sa_io_buffer_len(buffer: u64) u64 {
-    return sa_fs_read_buffer_len(buffer);
-}
+pub const sa_io_buffer_len = @import("sa_std/io.zig").sa_io_buffer_len;
 
-pub export fn sa_io_buffer_free(buffer: u64) i32 {
-    return sa_fs_read_buffer_free(buffer);
-}
+pub const sa_io_buffer_free = @import("sa_std/io.zig").sa_io_buffer_free;
 
-const saFsOpenFile = @import("sa_std/fs.zig").saFsOpenFile;
+pub const saFsOpenFile = @import("sa_std/fs.zig").saFsOpenFile;
 pub const sa_fs_open_accmode_mask = @import("sa_std/fs.zig").sa_fs_open_accmode_mask;
 
 pub const sa_fs_file_open = @import("sa_std/fs.zig").sa_fs_file_open;
@@ -11478,135 +9876,30 @@ pub const sa_fs_file_create = @import("sa_std/fs.zig").sa_fs_file_create;
 
 pub const sa_fs_file_close = @import("sa_std/fs.zig").sa_fs_file_close;
 
-pub export fn sa_std_fs_open_options(path_ptr: ?[*]const u8, path_len: u64, flags: u32, create_mode: u32, custom_flags: u32, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const file = saFsOpenFile(path, flags, create_mode, custom_flags) catch |err| return finishErr(err);
-    const handle = registerResource(.{ .file = file }) catch |err| {
-        file.close();
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_open_options = @import("sa_std/std_fs.zig").sa_std_fs_open_options;
 
 /// Atomic create-exclusive open (2026-10-26): read|write|create with
 /// O_EXCL merged through custom flags. An existing path fails with
 /// SA_STD_ERR_ALREADY_EXISTS (via error.PathAlreadyExists in mapError),
 /// which lock-file protocols need to tell "lost the race" apart from a
 /// generic IO failure.
-pub export fn sa_std_fs_open_create_excl(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const file = saFsOpenFile(path, 1 | 2 | 4, 0o666, 128) catch |err| return finishErr(err);
-    const handle = registerResource(.{ .file = file }) catch |err| {
-        file.close();
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_open_create_excl = @import("sa_std/std_fs.zig").sa_std_fs_open_create_excl;
 
-pub export fn sa_std_fs_file_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
+pub const sa_std_fs_file_from_raw_fd = @import("sa_std/std_fs.zig").sa_std_fs_file_from_raw_fd;
 
-    const file = sio.File{ .inner = .{ .handle = @as(std.posix.fd_t, @intCast(fd)), .flags = .{ .nonblocking = false } } };
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const handle = registerResourceLocked(.{ .file = file }) catch |err| {
-        file.close();
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_fs_file_read(handle: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
-    return sa_std_read(handle, out, cap, out_read);
-}
+pub const sa_std_fs_file_read = @import("sa_std/std_fs.zig").sa_std_fs_file_read;
 pub const sa_fs_file_read = @import("sa_std/fs.zig").sa_fs_file_read;
 
-pub export fn sa_std_fs_file_read_at(handle: u64, out: ?[*]u8, cap: u64, offset: u64, out_read: ?*u64) i32 {
-    if (out_read) |ptr| ptr.* = 0;
-    const out_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .file => |f| {
-            const read_len = filePread(f, buffer, offset) catch |err| return finishErr(err);
-            out_ptr.* = @as(u64, @intCast(read_len));
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_fs_file_read_at = @import("sa_std/std_fs.zig").sa_std_fs_file_read_at;
 
-pub export fn sa_std_fs_file_read_exact_at(handle: u64, out: ?[*]u8, len: u64, offset: u64) i32 {
-    const buffer = mutBytes(out, len) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .file => |f| {
-            const read_len = filePreadAll(f, buffer, offset) catch |err| return finishErr(err);
-            if (read_len != buffer.len) return finish(SA_STD_ERR_TRUNCATED);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_fs_file_read_exact_at = @import("sa_std/std_fs.zig").sa_std_fs_file_read_exact_at;
 
 pub const sa_fs_file_read_exact = @import("sa_std/fs.zig").sa_fs_file_read_exact;
-pub export fn sa_std_fs_file_write(handle: u64, out: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
-    return sa_std_write(handle, out, len, out_written);
-}
+pub const sa_std_fs_file_write = @import("sa_std/std_fs.zig").sa_std_fs_file_write;
 
-pub export fn sa_std_fs_file_write_at(handle: u64, out: ?[*]const u8, len: u64, offset: u64, out_written: ?*u64) i32 {
-    if (out_written) |ptr| ptr.* = 0;
-    const out_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const buffer = constBytes(out, len) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .file => |f| {
-            const write_len = filePwrite(f, buffer, offset) catch |err| return finishErr(err);
-            out_ptr.* = @as(u64, @intCast(write_len));
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_fs_file_write_at = @import("sa_std/std_fs.zig").sa_std_fs_file_write_at;
 
-pub export fn sa_std_fs_file_write_all_at(handle: u64, out: ?[*]const u8, len: u64, offset: u64) i32 {
-    const buffer = constBytes(out, len) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .file => |f| {
-            filePwriteAll(f, buffer, offset) catch |err| return finishErr(err);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_fs_file_write_all_at = @import("sa_std/std_fs.zig").sa_std_fs_file_write_all_at;
 
 pub const sa_fs_file_write = @import("sa_std/fs.zig").sa_fs_file_write;
 pub const sa_fs_file_write_all = @import("sa_std/fs.zig").sa_fs_file_write_all;
@@ -11620,51 +9913,15 @@ pub const sa_fs_file_truncate = @import("sa_std/fs.zig").sa_fs_file_truncate;
 
 pub const sa_fs_file_seek = @import("sa_std/fs.zig").sa_fs_file_seek;
 
-pub export fn sa_std_fs_file_seek(handle: u64, whence: u32, offset: i64, out_pos: ?*u64) i32 {
-    const pos_ptr = out_pos orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    pos_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .file => |f| {
-            const seek_result = switch (whence) {
-                0 => f.seekTo(@as(u64, @intCast(offset))),
-                1 => fileSeekBy(f, offset),
-                2 => fileSeekFromEnd(f, offset),
-                else => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-            };
-            seek_result catch |err| return finishErr(err);
-            pos_ptr.* = fileGetPos(f) catch |err| return finishErr(err);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_fs_file_seek = @import("sa_std/std_fs.zig").sa_std_fs_file_seek;
 
 pub const sa_fs_read_file = @import("sa_std/fs.zig").sa_fs_read_file;
 
-pub export fn sa_std_fs_read_file(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const result = sa_fs_read_file(path_ptr, path_len, max_bytes);
-    if (result.status != SA_STD_OK) return finish(result.status);
-    handle_ptr.* = result.value;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_read_file = @import("sa_std/std_fs.zig").sa_std_fs_read_file;
 
 pub const sa_fs_read_to_string = @import("sa_std/fs.zig").sa_fs_read_to_string;
 
-pub export fn sa_std_fs_read_to_string(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const result = sa_fs_read_to_string(path_ptr, path_len, max_bytes);
-    if (result.status != SA_STD_OK) return finish(result.status);
-    handle_ptr.* = result.value;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_read_to_string = @import("sa_std/std_fs.zig").sa_std_fs_read_to_string;
 
 pub const sa_fs_write_file = @import("sa_std/fs.zig").sa_fs_write_file;
 
@@ -11676,14 +9933,7 @@ pub const sa_fs_read_buffer_free = @import("sa_std/fs.zig").sa_fs_read_buffer_fr
 
 pub const sa_fs_read_file_base64 = @import("sa_std/fs.zig").sa_fs_read_file_base64;
 
-pub export fn sa_std_fs_read_file_base64(path_ptr: ?[*]const u8, path_len: u64, max_bytes: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const result = sa_fs_read_file_base64(path_ptr, path_len, max_bytes);
-    if (result.status != SA_STD_OK) return finish(result.status);
-    handle_ptr.* = result.value;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_read_file_base64 = @import("sa_std/std_fs.zig").sa_std_fs_read_file_base64;
 
 pub const sa_fs_write_file_base64 = @import("sa_std/fs.zig").sa_fs_write_file_base64;
 
@@ -11909,14 +10159,7 @@ pub fn mkdirPathWithMode(path: []const u8, mode: std.posix.mode_t) !void {
 
 pub const sa_fs_read_dir_json = @import("sa_std/fs.zig").sa_fs_read_dir_json;
 
-pub export fn sa_std_fs_read_dir_json(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const result = sa_fs_read_dir_json(path_ptr, path_len, max_entries);
-    if (result.status != SA_STD_OK) return finish(result.status);
-    handle_ptr.* = result.value;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_read_dir_json = @import("sa_std/std_fs.zig").sa_std_fs_read_dir_json;
 
 pub const sa_fs_dir_buffer_data = @import("sa_std/fs.zig").sa_fs_dir_buffer_data;
 
@@ -11926,47 +10169,11 @@ pub const sa_fs_dir_buffer_free = @import("sa_std/fs.zig").sa_fs_dir_buffer_free
 
 pub const sa_fs_read_dir_entries = @import("sa_std/fs.zig").sa_fs_read_dir_entries;
 
-pub export fn sa_std_fs_read_dir_entries(path_ptr: ?[*]const u8, path_len: u64, max_entries: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const result = sa_fs_read_dir_entries(path_ptr, path_len, max_entries);
-    if (result.status != SA_STD_OK) return finish(result.status);
-    handle_ptr.* = result.value;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_read_dir_entries = @import("sa_std/std_fs.zig").sa_std_fs_read_dir_entries;
 
 pub const sa_fs_dir_entries_len = @import("sa_std/fs.zig").sa_fs_dir_entries_len;
 
-pub export fn sa_std_fs_dir_entries_get(handle: u64, index: u64, out_entry_handle: ?*u64) i32 {
-    const out_handle_ptr = out_entry_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out_handle_ptr.* = 0;
-
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .dir_entries => |*entries| blk: {
-            const idx = std.math.cast(usize, index) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-            if (idx >= entries.entries.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-            const snapshot = entries.entries[idx];
-            const owned_name = std.heap.page_allocator.dupe(u8, snapshot.name) catch |err| return finishErr(err);
-            const entry_handle = registerResourceLocked(.{ .dir_entry = .{
-                .allocator = std.heap.page_allocator,
-                .name = owned_name,
-                .kind = snapshot.kind,
-                .ino = snapshot.ino,
-            } }) catch |err| {
-                std.heap.page_allocator.free(owned_name);
-                return finishErr(err);
-            };
-            out_handle_ptr.* = entry_handle;
-            break :blk finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_fs_dir_entries_get = @import("sa_std/std_fs.zig").sa_std_fs_dir_entries_get;
 
 pub const sa_fs_dir_entries_free = @import("sa_std/fs.zig").sa_fs_dir_entries_free;
 
@@ -11986,25 +10193,11 @@ pub const sa_fs_dir_entry_free = @import("sa_std/fs.zig").sa_fs_dir_entry_free;
 
 pub const sa_fs_metadata = @import("sa_std/fs.zig").sa_fs_metadata;
 
-pub export fn sa_std_fs_metadata(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const result = sa_fs_metadata(path_ptr, path_len);
-    if (result.status != SA_STD_OK) return finish(result.status);
-    handle_ptr.* = result.value;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_metadata = @import("sa_std/std_fs.zig").sa_std_fs_metadata;
 
 pub const sa_fs_metadata_json = @import("sa_std/fs.zig").sa_fs_metadata_json;
 
-pub export fn sa_std_fs_metadata_json(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const result = sa_fs_metadata_json(path_ptr, path_len);
-    if (result.status != SA_STD_OK) return finish(result.status);
-    handle_ptr.* = result.value;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_metadata_json = @import("sa_std/std_fs.zig").sa_std_fs_metadata_json;
 
 pub const sa_fs_metadata_is_file = @import("sa_std/fs.zig").sa_fs_metadata_is_file;
 
@@ -12082,22 +10275,9 @@ pub const sa_fs_metadata_st_blocks = @import("sa_std/fs.zig").sa_fs_metadata_st_
 
 pub const sa_fs_metadata_free = @import("sa_std/fs.zig").sa_fs_metadata_free;
 
-pub export fn sa_std_fs_metadata_free(handle: u64) i32 {
-    return sa_std_close(handle);
-}
+pub const sa_std_fs_metadata_free = @import("sa_std/std_fs.zig").sa_std_fs_metadata_free;
 
-pub export fn sa_std_fs_canonicalize(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const bytes = sio.cwd().realpathAlloc(std.heap.page_allocator, path) catch |err| return finishErr(err);
-    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
-        std.heap.page_allocator.free(bytes);
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_canonicalize = @import("sa_std/std_fs.zig").sa_std_fs_canonicalize;
 
 pub const sa_fs_remove_file = @import("sa_std/fs.zig").sa_fs_remove_file;
 
@@ -12142,47 +10322,7 @@ pub fn mkdirP(path: []const u8) !void {
 /// segment) are success; the TS mkdirSync(recursive) counterpart.
 pub const sa_fs_mkdir_p = @import("sa_std/fs.zig").sa_fs_mkdir_p;
 
-test "sa_fs_mkdir_p creates nested dirs, is idempotent, and rejects file paths" {
-    const alloc = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const base = try std.fmt.allocPrint(alloc, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
-    defer alloc.free(base);
-    const deep = try std.fmt.allocPrint(alloc, "{s}/a/b/c", .{base});
-    defer alloc.free(deep);
-    try std.testing.expectEqual(SA_STD_OK, sa_fs_mkdir_p(deep.ptr, @intCast(deep.len)));
-    const stat = try sio.cwd().statFile(deep);
-    try std.testing.expect(stat.kind == .directory);
-    // Idempotent: a second call over existing directories succeeds.
-    try std.testing.expectEqual(SA_STD_OK, sa_fs_mkdir_p(deep.ptr, @intCast(deep.len)));
-    // An existing file as the final segment is ALREADY_EXISTS.
-    const file_path = try std.fmt.allocPrint(alloc, "{s}/a/file.txt", .{base});
-    defer alloc.free(file_path);
-    {
-        var f = try tmp.dir.createFile(std.testing.io, "a/file.txt", .{});
-        f.close(std.testing.io);
-    }
-    try std.testing.expectEqual(SA_STD_ERR_ALREADY_EXISTS, sa_fs_mkdir_p(file_path.ptr, @intCast(file_path.len)));
-    // A path through a file is an error, never a silent success.
-    const through = try std.fmt.allocPrint(alloc, "{s}/a/file.txt/child", .{base});
-    defer alloc.free(through);
-    try std.testing.expect(sa_fs_mkdir_p(through.ptr, @intCast(through.len)) != SA_STD_OK);
-}
 
-test "sa_std_fs_open_create_excl: second create reports ALREADY_EXISTS" {
-    const alloc = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.fmt.allocPrint(alloc, ".zig-cache/tmp/{s}/lock.txt", .{&tmp.sub_path});
-    defer alloc.free(path);
-    var handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_fs_open_create_excl(path.ptr, @intCast(path.len), &handle));
-    try std.testing.expect(handle != 0);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_close(handle));
-    var second: u64 = 99;
-    try std.testing.expectEqual(SA_STD_ERR_ALREADY_EXISTS, sa_std_fs_open_create_excl(path.ptr, @intCast(path.len), &second));
-    try std.testing.expectEqual(@as(u64, 0), second);
-}
 
 pub const sa_fs_create_dir = @import("sa_std/fs.zig").sa_fs_create_dir;
 
@@ -12273,270 +10413,44 @@ pub const sa_fs_chroot = @import("sa_std/fs.zig").sa_fs_chroot;
 
 pub const sa_fs_mkfifo = @import("sa_std/fs.zig").sa_fs_mkfifo;
 
-pub export fn sa_std_fs_read_link(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    var stack_buf: [sio.max_path_bytes]u8 = undefined;
-    const target = sio.cwd().readLink(path, stack_buf[0..]) catch |err| return finishErr(err);
-    const bytes = std.heap.page_allocator.dupe(u8, target) catch |err| return finishErr(err);
-    const handle = registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
-        std.heap.page_allocator.free(bytes);
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fs_read_link = @import("sa_std/std_fs.zig").sa_std_fs_read_link;
 
 pub const sa_net_tcp_connect = @import("sa_std/net.zig").sa_net_tcp_connect;
 
-pub export fn sa_std_net_to_socket_addr_list(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
-    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
-    const port16 = portFromU32(port) catch |err| return finishErr(err);
-    out.* = registerNetAddrList(host, port16) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_to_socket_addr_list = @import("sa_std/std_net.zig").sa_std_net_to_socket_addr_list;
 
-pub export fn sa_std_net_addr_list_next(list_handle: u64, out_ok: ?*i32, out_addr: ?*u64) i32 {
-    const ok_ptr = out_ok orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    ok_ptr.* = 0;
-    addr_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(list_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const list = switch (resource.*) {
-        .net_addr_list => |*value| value,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-    if (list.next_index >= list.addresses.len) return finish(SA_STD_OK);
-    const address = list.addresses[list.next_index];
-    list.next_index += 1;
-    const status = registerNetAddrOutLocked(address, addr_ptr);
-    if (status != SA_STD_OK) {
-        list.next_index -= 1;
-        return status;
-    }
-    ok_ptr.* = 1;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_addr_list_next = @import("sa_std/std_net.zig").sa_std_net_addr_list_next;
 
-pub export fn sa_std_net_addr_list_remaining(list_handle: u64, out_remaining: ?*u64) i32 {
-    const out = out_remaining orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(list_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const list = switch (resource.*) {
-        .net_addr_list => |*value| value,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-    out.* = @as(u64, @intCast(list.addresses.len -| list.next_index));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_addr_list_remaining = @import("sa_std/std_net.zig").sa_std_net_addr_list_remaining;
 
-pub export fn sa_std_net_addr_list_reset(list_handle: u64) i32 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(list_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const list = switch (resource.*) {
-        .net_addr_list => |*value| value,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-    list.next_index = 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_addr_list_reset = @import("sa_std/std_net.zig").sa_std_net_addr_list_reset;
 
-pub export fn sa_std_net_addr_list_free(list_handle: u64) i32 {
-    return sa_std_close(list_handle);
-}
+pub const sa_std_net_addr_list_free = @import("sa_std/std_net.zig").sa_std_net_addr_list_free;
 
 /// Reverse DNS lookup (getnameinfo, NI_NAMEREQD) for a resolved address
 /// handle produced by sa_std_net_to_socket_addr_list/_first or a stream's
 /// peer/local addr. Output semantics mirror sa_std_net_hostname: call with
 /// (null, 0, &len) to size the buffer; SA_STD_ERR_TRUNCATED when it does
 /// not fit. SA_STD_ERR_IO when the address has no name (NXDOMAIN / no PTR).
-pub export fn sa_std_net_addr_reverse_lookup(addr_handle: u64, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    _ = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (comptime builtin.cpu.arch.isWasm()) return finish(SA_STD_ERR_UNSUPPORTED);
-    // Snapshot the sockaddr under the registry lock; getnameinfo itself can
-    // block on DNS and must not hold the registry.
-    var address: NetAddress = undefined;
-    {
-        while (!registry_mutex.tryLock()) {
-            std.Thread.yield() catch {};
-        }
-        defer registry_mutex.unlock();
-        const resource = getResourceLocked(addr_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-        address = switch (resource.*) {
-            .net_addr => |*value| value.addr,
-            else => return finish(SA_STD_ERR_INVALID_HANDLE),
-        };
-    }
-    var name_buf: [1025]u8 = undefined;
-    const rc = std.c.getnameinfo(address.sockAddr(), address.getOsSockLen(), &name_buf, name_buf.len, null, 0, .{ .NAMEREQD = true });
-    if (@backingInt(rc) != 0) return finish(SA_STD_ERR_IO);
-    const name = std.mem.sliceTo(&name_buf, 0);
-    return writeFormattedInto(out, out_cap, out_len, name);
-}
-pub export fn sa_std_net_to_socket_addr_first(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const address = resolveFirstSocketAddress(host_ptr, host_len, port) catch |err| return finishErr(err);
-    var net_addr = NetAddrHandle.init(std.heap.page_allocator, address) catch |err| return finishErr(err);
-    const handle = registerResource(.{ .net_addr = net_addr }) catch |err| {
-        net_addr.deinit();
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_addr_reverse_lookup = @import("sa_std/std_net.zig").sa_std_net_addr_reverse_lookup;
+pub const sa_std_net_to_socket_addr_first = @import("sa_std/std_net.zig").sa_std_net_to_socket_addr_first;
 
-pub export fn sa_std_net_tcp_stream_read(stream: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_read(stream, out, cap, out_read);
-}
+pub const sa_std_net_tcp_stream_read = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read;
 
-pub export fn sa_std_net_tcp_stream_read_vectored(stream: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_read: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    read_ptr.* = 0;
-    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const slices = iovs[0..count];
+pub const sa_std_net_tcp_stream_read_vectored = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read_vectored;
 
-
-    const fd = tcpStreamFd(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-
-    var ziovec: [SA_NET_IOV_MAX]std.posix.iovec = undefined;
-    var filled: usize = 0;
-    for (slices) |slot| {
-        if (filled >= ziovec.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        const len = std.math.cast(usize, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        ziovec[filled] = .{ .base = slot.base, .len = len };
-        filled += 1;
-    }
-    const read = lxReadv(fd, ziovec[0..filled]) catch |err| return finishErr(err);
-    read_ptr.* = @as(u64, @intCast(read));
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_tcp_stream_write_vectored(stream: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_written: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    written_ptr.* = 0;
-    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const slices = iovs[0..count];
-
-
-    const fd = tcpStreamFd(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-
-    var ziovec: [SA_NET_IOV_MAX]std.posix.iovec_const = undefined;
-    var filled: usize = 0;
-    for (slices) |slot| {
-        if (filled >= ziovec.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        const len = std.math.cast(usize, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        ziovec[filled] = .{ .base = slot.base, .len = len };
-        filled += 1;
-    }
-    const written = lxWritev(fd, ziovec[0..filled]) catch |err| return finishErr(err);
-    written_ptr.* = @as(u64, @intCast(written));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_write_vectored = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write_vectored;
 pub const sa_net_tcp_stream_read = @import("sa_std/net.zig").sa_net_tcp_stream_read;
-pub export fn sa_std_net_tcp_stream_peek(stream: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    read_ptr.* = 0;
-    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
-
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    const fd = blk: {
-        const resource = getResourceLocked(stream) orelse {
-            registry_mutex.unlock();
-            return finish(SA_STD_ERR_INVALID_HANDLE);
-        };
-        break :blk switch (resource.*) {
-            .tcp_stream => |s| s,
-            else => {
-                registry_mutex.unlock();
-                return finish(SA_STD_ERR_INVALID_HANDLE);
-            },
-        };
-    };
-    registry_mutex.unlock();
-
-    const read = lxRecv(fd, buffer, msg_peek) catch |err| return finishErr(err);
-    read_ptr.* = @as(u64, @intCast(read));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_peek = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_peek;
 pub const sa_net_tcp_stream_peek = @import("sa_std/net.zig").sa_net_tcp_stream_peek;
-pub export fn sa_std_net_tcp_stream_write(stream: u64, out: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_write(stream, out, len, out_written);
-}
+pub const sa_std_net_tcp_stream_write = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write;
 pub const sa_net_tcp_stream_write = @import("sa_std/net.zig").sa_net_tcp_stream_write;
 pub const sa_net_tcp_stream_write_all = @import("sa_std/net.zig").sa_net_tcp_stream_write_all;
 pub const sa_net_tcp_stream_read_exact = @import("sa_std/net.zig").sa_net_tcp_stream_read_exact;
 pub const sa_net_tcp_stream_flush = @import("sa_std/net.zig").sa_net_tcp_stream_flush;
-pub export fn sa_std_net_tcp_stream_peer_addr(stream: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .tcp_stream => |s| {
-            var addr = NetAddress{};
-            var len: SockLenT = @sizeOf(SockAddrStorageT);
-            lxGetpeername(s, addr.sockAddrMut(), &len) catch |err| return finishErr(err);
-            addr.len = len;
-            var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
-            const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
-                net_addr.deinit();
-                return finishErr(err);
-            };
-            handle_ptr.* = handle;
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_net_tcp_stream_peer_addr = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_peer_addr;
 
-pub export fn sa_std_net_tcp_stream_local_addr(stream: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .tcp_stream => |s| {
-            var addr = NetAddress{};
-            var len: SockLenT = @sizeOf(SockAddrStorageT);
-            lxGetsockname(s, addr.sockAddrMut(), &len) catch |err| return finishErr(err);
-            addr.len = len;
-            return registerNetAddrOutLocked(addr, handle_ptr);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_net_tcp_stream_local_addr = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_local_addr;
 pub const sa_net_tcp_stream_peer_addr = @import("sa_std/net.zig").sa_net_tcp_stream_peer_addr;
 pub const sa_net_tcp_stream_shutdown = @import("sa_std/net.zig").sa_net_tcp_stream_shutdown;
 pub const sa_net_tcp_stream_set_read_timeout = @import("sa_std/net.zig").sa_net_tcp_stream_set_read_timeout;
@@ -12554,39 +10468,8 @@ pub const sa_net_tcp_listener_accept = @import("sa_std/net.zig").sa_net_tcp_list
 pub const sa_net_tcp_listener_local_addr = @import("sa_std/net.zig").sa_net_tcp_listener_local_addr;
 pub const sa_net_tcp_listener_close = @import("sa_std/net.zig").sa_net_tcp_listener_close;
 
-pub export fn sa_std_net_tcp_stream_try_clone(stream: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .tcp_stream => |value| value,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-    const dup_fd = lxDup(fd) catch |err| return finishErr(err);
-    const handle = registerResourceLocked(.{ .tcp_stream = dup_fd }) catch |err| {
-        lxClose(dup_fd);
-        return finishErr(err);
-    };
-    out.* = handle;
-    return finish(SA_STD_OK);
-}
-pub export fn sa_std_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const flags = lxFcntl(handle.fd, std.posix.F.GETFL, 0) catch |err| return finishErr(err);
-    const new_flags = if (enabled != 0)
-        flags | @as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK")
-    else
-        flags & ~(@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"));
-    _ = lxFcntl(handle.fd, std.posix.F.SETFL, new_flags) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_try_clone = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_try_clone;
+pub const sa_std_net_tcp_stream_set_nonblocking = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_nonblocking;
 
 /// Interest/readiness bits for sa_std_net_poll_wait. The interest
 /// mask (input) and the readiness mask (output) share the read and
@@ -12600,7 +10483,7 @@ pub const SA_STD_NET_POLL_ERROR: u32 = 4;
 /// set in rotation; the cap is loud (invalid argument), never a
 /// silent truncation.
 pub const SA_STD_NET_POLL_MAX_HANDLES: u64 = 4096;
-const poll_wait_stack_handles: usize = 256;
+pub const poll_wait_stack_handles: usize = 256;
 
 /// Block until at least one of the given socket handles (TCP
 /// streams, TCP listeners, UDP sockets) is ready for the requested
@@ -12614,449 +10497,78 @@ const poll_wait_stack_handles: usize = 256;
 /// scan of every connection with a single wait over exactly the
 /// ready set. Handles must outlive the call. Native only; WASM
 /// returns SA_STD_ERR_UNSUPPORTED.
-pub export fn sa_std_net_poll_wait(handles_ptr: ?[*]const u64, interests_ptr: ?[*]const u32, count: u64, timeout_ms: i32, ready_ptr: ?[*]u32, out_ready_count: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const ready_count_slot = out_ready_count orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    ready_count_slot.* = 0;
-    if (count > SA_STD_NET_POLL_MAX_HANDLES) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const n = lenAsUsize(count) catch |err| return finishErr(err);
-    if (n == 0) {
-        // A wait over an empty set is a plain timed sleep.
-        var no_fds: [0]std.posix.pollfd = .{};
-        _ = std.posix.poll(&no_fds, timeout_ms) catch |err| return finishErr(err);
-        return finish(SA_STD_OK);
-    }
-    const handles = handles_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const interests = interests_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const ready = ready_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var stack_fds: [poll_wait_stack_handles]std.posix.pollfd = undefined;
-    const heap_fds = if (n > poll_wait_stack_handles)
-        std.heap.page_allocator.alloc(std.posix.pollfd, n) catch |err| return finishErr(err)
-    else
-        null;
-    defer if (heap_fds) |buf| std.heap.page_allocator.free(buf);
-    const fds: []std.posix.pollfd = if (heap_fds) |buf| buf else stack_fds[0..n];
-    for (0..n) |i| {
-        ready[i] = 0;
-        const resolved = ensureSocketHandle(handles[i]) catch |err| return finishErr(err);
-        var events: i16 = 0;
-        if (interests[i] & SA_STD_NET_POLL_READ != 0) events |= std.posix.POLL.IN;
-        if (interests[i] & SA_STD_NET_POLL_WRITE != 0) events |= std.posix.POLL.OUT;
-        fds[i] = .{ .fd = resolved.fd, .events = events, .revents = 0 };
-    }
-    _ = std.posix.poll(fds, timeout_ms) catch |err| return finishErr(err);
-    var ready_total: u64 = 0;
-    for (0..n) |i| {
-        const rev = fds[i].revents;
-        var mask: u32 = 0;
-        if (rev & std.posix.POLL.IN != 0) mask |= SA_STD_NET_POLL_READ;
-        if (rev & std.posix.POLL.OUT != 0) mask |= SA_STD_NET_POLL_WRITE;
-        if (rev & (std.posix.POLL.ERR | std.posix.POLL.NVAL) != 0) mask |= SA_STD_NET_POLL_ERROR;
-        if (rev & std.posix.POLL.HUP != 0) mask |= SA_STD_NET_POLL_ERROR | SA_STD_NET_POLL_READ;
-        ready[i] = mask;
-        if (mask != 0) ready_total += 1;
-    }
-    ready_count_slot.* = ready_total;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_poll_wait = @import("sa_std/std_net.zig").sa_std_net_poll_wait;
 
-pub export fn sa_std_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptBool(handle.fd, IPPROTOT.TCP, tcp_nodelay, enabled != 0) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_set_nodelay = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_nodelay;
 
-pub export fn sa_std_net_tcp_stream_set_linger(stream: u64, enabled: i32, timeout_ns: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptLinger(handle.fd, enabled != 0, timeout_ns) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_set_linger = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_linger;
 
-pub export fn sa_std_net_tcp_stream_linger(stream: u64, out_enabled: ?*i32, out_timeout_ns: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const enabled = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const timeout_ns = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    enabled.* = 0;
-    timeout_ns.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const value = getSocketOptLinger(handle.fd) catch |err| return finishErr(err);
-    if (value.onoff == 0) return finish(SA_STD_OK);
-    if (value.linger < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    timeout_ns.* = std.math.mul(u64, @as(u64, @intCast(value.linger)), std.time.ns_per_s) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    enabled.* = 1;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_linger = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_linger;
 
-pub export fn sa_std_net_tcp_stream_set_quickack(stream: u64, enabled: i32) i32 {
-    if (comptime !is_linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    setSocketOptBool(handle.fd, IPPROTOT.TCP, TCP_QUICKACK, enabled != 0) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_set_quickack = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_quickack;
 
-pub export fn sa_std_net_tcp_stream_quickack(stream: u64, out_enabled: ?*i32) i32 {
-    if (comptime !is_linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    out.* = if (getSocketOptBool(handle.fd, IPPROTOT.TCP, TCP_QUICKACK) catch |err| return finishErr(err)) 1 else 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_quickack = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_quickack;
 
-pub export fn sa_std_net_tcp_stream_set_deferaccept(stream: u64, seconds: u32) i32 {
-    if (comptime !is_linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (seconds > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    setSocketOptInt(handle.fd, IPPROTOT.TCP, TCP_DEFER_ACCEPT, @as(i32, @intCast(seconds))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_set_deferaccept = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_deferaccept;
 
-pub export fn sa_std_net_tcp_stream_deferaccept(stream: u64, out_seconds: ?*u32) i32 {
-    if (comptime !is_linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_seconds orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    const seconds = getSocketOptInt(handle.fd, IPPROTOT.TCP, TCP_DEFER_ACCEPT) catch |err| return finishErr(err);
-    if (seconds < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @as(u32, @intCast(seconds));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_deferaccept = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_deferaccept;
 
 // SO_KEEPALIVE on a connected TCP stream. Codex's socket2 users enable this to
 // keep idle upstream connections alive; exposed here so SA callers match parity.
-pub export fn sa_std_net_tcp_stream_set_keepalive(stream: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    setSocketOptBool(handle.fd, SOLT.SOCKET, SOT.KEEPALIVE, enabled != 0) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_set_keepalive = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_keepalive;
 
-pub export fn sa_std_net_tcp_stream_keepalive(stream: u64, out_enabled: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    out.* = if (getSocketOptBool(handle.fd, SOLT.SOCKET, SOT.KEEPALIVE) catch |err| return finishErr(err)) 1 else 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_keepalive = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_keepalive;
 
 // Tune the Linux TCP keepalive timers (idle before first probe, interval
 // between probes, probe count before dropping). All three are in whole units
 // (seconds for idle/interval, count for cnt) matching the kernel option ABI.
-pub export fn sa_std_net_tcp_stream_set_keepalive_params(stream: u64, idle_secs: u32, interval_secs: u32, count: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (idle_secs > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (interval_secs > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (count > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    setSocketOptInt(handle.fd, IPPROTOT.TCP, TCP_KEEPIDLE, @as(i32, @intCast(idle_secs))) catch |err| return finishErr(err);
-    setSocketOptInt(handle.fd, IPPROTOT.TCP, TCP_KEEPINTVL, @as(i32, @intCast(interval_secs))) catch |err| return finishErr(err);
-    setSocketOptInt(handle.fd, IPPROTOT.TCP, TCP_KEEPCNT, @as(i32, @intCast(count))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_set_keepalive_params = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_keepalive_params;
 
 // SO_REUSEADDR on a TCP listener handle (or UDS listener, which shares the
 // tcp_listener resource kind). Allows rebinding a TIME_WAIT address.
-pub export fn sa_std_net_tcp_listener_set_reuseaddr(listener: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    setSocketOptBool(handle.fd, SOLT.SOCKET, SOT.REUSEADDR, enabled != 0) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_listener_set_reuseaddr = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_reuseaddr;
 
 // SO_REUSEPORT on a TCP listener handle for load-balanced multi-acceptor setups.
-pub export fn sa_std_net_tcp_listener_set_reuseport(listener: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (socketIsUnix(handle.fd) catch |err| return finishErr(err)) return finish(SA_STD_OK);
-    setSocketOptBool(handle.fd, SOLT.SOCKET, SOT.REUSEPORT, enabled != 0) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_listener_set_reuseport = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_reuseport;
 
-pub export fn sa_std_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.RCVTIMEO, timeout_ns) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_set_read_timeout = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_read_timeout;
 
-pub export fn sa_std_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.SNDTIMEO, timeout_ns) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_set_write_timeout = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_write_timeout;
 
-pub export fn sa_std_net_tcp_stream_set_ttl(stream: u64, ttl: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (ttl > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, IPPROTOT.IP, std.posix.IP.TTL, @as(i32, @intCast(ttl))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_set_ttl = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_ttl;
 
-pub export fn sa_std_net_tcp_stream_read_timeout(stream: u64, out_timeout_ns: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.RCVTIMEO) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_read_timeout = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read_timeout;
 
-pub export fn sa_std_net_tcp_stream_write_timeout(stream: u64, out_timeout_ns: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.SNDTIMEO) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_write_timeout = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write_timeout;
 
-pub export fn sa_std_net_tcp_stream_nodelay(stream: u64, out_enabled: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if (getSocketOptBool(handle.fd, IPPROTOT.TCP, tcp_nodelay) catch |err| return finishErr(err)) 1 else 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_nodelay = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_nodelay;
 
-pub export fn sa_std_net_tcp_stream_ttl(stream: u64, out_ttl: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const ttl = getSocketOptInt(handle.fd, IPPROTOT.IP, std.posix.IP.TTL) catch |err| return finishErr(err);
-    if (ttl < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @as(u32, @intCast(ttl));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_ttl = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_ttl;
 
-pub export fn sa_std_net_tcp_stream_set_recv_buffer_size(stream: u64, size: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (size > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, SOLT.SOCKET, SOT.RCVBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_set_recv_buffer_size = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_recv_buffer_size;
 
-pub export fn sa_std_net_tcp_stream_recv_buffer_size(stream: u64, out_size: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const value = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.RCVBUF) catch |err| return finishErr(err);
-    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @as(u32, @intCast(value));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_recv_buffer_size = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_recv_buffer_size;
 
-pub export fn sa_std_net_tcp_stream_set_send_buffer_size(stream: u64, size: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (size > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, SOLT.SOCKET, SOT.SNDBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_set_send_buffer_size = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_send_buffer_size;
 
-pub export fn sa_std_net_tcp_stream_send_buffer_size(stream: u64, out_size: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const value = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.SNDBUF) catch |err| return finishErr(err);
-    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @as(u32, @intCast(value));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_send_buffer_size = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_send_buffer_size;
 
-pub export fn sa_std_net_tcp_stream_take_error(stream: u64, out_error: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.ERROR) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_take_error = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_take_error;
 
-pub export fn sa_std_net_tcp_listener_try_clone(listener: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    var listen_address: NetAddress = undefined;
-    const fd = switch (resource.*) {
-        .tcp_listener => |server| blk: {
-            listen_address = server.addr;
-            break :blk server.fd;
-        },
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-    const dup_fd = lxDup(fd) catch |err| return finishErr(err);
-    const cloned = TcpListener{ .fd = dup_fd, .addr = listen_address };
-    const handle = registerResourceLocked(.{ .tcp_listener = cloned }) catch |err| {
-        lxClose(dup_fd);
-        return finishErr(err);
-    };
-    out.* = handle;
-    return finish(SA_STD_OK);
-}
-pub export fn sa_std_net_tcp_listener_set_only_v6(listener: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
-    if (family != AFT.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    lxSetSocketOptBool(handle.fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY, enabled != 0) catch |err| {
-        // A bound socket refuses IPV6_V6ONLY with EINVAL (bind-time
-        // option); rebuild the socket with the option applied pre-bind.
-        if (err != error.InvalidArgument) return finishErr(err);
-        rebuildTcpListenerV6Only(listener, enabled != 0) catch |err2| return finishErr(err2);
-    };
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_listener_try_clone = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_try_clone;
+pub const sa_std_net_tcp_listener_set_only_v6 = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_only_v6;
 
-pub export fn sa_std_net_tcp_listener_only_v6(listener: u64, out_enabled: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
-    if (family != AFT.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = if (getSocketOptBool(handle.fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY) catch |err| return finishErr(err)) 1 else 0;
-    return finish(SA_STD_OK);
-}
-pub export fn sa_std_net_tcp_listener_set_nonblocking(listener: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const flags = lxFcntl(handle.fd, std.posix.F.GETFL, 0) catch |err| return finishErr(err);
-    const new_flags = if (enabled != 0)
-        flags | @as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK")
-    else
-        flags & ~(@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"));
-    _ = lxFcntl(handle.fd, std.posix.F.SETFL, new_flags) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_listener_only_v6 = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_only_v6;
+pub const sa_std_net_tcp_listener_set_nonblocking = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_nonblocking;
 
-pub export fn sa_std_net_tcp_listener_set_ttl(listener: u64, ttl: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (ttl > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, IPPROTOT.IP, std.posix.IP.TTL, @as(i32, @intCast(ttl))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_listener_set_ttl = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_ttl;
 
-pub export fn sa_std_net_tcp_listener_ttl(listener: u64, out_ttl: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const ttl = getSocketOptInt(handle.fd, IPPROTOT.IP, std.posix.IP.TTL) catch |err| return finishErr(err);
-    if (ttl < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @as(u32, @intCast(ttl));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_listener_ttl = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_ttl;
 
-pub export fn sa_std_net_tcp_listener_take_error(listener: u64, out_error: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(listener) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_listener) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.ERROR) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_listener_take_error = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_take_error;
 
-pub export fn sa_std_net_udp_try_clone(socket: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .udp_socket => |value| value,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-    const dup_fd = lxDup(fd) catch |err| return finishErr(err);
-    const handle = registerResourceLocked(.{ .udp_socket = dup_fd }) catch |err| {
-        lxClose(dup_fd);
-        return finishErr(err);
-    };
-    out.* = handle;
-    return finish(SA_STD_OK);
-}
-pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
-    const port16 = portFromU32(port) catch |err| return finishErr(err);
-    const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
-    const fd = lxSocket(address.storage.family, SOCKT.DGRAM | SOCKT.CLOEXEC, IPPROTOT.UDP) catch |err| return finishErr(err);
-    errdefer lxClose(fd);
-    var bind_addr = address;
-    lxBind(fd, bind_addr.sockAddr(), bind_addr.getOsSockLen()) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const handle = registerResourceLocked(.{ .udp_socket = fd }) catch |err| {
-        lxClose(fd);
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_try_clone = @import("sa_std/std_net_udp.zig").sa_std_net_udp_try_clone;
+pub const sa_std_net_udp_bind = @import("sa_std/std_net_udp.zig").sa_std_net_udp_bind;
 
 // Raw-socket creation (wave-3 fill; the missing primitive BE
 // registered for the ICMP transport half). domain / sock_type /
@@ -13075,27 +10587,9 @@ pub export fn sa_std_net_udp_bind(host_ptr: ?[*]const u8, host_len: u64, port: u
 // Linux + libc platforms; WASI returns SA_STD_ERR_UNSUPPORTED and
 // the Windows root does not implement it (see
 // docs/runtime_abi_windows_unsupported.txt).
-pub export fn sa_std_net_raw_socket(domain: u32, sock_type: u32, protocol: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (domain != AFT.INET and domain != AFT.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (sock_type != SOCKT.RAW and sock_type != SOCKT.DGRAM) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (protocol > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const fd = lxSocket(domain, sock_type | SOCKT.CLOEXEC, protocol) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const handle = registerResourceLocked(.{ .udp_socket = fd }) catch |err| {
-        lxClose(fd);
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_raw_socket = @import("sa_std/std_net.zig").sa_std_net_raw_socket;
 
-fn lxSendfile(out_fd: std.posix.fd_t, in_fd: std.posix.fd_t, offset: *u64, count: usize) !usize {
+pub fn lxSendfile(out_fd: std.posix.fd_t, in_fd: std.posix.fd_t, offset: *u64, count: usize) !usize {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {
         var off: i64 = @intCast(offset.*);
@@ -13120,120 +10614,13 @@ fn lxSendfile(out_fd: std.posix.fd_t, in_fd: std.posix.fd_t, offset: *u64, count
 // blocking stream blocks as the kernel dictates. Linux only:
 // other platforms return SA_STD_ERR_UNSUPPORTED (the Windows root
 // does not implement it; see the ABI unsupported manifest).
-pub export fn sa_std_net_tcp_stream_send_file(stream: u64, file: u64, offset: u64, count: u64, out_sent: ?*u64, out_next_offset: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (comptime !is_linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    const sent_ptr = out_sent orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    sent_ptr.* = 0;
-    if (out_next_offset) |slot| slot.* = offset;
-    var out_fd_opt: ?std.posix.fd_t = null;
-    var in_fd_opt: ?std.posix.fd_t = null;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    if (getResourceLocked(stream)) |resource| {
-        switch (resource.*) {
-            .tcp_stream => |fd| out_fd_opt = fd,
-            else => {},
-        }
-    }
-    if (getResourceLocked(file)) |resource| {
-        switch (resource.*) {
-            .file => |handle| in_fd_opt = handle.inner.handle,
-            else => {},
-        }
-    }
-    registry_mutex.unlock();
-    const out_fd = out_fd_opt orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const in_fd = in_fd_opt orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    var next_offset = offset;
-    var sent_total: u64 = 0;
-    while (sent_total < count) {
-        const remaining = count - sent_total;
-        const chunk: usize = @intCast(@min(remaining, @as(u64, 0x7ffff000)));
-        const n = lxSendfile(out_fd, in_fd, &next_offset, chunk) catch |err| {
-            if (out_next_offset) |slot| slot.* = next_offset;
-            sent_ptr.* = sent_total;
-            return finishErr(err);
-        };
-        if (n == 0) break; // EOF: short send, reported via out_sent.
-        sent_total += @as(u64, @intCast(n));
-    }
-    if (out_next_offset) |slot| slot.* = next_offset;
-    sent_ptr.* = sent_total;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_send_file = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_send_file;
 
-pub export fn sa_std_net_udp_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const posix_fd = @as(std.posix.fd_t, @intCast(fd));
-    if (!(socketIsInet(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsDatagram(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const handle = registerResource(.{ .udp_socket = posix_fd }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_from_raw_fd = @import("sa_std/std_net_udp.zig").sa_std_net_udp_from_raw_fd;
 
-pub export fn sa_std_net_udp_local_addr(socket: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .udp_socket => |fd| {
-            var addr = NetAddress{};
-            var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
-            lxGetsockname(fd, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
-            addr.len = addr_len;
-            var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
-            const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
-                net_addr.deinit();
-                return finishErr(err);
-            };
-            handle_ptr.* = handle;
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
-pub export fn sa_std_net_udp_peer_addr(socket: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .udp_socket => |fd| {
-            var addr = NetAddress{};
-            var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
-            lxGetpeername(fd, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
-            addr.len = addr_len;
-            return registerNetAddrOutLocked(addr, handle_ptr);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
-pub export fn sa_std_net_udp_connect(socket: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
-    const port16 = portFromU32(port) catch |err| return finishErr(err);
-    const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
-
-
-    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    lxConnect(fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_local_addr = @import("sa_std/std_net_udp.zig").sa_std_net_udp_local_addr;
+pub const sa_std_net_udp_peer_addr = @import("sa_std/std_net_udp.zig").sa_std_net_udp_peer_addr;
+pub const sa_std_net_udp_connect = @import("sa_std/std_net_udp.zig").sa_std_net_udp_connect;
 pub const sa_net_udp_set_read_timeout = @import("sa_std/net.zig").sa_net_udp_set_read_timeout;
 
 pub const sa_net_udp_set_write_timeout = @import("sa_std/net.zig").sa_net_udp_set_write_timeout;
@@ -13256,563 +10643,85 @@ pub const sa_net_udp_join_multicast_v6 = @import("sa_std/net.zig").sa_net_udp_jo
 
 pub const sa_net_udp_leave_multicast_v6 = @import("sa_std/net.zig").sa_net_udp_leave_multicast_v6;
 
-pub export fn sa_std_net_udp_connect_addr(socket: u64, addr_handle: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    lockRegistry();
-    const socket_resource = getResourceLocked(socket) orelse {
-        registry_mutex.unlock();
-        return finish(SA_STD_ERR_INVALID_HANDLE);
-    };
-    const fd = switch (socket_resource.*) {
-        .udp_socket => |value| value,
-        else => {
-            registry_mutex.unlock();
-            return finish(SA_STD_ERR_INVALID_HANDLE);
-        },
-    };
-    const addr_resource = getResourceLocked(addr_handle) orelse {
-        registry_mutex.unlock();
-        return finish(SA_STD_ERR_INVALID_HANDLE);
-    };
-    const address = switch (addr_resource.*) {
-        .net_addr => |value| value.addr,
-        else => {
-            registry_mutex.unlock();
-            return finish(SA_STD_ERR_INVALID_HANDLE);
-        },
-    };
-    registry_mutex.unlock();
-    lxConnect(fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_connect_addr = @import("sa_std/std_net_udp.zig").sa_std_net_udp_connect_addr;
 
-pub export fn sa_std_net_udp_set_only_v6(socket: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
-    if (family != AFT.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    lxSetSocketOptBool(handle.fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY, enabled != 0) catch |err| {
-        // A bound socket refuses IPV6_V6ONLY with EINVAL (bind-time
-        // option); rebuild the socket with the option applied pre-bind.
-        if (err != error.InvalidArgument) return finishErr(err);
-        rebuildUdpSocketV6Only(socket, enabled != 0) catch |err2| return finishErr(err2);
-    };
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_set_only_v6 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_only_v6;
 
-pub export fn sa_std_net_udp_only_v6(socket: u64, out_enabled: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const family = socketAddressFamily(handle.fd) catch |err| return finishErr(err);
-    if (family != AFT.INET6) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = if (getSocketOptBool(handle.fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY) catch |err| return finishErr(err)) 1 else 0;
-    return finish(SA_STD_OK);
-}
-pub export fn sa_std_net_udp_set_nonblocking(socket: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const flags = lxFcntl(handle.fd, std.posix.F.GETFL, 0) catch |err| return finishErr(err);
-    const new_flags = if (enabled != 0)
-        flags | @as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK")
-    else
-        flags & ~(@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"));
-    _ = lxFcntl(handle.fd, std.posix.F.SETFL, new_flags) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_only_v6 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_only_v6;
+pub const sa_std_net_udp_set_nonblocking = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_nonblocking;
 
-pub export fn sa_std_net_udp_set_broadcast(socket: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptBool(handle.fd, SOLT.SOCKET, SOT.BROADCAST, enabled != 0) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_set_broadcast = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_broadcast;
 
-pub export fn sa_std_net_udp_set_ttl(socket: u64, ttl: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (ttl > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, IPPROTOT.IP, std.posix.IP.TTL, @as(i32, @intCast(ttl))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_set_ttl = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_ttl;
 
-pub export fn sa_std_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.RCVTIMEO, timeout_ns) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_set_read_timeout = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_read_timeout;
 
-pub export fn sa_std_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.SNDTIMEO, timeout_ns) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_set_write_timeout = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_write_timeout;
 
-pub export fn sa_std_net_udp_set_recv_buffer_size(socket: u64, size: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (size > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, SOLT.SOCKET, SOT.RCVBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_set_recv_buffer_size = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_recv_buffer_size;
 
-pub export fn sa_std_net_udp_recv_buffer_size(socket: u64, out_size: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const value = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.RCVBUF) catch |err| return finishErr(err);
-    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @as(u32, @intCast(value));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_recv_buffer_size = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_buffer_size;
 
-pub export fn sa_std_net_udp_set_send_buffer_size(socket: u64, size: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (size > @as(u32, @intCast(std.math.maxInt(i32)))) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptInt(handle.fd, SOLT.SOCKET, SOT.SNDBUF, @as(i32, @intCast(size))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_set_send_buffer_size = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_send_buffer_size;
 
-pub export fn sa_std_net_udp_send_buffer_size(socket: u64, out_size: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_size orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const value = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.SNDBUF) catch |err| return finishErr(err);
-    if (value < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @as(u32, @intCast(value));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_send_buffer_size = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_buffer_size;
 
-pub export fn sa_std_net_udp_read_timeout(socket: u64, out_timeout_ns: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.RCVTIMEO) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_read_timeout = @import("sa_std/std_net_udp.zig").sa_std_net_udp_read_timeout;
 
-pub export fn sa_std_net_udp_write_timeout(socket: u64, out_timeout_ns: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_timeout_ns orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptTimeval(handle.fd, SOLT.SOCKET, SOT.SNDTIMEO) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_write_timeout = @import("sa_std/std_net_udp.zig").sa_std_net_udp_write_timeout;
 
-pub export fn sa_std_net_udp_broadcast(socket: u64, out_enabled: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if (getSocketOptBool(handle.fd, SOLT.SOCKET, SOT.BROADCAST) catch |err| return finishErr(err)) 1 else 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_broadcast = @import("sa_std/std_net_udp.zig").sa_std_net_udp_broadcast;
 
-pub export fn sa_std_net_udp_set_multicast_loop_v4(socket: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptByte(handle.fd, IPPROTOT.IP, IP_MULTICAST_LOOP_OPT, if (enabled != 0) 1 else 0) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_set_multicast_loop_v4 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_loop_v4;
 
-pub export fn sa_std_net_udp_set_multicast_ttl_v4(socket: u64, ttl: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (ttl > std.math.maxInt(u8)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    setSocketOptByte(handle.fd, IPPROTOT.IP, IP_MULTICAST_TTL_OPT, @as(u8, @intCast(ttl))) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_set_multicast_ttl_v4 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_ttl_v4;
 
-pub export fn sa_std_net_udp_multicast_loop_v4(socket: u64, out_enabled: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if ((getSocketOptByte(handle.fd, IPPROTOT.IP, IP_MULTICAST_LOOP_OPT) catch |err| return finishErr(err)) != 0) 1 else 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_multicast_loop_v4 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_loop_v4;
 
-pub export fn sa_std_net_udp_multicast_ttl_v4(socket: u64, out_ttl: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = @as(u32, getSocketOptByte(handle.fd, IPPROTOT.IP, IP_MULTICAST_TTL_OPT) catch |err| return finishErr(err));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_multicast_ttl_v4 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_ttl_v4;
 
-pub export fn sa_std_net_udp_set_multicast_loop_v6(socket: u64, enabled: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptInt(handle.fd, IPPROTOT.IPV6, IPV6_MULTICAST_LOOP_OPT, if (enabled != 0) 1 else 0) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_set_multicast_loop_v6 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_loop_v6;
 
-pub export fn sa_std_net_udp_set_multicast_hops_v6(socket: u64, hops: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (hops > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptInt(handle.fd, IPPROTOT.IPV6, IPV6_MULTICAST_HOPS_OPT, @intCast(hops)) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_set_multicast_hops_v6 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_hops_v6;
 
-pub export fn sa_std_net_udp_multicast_loop_v6(socket: u64, out_enabled: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if ((getSocketOptInt(handle.fd, IPPROTOT.IPV6, IPV6_MULTICAST_LOOP_OPT) catch |err| return finishErr(err)) != 0) 1 else 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_multicast_loop_v6 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_loop_v6;
 
-pub export fn sa_std_net_udp_multicast_hops_v6(socket: u64, out_hops: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_hops orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const hops = getSocketOptInt(handle.fd, IPPROTOT.IPV6, IPV6_MULTICAST_HOPS_OPT) catch |err| return finishErr(err);
-    if (hops < 0 or hops > 255) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @intCast(hops);
-    return finish(SA_STD_OK);
-}
-pub export fn sa_std_net_udp_set_multicast_if_v4(socket: u64, interface_addr_ptr: ?[*]const u8) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const interface_addr = constBytes(interface_addr_ptr, 4) catch |err| return finishErr(err);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptBytes(handle.fd, IPPROTOT.IP, IP_MULTICAST_IF_OPT, interface_addr) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_multicast_hops_v6 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_hops_v6;
+pub const sa_std_net_udp_set_multicast_if_v4 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_if_v4;
 
-pub export fn sa_std_net_udp_multicast_if_v4(socket: u64, out_interface_addr: ?[*]u8) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_interface_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    getSocketOptBytes(handle.fd, IPPROTOT.IP, IP_MULTICAST_IF_OPT, out[0..4]) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_multicast_if_v4 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_if_v4;
 
-pub export fn sa_std_net_udp_set_multicast_if_v6(socket: u64, interface_index: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptU32(handle.fd, IPPROTOT.IPV6, IPV6_MULTICAST_IF_OPT, interface_index) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_set_multicast_if_v6 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_if_v6;
 
-pub export fn sa_std_net_udp_multicast_if_v6(socket: u64, out_interface_index: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_interface_index orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptU32(handle.fd, IPPROTOT.IPV6, IPV6_MULTICAST_IF_OPT) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_multicast_if_v6 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_if_v6;
 
-pub export fn sa_std_net_udp_join_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const multicast_addr = parseIp4Address(multi_host_ptr, multi_host_len, 0) catch |err| return finishErr(err);
-    const interface_addr = parseIp4Address(interface_host_ptr, interface_host_len, 0) catch |err| return finishErr(err);
-    var membership = makeIpv4Membership(multicast_addr, interface_addr);
-    setSocketOptBytes(handle.fd, IPPROTOT.IP, IP_ADD_MEMBERSHIP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_join_multicast_v4 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_join_multicast_v4;
 
-pub export fn sa_std_net_udp_leave_multicast_v4(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_host_ptr: ?[*]const u8, interface_host_len: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const multicast_addr = parseIp4Address(multi_host_ptr, multi_host_len, 0) catch |err| return finishErr(err);
-    const interface_addr = parseIp4Address(interface_host_ptr, interface_host_len, 0) catch |err| return finishErr(err);
-    var membership = makeIpv4Membership(multicast_addr, interface_addr);
-    setSocketOptBytes(handle.fd, IPPROTOT.IP, IP_DROP_MEMBERSHIP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_leave_multicast_v4 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_leave_multicast_v4;
 
-pub export fn sa_std_net_udp_join_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const multicast_addr = parseIp6Address(multi_host_ptr, multi_host_len, 0) catch |err| return finishErr(err);
-    var membership = makeIpv6Membership(multicast_addr, interface_index);
-    setSocketOptBytes(handle.fd, IPPROTOT.IPV6, IPV6_JOIN_GROUP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_join_multicast_v6 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_join_multicast_v6;
 
-pub export fn sa_std_net_udp_leave_multicast_v6(socket: u64, multi_host_ptr: ?[*]const u8, multi_host_len: u64, interface_index: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const multicast_addr = parseIp6Address(multi_host_ptr, multi_host_len, 0) catch |err| return finishErr(err);
-    var membership = makeIpv6Membership(multicast_addr, interface_index);
-    setSocketOptBytes(handle.fd, IPPROTOT.IPV6, IPV6_LEAVE_GROUP_OPT, std.mem.asBytes(&membership)) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_leave_multicast_v6 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_leave_multicast_v6;
 
-pub export fn sa_std_net_udp_ttl(socket: u64, out_ttl: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_ttl orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const ttl = getSocketOptInt(handle.fd, IPPROTOT.IP, std.posix.IP.TTL) catch |err| return finishErr(err);
-    if (ttl < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = @as(u32, @intCast(ttl));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_ttl = @import("sa_std/std_net_udp.zig").sa_std_net_udp_ttl;
 
-pub export fn sa_std_net_udp_take_error(socket: u64, out_error: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_error orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = getSocketOptInt(handle.fd, SOLT.SOCKET, SOT.ERROR) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_take_error = @import("sa_std/std_net_udp.zig").sa_std_net_udp_take_error;
 
-pub export fn sa_std_net_udp_send(socket: u64, buf: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    written_ptr.* = 0;
-    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
+pub const sa_std_net_udp_send = @import("sa_std/std_net_udp.zig").sa_std_net_udp_send;
+pub const sa_std_net_udp_recv = @import("sa_std/std_net_udp.zig").sa_std_net_udp_recv;
 
+pub const sa_std_net_udp_peek = @import("sa_std/std_net_udp.zig").sa_std_net_udp_peek;
 
-    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const written = lxSend(fd, bytes, 0) catch |err| return finishErr(err);
-    written_ptr.* = @as(u64, @intCast(written));
-    return finish(SA_STD_OK);
-}
-pub export fn sa_std_net_udp_recv(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    read_ptr.* = 0;
-    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
+pub const sa_std_net_udp_send_to = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_to;
+pub const sa_std_net_udp_recv_from = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_from;
 
+pub const sa_std_net_udp_peek_from = @import("sa_std/std_net_udp.zig").sa_std_net_udp_peek_from;
 
-    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const read = lxRecv(fd, buffer, 0) catch |err| return finishErr(err);
-    read_ptr.* = @as(u64, @intCast(read));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_send_vectored = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_vectored;
 
-pub export fn sa_std_net_udp_peek(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    read_ptr.* = 0;
-    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
+pub const sa_std_net_udp_send_to_vectored = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_to_vectored;
 
-
-    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const read = lxRecv(fd, buffer, msg_peek) catch |err| return finishErr(err);
-    read_ptr.* = @as(u64, @intCast(read));
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_udp_send_to(socket: u64, buf: ?[*]const u8, len: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32, out_written: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    written_ptr.* = 0;
-    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
-    const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
-    const port16 = portFromU32(port) catch |err| return finishErr(err);
-    const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
-    lockRegistry();
-    const fd = handleToFd(socket) catch |err| {
-        registry_mutex.unlock();
-        return finishErr(err);
-    };
-    registry_mutex.unlock();
-    const written = lxSendto(fd, bytes, 0, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
-    written_ptr.* = @as(u64, @intCast(written));
-    return finish(SA_STD_OK);
-}
-pub export fn sa_std_net_udp_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    read_ptr.* = 0;
-    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
-    lockRegistry();
-    const fd = handleToFd(socket) catch |err| {
-        registry_mutex.unlock();
-        return finishErr(err);
-    };
-    registry_mutex.unlock();
-    var addr = NetAddress{};
-    var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
-    const read = lxRecvfrom(fd, buffer, 0, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
-    addr.len = addr_len;
-    read_ptr.* = @as(u64, @intCast(read));
-    if (out_addr) |ptr| {
-        var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
-        const handle = registerResource(.{ .net_addr = net_addr }) catch |err| {
-            net_addr.deinit();
-            return finishErr(err);
-        };
-        ptr.* = handle;
-    }
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_udp_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    read_ptr.* = 0;
-    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
-    lockRegistry();
-    const fd = handleToFd(socket) catch |err| {
-        registry_mutex.unlock();
-        return finishErr(err);
-    };
-    registry_mutex.unlock();
-    var addr = NetAddress{};
-    var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
-    const read = lxRecvfrom(fd, buffer, msg_peek, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
-    addr.len = addr_len;
-    read_ptr.* = @as(u64, @intCast(read));
-    if (out_addr) |ptr| {
-        var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
-        const handle = registerResource(.{ .net_addr = net_addr }) catch |err| {
-            net_addr.deinit();
-            return finishErr(err);
-        };
-        ptr.* = handle;
-    }
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_udp_send_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_written: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    written_ptr.* = 0;
-    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const slices = iovs[0..count];
-
-
-    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-
-    var ziovec: [SA_NET_IOV_MAX]std.posix.iovec_const = undefined;
-    var filled: usize = 0;
-    for (slices) |slot| {
-        if (filled >= ziovec.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        const len = std.math.cast(usize, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        ziovec[filled] = .{ .base = slot.base, .len = len };
-        filled += 1;
-    }
-    const written = lxWritev(fd, ziovec[0..filled]) catch |err| return finishErr(err);
-    written_ptr.* = @as(u64, @intCast(written));
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_udp_send_to_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, host_ptr: ?[*]const u8, host_len: u64, port: u32, out_written: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    written_ptr.* = 0;
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const slices = iovs[0..count];
-    const host = hostBytes(host_ptr, host_len) catch |err| return finishErr(err);
-    const port16 = portFromU32(port) catch |err| return finishErr(err);
-    const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
-
-
-    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-
-    var ziovec: [SA_NET_IOV_MAX]std.posix.iovec_const = undefined;
-    var filled: usize = 0;
-    for (slices) |slot| {
-        if (filled >= ziovec.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        const len = std.math.cast(usize, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        ziovec[filled] = .{ .base = slot.base, .len = len };
-        filled += 1;
-    }
-
-    var msg: MsghdrConstT = std.mem.zeroes(MsghdrConstT);
-    msg.name = @ptrCast(@constCast(address.sockAddr()));
-    msg.namelen = address.getOsSockLen();
-    msg.iov = ziovec[0..filled].ptr;
-    msg.iovlen = @intCast(filled);
-
-    const written = lxSendmsg(fd, &msg, 0) catch |err| return finishErr(err);
-    written_ptr.* = @as(u64, @intCast(written));
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_net_iov, iov_count: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    read_ptr.* = 0;
-    if (iov_count == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const count = std.math.cast(usize, iov_count) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const slices = iovs[0..count];
-
-
-    const fd = udpSocketFd(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-
-    var ziovec: [SA_NET_IOV_MAX]std.posix.iovec = undefined;
-    var filled: usize = 0;
-    for (slices) |slot| {
-        if (filled >= ziovec.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        const len = std.math.cast(usize, slot.len) orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-        ziovec[filled] = .{ .base = slot.base, .len = len };
-        filled += 1;
-    }
-
-    var addr = NetAddress{};
-    var msg: MsghdrT = std.mem.zeroes(MsghdrT);
-    msg.name = @ptrCast(addr.sockAddrMut());
-    msg.namelen = @as(SockLenT, @intCast(@sizeOf(SockAddrStorageT)));
-    msg.iov = ziovec[0..filled].ptr;
-    msg.iovlen = @intCast(filled);
-
-    const read_n = portableRecvmsg(fd, &msg, 0) catch |err| return finishErr(err);
-    read_ptr.* = @as(u64, @intCast(read_n));
-    if (out_addr) |ptr| {
-        var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
-        const handle = registerResource(.{ .net_addr = net_addr }) catch |err| {
-            net_addr.deinit();
-            return finishErr(err);
-        };
-        ptr.* = handle;
-    }
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_recv_from_vectored = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_from_vectored;
 
 // ---------------------------------------------------------------------------
 // Generic socket-option passthrough + datagram receive enhancements
@@ -13825,249 +10734,41 @@ pub export fn sa_std_net_udp_recv_from_vectored(socket: u64, iovs: [*]const sa_n
 // sa_std_net_unix_stream_peer_cred, already exists below).
 // ---------------------------------------------------------------------------
 
-pub export fn sa_std_net_socket_setsockopt(handle: u64, level: i32, optname: u32, value_ptr: ?[*]const u8, value_len: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const socket = ensureSocketHandle(handle) catch |err| return finishErr(err);
-    const value = constBytes(value_ptr, value_len) catch |err| return finishErr(err);
-    std.posix.setsockopt(socket.fd, level, optname, value) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_socket_setsockopt = @import("sa_std/std_net.zig").sa_std_net_socket_setsockopt;
 
-pub export fn sa_std_net_socket_getsockopt(handle: u64, level: i32, optname: u32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    len_ptr.* = 0;
-    const socket = ensureSocketHandle(handle) catch |err| return finishErr(err);
-    const buffer = mutBytes(out, out_cap) catch |err| return finishErr(err);
-    if (buffer.len == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var len: SockLenT = @as(SockLenT, @intCast(buffer.len));
-    const rc = std.os.linux.getsockopt(socket.fd, level, optname, buffer.ptr, &len);
-    const e = std.os.linux.errno(rc);
-    if (e != .SUCCESS) return finishErr(lxErr(e));
-    len_ptr.* = @as(u64, @intCast(len));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_socket_getsockopt = @import("sa_std/std_net.zig").sa_std_net_socket_getsockopt;
 
-pub export fn sa_std_net_socket_setsockopt_int(handle: u64, level: i32, optname: u32, value: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const socket = ensureSocketHandle(handle) catch |err| return finishErr(err);
-    setSocketOptInt(socket.fd, level, optname, value) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_socket_setsockopt_int = @import("sa_std/std_net.zig").sa_std_net_socket_setsockopt_int;
 
-pub export fn sa_std_net_socket_getsockopt_int(handle: u64, level: i32, optname: u32, out_value: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const value_ptr = out_value orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    value_ptr.* = 0;
-    const socket = ensureSocketHandle(handle) catch |err| return finishErr(err);
-    value_ptr.* = getSocketOptInt(socket.fd, level, optname) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_socket_getsockopt_int = @import("sa_std/std_net.zig").sa_std_net_socket_getsockopt_int;
 
 // out_flags bits of sa_std_net_udp_recv_msg; mirrored as
 // SA_NET_RECV_MSG_* in sa_std/net.sla.
-const recv_msg_flag_pktinfo: u32 = 1;
-const recv_msg_flag_timestamp: u32 = 2;
-const recv_msg_flag_ctrunc: u32 = 4;
-const recv_msg_flag_trunc: u32 = 8;
+pub const recv_msg_flag_pktinfo: u32 = 1;
+pub const recv_msg_flag_timestamp: u32 = 2;
+pub const recv_msg_flag_ctrunc: u32 = 4;
+pub const recv_msg_flag_trunc: u32 = 8;
 
 // Linux control-message numbers the parser keys on (asm-generic /
 // in.h values; net.sla pins the SLA-facing names). std.os.linux
 // does not name SO_TIMESTAMP, so the literal is spelled out here.
-const cmsg_level_ip: i32 = 0; // IPPROTO_IP
-const cmsg_level_ipv6: i32 = 41; // IPPROTO_IPV6
-const cmsg_level_socket: i32 = 1; // SOL_SOCKET
-const cmsg_type_ip_pktinfo: i32 = 8; // IP_PKTINFO
-const cmsg_type_ipv6_pktinfo: i32 = 50; // IPV6_PKTINFO
-const cmsg_type_timestamp: i32 = 29; // SO_TIMESTAMP
+pub const cmsg_level_ip: i32 = 0; // IPPROTO_IP
+pub const cmsg_level_ipv6: i32 = 41; // IPPROTO_IPV6
+pub const cmsg_level_socket: i32 = 1; // SOL_SOCKET
+pub const cmsg_type_ip_pktinfo: i32 = 8; // IP_PKTINFO
+pub const cmsg_type_ipv6_pktinfo: i32 = 50; // IPV6_PKTINFO
+pub const cmsg_type_timestamp: i32 = 29; // SO_TIMESTAMP
 
-fn cmsgAlign(len: usize) usize {
+pub fn cmsgAlign(len: usize) usize {
     const mask: usize = @sizeOf(usize) - 1;
     return (len + mask) & ~mask;
 }
 
-pub export fn sa_std_net_udp_recv_msg(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64, out_dest_addr: ?*u64, out_ifindex: ?*u32, out_timestamp_ns: ?*u64, out_flags: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    read_ptr.* = 0;
-    if (out_ifindex) |ptr| ptr.* = 0;
-    if (out_timestamp_ns) |ptr| ptr.* = 0;
-    if (out_flags) |ptr| ptr.* = 0;
-    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
+pub const sa_std_net_udp_recv_msg = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_msg;
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .udp_socket => |value| value,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
+pub const recv_multi_max_msgs: usize = 64;
 
-    var addr = NetAddress{};
-    var ziovec = std.posix.iovec{ .base = buffer.ptr, .len = buffer.len };
-    var control: [256]u8 align(8) = undefined;
-    var msg: MsghdrT = std.mem.zeroes(MsghdrT);
-    msg.name = @ptrCast(addr.sockAddrMut());
-    msg.namelen = @as(SockLenT, @intCast(@sizeOf(SockAddrStorageT)));
-    msg.iov = @ptrCast(&ziovec);
-    msg.iovlen = 1;
-    msg.control = @ptrCast(&control);
-    msg.controllen = control.len;
-
-    const read = portableRecvmsg(fd, &msg, 0) catch |err| return finishErr(err);
-    read_ptr.* = @as(u64, @intCast(read));
-    addr.len = msg.namelen;
-
-    if (out_addr) |ptr| {
-        var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
-        const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
-            net_addr.deinit();
-            return finishErr(err);
-        };
-        ptr.* = handle;
-    }
-
-    var flags: u32 = 0;
-    if ((msg.flags & std.os.linux.MSG.CTRUNC) != 0) flags |= recv_msg_flag_ctrunc;
-    if ((msg.flags & std.os.linux.MSG.TRUNC) != 0) flags |= recv_msg_flag_trunc;
-
-    // Walk the control-message chain. Layout (Linux): cmsg_len u64,
-    // cmsg_level i32, cmsg_type i32, then the payload; each message
-    // is padded to usize alignment.
-    const ctrl = control[0..@as(usize, @intCast(msg.controllen))];
-    var off: usize = 0;
-    while (off + 16 <= ctrl.len) {
-        const cmsg_len = @as(usize, @intCast(std.mem.readInt(u64, ctrl[off..][0..8], .little)));
-        if (cmsg_len < 16 or off + cmsg_len > ctrl.len) break;
-        const level = std.mem.readInt(i32, ctrl[off + 8 ..][0..4], .little);
-        const ctype = std.mem.readInt(i32, ctrl[off + 12 ..][0..4], .little);
-        const data = ctrl[off + 16 .. off + cmsg_len];
-        if (level == cmsg_level_ip and ctype == cmsg_type_ip_pktinfo and data.len >= 12) {
-            // struct in_pktinfo { i32 ifindex; u32 spec_dst; u32 addr; }
-            // The destination the datagram was sent to is ipi_addr.
-            flags |= recv_msg_flag_pktinfo;
-            if (out_ifindex) |ptr| ptr.* = @as(u32, @bitCast(std.mem.readInt(i32, data[0..4], .little)));
-            if (out_dest_addr) |ptr| {
-                var local = NetAddress{};
-                var local_len: SockLenT = @sizeOf(SockAddrStorageT);
-                lxGetsockname(fd, local.sockAddrMut(), &local_len) catch |err| return finishErr(err);
-                var parts: [4]u8 = undefined;
-                @memcpy(&parts, data[8..12]);
-                const dest = NetAddress.initIp4(parts, local.getPort());
-                var net_addr = NetAddrHandle.init(std.heap.page_allocator, dest) catch |err| return finishErr(err);
-                const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
-                    net_addr.deinit();
-                    return finishErr(err);
-                };
-                ptr.* = handle;
-            }
-        } else if (level == cmsg_level_ipv6 and ctype == cmsg_type_ipv6_pktinfo and data.len >= 20) {
-            // struct in6_pktinfo { u8 addr[16]; u32 ifindex; }
-            flags |= recv_msg_flag_pktinfo;
-            if (out_ifindex) |ptr| ptr.* = std.mem.readInt(u32, data[16..20], .little);
-            if (out_dest_addr) |ptr| {
-                var local = NetAddress{};
-                var local_len: SockLenT = @sizeOf(SockAddrStorageT);
-                lxGetsockname(fd, local.sockAddrMut(), &local_len) catch |err| return finishErr(err);
-                local.len = local_len;
-                var bytes: [16]u8 = undefined;
-                @memcpy(&bytes, data[0..16]);
-                const dest = NetAddress.initIp6(bytes, local.getPort(), 0, std.mem.readInt(u32, data[16..20], .little));
-                var net_addr = NetAddrHandle.init(std.heap.page_allocator, dest) catch |err| return finishErr(err);
-                const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
-                    net_addr.deinit();
-                    return finishErr(err);
-                };
-                ptr.* = handle;
-            }
-        } else if (level == cmsg_level_socket and ctype == cmsg_type_timestamp and data.len >= 16) {
-            // struct timeval { i64 sec; i64 usec; }
-            flags |= recv_msg_flag_timestamp;
-            if (out_timestamp_ns) |ptr| {
-                const sec = std.mem.readInt(i64, data[0..8], .little);
-                const usec = std.mem.readInt(i64, data[8..16], .little);
-                if (sec >= 0 and usec >= 0) {
-                    const ns = @as(i128, sec) * std.time.ns_per_s + @as(i128, usec) * std.time.ns_per_us;
-                    ptr.* = @as(u64, @intCast(ns));
-                }
-            }
-        }
-        const step = cmsgAlign(cmsg_len);
-        if (step == 0) break;
-        off += step;
-    }
-    if (out_flags) |ptr| ptr.* = flags;
-    return finish(SA_STD_OK);
-}
-
-const recv_multi_max_msgs: usize = 64;
-
-pub export fn sa_std_net_udp_recv_multi(socket: u64, out: ?[*]u8, buf_cap: u64, slot_size: u64, max_msgs: u64, out_count: ?*u64, out_lens: ?[*]u64, out_addrs: ?[*]u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    const count_ptr = out_count orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    count_ptr.* = 0;
-    const lens = out_lens orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (max_msgs == 0 or max_msgs > recv_multi_max_msgs) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (slot_size == 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const n = @as(usize, @intCast(max_msgs));
-    const slot = @as(usize, @intCast(slot_size));
-    const buffer = mutBytes(out, buf_cap) catch |err| return finishErr(err);
-    if (buffer.len < slot * n) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .udp_socket => |value| value,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-
-    var vec: [recv_multi_max_msgs]std.os.linux.mmsghdr = undefined;
-    var iovs: [recv_multi_max_msgs]std.posix.iovec = undefined;
-    var addrs: [recv_multi_max_msgs]NetAddress = undefined;
-    for (0..n) |i| {
-        addrs[i] = NetAddress{};
-        iovs[i] = .{ .base = buffer.ptr + i * slot, .len = slot };
-        vec[i] = .{
-            .hdr = .{
-                .name = @ptrCast(addrs[i].sockAddrMut()),
-                .namelen = @as(SockLenT, @intCast(@sizeOf(SockAddrStorageT))),
-                .iov = @ptrCast(&iovs[i]),
-                .iovlen = 1,
-                .control = null,
-                .controllen = 0,
-                .flags = 0,
-            },
-            .len = 0,
-        };
-    }
-
-    const rc = std.os.linux.recvmmsg(fd, vec[0..n].ptr, @as(u32, @intCast(n)), @as(u32, std.os.linux.MSG.WAITFORONE), null);
-    const rc_signed: isize = @as(isize, @bitCast(rc));
-    if (rc_signed < 0) return finishErr(lxErr(std.os.linux.errno(rc)));
-    const received = @as(usize, @intCast(rc_signed));
-    count_ptr.* = @as(u64, @intCast(received));
-    for (0..received) |i| {
-        lens[i] = @as(u64, @intCast(vec[i].len));
-        if (out_addrs) |arr| {
-            arr[i] = 0;
-            addrs[i].len = vec[i].hdr.namelen;
-            var net_addr = NetAddrHandle.init(std.heap.page_allocator, addrs[i]) catch |err| return finishErr(err);
-            const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
-                net_addr.deinit();
-                return finishErr(err);
-            };
-            arr[i] = handle;
-        }
-    }
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_udp_recv_multi = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_multi;
 
 pub const sa_net_udp_bind = @import("sa_std/net.zig").sa_net_udp_bind;
 pub const sa_net_udp_connect = @import("sa_std/net.zig").sa_net_udp_connect;
@@ -14086,27 +10787,7 @@ pub const sa_net_addr_family = @import("sa_std/net.zig").sa_net_addr_family;
 
 pub const sa_net_addr_scope_id = @import("sa_std/net.zig").sa_net_addr_scope_id;
 
-pub export fn sa_std_net_addr_format(addr: u64, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    len_ptr.* = 0;
-    const buffer = mutBytes(out, out_cap) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(addr) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .net_addr => |net_addr| {
-            const owned = addressSocketText(std.heap.page_allocator, net_addr.addr) catch |err| return finishErr(err);
-            defer std.heap.page_allocator.free(owned);
-            if (owned.len > buffer.len) return finish(SA_STD_ERR_TRUNCATED);
-            @memcpy(buffer[0..owned.len], owned);
-            len_ptr.* = @as(u64, @intCast(owned.len));
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_net_addr_format = @import("sa_std/std_net.zig").sa_std_net_addr_format;
 
 pub const sa_net_addr_free = @import("sa_std/net.zig").sa_net_addr_free;
 
@@ -14252,23 +10933,9 @@ pub const sa_net_socket_addr_v4_format_ascii = @import("sa_std/net.zig").sa_net_
 
 pub const sa_net_socket_addr_v6_format_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v6_format_ascii;
 
-pub export fn sa_fmt_i64(value: i64, base: u32) u64 {
-    const bytes = formatInteger(value, base) catch return 0;
-    return openOwnedBuffer(bytes) catch return 0;
-}
+pub const sa_fmt_i64 = @import("sa_std/fmt.zig").sa_fmt_i64;
 
-pub export fn sa_fmt_i64_into(value: i64, base: u32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const actual_base: u8 = switch (base) {
-        2, 8, 10 => @as(u8, @intCast(base)),
-        16, 17 => 16,
-        else => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-    };
-    const case: std.fmt.Case = if (base == 17) .upper else .lower;
-    var buf: [128]u8 = undefined;
-    const n = std.fmt.printInt(&buf, value, actual_base, case, .{});
-    const text = buf[0..n];
-    return writeFormattedInto(out, out_cap, out_len, text);
-}
+pub const sa_fmt_i64_into = @import("sa_std/fmt.zig").sa_fmt_i64_into;
 
 pub export fn sa_test_debug_i64(name: ?[*]const u8, name_len: u64, value: i64) void {
     const raw_name = name orelse return;
@@ -14339,316 +11006,114 @@ pub export fn sa_assert_eq_i64_at(actual: i64, expected: i64, code: i32, file: ?
     exitAfterAssertPanic(code);
 }
 
-pub export fn sa_fmt_u64(value: u64, base: u32) u64 {
-    const bytes = formatInteger(value, base) catch return 0;
-    return openOwnedBuffer(bytes) catch return 0;
-}
+pub const sa_fmt_u64 = @import("sa_std/fmt.zig").sa_fmt_u64;
 
-pub export fn sa_fmt_u64_into(value: u64, base: u32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const actual_base: u8 = switch (base) {
-        2, 8, 10 => @as(u8, @intCast(base)),
-        16, 17 => 16,
-        else => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-    };
-    const case: std.fmt.Case = if (base == 17) .upper else .lower;
-    var buf: [128]u8 = undefined;
-    const n = std.fmt.printInt(&buf, value, actual_base, case, .{});
-    const text = buf[0..n];
-    return writeFormattedInto(out, out_cap, out_len, text);
-}
+pub const sa_fmt_u64_into = @import("sa_std/fmt.zig").sa_fmt_u64_into;
 
 /// Float math for frontends (v0.24a; Haxe Math.* surface).
 /// Pure f64 functions; random yields [0, 1) from 53 crypto bits.
-pub export fn sa_math_floor(x: f64) f64 {
-    return @floor(x);
-}
+pub const sa_math_floor = @import("sa_std/math.zig").sa_math_floor;
 
-pub export fn sa_math_ceil(x: f64) f64 {
-    return @ceil(x);
-}
+pub const sa_math_ceil = @import("sa_std/math.zig").sa_math_ceil;
 
-pub export fn sa_math_sqrt(x: f64) f64 {
-    return @sqrt(x);
-}
+pub const sa_math_sqrt = @import("sa_std/math.zig").sa_math_sqrt;
 
-pub export fn sa_math_sin(x: f64) f64 {
-    return @sin(x);
-}
+pub const sa_math_sin = @import("sa_std/math.zig").sa_math_sin;
 
-pub export fn sa_math_cos(x: f64) f64 {
-    return @cos(x);
-}
+pub const sa_math_cos = @import("sa_std/math.zig").sa_math_cos;
 
-pub export fn sa_math_pow(base: f64, exp: f64) f64 {
-    return std.math.pow(f64, base, exp);
-}
+pub const sa_math_pow = @import("sa_std/math.zig").sa_math_pow;
 
-pub export fn sa_math_random() f64 {
-    if (!policyAllows(.random)) return 0;
-    const u = cryptoRandomU64();
-    return @as(f64, @floatFromInt(u >> 11)) * (1.0 / 9007199254740992.0);
-}
+pub const sa_math_random = @import("sa_std/math.zig").sa_math_random;
 
-pub export fn sa_fmt_f64(value: f64, precision: u32) u64 {
-    const bytes = formatFloat(value, precision) catch return 0;
-    return openOwnedBuffer(bytes) catch return 0;
-}
+pub const sa_fmt_f64 = @import("sa_std/fmt.zig").sa_fmt_f64;
 
-pub export fn sa_fmt_f64_into(value: f64, precision: u32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    var buf: [256]u8 = undefined;
-    const text = std.fmt.bufPrint(&buf, "{d:.[1]}", .{ value, @as(usize, @intCast(precision)) }) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    return writeFormattedInto(out, out_cap, out_len, text);
-}
+pub const sa_fmt_f64_into = @import("sa_std/fmt.zig").sa_fmt_f64_into;
 
-pub export fn sa_fmt_bool(value: bool) u64 {
-    const bytes = formatBool(value) catch return 0;
-    return openOwnedBuffer(bytes) catch return 0;
-}
+pub const sa_fmt_bool = @import("sa_std/fmt.zig").sa_fmt_bool;
 
-pub export fn sa_fmt_bool_into(value: bool, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    return writeFormattedInto(out, out_cap, out_len, if (value) "true" else "false");
-}
+pub const sa_fmt_bool_into = @import("sa_std/fmt.zig").sa_fmt_bool_into;
 
-pub export fn sa_fmt_bytes(buf: ?[*]const u8, len: u64) u64 {
-    const bytes = constBytes(buf, len) catch return 0;
-    const owned = formatBytes(bytes) catch return 0;
-    return openOwnedBuffer(owned) catch return 0;
-}
+pub const sa_fmt_bytes = @import("sa_std/fmt.zig").sa_fmt_bytes;
 
-pub export fn sa_fmt_bytes_into(buf: ?[*]const u8, len: u64, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
-    return writeFormattedInto(out, out_cap, out_len, bytes);
-}
+pub const sa_fmt_bytes_into = @import("sa_std/fmt.zig").sa_fmt_bytes_into;
 
-pub export fn sa_env_get(key_ptr: ?[*]const u8, key_len: u64) u64 {
-    const key = envKeyBytes(key_ptr, key_len) catch return 0;
-    if (!policyAllows(.{ .env = key })) return 0;
-    const owned = envGetOwned(key) catch return 0;
-    return openOwnedEnvBuffer(owned) catch return 0;
-}
+pub const sa_env_get = @import("sa_std/env.zig").sa_env_get;
 
-pub export fn sa_env_current_dir() u64 {
-    const cwd = sio.getCwdAlloc(std.heap.page_allocator) catch return 0;
-    return openOwnedEnvBuffer(cwd) catch return 0;
-}
+pub const sa_env_current_dir = @import("sa_std/env.zig").sa_env_current_dir;
 
-pub export fn sa_env_set_current_dir(path_ptr: ?[*]const u8, path_len: u64) i32 {
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    sio.changeCurDir(path) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_env_set_current_dir = @import("sa_std/env.zig").sa_env_set_current_dir;
 
-pub export fn sa_env_temp_dir() u64 {
-    const path = tempRootAlloc(std.heap.page_allocator) catch return 0;
-    return openOwnedEnvBuffer(path) catch return 0;
-}
+pub const sa_env_temp_dir = @import("sa_std/env.zig").sa_env_temp_dir;
 
-pub export fn sa_env_current_exe() u64 {
-    const path = sio.selfExePathAlloc(std.heap.page_allocator) catch return 0;
-    return openOwnedEnvBuffer(path) catch return 0;
-}
+pub const sa_env_current_exe = @import("sa_std/env.zig").sa_env_current_exe;
 
-pub export fn sa_env_home_dir() u64 {
-    const owned = envGetOwned("HOME") catch return 0;
-    return openOwnedEnvBuffer(owned) catch return 0;
-}
+pub const sa_env_home_dir = @import("sa_std/env.zig").sa_env_home_dir;
 
-pub export fn sa_env_args_json() u64 {
-    const json = processArgsJsonAlloc(std.heap.page_allocator) catch return 0;
-    return openOwnedEnvBuffer(json) catch return 0;
-}
+pub const sa_env_args_json = @import("sa_std/env.zig").sa_env_args_json;
 
-pub export fn sa_env_vars_json() u64 {
-    const json = envVarsJsonAlloc(std.heap.page_allocator) catch return 0;
-    return openOwnedEnvBuffer(json) catch return 0;
-}
+pub const sa_env_vars_json = @import("sa_std/env.zig").sa_env_vars_json;
 
-pub export fn sa_env_split_paths_json(path_list_ptr: ?[*]const u8, path_list_len: u64) u64 {
-    const path_list = constBytes(path_list_ptr, path_list_len) catch return 0;
-    const json = envSplitPathsJsonAlloc(std.heap.page_allocator, path_list) catch return 0;
-    return openOwnedEnvBuffer(json) catch return 0;
-}
+pub const sa_env_split_paths_json = @import("sa_std/env.zig").sa_env_split_paths_json;
 
-pub export fn sa_env_join_paths_json(paths_json_ptr: ?[*]const u8, paths_json_len: u64) u64 {
-    const paths_json = constBytes(paths_json_ptr, paths_json_len) catch return 0;
-    const joined = envJoinPathsJsonAlloc(std.heap.page_allocator, paths_json) catch return 0;
-    return openOwnedEnvBuffer(joined) catch return 0;
-}
+pub const sa_env_join_paths_json = @import("sa_std/env.zig").sa_env_join_paths_json;
 
-pub export fn sa_env_xdg_data_home_dir() u64 {
-    const path = xdgHomeSubdirAlloc(std.heap.page_allocator, "XDG_DATA_HOME", ".local/share") catch return 0;
-    return openOwnedEnvBuffer(path) catch return 0;
-}
+pub const sa_env_xdg_data_home_dir = @import("sa_std/env.zig").sa_env_xdg_data_home_dir;
 
-pub export fn sa_env_xdg_config_home_dir() u64 {
-    const path = xdgHomeSubdirAlloc(std.heap.page_allocator, "XDG_CONFIG_HOME", ".config") catch return 0;
-    return openOwnedEnvBuffer(path) catch return 0;
-}
+pub const sa_env_xdg_config_home_dir = @import("sa_std/env.zig").sa_env_xdg_config_home_dir;
 
-pub export fn sa_env_xdg_state_home_dir() u64 {
-    const path = xdgHomeSubdirAlloc(std.heap.page_allocator, "XDG_STATE_HOME", ".local/state") catch return 0;
-    return openOwnedEnvBuffer(path) catch return 0;
-}
+pub const sa_env_xdg_state_home_dir = @import("sa_std/env.zig").sa_env_xdg_state_home_dir;
 
-pub export fn sa_env_xdg_cache_home_dir() u64 {
-    const path = xdgHomeSubdirAlloc(std.heap.page_allocator, "XDG_CACHE_HOME", ".cache") catch return 0;
-    return openOwnedEnvBuffer(path) catch return 0;
-}
+pub const sa_env_xdg_cache_home_dir = @import("sa_std/env.zig").sa_env_xdg_cache_home_dir;
 
-pub export fn sa_env_xdg_data_dirs() u64 {
-    const dirs = xdgDirsAlloc(std.heap.page_allocator, "XDG_DATA_DIRS", "/usr/local/share/:/usr/share/") catch return 0;
-    return openOwnedEnvBuffer(dirs) catch return 0;
-}
+pub const sa_env_xdg_data_dirs = @import("sa_std/env.zig").sa_env_xdg_data_dirs;
 
-pub export fn sa_env_xdg_config_dirs() u64 {
-    const dirs = xdgDirsAlloc(std.heap.page_allocator, "XDG_CONFIG_DIRS", "/etc/xdg") catch return 0;
-    return openOwnedEnvBuffer(dirs) catch return 0;
-}
+pub const sa_env_xdg_config_dirs = @import("sa_std/env.zig").sa_env_xdg_config_dirs;
 
-pub export fn sa_env_has(key_ptr: ?[*]const u8, key_len: u64) i32 {
-    const key = envKeyBytes(key_ptr, key_len) catch return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const present = envValueFromCurrentProcess(key) != null;
-    return finish(if (present) SA_STD_OK else SA_STD_ERR_NOT_FOUND);
-}
+pub const sa_env_has = @import("sa_std/env.zig").sa_env_has;
 
-pub export fn sa_env_set_var(key_ptr: ?[*]const u8, key_len: u64, value_ptr: ?[*]const u8, value_len: u64) i32 {
-    const key = envKeyBytes(key_ptr, key_len) catch |err| return finishErr(err);
-    const value = constBytes(value_ptr, value_len) catch |err| return finishErr(err);
-    if (std.mem.indexOfScalar(u8, value, 0) != null) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const key_z = std.heap.page_allocator.dupeSentinel(u8, key, 0) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(key_z);
-    const value_z = std.heap.page_allocator.dupeSentinel(u8, value, 0) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(value_z);
-    if (setenv(key_z.ptr, value_z.ptr, 1) != 0) return finish(SA_STD_ERR_IO);
-    return finish(SA_STD_OK);
-}
+pub const sa_env_set_var = @import("sa_std/env.zig").sa_env_set_var;
 
-pub export fn sa_env_remove_var(key_ptr: ?[*]const u8, key_len: u64) i32 {
-    const key = envKeyBytes(key_ptr, key_len) catch |err| return finishErr(err);
-    const key_z = std.heap.page_allocator.dupeSentinel(u8, key, 0) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(key_z);
-    if (unsetenv(key_z.ptr) != 0) return finish(SA_STD_ERR_IO);
-    return finish(SA_STD_OK);
-}
+pub const sa_env_remove_var = @import("sa_std/env.zig").sa_env_remove_var;
 
-pub export fn sa_env_buffer_data(buffer: u64) ?[*]u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(buffer) orelse return null;
-    return switch (resource.*) {
-        .env => |*env| env.bytes.ptr,
-        else => null,
-    };
-}
+pub const sa_env_buffer_data = @import("sa_std/env.zig").sa_env_buffer_data;
 
-pub export fn sa_env_buffer_len(buffer: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(buffer) orelse return 0;
-    return switch (resource.*) {
-        .env => |env| @as(u64, @intCast(env.bytes.len)),
-        else => 0,
-    };
-}
+pub const sa_env_buffer_len = @import("sa_std/env.zig").sa_env_buffer_len;
 
-pub export fn sa_env_buffer_free(handle: u64) i32 {
-    return sa_std_close(handle);
-}
+pub const sa_env_buffer_free = @import("sa_std/env.zig").sa_env_buffer_free;
 
-pub export fn sa_string_concat(left_ptr: ?[*]const u8, left_len: u64, right_ptr: ?[*]const u8, right_len: u64) u64 {
-    const left = constBytes(left_ptr, left_len) catch return 0;
-    const right = constBytes(right_ptr, right_len) catch return 0;
-    const owned = stringConcat(left, right) catch return 0;
-    return openOwnedBuffer(owned) catch return 0;
-}
+pub const sa_string_concat = @import("sa_std/string.zig").sa_string_concat;
 
 /// Single-byte string from a char code (JS `String.fromCharCode` over the
 /// subset's byte-oriented strings; exact inverse of byte `charCodeAt`).
 /// Only the low byte is stored (documented); returns a buffer handle read
 /// back via `sa_fmt_buffer_data`/`sa_fmt_buffer_len` like concat.
-pub export fn sa_string_from_char_code(code: i32) u64 {
-    const byte: u8 = @truncate(@as(u32, @bitCast(code)));
-    const owned = std.heap.page_allocator.alloc(u8, 1) catch return 0;
-    owned[0] = byte;
-    return openOwnedBuffer(owned) catch return 0;
-}
+pub const sa_string_from_char_code = @import("sa_std/string.zig").sa_string_from_char_code;
 
 /// JS `String.prototype.indexOf` over byte-oriented strings: first needle
 /// index at/after `from`, or -1. Empty needle yields min(from, hay.len).
 /// `from` arrives as u64 (frontends convert via asU64Arg); clamped defensively.
-pub export fn sa_string_index_of(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64, from: u64) i32 {
-    const hay = constBytes(hay_ptr, hay_len) catch return -1;
-    const ndl = constBytes(ndl_ptr, ndl_len) catch return -1;
-    const start: usize = @as(usize, @intCast(@min(from, hay_len)));
-    if (ndl.len == 0) return @as(i32, @intCast(@min(start, hay.len)));
-    if (ndl.len > hay.len) return -1;
-    var i: usize = start;
-    while (i + ndl.len <= hay.len) : (i += 1) {
-        if (std.mem.eql(u8, hay[i..][0..ndl.len], ndl)) return @as(i32, @intCast(i));
-    }
-    return -1;
-}
+pub const sa_string_index_of = @import("sa_std/string.zig").sa_string_index_of;
 
 /// JS `String.prototype.lastIndexOf`: last needle index at/before `from`
 /// (`from` clamped to hay.len), or -1. Empty needle yields the clamped `from`.
-pub export fn sa_string_last_index_of(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64, from: u64) i32 {
-    const hay = constBytes(hay_ptr, hay_len) catch return -1;
-    const ndl = constBytes(ndl_ptr, ndl_len) catch return -1;
-    const start: usize = @as(usize, @intCast(@min(from, hay_len)));
-    if (ndl.len == 0) return @as(i32, @intCast(@min(start, hay.len)));
-    if (ndl.len > hay.len) return -1;
-    var i: usize = @min(start, hay.len - ndl.len);
-    while (true) {
-        if (std.mem.eql(u8, hay[i..][0..ndl.len], ndl)) return @as(i32, @intCast(i));
-        if (i == 0) break;
-        i -= 1;
-    }
-    return -1;
-}
+pub const sa_string_last_index_of = @import("sa_std/string.zig").sa_string_last_index_of;
 
 /// JS `String.prototype.startsWith` (no position arg in the subset): 1/0.
-pub export fn sa_string_starts_with(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64) i32 {
-    const hay = constBytes(hay_ptr, hay_len) catch return 0;
-    const ndl = constBytes(ndl_ptr, ndl_len) catch return 0;
-    if (ndl.len > hay.len) return 0;
-    return if (std.mem.eql(u8, hay[0..ndl.len], ndl)) 1 else 0;
-}
+pub const sa_string_starts_with = @import("sa_std/string.zig").sa_string_starts_with;
 
 /// JS `String.prototype.endsWith`: 1/0.
-pub export fn sa_string_ends_with(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64) i32 {
-    const hay = constBytes(hay_ptr, hay_len) catch return 0;
-    const ndl = constBytes(ndl_ptr, ndl_len) catch return 0;
-    if (ndl.len > hay.len) return 0;
-    return if (std.mem.eql(u8, hay[hay.len - ndl.len ..], ndl)) 1 else 0;
-}
+pub const sa_string_ends_with = @import("sa_std/string.zig").sa_string_ends_with;
 
 /// JS `String.prototype.toLowerCase` over the subset's byte-oriented
 /// strings: ASCII A-Z folds to a-z, all other bytes pass through
 /// (documented; full Unicode lower is refused at the frontend).
 /// Returns a fresh buffer handle read back via `sa_fmt_buffer_data/len`.
-pub export fn sa_string_to_lower_ascii(ptr: ?[*]const u8, len: u64) u64 {
-    const bytes = constBytes(ptr, len) catch return 0;
-    const owned = std.heap.page_allocator.alloc(u8, bytes.len) catch return 0;
-    for (bytes, 0..) |byte, i| {
-        owned[i] = if (byte >= 'A' and byte <= 'Z') byte + ('a' - 'A') else byte;
-    }
-    return openOwnedBuffer(owned) catch return 0;
-}
+pub const sa_string_to_lower_ascii = @import("sa_std/string.zig").sa_string_to_lower_ascii;
 
 /// JS `String.prototype.toUpperCase`: ASCII a-z folds to A-Z, rest passes
 /// through. Fresh buffer handle, same read-back protocol as lower.
-pub export fn sa_string_to_upper_ascii(ptr: ?[*]const u8, len: u64) u64 {
-    const bytes = constBytes(ptr, len) catch return 0;
-    const owned = std.heap.page_allocator.alloc(u8, bytes.len) catch return 0;
-    for (bytes, 0..) |byte, i| {
-        owned[i] = if (byte >= 'a' and byte <= 'z') byte - ('a' - 'A') else byte;
-    }
-    return openOwnedBuffer(owned) catch return 0;
-}
+pub const sa_string_to_upper_ascii = @import("sa_std/string.zig").sa_string_to_upper_ascii;
 
 /// JS `parseFloat` (also serves `Number(s)` float paths and the global
 /// `parseFloat`): leading ASCII whitespace skipped, optional sign,
@@ -14699,24 +11164,10 @@ pub export fn sa_parse_float(ptr: ?[*]const u8, len: u64) f64 {
 /// JS `String.prototype.repeat`: `bytes` concatenated `count` times.
 /// `count == 0` yields an empty handle; size overflow yields 0
 /// (OOM-equivalent). Fresh buffer handle, concat read-back protocol.
-pub export fn sa_string_repeat(ptr: ?[*]const u8, len: u64, count: u64) u64 {
-    const bytes = constBytes(ptr, len) catch return 0;
-    const n = lenAsUsize(count) catch return 0;
-    if (n == 0 or bytes.len == 0) {
-        const owned = std.heap.page_allocator.alloc(u8, 0) catch return 0;
-        return openOwnedBuffer(owned) catch return 0;
-    }
-    if (bytes.len > std.math.maxInt(usize) / n) return 0;
-    const owned = std.heap.page_allocator.alloc(u8, bytes.len * n) catch return 0;
-    var i: usize = 0;
-    while (i < n) : (i += 1) {
-        std.mem.copyForwards(u8, owned[i * bytes.len ..][0..bytes.len], bytes);
-    }
-    return openOwnedBuffer(owned) catch return 0;
-}
+pub const sa_string_repeat = @import("sa_std/string.zig").sa_string_repeat;
 
 /// Shared pad filler: `pad` bytes tiled/truncated to exactly `fill` bytes.
-fn tilePad(owned: []u8, pad: []const u8) void {
+pub fn tilePad(owned: []u8, pad: []const u8) void {
     var i: usize = 0;
     while (i < owned.len) {
         const n = @min(pad.len, owned.len - i);
@@ -14728,192 +11179,36 @@ fn tilePad(owned: []u8, pad: []const u8) void {
 /// JS `String.prototype.padStart`: left-pad with tiled `pad` to
 /// `target_len` bytes. Shorter-or-equal input and empty `pad` return an
 /// unchanged copy (JS no-op shape). Fresh buffer handle.
-pub export fn sa_string_pad_start(ptr: ?[*]const u8, len: u64, target_len: u64, pad_ptr: ?[*]const u8, pad_len: u64) u64 {
-    const bytes = constBytes(ptr, len) catch return 0;
-    const pad = constBytes(pad_ptr, pad_len) catch return 0;
-    const target = lenAsUsize(target_len) catch return 0;
-    if (target <= bytes.len or pad.len == 0) {
-        const owned = std.heap.page_allocator.dupe(u8, bytes) catch return 0;
-        return openOwnedBuffer(owned) catch return 0;
-    }
-    const owned = std.heap.page_allocator.alloc(u8, target) catch return 0;
-    const fill = target - bytes.len;
-    tilePad(owned[0..fill], pad);
-    std.mem.copyForwards(u8, owned[fill..][0..bytes.len], bytes);
-    return openOwnedBuffer(owned) catch return 0;
-}
+pub const sa_string_pad_start = @import("sa_std/string.zig").sa_string_pad_start;
 
 /// JS `String.prototype.padEnd`: mirror of padStart on the right.
-pub export fn sa_string_pad_end(ptr: ?[*]const u8, len: u64, target_len: u64, pad_ptr: ?[*]const u8, pad_len: u64) u64 {
-    const bytes = constBytes(ptr, len) catch return 0;
-    const pad = constBytes(pad_ptr, pad_len) catch return 0;
-    const target = lenAsUsize(target_len) catch return 0;
-    if (target <= bytes.len or pad.len == 0) {
-        const owned = std.heap.page_allocator.dupe(u8, bytes) catch return 0;
-        return openOwnedBuffer(owned) catch return 0;
-    }
-    const owned = std.heap.page_allocator.alloc(u8, target) catch return 0;
-    std.mem.copyForwards(u8, owned[0..bytes.len], bytes);
-    tilePad(owned[bytes.len..], pad);
-    return openOwnedBuffer(owned) catch return 0;
-}
+pub const sa_string_pad_end = @import("sa_std/string.zig").sa_string_pad_end;
 
 /// JS `String.prototype.replace` / `replaceAll` with a string pattern
 /// (regex forms are refused at the frontend): `all == 0` swaps the first
 /// occurrence, nonzero swaps all non-overlapping occurrences. Empty needle
 /// inserts at 0 (first) or interleaves (all), per JS. Needle absent (or
 /// longer than hay) returns an unchanged copy. Fresh buffer handle.
-pub export fn sa_string_replace(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64, rep_ptr: ?[*]const u8, rep_len: u64, all: u64) u64 {
-    const hay = constBytes(hay_ptr, hay_len) catch return 0;
-    const ndl = constBytes(ndl_ptr, ndl_len) catch return 0;
-    const rep = constBytes(rep_ptr, rep_len) catch return 0;
-    const replace_all = all != 0;
-    if (ndl.len == 0) {
-        if (!replace_all) {
-            const owned = std.heap.page_allocator.alloc(u8, rep.len + hay.len) catch return 0;
-            std.mem.copyForwards(u8, owned[0..rep.len], rep);
-            std.mem.copyForwards(u8, owned[rep.len..][0..hay.len], hay);
-            return openOwnedBuffer(owned) catch return 0;
-        }
-        // "abc" -> "XaXbXcX": hay.len + 1 slots (checked arithmetic).
-        const slots = std.math.add(usize, hay.len, 1) catch return 0;
-        const extra = std.math.mul(usize, rep.len, slots) catch return 0;
-        const total_empty = std.math.add(usize, hay.len, extra) catch return 0;
-        const owned = std.heap.page_allocator.alloc(u8, total_empty) catch return 0;
-        var o: usize = 0;
-        for (hay) |byte| {
-            std.mem.copyForwards(u8, owned[o..][0..rep.len], rep);
-            o += rep.len;
-            owned[o] = byte;
-            o += 1;
-        }
-        std.mem.copyForwards(u8, owned[o..][0..rep.len], rep);
-        o += rep.len;
-        return openOwnedBuffer(owned[0..o]) catch return 0;
-    }
-    if (ndl.len > hay.len) {
-        const owned = std.heap.page_allocator.dupe(u8, hay) catch return 0;
-        return openOwnedBuffer(owned) catch return 0;
-    }
-    // Locate match starts (first only, or all non-overlapping).
-    var starts_i: usize = 0;
-    var count: usize = 0;
-    var i: usize = 0;
-    while (i + ndl.len <= hay.len) {
-        if (std.mem.eql(u8, hay[i..][0..ndl.len], ndl)) {
-            count += 1;
-            if (!replace_all) {
-                starts_i = i;
-                break;
-            }
-            i += ndl.len;
-            continue;
-        }
-        i += 1;
-    }
-    if (count == 0) {
-        const owned = std.heap.page_allocator.dupe(u8, hay) catch return 0;
-        return openOwnedBuffer(owned) catch return 0;
-    }
-    if (!replace_all) {
-        const total = std.math.add(usize, hay.len - ndl.len, rep.len) catch return 0;
-        const owned = std.heap.page_allocator.alloc(u8, total) catch return 0;
-        std.mem.copyForwards(u8, owned[0..starts_i], hay[0..starts_i]);
-        std.mem.copyForwards(u8, owned[starts_i..][0..rep.len], rep);
-        std.mem.copyForwards(u8, owned[starts_i + rep.len ..], hay[starts_i + ndl.len ..]);
-        return openOwnedBuffer(owned) catch return 0;
-    }
-    // Second pass emits with all matches swapped (checked arithmetic).
-    var total: usize = hay.len;
-    i = 0;
-    while (i + ndl.len <= hay.len) {
-        if (std.mem.eql(u8, hay[i..][0..ndl.len], ndl)) {
-            total = std.math.add(usize, total - ndl.len, rep.len) catch return 0;
-            i += ndl.len;
-        } else {
-            i += 1;
-        }
-    }
-    const owned = std.heap.page_allocator.alloc(u8, total) catch return 0;
-    var s: usize = 0;
-    var o: usize = 0;
-    i = 0;
-    while (i + ndl.len <= hay.len) {
-        if (std.mem.eql(u8, hay[i..][0..ndl.len], ndl)) {
-            std.mem.copyForwards(u8, owned[o..][0..(i - s)], hay[s..i]);
-            o += i - s;
-            std.mem.copyForwards(u8, owned[o..][0..rep.len], rep);
-            o += rep.len;
-            i += ndl.len;
-            s = i;
-        } else {
-            i += 1;
-        }
-    }
-    std.mem.copyForwards(u8, owned[o..][0..(hay.len - s)], hay[s..]);
-    o += hay.len - s;
-    return openOwnedBuffer(owned[0..o]) catch return 0;
-}
+pub const sa_string_replace = @import("sa_std/string.zig").sa_string_replace;
 
 /// JS `String.prototype.charCodeAt` over the subset's byte-oriented
 /// strings: the byte at `idx` (0-255). Out of bounds yields -1: JS NaN is
 /// unrepresentable in i32, and -1 is the subset's OOB sentinel (cf.
 /// indexOf). The reference frontend's primary path is an inline unchecked
 /// byte load; this checked primitive is the shared out-of-line shape.
-pub export fn sa_string_code_point_at(ptr: ?[*]const u8, len: u64, idx: u64) i32 {
-    const bytes = constBytes(ptr, len) catch return -1;
-    const i = lenAsUsize(idx) catch return -1;
-    if (i >= bytes.len) return -1;
-    return @as(i32, bytes[i]);
-}
+pub const sa_string_code_point_at = @import("sa_std/string.zig").sa_string_code_point_at;
 
 /// JS `String.fromCodePoint`: UTF-8 encoding of one scalar value.
 /// Out-of-range codes (negative, > 0x10FFFF, surrogate halves) yield the
 /// U+FFFD replacement bytes: the subset has no exceptions, and a specified
 /// replacement beats a silent wrong encoding. Fresh buffer handle.
-pub export fn sa_string_from_code_point(code: i32) u64 {
-    const scalar: u32 = if (code < 0) 0xfffd else @as(u32, @intCast(code));
-    const cp: u32 = if (scalar > 0x10ffff or (scalar >= 0xd800 and scalar <= 0xdfff)) 0xfffd else scalar;
-    var buf: [4]u8 = undefined;
-    const n: usize = if (cp < 0x80) blk: {
-        buf[0] = @as(u8, @intCast(cp));
-        break :blk 1;
-    } else if (cp < 0x800) blk: {
-        buf[0] = @as(u8, @intCast(0xc0 | (cp >> 6)));
-        buf[1] = @as(u8, @intCast(0x80 | (cp & 0x3f)));
-        break :blk 2;
-    } else if (cp < 0x10000) blk: {
-        buf[0] = @as(u8, @intCast(0xe0 | (cp >> 12)));
-        buf[1] = @as(u8, @intCast(0x80 | ((cp >> 6) & 0x3f)));
-        buf[2] = @as(u8, @intCast(0x80 | (cp & 0x3f)));
-        break :blk 3;
-    } else blk: {
-        buf[0] = @as(u8, @intCast(0xf0 | (cp >> 18)));
-        buf[1] = @as(u8, @intCast(0x80 | ((cp >> 12) & 0x3f)));
-        buf[2] = @as(u8, @intCast(0x80 | ((cp >> 6) & 0x3f)));
-        buf[3] = @as(u8, @intCast(0x80 | (cp & 0x3f)));
-        break :blk 4;
-    };
-    const owned = std.heap.page_allocator.dupe(u8, buf[0..n]) catch return 0;
-    return openOwnedBuffer(owned) catch return 0;
-}
+pub const sa_string_from_code_point = @import("sa_std/string.zig").sa_string_from_code_point;
 
-pub export fn sa_str_is_ascii(ptr: ?[*]const u8, len: u64) i32 {
-    const bytes = constBytes(ptr, len) catch return 0;
-    for (bytes) |byte| {
-        if (byte > 0x7f) return 0;
-    }
-    return 1;
-}
+pub const sa_str_is_ascii = @import("sa_std/str.zig").sa_str_is_ascii;
 
-pub export fn sa_str_eq_ignore_ascii_case(left_ptr: ?[*]const u8, left_len: u64, right_ptr: ?[*]const u8, right_len: u64) i32 {
-    const left = constBytes(left_ptr, left_len) catch return 0;
-    const right = constBytes(right_ptr, right_len) catch return 0;
-    if (left.len != right.len) return 0;
-    return if (std.ascii.eqlIgnoreCase(left, right)) 1 else 0;
-}
+pub const sa_str_eq_ignore_ascii_case = @import("sa_std/str.zig").sa_str_eq_ignore_ascii_case;
 
-fn utf8ScalarAt(bytes: []const u8, index: usize) !struct { scalar: u32, width: usize } {
+pub fn utf8ScalarAt(bytes: []const u8, index: usize) !struct { scalar: u32, width: usize } {
     if (index >= bytes.len) return error.FileNotFound;
     const b0 = bytes[index];
     if (b0 < 0x80) return .{ .scalar = b0, .width = 1 };
@@ -14940,7 +11235,7 @@ fn utf8ScalarAt(bytes: []const u8, index: usize) !struct { scalar: u32, width: u
     return .{ .scalar = ((@as(u32, b0) & 0x07) << 18) | ((@as(u32, b1) & 0x3f) << 12) | ((@as(u32, b2) & 0x3f) << 6) | (@as(u32, b3) & 0x3f), .width = 4 };
 }
 
-fn utf8LossyInvalidWidth(bytes: []const u8, index: usize) usize {
+pub fn utf8LossyInvalidWidth(bytes: []const u8, index: usize) usize {
     const b0 = bytes[index];
     const expected_width: usize = if (b0 >= 0xc2 and b0 <= 0xdf) 2 else if (b0 >= 0xe0 and b0 <= 0xef) 3 else if (b0 >= 0xf0 and b0 <= 0xf4) 4 else return 1;
     var width: usize = 1;
@@ -14951,7 +11246,7 @@ fn utf8LossyInvalidWidth(bytes: []const u8, index: usize) usize {
     return width;
 }
 
-fn utf8CharRangeAt(bytes: []const u8, char_index: u64) !struct { start: usize, len: usize, scalar: u32 } {
+pub fn utf8CharRangeAt(bytes: []const u8, char_index: u64) !struct { start: usize, len: usize, scalar: u32 } {
     var byte_index: usize = 0;
     var current: u64 = 0;
     while (byte_index < bytes.len) {
@@ -14963,156 +11258,36 @@ fn utf8CharRangeAt(bytes: []const u8, char_index: u64) !struct { start: usize, l
     return error.FileNotFound;
 }
 
-pub export fn sa_str_utf8_char_count(ptr: ?[*]const u8, len: u64) u64 {
-    const bytes = constBytes(ptr, len) catch return 0;
-    var byte_index: usize = 0;
-    var count: u64 = 0;
-    while (byte_index < bytes.len) {
-        const decoded = utf8ScalarAt(bytes, byte_index) catch return 0;
-        byte_index += decoded.width;
-        count += 1;
-    }
-    return count;
-}
+pub const sa_str_utf8_char_count = @import("sa_std/str.zig").sa_str_utf8_char_count;
 
-pub export fn sa_str_utf8_validate(ptr: ?[*]const u8, len: u64) i32 {
-    const bytes = constBytes(ptr, len) catch |err| return finishErr(err);
-    var byte_index: usize = 0;
-    while (byte_index < bytes.len) {
-        const decoded = utf8ScalarAt(bytes, byte_index) catch |err| return finishErr(err);
-        byte_index += decoded.width;
-    }
-    return finish(SA_STD_OK);
-}
+pub const sa_str_utf8_validate = @import("sa_std/str.zig").sa_str_utf8_validate;
 
-pub export fn sa_str_utf8_char_at(ptr: ?[*]const u8, len: u64, char_index: u64, out_codepoint: ?*u64) i32 {
-    const out = out_codepoint orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const bytes = constBytes(ptr, len) catch |err| return finishErr(err);
-    const range = utf8CharRangeAt(bytes, char_index) catch |err| return finishErr(err);
-    out.* = range.scalar;
-    return finish(SA_STD_OK);
-}
+pub const sa_str_utf8_char_at = @import("sa_std/str.zig").sa_str_utf8_char_at;
 
-pub export fn sa_str_utf8_char_at_byte(ptr: ?[*]const u8, len: u64, byte_index: u64, out_codepoint: ?*u64, out_len: ?*u64) i32 {
-    const codepoint_ptr = out_codepoint orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    codepoint_ptr.* = 0;
-    len_ptr.* = 0;
-    const bytes = constBytes(ptr, len) catch |err| return finishErr(err);
-    if (byte_index > std.math.maxInt(usize)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const decoded = utf8ScalarAt(bytes, @as(usize, @intCast(byte_index))) catch |err| return finishErr(err);
-    codepoint_ptr.* = decoded.scalar;
-    len_ptr.* = @as(u64, @intCast(decoded.width));
-    return finish(SA_STD_OK);
-}
+pub const sa_str_utf8_char_at_byte = @import("sa_std/str.zig").sa_str_utf8_char_at_byte;
 
-pub export fn sa_str_utf8_lossy_next(ptr: ?[*]const u8, len: u64, byte_index: u64, out_codepoint: ?*u64, out_len: ?*u64) i32 {
-    const codepoint_ptr = out_codepoint orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    codepoint_ptr.* = 0;
-    len_ptr.* = 0;
-    const bytes = constBytes(ptr, len) catch |err| return finishErr(err);
-    if (byte_index > std.math.maxInt(usize)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const idx: usize = @intCast(byte_index);
-    if (idx >= bytes.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const decoded = utf8ScalarAt(bytes, idx) catch {
-        codepoint_ptr.* = 65533;
-        len_ptr.* = @as(u64, @intCast(utf8LossyInvalidWidth(bytes, idx)));
-        return finish(SA_STD_OK);
-    };
-    codepoint_ptr.* = decoded.scalar;
-    len_ptr.* = @as(u64, @intCast(decoded.width));
-    return finish(SA_STD_OK);
-}
+pub const sa_str_utf8_lossy_next = @import("sa_std/str.zig").sa_str_utf8_lossy_next;
 
-pub export fn sa_str_utf8_char_range_at(ptr: ?[*]const u8, len: u64, char_index: u64, out_start: ?*u64, out_len: ?*u64) i32 {
-    const start_ptr = out_start orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const len_ptr = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    start_ptr.* = 0;
-    len_ptr.* = 0;
-    const bytes = constBytes(ptr, len) catch |err| return finishErr(err);
-    const range = utf8CharRangeAt(bytes, char_index) catch |err| return finishErr(err);
-    start_ptr.* = @as(u64, @intCast(range.start));
-    len_ptr.* = @as(u64, @intCast(range.len));
-    return finish(SA_STD_OK);
-}
+pub const sa_str_utf8_char_range_at = @import("sa_std/str.zig").sa_str_utf8_char_range_at;
 
-fn isAsciiWhitespace(byte: u8) bool {
+pub fn isAsciiWhitespace(byte: u8) bool {
     return switch (byte) {
         ' ', '\t', '\n', '\r', 0x0b, 0x0c => true,
         else => false,
     };
 }
 
-pub export fn sa_str_trim_ascii_start_index(ptr: ?[*]const u8, len: u64) u64 {
-    const bytes = constBytes(ptr, len) catch return 0;
-    var index: usize = 0;
-    while (index < bytes.len and isAsciiWhitespace(bytes[index])) : (index += 1) {}
-    return @as(u64, @intCast(index));
-}
+pub const sa_str_trim_ascii_start_index = @import("sa_std/str.zig").sa_str_trim_ascii_start_index;
 
-pub export fn sa_str_trim_ascii_end_len(ptr: ?[*]const u8, len: u64) u64 {
-    const bytes = constBytes(ptr, len) catch return 0;
-    var end = bytes.len;
-    while (end > 0 and isAsciiWhitespace(bytes[end - 1])) : (end -= 1) {}
-    return @as(u64, @intCast(end));
-}
+pub const sa_str_trim_ascii_end_len = @import("sa_std/str.zig").sa_str_trim_ascii_end_len;
 
-pub export fn sa_fmt_buffer_data(buffer: u64) ?[*]u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(buffer) orelse return null;
-    return switch (resource.*) {
-        .fmt => |*fmt| fmt.bytes.ptr,
-        else => null,
-    };
-}
+pub const sa_fmt_buffer_data = @import("sa_std/fmt.zig").sa_fmt_buffer_data;
 
-pub export fn sa_fmt_buffer_len(buffer: u64) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(buffer) orelse return 0;
-    return switch (resource.*) {
-        .fmt => |fmt| @as(u64, @intCast(fmt.bytes.len)),
-        else => 0,
-    };
-}
+pub const sa_fmt_buffer_len = @import("sa_std/fmt.zig").sa_fmt_buffer_len;
 
-pub export fn sa_fmt_buffer_write_to(buffer: u64, writer: u64) i32 {
-    // Snapshot the formatted bytes under the lock (the slice
-    // points into the fmt resource), then write unlocked via
-    // the DEF-R5 data path: the write itself can block.
-    lockRegistry();
-    const resource = getResourceLocked(buffer) orelse {
-        registry_mutex.unlock();
-        return finish(SA_STD_ERR_INVALID_HANDLE);
-    };
-    const bytes = switch (resource.*) {
-        .fmt => |fmt| fmt.bytes,
-        else => {
-            registry_mutex.unlock();
-            return finish(SA_STD_ERR_INVALID_HANDLE);
-        },
-    };
-    const copy = std.heap.page_allocator.dupe(u8, bytes) catch {
-        registry_mutex.unlock();
-        return finish(SA_STD_ERR_NO_MEMORY);
-    };
-    registry_mutex.unlock();
-    defer std.heap.page_allocator.free(copy);
-    const written = writeHandle(writer, copy) catch |err| return finishErr(err);
-    if (written != copy.len) return finish(SA_STD_ERR_IO);
-    return finish(SA_STD_OK);
-}
+pub const sa_fmt_buffer_write_to = @import("sa_std/fmt.zig").sa_fmt_buffer_write_to;
 
-pub export fn sa_fmt_buffer_free(handle: u64) i32 {
-    return sa_std_close(handle);
-}
+pub const sa_fmt_buffer_free = @import("sa_std/fmt.zig").sa_fmt_buffer_free;
 
 /// Raw free for SA `alloc` blocks (the native emitter lowers `alloc` to
 /// libc malloc). SA-level code that must release a heap block through a
@@ -15127,181 +11302,19 @@ pub export fn sa_print_bytes(msg: ?[*]const u8, len: u64) void {
     _ = sa_std_print(msg, len);
 }
 
-pub export fn sa_std_net_tcp_listen(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64, out_bound_port: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (out_bound_port) |port_ptr| port_ptr.* = 0;
-    const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
-    const port16 = portFromU32(port) catch |err| return finishErr(err);
+pub const sa_std_net_tcp_listen = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listen;
 
-    const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
-    const listen_fd = lxSocket(address.storage.family, SOCKT.STREAM | SOCKT.CLOEXEC, IPPROTOT.TCP) catch |err| return finishErr(err);
-    errdefer lxClose(listen_fd);
-    setSocketOptBool(listen_fd, SOLT.SOCKET, SOT.REUSEADDR, true) catch |err| return finishErr(err);
-    lxBind(listen_fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
-    lxListen(listen_fd, 128) catch |err| return finishErr(err);
-    const handle = registerResource(.{ .tcp_listener = .{ .fd = listen_fd, .addr = address } }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    if (out_bound_port) |port_ptr| {
-        var addr = NetAddress{};
-        var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
-        lxGetsockname(listen_fd, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
-        addr.len = addr_len;
-        port_ptr.* = addr.getPort();
-    }
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_accept = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_accept;
 
-pub export fn sa_std_net_tcp_accept(listener_handle: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    const resource = getResourceLocked(listener_handle) orelse {
-        registry_mutex.unlock();
-        return finish(SA_STD_ERR_INVALID_HANDLE);
-    };
-    const listener = switch (resource.*) {
-        .tcp_listener => |server| server,
-        else => {
-            registry_mutex.unlock();
-            return finish(SA_STD_ERR_INVALID_HANDLE);
-        },
-    };
-    registry_mutex.unlock();
+pub const sa_std_net_tcp_accept_addr = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_accept_addr;
 
-    const accepted_fd = lxAccept(listener.fd, null, null, SOCKT.CLOEXEC) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    const handle = registerResourceLocked(.{ .tcp_stream = accepted_fd }) catch |err| {
-        registry_mutex.unlock();
-        lxClose(accepted_fd);
-        return finishErr(err);
-    };
-    registry_mutex.unlock();
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_listener_local_addr = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_local_addr;
 
-pub export fn sa_std_net_tcp_accept_addr(listener_handle: u64, out_stream: ?*u64, out_addr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const stream_ptr = out_stream orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    stream_ptr.* = 0;
-    addr_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    const resource = getResourceLocked(listener_handle) orelse {
-        registry_mutex.unlock();
-        return finish(SA_STD_ERR_INVALID_HANDLE);
-    };
-    const listener = switch (resource.*) {
-        .tcp_listener => |server| server,
-        else => {
-            registry_mutex.unlock();
-            return finish(SA_STD_ERR_INVALID_HANDLE);
-        },
-    };
-    registry_mutex.unlock();
+pub const sa_std_net_tcp_listener_from_raw_fd = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_from_raw_fd;
 
-    var peer_storage: SockAddrStorageT = makeSockAddrStorage();
-    var peer_len: SockLenT = @sizeOf(SockAddrStorageT);
-    const accepted_fd = lxAccept(listener.fd, @ptrCast(&peer_storage), &peer_len, SOCKT.CLOEXEC) catch |err| return finishErr(err);
-    var peer_addr = NetAddrHandle.init(std.heap.page_allocator, .{ .storage = peer_storage, .len = peer_len }) catch |err| {
-        lxClose(accepted_fd);
-        return finishErr(err);
-    };
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    const stream_handle = registerResourceLocked(.{ .tcp_stream = accepted_fd }) catch |err| {
-        registry_mutex.unlock();
-        peer_addr.deinit();
-        lxClose(accepted_fd);
-        return finishErr(err);
-    };
-    const addr_handle = registerResourceLocked(.{ .net_addr = peer_addr }) catch |err| {
-        if (takeResourceLocked(stream_handle)) |taken| {
-            var mutable = taken;
-            mutable.close() catch {};
-        }
-        registry_mutex.unlock();
-        peer_addr.deinit();
-        return finishErr(err);
-    };
-    registry_mutex.unlock();
-    stream_ptr.* = stream_handle;
-    addr_ptr.* = addr_handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_connect = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect;
 
-pub export fn sa_std_net_tcp_listener_local_addr(listener_handle: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(listener_handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .tcp_listener => |server| {
-            var addr = NetAddress{};
-            var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
-            lxGetsockname(server.fd, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
-            addr.len = addr_len;
-            var net_addr = NetAddrHandle.init(std.heap.page_allocator, addr) catch |err| return finishErr(err);
-            const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
-                net_addr.deinit();
-                return finishErr(err);
-            };
-            handle_ptr.* = handle;
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
-
-pub export fn sa_std_net_tcp_listener_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const posix_fd = @as(std.posix.fd_t, @intCast(fd));
-    if (!(socketIsInet(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsStream(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketAcceptConn(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    var addr = NetAddress{};
-    var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
-    lxGetsockname(posix_fd, addr.sockAddrMut(), &addr_len) catch |err| return finishErr(err);
-    addr.len = addr_len;
-    const server = TcpListener{ .fd = posix_fd, .addr = addr };
-    const handle = registerResource(.{ .tcp_listener = server }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_tcp_connect(host_ptr: ?[*]const u8, host_len: u64, port: u32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
-    const port16 = portFromU32(port) catch |err| return finishErr(err);
-    if (!policyAllows(.{ .net = .{ .host = host, .port = port16 } })) return finish(SA_STD_ERR_PERMISSION_DENIED);
-
-    const stream_fd = tcpConnectToHostFd(host, port16) catch |err| return finishErr(err);
-    errdefer lxClose(stream_fd);
-    const handle = registerResource(.{ .tcp_stream = stream_fd }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
-
-fn tcpConnectToHostFd(host: []const u8, port: u16) !std.posix.fd_t {
+pub fn tcpConnectToHostFd(host: []const u8, port: u16) !std.posix.fd_t {
     var list = try netGetAddressList(std.heap.page_allocator, host, port);
     defer list.deinit();
     var last: anyerror = error.HostLacksNetworkAddresses;
@@ -15320,7 +11333,7 @@ fn tcpConnectToHostFd(host: []const u8, port: u16) !std.posix.fd_t {
     return last;
 }
 
-fn connectUnixSocketFd(path: []const u8) !std.posix.fd_t {
+pub fn connectUnixSocketFd(path: []const u8) !std.posix.fd_t {
     const addr = try NetAddress.initUnix(path);
     const fd = try lxSocket(AFT.UNIX, SOCKT.STREAM | SOCKT.CLOEXEC, 0);
     errdefer lxClose(fd);
@@ -15328,68 +11341,17 @@ fn connectUnixSocketFd(path: []const u8) !std.posix.fd_t {
     return fd;
 }
 
-fn tcpConnectTimeoutMs(timeout_ns: u64) !i32 {
+pub fn tcpConnectTimeoutMs(timeout_ns: u64) !i32 {
     if (timeout_ns == 0) return error.InvalidArgument;
     const whole_ms = timeout_ns / std.time.ns_per_ms;
     const rounded_ms = whole_ms + @intFromBool(timeout_ns % std.time.ns_per_ms != 0);
     return std.math.cast(i32, rounded_ms) orelse error.InvalidArgument;
 }
 
-pub export fn sa_std_net_tcp_connect_timeout(host_ptr: ?[*]const u8, host_len: u64, port: u32, timeout_ns: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const timeout_ms = tcpConnectTimeoutMs(timeout_ns) catch |err| return finishErr(err);
-    const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
-    const port16 = portFromU32(port) catch |err| return finishErr(err);
-    const address = resolveFirstAddressFromParts(host, port16) catch |err| return finishErr(err);
-    const fd = lxSocket(address.storage.family, SOCKT.STREAM | SOCKT.NONBLOCK | SOCKT.CLOEXEC, IPPROTOT.TCP) catch |err| return finishErr(err);
-    errdefer lxClose(fd);
-    lxConnect(fd, address.sockAddr(), address.getOsSockLen()) catch |err| switch (err) {
-        error.WouldBlock, error.ConnectionPending => {
-            var poll_fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.OUT, .revents = 0 }};
-            const ready = std.posix.poll(&poll_fds, timeout_ms) catch |poll_err| return finishErr(poll_err);
-            if (ready == 0) return finishErr(error.ConnectionTimedOut);
-            lxGetsockoptError(fd) catch |socket_err| return finishErr(socket_err);
-        },
-        else => return finishErr(err),
-    };
-    const flags = lxFcntl(fd, std.posix.F.GETFL, 0) catch |err| return finishErr(err);
-    const blocking_flags = flags & ~(@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"));
-    _ = lxFcntl(fd, std.posix.F.SETFL, blocking_flags) catch |err| return finishErr(err);
-    handle_ptr.* = registerResource(.{ .tcp_stream = fd }) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_connect_timeout = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout;
 
-pub export fn sa_std_net_tcp_connect_timeout_addr(addr_handle: u64, timeout_ns: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const timeout_ms = tcpConnectTimeoutMs(timeout_ns) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    const address = blk: {
-        const resource = getResourceLocked(addr_handle) orelse {
-            registry_mutex.unlock();
-            return finish(SA_STD_ERR_INVALID_HANDLE);
-        };
-        break :blk switch (resource.*) {
-            .net_addr => |net_addr| net_addr.addr,
-            else => {
-                registry_mutex.unlock();
-                return finish(SA_STD_ERR_INVALID_HANDLE);
-            },
-        };
-    };
-    registry_mutex.unlock();
-    const stream_fd = tcpConnectAddressTimeout(address, timeout_ms) catch |err| return finishErr(err);
-    errdefer lxClose(stream_fd);
-    handle_ptr.* = registerResource(.{ .tcp_stream = stream_fd }) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
-fn tcpConnectAddressTimeout(address: NetAddress, timeout_ms: i32) !std.posix.fd_t {
+pub const sa_std_net_tcp_connect_timeout_addr = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout_addr;
+pub fn tcpConnectAddressTimeout(address: NetAddress, timeout_ms: i32) !std.posix.fd_t {
     if (comptime is_wasm) return error.Unsupported;
     const fd = try lxSocket(address.storage.family, SOCKT.STREAM | SOCKT.NONBLOCK | SOCKT.CLOEXEC, IPPROTOT.TCP);
     errdefer lxClose(fd);
@@ -15408,768 +11370,84 @@ fn tcpConnectAddressTimeout(address: NetAddress, timeout_ms: i32) !std.posix.fd_
     return fd;
 }
 
-pub export fn sa_std_net_tcp_connect_timeout_all(host_ptr: ?[*]const u8, host_len: u64, port: u32, timeout_ns: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const timeout_ms = tcpConnectTimeoutMs(timeout_ns) catch |err| return finishErr(err);
-    const host = pathBytes(host_ptr, host_len) catch |err| return finishErr(err);
-    const port16 = portFromU32(port) catch |err| return finishErr(err);
-    var list = netGetAddressList(std.heap.page_allocator, host, port16) catch |err| return finishErr(err);
-    defer list.deinit();
-    if (list.addrs.len == 0) return finishErr(error.HostLacksNetworkAddresses);
-    var last_connect_error: anyerror = error.ConnectionRefused;
-    for (list.addrs) |address| {
-        const stream_fd = tcpConnectAddressTimeout(address, timeout_ms) catch |err| {
-            last_connect_error = err;
-            continue;
-        };
-        handle_ptr.* = registerResource(.{ .tcp_stream = stream_fd }) catch |err| {
-            lxClose(stream_fd);
-            return finishErr(err);
-        };
-        return finish(SA_STD_OK);
-    }
-    return finishErr(last_connect_error);
-}
+pub const sa_std_net_tcp_connect_timeout_all = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout_all;
 
-pub export fn sa_std_net_tcp_stream_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const posix_fd = @as(std.posix.fd_t, @intCast(fd));
-    if (!(socketIsInet(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsStream(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (socketAcceptConn(posix_fd) catch |err| return finishErr(err)) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const handle = registerResource(.{ .tcp_stream = posix_fd }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_tcp_stream_from_raw_fd = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_from_raw_fd;
 
 // Unix domain socket support. Streams and listeners reuse the existing
 // tcp_stream / tcp_listener resource kinds so read/write/peek/shutdown/close
 // and accept all flow through the same sa_std_net_tcp_* paths.
-pub export fn sa_std_net_unix_listen(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+pub const sa_std_net_unix_listen = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listen;
 
-    var address = NetAddress.initUnix(path) catch |err| return finishErr(err);
+pub const sa_std_net_unix_addr_from_abstract_name = @import("sa_std/std_net_unix.zig").sa_std_net_unix_addr_from_abstract_name;
 
-    // Remove any stale socket file so bind() does not fail with AddrInUse.
-    // Best-effort: a missing path is fine; other unlink errors surface at bind.
-    lxUnlink(path) catch |err| switch (err) {
-        error.FileNotFound => {},
-        else => {},
-    };
+pub const sa_std_net_unix_addr_from_pathname = @import("sa_std/std_net_unix.zig").sa_std_net_unix_addr_from_pathname;
 
-    const fd = lxSocket(AFT.UNIX, SOCKT.STREAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
-    errdefer lxClose(fd);
-    lxBind(fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
-    lxListen(fd, 128) catch |err| return finishErr(err);
+pub const sa_std_net_unix_listen_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listen_addr;
 
-    const server = TcpListener{ .fd = fd, .addr = address };
-    const handle = registerResource(.{ .tcp_listener = server }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_accept = @import("sa_std/std_net_unix.zig").sa_std_net_unix_accept;
 
-pub export fn sa_std_net_unix_addr_from_abstract_name(name_ptr: ?[*]const u8, name_len: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const name = constBytes(name_ptr, name_len) catch |err| return finishErr(err);
-    const tmp: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
-    if (name.len + 1 > tmp.path.len) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const bytes = std.heap.page_allocator.dupe(u8, name) catch |err| return finishErr(err);
-    const handle = registerResource(.{ .unix_addr = .{ .allocator = std.heap.page_allocator, .kind = SA_NET_UNIX_ADDR_ABSTRACT, .bytes = bytes } }) catch |err| {
-        std.heap.page_allocator.free(bytes);
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_accept_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_accept_addr;
 
-pub export fn sa_std_net_unix_addr_from_pathname(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    _ = NetAddress.initUnix(path) catch |err| return finishErr(err);
-    const bytes = std.heap.page_allocator.dupe(u8, path) catch |err| return finishErr(err);
-    const handle = registerResource(.{ .unix_addr = .{ .allocator = std.heap.page_allocator, .kind = SA_NET_UNIX_ADDR_PATHNAME, .bytes = bytes } }) catch |err| {
-        std.heap.page_allocator.free(bytes);
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_pair = @import("sa_std/std_net_unix.zig").sa_std_net_unix_pair;
 
-pub export fn sa_std_net_unix_listen_addr(addr_handle: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
+pub const sa_std_net_unix_listener_local_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_local_addr;
 
-    const fd = lxSocket(AFT.UNIX, SOCKT.STREAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
-    errdefer lxClose(fd);
-    lxBind(fd, @as(*const SockAddrT, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
-    lxListen(fd, 128) catch |err| return finishErr(err);
+pub const sa_std_net_unix_listener_try_clone = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_try_clone;
 
-    const server = TcpListener{ .fd = fd, .addr = NetAddress.fromUnixSockaddr(sockaddr.addr, sockaddr.len) };
-    const handle = registerResource(.{ .tcp_listener = server }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_listener_from_raw_fd = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_from_raw_fd;
 
-pub export fn sa_std_net_unix_accept(listener: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return sa_std_net_tcp_accept(listener, out_handle);
-}
+pub const sa_std_net_unix_stream_local_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_local_addr;
 
-pub export fn sa_std_net_unix_accept_addr(listener: u64, out_stream: ?*u64, out_addr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const stream_ptr = out_stream orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    stream_ptr.* = 0;
-    addr_ptr.* = 0;
+pub const sa_std_net_unix_stream_try_clone = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_try_clone;
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    const resource = getResourceLocked(listener) orelse {
-        registry_mutex.unlock();
-        return finish(SA_STD_ERR_INVALID_HANDLE);
-    };
-    const fd = switch (resource.*) {
-        .tcp_listener => |server| server.fd,
-        else => {
-            registry_mutex.unlock();
-            return finish(SA_STD_ERR_INVALID_HANDLE);
-        },
-    };
-    if (!(socketIsUnix(fd) catch |err| {
-        registry_mutex.unlock();
-        return finishErr(err);
-    })) {
-        registry_mutex.unlock();
-        return finish(SA_STD_ERR_INVALID_HANDLE);
-    }
-    registry_mutex.unlock();
+pub const sa_std_net_unix_stream_from_raw_fd = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_from_raw_fd;
 
-    var accepted_addr: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
-    @memset(&accepted_addr.path, 0);
-    var addr_len: SockLenT = @sizeOf(SockAddrUnT);
-    const accepted_fd = lxAccept(fd, @as(*SockAddrT, @ptrCast(&accepted_addr)), &addr_len, SOCKT.CLOEXEC) catch |err| return finishErr(err);
+pub const sa_std_net_unix_stream_peer_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_peer_addr;
 
-    var unix_addr = unixAddrFromSockaddr(std.heap.page_allocator, accepted_addr, addr_len) catch |err| {
-        lxClose(accepted_fd);
-        return finishErr(err);
-    };
+pub const sa_std_net_unix_stream_set_passcred = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_set_passcred;
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const stream_handle = registerResourceLocked(.{ .tcp_stream = accepted_fd }) catch |err| {
-        unix_addr.deinit();
-        lxClose(accepted_fd);
-        return finishErr(err);
-    };
-    const addr_handle = registerResourceLocked(.{ .unix_addr = unix_addr }) catch |err| {
-        if (takeResourceLocked(stream_handle)) |taken| {
-            var mutable = taken;
-            mutable.close() catch {};
-        }
-        unix_addr.deinit();
-        return finishErr(err);
-    };
-    stream_ptr.* = stream_handle;
-    addr_ptr.* = addr_handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_stream_passcred = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_passcred;
 
-pub export fn sa_std_net_unix_pair(out_left: ?*u64, out_right: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const left_ptr = out_left orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const right_ptr = out_right orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    left_ptr.* = 0;
-    right_ptr.* = 0;
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
+pub const sa_std_net_unix_stream_set_mark = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_set_mark;
 
-    var fds: [2]i32 = undefined;
-    const socket_type = @as(i32, @intCast(SOCKT.STREAM | SOCKT.CLOEXEC));
-    if (comptime is_linux) {
-        const rc = std.os.linux.socketpair(AFT.UNIX, socket_type, 0, &fds);
-        switch (std.os.linux.errno(rc)) {
-            .SUCCESS => {},
-            .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-            .MFILE, .NFILE, .NOMEM => return finish(SA_STD_ERR_NO_MEMORY),
-            .ACCES, .PERM => return finish(SA_STD_ERR_ACCESS),
-            else => return finish(SA_STD_ERR_IO),
-        }
-    } else {
-        var cfds: [2]c_int = undefined;
-        const rc = libc.socketpair(@intCast(AFT.UNIX), socket_type, 0, &cfds);
-        switch (std.posix.errno(rc)) {
-            .SUCCESS => {},
-            .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-            .MFILE, .NFILE, .NOMEM => return finish(SA_STD_ERR_NO_MEMORY),
-            .ACCES, .PERM => return finish(SA_STD_ERR_ACCESS),
-            else => return finish(SA_STD_ERR_IO),
-        }
-        _ = libc.fcntl(cfds[0], std.c.F.SETFD, @as(c_int, 1));
-        _ = libc.fcntl(cfds[1], std.c.F.SETFD, @as(c_int, 1));
-        fds = .{ cfds[0], cfds[1] };
-    }
+pub const sa_std_net_unix_stream_peer_cred = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_peer_cred;
 
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    var owns_left_fd = true;
-    var owns_right_fd = true;
-    errdefer {
-        if (owns_left_fd) lxClose(fds[0]);
-        if (owns_right_fd) lxClose(fds[1]);
-    }
+pub const sa_std_net_unix_datagram_peer_cred = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peer_cred;
 
-    const left_handle = registerResourceLocked(.{ .tcp_stream = fds[0] }) catch |err| return finishErr(err);
-    owns_left_fd = false;
-    errdefer {
-        if (takeResourceLocked(left_handle)) |taken| {
-            var mutable = taken;
-            mutable.close() catch {};
-        }
-    }
-    const right_handle = registerResourceLocked(.{ .tcp_stream = fds[1] }) catch |err| return finishErr(err);
-    owns_right_fd = false;
-    left_ptr.* = left_handle;
-    right_ptr.* = right_handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_datagram_unbound = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_unbound;
 
-pub export fn sa_std_net_unix_listener_local_addr(listener: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .tcp_listener => |server| {
-            if (!(socketIsUnix(server.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-            const got = getUnixSockAddr(server.fd, false) catch |err| return finishErr(err);
-            return registerUnixAddrOutLocked(got.addr, got.len, handle_ptr);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_net_unix_datagram_bind = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_bind;
 
-pub export fn sa_std_net_unix_listener_try_clone(listener: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(listener) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    var listen_address: NetAddress = undefined;
-    const fd = switch (resource.*) {
-        .tcp_listener => |server| blk: {
-            listen_address = server.addr;
-            break :blk server.fd;
-        },
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-    if (!(socketIsUnix(fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const dup_fd = lxDup(fd) catch |err| return finishErr(err);
-    const cloned = TcpListener{ .fd = dup_fd, .addr = listen_address };
-    const handle = registerResourceLocked(.{ .tcp_listener = cloned }) catch |err| {
-        lxClose(dup_fd);
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_datagram_bind_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_bind_addr;
 
-pub export fn sa_std_net_unix_listener_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const posix_fd = @as(std.posix.fd_t, @intCast(fd));
-    if (!(socketIsUnix(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsStream(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketAcceptConn(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const got = getUnixSockAddr(posix_fd, false) catch |err| return finishErr(err);
-    const server = TcpListener{ .fd = posix_fd, .addr = NetAddress.fromUnixSockaddr(got.addr, got.len) };
-    const handle = registerResource(.{ .tcp_listener = server }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_datagram_pair = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_pair;
 
-pub export fn sa_std_net_unix_stream_local_addr(stream: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .tcp_stream => |s| {
-            if (!(socketIsUnix(s) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-            const got = getUnixSockAddr(s, false) catch |err| return finishErr(err);
-            return registerUnixAddrOutLocked(got.addr, got.len, handle_ptr);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_net_unix_datagram_connect = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_connect;
 
-pub export fn sa_std_net_unix_stream_try_clone(stream: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .tcp_stream => |s| s,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-    if (!(socketIsUnix(fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const dup_fd = lxDup(fd) catch |err| return finishErr(err);
-    const handle = registerResourceLocked(.{ .tcp_stream = dup_fd }) catch |err| {
-        lxClose(dup_fd);
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_datagram_connect_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_connect_addr;
 
-pub export fn sa_std_net_unix_stream_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const posix_fd = @as(std.posix.fd_t, @intCast(fd));
-    if (!(socketIsUnix(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsStream(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (socketAcceptConn(posix_fd) catch |err| return finishErr(err)) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const handle = registerResource(.{ .tcp_stream = posix_fd }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_datagram_try_clone = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_try_clone;
 
-pub export fn sa_std_net_unix_stream_peer_addr(stream: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(stream) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .tcp_stream => |s| {
-            if (!(socketIsUnix(s) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-            const got = getUnixSockAddr(s, true) catch |err| return finishErr(err);
-            return registerUnixAddrOutLocked(got.addr, got.len, handle_ptr);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_net_unix_datagram_from_raw_fd = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_from_raw_fd;
 
-pub export fn sa_std_net_unix_stream_set_passcred(stream: u64, enabled: i32) i32 {
-    if (comptime !is_linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptBool(handle.fd, SOLT.SOCKET, SO_PASSCRED, enabled != 0) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_datagram_local_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_local_addr;
 
-pub export fn sa_std_net_unix_stream_passcred(stream: u64, out_enabled: ?*i32) i32 {
-    if (comptime !is_linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if (getSocketOptBool(handle.fd, SOLT.SOCKET, SO_PASSCRED) catch |err| return finishErr(err)) 1 else 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_datagram_peer_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peer_addr;
 
-pub export fn sa_std_net_unix_stream_set_mark(stream: u64, mark: u32) i32 {
-    if (comptime !is_linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptU32(handle.fd, SOLT.SOCKET, SO_MARK, mark) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_datagram_set_passcred = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_set_passcred;
 
-pub export fn sa_std_net_unix_stream_peer_cred(stream: u64, out_pid: ?*i32, out_uid: ?*u32, out_gid: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const pid_ptr = out_pid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const uid_ptr = out_uid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const gid_ptr = out_gid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    pid_ptr.* = 0;
-    uid_ptr.* = 0;
-    gid_ptr.* = 0;
-    const handle = ensureSocketHandle(stream) catch |err| return finishErr(err);
-    if (handle.kind != .tcp_stream) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const cred = getUnixPeerCred(handle.fd) catch |err| return finishErr(err);
-    pid_ptr.* = cred.pid;
-    uid_ptr.* = cred.uid;
-    gid_ptr.* = cred.gid;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_datagram_passcred = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_passcred;
 
-pub export fn sa_std_net_unix_datagram_peer_cred(socket: u64, out_pid: ?*i32, out_uid: ?*u32, out_gid: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const pid_ptr = out_pid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const uid_ptr = out_uid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const gid_ptr = out_gid orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    pid_ptr.* = 0;
-    uid_ptr.* = 0;
-    gid_ptr.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const cred = getUnixPeerCred(handle.fd) catch |err| return finishErr(err);
-    if (cred.pid != 0) {
-        pid_ptr.* = cred.pid;
-        uid_ptr.* = cred.uid;
-        gid_ptr.* = cred.gid;
-        return finish(SA_STD_OK);
-    }
-    // SO_PEERCRED answers only the zero sentinel for path-bound
-    // datagram sockets (see the harvest note at getUnixPeerCred).
-    // Fall back to the credential harvested from SCM_CREDENTIALS
-    // when this socket has received a datagram from its peer.
-    lockRegistry();
-    const harvested = harvestedPeerCredLocked(socket, handle.fd);
-    registry_mutex.unlock();
-    if (harvested) |hc| {
-        pid_ptr.* = hc.pid;
-        uid_ptr.* = hc.uid;
-        gid_ptr.* = hc.gid;
-        return finish(SA_STD_OK);
-    }
-    // A connected socket whose peer never sent us anything has no
-    // truthful credential source: report NOT_FOUND loudly instead
-    // of dressing the zero sentinel up as an answer. An
-    // unconnected socket keeps the documented zero sentinel
-    // (pid 0) with OK.
-    var peer_addr = NetAddress{};
-    var peer_len: SockLenT = @sizeOf(SockAddrStorageT);
-    lxGetpeername(handle.fd, peer_addr.sockAddrMut(), &peer_len) catch {
-        return finish(SA_STD_OK);
-    };
-    return finish(SA_STD_ERR_NOT_FOUND);
-}
+pub const sa_std_net_unix_datagram_set_mark = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_set_mark;
 
-pub export fn sa_std_net_unix_datagram_unbound(out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    const fd = lxSocket(AFT.UNIX, SOCKT.DGRAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
-    errdefer lxClose(fd);
-    armPeerCredHarvest(fd);
-    const handle = registerResource(.{ .udp_socket = fd }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_datagram_shutdown = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_shutdown;
 
-pub export fn sa_std_net_unix_datagram_bind(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    var address = NetAddress.initUnix(path) catch |err| return finishErr(err);
+pub const sa_std_net_unix_datagram_send_to = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_send_to;
 
-    lxUnlink(path) catch |err| switch (err) {
-        error.FileNotFound => {},
-        else => {},
-    };
+pub const sa_std_net_unix_datagram_send_to_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_send_to_addr;
 
-    const fd = lxSocket(AFT.UNIX, SOCKT.DGRAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
-    errdefer lxClose(fd);
-    lxBind(fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
-    armPeerCredHarvest(fd);
-    const handle = registerResource(.{ .udp_socket = fd }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_datagram_bind_addr(addr_handle: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
-    const fd = lxSocket(AFT.UNIX, SOCKT.DGRAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
-    errdefer lxClose(fd);
-    lxBind(fd, @as(*const SockAddrT, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
-    armPeerCredHarvest(fd);
-    const handle = registerResource(.{ .udp_socket = fd }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_datagram_pair(out_left: ?*u64, out_right: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const left_ptr = out_left orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const right_ptr = out_right orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    left_ptr.* = 0;
-    right_ptr.* = 0;
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-
-    var fds: [2]i32 = undefined;
-    const socket_type = @as(i32, @intCast(SOCKT.DGRAM | SOCKT.CLOEXEC));
-    if (comptime is_linux) {
-        const rc = std.os.linux.socketpair(AFT.UNIX, socket_type, 0, &fds);
-        switch (std.os.linux.errno(rc)) {
-            .SUCCESS => {},
-            .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-            .MFILE, .NFILE, .NOMEM => return finish(SA_STD_ERR_NO_MEMORY),
-            .ACCES, .PERM => return finish(SA_STD_ERR_ACCESS),
-            else => return finish(SA_STD_ERR_IO),
-        }
-    } else {
-        var cfds: [2]c_int = undefined;
-        const rc = libc.socketpair(@intCast(AFT.UNIX), socket_type, 0, &cfds);
-        switch (std.posix.errno(rc)) {
-            .SUCCESS => {},
-            .INVAL => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-            .MFILE, .NFILE, .NOMEM => return finish(SA_STD_ERR_NO_MEMORY),
-            .ACCES, .PERM => return finish(SA_STD_ERR_ACCESS),
-            else => return finish(SA_STD_ERR_IO),
-        }
-        _ = libc.fcntl(cfds[0], std.c.F.SETFD, @as(c_int, 1));
-        _ = libc.fcntl(cfds[1], std.c.F.SETFD, @as(c_int, 1));
-        fds = .{ cfds[0], cfds[1] };
-    }
-
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    var owns_left_fd = true;
-    var owns_right_fd = true;
-    errdefer {
-        if (owns_left_fd) lxClose(fds[0]);
-        if (owns_right_fd) lxClose(fds[1]);
-    }
-
-    armPeerCredHarvest(fds[0]);
-    armPeerCredHarvest(fds[1]);
-    const left_handle = registerResourceLocked(.{ .udp_socket = fds[0] }) catch |err| return finishErr(err);
-    owns_left_fd = false;
-    errdefer {
-        if (takeResourceLocked(left_handle)) |taken| {
-            var mutable = taken;
-            mutable.close() catch {};
-        }
-    }
-    const right_handle = registerResourceLocked(.{ .udp_socket = fds[1] }) catch |err| return finishErr(err);
-    owns_right_fd = false;
-    left_ptr.* = left_handle;
-    right_ptr.* = right_handle;
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_datagram_connect(socket: u64, path_ptr: ?[*]const u8, path_len: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    var address = NetAddress.initUnix(path) catch |err| return finishErr(err);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    lxConnect(handle.fd, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
-    armPeerCredHarvest(handle.fd);
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_datagram_connect_addr(socket: u64, addr_handle: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    lxConnect(handle.fd, @as(*const SockAddrT, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
-    armPeerCredHarvest(handle.fd);
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_datagram_try_clone(socket: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const fd = switch (resource.*) {
-        .udp_socket => |fd| fd,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-    if (!(socketIsUnix(fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsDatagram(fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const dup_fd = lxDup(fd) catch |err| return finishErr(err);
-    const handle = registerResourceLocked(.{ .udp_socket = dup_fd }) catch |err| {
-        lxClose(dup_fd);
-        return finishErr(err);
-    };
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_datagram_from_raw_fd(fd: i32, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const posix_fd = @as(std.posix.fd_t, @intCast(fd));
-    if (!(socketIsUnix(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsDatagram(posix_fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const handle = registerResource(.{ .udp_socket = posix_fd }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_datagram_local_addr(socket: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .udp_socket => |fd| {
-            if (!(socketIsUnix(fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-            const got = getUnixSockAddr(fd, false) catch |err| return finishErr(err);
-            return registerUnixAddrOutLocked(got.addr, got.len, handle_ptr);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
-
-pub export fn sa_std_net_unix_datagram_peer_addr(socket: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(socket) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .udp_socket => |fd| {
-            if (!(socketIsUnix(fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-            const got = getUnixSockAddr(fd, true) catch |err| return finishErr(err);
-            return registerUnixAddrOutLocked(got.addr, got.len, handle_ptr);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
-
-pub export fn sa_std_net_unix_datagram_set_passcred(socket: u64, enabled: i32) i32 {
-    if (comptime !is_linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptBool(handle.fd, SOLT.SOCKET, SO_PASSCRED, enabled != 0) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_datagram_passcred(socket: u64, out_enabled: ?*i32) i32 {
-    if (comptime !is_linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const out = out_enabled orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    out.* = if (getSocketOptBool(handle.fd, SOLT.SOCKET, SO_PASSCRED) catch |err| return finishErr(err)) 1 else 0;
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_datagram_set_mark(socket: u64, mark: u32) i32 {
-    if (comptime !is_linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    setSocketOptU32(handle.fd, SOLT.SOCKET, SO_MARK, mark) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_datagram_shutdown(socket: u64, how: u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const shutdown: i32 = switch (how) {
-        0 => std.posix.SHUT.RD,
-        1 => std.posix.SHUT.WR,
-        2 => std.posix.SHUT.RDWR,
-        else => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-    };
-    lxShutdown(handle.fd, shutdown) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_datagram_send_to(socket: u64, buf: ?[*]const u8, len: u64, path_ptr: ?[*]const u8, path_len: u64, out_written: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    written_ptr.* = 0;
-    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    var address = NetAddress.initUnix(path) catch |err| return finishErr(err);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const written = lxSendto(handle.fd, bytes, 0, address.sockAddr(), address.getOsSockLen()) catch |err| return finishErr(err);
-    written_ptr.* = @as(u64, @intCast(written));
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_datagram_send_to_addr(socket: u64, buf: ?[*]const u8, len: u64, addr_handle: u64, out_written: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const written_ptr = out_written orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    written_ptr.* = 0;
-    const bytes = constBytes(buf, len) catch |err| return finishErr(err);
-    const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    const written = lxSendto(handle.fd, bytes, 0, @as(*const SockAddrT, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
-    written_ptr.* = @as(u64, @intCast(written));
-    return finish(SA_STD_OK);
-}
-
-fn unixDatagramRecvFrom(socket: u64, out: ?[*]u8, cap: u64, flags: u32, out_read: ?*u64, out_addr: ?*u64) i32 {
+pub fn unixDatagramRecvFrom(socket: u64, out: ?[*]u8, cap: u64, flags: u32, out_read: ?*u64, out_addr: ?*u64) i32 {
     const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     read_ptr.* = 0;
@@ -16217,43 +11495,13 @@ fn unixDatagramRecvFrom(socket: u64, out: ?[*]u8, cap: u64, flags: u32, out_read
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_net_unix_datagram_recv_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return unixDatagramRecvFrom(socket, out, cap, 0, out_read, out_addr);
-}
+pub const sa_std_net_unix_datagram_recv_from = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_recv_from;
 
-pub export fn sa_std_net_unix_datagram_peek_from(socket: u64, out: ?[*]u8, cap: u64, out_read: ?*u64, out_addr: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    return unixDatagramRecvFrom(socket, out, cap, msg_peek, out_read, out_addr);
-}
+pub const sa_std_net_unix_datagram_peek_from = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peek_from;
 
-pub export fn sa_std_net_unix_connect(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
+pub const sa_std_net_unix_connect = @import("sa_std/std_net_unix.zig").sa_std_net_unix_connect;
 
-    const stream_fd = connectUnixSocketFd(path) catch |err| return finishErr(err);
-    errdefer lxClose(stream_fd);
-    const handle = registerResource(.{ .tcp_stream = stream_fd }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_std_net_unix_connect_addr(addr_handle: u64, out_handle: ?*u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    const sockaddr = unixSockAddrFromHandle(addr_handle) catch |err| return finishErr(err);
-
-    const fd = lxSocket(AFT.UNIX, SOCKT.STREAM | SOCKT.CLOEXEC, 0) catch |err| return finishErr(err);
-    errdefer lxClose(fd);
-    lxConnect(fd, @as(*const SockAddrT, @ptrCast(&sockaddr.addr)), sockaddr.len) catch |err| return finishErr(err);
-
-    const handle = registerResource(.{ .tcp_stream = fd }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_unix_connect_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_connect_addr;
 
 pub const sa_net_unix_addr_kind = @import("sa_std/net.zig").sa_net_unix_addr_kind;
 
@@ -16278,7 +11526,7 @@ pub const sa_net_unix_addr_free = @import("sa_std/net.zig").sa_net_unix_addr_fre
 // so these are exposed here. They are pure functions over caller-provided bytes
 // — no sockets, no allocation beyond the caller's output buffer.
 
-fn writeHexLower(dst: []u8, bytes: []const u8) void {
+pub fn writeHexLower(dst: []u8, bytes: []const u8) void {
     const hex = "0123456789abcdef";
     var i: usize = 0;
     while (i < bytes.len) : (i += 1) {
@@ -16289,51 +11537,17 @@ fn writeHexLower(dst: []u8, bytes: []const u8) void {
 
 // md5 of the input, written as 32 lowercase hex chars into out (cap must be >= 32).
 // This is exactly the JA3 hash given a pre-built JA3 string.
-pub export fn sa_std_net_ja3_hash(input_ptr: ?[*]const u8, input_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    len_slot.* = 0;
-    if (out_cap < 32) return finish(SA_STD_ERR_TRUNCATED);
-    const input = constBytes(input_ptr, input_len) catch |err| return finishErr(err);
-    const out = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var digest: [16]u8 = undefined;
-    std.crypto.hash.Md5.hash(input, &digest, .{});
-    writeHexLower(out[0..32], digest[0..]);
-    len_slot.* = 32;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_ja3_hash = @import("sa_std/std_net.zig").sa_std_net_ja3_hash;
 
 // sha256 of the input, written as 64 lowercase hex chars into out (cap must be >= 64).
-pub export fn sa_std_net_sha256_hex(input_ptr: ?[*]const u8, input_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    len_slot.* = 0;
-    if (out_cap < 64) return finish(SA_STD_ERR_TRUNCATED);
-    const input = constBytes(input_ptr, input_len) catch |err| return finishErr(err);
-    const out = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var digest: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(input, &digest, .{});
-    writeHexLower(out[0..64], digest[0..]);
-    len_slot.* = 64;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_sha256_hex = @import("sa_std/std_net.zig").sa_std_net_sha256_hex;
 
 // JA4 truncated hash: first 12 lowercase hex chars of sha256(input). JA4's `b`
 // (cipher) and `c` (extension+sigalg) segments are defined as sha256 truncated
 // to 12 hex chars. An all-zero / empty input segment conventionally maps to the
 // literal "000000000000", which the caller can special-case; this returns the
 // real truncated digest.
-pub export fn sa_std_net_ja4_hash12(input_ptr: ?[*]const u8, input_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    len_slot.* = 0;
-    if (out_cap < 12) return finish(SA_STD_ERR_TRUNCATED);
-    const input = constBytes(input_ptr, input_len) catch |err| return finishErr(err);
-    const out = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var digest: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(input, &digest, .{});
-    // 12 hex chars = 6 bytes of digest.
-    writeHexLower(out[0..12], digest[0..6]);
-    len_slot.* = 12;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_net_ja4_hash12 = @import("sa_std/std_net.zig").sa_std_net_ja4_hash12;
 
 // HMAC-SHA-256 (RFC 2104, vectors in RFC 4231) of msg under key, written
 // as 64 lowercase hex chars into out (cap must be >= 64). Same status
@@ -16379,820 +11593,38 @@ pub export fn sa_crypto_random_bytes(out_ptr: ?[*]u8, len: u64) i32 {
     return finish(SA_STD_OK);
 }
 
-fn expectTimeoutRoundedUpWithin(requested_ns: u64, observed_ns: u64) !void {
+pub fn expectTimeoutRoundedUpWithin(requested_ns: u64, observed_ns: u64) !void {
     try std.testing.expect(observed_ns >= requested_ns);
     try std.testing.expect(observed_ns - requested_ns <= 10 * std.time.ns_per_ms);
 }
 
-test "ja3 hash matches reference md5 vector" {
-    // Reference JA3 string and its canonical md5 (ja3er / Salesforce reference).
-    const ja3 = "769,47-53-5-10-49161-49162-49171-49172-50-56-19-4,0-10-11,23-24-25,0";
-    var out: [64]u8 = undefined;
-    var out_len: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_ja3_hash(ja3.ptr, ja3.len, &out, out.len, &out_len));
-    try std.testing.expectEqual(@as(u64, 32), out_len);
-    try std.testing.expectEqualStrings("ada70206e40642a3e4461f35503241d5", out[0..32]);
-}
 
-test "sha256 hex and ja4 truncation match" {
-    // sha256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-    var out: [64]u8 = undefined;
-    var out_len: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_sha256_hex("", 0, &out, out.len, &out_len));
-    try std.testing.expectEqual(@as(u64, 64), out_len);
-    try std.testing.expectEqualStrings("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", out[0..64]);
 
-    // JA4 12-char truncation is the first 12 hex chars of the same digest.
-    var out12: [12]u8 = undefined;
-    var len12: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_ja4_hash12("", 0, &out12, out12.len, &len12));
-    try std.testing.expectEqual(@as(u64, 12), len12);
-    try std.testing.expectEqualStrings("e3b0c4429 8fc"[0..0] ++ "e3b0c44298fc", out12[0..12]);
-}
 
-test "ja3/ja4 reject too-small output buffers" {
-    var small: [8]u8 = undefined;
-    var n: u64 = 0;
-    try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_std_net_ja3_hash("x", 1, &small, small.len, &n));
-    try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_std_net_sha256_hex("x", 1, &small, small.len, &n));
-    try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_std_net_ja4_hash12("x", 1, &small, small.len, &n));
-}
 
-test "hmac sha256 matches RFC 4231 vectors" {
-    var out: [64]u8 = undefined;
-    var out_len: u64 = 0;
 
-    // Test Case 1: key = 0x0b x 20, data = "Hi There".
-    const key1: [20]u8 = @splat(0x0b);
-    const data1 = "Hi There";
-    try std.testing.expectEqual(SA_STD_OK, sa_hmac_sha256_hex(&key1, key1.len, data1.ptr, data1.len, &out, out.len, &out_len));
-    try std.testing.expectEqual(@as(u64, 64), out_len);
-    try std.testing.expectEqualStrings("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7", out[0..64]);
 
-    // Test Case 2: key = "Jefe", data = "what do ya want for nothing?".
-    const key2 = "Jefe";
-    const data2 = "what do ya want for nothing?";
-    try std.testing.expectEqual(SA_STD_OK, sa_hmac_sha256_hex(key2.ptr, key2.len, data2.ptr, data2.len, &out, out.len, &out_len));
-    try std.testing.expectEqualStrings("5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843", out[0..64]);
 
-    // Test Case 6: key = 0xaa x 131 (longer than the 64-byte block size,
-    // so the key itself is hashed first).
-    const key6: [131]u8 = @splat(0xaa);
-    const data6 = "Test Using Larger Than Block-Size Key - Hash Key First";
-    try std.testing.expectEqual(SA_STD_OK, sa_hmac_sha256_hex(&key6, key6.len, data6.ptr, data6.len, &out, out.len, &out_len));
-    try std.testing.expectEqualStrings("60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54", out[0..64]);
-}
 
-test "hmac sha1 matches RFC 2202 vectors" {
-    var out: [40]u8 = undefined;
-    var out_len: u64 = 0;
 
-    // Case 1: key = 0x0b x 20, data = "Hi There".
-    const key1: [20]u8 = @splat(0x0b);
-    const data1 = "Hi There";
-    try std.testing.expectEqual(SA_STD_OK, sa_hmac_sha1_hex(&key1, key1.len, data1.ptr, data1.len, &out, out.len, &out_len));
-    try std.testing.expectEqual(@as(u64, 40), out_len);
-    try std.testing.expectEqualStrings("b617318655057264e28bc0b6fb378c8ef146be00", out[0..40]);
 
-    // Case 2: key = "Jefe", data = "what do ya want for nothing?".
-    const key2 = "Jefe";
-    const data2 = "what do ya want for nothing?";
-    try std.testing.expectEqual(SA_STD_OK, sa_hmac_sha1_hex(key2.ptr, key2.len, data2.ptr, data2.len, &out, out.len, &out_len));
-    try std.testing.expectEqualStrings("effcdf6ae5eb2fa2d27416d5f184df9c259a7c79", out[0..40]);
 
-    // Case 6: key = 0xaa x 80 (longer than the 64-byte block size).
-    const key6: [80]u8 = @splat(0xaa);
-    const data6 = "Test Using Larger Than Block-Size Key - Hash Key First";
-    try std.testing.expectEqual(SA_STD_OK, sa_hmac_sha1_hex(&key6, key6.len, data6.ptr, data6.len, &out, out.len, &out_len));
-    try std.testing.expectEqualStrings("aa4ae5e15272d00e95705637ce8a3b55ed402112", out[0..40]);
-}
 
-test "hmac hex rejects too-small output buffers" {
-    var small: [16]u8 = undefined;
-    var n: u64 = 0;
-    try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_hmac_sha256_hex("k", 1, "x", 1, &small, small.len, &n));
-    try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_hmac_sha1_hex("k", 1, "x", 1, &small, small.len, &n));
-}
 
-test "crypto random bytes fills the caller buffer" {
-    var a: [32]u8 = undefined;
-    var b: [32]u8 = undefined;
-    try std.testing.expectEqual(SA_STD_OK, sa_crypto_random_bytes(&a, a.len));
-    try std.testing.expectEqual(SA_STD_OK, sa_crypto_random_bytes(&b, b.len));
-    // Two independent 32-byte draws colliding has probability 2^-256.
-    try std.testing.expect(!std.mem.eql(u8, &a, &b));
-    try std.testing.expectEqual(SA_STD_OK, sa_crypto_random_bytes(null, 0));
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_crypto_random_bytes(null, 4));
-}
 
-test "deno random uuid returns well-formed v4 text" {
-    const h1 = sa_deno_random_uuid();
-    try std.testing.expect(h1 != 0);
-    defer _ = sa_fmt_buffer_free(h1);
-    const data = sa_fmt_buffer_data(h1) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(@as(u64, 36), sa_fmt_buffer_len(h1));
-    const text = data[0..36];
-    // RFC 4122 layout: 8-4-4-4-12 lowercase hex, version 4, variant 10xx.
-    try std.testing.expect(text[8] == '-' and text[13] == '-' and text[18] == '-' and text[23] == '-');
-    try std.testing.expect(text[14] == '4');
-    try std.testing.expect(text[19] == '8' or text[19] == '9' or text[19] == 'a' or text[19] == 'b');
-    for (text, 0..) |c, i| {
-        if (i == 8 or i == 13 or i == 18 or i == 23) continue;
-        try std.testing.expect((c >= '0' and c <= '9') or (c >= 'a' and c <= 'f'));
-    }
-    const h2 = sa_deno_random_uuid();
-    try std.testing.expect(h2 != 0);
-    defer _ = sa_fmt_buffer_free(h2);
-    const data2 = sa_fmt_buffer_data(h2) orelse return error.TestUnexpectedResult;
-    try std.testing.expect(!std.mem.eql(u8, text, data2[0..36]));
-}
 
-test "socket helper round trip on raw udp socket" {
-    const fd = try lxSocket(AFT.INET, SOCKT.DGRAM | SOCKT.CLOEXEC, IPPROTOT.UDP);
-    defer lxClose(fd);
 
-    try setSocketOptBool(fd, SOLT.SOCKET, SOT.BROADCAST, true);
-    try std.testing.expect(try getSocketOptBool(fd, SOLT.SOCKET, SOT.BROADCAST));
-    try setSocketOptBool(fd, SOLT.SOCKET, SOT.BROADCAST, false);
-    try std.testing.expect(!(try getSocketOptBool(fd, SOLT.SOCKET, SOT.BROADCAST)));
 
-    try setSocketOptInt(fd, IPPROTOT.IP, std.posix.IP.TTL, 64);
-    try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(fd, IPPROTOT.IP, std.posix.IP.TTL));
 
-    const timeout_ns: u64 = 1_234_567_890;
-    try setSocketOptTimeval(fd, SOLT.SOCKET, SOT.RCVTIMEO, timeout_ns);
-    try expectTimeoutRoundedUpWithin(timeout_ns, try getSocketOptTimeval(fd, SOLT.SOCKET, SOT.RCVTIMEO));
 
-    const tv = try timevalFromNs(timeout_ns);
-    try std.testing.expectEqual(@as(u64, 1_234_567_000), try nsFromTimeval(tv));
-}
 
-test "generic sockopt passthrough updates live udp handle" {
-    const host = "127.0.0.1";
-    var handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &handle));
-    defer _ = sa_std_close(handle);
 
-    // SOL_SOCKET (1) / SO_BROADCAST (6) through the int convenience form.
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_setsockopt_int(handle, 1, 6, 1));
-    var value: i32 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_getsockopt_int(handle, 1, 6, &value));
-    try std.testing.expectEqual(@as(i32, 1), value);
 
-    // Byte form: SO_TYPE (3) reads back SOCK_DGRAM (2) as raw bytes.
-    var raw: [4]u8 = .{ 0, 0, 0, 0 };
-    var out_len: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_getsockopt(handle, 1, 3, &raw, raw.len, &out_len));
-    try std.testing.expectEqual(@as(u64, 4), out_len);
-    try std.testing.expectEqual(@as(i32, 2), std.mem.readInt(i32, &raw, .little));
 
-    // Byte-form write, cross-checked through the dedicated getter.
-    var on: [4]u8 = .{ 1, 0, 0, 0 };
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_setsockopt(handle, 1, 6, &on, on.len));
-    var dedicated: i32 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_broadcast(handle, &dedicated));
-    try std.testing.expectEqual(@as(i32, 1), dedicated);
 
-    // A bad level and a non-socket handle both fail loudly.
-    try std.testing.expect(sa_std_net_socket_setsockopt_int(handle, 9999, 6, 1) != SA_STD_OK);
-    try std.testing.expect(sa_std_net_socket_setsockopt_int(0, 1, 6, 1) != SA_STD_OK);
-}
 
-test "udp recv_msg reports pktinfo and timestamp" {
-    const host = "127.0.0.1";
-    var receiver: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &receiver));
-    defer _ = sa_std_close(receiver);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_read_timeout(receiver, 5_000_000_000));
-    var local_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_local_addr(receiver, &local_handle));
-    defer _ = sa_std_close(local_handle);
-    const port = sa_net_addr_port(local_handle);
-    try std.testing.expect(port != 0);
 
-    // IPPROTO_IP (0) / IP_PKTINFO (8) and SOL_SOCKET (1) / SO_TIMESTAMP (29),
-    // enabled through the new passthrough itself.
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_setsockopt_int(receiver, 0, 8, 1));
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_setsockopt_int(receiver, 1, 29, 1));
 
-    var sender: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &sender));
-    defer _ = sa_std_close(sender);
-    var sender_local: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_local_addr(sender, &sender_local));
-    defer _ = sa_std_close(sender_local);
-    const sender_port = sa_net_addr_port(sender_local);
 
-    var dest_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_to_socket_addr_first(host.ptr, host.len, port, &dest_handle));
-    defer _ = sa_std_close(dest_handle);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_connect_addr(sender, dest_handle));
-    const payload = "hello";
-    var written: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_send(sender, payload.ptr, payload.len, &written));
-    try std.testing.expectEqual(@as(u64, payload.len), written);
 
-    var buf: [64]u8 = undefined;
-    var read: u64 = 0;
-    var src_addr: u64 = 0;
-    var dest_addr: u64 = 0;
-    var ifindex: u32 = 0;
-    var ts_ns: u64 = 0;
-    var flags: u32 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_recv_msg(receiver, &buf, buf.len, &read, &src_addr, &dest_addr, &ifindex, &ts_ns, &flags));
-    defer _ = sa_std_close(src_addr);
-    defer _ = sa_std_close(dest_addr);
-    try std.testing.expectEqual(@as(u64, payload.len), read);
-    try std.testing.expectEqualStrings(payload, buf[0..read]);
-    try std.testing.expect((flags & recv_msg_flag_pktinfo) != 0);
-    try std.testing.expect((flags & recv_msg_flag_timestamp) != 0);
-    try std.testing.expect(ifindex != 0);
-    try std.testing.expect(ts_ns != 0);
-    try std.testing.expectEqual(sender_port, sa_net_addr_port(src_addr));
-    try std.testing.expectEqual(@as(u32, 2), sa_net_addr_family(dest_addr));
-    try std.testing.expectEqual(port, sa_net_addr_port(dest_addr));
-}
 
-test "udp recv_multi drains queued datagrams" {
-    const host = "127.0.0.1";
-    var receiver: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &receiver));
-    defer _ = sa_std_close(receiver);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_read_timeout(receiver, 5_000_000_000));
-    var local_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_local_addr(receiver, &local_handle));
-    defer _ = sa_std_close(local_handle);
-    const port = sa_net_addr_port(local_handle);
-
-    var sender: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &sender));
-    defer _ = sa_std_close(sender);
-    var sender_local: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_local_addr(sender, &sender_local));
-    defer _ = sa_std_close(sender_local);
-    const sender_port = sa_net_addr_port(sender_local);
-    var dest_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_to_socket_addr_first(host.ptr, host.len, port, &dest_handle));
-    defer _ = sa_std_close(dest_handle);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_connect_addr(sender, dest_handle));
-
-    const payloads = [3][]const u8{ "a", "bb", "ccc" };
-    for (payloads) |payload| {
-        var written: u64 = 0;
-        try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_send(sender, payload.ptr, payload.len, &written));
-        try std.testing.expectEqual(@as(u64, payload.len), written);
-    }
-
-    var buf: [128]u8 = undefined;
-    var lens: [8]u64 = undefined;
-    var addrs: [8]u64 = undefined;
-    var count: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_recv_multi(receiver, &buf, buf.len, 16, 8, &count, &lens, &addrs));
-    try std.testing.expectEqual(@as(u64, 3), count);
-    try std.testing.expectEqual(@as(u64, 1), lens[0]);
-    try std.testing.expectEqual(@as(u64, 2), lens[1]);
-    try std.testing.expectEqual(@as(u64, 3), lens[2]);
-    try std.testing.expectEqual(@as(u8, 'a'), buf[0]);
-    try std.testing.expectEqual(@as(u8, 'b'), buf[16]);
-    try std.testing.expectEqual(@as(u8, 'b'), buf[17]);
-    try std.testing.expectEqual(@as(u8, 'c'), buf[32]);
-    try std.testing.expectEqual(@as(u8, 'c'), buf[34]);
-    for (addrs[0..3]) |addr_handle| {
-        defer _ = sa_std_close(addr_handle);
-        try std.testing.expectEqual(sender_port, sa_net_addr_port(addr_handle));
-    }
-
-    // Argument discipline: an over-cap batch and a zero slot fail.
-    var count2: u64 = 0;
-    var lens2: [8]u64 = undefined;
-    try std.testing.expect(sa_std_net_udp_recv_multi(receiver, &buf, buf.len, 16, recv_multi_max_msgs + 1, &count2, &lens2, null) != SA_STD_OK);
-    try std.testing.expect(sa_std_net_udp_recv_multi(receiver, &buf, buf.len, 0, 8, &count2, &lens2, null) != SA_STD_OK);
-}
-
-test "unix datagram peer cred matches own process" {
-    var left: u64 = 0;
-    var right: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_datagram_pair(&left, &right));
-    defer _ = sa_std_close(left);
-    defer _ = sa_std_close(right);
-    var pid: i32 = 0;
-    var uid: u32 = 0;
-    var gid: u32 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_datagram_peer_cred(left, &pid, &uid, &gid));
-    try std.testing.expectEqual(std.os.linux.getpid(), pid);
-    try std.testing.expectEqual(std.os.linux.getuid(), uid);
-    try std.testing.expectEqual(std.os.linux.getgid(), gid);
-
-    // An unconnected datagram socket has no peer: the kernel
-    // answers SO_PEERCRED with the zero credential (pid 0), which
-    // is the documented no-peer sentinel, not an error.
-    var lone: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_datagram_unbound(&lone));
-    defer _ = sa_std_close(lone);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_datagram_peer_cred(lone, &pid, &uid, &gid));
-    try std.testing.expectEqual(@as(i32, 0), pid);
-}
-
-test "exported tcp and udp socket setters update live handles" {
-    const host = "127.0.0.1";
-
-    var udp_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &udp_handle));
-    defer _ = sa_std_close(udp_handle);
-
-    const udp = try ensureSocketHandle(udp_handle);
-    try std.testing.expectEqual(@as(@TypeOf(udp.kind), .udp_socket), udp.kind);
-
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_nonblocking(udp_handle, 1));
-    const udp_flags = try lxFcntl(udp.fd, std.posix.F.GETFL, 0);
-    try std.testing.expect((udp_flags & (@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"))) != 0);
-
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_broadcast(udp_handle, 1));
-    try std.testing.expect(try getSocketOptBool(udp.fd, SOLT.SOCKET, SOT.BROADCAST));
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_ttl(udp_handle, 64));
-    try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(udp.fd, IPPROTOT.IP, std.posix.IP.TTL));
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_read_timeout(udp_handle, 250_000_000));
-    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(udp.fd, SOLT.SOCKET, SOT.RCVTIMEO));
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_set_write_timeout(udp_handle, 250_000_000));
-    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(udp.fd, SOLT.SOCKET, SOT.SNDTIMEO));
-
-    var listener_handle: u64 = 0;
-    var bound_port: u32 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listen(host.ptr, host.len, 0, &listener_handle, &bound_port));
-    defer _ = sa_std_close(listener_handle);
-    try std.testing.expect(bound_port != 0);
-
-    var client_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_connect(host.ptr, host.len, bound_port, &client_handle));
-    defer _ = sa_std_close(client_handle);
-
-    var server_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_accept(listener_handle, &server_handle));
-    defer _ = sa_std_close(server_handle);
-
-    const server = try ensureSocketHandle(server_handle);
-    try std.testing.expectEqual(@as(@TypeOf(server.kind), .tcp_stream), server.kind);
-
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_nonblocking(server_handle, 1));
-    const server_flags = try lxFcntl(server.fd, std.posix.F.GETFL, 0);
-    try std.testing.expect((server_flags & (@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"))) != 0);
-    var peek_buf: [1]u8 = undefined;
-    // Plain count wrappers report errors negated (W1-DEF-NET-
-    // WRITE-AFTER-SHUTDOWN): peek's old +ERR_IO expectation was
-    // the conflated contract itself.
-    try std.testing.expectEqual(-SA_STD_ERR_IO, sa_net_tcp_stream_peek(server_handle, &peek_buf, peek_buf.len));
-
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_nodelay(server_handle, 1));
-    try std.testing.expect(try getSocketOptBool(server.fd, IPPROTOT.TCP, tcp_nodelay));
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_keepalive(server_handle, 1));
-    var keepalive_enabled: i32 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_keepalive(server_handle, &keepalive_enabled));
-    try std.testing.expectEqual(@as(i32, 1), keepalive_enabled);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_ttl(server_handle, 64));
-    try std.testing.expectEqual(@as(i32, 64), try getSocketOptInt(server.fd, IPPROTOT.IP, std.posix.IP.TTL));
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_read_timeout(server_handle, 250_000_000));
-    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(server.fd, SOLT.SOCKET, SOT.RCVTIMEO));
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_write_timeout(server_handle, 250_000_000));
-    try expectTimeoutRoundedUpWithin(250_000_000, try getSocketOptTimeval(server.fd, SOLT.SOCKET, SOT.SNDTIMEO));
-}
-
-test "tcp accept_addr returns peer stream and socket address" {
-    const host = "127.0.0.1";
-    var listener_handle: u64 = 0;
-    var bound_port: u32 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listen(host.ptr, host.len, 0, &listener_handle, &bound_port));
-    defer _ = sa_std_close(listener_handle);
-    try std.testing.expect(bound_port != 0);
-
-    var client_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_connect(host.ptr, host.len, bound_port, &client_handle));
-    defer _ = sa_std_close(client_handle);
-
-    var server_handle: u64 = 0;
-    var peer_addr_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_accept_addr(listener_handle, &server_handle, &peer_addr_handle));
-    defer _ = sa_std_close(server_handle);
-    defer _ = sa_net_addr_free(peer_addr_handle);
-
-    try std.testing.expectEqual(@as(u32, 2), sa_net_addr_family(peer_addr_handle));
-    try std.testing.expect(sa_net_addr_port(peer_addr_handle) != 0);
-    try std.testing.expect(sa_net_addr_host_len(peer_addr_handle) != 0);
-}
-
-test "unix socket setters treat tcp-only options as successful no-op" {
-    const path = "/tmp/sa_std_unix_setter_test.sock";
-    lxUnlink(path) catch |err| switch (err) {
-        error.FileNotFound => {},
-        else => return err,
-    };
-    defer lxUnlink(path) catch {};
-
-    var listener_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_listen(path.ptr, path.len, &listener_handle));
-    defer _ = sa_std_close(listener_handle);
-
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listener_set_reuseaddr(listener_handle, 1));
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listener_set_reuseport(listener_handle, 1));
-
-    var client_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_connect(path.ptr, path.len, &client_handle));
-    defer _ = sa_std_close(client_handle);
-
-    var server_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_unix_accept(listener_handle, &server_handle));
-    defer _ = sa_std_close(server_handle);
-
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_keepalive(server_handle, 1));
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_keepalive_params(server_handle, 60, 10, 5));
-}
-
-test "network status maps to stable Rust-style error codes" {
-    try std.testing.expectEqual(@as(i32, 0), sa_std_net_error_code_from_status(SA_STD_OK));
-    try std.testing.expectEqual(@as(i32, 10), sa_std_net_error_code_from_status(SA_STD_ERR_INVALID_ARGUMENT));
-    try std.testing.expectEqual(@as(i32, 11), sa_std_net_error_code_from_status(SA_STD_ERR_INVALID_HANDLE));
-    try std.testing.expectEqual(@as(i32, 12), sa_std_net_error_code_from_status(SA_STD_ERR_NOT_FOUND));
-    try std.testing.expectEqual(@as(i32, 8), sa_std_net_error_code_from_status(SA_STD_ERR_ACCESS));
-    try std.testing.expectEqual(@as(i32, 13), sa_std_net_error_code_from_status(SA_STD_ERR_NO_MEMORY));
-    try std.testing.expectEqual(@as(i32, 14), sa_std_net_error_code_from_status(SA_STD_ERR_IO));
-    try std.testing.expectEqual(@as(i32, 15), sa_std_net_error_code_from_status(SA_STD_ERR_NET));
-    try std.testing.expectEqual(@as(i32, 9), sa_std_net_error_code_from_status(SA_STD_ERR_UNSUPPORTED));
-    try std.testing.expectEqual(@as(i32, 14), sa_std_net_error_code_from_status(SA_STD_ERR_TRUNCATED));
-    try std.testing.expectEqual(@as(i32, 1), sa_std_net_error_code_from_status(SA_STD_ERR_UNKNOWN));
-}
-
-test "hostname reports required length and validates buffers" {
-    var length: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_hostname(null, 0, &length));
-    try std.testing.expect(length > 0);
-
-    var small: [1]u8 = undefined;
-    var small_length: u64 = 0;
-    try std.testing.expectEqual(SA_STD_ERR_TRUNCATED, sa_std_net_hostname(&small, small.len, &small_length));
-    try std.testing.expectEqual(length, small_length);
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_hostname(null, 1, &small_length));
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_hostname(&small, small.len, null));
-}
-
-test "dns reverse lookup round-trips a resolved address" {
-    const host = "127.0.0.1";
-    var address: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_to_socket_addr_first(host.ptr, host.len, 80, &address));
-    try std.testing.expect(address != 0);
-    defer _ = sa_net_addr_free(address);
-
-    // Length query first (hostname-style contract), then the real read.
-    var needed: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_addr_reverse_lookup(address, null, 0, &needed));
-    try std.testing.expect(needed > 0);
-    var buf: [256]u8 = undefined;
-    var out_len: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_addr_reverse_lookup(address, &buf, buf.len, &out_len));
-    try std.testing.expectEqual(needed, out_len);
-    try std.testing.expectEqualStrings("localhost", buf[0..@intCast(out_len)]);
-
-    // Contract errors.
-    var dummy: u64 = 0;
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_addr_reverse_lookup(0, &buf, buf.len, &dummy));
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_addr_reverse_lookup(address, &buf, buf.len, null));
-}
-
-test "dns forward lookup rejects an unresolvable name" {
-    const bad = "nonexistent.invalid";
-    var handle: u64 = 77;
-    const rc = sa_std_net_to_socket_addr_list(bad.ptr, bad.len, 80, &handle);
-    try std.testing.expect(rc != SA_STD_OK);
-    try std.testing.expectEqual(@as(u64, 0), handle);
-}
-
-test "POSIX errno maps to Rust-style network error kinds" {
-    try std.testing.expectEqual(@as(i32, 3), sa_std_net_error_code_from_posix_errno(111));
-    try std.testing.expectEqual(@as(i32, 4), sa_std_net_error_code_from_posix_errno(110));
-    try std.testing.expectEqual(@as(i32, 6), sa_std_net_error_code_from_posix_errno(11));
-    try std.testing.expectEqual(@as(i32, 15), sa_std_net_error_code_from_posix_errno(101));
-    try std.testing.expectEqual(@as(i32, 21), sa_std_net_error_code_from_posix_errno(113));
-    try std.testing.expectEqual(@as(i32, 16), sa_std_net_error_code_from_posix_errno(98));
-    try std.testing.expectEqual(@as(i32, 17), sa_std_net_error_code_from_posix_errno(99));
-    try std.testing.expectEqual(@as(i32, 18), sa_std_net_error_code_from_posix_errno(104));
-    try std.testing.expectEqual(@as(i32, 19), sa_std_net_error_code_from_posix_errno(103));
-    try std.testing.expectEqual(@as(i32, 20), sa_std_net_error_code_from_posix_errno(107));
-    try std.testing.expectEqual(@as(i32, 22), sa_std_net_error_code_from_posix_errno(32));
-    try std.testing.expectEqual(@as(i32, 24), sa_std_net_error_code_from_posix_errno(4));
-    try std.testing.expectEqual(@as(i32, 2), sa_std_net_error_code_from_posix_errno(-2));
-    try std.testing.expectEqual(@as(i32, 1), sa_std_net_error_code_from_posix_errno(99999));
-}
-
-test "WSA error maps to Rust-style network error kinds" {
-    try std.testing.expectEqual(@as(i32, 3), sa_std_net_error_code_from_wsa_error(10061));
-    try std.testing.expectEqual(@as(i32, 4), sa_std_net_error_code_from_wsa_error(10060));
-    try std.testing.expectEqual(@as(i32, 6), sa_std_net_error_code_from_wsa_error(10035));
-    try std.testing.expectEqual(@as(i32, 15), sa_std_net_error_code_from_wsa_error(10051));
-    try std.testing.expectEqual(@as(i32, 21), sa_std_net_error_code_from_wsa_error(10065));
-    try std.testing.expectEqual(@as(i32, 16), sa_std_net_error_code_from_wsa_error(10048));
-    try std.testing.expectEqual(@as(i32, 17), sa_std_net_error_code_from_wsa_error(10049));
-    try std.testing.expectEqual(@as(i32, 18), sa_std_net_error_code_from_wsa_error(10054));
-    try std.testing.expectEqual(@as(i32, 19), sa_std_net_error_code_from_wsa_error(10053));
-    try std.testing.expectEqual(@as(i32, 20), sa_std_net_error_code_from_wsa_error(10057));
-    try std.testing.expectEqual(@as(i32, 24), sa_std_net_error_code_from_wsa_error(10004));
-    try std.testing.expectEqual(@as(i32, 2), sa_std_net_error_code_from_wsa_error(11001));
-    try std.testing.expectEqual(@as(i32, 1), sa_std_net_error_code_from_wsa_error(99999));
-}
-
-test "network error code names are stable" {
-    var buffer: [32]u8 = undefined;
-    var length: u64 = 0;
-    try std.testing.expectEqual(@as(i32, 0), sa_std_net_error_code_name(3, &buffer, buffer.len, &length));
-    try std.testing.expectEqual(@as(u64, 18), length);
-    try std.testing.expectEqualStrings("connection_refused", buffer[0..length]);
-    try std.testing.expectEqual(@as(i32, 9), sa_std_net_error_code_name(3, &buffer, 9, &length));
-    try std.testing.expectEqual(@as(i32, 0), sa_std_net_error_code_name(999, null, 0, &length));
-    try std.testing.expectEqualStrings("unknown", netErrorCodeName(999));
-}
-
-test "native network error facade reports POSIX platform" {
-    try std.testing.expectEqual(@as(i32, 1), sa_std_net_error_platform());
-    try std.testing.expectEqual(@as(i32, 3), sa_std_net_error_code_from_native_error(111));
-}
-
-test "TCP connect timeout by resolved address" {
-    const host = "127.0.0.1";
-    var listener: u64 = 0;
-    var port: u32 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listen(host.ptr, host.len, 0, &listener, &port));
-    defer _ = sa_std_close(listener);
-
-    var address: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_to_socket_addr_first(host.ptr, host.len, port, &address));
-    defer _ = sa_net_addr_free(address);
-
-    var client: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_connect_timeout_addr(address, 500_000_000, &client));
-    defer _ = sa_std_close(client);
-
-    var accepted: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_accept(listener, &accepted));
-    defer _ = sa_std_close(accepted);
-
-    var untouched: u64 = 99;
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_tcp_connect_timeout_addr(address, 0, &untouched));
-    try std.testing.expectEqual(@as(u64, 0), untouched);
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_tcp_connect_timeout_addr(0, 500_000_000, &untouched));
-    try std.testing.expectEqual(@as(u64, 0), untouched);
-}
-test "TCP connect timeout rejects zero duration" {
-    var handle: u64 = 99;
-    const host = "127.0.0.1";
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_tcp_connect_timeout(host.ptr, host.len, 80, 0, &handle));
-    try std.testing.expectEqual(@as(u64, 0), handle);
-}
-
-test "UDP connect by resolved address" {
-    const host = "127.0.0.1";
-    var server: u64 = 0;
-    var client: u64 = 0;
-    var server_addr: u64 = 0;
-    var target_addr: u64 = 0;
-    var peer_addr: u64 = 0;
-    var port: u32 = 0;
-
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &server));
-    defer _ = sa_std_close(server);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_local_addr(server, &server_addr));
-    defer _ = sa_net_addr_free(server_addr);
-    port = sa_net_addr_port(server_addr);
-    try std.testing.expect(port != 0);
-
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_to_socket_addr_first(host.ptr, host.len, port, &target_addr));
-    defer _ = sa_net_addr_free(target_addr);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_bind(host.ptr, host.len, 0, &client));
-    defer _ = sa_std_close(client);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_connect_addr(client, target_addr));
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_udp_peer_addr(client, &peer_addr));
-    defer _ = sa_net_addr_free(peer_addr);
-    try std.testing.expectEqual(port, sa_net_addr_port(peer_addr));
-    try std.testing.expectEqual(@as(u32, 2), sa_net_addr_family(peer_addr));
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_udp_connect_addr(client, 0));
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_udp_connect_addr(0, target_addr));
-}
-
-test "policy gate intercepts fs open and process spawn at the std surface" {
-    const allocator = std.testing.allocator;
-    const policy = try sa_policy.parsePolicyJson(allocator, "{}");
-    var ctx = sa_policy.PolicyContext.init(allocator, 42, policy);
-    defer ctx.deinit(allocator);
-    sa_policy.installContext(&ctx);
-    defer sa_policy.clearContext();
-
-    const path = "src/runtime/sa_policy.zig";
-    var handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_ERR_PERMISSION_DENIED, sa_std_fs_open_read(path.ptr, path.len, &handle));
-    try std.testing.expectEqual(@as(u64, 0), handle);
-
-    const program = "/bin/true";
-    const argv = [_]SaProcessArgv{.{ .data = program.ptr, .len = program.len }};
-    var process_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_ERR_PERMISSION_DENIED, sa_std_process_run(&argv, argv.len, &process_handle));
-
-    // Without a context the same calls go through (host enforces
-    // "no policy, no start" at its own surface, not in the library).
-    sa_policy.clearContext();
-    try std.testing.expectEqual(SA_STD_OK, sa_std_fs_open_read(path.ptr, path.len, &handle));
-    try std.testing.expect(handle != 0);
-    _ = sa_std_close(handle);
-}
-
-test "num checked arithmetic returns exact results incl. boundaries" {
-    // Normal cases.
-    try std.testing.expectEqual(@as(i64, 42), sa_num_add_checked(40, 2));
-    try std.testing.expectEqual(@as(i64, -1), sa_num_add_checked(-40, 39));
-    try std.testing.expectEqual(@as(i64, 38), sa_num_sub_checked(40, 2));
-    try std.testing.expectEqual(@as(i64, -42), sa_num_mul_checked(-6, 7));
-    try std.testing.expectEqual(@as(i64, 0), sa_num_mul_checked(0, 0));
-    // Boundary cases that must NOT trap.
-    const max = std.math.maxInt(i64);
-    const min = std.math.minInt(i64);
-    try std.testing.expectEqual(max, sa_num_add_checked(max, 0));
-    try std.testing.expectEqual(min, sa_num_add_checked(min, 0));
-    try std.testing.expectEqual(max, sa_num_add_checked(max - 1, 1));
-    try std.testing.expectEqual(min, sa_num_sub_checked(min, 0));
-    try std.testing.expectEqual(max, sa_num_sub_checked(max, 0));
-    try std.testing.expectEqual(@as(i64, 0), sa_num_sub_checked(min, min));
-    try std.testing.expectEqual(min, sa_num_mul_checked(min, 1));
-    try std.testing.expectEqual(max, sa_num_mul_checked(max, 1));
-    try std.testing.expectEqual(@as(i64, -9223372036854775807), sa_num_mul_checked(max, -1));
-    try std.testing.expectEqual(@as(i64, 0), sa_num_mul_checked(0, min));
-    // Largest square that fits: 3037000499^2 < i64 max < 3037000500^2.
-    try std.testing.expectEqual(@as(i64, 9223372030926249001), sa_num_mul_checked(3037000499, 3037000499));
-    // Overflow cases trap by process abort (no wrapped value can be
-    // observed); they are covered by the C probe in the delivery
-    // evidence, not by in-process tests.
-}
-
-test "raw socket creation validates shape and registers a datagram handle" {
-    var handle: u64 = 0;
-    // Shape validation happens before any syscall, so these hold in
-    // every environment: bad domain, SOCK_STREAM, oversized protocol.
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_raw_socket(99, 3, 1, &handle));
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_raw_socket(2, 1, 1, &handle));
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_raw_socket(2, 3, 256, &handle));
-    try std.testing.expectEqual(@as(u64, 0), handle);
-    const status = sa_std_net_raw_socket(2, 3, 1, &handle);
-    if (status == SA_STD_OK) {
-        defer _ = sa_std_close(handle);
-        try std.testing.expect(handle != 0);
-        // SO_TYPE through the passthrough reads back SOCK_RAW (3).
-        var value: i32 = 0;
-        try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_getsockopt_int(handle, 1, 3, &value));
-        try std.testing.expectEqual(@as(i32, 3), value);
-    } else {
-        // Unprivileged environments may refuse raw sockets; the
-        // refusal must be a loud status and never a fake handle.
-        try std.testing.expectEqual(@as(u64, 0), handle);
-        try std.testing.expect(status == SA_STD_ERR_ACCESS or status == SA_STD_ERR_PERMISSION_DENIED or status == SA_STD_ERR_UNSUPPORTED);
-    }
-    // The ping-socket form (SOCK_DGRAM + IPPROTO_ICMP) is admitted.
-    var ping_handle: u64 = 0;
-    const ping_status = sa_std_net_raw_socket(2, 2, 1, &ping_handle);
-    if (ping_status == SA_STD_OK) {
-        defer _ = sa_std_close(ping_handle);
-        var value: i32 = 0;
-        try std.testing.expectEqual(SA_STD_OK, sa_std_net_socket_getsockopt_int(ping_handle, 1, 3, &value));
-        try std.testing.expectEqual(@as(i32, 2), value);
-    } else {
-        try std.testing.expectEqual(@as(u64, 0), ping_handle);
-    }
-}
-
-test "tcp stream send_file moves file bytes over loopback" {
-    const host = "127.0.0.1";
-    const path = "sa_std_sendfile_probe.bin";
-    _ = sa_std_fs_remove(path.ptr, path.len);
-    var payload_buf: [528]u8 = undefined;
-    for (&payload_buf, 0..) |*byte, idx| byte.* = "sendfile-payload-0123456789abcdef"[@mod(idx, 33)];
-    const payload: []const u8 = &payload_buf;
-    var file_handle: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_fs_open_write(path.ptr, path.len, 1, &file_handle));
-    var written: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_fs_file_write(file_handle, payload.ptr, payload.len, &written));
-    try std.testing.expectEqual(@as(u64, payload.len), written);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_close(file_handle));
-    // sendfile(2) needs a readable input fd: reopen for reading.
-    try std.testing.expectEqual(SA_STD_OK, sa_std_fs_open_read(path.ptr, path.len, &file_handle));
-    defer {
-        _ = sa_std_close(file_handle);
-        _ = sa_std_fs_remove(path.ptr, path.len);
-    }
-    var listener: u64 = 0;
-    var bound_port: u32 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listen(host.ptr, host.len, 0, &listener, &bound_port));
-    defer _ = sa_std_close(listener);
-    try std.testing.expect(bound_port != 0);
-    var client: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_connect(host.ptr, host.len, bound_port, &client));
-    defer _ = sa_std_close(client);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_set_read_timeout(client, 5_000_000_000));
-    var server_side: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_accept(listener, &server_side));
-    defer _ = sa_std_close(server_side);
-
-    // Full send from offset 0.
-    var sent: u64 = 0;
-    var next_offset: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_send_file(server_side, file_handle, 0, payload.len, &sent, &next_offset));
-    try std.testing.expectEqual(@as(u64, payload.len), sent);
-    try std.testing.expectEqual(@as(u64, payload.len), next_offset);
-    var received: [528]u8 = undefined;
-    var total: u64 = 0;
-    while (total < payload.len) {
-        var got: u64 = 0;
-        try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_read(client, received[total..].ptr, payload.len - total, &got));
-        try std.testing.expect(got != 0);
-        total += got;
-    }
-    try std.testing.expectEqualSlices(u8, payload, &received);
-
-    // Offset send: the file position is explicit, so a second send
-    // from offset 33 moves exactly payload[33..66].
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_send_file(server_side, file_handle, 33, 33, &sent, &next_offset));
-    try std.testing.expectEqual(@as(u64, 33), sent);
-    try std.testing.expectEqual(@as(u64, 66), next_offset);
-    var slice_buf: [33]u8 = undefined;
-    total = 0;
-    while (total < 33) {
-        var got: u64 = 0;
-        try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_read(client, slice_buf[total..].ptr, 33 - total, &got));
-        try std.testing.expect(got != 0);
-        total += got;
-    }
-    try std.testing.expectEqualSlices(u8, payload[33..66], &slice_buf);
-
-    // Bad handles fail loudly.
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_tcp_stream_send_file(0, file_handle, 0, 1, &sent, &next_offset));
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_tcp_stream_send_file(server_side, 0, 0, 1, &sent, &next_offset));
-}
-
-test "net poll wait reports listener and stream readiness over loopback" {
-    if (comptime is_wasm) return error.SkipZigTest;
-    const host = "127.0.0.1";
-    var listener: u64 = 0;
-    var bound_port: u32 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_listen(host.ptr, host.len, 0, &listener, &bound_port));
-    defer _ = sa_std_close(listener);
-    try std.testing.expect(bound_port != 0);
-
-    var handles = [_]u64{listener};
-    var interests = [_]u32{SA_STD_NET_POLL_READ};
-    var ready = [_]u32{0};
-    var ready_count: u64 = 99;
-
-    // Nothing pending: a zero timeout returns immediately with no
-    // ready entries, and a short timeout simply elapses.
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_poll_wait(&handles, &interests, 1, 0, &ready, &ready_count));
-    try std.testing.expectEqual(@as(u64, 0), ready_count);
-    try std.testing.expectEqual(@as(u32, 0), ready[0]);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_poll_wait(&handles, &interests, 1, 25, &ready, &ready_count));
-    try std.testing.expectEqual(@as(u64, 0), ready_count);
-
-    // A pending connection makes the listener readable.
-    var client: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_connect(host.ptr, host.len, bound_port, &client));
-    defer _ = sa_std_close(client);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_poll_wait(&handles, &interests, 1, 5000, &ready, &ready_count));
-    try std.testing.expectEqual(@as(u64, 1), ready_count);
-    try std.testing.expect(ready[0] & SA_STD_NET_POLL_READ != 0);
-
-    var server_side: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_accept(listener, &server_side));
-    defer _ = sa_std_close(server_side);
-
-    // The accepted stream is writable at once and not readable
-    // until the peer sends.
-    handles[0] = server_side;
-    interests[0] = SA_STD_NET_POLL_READ | SA_STD_NET_POLL_WRITE;
-    ready[0] = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_poll_wait(&handles, &interests, 1, 5000, &ready, &ready_count));
-    try std.testing.expectEqual(@as(u64, 1), ready_count);
-    try std.testing.expect(ready[0] & SA_STD_NET_POLL_WRITE != 0);
-    try std.testing.expect(ready[0] & SA_STD_NET_POLL_READ == 0);
-
-    const msg = "poll-ping";
-    var written: u64 = 0;
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_tcp_stream_write(client, msg.ptr, msg.len, &written));
-    try std.testing.expectEqual(@as(u64, msg.len), written);
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_poll_wait(&handles, &interests, 1, 5000, &ready, &ready_count));
-    try std.testing.expectEqual(@as(u64, 1), ready_count);
-    try std.testing.expect(ready[0] & SA_STD_NET_POLL_READ != 0);
-
-    // A wait over both sockets reports exactly the ready subset.
-    var pair_handles = [_]u64{ listener, server_side };
-    var pair_interests = [_]u32{ SA_STD_NET_POLL_READ, SA_STD_NET_POLL_READ };
-    var pair_ready = [_]u32{ 0, 0 };
-    try std.testing.expectEqual(SA_STD_OK, sa_std_net_poll_wait(&pair_handles, &pair_interests, 2, 0, &pair_ready, &ready_count));
-    try std.testing.expectEqual(@as(u64, 1), ready_count);
-    try std.testing.expectEqual(@as(u32, 0), pair_ready[0]);
-    try std.testing.expect(pair_ready[1] & SA_STD_NET_POLL_READ != 0);
-
-    // Bad handles and oversized sets fail loudly.
-    handles[0] = 0;
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_HANDLE, sa_std_net_poll_wait(&handles, &interests, 1, 0, &ready, &ready_count));
-    try std.testing.expectEqual(SA_STD_ERR_INVALID_ARGUMENT, sa_std_net_poll_wait(&handles, &interests, SA_STD_NET_POLL_MAX_HANDLES + 1, 0, &ready, &ready_count));
-}

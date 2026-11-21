@@ -42,6 +42,13 @@ for name in missing:
         l = parent_lines[i]
         parent_lines[i] = "pub " + l
         print(f"made pub in parent: {name} (line {i+1})")
+# vars accessed via the module alias also need to be pub
+for name in var_names:
+    i, is_pub, _kind = parent_decls[name]
+    if not is_pub:
+        l = parent_lines[i]
+        parent_lines[i] = "pub " + l
+        print(f"made pub var in parent: {name} (line {i+1})")
 
 open(parent_path, "w").write("\n".join(parent_lines))
 
