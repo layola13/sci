@@ -21,6 +21,12 @@ pub const saNumCheckedTrap = @import("../sa_std.zig").saNumCheckedTrap;
 const sio = @import("../sa_std.zig").sio;
 pub const unicodeNormalizerForForm = @import("../sa_std.zig").unicodeNormalizerForForm;
 
+// NOTE: sa_http_client_* used to be provided by the http-client plugin
+// and deliberately left undefined here (a stub once shadowed it). Since
+// 2026-10-24 the real implementation is built into sa_std
+// (src/runtime/sa_http_client.zig, migrated from the plugin under the
+// all-cores-built-in doctrine); the plugin keeps only framework wraps.
+
 pub export fn sa_std_version() u32 {
     return SA_STD_ABI_VERSION;
 }
@@ -116,6 +122,15 @@ pub export fn sa_unicode_normalize(text: ?[*]const u8, text_len: u64, form: i32,
     return written;
 }
 
+// Host presence probing (lazy const-slot design, Phase 0; JEV js_shim_native_zero).
+// SA native execution runs under the sa interpreter/LLVM with no JS host
+// global, so "is Bun" is definitionally false there. Returning 0 always is
+// the contract, not a placeholder. The JS target gets a shim in emit_js.zig
+// returning typeof Bun !== "undefined" ? 1 : 0. Env-sniffing was
+// JEV-rejected (Bun sets no distinctive environment variable by default).
+// The SA interpreter cannot run externs (UnsupportedExtern); this function
+// executes under build-exe (LLVM), like sa_unicode_normalize above.
+
 pub export fn sa_host_is_bun() i32 {
     return 0;
 }
@@ -147,6 +162,32 @@ pub export fn sa_thread_yield_now() i32 {
     std.Thread.yield() catch |err| return finishErr(err);
     return finish(SA_STD_OK);
 }
+
+// sa_net_format_ascii_batch_v1
+// Float math for frontends (v0.24a; Haxe Math.* surface).
+// Pure f64 functions; random yields [0, 1) from 53 crypto bits.
+// Single-byte string from a char code (JS `String.fromCharCode` over the
+// subset's byte-oriented strings; exact inverse of byte `charCodeAt`).
+// Only the low byte is stored (documented); returns a buffer handle read
+// back via `sa_fmt_buffer_data`/`sa_fmt_buffer_len` like concat.
+// JS `String.prototype.indexOf` over byte-oriented strings: first needle
+// index at/after `from`, or -1. Empty needle yields min(from, hay.len).
+// `from` arrives as u64 (frontends convert via asU64Arg); clamped defensively.
+// JS `String.prototype.lastIndexOf`: last needle index at/before `from`
+// (`from` clamped to hay.len), or -1. Empty needle yields the clamped `from`.
+// JS `String.prototype.startsWith` (no position arg in the subset): 1/0.
+// JS `String.prototype.endsWith`: 1/0.
+// JS `String.prototype.toLowerCase` over the subset's byte-oriented
+// strings: ASCII A-Z folds to a-z, all other bytes pass through
+// (documented; full Unicode lower is refused at the frontend).
+// Returns a fresh buffer handle read back via `sa_fmt_buffer_data/len`.
+// JS `String.prototype.toUpperCase`: ASCII a-z folds to A-Z, rest passes
+// through. Fresh buffer handle, same read-back protocol as lower.
+// JS `parseFloat` (also serves `Number(s)` float paths and the global
+// `parseFloat`): leading ASCII whitespace skipped, optional sign,
+// `Infinity`/`NaN` (sign applies to Infinity only), decimal with optional
+// fraction/exponent; trailing garbage ignored; no digits at all yields
+// quiet NaN; overflow yields signed infinity.
 
 pub export fn sa_parse_float(ptr: ?[*]const u8, len: u64) f64 {
     const bytes = constBytes(ptr, len) catch return std.math.nan(f64);
@@ -188,6 +229,11 @@ pub export fn sa_parse_float(ptr: ?[*]const u8, len: u64) f64 {
     // the scan above never consumes '+'/'-').
     return if (negative) -num else num;
 }
+
+// Raw free for SA `alloc` blocks (the native emitter lowers `alloc` to
+// libc malloc). SA-level code that must release a heap block through a
+// real call -- e.g. sa_vec_free, whose `!` releases the emitter may
+// lower to bookkeeping only -- goes through this export instead.
 
 pub export fn sa_mem_free(ptr: ?*anyopaque) void {
     if (comptime is_wasm) return;

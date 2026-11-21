@@ -29,6 +29,31 @@ const SA_JSON_TOKEN_STRING = @import("consts.zig").SA_JSON_TOKEN_STRING;
 const SA_JSON_TOKEN_TRUE = @import("consts.zig").SA_JSON_TOKEN_TRUE;
 pub const constBytes = @import("../sa_std.zig").constBytes;
 
+// Copies text into an owned NUL-terminated buffer, rejecting embedded NUL
+// bytes exactly like regexMatchHandle does.
+// Runs regexec over the byte range [start, end) of an owned NUL-terminated
+// text using REG_STARTEND, so reported offsets stay absolute and `^` / `$`
+// keep whole-text semantics. Returns the raw regcomp-family status code.
+// Collects every non-overlapping match in text_z (an owned NUL-terminated
+// copy), in left-to-right order. After an empty match the search advances
+// one byte — the byte-level form of the JS global-exec loop (JS advances
+// one code point; this engine is byte-oriented). Caller owns the returned
+// outer slice and every inner groups slice.
+// Appends the JS-style substitution of `replacement` for one match:
+// $$ is a literal $, $& the whole match, $` the text before the match,
+// $' the text after it, and $n / $nn capture groups (a group that did not
+// participate expands to nothing; an out-of-range $n stays literal).
+// $<name> passes through literally: POSIX ERE has no named groups.
+// Builds the replaced text. With `global` false only the first match is
+// replaced (JS String.replace without /g); with true every match from the
+// global iteration is replaced (JS /g and replaceAll). The result is an
+// owned slice; when nothing matches it is a copy of the input text.
+// Builds the piece list for JS String.split semantics over text_z. Pieces
+// are (start, end) ranges into text_z; non-participating capture groups
+// keep rm_so < 0. `limit` caps the TOTAL piece count (groups included);
+// limit == 0 means no limit in this API (JS limit 0 returns [] — a
+// deliberate divergence, documented in regex.sai).
+
 pub fn jsonKindOf(value: std.json.Value) u32 {
     return switch (value) {
         .null => SA_JSON_KIND_NULL,
@@ -81,6 +106,12 @@ pub fn jsonValueAsBool(value: std.json.Value) !bool {
         else => error.InvalidArgument,
     };
 }
+
+// Walks `path` from the document root and returns a pointer to the live
+// tree value. The pointer is only valid until the next tree mutation.
+// Deep-copies a JSON value into `allocator` (the target document's arena),
+// duplicating every string, array and object so the copy shares no storage
+// with the source tree.
 
 pub fn jsonValueClone(allocator: std.mem.Allocator, value: std.json.Value) !std.json.Value {
     return switch (value) {
@@ -149,6 +180,11 @@ pub fn tokenTextSlice(token: std.json.Token) ?[]const u8 {
     };
 }
 
+// ---------------------------------------------------------------------------
+// 0.17 compat: portable file metadata. Linux keeps statx; other targets use
+// the Io vtable stat (which maps to lstat/stat internally).
+// ---------------------------------------------------------------------------
+
 pub fn formatInteger(value: anytype, base: u32) ![]u8 {
     const actual_base: u8 = switch (base) {
         2, 8, 10 => @as(u8, @intCast(base)),
@@ -189,6 +225,13 @@ pub fn appendEnvVarJson(pairs: *std.array_list.Managed(EnvVarJson), entry: []con
     if (eq == 0) return;
     try pairs.append(.{ .key = entry[0..eq], .value = entry[eq + 1 ..] });
 }
+
+// SIMD hex decoder: native bulk-decode fast path (mirrors the sa_hexdec
+// JS host-codec shim contract). Decodes ASCII hex pairs into bytes at
+// 32 input chars per vector iteration with a scalar tail. Stops at the
+// first invalid char or odd trailing nibble and returns the bytes
+// written so far; clean even-length input of n chars yields exactly
+// n/2. Caller must provide at least n/2 bytes of output.
 
 fn hexSimdNibbleVal(c: u8) ?u8 {
     if (c >= '0' and c <= '9') return c - '0';
@@ -243,6 +286,12 @@ pub export fn sa_hexdec_simd(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8)
     return @intCast(w);
 }
 
+// Bulk substring search for native peers (mirrors the sa_mfind_u8 JS
+// fused shim contract): returns the first index of needle in haystack,
+// or hay_len on miss (one-past-end sentinel, always representable).
+// Empty needle matches at 0 (memmem semantics). Delegates to the Zig
+// standard library search (library-grade, memchr-class).
+
 pub export fn sa_mfind_u8(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64) u64 {
     const hay = constBytes(hay_ptr, hay_len) catch return hay_len;
     const ndl = constBytes(ndl_ptr, ndl_len) catch return hay.len;
@@ -251,6 +300,9 @@ pub export fn sa_mfind_u8(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]cons
     if (std.mem.indexOf(u8, hay, ndl)) |idx| return @intCast(idx);
     return hay.len;
 }
+
+/// Zero-padded decimal append. (std.fmt `{d:04}` on 0.14 misplaces the
+/// sign, emitting `+` for positives, so ISO dates pad manually instead.)
 
 fn appendPadded(out: *std.array_list.Managed(u8), val: i64, width: usize) !void {
     if (val < 0) {
@@ -265,6 +317,8 @@ fn appendPadded(out: *std.array_list.Managed(u8), val: i64, width: usize) !void 
     while (i < width) : (i += 1) try out.append('0');
     try out.appendSlice(s);
 }
+
+/// UTC `YYYY-MM-DDTHH:MM:SS.sssZ` append shared by the ISO formatters.
 
 pub fn appendIsoUtc(out: *std.array_list.Managed(u8), year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, milli: i64) !void {
     try appendPadded(out, year, 4);
@@ -339,6 +393,25 @@ pub fn formatIpv6Segments(buffer: []u8, segments: *const [8]u16) ![]u8 {
     }
     return w.buffered();
 }
+
+// JS `String.prototype.padStart`: left-pad with tiled `pad` to
+// `target_len` bytes. Shorter-or-equal input and empty `pad` return an
+// unchanged copy (JS no-op shape). Fresh buffer handle.
+// JS `String.prototype.padEnd`: mirror of padStart on the right.
+// JS `String.prototype.replace` / `replaceAll` with a string pattern
+// (regex forms are refused at the frontend): `all == 0` swaps the first
+// occurrence, nonzero swaps all non-overlapping occurrences. Empty needle
+// inserts at 0 (first) or interleaves (all), per JS. Needle absent (or
+// longer than hay) returns an unchanged copy. Fresh buffer handle.
+// JS `String.prototype.charCodeAt` over the subset's byte-oriented
+// strings: the byte at `idx` (0-255). Out of bounds yields -1: JS NaN is
+// unrepresentable in i32, and -1 is the subset's OOB sentinel (cf.
+// indexOf). The reference frontend's primary path is an inline unchecked
+// byte load; this checked primitive is the shared out-of-line shape.
+/// JS `String.fromCodePoint`: UTF-8 encoding of one scalar value.
+/// Out-of-range codes (negative, > 0x10FFFF, surrogate halves) yield the
+/// U+FFFD replacement bytes: the subset has no exceptions, and a specified
+/// replacement beats a silent wrong encoding. Fresh buffer handle.
 
 pub fn utf8ScalarAt(bytes: []const u8, index: usize) !struct { scalar: u32, width: usize } {
     if (index >= bytes.len) return error.FileNotFound;

@@ -83,6 +83,16 @@ const FmtHandle = struct {
     }
 };
 
+// A JSON node handle addresses a value inside its document tree by PATH
+// (object keys / array indices from the document root). Every acquire
+// re-resolves the path against the live tree, so a mutation performed
+// through any handle is visible through all other handles of the same
+// document. Removing the exact key a handle points at (or an ancestor of
+// it) detaches the handle: later operations fail with InvalidHandle
+// instead of reading a stale snapshot.
+// Returns a fully-owned copy of `base` with `segment` appended (key bytes
+// duplicated with `allocator`).
+
 pub const JsonBufferHandle = struct {
     allocator: std.mem.Allocator,
     bytes: []u8,

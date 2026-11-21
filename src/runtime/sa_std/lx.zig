@@ -179,6 +179,44 @@ pub fn lxEpollWait(epfd: std.posix.fd_t, events: []std.os.linux.epoll_event, tim
     return rc;
 }
 
+// Block until at least one of the given socket handles (TCP
+// streams, TCP listeners, UDP sockets) is ready for the requested
+// operations, or timeout_ms elapses (0 = return immediately,
+// negative = wait indefinitely). ready[i] receives the readiness
+// mask for handles[i] (0 = not ready) and out_ready_count the
+// number of ready entries. A hangup reports READ|ERROR so an
+// event loop attempts the read and observes EOF. Level-triggered
+// only: readiness is re-evaluated on every call, which is what
+// lets an event loop replace sleep-polling AND the per-round
+// scan of every connection with a single wait over exactly the
+// ready set. Handles must outlive the call. Native only; WASM
+// returns SA_STD_ERR_UNSUPPORTED.
+// SO_KEEPALIVE on a connected TCP stream. Codex's socket2 users enable this to
+// keep idle upstream connections alive; exposed here so SA callers match parity.
+// Tune the Linux TCP keepalive timers (idle before first probe, interval
+// between probes, probe count before dropping). All three are in whole units
+// (seconds for idle/interval, count for cnt) matching the kernel option ABI.
+// SO_REUSEADDR on a TCP listener handle (or UDS listener, which shares the
+// tcp_listener resource kind). Allows rebinding a TIME_WAIT address.
+// SO_REUSEPORT on a TCP listener handle for load-balanced multi-acceptor setups.
+// Raw-socket creation (wave-3 fill; the missing primitive BE
+// registered for the ICMP transport half). domain / sock_type /
+// protocol are the raw OS numbers (AF_INET=2 / AF_INET6=10,
+// SOCK_RAW=3 / SOCK_DGRAM=2, IPPROTO_ICMP=1 / IPPROTO_ICMPV6=58 on
+// Linux), the same raw-number convention as the sockopt passthrough.
+// SOCK_DGRAM is admitted alongside SOCK_RAW because that is the
+// Linux ping-socket form of an ICMP socket; SOCK_STREAM and every
+// other type are rejected loudly. The socket is registered as a
+// datagram-kind (udp_socket) handle, so the existing datagram
+// surfaces apply unchanged: udp_send_to / udp_recv_from /
+// udp_set_read_timeout, the sockopt passthrough, fd detach
+// (sa_std_fd_into_raw) and sa_std_close. Permission failures from
+// socket(2) (root / CAP_NET_RAW for SOCK_RAW, ping_group_range for
+// the ping form) surface as their loud status, never a fake handle.
+// Linux + libc platforms; WASI returns SA_STD_ERR_UNSUPPORTED and
+// the Windows root does not implement it (see
+// docs/runtime_abi_windows_unsupported.txt).
+
 pub fn lxSendfile(out_fd: std.posix.fd_t, in_fd: std.posix.fd_t, offset: *u64, count: usize) !usize {
     if (comptime is_wasm) return error.Unsupported;
     if (comptime is_linux) {

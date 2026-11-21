@@ -25,6 +25,10 @@ pub const SockAddrT = if (is_wasm) WasiSockAddr else std.posix.sockaddr;
 
 pub const SockLenT = if (is_wasm) u32 else std.posix.socklen_t;
 
+// wasi has no wait macros/signals (std.posix.W/SIG are void); dummies so
+// status helpers type-check (callers stubbed to UNSUPPORTED on wasm).
+// wasi-libc has no AF/SOL (void via std.c); Linux-value dummies for compile.
+
 const WasiAF = struct {
     pub const UNIX: u16 = 1;
     pub const INET: u16 = 2;
@@ -73,6 +77,9 @@ const WasiSOCK = struct {
 
 pub const SOCKT = if (is_wasm) WasiSOCK else std.posix.SOCK;
 
+// Linux-only socket options/constants fall back to neutral values elsewhere;
+// the export functions that use them are compiled out of non-Linux builds.
+
 pub const TCP_QUICKACK: u32 = if (is_linux) std.os.linux.TCP.QUICKACK else 0;
 
 pub const TCP_DEFER_ACCEPT: u32 = if (is_linux) std.os.linux.TCP.DEFER_ACCEPT else 0;
@@ -88,6 +95,10 @@ pub const SO_PASSCRED: u32 = if (is_linux) std.os.linux.SO.PASSCRED else 0;
 pub const InAddrC = extern struct {
     s_addr: u32,
 };
+
+// Mirrors C sa_net_iov in sa_std.h. Layout must stay { u8* base; usize len; }.
+/// Cap on iovec entries accepted per vectored call. Matches POSIX IOV_MAX where
+/// available and stays comfortably below common OS hard limits.
 
 pub const IP_MULTICAST_TTL_OPT: u32 = 33;
 
@@ -108,6 +119,10 @@ pub const IPV6_MULTICAST_HOPS_OPT: u32 = 18;
 pub const IPV6_MULTICAST_LOOP_OPT: u32 = 19;
 
 pub const IPV6_MULTICAST_IF_OPT: u32 = 17;
+
+// Linux control-message numbers the parser keys on (asm-generic /
+// in.h values; net.sla pins the SLA-facing names). std.os.linux
+// does not name SO_TIMESTAMP, so the literal is spelled out here.
 
 pub const cmsg_level_ip: i32 = 0; // IPPROTO_IP
 

@@ -166,6 +166,11 @@ pub fn mkdirPathWithMode(path: []const u8, mode: std.posix.mode_t) !void {
     }
 }
 
+/// One mkdir -p segment: create the directory, or accept an existing
+/// one only when it really is a directory. An existing non-directory
+/// reports PathAlreadyExists (final segment) or fails the next
+/// segment with NotDir; neither is a silent success.
+
 fn mkdirPOne(prefix: []const u8) !void {
     // Compared, not switched on: see the wasm error-set note at the
     // other lxMkdirat call site.
@@ -240,6 +245,18 @@ pub fn readIpv6SegmentsNative(raw: *const [16]u8) [8]u16 {
     }
     return segments;
 }
+
+// Unix domain socket support. Streams and listeners reuse the existing
+// tcp_stream / tcp_listener resource kinds so read/write/peek/shutdown/close
+// and accept all flow through the same sa_std_net_tcp_* paths.
+// ---- TLS/network fingerprint primitives (JA3 / JA4) ----
+//
+// SA programs building outbound-request fingerprints (mirroring Go's utls /
+// CLIProxyAPI / sub2api) need the hashing primitives that JA3 and JA4 are
+// defined in terms of: JA3 is md5(ja3_string); JA4's `b`/`c` segments are the
+// first 12 hex chars of sha256(sorted-comma-joined list). SA-ASM has no crypto,
+// so these are exposed here. They are pure functions over caller-provided bytes
+// — no sockets, no allocation beyond the caller's output buffer.
 
 pub fn writeHexLower(dst: []u8, bytes: []const u8) void {
     const hex = "0123456789abcdef";

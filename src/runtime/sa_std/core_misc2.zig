@@ -52,6 +52,10 @@ pub const SaPluginDescriptor = extern struct {
     name: [*:0]const u8,
 };
 
+// eflags slot value for regexec: restrict the search to the pmatch[0] range
+// while reporting absolute offsets. glibc assigns it the same numeric value
+// as the SA_REGEX_NEWLINE *cflag*; the two live in different parameters.
+
 pub const SaJsonToken = extern struct {
     kind: u32,
     text_ptr: ?[*]const u8,
@@ -103,12 +107,25 @@ pub fn pathBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
     return path;
 }
 
+// Parse one "::"-free half ("1:2:3" or trailing embedded IPv4) into out,
+// returning the group count. Used only on FreeBSD (see parseIpv6Freebsd).
+// Numeric IPv6 parser for FreeBSD: the old Ip6Address.resolve/parse and
+// Address.resolveIp all reach if_nametoindex (unimplemented for freebsd in
+// zig 0.14). Handles full, "::"-compressed and embedded-IPv4 forms.
+// "addr" or "addr%zone" (numeric zone, or interface name via libc
+// if_nametoindex which FreeBSD provides). Shared by parseIp6Address and
+// parseIpv6Ascii on FreeBSD.
+
 pub fn makeIpv4Membership(multicast_addr: NetAddress, interface_addr: NetAddress) IpMreqC {
     return .{
         .imr_multiaddr = .{ .s_addr = multicast_addr.in4AddrU32() },
         .imr_interface = .{ .s_addr = interface_addr.in4AddrU32() },
     };
 }
+
+/// Fixed UTC string forms for Date toString/toDateString/toTimeString/
+/// toUTCString (fmt 0..3), byte-exact with Node under UTC. Years use the
+/// same 4-digit zero pad as the ISO path (documented bound 0..9999).
 
 pub fn daysFromCivil(y_in: i64, m_in: i64, d: i64) i64 {
     const y: i64 = if (m_in <= 2) y_in - 1 else y_in;
@@ -119,6 +136,13 @@ pub fn daysFromCivil(y_in: i64, m_in: i64, d: i64) i64 {
     const doe: i64 = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy;
     return era * 146097 + doe - 719468;
 }
+
+// JS Date setters over i64 unix millis (field 0..6). Components apply
+// then normalize with floored divmod, so out-of-range values roll over
+// exactly like JS (setMonth(13), setDate(0), setHours(25), negatives).
+// Unknown field ids return the input unchanged (frontends only ever
+// send 0..6 via fixed table extras).
+// Compatibility shims for the rosetta demos that model host APIs directly.
 
 pub fn fd_open(path_ptr: ?[*]const u8) callconv(.c) i32 {
     _ = path_ptr;
@@ -159,6 +183,10 @@ pub fn dlsym(handle: ?[*]u8, symbol_ptr: ?[*]const u8) callconv(.c) ?[*]u8 {
     return compatibility_dlsym_cookie[0..].ptr;
 }
 
+/// mkdir -p (2026-10-26): create every missing directory along the
+/// path. Existing directories along the way (including the final
+/// segment) are success; the TS mkdirSync(recursive) counterpart.
+
 pub fn timespecFromUnixMs(unix_ms: i64) !Timespec {
     const sec = @divFloor(unix_ms, 1000);
     const rem_ms = @mod(unix_ms, 1000);
@@ -166,6 +194,11 @@ pub fn timespecFromUnixMs(unix_ms: i64) !Timespec {
     const nsec_value = std.math.cast(TimespecNsec, rem_ms * 1_000_000) orelse return error.InvalidArgument;
     return .{ .sec = sec_value, .nsec = nsec_value };
 }
+
+// JS `String.prototype.repeat`: `bytes` concatenated `count` times.
+// `count == 0` yields an empty handle; size overflow yields 0
+// (OOM-equivalent). Fresh buffer handle, concat read-back protocol.
+/// Shared pad filler: `pad` bytes tiled/truncated to exactly `fill` bytes.
 
 pub fn tilePad(owned: []u8, pad: []const u8) void {
     var i: usize = 0;
@@ -175,6 +208,10 @@ pub fn tilePad(owned: []u8, pad: []const u8) void {
         i += n;
     }
 }
+
+// Fill the caller buffer with bytes from the OS CSPRNG (the same source
+// behind cryptoRandomU64 and sa_deno_random_uuid). A zero length is a
+// no-op success, including with a null pointer.
 
 pub export fn sa_crypto_random_bytes(out_ptr: ?[*]u8, len: u64) i32 {
     if (len == 0) return finish(SA_STD_OK);

@@ -36,6 +36,12 @@ extern fn if_nametoindex(ifname: [*:0]const u8) c_uint;
 const sio = @import("../sa_std.zig").sio;
 const spawn = @import("../sa_std.zig").spawn;
 
+// --- Cross-platform compat: Linux-first, macOS via conditionals ---
+// waitid/pidfd flags are Linux-only; 0 elsewhere (pidfd path is Linux-only).
+// MSG_PEEK: std.posix.MSG is Linux-only in zig 0.14; Darwin value is 0x2.
+// TCP_NODELAY == 1 on Linux, macOS and FreeBSD. Spell it out: std.posix.TCP
+// is void on FreeBSD in zig 0.14, and std.os.linux.TCP.* are Linux values.
+
 pub const tcp_nodelay: u32 = 1;
 
 pub fn registerNetAddrList(host: []const u8, port: u16) !u64 {
@@ -115,6 +121,9 @@ pub fn getSocketOptLinger(fd: std.posix.fd_t) !LingerOption {
         else => return error.InvalidArgument,
     }
 }
+
+/// Extract the sender credential from a recvmsg control chain
+/// (SOL_SOCKET / SCM_CREDENTIALS), same walk as udp_recv_msg.
 
 pub fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
@@ -215,6 +224,10 @@ pub fn registerResource(resource: Resource) !u64 {
     defer sa_std.registry_mutex.unlock();
     return try registerResourceLocked(resource);
 }
+
+/// DEF-R5: snapshot a tcp_stream / udp_socket fd under the
+/// registry lock and drop the lock before any blocking syscall
+/// (see the IoPlan note above).
 
 pub fn tcpStreamFd(handle: u64) ?std.posix.fd_t {
     lockRegistry();

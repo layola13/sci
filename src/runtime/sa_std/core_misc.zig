@@ -54,6 +54,9 @@ pub fn addressSocketText(allocator: std.mem.Allocator, address: NetAddress) ![]u
     };
 }
 
+// Resolves the handle's slot under the registry lock for an in-place tree
+// mutation. The caller must hold no other registry acquisition.
+
 pub fn acquireJsonWriterForWrite(writer: u64) !*JsonWriterHandle {
     const resource = getResourceLocked(writer) orelse return error.InvalidHandle;
     const writer_handle = switch (resource.*) {
@@ -209,6 +212,21 @@ pub fn applyRawMode(term: *std.posix.termios) void {
     term.cc[@backingInt(std.posix.V.TIME)] = 0;
 }
 
+// DEF-R5: the registry mutex guards the handle table only; it
+// must never be held across a syscall that can block. The data
+// path classifies a handle under the lock, snapshots the OS fd
+// (or notes an in-memory kind), drops the lock, and only then
+// performs the blocking read/write -- the same snapshot pattern
+// sa_std_close and sa_std_net_tcp_accept already use in this
+// file. Before this split, one goroutine parked in a blocking
+// sa_std_read held the registry mutex for the whole wait, so
+// every other goroutine's net IO (and every other registry
+// user: poll_wait validation, writes, accepts, closes) stalled
+// or spun behind it: with >= 2 goroutines blocked in net reads
+// only the mutex holder was ever serviced, regardless of
+// carrier count (slaredis registration A). In-memory kinds
+// (.buffer/.process) never block and keep the locked path.
+
 pub fn lockRegistry() void {
     while (!sa_std.registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
@@ -224,6 +242,14 @@ pub fn udpSocketFd(handle: u64) ?std.posix.fd_t {
         else => null,
     };
 }
+
+// Read once from a handle without holding the registry mutex
+// across a blocking syscall (see the IoPlan note above).
+/// Write to a handle without holding the registry mutex across
+/// a blocking syscall. Per-kind semantics preserve the previous
+/// locked implementation: fd writes are a single write(2),
+/// while file writes write all bytes (sio.File.write is
+/// writeAll).
 
 fn statusFromTerm(term: sio.Child.Term) u32 {
     return switch (term) {
@@ -388,6 +414,10 @@ pub fn unicodeNormalizerForForm(form: i32) ?*anyopaque {
     return inst;
 }
 
+/// Shared civil split: i64 unix millis to (days since epoch, millis
+/// within day, Hinnant y/m/d, h/mi/s/ms). Negative inputs fold via
+/// floored division; field order matches the getters below.
+
 const CivilParts = struct {
     year: i64,
     month: i64,
@@ -433,6 +463,18 @@ pub fn signal(sig: i32, handler: ?[*]const u8) callconv(.c) i32 {
     return sig;
 }
 
+// md5 of the input, written as 32 lowercase hex chars into out (cap must be >= 32).
+// This is exactly the JA3 hash given a pre-built JA3 string.
+// sha256 of the input, written as 64 lowercase hex chars into out (cap must be >= 64).
+// JA4 truncated hash: first 12 lowercase hex chars of sha256(input). JA4's `b`
+// (cipher) and `c` (extension+sigalg) segments are defined as sha256 truncated
+// to 12 hex chars. An all-zero / empty input segment conventionally maps to the
+// literal "000000000000", which the caller can special-case; this returns the
+// real truncated digest.
+// HMAC-SHA-256 (RFC 2104, vectors in RFC 4231) of msg under key, written
+// as 64 lowercase hex chars into out (cap must be >= 64). Same status
+// model as sa_std_net_sha256_hex.
+
 pub export fn sa_hmac_sha256_hex(key_ptr: ?[*]const u8, key_len: u64, msg_ptr: ?[*]const u8, msg_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
     const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
     len_slot.* = 0;
@@ -446,6 +488,9 @@ pub export fn sa_hmac_sha256_hex(key_ptr: ?[*]const u8, key_len: u64, msg_ptr: ?
     len_slot.* = 64;
     return finish(SA_STD_OK);
 }
+
+// HMAC-SHA-1 (RFC 2104, vectors in RFC 2202) of msg under key, written
+// as 40 lowercase hex chars into out (cap must be >= 40).
 
 pub export fn sa_hmac_sha1_hex(key_ptr: ?[*]const u8, key_len: u64, msg_ptr: ?[*]const u8, msg_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
     const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);

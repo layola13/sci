@@ -62,6 +62,12 @@ pub const RegexHandle = struct {
     }
 };
 
+// Old std.posix.execvpeZ: exec with PATH search. Reimplemented on execve.
+// ---------------------------------------------------------------------------
+// 0.17 compat: socket addresses (old net Address type removed).
+// Raw sockaddr storage + constructors; DNS via std.Io.net.
+// ---------------------------------------------------------------------------
+
 pub const NetAddress = struct {
     storage: SockAddrStorageT = makeSockAddrStorage(),
     len: SockLenT = @sizeOf(SockAddrStorageT),
@@ -196,6 +202,19 @@ pub fn dlclose(handle: ?[*]u8) callconv(.c) i32 {
 
 pub const ProcessOutputStream = enum { stdout, stderr };
 
+// W1-DEF-IO-BUFFER-API: io buffers are registry handles, the same
+// BufferHandle resources sa_io_read_line registers and the
+// sa_fs_read_buffer_* family already serves. The old raw-pointer
+// form expected a *BufferHandle struct that no producer on this
+// surface ever hands out (read_line returns a handle), and free
+// ignored its argument entirely. All three now resolve the handle
+// through the registry, sharing the fs family's implementation.
+/// Atomic create-exclusive open (2026-10-26): read|write|create with
+/// O_EXCL merged through custom flags. An existing path fails with
+/// SA_STD_ERR_ALREADY_EXISTS (via error.PathAlreadyExists in mapError),
+/// which lock-file protocols need to tell "lost the race" apart from a
+/// generic IO failure.
+
 pub fn metadataModeMatches(handle: u64, mode_bits: u64) u8 {
     while (!sa_std.registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
@@ -207,6 +226,19 @@ pub fn metadataModeMatches(handle: u64, mode_bits: u64) u8 {
         else => 0,
     };
 }
+
+// Reverse DNS lookup (getnameinfo, NI_NAMEREQD) for a resolved address
+// handle produced by sa_std_net_to_socket_addr_list/_first or a stream's
+// peer/local addr. Output semantics mirror sa_std_net_hostname: call with
+// (null, 0, &len) to size the buffer; SA_STD_ERR_TRUNCATED when it does
+// not fit. SA_STD_ERR_IO when the address has no name (NXDOMAIN / no PTR).
+// Interest/readiness bits for sa_std_net_poll_wait. The interest
+// mask (input) and the readiness mask (output) share the read and
+// write bits; the error bit is readiness-only.
+/// Largest readiness set accepted by one sa_std_net_poll_wait call.
+/// Larger connection sets are served by waiting on slices of the
+/// set in rotation; the cap is loud (invalid argument), never a
+/// silent truncation.
 
 pub const poll_wait_stack_handles: usize = 256;
 

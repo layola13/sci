@@ -23,9 +23,18 @@ pub fn policyAllows(resource: sa_policy.Resource) bool {
 }
 
 
+// wasm32-wasi compat (stage1: archive must compile; sockets/process/dlopen
+// stubbed to UNSUPPORTED): SockAddrT/W/SIG are `void` on wasi, and
+// std.os.linux has no wasm syscalls. Provide minimal layout-compatible
+// aliases so signatures type-check; bodies return UNSUPPORTED via
+// `if (comptime is_wasm)` guards.
+
 pub const is_wasm = builtin.cpu.arch.isWasm();
 
 pub const is_linux = builtin.os.tag == .linux;
+
+// --- FreeBSD compat (zig 0.14 std leaves several POSIX surfaces
+// unimplemented for freebsd: uname, TCP consts, if_nametoindex) ---
 
 pub const fbsd_sys_nmln: usize = 256;
 
@@ -79,6 +88,12 @@ pub fn constBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
     return p[0..n];
 }
 
+// ---------------------------------------------------------------------------
+// 0.17 compat: linux-syscall wrappers (old std.posix throwing helpers removed)
+// and socket-address compat (old net Address type removed).
+// Verified against /opt/zig/.../lib/std/os/linux.zig + Io/net.zig via probes.
+// ---------------------------------------------------------------------------
+
 pub fn errnoToAny(e: anytype) anyerror {
     const n = @tagName(e);
     if (std.mem.eql(u8, n, "SUCCESS")) unreachable;
@@ -126,6 +141,8 @@ pub fn errnoToAny(e: anytype) anyerror {
     if (std.mem.eql(u8, n, "TXTBSY")) return error.FileBusy;
     return error.Unexpected;
 }
+
+// --- libc fallbacks (macOS/FreeBSD) ---------------------------------------
 
 pub const libc = struct {
     extern "c" fn socket(domain: c_int, socket_type: c_int, protocol: c_int) c_int;
