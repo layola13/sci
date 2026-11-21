@@ -19,23 +19,25 @@
 //! API does not become a padding oracle), 5 nomem, 9 truncated.
 //! Verification returns OK with out_valid = 0 on a mere mismatch.
 
+test "sa_crypto_asym_tests" { std.testing.refAllDecls(@import("sa_crypto_asym_test.zig")); }
+
 const std = @import("std");
-const sio = @import("sio");
+pub const sio = @import("sio");
 
-const OK: i32 = 0;
-const ERR_INVALID: i32 = 1;
-const ERR_NOT_FOUND: i32 = 3;
-const ERR_ACCESS: i32 = 4;
-const ERR_NOMEM: i32 = 5;
-const ERR_TRUNCATED: i32 = 9;
+pub const OK: i32 = 0;
+pub const ERR_INVALID: i32 = 1;
+pub const ERR_NOT_FOUND: i32 = 3;
+pub const ERR_ACCESS: i32 = 4;
+pub const ERR_NOMEM: i32 = 5;
+pub const ERR_TRUNCATED: i32 = 9;
 
-fn inSlice(ptr: ?[*]const u8, len: u64) ?[]const u8 {
+pub fn inSlice(ptr: ?[*]const u8, len: u64) ?[]const u8 {
     if (len == 0) return &.{};
     const p = ptr orelse return null;
     return p[0..@intCast(len)];
 }
 
-fn writeOut(out_ptr: ?[*]u8, cap: u64, out_len: ?*u64, data: []const u8) i32 {
+pub fn writeOut(out_ptr: ?[*]u8, cap: u64, out_len: ?*u64, data: []const u8) i32 {
     const ol = out_len orelse return ERR_INVALID;
     ol.* = @intCast(data.len);
     if (data.len > cap) return ERR_TRUNCATED;
@@ -50,13 +52,13 @@ fn writeOut(out_ptr: ?[*]u8, cap: u64, out_len: ?*u64, data: []const u8) i32 {
 // single-byte tags, definite lengths (short form and up to two
 // long-form bytes), no indefinite form (illegal in DER anyway).
 
-const Elem = struct {
+pub const Elem = struct {
     tag: u8,
     content: []const u8,
     full: []const u8,
 };
 
-fn readElem(bytes: []const u8, pos: *usize) error{Invalid}!Elem {
+pub fn readElem(bytes: []const u8, pos: *usize) error{Invalid}!Elem {
     if (pos.* + 2 > bytes.len) return error.Invalid;
     const start = pos.*;
     const tag = bytes[pos.*];
@@ -81,7 +83,7 @@ fn readElem(bytes: []const u8, pos: *usize) error{Invalid}!Elem {
 
 /// Parses `bytes` as exactly one element of the given tag spanning
 /// the whole input.
-fn topElem(bytes: []const u8, tag: u8) error{Invalid}!Elem {
+pub fn topElem(bytes: []const u8, tag: u8) error{Invalid}!Elem {
     var pos: usize = 0;
     const e = try readElem(bytes, &pos);
     if (e.tag != tag or pos != bytes.len) return error.Invalid;
@@ -89,7 +91,7 @@ fn topElem(bytes: []const u8, tag: u8) error{Invalid}!Elem {
 }
 
 /// A cursor over the children of a SEQUENCE's content.
-const Seq = struct {
+pub const Seq = struct {
     content: []const u8,
     pos: usize = 0,
 
@@ -106,7 +108,7 @@ const Seq = struct {
     }
 };
 
-fn seqOf(e: Elem) error{Invalid}!Seq {
+pub fn seqOf(e: Elem) error{Invalid}!Seq {
     if (e.tag != 0x30) return error.Invalid;
     return .{ .content = e.content };
 }
@@ -121,20 +123,20 @@ fn intMagnitude(e: Elem) error{Invalid}![]const u8 {
     return b;
 }
 
-const oid_rsa_encryption = [_]u8{ 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01 };
-const oid_ec_public_key = [_]u8{ 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01 };
+pub const oid_rsa_encryption = [_]u8{ 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01 };
+pub const oid_ec_public_key = [_]u8{ 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01 };
 const oid_p256 = [_]u8{ 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07 };
-const oid_ed25519 = [_]u8{ 0x2b, 0x65, 0x70 };
-const oid_rsa_pss = [_]u8{ 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0a };
-const oid_cn = [_]u8{ 0x55, 0x04, 0x03 };
+pub const oid_ed25519 = [_]u8{ 0x2b, 0x65, 0x70 };
+pub const oid_rsa_pss = [_]u8{ 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0a };
+pub const oid_cn = [_]u8{ 0x55, 0x04, 0x03 };
 
-fn oidIs(e: Elem, oid: []const u8) bool {
+pub fn oidIs(e: Elem, oid: []const u8) bool {
     return e.tag == 0x06 and std.mem.eql(u8, e.content, oid);
 }
 
 /// Parses an AlgorithmIdentifier SEQUENCE and returns its OID
 /// element; parameters (if any) are left unread.
-fn algOid(alg_seq: Elem) error{Invalid}!Elem {
+pub fn algOid(alg_seq: Elem) error{Invalid}!Elem {
     var s = try seqOf(alg_seq);
     const oid = try s.next();
     if (oid.tag != 0x06) return error.Invalid;
@@ -143,7 +145,7 @@ fn algOid(alg_seq: Elem) error{Invalid}!Elem {
 
 /// BIT STRING content octets (the leading unused-bits byte must
 /// be zero for key material).
-fn bitStringBytes(e: Elem) error{Invalid}![]const u8 {
+pub fn bitStringBytes(e: Elem) error{Invalid}![]const u8 {
     if (e.tag != 0x03 or e.content.len == 0) return error.Invalid;
     if (e.content[0] != 0) return error.Invalid;
     return e.content[1..];
@@ -156,7 +158,7 @@ const RsaPriv = struct { n: []const u8, d: []const u8 };
 
 /// Accepts SPKI (SubjectPublicKeyInfo) or a bare PKCS#1
 /// RSAPublicKey, auto-detected by the first child's tag.
-fn parseRsaPublic(der: []const u8) error{Invalid}!RsaPub {
+pub fn parseRsaPublic(der: []const u8) error{Invalid}!RsaPub {
     const outer = try topElem(der, 0x30);
     var s = try seqOf(outer);
     const first_tag = try s.peekTag();
@@ -176,7 +178,7 @@ fn parseRsaPublic(der: []const u8) error{Invalid}!RsaPub {
 
 /// Accepts PKCS#8 PrivateKeyInfo or a bare PKCS#1 RSAPrivateKey,
 /// auto-detected by the second child's tag.
-fn parseRsaPrivate(der: []const u8) error{Invalid}!RsaPriv {
+pub fn parseRsaPrivate(der: []const u8) error{Invalid}!RsaPriv {
     const outer = try topElem(der, 0x30);
     var s = try seqOf(outer);
     _ = try s.next(); // version INTEGER in both shapes
@@ -196,9 +198,9 @@ fn parseRsaPrivate(der: []const u8) error{Invalid}!RsaPriv {
     return .{ .n = try intMagnitude(n_e), .d = try intMagnitude(d_e) };
 }
 
-const Managed = std.math.big.int.Managed;
+pub const Managed = std.math.big.int.Managed;
 
-fn bigFromBytes(a: std.mem.Allocator, bytes: []const u8) !Managed {
+pub fn bigFromBytes(a: std.mem.Allocator, bytes: []const u8) !Managed {
     var b = bytes;
     while (b.len > 1 and b[0] == 0) b = b[1..];
     if (b.len == 0 or (b.len == 1 and b[0] == 0)) return Managed.initSet(a, @as(u32, 0));
@@ -215,11 +217,11 @@ fn bigFromBytes(a: std.mem.Allocator, bytes: []const u8) !Managed {
     return v;
 }
 
-fn bigByteLen(v: *const Managed) usize {
+pub fn bigByteLen(v: *const Managed) usize {
     return (v.bitCountAbs() + 7) / 8;
 }
 
-fn modOf(a: std.mem.Allocator, x: *const Managed, n: *const Managed) !Managed {
+pub fn modOf(a: std.mem.Allocator, x: *const Managed, n: *const Managed) !Managed {
     var q = try Managed.init(a);
     defer q.deinit();
     var r = try Managed.init(a);
@@ -228,7 +230,7 @@ fn modOf(a: std.mem.Allocator, x: *const Managed, n: *const Managed) !Managed {
     return r;
 }
 
-fn mulMod(a: std.mem.Allocator, x: *const Managed, y: *const Managed, n: *const Managed) !Managed {
+pub fn mulMod(a: std.mem.Allocator, x: *const Managed, y: *const Managed, n: *const Managed) !Managed {
     var t = try Managed.init(a);
     defer t.deinit();
     try t.mul(x, y);
@@ -238,7 +240,7 @@ fn mulMod(a: std.mem.Allocator, x: *const Managed, y: *const Managed, n: *const 
 /// base^exp mod n, exp as big-endian bytes, left-to-right
 /// square-and-multiply. All allocations come from the caller's
 /// arena, so intermediate values are intentionally not freed.
-fn modExp(a: std.mem.Allocator, base: *const Managed, exp_bytes: []const u8, n: *const Managed) !Managed {
+pub fn modExp(a: std.mem.Allocator, base: *const Managed, exp_bytes: []const u8, n: *const Managed) !Managed {
     // Callers guarantee n is a real RSA modulus (hundreds of bits);
     // result starts at 1 and the first mulMod reduces it.
     var result = try Managed.initSet(a, @as(u32, 1));
@@ -429,7 +431,7 @@ fn derLenBytes(len: usize, out: *[3]u8) []const u8 {
     }
 }
 
-fn appendTlv(list: *std.ArrayList(u8), a: std.mem.Allocator, tag: u8, content: []const u8) !void {
+pub fn appendTlv(list: *std.ArrayList(u8), a: std.mem.Allocator, tag: u8, content: []const u8) !void {
     try list.append(a, tag);
     var lb: [3]u8 = undefined;
     try list.appendSlice(a, derLenBytes(content.len, &lb));
@@ -438,15 +440,7 @@ fn appendTlv(list: *std.ArrayList(u8), a: std.mem.Allocator, tag: u8, content: [
 
 /// DER INTEGER content for an unsigned magnitude (sign pad added
 /// when the top bit is set, leading zeros stripped).
-fn derIntContent(a: std.mem.Allocator, mag: []const u8) ![]u8 {
-    var b = mag;
-    while (b.len > 1 and b[0] == 0) b = b[1..];
-    const pad: usize = if (b.len > 0 and b[0] & 0x80 != 0) 1 else 0;
-    const out = try a.alloc(u8, b.len + pad);
-    if (pad == 1) out[0] = 0;
-    @memcpy(out[pad..], b);
-    return out;
-}
+pub const derIntContent = @import("sa_crypto_asym_keygen.zig").derIntContent;
 
 pub export fn sa_rsa_jwk_to_spki(n_ptr: ?[*]const u8, n_len: u64, e_ptr: ?[*]const u8, e_len: u64, out_ptr: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
     const n_b64 = inSlice(n_ptr, n_len) orelse return ERR_INVALID;
@@ -515,257 +509,40 @@ pub export fn sa_rsa_jwk_to_spki(n_ptr: ?[*]const u8, n_len: u64, e_ptr: ?[*]con
 // padding) from an SPKI or bare PKCS#1 public key, so a generated
 // (or imported) public key can be published as a JWK.
 
-fn nibbleValue(c: u8) u8 {
-    return switch (c) {
-        '0'...'9' => c - '0',
-        'a'...'f' => c - 'a' + 10,
-        'A'...'F' => c - 'A' + 10,
-        else => 0,
-    };
-}
+pub const nibbleValue = @import("sa_crypto_asym_keygen.zig").nibbleValue;
 
 /// Big-endian magnitude bytes of a non-negative Managed (the
 /// inverse of bigFromBytes).
-fn bigToBytes(a: std.mem.Allocator, v: *const Managed) ![]u8 {
-    const nbytes = bigByteLen(v);
-    const out = try a.alloc(u8, nbytes);
-    if (nbytes == 0) return out;
-    @memset(out, 0);
-    const hex = try v.toString(a, 16, .lower);
-    defer a.free(hex);
-    var oi: usize = nbytes;
-    var hi: usize = hex.len;
-    while (hi > 0) {
-        const lo = nibbleValue(hex[hi - 1]);
-        const hi_n: u8 = if (hi >= 2) nibbleValue(hex[hi - 2]) else 0;
-        oi -= 1;
-        out[oi] = (hi_n << 4) | lo;
-        if (hi >= 2) {
-            hi -= 2;
-        } else {
-            hi = 0;
-        }
-    }
-    return out;
-}
+pub const bigToBytes = @import("sa_crypto_asym_keygen.zig").bigToBytes;
 
-const small_primes = [_]u32{
-    3,  5,  7,  11, 13, 17, 19, 23, 29, 31,  37,  41,  43,  47,  53,
-    59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127,
-    131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193,
-    197, 199, 211, 223, 227, 229, 233, 239, 241, 251,
-};
+pub const small_primes = @import("sa_crypto_asym_keygen.zig").small_primes;
 
 /// x^{-1} mod m for gcd(x, m) == 1 and m > 1 (extended Eucldiean;
 /// the result is reduced into [0, m)).
-fn modInverse(a: std.mem.Allocator, x: *const Managed, m: *const Managed) !Managed {
-    var old_r = try x.clone();
-    var r = try m.clone();
-    var old_s = try Managed.initSet(a, @as(u32, 1));
-    var s = try Managed.initSet(a, @as(u32, 0));
-    while (!r.eqlZero()) {
-        var q = try Managed.init(a);
-        var rem = try Managed.init(a);
-        try Managed.divFloor(&q, &rem, &old_r, &r);
-        var qs = try Managed.init(a);
-        try qs.mul(&q, &s);
-        var ns = try Managed.init(a);
-        try ns.sub(&old_s, &qs);
-        old_s = s;
-        s = ns;
-        old_r = r;
-        r = rem;
-    }
-    return modOf(a, &old_s, m);
-}
+pub const modInverse = @import("sa_crypto_asym_keygen.zig").modInverse;
 
 /// Miller-Rabin probable-prime test: trial division by the
 /// primes < 256, then 12 random bases. n must be odd and > 2.
 /// Randomness comes from the OS CSPRNG through the runtime's io
 /// layer (the same source as sa_crypto_random_bytes).
-fn isProbablePrime(a: std.mem.Allocator, n: *const Managed) !bool {
-    var two = try Managed.initSet(a, @as(u32, 2));
-    _ = &two;
-    for (small_primes) |p| {
-        var pm = try Managed.initSet(a, p);
-        var q = try Managed.init(a);
-        var r = try Managed.init(a);
-        try Managed.divFloor(&q, &r, n, &pm);
-        if (r.eqlZero()) {
-            var nv = try n.clone();
-            return nv.eql(pm);
-        }
-    }
-    // n - 1 = 2^s * d with d odd.
-    var one = try Managed.initSet(a, @as(u32, 1));
-    var nm1 = try Managed.init(a);
-    try nm1.sub(n, &one);
-    var d = try nm1.clone();
-    var s: usize = 0;
-    while (d.isEven()) {
-        var nd = try Managed.init(a);
-        try nd.shiftRight(&d, 1);
-        d = nd;
-        s += 1;
-    }
-    const d_bytes = try bigToBytes(a, &d);
-    const nbytes = bigByteLen(n);
-    const draw = try a.alloc(u8, nbytes);
-    var nm3 = try Managed.init(a);
-    var three = try Managed.initSet(a, @as(u32, 3));
-    _ = &three;
-    try nm3.sub(n, &three);
-    var rounds: usize = 0;
-    while (rounds < 12) : (rounds += 1) {
-        sio.io().random(draw);
-        const draw_big = try bigFromBytes(a, draw);
-        var base = try modOf(a, &draw_big, &nm3);
-        try base.add(&base, &two);
-        var x = try modExp(a, &base, d_bytes, n);
-        if (x.eql(one) or x.eql(nm1)) continue;
-        var passed = false;
-        var i: usize = 1;
-        while (i < s) : (i += 1) {
-            x = try mulMod(a, &x, &x, n);
-            if (x.eql(nm1)) {
-                passed = true;
-                break;
-            }
-        }
-        if (!passed) return false;
-    }
-    return true;
-}
+pub const isProbablePrime = @import("sa_crypto_asym_keygen.zig").isProbablePrime;
 
 /// A random prime of exactly half_bits bits (top two bits set,
 /// which also biases the p*q product toward the full length;
 /// the caller still checks the product's bit length exactly).
-fn genPrime(a: std.mem.Allocator, half_bits: usize) !Managed {
-    const nbytes = half_bits / 8;
-    const buf = try a.alloc(u8, nbytes);
-    while (true) {
-        sio.io().random(buf);
-        buf[0] |= 0xc0;
-        buf[nbytes - 1] |= 1;
-        const cand = try bigFromBytes(a, buf);
-        if (try isProbablePrime(a, &cand)) return cand;
-    }
-}
+pub const genPrime = @import("sa_crypto_asym_keygen.zig").genPrime;
 
-const GeneratedKeypair = struct { spki: []u8, pkcs8: []u8 };
+pub const GeneratedKeypair = @import("sa_crypto_asym_keygen.zig").GeneratedKeypair;
 
-fn derInt(a: std.mem.Allocator, mag: []const u8) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    try appendTlv(&out, a, 0x02, try derIntContent(a, mag));
-    return out.items;
-}
+pub const derInt = @import("sa_crypto_asym_keygen.zig").derInt;
 
-fn derSeq(a: std.mem.Allocator, content: []const u8) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    try appendTlv(&out, a, 0x30, content);
-    return out.items;
-}
+pub const derSeq = @import("sa_crypto_asym_keygen.zig").derSeq;
 
-fn rsaAlgIdSeq(a: std.mem.Allocator) ![]u8 {
-    var alg: std.ArrayList(u8) = .empty;
-    try appendTlv(&alg, a, 0x06, &oid_rsa_encryption);
-    try appendTlv(&alg, a, 0x05, &.{});
-    return derSeq(a, alg.items);
-}
+pub const rsaAlgIdSeq = @import("sa_crypto_asym_keygen.zig").rsaAlgIdSeq;
 
-fn generateRsaKeypair(a: std.mem.Allocator, bits: u32) !GeneratedKeypair {
-    const half: usize = @intCast(bits / 2);
-    var e = try Managed.initSet(a, @as(u32, 65537));
-    var one = try Managed.initSet(a, @as(u32, 1));
-    while (true) {
-        const p = try genPrime(a, half);
-        const q = try genPrime(a, @as(usize, @intCast(bits)) - half);
-        if (p.eql(q)) continue;
-        var n = try Managed.init(a);
-        try n.mul(&p, &q);
-        if (n.bitCountAbs() != @as(usize, @intCast(bits))) continue;
-        var pm1 = try Managed.init(a);
-        try pm1.sub(&p, &one);
-        var qm1 = try Managed.init(a);
-        try qm1.sub(&q, &one);
-        var g = try Managed.init(a);
-        try Managed.gcd(&g, &pm1, &qm1);
-        var lam_quot = try Managed.init(a);
-        var lam_rem = try Managed.init(a);
-        try Managed.divFloor(&lam_quot, &lam_rem, &pm1, &g);
-        var lam = try Managed.init(a);
-        try lam.mul(&lam_quot, &qm1);
-        var ge = try Managed.init(a);
-        try Managed.gcd(&ge, &e, &lam);
-        if (!ge.eql(one)) continue;
-        const d = try modInverse(a, &e, &lam);
-        var dp = try modOf(a, &d, &pm1);
-        var dq = try modOf(a, &d, &qm1);
-        const qinv = try modInverse(a, &q, &p);
+pub const generateRsaKeypair = @import("sa_crypto_asym_keygen.zig").generateRsaKeypair;
 
-        const n_b = try bigToBytes(a, &n);
-        const e_b = try bigToBytes(a, &e);
-        const d_b = try bigToBytes(a, &d);
-        const p_b = try bigToBytes(a, &p);
-        const q_b = try bigToBytes(a, &q);
-        const dp_b = try bigToBytes(a, &dp);
-        const dq_b = try bigToBytes(a, &dq);
-        const qinv_b = try bigToBytes(a, &qinv);
-        const ver_tlv = try derInt(a, &.{0});
-
-        // PKCS#1 RSAPrivateKey ::= SEQ { 0, n, e, d, p, q, dp, dq, qinv }
-        var priv_body: std.ArrayList(u8) = .empty;
-        try priv_body.appendSlice(a, ver_tlv);
-        for ([_][]const u8{ n_b, e_b, d_b, p_b, q_b, dp_b, dq_b, qinv_b }) |part| {
-            try priv_body.appendSlice(a, try derInt(a, part));
-        }
-        const pkcs1 = try derSeq(a, priv_body.items);
-
-        const alg_seq = try rsaAlgIdSeq(a);
-
-        // PKCS#8 PrivateKeyInfo ::= SEQ { 0, algId, OCTET STRING(pkcs1) }
-        var p8_body: std.ArrayList(u8) = .empty;
-        try p8_body.appendSlice(a, ver_tlv);
-        try p8_body.appendSlice(a, alg_seq);
-        try appendTlv(&p8_body, a, 0x04, pkcs1);
-        const pkcs8 = try derSeq(a, p8_body.items);
-
-        // SPKI ::= SEQ { algId, BIT STRING(0x00 || SEQ { n, e }) }
-        var pub_body: std.ArrayList(u8) = .empty;
-        try pub_body.appendSlice(a, try derInt(a, n_b));
-        try pub_body.appendSlice(a, try derInt(a, e_b));
-        const pkcs1_pub = try derSeq(a, pub_body.items);
-        var bits_content = try a.alloc(u8, pkcs1_pub.len + 1);
-        bits_content[0] = 0;
-        @memcpy(bits_content[1..], pkcs1_pub);
-        var spki_body: std.ArrayList(u8) = .empty;
-        try spki_body.appendSlice(a, alg_seq);
-        try appendTlv(&spki_body, a, 0x03, bits_content);
-        const spki = try derSeq(a, spki_body.items);
-
-        return .{ .spki = spki, .pkcs8 = pkcs8 };
-    }
-}
-
-pub export fn sa_rsa_generate_keypair(bits: u32, pub_ptr: ?[*]u8, pub_cap: u64, pub_len: ?*u64, priv_ptr: ?[*]u8, priv_cap: u64, priv_len: ?*u64) i32 {
-    const pl = pub_len orelse return ERR_INVALID;
-    const ql = priv_len orelse return ERR_INVALID;
-    pl.* = 0;
-    ql.* = 0;
-    if (bits < 1024 or bits > 4096 or bits % 2 != 0) return ERR_INVALID;
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const kp = generateRsaKeypair(a, bits) catch return ERR_NOMEM;
-    pl.* = @intCast(kp.spki.len);
-    ql.* = @intCast(kp.pkcs8.len);
-    if (kp.spki.len > pub_cap or kp.pkcs8.len > priv_cap) return ERR_TRUNCATED;
-    const po = pub_ptr orelse return ERR_INVALID;
-    const qo = priv_ptr orelse return ERR_INVALID;
-    @memcpy(po[0..kp.spki.len], kp.spki);
-    @memcpy(qo[0..kp.pkcs8.len], kp.pkcs8);
-    return OK;
-}
+pub const sa_rsa_generate_keypair = @import("sa_crypto_asym_keygen.zig").sa_rsa_generate_keypair;
 
 pub export fn sa_rsa_spki_to_jwk(der_ptr: ?[*]const u8, der_len: u64, out_ptr: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
     const der = inSlice(der_ptr, der_len) orelse return ERR_INVALID;
@@ -867,586 +644,38 @@ pub export fn sa_ecdsa_signature_raw_to_der(raw_ptr: ?[*]const u8, out_ptr: ?[*]
 
 // ---------------- PEM ----------------
 
-pub export fn sa_pem_decode(pem_ptr: ?[*]const u8, pem_len: u64, label_ptr: ?[*]const u8, label_len: u64, out_ptr: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
-    const pem = inSlice(pem_ptr, pem_len) orelse return ERR_INVALID;
-    const label = inSlice(label_ptr, label_len) orelse return ERR_INVALID;
-    if (label.len == 0) return ERR_INVALID;
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const begin = std.fmt.allocPrint(a, "-----BEGIN {s}-----", .{label}) catch return ERR_NOMEM;
-    const endmark = std.fmt.allocPrint(a, "-----END {s}-----", .{label}) catch return ERR_NOMEM;
-    const bidx = std.mem.indexOf(u8, pem, begin) orelse return ERR_NOT_FOUND;
-    const body_start = bidx + begin.len;
-    const eidx = std.mem.indexOfPos(u8, pem, body_start, endmark) orelse return ERR_INVALID;
-    const body = pem[body_start..eidx];
-    // Keep only base64-alphabet lines; this also skips RFC 1421
-    // header lines (they contain ':' / ',' / spaces).
-    var b64: std.ArrayList(u8) = .empty;
-    var lines = std.mem.splitScalar(u8, body, '\n');
-    while (lines.next()) |line| {
-        const t = std.mem.trim(u8, line, " \t\r");
-        if (t.len == 0) continue;
-        var pure = true;
-        for (t) |c| {
-            const okc = (c >= 'A' and c <= 'Z') or (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '+' or c == '/' or c == '=';
-            if (!okc) {
-                pure = false;
-                break;
-            }
-        }
-        if (pure) b64.appendSlice(a, t) catch return ERR_NOMEM;
-    }
-    if (b64.items.len == 0) return ERR_INVALID;
-    const dec = std.base64.standard.Decoder;
-    const need = dec.calcSizeForSlice(b64.items) catch return ERR_INVALID;
-    const buf = a.alloc(u8, need) catch return ERR_NOMEM;
-    dec.decode(buf, b64.items) catch return ERR_INVALID;
-    return writeOut(out_ptr, cap, out_len, buf);
-}
+pub const sa_pem_decode = @import("sa_crypto_asym_x509.zig").sa_pem_decode;
 
 // ---------------- x509 minimal reader ----------------
 
 /// Walks a certificate to its TBSCertificate children and returns
 /// the elements this face exposes. Uses my own DER walk for the
 /// structural fields (SPKI / subject / validity raw elements).
-fn certParts(der: []const u8) error{Invalid}!struct {
-    subject: Elem,
-    spki: Elem,
-    validity: Elem,
-} {
-    const outer = try topElem(der, 0x30);
-    var s = try seqOf(outer);
-    const tbs = try s.next();
-    var t = try seqOf(tbs);
-    if ((try t.peekTag()) == 0xa0) _ = try t.next(); // [0] version
-    _ = try t.next(); // serial
-    _ = try t.next(); // signature algorithm
-    _ = try t.next(); // issuer
-    const validity = try t.next();
-    const subject = try t.next();
-    const spki = try t.next();
-    return .{ .subject = subject, .spki = spki, .validity = validity };
-}
+pub const certParts = @import("sa_crypto_asym_x509.zig").certParts;
 
-pub export fn sa_x509_spki(cert_ptr: ?[*]const u8, cert_len: u64, out_ptr: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
-    const cert = inSlice(cert_ptr, cert_len) orelse return ERR_INVALID;
-    const parts = certParts(cert) catch return ERR_INVALID;
-    return writeOut(out_ptr, cap, out_len, parts.spki.full);
-}
+pub const sa_x509_spki = @import("sa_crypto_asym_x509.zig").sa_x509_spki;
 
-pub export fn sa_x509_subject(cert_ptr: ?[*]const u8, cert_len: u64, out_ptr: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
-    const cert = inSlice(cert_ptr, cert_len) orelse return ERR_INVALID;
-    const parts = certParts(cert) catch return ERR_INVALID;
-    return writeOut(out_ptr, cap, out_len, parts.subject.full);
-}
+pub const sa_x509_subject = @import("sa_crypto_asym_x509.zig").sa_x509_subject;
 
-pub export fn sa_x509_subject_cn(cert_ptr: ?[*]const u8, cert_len: u64, out_ptr: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
-    const cert = inSlice(cert_ptr, cert_len) orelse return ERR_INVALID;
-    const parts = certParts(cert) catch return ERR_INVALID;
-    var rdns = seqOf(parts.subject) catch return ERR_INVALID;
-    while (!rdns.done()) {
-        const rdn = rdns.next() catch return ERR_INVALID;
-        if (rdn.tag != 0x31) return ERR_INVALID;
-        var atvs = Seq{ .content = rdn.content };
-        while (!atvs.done()) {
-            const atv = atvs.next() catch return ERR_INVALID;
-            var pair = seqOf(atv) catch return ERR_INVALID;
-            const oid = pair.next() catch return ERR_INVALID;
-            const val = pair.next() catch return ERR_INVALID;
-            if (oidIs(oid, &oid_cn)) {
-                // UTF8String / PrintableString / IA5String / T61 are
-                // byte-compatible for CN display purposes.
-                if (val.tag != 0x0c and val.tag != 0x13 and val.tag != 0x16 and val.tag != 0x14) return ERR_INVALID;
-                return writeOut(out_ptr, cap, out_len, val.content);
-            }
-        }
-    }
-    const ol = out_len orelse return ERR_INVALID;
-    ol.* = 0;
-    return ERR_NOT_FOUND;
-}
+pub const sa_x509_subject_cn = @import("sa_crypto_asym_x509.zig").sa_x509_subject_cn;
 
-pub export fn sa_x509_public_key(cert_ptr: ?[*]const u8, cert_len: u64, out_ptr: ?[*]u8, cap: u64, out_len: ?*u64, out_algo: ?*u32) i32 {
-    const cert = inSlice(cert_ptr, cert_len) orelse return ERR_INVALID;
-    const oa = out_algo orelse return ERR_INVALID;
-    // Walk the certificate with this module's own bounds-checked DER
-    // reader (the same machinery as the sibling x509 faces).
-    // std.crypto.Certificate.parse is not truncation-safe: its
-    // element reader indexes the buffer without a bounds check and
-    // panics on short or malformed input, which would crash the host
-    // on untrusted certificates. Every step here instead fails with
-    // error.Invalid, mapped to ERR_INVALID.
-    const parts = certParts(cert) catch return ERR_INVALID;
-    var s = seqOf(parts.spki) catch return ERR_INVALID;
-    const alg = s.next() catch return ERR_INVALID;
-    const oid = algOid(alg) catch return ERR_INVALID;
-    const bits = s.next() catch return ERR_INVALID;
-    const key = bitStringBytes(bits) catch return ERR_INVALID;
-    oa.* = if (oidIs(oid, &oid_rsa_encryption))
-        1
-    else if (oidIs(oid, &oid_ec_public_key))
-        2
-    else if (oidIs(oid, &oid_ed25519))
-        3
-    else if (oidIs(oid, &oid_rsa_pss))
-        4
-    else
-        return ERR_INVALID;
-    return writeOut(out_ptr, cap, out_len, key);
-}
+pub const sa_x509_public_key = @import("sa_crypto_asym_x509.zig").sa_x509_public_key;
 
 /// Days from civil (Howard Hinnant's algorithm), proleptic
 /// Gregorian calendar.
-fn daysFromCivil(y0: i64, m: u64, d: u64) i64 {
-    var y = y0;
-    if (m <= 2) y -= 1;
-    const era: i64 = if (y >= 0) @divFloor(y, 400) else -@divFloor(-y + 399, 400);
-    const yoe: u64 = @intCast(y - era * 400);
-    const mp: u64 = if (m > 2) m - 3 else m + 9;
-    const doy: u64 = (153 * mp + 2) / 5 + d - 1;
-    const doe: u64 = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    return era * 146097 + @as(i64, @intCast(doe)) - 719468;
-}
+pub const daysFromCivil = @import("sa_crypto_asym_x509.zig").daysFromCivil;
 
-fn parseUint(b: []const u8) ?u64 {
-    var v: u64 = 0;
-    for (b) |c| {
-        if (c < '0' or c > '9') return null;
-        v = v * 10 + (c - '0');
-    }
-    return v;
-}
+pub const parseUint = @import("sa_crypto_asym_x509.zig").parseUint;
 
 /// Parses a DER Time element (UTCTime YYMMDDHHMMSSZ or
 /// GeneralizedTime YYYYMMDDHHMMSSZ, Zulu only per RFC 5280) to
 /// unix seconds.
-fn parseDerTime(e: Elem) error{Invalid}!i64 {
-    const b = e.content;
-    var year: i64 = undefined;
-    var rest: []const u8 = undefined;
-    if (e.tag == 0x17) {
-        if (b.len != 13 or b[12] != 'Z') return error.Invalid;
-        const yy = parseUint(b[0..2]) orelse return error.Invalid;
-        year = if (yy < 50) 2000 + @as(i64, @intCast(yy)) else 1900 + @as(i64, @intCast(yy));
-        rest = b[2..12];
-    } else if (e.tag == 0x18) {
-        if (b.len != 15 or b[14] != 'Z') return error.Invalid;
-        year = @intCast(parseUint(b[0..4]) orelse return error.Invalid);
-        rest = b[4..14];
-    } else return error.Invalid;
-    const mo = parseUint(rest[0..2]) orelse return error.Invalid;
-    const dy = parseUint(rest[2..4]) orelse return error.Invalid;
-    const hh = parseUint(rest[4..6]) orelse return error.Invalid;
-    const mi = parseUint(rest[6..8]) orelse return error.Invalid;
-    const ss = parseUint(rest[8..10]) orelse return error.Invalid;
-    if (mo < 1 or mo > 12 or dy < 1 or dy > 31 or hh > 23 or mi > 59 or ss > 60) return error.Invalid;
-    const days = daysFromCivil(year, mo, dy);
-    return days * 86400 + @as(i64, @intCast(hh * 3600 + mi * 60 + ss));
-}
+pub const parseDerTime = @import("sa_crypto_asym_x509.zig").parseDerTime;
 
-pub export fn sa_x509_validity(cert_ptr: ?[*]const u8, cert_len: u64, out_not_before: ?*i64, out_not_after: ?*i64) i32 {
-    const cert = inSlice(cert_ptr, cert_len) orelse return ERR_INVALID;
-    const nb = out_not_before orelse return ERR_INVALID;
-    const na = out_not_after orelse return ERR_INVALID;
-    const parts = certParts(cert) catch return ERR_INVALID;
-    var v = seqOf(parts.validity) catch return ERR_INVALID;
-    const e_nb = v.next() catch return ERR_INVALID;
-    const e_na = v.next() catch return ERR_INVALID;
-    nb.* = parseDerTime(e_nb) catch return ERR_INVALID;
-    na.* = parseDerTime(e_na) catch return ERR_INVALID;
-    return OK;
-}
+pub const sa_x509_validity = @import("sa_crypto_asym_x509.zig").sa_x509_validity;
 
 // ---------------- tests (fixtures generated with openssl 3.0.13; see FINDINGS) ----------------
 
-fn unhex(comptime s: []const u8) [s.len / 2]u8 {
-    // The embedded openssl fixtures run to ~800 bytes; the default
-    // comptime branch quota (1000) is far below the decode loop cost.
-    @setEvalBranchQuota(100_000);
-    var out: [s.len / 2]u8 = undefined;
-    _ = std.fmt.hexToBytes(&out, s) catch unreachable;
-    return out;
-}
+pub const unhex = @import("sa_crypto_asym_x509.zig").unhex;
 
-test "der: ecdsa signature raw<->der conversions" {
-    // r = 1, s = 2 -> DER 30 06 02 01 01 02 01 02
-    var raw: [64]u8 = @splat(0);
-    raw[31] = 1;
-    raw[63] = 2;
-    var buf: [72]u8 = undefined;
-    var len: u64 = 0;
-    try std.testing.expectEqual(OK, sa_ecdsa_signature_raw_to_der(&raw, &buf, buf.len, &len));
-    try std.testing.expectEqualSlices(u8, &unhex("3006020101020102"), buf[0..@intCast(len)]);
-    var back: [64]u8 = undefined;
-    try std.testing.expectEqual(OK, sa_ecdsa_signature_der_to_raw(&buf, len, &back));
-    try std.testing.expectEqualSlices(u8, &raw, &back);
-    // high-bit r needs the 0x00 sign pad in DER
-    raw[0] = 0x80;
-    try std.testing.expectEqual(OK, sa_ecdsa_signature_raw_to_der(&raw, &buf, buf.len, &len));
-    try std.testing.expectEqual(OK, sa_ecdsa_signature_der_to_raw(&buf, len, &back));
-    try std.testing.expectEqualSlices(u8, &raw, &back);
-}
-
-test "der: ecdsa raw_to_der rejects a zero r or s instead of panicking" {
-    // Regression: std's Signature.toDer panics on a zero integer
-    // component (empty trimmed slice, index 0). The face must reject
-    // zero components with ERR_INVALID; the wrap_crypto_smoke corpus
-    // test feeds an all-zero raw signature here.
-    var raw: [64]u8 = @splat(0);
-    var buf: [72]u8 = undefined;
-    var len: u64 = 0;
-    try std.testing.expectEqual(ERR_INVALID, sa_ecdsa_signature_raw_to_der(&raw, &buf, buf.len, &len));
-    raw[63] = 2; // r = 0, s = 2
-    try std.testing.expectEqual(ERR_INVALID, sa_ecdsa_signature_raw_to_der(&raw, &buf, buf.len, &len));
-    raw[31] = 1;
-    raw[63] = 0; // r = 1, s = 0
-    try std.testing.expectEqual(ERR_INVALID, sa_ecdsa_signature_raw_to_der(&raw, &buf, buf.len, &len));
-}
-
-test "jwk: tiny RSA key encodes to the hand-computed SPKI" {
-    // n = 0xa1b2 (b64url "obI"), e = 65537 (b64url "AQAB").
-    var buf: [256]u8 = undefined;
-    var len: u64 = 0;
-    try std.testing.expectEqual(OK, sa_rsa_jwk_to_spki("obI".ptr, 3, "AQAB".ptr, 4, &buf, buf.len, &len));
-    const expect = unhex("301e300d06092a864886f70d0101010500030d00300a020300a1b20203010001");
-    try std.testing.expectEqualSlices(u8, &expect, buf[0..@intCast(len)]);
-    // and the produced SPKI parses back through the RSA path
-    const pk = try parseRsaPublic(buf[0..@intCast(len)]);
-    try std.testing.expectEqualSlices(u8, &unhex("a1b2"), pk.n);
-    try std.testing.expectEqualSlices(u8, &unhex("010001"), pk.e);
-}
-
-test "pem: decode a labelled block, reject a missing label" {
-    const pem =
-        \\-----BEGIN DEMO-----
-        \\aGVsbG8=
-        \\-----END DEMO-----
-        \\
-    ;
-    var buf: [64]u8 = undefined;
-    var len: u64 = 0;
-    try std.testing.expectEqual(OK, sa_pem_decode(pem.ptr, pem.len, "DEMO".ptr, 4, &buf, buf.len, &len));
-    try std.testing.expectEqualSlices(u8, "hello", buf[0..@intCast(len)]);
-    try std.testing.expectEqual(ERR_NOT_FOUND, sa_pem_decode(pem.ptr, pem.len, "OTHER".ptr, 5, &buf, buf.len, &len));
-}
-
-test "der time: UTCTime windowing and GeneralizedTime" {
-    var pos: usize = 0;
-    const e1 = try readElem(&unhex("170d3235303130313030303030305a"), &pos); // 250101000000Z
-    try std.testing.expectEqual(@as(i64, 1735689600), try parseDerTime(e1)); // 2025-01-01T00:00:00Z
-    pos = 0;
-    const e2 = try readElem(&unhex("180f32303330303130313030303030305a"), &pos); // 20300101000000Z
-    try std.testing.expectEqual(@as(i64, 1893456000), try parseDerTime(e2)); // 2030-01-01T00:00:00Z
-}
-
-// ----------------------------------------------------------------------
-// OpenSSL-generated fixtures (openssl 3.0.13 on the build box;
-// commands in std-crypto-local/gen_fixtures.sh, hex extracted
-// programmatically by gen_fixture_tests.py -- never hand-copied).
-// RSA key is 1024-bit purely to keep the embedded fixtures small;
-// the implementation itself is size-agnostic up to 4096-bit moduli.
-// ----------------------------------------------------------------------
-
-const fx_rsa_spki = unhex("30819f300d06092a864886f70d010101050003818d0030818902818100bf696ddd3e292b483bd0b89843cf292dda843c" ++
-    "3df05f3fd9616241d5e9b9c5e9b5f47cfb47ac6f0fa7527524a6e30deba89ef84639c20ae19d24d052be59397920d66f" ++
-    "47b7edd3e82c384b74a984104052e124a958f8c13fa490cd444cfb917712da4c610747f222d3c482b0cfe47a398569ac" ++
-    "ca17170d5c37af3587d6e3e1730203010001");
-const fx_rsa_pkcs8 = unhex("30820275020100300d06092a864886f70d01010105000482025f3082025b02010002818100bf696ddd3e292b483bd0b8" ++
-    "9843cf292dda843c3df05f3fd9616241d5e9b9c5e9b5f47cfb47ac6f0fa7527524a6e30deba89ef84639c20ae19d24d0" ++
-    "52be59397920d66f47b7edd3e82c384b74a984104052e124a958f8c13fa490cd444cfb917712da4c610747f222d3c482" ++
-    "b0cfe47a398569acca17170d5c37af3587d6e3e17302030100010281800ec81080e65cfd87ad7ed7d282620c170b69ec" ++
-    "d107b003594128fa568f9f16068f539b173898bb56e51ffc05e1916530ceabc016843d54e3c963df66946685868fef1e" ++
-    "7971062c9829846be99854220ef35fdd2eb5bbefded81d0569b1bcbb4ed82d231b8feda75a3ce557075b81ff48e06cce" ++
-    "5793d90c90794f7400be8687a9024100ddf4410bb84d48368a393818f13255469c5b1901d4cc3875e98cc749ee7cfa3b" ++
-    "040b5e248b6b0c7a533f7edba4b6b2ce98cbec24f89ec5b7a3799e0a7e37109d024100dcc5d561e9162b91c28ad07ca3" ++
-    "23875379c86ec48e1b27605e002705e4f90cb5a275f0e1bc7f341132302404ca655459154d08b4ca44aa19f0055ed3aa" ++
-    "26754f024059094cb698de57a3995b4ec7a2aa204f4d15b63867d6eca750632ae6db86c312bd9299d76b1e2c493deff0" ++
-    "c1c7978aaf19d8640888bb98710c611326fe6eb479023f5c4653e99882abb3409cc48753a885e75dff684cbf189a5cac" ++
-    "ed6362135204fde5e965c4f40436bef93b25d2dac57f7bbc6b76381a5298c63e8c001678079b024100a8775184bbaad5" ++
-    "5a63c53f0d5e9563f34dcdfb9b5f03f5b1a1ad076bef1aa89656511913556f76a26ffaeacb5f317025ee8435aa27ffb5" ++
-    "0daec328d5250834b6");
-const fx_rsa_pkcs1pub = unhex("30818902818100bf696ddd3e292b483bd0b89843cf292dda843c3df05f3fd9616241d5e9b9c5e9b5f47cfb47ac6f0fa7" ++
-    "527524a6e30deba89ef84639c20ae19d24d052be59397920d66f47b7edd3e82c384b74a984104052e124a958f8c13fa4" ++
-    "90cd444cfb917712da4c610747f222d3c482b0cfe47a398569acca17170d5c37af3587d6e3e1730203010001");
-const fx_rsa_pkcs1priv = unhex("3082025b02010002818100bf696ddd3e292b483bd0b89843cf292dda843c3df05f3fd9616241d5e9b9c5e9b5f47cfb47" ++
-    "ac6f0fa7527524a6e30deba89ef84639c20ae19d24d052be59397920d66f47b7edd3e82c384b74a984104052e124a958" ++
-    "f8c13fa490cd444cfb917712da4c610747f222d3c482b0cfe47a398569acca17170d5c37af3587d6e3e1730203010001" ++
-    "0281800ec81080e65cfd87ad7ed7d282620c170b69ecd107b003594128fa568f9f16068f539b173898bb56e51ffc05e1" ++
-    "916530ceabc016843d54e3c963df66946685868fef1e7971062c9829846be99854220ef35fdd2eb5bbefded81d0569b1" ++
-    "bcbb4ed82d231b8feda75a3ce557075b81ff48e06cce5793d90c90794f7400be8687a9024100ddf4410bb84d48368a39" ++
-    "3818f13255469c5b1901d4cc3875e98cc749ee7cfa3b040b5e248b6b0c7a533f7edba4b6b2ce98cbec24f89ec5b7a379" ++
-    "9e0a7e37109d024100dcc5d561e9162b91c28ad07ca323875379c86ec48e1b27605e002705e4f90cb5a275f0e1bc7f34" ++
-    "1132302404ca655459154d08b4ca44aa19f0055ed3aa26754f024059094cb698de57a3995b4ec7a2aa204f4d15b63867" ++
-    "d6eca750632ae6db86c312bd9299d76b1e2c493deff0c1c7978aaf19d8640888bb98710c611326fe6eb479023f5c4653" ++
-    "e99882abb3409cc48753a885e75dff684cbf189a5caced6362135204fde5e965c4f40436bef93b25d2dac57f7bbc6b76" ++
-    "381a5298c63e8c001678079b024100a8775184bbaad55a63c53f0d5e9563f34dcdfb9b5f03f5b1a1ad076bef1aa89656" ++
-    "511913556f76a26ffaeacb5f317025ee8435aa27ffb50daec328d5250834b6");
-const fx_rsa_digest = unhex("a8b88e533d8f58e2b54d28eac1181f1fb63304fabd9dd9831769d4b87fe2b322");
-const fx_rsa_sig = unhex("6c45cac9aeeb06afcb676618346751b71e1d5f61c6f79743288779ae5eb2a3dac15e53ef660d7d9c3caec682c8e03b8a" ++
-    "1d3479a4104b9c5480cce84fe9fabcbd10574fa5d698bc9b8924d3c9430616571213056b67fcac522d9bf9768776aa65" ++
-    "5cb6b308e59f571bc70b70ca7c3be278ec5c82cc070fe950e8e3541343e0377b");
-const fx_oaep_ct = unhex("8f53efcb3c96b1c2a1ca23d84262de43d8d35ab6136314a3494c3b6b44bfa5c08f31f81453b03ad05b967136ded11a4e" ++
-    "7ea270e2cfec2fec5951cdc0b9af42ad7b4671797b7f37b06fd036cf9fdf5edc9b4b5e1c5efc63d90f7756c606ac5354" ++
-    "4103208c63a77a9a970279763b69946b513595f4544580596f476452c84912cb");
-const fx_ec_spki = unhex("3059301306072a8648ce3d020106082a8648ce3d03010703420004bdfbaf7067a81e6274248c69606a1d9d1600f750e0" ++
-    "1adb87f5416b06d000964d186a2d85a05cd3064f3553852bf632376793edf95da86b9d71005b4b779f4834");
-const fx_ec_sig_der = unhex("3045022100d89a5137688fc12293614562b627cb3337a3a549bdd7fe2fe4e82ba6153d77db0220569a17acf530e1bb97" ++
-    "96ca3a5e21d6ea3f60f04765aeb4ef0da846d090f7ef30");
-const fx_ed_spki = unhex("302a300506032b6570032100e893cea28a8043061591421231f1691ef282a78d1638e9e3adcb3e1cd2f127b8");
-const fx_ed_pkcs8 = unhex("302e020100300506032b65700422042075132bca70a5cb5d16e190aa1e8a4437268a275771e9ed8c6f13976de51ee757");
-const fx_ed_sig = unhex("d615eaf2c975c9e3cdd2e9a62d432a2c4f8e917ed4ea5c5cb7911264d458cb238bb2a7f33ffb38fdc2e5cbc9b9f96d96" ++
-    "b8b8de33871411012a05e8204f23fe03");
-const fx_ec_pub_bits = unhex("04bdfbaf7067a81e6274248c69606a1d9d1600f750e01adb87f5416b06d000964d186a2d85a05cd3064f3553852bf632" ++
-    "376793edf95da86b9d71005b4b779f4834");
-const fx_ed_pk = unhex("e893cea28a8043061591421231f1691ef282a78d1638e9e3adcb3e1cd2f127b8");
-const fx_ec_cert = unhex("308201873082012da00302010202146159dc1d16a0d5e0b02beac3ece410ff28ab9fbf300a06082a8648ce3d04030230" ++
-    "193117301506035504030c0e65632d6b61742e6578616d706c65301e170d3236313032383133303831345a170d333631" ++
-    "3032353133303831345a30193117301506035504030c0e65632d6b61742e6578616d706c653059301306072a8648ce3d" ++
-    "020106082a8648ce3d03010703420004bdfbaf7067a81e6274248c69606a1d9d1600f750e01adb87f5416b06d000964d" ++
-    "186a2d85a05cd3064f3553852bf632376793edf95da86b9d71005b4b779f4834a3533051301d0603551d0e0416041410" ++
-    "e76a863f9f35d2f31100d8a0a20def19dbb47c301f0603551d2304183016801410e76a863f9f35d2f31100d8a0a20def" ++
-    "19dbb47c300f0603551d130101ff040530030101ff300a06082a8648ce3d040302034800304502210097ca25c4937e95" ++
-    "b8dc562101490529107469a9ddde7ce363ed09e6f7c79d6c8f022050fa709f23223e29c7a8a8adee5791d08f4f18b335" ++
-    "d2adf9f847ee745adf927d");
-const fx_rsa_cert = unhex("30820315308201fda003020102021410fd196c19062cd60368508dd5f2fc8218e3e59c300d06092a864886f70d01010b" ++
-    "0500301a3118301606035504030c0f7273612d6b61742e6578616d706c65301e170d3236313032383133303831345a17" ++
-    "0d3336313032353133303831345a301a3118301606035504030c0f7273612d6b61742e6578616d706c6530820122300d" ++
-    "06092a864886f70d01010105000382010f003082010a02820101009c243b8b72b1103880033eab3e70c5343526a92cd3" ++
-    "2661361be434856e4fb8cd8934cb8ba8ef33f24d4c9b329805855bcc516e3d1def8936e237cf9a8a9b18244163c21944" ++
-    "f577a286692ecbdf03352a8af9009f7fdd897ebb21add5f7a0fe7e9477a7e78ca1ac149b99458061983d0cbf5098f622" ++
-    "450756c56b511e4a52cb18a829cac987ed4793d7286c33ea750705cb999c4d14c41fc376a1acc9731f1d3c7f193d1720" ++
-    "db27c3ae7ec39a9ceb13b3647268dca2656b3bdea1f4db519a38a72db01416a4e8a9ef55c1d00c944b73e9696b80b4b5" ++
-    "527e5d1984fefcd0a122b2fe7cba68607052ab200806fed53cbc39bc5d87f0aefe598f4e9f10a8f989a2790203010001" ++
-    "a3533051301d0603551d0e04160414b06c215fbbe3652d96ee9ee27d1b9ee5743de4e4301f0603551d23041830168014" ++
-    "b06c215fbbe3652d96ee9ee27d1b9ee5743de4e4300f0603551d130101ff040530030101ff300d06092a864886f70d01" ++
-    "010b05000382010100091736be6291c4160169162c9bf60370dfac425bf89af5a2e97302c7c8dc87b4886f2c319f25bd" ++
-    "6ad9e35820a8d4b634e04d572fa1e11d5e48e8a7008b319b6f1162e166162d339136ecdbe787ce59c6afe45cf47a79f5" ++
-    "c681f04a89442ef50bc932b3df5981902316de8b4cbf67f24f551962dde276211434459c4b9d63bf9516480cb30540c6" ++
-    "35adf7c7ca3c541fb0cd403016e517159c0461b074a2511e69df3500b147d12511017d5d475a5d0bf89784bbb3ae99a8" ++
-    "d36bbea538f5a7652991098ed0f22d6c24ba0b25328a11434531533b4f32ec14761ab3bb0feaa6b6e4c15ecddf505244" ++
-    "705e0db45bab33959ad7125faf24b1ab9d4aeada53731f469d");
-const fx_ed_cert = unhex("308201463081f9a00302010202144baef5afa9ae92499951a1877af35a21ba75da1c300506032b657030193117301506" ++
-    "035504030c0e65642d6b61742e6578616d706c65301e170d3236313032383133303831345a170d333631303235313330" ++
-    "3831345a30193117301506035504030c0e65642d6b61742e6578616d706c65302a300506032b6570032100e893cea28a" ++
-    "8043061591421231f1691ef282a78d1638e9e3adcb3e1cd2f127b8a3533051301d0603551d0e04160414f6341accca2a" ++
-    "16626cc3e8a8caa543ab78766f1c301f0603551d23041830168014f6341accca2a16626cc3e8a8caa543ab78766f1c30" ++
-    "0f0603551d130101ff040530030101ff300506032b6570034100239ea66297970abbadda363bdd6a1597b855d20fefdd" ++
-    "a20be6a5ab4f5660a1cadf8657bc014a76281474790e9e3f166a0ba4d74b289b57eba975a0fb6c3a7401");
-const fx_jwk_n = "v2lt3T4pK0g70LiYQ88pLdqEPD3wXz_ZYWJB1em5xem19Hz7R6xvD6dSdSSm4w3rqJ74RjnCCuGdJNBSvlk5eSDWb0e37dPoLDhLdKmEEEBS4SSpWPjBP6SQzURM-5F3EtpMYQdH8iLTxIKwz-R6OYVprMoXFw1cN681h9bj4XM";
-
-test "openssl fixtures: RSA PKCS#1 v1.5 verify and sign agree byte-for-byte" {
-    var valid: u32 = 0;
-    // verify under both public key forms
-    try std.testing.expectEqual(OK, sa_rsa_pkcs1_verify(&fx_rsa_spki, fx_rsa_spki.len, 0, &fx_rsa_digest, fx_rsa_digest.len, &fx_rsa_sig, fx_rsa_sig.len, &valid));
-    try std.testing.expectEqual(@as(u32, 1), valid);
-    try std.testing.expectEqual(OK, sa_rsa_pkcs1_verify(&fx_rsa_pkcs1pub, fx_rsa_pkcs1pub.len, 0, &fx_rsa_digest, fx_rsa_digest.len, &fx_rsa_sig, fx_rsa_sig.len, &valid));
-    try std.testing.expectEqual(@as(u32, 1), valid);
-    // tampered signature and wrong digest are "invalid", not errors
-    var bad_sig = fx_rsa_sig;
-    bad_sig[10] ^= 0x40;
-    try std.testing.expectEqual(OK, sa_rsa_pkcs1_verify(&fx_rsa_spki, fx_rsa_spki.len, 0, &fx_rsa_digest, fx_rsa_digest.len, &bad_sig, bad_sig.len, &valid));
-    try std.testing.expectEqual(@as(u32, 0), valid);
-    var bad_digest = fx_rsa_digest;
-    bad_digest[0] ^= 0x01;
-    try std.testing.expectEqual(OK, sa_rsa_pkcs1_verify(&fx_rsa_spki, fx_rsa_spki.len, 0, &bad_digest, bad_digest.len, &fx_rsa_sig, fx_rsa_sig.len, &valid));
-    try std.testing.expectEqual(@as(u32, 0), valid);
-    // PKCS#1 v1.5 signing is deterministic: output must equal
-    // openssl's signature bytes exactly, under both private key forms.
-    var out_sig: [256]u8 = undefined;
-    var out_len: usize = 0;
-    try std.testing.expectEqual(OK, sa_rsa_pkcs1_sign(&fx_rsa_pkcs8, fx_rsa_pkcs8.len, 0, &fx_rsa_digest, fx_rsa_digest.len, &out_sig, out_sig.len, &out_len));
-    try std.testing.expectEqual(@as(usize, 128), out_len);
-    try std.testing.expectEqualSlices(u8, &fx_rsa_sig, out_sig[0..out_len]);
-    try std.testing.expectEqual(OK, sa_rsa_pkcs1_sign(&fx_rsa_pkcs1priv, fx_rsa_pkcs1priv.len, 0, &fx_rsa_digest, fx_rsa_digest.len, &out_sig, out_sig.len, &out_len));
-    try std.testing.expectEqualSlices(u8, &fx_rsa_sig, out_sig[0..out_len]);
-    // JWK (n, e) import reconstructs the identical SPKI
-    var jwk_spki: [256]u8 = undefined;
-    var jwk_len: usize = 0;
-    try std.testing.expectEqual(OK, sa_rsa_jwk_to_spki(fx_jwk_n.ptr, fx_jwk_n.len, "AQAB", 4, &jwk_spki, jwk_spki.len, &jwk_len));
-    try std.testing.expectEqualSlices(u8, &fx_rsa_spki, jwk_spki[0..jwk_len]);
-}
-
-test "openssl fixtures: RSA OAEP-SHA256 decrypt" {
-    var pt: [64]u8 = undefined;
-    var pt_len: usize = 0;
-    try std.testing.expectEqual(OK, sa_rsa_oaep_sha256_decrypt(&fx_rsa_pkcs8, fx_rsa_pkcs8.len, null, 0, &fx_oaep_ct, fx_oaep_ct.len, &pt, pt.len, &pt_len));
-    try std.testing.expectEqualStrings("hello oaep", pt[0..pt_len]);
-    try std.testing.expectEqual(OK, sa_rsa_oaep_sha256_decrypt(&fx_rsa_pkcs1priv, fx_rsa_pkcs1priv.len, null, 0, &fx_oaep_ct, fx_oaep_ct.len, &pt, pt.len, &pt_len));
-    try std.testing.expectEqualStrings("hello oaep", pt[0..pt_len]);
-    // tampered ciphertext: the single opaque ERR_ACCESS, never an oracle
-    var bad = fx_oaep_ct;
-    bad[100] ^= 0x01;
-    try std.testing.expectEqual(ERR_ACCESS, sa_rsa_oaep_sha256_decrypt(&fx_rsa_pkcs8, fx_rsa_pkcs8.len, null, 0, &bad, bad.len, &pt, pt.len, &pt_len));
-    // undersized output buffer reports the required size first
-    try std.testing.expectEqual(ERR_TRUNCATED, sa_rsa_oaep_sha256_decrypt(&fx_rsa_pkcs8, fx_rsa_pkcs8.len, null, 0, &fx_oaep_ct, fx_oaep_ct.len, &pt, 4, &pt_len));
-    try std.testing.expectEqual(@as(usize, 10), pt_len);
-}
-
-
-test "openssl fixtures: ECDSA P-256 SPKI import and DER signature interop" {
-    const expect_xy = unhex("bdfbaf7067a81e6274248c69606a1d9d1600f750e01adb87f5416b06d000964d" ++ "186a2d85a05cd3064f3553852bf632376793edf95da86b9d71005b4b779f4834");
-    var xy: [64]u8 = undefined;
-    try std.testing.expectEqual(OK, sa_ecdsa_p256_public_key_from_spki(&fx_ec_spki, fx_ec_spki.len, &xy));
-    try std.testing.expectEqualSlices(u8, &expect_xy, &xy);
-    // openssl's DER signature over SHA-256("sample") converts to the
-    // exact raw pair, converts back byte-identically, and verifies
-    // through the sa_crypto.zig face.
-    const expect_raw = unhex("d89a5137688fc12293614562b627cb3337a3a549bdd7fe2fe4e82ba6153d77db" ++ "569a17acf530e1bb9796ca3a5e21d6ea3f60f04765aeb4ef0da846d090f7ef30");
-    var raw: [64]u8 = undefined;
-    try std.testing.expectEqual(OK, sa_ecdsa_signature_der_to_raw(&fx_ec_sig_der, fx_ec_sig_der.len, &raw));
-    try std.testing.expectEqualSlices(u8, &expect_raw, &raw);
-    var der: [72]u8 = undefined;
-    var der_len: usize = 0;
-    try std.testing.expectEqual(OK, sa_ecdsa_signature_raw_to_der(&raw, &der, der.len, &der_len));
-    try std.testing.expectEqualSlices(u8, &fx_ec_sig_der, der[0..der_len]);
-    var valid: u32 = 0;
-    try std.testing.expectEqual(OK, @import("sa_crypto.zig").sa_ecdsa_p256_verify(&xy, "sample", 6, &raw, &valid));
-    try std.testing.expectEqual(@as(u32, 1), valid);
-}
-
-test "openssl fixtures: Ed25519 PKCS8/SPKI import and signature verify" {
-    var seed: [32]u8 = undefined;
-    try std.testing.expectEqual(OK, sa_ed25519_seed_from_pkcs8(&fx_ed_pkcs8, fx_ed_pkcs8.len, &seed));
-    try std.testing.expectEqualSlices(u8, &unhex("75132bca70a5cb5d16e190aa1e8a4437268a275771e9ed8c6f13976de51ee757"), &seed);
-    var pk: [32]u8 = undefined;
-    try std.testing.expectEqual(OK, sa_ed25519_public_key_from_spki(&fx_ed_spki, fx_ed_spki.len, &pk));
-    try std.testing.expectEqualSlices(u8, &unhex("e893cea28a8043061591421231f1691ef282a78d1638e9e3adcb3e1cd2f127b8"), &pk);
-    var valid: u32 = 0;
-    try std.testing.expectEqual(OK, @import("sa_crypto.zig").sa_ed25519_verify(&pk, "sa jwt ed", 9, &fx_ed_sig, &valid));
-    try std.testing.expectEqual(@as(u32, 1), valid);
-    try std.testing.expectEqual(OK, @import("sa_crypto.zig").sa_ed25519_verify(&pk, "sa jwt eD", 9, &fx_ed_sig, &valid));
-    try std.testing.expectEqual(@as(u32, 0), valid);
-}
-
-
-test "openssl fixtures: x509 minimal surface on EC, RSA and Ed25519 certs" {
-    var buf: [1200]u8 = undefined;
-    var n: usize = 0;
-    // SPKI extraction agrees with the standalone SPKI openssl emitted
-    try std.testing.expectEqual(OK, sa_x509_spki(&fx_ec_cert, fx_ec_cert.len, &buf, buf.len, &n));
-    try std.testing.expectEqualSlices(u8, &fx_ec_spki, buf[0..n]);
-    var algo: u32 = 0;
-    var pkbuf: [1200]u8 = undefined;
-    var pklen: usize = 0;
-    // sa_x509_public_key returns the subjectPublicKey BIT STRING
-    // contents (not the full SPKI): EC -> 0x04||x||y, Ed25519 -> the
-    // raw 32-byte key, RSA -> the PKCS#1 RSAPublicKey DER.
-    try std.testing.expectEqual(OK, sa_x509_public_key(&fx_ec_cert, fx_ec_cert.len, &pkbuf, pkbuf.len, &pklen, &algo));
-    try std.testing.expectEqual(@as(u32, 2), algo); // EC
-    try std.testing.expectEqualSlices(u8, &fx_ec_pub_bits, pkbuf[0..pklen]);
-    try std.testing.expectEqual(OK, sa_x509_public_key(&fx_rsa_cert, fx_rsa_cert.len, &pkbuf, pkbuf.len, &pklen, &algo));
-    try std.testing.expectEqual(@as(u32, 1), algo); // RSA
-    try std.testing.expect(pklen > 200 and pkbuf[0] == 0x30);
-    try std.testing.expectEqual(OK, sa_x509_public_key(&fx_ed_cert, fx_ed_cert.len, &pkbuf, pkbuf.len, &pklen, &algo));
-    try std.testing.expectEqual(@as(u32, 3), algo); // Ed25519
-    try std.testing.expectEqualSlices(u8, &fx_ed_pk, pkbuf[0..pklen]);
-    // subject / CN
-    var subj: [256]u8 = undefined;
-    var subj_len: usize = 0;
-    try std.testing.expectEqual(OK, sa_x509_subject(&fx_ec_cert, fx_ec_cert.len, &subj, subj.len, &subj_len));
-    try std.testing.expect(std.mem.indexOf(u8, subj[0..subj_len], "ec-kat.example") != null);
-    var cn: [128]u8 = undefined;
-    var cn_len: usize = 0;
-    try std.testing.expectEqual(OK, sa_x509_subject_cn(&fx_ec_cert, fx_ec_cert.len, &cn, cn.len, &cn_len));
-    try std.testing.expectEqualStrings("ec-kat.example", cn[0..cn_len]);
-    try std.testing.expectEqual(OK, sa_x509_subject_cn(&fx_rsa_cert, fx_rsa_cert.len, &cn, cn.len, &cn_len));
-    try std.testing.expectEqualStrings("rsa-kat.example", cn[0..cn_len]);
-    try std.testing.expectEqual(OK, sa_x509_subject_cn(&fx_ed_cert, fx_ed_cert.len, &cn, cn.len, &cn_len));
-    try std.testing.expectEqualStrings("ed-kat.example", cn[0..cn_len]);
-    // validity: openssl x509 -text reported
-    //   notBefore Oct 28 12:58:38 2026 GMT, notAfter Oct 25 12:58:38 2036 GMT
-    var nb: i64 = 0;
-    var na: i64 = 0;
-    try std.testing.expectEqual(OK, sa_x509_validity(&fx_ec_cert, fx_ec_cert.len, &nb, &na));
-    try std.testing.expectEqual(@as(i64, 1793192894), nb);
-    try std.testing.expectEqual(@as(i64, 2108552894), na);
-}
-
-test "x509 public_key: garbage and truncated certs are rejected, not panics" {
-    // Regression: this face used to delegate to
-    // std.crypto.Certificate.parse, whose element reader indexes the
-    // buffer without a bounds check and panics on truncated input
-    // (the wrap_crypto_smoke corpus test feeds the 5-byte "hello").
-    // Every strict prefix of a valid cert must fail with ERR_INVALID,
-    // because the outer SEQUENCE length never matches a prefix.
-    var pkbuf: [1200]u8 = undefined;
-    var pklen: usize = 0;
-    var algo: u32 = 0;
-    try std.testing.expectEqual(ERR_INVALID, sa_x509_public_key("hello", 5, &pkbuf, pkbuf.len, &pklen, &algo));
-    const cuts = [_]usize{ 0, 1, 2, 5, fx_ec_cert.len / 3, fx_ec_cert.len / 2, fx_ec_cert.len - 1 };
-    for (cuts) |cut| {
-        try std.testing.expectEqual(ERR_INVALID, sa_x509_public_key(&fx_ec_cert, cut, &pkbuf, pkbuf.len, &pklen, &algo));
-    }
-    // Same length, wrong outer tag.
-    var corrupt = fx_ec_cert;
-    corrupt[0] = 0x31;
-    try std.testing.expectEqual(ERR_INVALID, sa_x509_public_key(&corrupt, corrupt.len, &pkbuf, pkbuf.len, &pklen, &algo));
-}
-
-test "rsa generate: keypair mints, JWK round-trips, sign/verify agree" {
-    var pub_buf: [4096]u8 = undefined;
-    var priv_buf: [4096]u8 = undefined;
-    var pub_len: u64 = 0;
-    var priv_len: u64 = 0;
-    try std.testing.expectEqual(OK, sa_rsa_generate_keypair(1024, &pub_buf, pub_buf.len, &pub_len, &priv_buf, priv_buf.len, &priv_len));
-    try std.testing.expect(pub_len > 100 and pub_len < 512);
-    try std.testing.expect(priv_len > 500 and priv_len < 2048);
-    // The generated halves parse with the module's own readers and
-    // the modulus has exactly the requested size.
-    const pub_parsed = try parseRsaPublic(pub_buf[0..@intCast(pub_len)]);
-    try std.testing.expectEqual(@as(usize, 128), pub_parsed.n.len);
-    const priv_parsed = try parseRsaPrivate(priv_buf[0..@intCast(priv_len)]);
-    try std.testing.expectEqualSlices(u8, pub_parsed.n, priv_parsed.n);
-    // JWK export: e is 65537 ("AQAB"), n is 171 base64url chars at
-    // 1024 bits, and jwk_to_spki rebuilds the identical SPKI.
-    var jwk_buf: [4096]u8 = undefined;
-    var jwk_len: u64 = 0;
-    try std.testing.expectEqual(OK, sa_rsa_spki_to_jwk(&pub_buf, @intCast(pub_len), &jwk_buf, jwk_buf.len, &jwk_len));
-    const jwk = jwk_buf[0..@intCast(jwk_len)];
-    try std.testing.expect(std.mem.startsWith(u8, jwk, "{\"kty\":\"RSA\",\"n\":\""));
-    try std.testing.expect(std.mem.endsWith(u8, jwk, "\",\"e\":\"AQAB\"}"));
-    // Extract the n value between the fixed prefix and suffix.
-    const n_b64 = jwk["{\"kty\":\"RSA\",\"n\":\"".len .. jwk.len - "\",\"e\":\"AQAB\"}".len];
-    try std.testing.expectEqual(@as(usize, 171), n_b64.len);
-    var spki2: [4096]u8 = undefined;
-    var spki2_len: u64 = 0;
-    try std.testing.expectEqual(OK, sa_rsa_jwk_to_spki(n_b64.ptr, n_b64.len, "AQAB".ptr, 4, &spki2, spki2.len, &spki2_len));
-    try std.testing.expectEqualSlices(u8, pub_buf[0..@intCast(pub_len)], spki2[0..@intCast(spki2_len)]);
-    // Sign with the generated PKCS#8, verify against both SPKIs.
-    const digest = unhex("a8b88e533d8f58e2b54d28eac1181f1fb63304fabd9dd9831769d4b87fe2b322");
-    var sig: [512]u8 = undefined;
-    var sig_len: u64 = 0;
-    try std.testing.expectEqual(OK, sa_rsa_pkcs1_sign(&priv_buf, @intCast(priv_len), 0, &digest, digest.len, &sig, sig.len, &sig_len));
-    try std.testing.expectEqual(@as(u64, 128), sig_len);
-    var valid: u32 = 0;
-    try std.testing.expectEqual(OK, sa_rsa_pkcs1_verify(&pub_buf, @intCast(pub_len), 0, &digest, digest.len, &sig, @intCast(sig_len), &valid));
-    try std.testing.expectEqual(@as(u32, 1), valid);
-    // OAEP: the generated private key must also decrypt -- encrypt
-    // a fixture block externally-shaped via the public op is not
-    // available in-module, so assert the decrypt of a tampered
-    // block fails with the single access status (never a crash).
-    var pt: [256]u8 = undefined;
-    var pt_len: u64 = 0;
-    var ct = sig;
-    ct[0] ^= 0xff;
-    try std.testing.expectEqual(ERR_ACCESS, sa_rsa_oaep_sha256_decrypt(&priv_buf, @intCast(priv_len), null, 0, &ct, @intCast(sig_len), &pt, pt.len, &pt_len));
-}
-
-test "rsa generate: argument discipline" {
-    var pub_buf: [4096]u8 = undefined;
-    var priv_buf: [4096]u8 = undefined;
-    var pub_len: u64 = 0;
-    var priv_len: u64 = 0;
-    try std.testing.expectEqual(ERR_INVALID, sa_rsa_generate_keypair(512, &pub_buf, pub_buf.len, &pub_len, &priv_buf, priv_buf.len, &priv_len));
-    try std.testing.expectEqual(ERR_INVALID, sa_rsa_generate_keypair(1023, &pub_buf, pub_buf.len, &pub_len, &priv_buf, priv_buf.len, &priv_len));
-    try std.testing.expectEqual(ERR_INVALID, sa_rsa_generate_keypair(8192, &pub_buf, pub_buf.len, &pub_len, &priv_buf, priv_buf.len, &priv_len));
-    // Truncation: status 9, both needed sizes still reported.
-    try std.testing.expectEqual(ERR_TRUNCATED, sa_rsa_generate_keypair(1024, &pub_buf, 16, &pub_len, &priv_buf, priv_buf.len, &priv_len));
-    try std.testing.expect(pub_len > 100 and priv_len > 500);
-    // JWK export rejects non-RSA DER (the Ed25519 SPKI fixture).
-    var jwk_buf: [512]u8 = undefined;
-    var jwk_len: u64 = 0;
-    try std.testing.expectEqual(ERR_INVALID, sa_rsa_spki_to_jwk(&fx_ed_spki, fx_ed_spki.len, &jwk_buf, jwk_buf.len, &jwk_len));
-}
 

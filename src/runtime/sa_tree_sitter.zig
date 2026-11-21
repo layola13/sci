@@ -21,6 +21,9 @@
 //! self-contained. Freeing a tree invalidates its node handles.
 //! Status codes mirror sa_std.zig.
 
+
+test "sa_tree_sitter_tests" { std.testing.refAllDecls(@import("sa_tree_sitter_test.zig")); }
+
 const std = @import("std");
 const builtin = @import("builtin");
 const sio = @import("sio");

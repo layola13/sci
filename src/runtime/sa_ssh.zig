@@ -20,27 +20,29 @@
 //! Status codes mirror sa_std.zig (0 ok, 1 invalid, 2 bad handle,
 //! 3 not found, 4 access, 5 no memory, 6 io, 7 net, 8 unsupported).
 
+test "sa_ssh_tests" { std.testing.refAllDecls(@import("sa_ssh_test.zig")); }
+
 const std = @import("std");
 const builtin = @import("builtin");
-const sio = @import("sio");
+pub const sio = @import("sio");
 
-const OK: i32 = 0;
-const ERR_INVALID: i32 = 1;
-const ERR_HANDLE: i32 = 2;
+pub const OK: i32 = 0;
+pub const ERR_INVALID: i32 = 1;
+pub const ERR_HANDLE: i32 = 2;
 const ERR_ACCESS: i32 = 4;
-const ERR_NOMEM: i32 = 5;
-const ERR_IO: i32 = 6;
-const ERR_NET: i32 = 7;
-const ERR_UNSUPPORTED: i32 = 8;
+pub const ERR_NOMEM: i32 = 5;
+pub const ERR_IO: i32 = 6;
+pub const ERR_NET: i32 = 7;
+pub const ERR_UNSUPPORTED: i32 = 8;
 
-const ALLOC = std.heap.page_allocator;
+pub const ALLOC = std.heap.page_allocator;
 
 // ---------------- buffer handles ----------------
 var buffers_mu = std.Io.Mutex.init;
 var buffers: std.AutoHashMapUnmanaged(u64, []u8) = .empty;
 var buffers_next: u64 = 1;
 
-fn registerBuffer(data: []u8) !u64 {
+pub fn registerBuffer(data: []u8) !u64 {
     buffers_mu.lockUncancelable(sio.io());
     defer buffers_mu.unlock(sio.io());
     const h = buffers_next;
@@ -164,7 +166,7 @@ fn clientOf(handle: ?*anyopaque) ?*Client {
     return @ptrCast(@alignCast(h));
 }
 
-fn toZ(allocator: std.mem.Allocator, s: []const u8) ?[:0]u8 {
+pub fn toZ(allocator: std.mem.Allocator, s: []const u8) ?[:0]u8 {
     const buf = allocator.allocSentinel(u8, s.len, 0) catch return null;
     @memcpy(buf[0..s.len], s);
     return buf;
@@ -292,7 +294,7 @@ pub export fn sa_std_ssh_auth_keyfile(session: ?*anyopaque, user: ?[*]const u8, 
 
 const MAX_CAPTURE: usize = 64 * 1024 * 1024;
 
-fn lxClose(fd: i32) void {
+pub fn lxClose(fd: i32) void {
     if (comptime builtin.cpu.arch.isWasm()) {
     } else {
         _ = std.os.linux.close(fd);
@@ -473,7 +475,7 @@ pub export fn sa_std_ssh_session_close(session: ?*anyopaque) i32 {
 }
 
 // ---------------- libssh (server) ----------------
-const Ssh = struct {
+pub const Ssh = struct {
     bind_new: *const fn () callconv(.c) ?*anyopaque,
     bind_options_set: *const fn (?*anyopaque, c_int, ?*const anyopaque) callconv(.c) c_int,
     bind_listen: *const fn (?*anyopaque) callconv(.c) c_int,
@@ -512,7 +514,7 @@ var ssh_api: ?Ssh = null;
 var ssh_tried: bool = false;
 var ssh_mu = std.Io.Mutex.init;
 
-fn loadSsh() ?*const Ssh {
+pub fn loadSsh() ?*const Ssh {
     if (comptime builtin.cpu.arch.isWasm()) {
         return null;
     } else {
@@ -566,659 +568,69 @@ fn loadSshNative() ?*const Ssh {
     return &ssh_api.?;
 }
 
-const ServerBind = struct { api: *const Ssh, bind: ?*anyopaque };
-const ServerSession = struct {
-    api: *const Ssh,
-    session: ?*anyopaque,
-    pending_msg: ?*anyopaque = null,
-    pending_kind: u32 = 0,
-    pending_state: i32 = 0,
-};
-const ServerChannel = struct { api: *const Ssh, channel: ?*anyopaque };
+pub const ServerBind = @import("sa_ssh_server.zig").ServerBind;
+pub const ServerSession = @import("sa_ssh_server.zig").ServerSession;
+pub const ServerChannel = @import("sa_ssh_server.zig").ServerChannel;
 
-pub export fn sa_std_ssh_server_listen(bind_addr: ?[*]const u8, bind_addr_len: u64, port: u32, hostkey_path: ?[*]const u8, hostkey_path_len: u64, out_bind: ?*?*anyopaque) i32 {
-    const slot = out_bind orelse return ERR_INVALID;
-    slot.* = null;
-    const api = loadSsh() orelse return ERR_UNSUPPORTED;
-    const hk_ptr = hostkey_path orelse return ERR_INVALID;
-    const bind = api.bind_new() orelse return ERR_IO;
-    errdefer api.bind_free(bind);
-    const hk_z = toZ(ALLOC, hk_ptr[0..@intCast(hostkey_path_len)]) orelse return ERR_NOMEM;
-    defer ALLOC.free(hk_z);
-    if (api.bind_options_set(bind, 3, hk_z.ptr) != 0) return ERR_IO; // HOSTKEY
-    if (bind_addr) |ba| {
-        if (bind_addr_len > 0) {
-            const addr_z = toZ(ALLOC, ba[0..@intCast(bind_addr_len)]) orelse return ERR_NOMEM;
-            defer ALLOC.free(addr_z);
-            if (api.bind_options_set(bind, 0, addr_z.ptr) != 0) return ERR_IO; // BINDADDR
-        }
-    }
-    var port_v: c_uint = @intCast(port);
-    if (api.bind_options_set(bind, 1, &port_v) != 0) return ERR_IO; // BINDPORT
-    if (api.bind_listen(bind) != 0) return ERR_IO;
-    const out = ALLOC.create(ServerBind) catch return ERR_NOMEM;
-    out.* = .{ .api = api, .bind = bind };
-    slot.* = out;
-    return OK;
-}
+pub const sa_std_ssh_server_listen = @import("sa_ssh_server.zig").sa_std_ssh_server_listen;
 
-pub export fn sa_std_ssh_server_bind_close(bind_handle: ?*anyopaque) i32 {
-    const h = bind_handle orelse return ERR_HANDLE;
-    const b: *ServerBind = @ptrCast(@alignCast(h));
-    b.api.bind_free(b.bind);
-    ALLOC.destroy(b);
-    return OK;
-}
+pub const sa_std_ssh_server_bind_close = @import("sa_ssh_server.zig").sa_std_ssh_server_bind_close;
 
-pub export fn sa_std_ssh_server_accept(bind_handle: ?*anyopaque, out_session: ?*?*anyopaque) i32 {
-    const slot = out_session orelse return ERR_INVALID;
-    slot.* = null;
-    const h = bind_handle orelse return ERR_HANDLE;
-    const b: *ServerBind = @ptrCast(@alignCast(h));
-    const session = b.api.new_session() orelse return ERR_IO;
-    errdefer b.api.free_session(session);
-    if (b.api.bind_accept(b.bind, session) != 0) return ERR_NET;
-    if (b.api.handle_key_exchange(session) != 0) return ERR_NET;
-    const out = ALLOC.create(ServerSession) catch return ERR_NOMEM;
-    out.* = .{ .api = b.api, .session = session };
-    slot.* = out;
-    return OK;
-}
+pub const sa_std_ssh_server_accept = @import("sa_ssh_server.zig").sa_std_ssh_server_accept;
 
-fn serverSessionOf(handle: ?*anyopaque) ?*ServerSession {
-    const h = handle orelse return null;
-    return @ptrCast(@alignCast(h));
-}
+pub const serverSessionOf = @import("sa_ssh_server.zig").serverSessionOf;
 
 /// Pumps messages until an auth attempt arrives. out_kind: 1 =
 /// password (secret = password), 2 = public key (secret = base64 key
 /// blob; out_state: 0 = query only, 1 = signed). The caller decides
 /// with server_auth_accept / server_auth_deny.
-pub export fn sa_std_ssh_server_auth_next(session_handle: ?*anyopaque, out_kind: ?*u32, out_user: ?*u64, out_secret: ?*u64, out_state: ?*i32) i32 {
-    const ss = serverSessionOf(session_handle) orelse return ERR_HANDLE;
-    const kind_slot = out_kind orelse return ERR_INVALID;
-    const user_slot = out_user orelse return ERR_INVALID;
-    const secret_slot = out_secret orelse return ERR_INVALID;
-    const state_slot = out_state orelse return ERR_INVALID;
-    if (ss.pending_msg != null) return ERR_INVALID;
-    while (true) {
-        const msg = ss.api.message_get(ss.session) orelse return ERR_IO;
-        const mtype = ss.api.message_get_type(msg);
-        if (mtype != 1) { // not AUTH
-            _ = ss.api.message_reply_default(msg);
-            ss.api.message_free(msg);
-            continue;
-        }
-        const method = ss.api.message_subtype(msg);
-        const user = ss.api.auth_user(msg) orelse "";
-        if (method == 2) { // password
-            const pass = ss.api.auth_password(msg) orelse "";
-            const user_buf = ALLOC.dupe(u8, std.mem.span(user)) catch return ERR_NOMEM;
-            const pass_buf = ALLOC.dupe(u8, std.mem.span(pass)) catch {
-                ALLOC.free(user_buf);
-                return ERR_NOMEM;
-            };
-            user_slot.* = registerBuffer(user_buf) catch return ERR_NOMEM;
-            secret_slot.* = registerBuffer(pass_buf) catch return ERR_NOMEM;
-            kind_slot.* = 1;
-            state_slot.* = 0;
-            ss.pending_msg = msg;
-            ss.pending_kind = 1;
-            return OK;
-        }
-        if (method == 4) { // publickey
-            // ssh_message_auth_pubkey returns the message-owned
-            // ssh_key (never freed here); export its base64 blob
-            // directly. The legacy route (ssh_message_auth_publickey
-            // + publickey_to_string) cannot be used: on libssh 0.10
-            // publickey_to_string returns NULL for a key taken from
-            // an auth message, which silently default-rejected every
-            // real publickey offer (DEF-SSH-AUTHNEXT-PUBKEY). The
-            // export below was verified byte-identical to the blob
-            // in the client's .pub file.
-            const key = ss.api.auth_pubkey(msg) orelse {
-                _ = ss.api.message_reply_default(msg);
-                ss.api.message_free(msg);
-                continue;
-            };
-            var b64: ?[*:0]u8 = null;
-            if (ss.api.pki_export_pubkey_base64(key, &b64) != 0 or b64 == null) {
-                _ = ss.api.message_reply_default(msg);
-                ss.api.message_free(msg);
-                continue;
-            }
-            defer ss.api.string_free_char(b64);
-            const blob = std.mem.span(b64.?);
-            const user_buf = ALLOC.dupe(u8, std.mem.span(user)) catch return ERR_NOMEM;
-            const key_buf = ALLOC.dupe(u8, blob) catch {
-                ALLOC.free(user_buf);
-                return ERR_NOMEM;
-            };
-            user_slot.* = registerBuffer(user_buf) catch return ERR_NOMEM;
-            secret_slot.* = registerBuffer(key_buf) catch return ERR_NOMEM;
-            kind_slot.* = 2;
-            state_slot.* = ss.api.auth_publickey_state(msg);
-            ss.pending_msg = msg;
-            ss.pending_kind = 2;
-            ss.pending_state = state_slot.*;
-            return OK;
-        }
-        _ = ss.api.message_reply_default(msg);
-        ss.api.message_free(msg);
-    }
-}
+pub const sa_std_ssh_server_auth_next = @import("sa_ssh_server.zig").sa_std_ssh_server_auth_next;
 
-pub export fn sa_std_ssh_server_auth_accept(session_handle: ?*anyopaque) i32 {
-    const ss = serverSessionOf(session_handle) orelse return ERR_HANDLE;
-    const msg = ss.pending_msg orelse return ERR_INVALID;
-    const rc = if (ss.pending_kind == 2 and ss.pending_state == 0)
-        ss.api.auth_reply_pk_ok_simple(msg)
-    else
-        ss.api.auth_reply_success(msg, 0);
-    ss.api.message_free(msg);
-    ss.pending_msg = null;
-    ss.pending_kind = 0;
-    return if (rc == 0) OK else ERR_IO;
-}
+pub const sa_std_ssh_server_auth_accept = @import("sa_ssh_server.zig").sa_std_ssh_server_auth_accept;
 
-pub export fn sa_std_ssh_server_auth_deny(session_handle: ?*anyopaque) i32 {
-    const ss = serverSessionOf(session_handle) orelse return ERR_HANDLE;
-    const msg = ss.pending_msg orelse return ERR_INVALID;
-    _ = ss.api.message_reply_default(msg);
-    ss.api.message_free(msg);
-    ss.pending_msg = null;
-    ss.pending_kind = 0;
-    return OK;
-}
+pub const sa_std_ssh_server_auth_deny = @import("sa_ssh_server.zig").sa_std_ssh_server_auth_deny;
 
 /// Pumps messages until a session channel open arrives and accepts it.
-pub export fn sa_std_ssh_server_channel_accept(session_handle: ?*anyopaque, out_channel: ?*?*anyopaque) i32 {
-    const slot = out_channel orelse return ERR_INVALID;
-    slot.* = null;
-    const ss = serverSessionOf(session_handle) orelse return ERR_HANDLE;
-    while (true) {
-        const msg = ss.api.message_get(ss.session) orelse return ERR_IO;
-        const mtype = ss.api.message_get_type(msg);
-        if (mtype == 2 and ss.api.message_subtype(msg) == 1) { // CHANNEL_OPEN / SESSION
-            const channel = ss.api.channel_open_reply_accept(msg) orelse {
-                ss.api.message_free(msg);
-                return ERR_IO;
-            };
-            ss.api.message_free(msg);
-            const out = ALLOC.create(ServerChannel) catch return ERR_NOMEM;
-            out.* = .{ .api = ss.api, .channel = channel };
-            slot.* = out;
-            return OK;
-        }
-        _ = ss.api.message_reply_default(msg);
-        ss.api.message_free(msg);
-    }
-}
+pub const sa_std_ssh_server_channel_accept = @import("sa_ssh_server.zig").sa_std_ssh_server_channel_accept;
 
 /// Pumps channel requests until an exec or shell request arrives.
 /// out_kind: 1 = exec (command in buffer handle), 2 = shell (empty).
-pub export fn sa_std_ssh_server_channel_exec(session_handle: ?*anyopaque, out_kind: ?*u32, out_command: ?*u64) i32 {
-    const ss = serverSessionOf(session_handle) orelse return ERR_HANDLE;
-    const kind_slot = out_kind orelse return ERR_INVALID;
-    const cmd_slot = out_command orelse return ERR_INVALID;
-    cmd_slot.* = 0;
-    while (true) {
-        const msg = ss.api.message_get(ss.session) orelse return ERR_IO;
-        const mtype = ss.api.message_get_type(msg);
-        if (mtype == 3) { // CHANNEL request
-            const subtype = ss.api.message_subtype(msg);
-            if (subtype == 2) { // EXEC
-                if (ss.api.channel_request_reply_success(msg) != 0) {
-                    ss.api.message_free(msg);
-                    return ERR_IO;
-                }
-                const cmd = ss.api.channel_request_command(msg) orelse "";
-                const buf = ALLOC.dupe(u8, std.mem.span(cmd)) catch return ERR_NOMEM;
-                cmd_slot.* = registerBuffer(buf) catch return ERR_NOMEM;
-                kind_slot.* = 1;
-                ss.api.message_free(msg);
-                return OK;
-            }
-            if (subtype == 3) { // SHELL
-                if (ss.api.channel_request_reply_success(msg) != 0) {
-                    ss.api.message_free(msg);
-                    return ERR_IO;
-                }
-                kind_slot.* = 2;
-                ss.api.message_free(msg);
-                return OK;
-            }
-            // PTY / ENV / others: accept and keep pumping
-            _ = ss.api.channel_request_reply_success(msg);
-            ss.api.message_free(msg);
-            continue;
-        }
-        _ = ss.api.message_reply_default(msg);
-        ss.api.message_free(msg);
-    }
-}
+pub const sa_std_ssh_server_channel_exec = @import("sa_ssh_server.zig").sa_std_ssh_server_channel_exec;
 
-fn serverChannelOf(handle: ?*anyopaque) ?*ServerChannel {
-    const h = handle orelse return null;
-    return @ptrCast(@alignCast(h));
-}
+pub const serverChannelOf = @import("sa_ssh_server.zig").serverChannelOf;
 
-pub export fn sa_std_ssh_channel_write(channel_handle: ?*anyopaque, stream: u32, data: ?[*]const u8, data_len: u64, out_written: ?*u64) i32 {
-    const ch = serverChannelOf(channel_handle) orelse return ERR_HANDLE;
-    const data_ptr = data orelse return ERR_INVALID;
-    const slot = out_written orelse return ERR_INVALID;
-    const bytes = data_ptr[0..@intCast(data_len)];
-    var off: usize = 0;
-    while (off < bytes.len) {
-        const n = if (stream == 1)
-            ch.api.channel_write_stderr(ch.channel, bytes[off..].ptr, @intCast(bytes.len - off))
-        else
-            ch.api.channel_write(ch.channel, bytes[off..].ptr, @intCast(bytes.len - off));
-        if (n < 0) return ERR_IO;
-        off += @intCast(n);
-    }
-    slot.* = off;
-    return OK;
-}
+pub const sa_std_ssh_channel_write = @import("sa_ssh_server.zig").sa_std_ssh_channel_write;
 
-pub export fn sa_std_ssh_channel_read(channel_handle: ?*anyopaque, stream: u32, out: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
-    const ch = serverChannelOf(channel_handle) orelse return ERR_HANDLE;
-    const buf = out orelse return ERR_INVALID;
-    const slot = out_read orelse return ERR_INVALID;
-    const n = ch.api.channel_read(ch.channel, buf, @intCast(@min(cap, std.math.maxInt(u32))), @intCast(stream));
-    if (n == -127) { // SSH_EOF
-        slot.* = 0;
-        return OK;
-    }
-    if (n < 0) return ERR_IO;
-    slot.* = @intCast(n);
-    return OK;
-}
+pub const sa_std_ssh_channel_read = @import("sa_ssh_server.zig").sa_std_ssh_channel_read;
 
-pub export fn sa_std_ssh_channel_send_exit(channel_handle: ?*anyopaque, exit_code: i32) i32 {
-    const ch = serverChannelOf(channel_handle) orelse return ERR_HANDLE;
-    return if (ch.api.channel_exit_status(ch.channel, exit_code) == 0) OK else ERR_IO;
-}
+pub const sa_std_ssh_channel_send_exit = @import("sa_ssh_server.zig").sa_std_ssh_channel_send_exit;
 
-pub export fn sa_std_ssh_channel_close(channel_handle: ?*anyopaque) i32 {
-    const ch = serverChannelOf(channel_handle) orelse return ERR_HANDLE;
-    _ = ch.api.channel_send_eof(ch.channel);
-    _ = ch.api.channel_close(ch.channel);
-    ch.api.channel_free(ch.channel);
-    ALLOC.destroy(ch);
-    return OK;
-}
+pub const sa_std_ssh_channel_close = @import("sa_ssh_server.zig").sa_std_ssh_channel_close;
 
-pub export fn sa_std_ssh_server_session_close(session_handle: ?*anyopaque) i32 {
-    const ss = serverSessionOf(session_handle) orelse return ERR_HANDLE;
-    if (ss.pending_msg) |msg| ss.api.message_free(msg);
-    ss.api.disconnect(ss.session);
-    ss.api.free_session(ss.session);
-    ALLOC.destroy(ss);
-    return OK;
-}
+pub const sa_std_ssh_server_session_close = @import("sa_ssh_server.zig").sa_std_ssh_server_session_close;
 
 // ======================= loopback tests =======================
-const testing = std.testing;
+pub const testing = @import("sa_ssh_test.zig").testing;
 
-fn stackOrSkip() !bool {
-    var flags: u32 = 0;
-    _ = sa_std_ssh_supported(&flags);
-    if (flags & 3 == 3) return true;
-    // Hard-fail when the environment demands SSH coverage.
-    if (std.c.getenv("SCI_REQUIRE_SSH")) |v| {
-        if (v[0] == '1') return error.SshStackRequiredButMissing;
-    }
-    return false;
-}
+pub const stackOrSkip = @import("sa_ssh_test.zig").stackOrSkip;
 
-fn sh(cmd: []const u8) !void {
-    const result = try sio.Child.run(.{
-        .allocator = testing.allocator,
-        .argv = &.{ "sh", "-c", cmd },
-        .max_output_bytes = 1024 * 1024,
-    });
-    defer testing.allocator.free(result.stdout);
-    defer testing.allocator.free(result.stderr);
-    switch (result.term) {
-        .exited => |code| if (code != 0) return error.ShellFailed,
-        else => return error.ShellFailed,
-    }
-}
+pub const sh = @import("sa_ssh_test.zig").sh;
 
-fn freePort() !u16 {
-    const rc = std.os.linux.socket(std.posix.AF.INET, std.os.linux.SOCK.STREAM | std.os.linux.SOCK.CLOEXEC, 0);
-    if (@as(isize, @bitCast(rc)) < 0) return error.SocketFailed;
-    const fd: i32 = @intCast(rc);
-    defer lxClose(fd);
-    var addr = std.posix.sockaddr.in{ .family = std.posix.AF.INET, .port = 0, .addr = @bitCast([4]u8{ 127, 0, 0, 1 }) };
-    if (@as(isize, @bitCast(std.os.linux.bind(fd, @ptrCast(&addr), @sizeOf(std.posix.sockaddr.in)))) < 0) return error.BindFailed;
-    var alen: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.in);
-    if (@as(isize, @bitCast(std.os.linux.getsockname(fd, @ptrCast(&addr), &alen))) < 0) return error.GetsocknameFailed;
-    return std.mem.bigToNative(u16, addr.port);
-}
+pub const freePort = @import("sa_ssh_test.zig").freePort;
 
 
-var test_dir_counter = std.atomic.Value(u64).init(0);
+pub const test_dir_counter = @import("sa_ssh_test.zig").test_dir_counter;
 
-fn makeTestDir(buf: []u8) ![]const u8 {
-    const n = test_dir_counter.fetchAdd(1, .monotonic);
-    const dir = try std.fmt.bufPrint(buf, "/tmp/sa_ssh_test_{d}_{d}", .{ std.os.linux.getpid(), n });
-    var cmd_buf: [1024]u8 = undefined;
-    const cmd = try std.fmt.bufPrint(&cmd_buf, "rm -rf {s} && mkdir -p {s}", .{ dir, dir });
-    try sh(cmd);
-    return dir;
-}
+pub const makeTestDir = @import("sa_ssh_test.zig").makeTestDir;
 
-fn removeTestDir(dir: []const u8) void {
-    var cmd_buf: [1024]u8 = undefined;
-    const cmd = std.fmt.bufPrint(&cmd_buf, "rm -rf {s}", .{dir}) catch return;
-    sh(cmd) catch {};
-}
+pub const removeTestDir = @import("sa_ssh_test.zig").removeTestDir;
 
-fn bufferText(handle: u64) []const u8 {
-    const p = sa_std_ssh_buffer_data(handle) orelse return "";
-    return p[0..@intCast(sa_std_ssh_buffer_len(handle))];
-}
+pub const bufferText = @import("sa_ssh_test.zig").bufferText;
 
-test "ssh client vs system sshd: key auth, exec, sftp round trip" {
-    if (!try stackOrSkip()) return;
-    var dir_buf: [512]u8 = undefined;
-    const dir = try makeTestDir(&dir_buf);
-    defer removeTestDir(dir);
 
-    var cmd_buf: [2048]u8 = undefined;
-    const setup = try std.fmt.bufPrint(&cmd_buf,
-        \\mkdir -p /run/sshd
-        \\ssh-keygen -q -t ed25519 -N '' -f {s}/hostkey
-        \\ssh-keygen -q -t ed25519 -N '' -f {s}/userkey
-        \\cp {s}/userkey.pub {s}/authorized_keys
-        \\chmod 600 {s}/authorized_keys
-    , .{ dir, dir, dir, dir, dir });
-    try sh(setup);
+pub const ServerOutcome = @import("sa_ssh_test.zig").ServerOutcome;
 
-    const port = try freePort();
-    var cfg_buf: [2048]u8 = undefined;
-    const cfg = try std.fmt.bufPrint(&cfg_buf,
-        \\Port {d}
-        \\ListenAddress 127.0.0.1
-        \\HostKey {s}/hostkey
-        \\AuthorizedKeysFile {s}/authorized_keys
-        \\PermitRootLogin yes
-        \\PasswordAuthentication no
-        \\PubkeyAuthentication yes
-        \\StrictModes no
-        \\UsePAM no
-        \\Subsystem sftp internal-sftp
-        \\PidFile {s}/sshd.pid
-    , .{ port, dir, dir, dir });
-    var cfgpath_buf: [1024]u8 = undefined;
-    const cfgpath = try std.fmt.bufPrint(&cfgpath_buf, "{s}/sshd_config", .{dir});
-    const cfg_file = try sio.cwd().createFile(cfgpath, .{});
-    try cfg_file.writeAll(cfg);
-    cfg_file.close();
-    var start_buf: [1024]u8 = undefined;
-    const start_cmd = try std.fmt.bufPrint(&start_buf, "/usr/sbin/sshd -f {s}", .{cfgpath});
-    try sh(start_cmd);
-    defer {
-        var kill_buf: [1024]u8 = undefined;
-        if (std.fmt.bufPrint(&kill_buf, "kill $(cat {s}/sshd.pid) 2>/dev/null; true", .{dir}) catch null) |c| sh(c) catch {};
-    }
+pub const runTestServer = @import("sa_ssh_test.zig").runTestServer;
 
-    // connect (retry briefly while sshd comes up)
-    var session: ?*anyopaque = null;
-    var attempt: usize = 0;
-    while (attempt < 40) : (attempt += 1) {
-        const host = "127.0.0.1";
-        if (sa_std_ssh_client_connect(host.ptr, host.len, port, &session) == OK) break;
-        _ = std.os.linux.nanosleep(&.{ .sec = 0, .nsec = 100 * std.time.ns_per_ms }, null);
-    }
-    try testing.expect(session != null);
-    defer _ = sa_std_ssh_session_close(session);
 
-    var fp_buf: [128]u8 = undefined;
-    var fp_len: u64 = 0;
-    try testing.expectEqual(OK, sa_std_ssh_hostkey_fingerprint(session, &fp_buf, fp_buf.len, &fp_len));
-    try testing.expect(fp_len > 20);
-
-    var keypath_buf: [1024]u8 = undefined;
-    const keypath = try std.fmt.bufPrint(&keypath_buf, "{s}/userkey", .{dir});
-    const user = "root";
-    try testing.expectEqual(OK, sa_std_ssh_auth_keyfile(session, user.ptr, user.len, null, 0, keypath.ptr, keypath.len, null, 0));
-
-    const command = "echo hello-from-sshd";
-    var so: u64 = 0;
-    var se: u64 = 0;
-    var exit_code: i32 = -1;
-    try testing.expectEqual(OK, sa_std_ssh_exec(session, command.ptr, command.len, &so, &se, &exit_code));
-    defer _ = sa_std_ssh_buffer_free(so);
-    defer _ = sa_std_ssh_buffer_free(se);
-    try testing.expectEqual(@as(i32, 0), exit_code);
-    try testing.expectEqualStrings("hello-from-sshd\n", bufferText(so));
-
-    // sftp write + read back
-    var remote_buf: [1024]u8 = undefined;
-    const remote = try std.fmt.bufPrint(&remote_buf, "{s}/via-sftp.txt", .{dir});
-    const payload = "sftp-payload-123";
-    try testing.expectEqual(OK, sa_std_ssh_sftp_write(session, remote.ptr, remote.len, payload.ptr, payload.len));
-    var back: u64 = 0;
-    try testing.expectEqual(OK, sa_std_ssh_sftp_read(session, remote.ptr, remote.len, &back));
-    defer _ = sa_std_ssh_buffer_free(back);
-    try testing.expectEqualStrings(payload, bufferText(back));
-    var size: u64 = 0;
-    var is_dir: u32 = 0;
-    try testing.expectEqual(OK, sa_std_ssh_sftp_stat(session, remote.ptr, remote.len, &size, &is_dir));
-    try testing.expectEqual(@as(u64, payload.len), size);
-    try testing.expectEqual(@as(u32, 0), is_dir);
-}
-
-const ServerOutcome = struct {
-    auth_user: [128]u8 = @splat(0),
-    auth_user_len: usize = 0,
-    command: [256]u8 = @splat(0),
-    command_len: usize = 0,
-    err: i32 = -999,
-    pk_states: u32 = 0,
-};
-
-fn runTestServer(bind_handle: ?*anyopaque, expect_password: bool, expected_key_b64: []const u8, outcome: *ServerOutcome) void {
-    var session: ?*anyopaque = null;
-    if (sa_std_ssh_server_accept(bind_handle, &session) != OK) {
-        outcome.err = -1;
-        return;
-    }
-    defer _ = sa_std_ssh_server_session_close(session);
-    // auth pump: pubkey clients do query (state 0) then signed (state 1)
-    var authed = false;
-    var rounds: usize = 0;
-    while (!authed and rounds < 4) : (rounds += 1) {
-        var kind: u32 = 0;
-        var user_h: u64 = 0;
-        var secret_h: u64 = 0;
-        var state: i32 = 0;
-        if (sa_std_ssh_server_auth_next(session, &kind, &user_h, &secret_h, &state) != OK) {
-            outcome.err = -2;
-            return;
-        }
-        const user_text = bufferText(user_h);
-        @memcpy(outcome.auth_user[0..user_text.len], user_text);
-        outcome.auth_user_len = user_text.len;
-        if (expect_password) {
-            if (kind == 1 and std.mem.eql(u8, bufferText(secret_h), "s3cret")) {
-                _ = sa_std_ssh_server_auth_accept(session);
-                authed = true;
-            } else {
-                _ = sa_std_ssh_server_auth_deny(session);
-            }
-        } else {
-            // Pubkey mode verifies for real: only a kind-2 attempt
-            // carrying the expected key blob counts. A password
-            // attempt (kind 1) means the client fell back because the
-            // publickey path failed -- record it as an error instead
-            // of masking it as a successful auth. Error codes: -6
-            // unexpected kind, -7 wrong user, -8 wrong key blob.
-            if (kind != 2) {
-                outcome.err = -6;
-                _ = sa_std_ssh_server_auth_deny(session);
-                return;
-            }
-            if (!std.mem.eql(u8, user_text, "root")) {
-                outcome.err = -7;
-                _ = sa_std_ssh_server_auth_deny(session);
-                return;
-            }
-            if (!std.mem.eql(u8, bufferText(secret_h), expected_key_b64)) {
-                outcome.err = -8;
-                _ = sa_std_ssh_server_auth_deny(session);
-                return;
-            }
-            if (state == 0) outcome.pk_states |= 1;
-            if (state == 1) outcome.pk_states |= 2;
-            _ = sa_std_ssh_server_auth_accept(session);
-            if (state == 1) authed = true;
-        }
-        _ = sa_std_ssh_buffer_free(user_h);
-        _ = sa_std_ssh_buffer_free(secret_h);
-    }
-    if (!authed) {
-        outcome.err = -3;
-        return;
-    }
-    var channel: ?*anyopaque = null;
-    if (sa_std_ssh_server_channel_accept(session, &channel) != OK) {
-        outcome.err = -4;
-        return;
-    }
-    defer _ = sa_std_ssh_channel_close(channel);
-    var kind: u32 = 0;
-    var cmd_h: u64 = 0;
-    if (sa_std_ssh_server_channel_exec(session, &kind, &cmd_h) != OK) {
-        outcome.err = -5;
-        return;
-    }
-    const cmd_text = bufferText(cmd_h);
-    @memcpy(outcome.command[0..cmd_text.len], cmd_text);
-    outcome.command_len = cmd_text.len;
-    // build the greeting BEFORE freeing cmd_h (cmd_text borrows it)
-    var greeting_buf: [320]u8 = undefined;
-    const greeting = std.fmt.bufPrint(&greeting_buf, "pong:{s}", .{cmd_text}) catch "pong";
-    _ = sa_std_ssh_buffer_free(cmd_h);
-    var written: u64 = 0;
-    _ = sa_std_ssh_channel_write(channel, 0, greeting.ptr, greeting.len, &written);
-    // Pace the teardown like a real exec server (a real command takes
-    // time between producing output and exiting): a data + exit + EOF
-    // + CLOSE burst in one transport batch makes libssh2 clients drop
-    // the payload (verified against libssh/libssh2 C probes).
-    _ = std.os.linux.nanosleep(&.{ .sec = 0, .nsec = 150 * std.time.ns_per_ms }, null);
-    _ = sa_std_ssh_channel_send_exit(channel, 3);
-    outcome.err = 0;
-}
-
-test "ssh server vs system ssh client: pubkey auth + exec" {
-    if (!try stackOrSkip()) return;
-    var dir_buf: [512]u8 = undefined;
-    const dir = try makeTestDir(&dir_buf);
-    defer removeTestDir(dir);
-    var cmd_buf: [2048]u8 = undefined;
-    const setup = try std.fmt.bufPrint(&cmd_buf,
-        \\ssh-keygen -q -t ed25519 -N '' -f {s}/hostkey
-        \\ssh-keygen -q -t ed25519 -N '' -f {s}/userkey
-    , .{ dir, dir });
-    try sh(setup);
-
-    const port = try freePort();
-    var hk_buf: [1024]u8 = undefined;
-    const hk = try std.fmt.bufPrint(&hk_buf, "{s}/hostkey", .{dir});
-    const addr = "127.0.0.1";
-    var bind_handle: ?*anyopaque = null;
-    try testing.expectEqual(OK, sa_std_ssh_server_listen(addr.ptr, addr.len, port, hk.ptr, hk.len, &bind_handle));
-    defer _ = sa_std_ssh_server_bind_close(bind_handle);
-
-    // Expected secret for a publickey attempt: the base64 key blob
-    // from userkey.pub (second whitespace-separated field).
-    var cut_buf: [1024]u8 = undefined;
-    const cut_cmd = try std.fmt.bufPrint(&cut_buf, "cut -d' ' -f2 {s}/userkey.pub", .{dir});
-    const kres = try sio.Child.run(.{
-        .allocator = testing.allocator,
-        .argv = &.{ "sh", "-c", cut_cmd },
-        .max_output_bytes = 4096,
-    });
-    defer testing.allocator.free(kres.stdout);
-    defer testing.allocator.free(kres.stderr);
-    switch (kres.term) {
-        .exited => |code| if (code != 0) return error.ShellFailed,
-        else => return error.ShellFailed,
-    }
-    var exp_buf: [512]u8 = undefined;
-    const blob = std.mem.trim(u8, kres.stdout, " \r\n");
-    if (blob.len > exp_buf.len) return error.KeyBlobTooLong;
-    @memcpy(exp_buf[0..blob.len], blob);
-    const expected_b64 = exp_buf[0..blob.len];
-
-    var outcome = ServerOutcome{};
-    const thread = try std.Thread.spawn(.{}, runTestServer, .{ bind_handle, false, expected_b64, &outcome });
-    defer thread.join();
-
-    var ssh_buf: [2048]u8 = undefined;
-    const ssh_cmd = try std.fmt.bufPrint(&ssh_buf, "ssh -i {s}/userkey -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -p {d} root@127.0.0.1 'echo marker-cmd'", .{ dir, port });
-    const result = try sio.Child.run(.{
-        .allocator = testing.allocator,
-        .argv = &.{ "sh", "-c", ssh_cmd },
-        .max_output_bytes = 1024 * 1024,
-    });
-    defer testing.allocator.free(result.stdout);
-    defer testing.allocator.free(result.stderr);
-    try testing.expectEqual(@as(i32, 0), outcome.err);
-    try testing.expectEqualStrings("root", outcome.auth_user[0..outcome.auth_user_len]);
-    // Both publickey states must have been seen: query (0) then
-    // signed (1); a run that only surfaces a password fallback can
-    // never set either bit.
-    try testing.expectEqual(@as(u32, 3), outcome.pk_states);
-    try testing.expectEqualStrings("echo marker-cmd", outcome.command[0..outcome.command_len]);
-    try testing.expectEqualStrings("pong:echo marker-cmd", result.stdout);
-    switch (result.term) {
-        .exited => |code| try testing.expectEqual(@as(u32, 3), code),
-        else => return error.BadTerm,
-    }
-}
-
-test "ssh client+server: password auth + exec round trip" {
-    if (!try stackOrSkip()) return;
-    var dir_buf: [512]u8 = undefined;
-    const dir = try makeTestDir(&dir_buf);
-    defer removeTestDir(dir);
-    var cmd_buf: [1024]u8 = undefined;
-    const setup = try std.fmt.bufPrint(&cmd_buf, "ssh-keygen -q -t ed25519 -N '' -f {s}/hostkey", .{dir});
-    try sh(setup);
-
-    const port = try freePort();
-    var hk_buf: [1024]u8 = undefined;
-    const hk = try std.fmt.bufPrint(&hk_buf, "{s}/hostkey", .{dir});
-    const addr = "127.0.0.1";
-    var bind_handle: ?*anyopaque = null;
-    try testing.expectEqual(OK, sa_std_ssh_server_listen(addr.ptr, addr.len, port, hk.ptr, hk.len, &bind_handle));
-    defer _ = sa_std_ssh_server_bind_close(bind_handle);
-
-    var outcome = ServerOutcome{};
-    const thread = try std.Thread.spawn(.{}, runTestServer, .{ bind_handle, true, "", &outcome });
-    defer thread.join();
-
-    var session: ?*anyopaque = null;
-    try testing.expectEqual(OK, sa_std_ssh_client_connect(addr.ptr, addr.len, port, &session));
-    defer _ = sa_std_ssh_session_close(session);
-    const user = "alice";
-    const pass = "s3cret";
-    try testing.expectEqual(OK, sa_std_ssh_auth_password(session, user.ptr, user.len, pass.ptr, pass.len));
-    const command = "ping";
-    var so: u64 = 0;
-    var se: u64 = 0;
-    var exit_code: i32 = -1;
-    try testing.expectEqual(OK, sa_std_ssh_exec(session, command.ptr, command.len, &so, &se, &exit_code));
-    defer _ = sa_std_ssh_buffer_free(so);
-    defer _ = sa_std_ssh_buffer_free(se);
-    try testing.expectEqual(@as(i32, 0), outcome.err);
-    try testing.expectEqualStrings("alice", outcome.auth_user[0..outcome.auth_user_len]);
-    try testing.expectEqualStrings("pong:ping", bufferText(so));
-    try testing.expectEqual(@as(i32, 3), exit_code);
-}
 

@@ -1,4 +1,5 @@
 // HTTP/2 runtime binding for the sci/sa_std platform layer.
+test "sa_http2_tests" { std.testing.refAllDecls(@import("sa_http2_test.zig")); }
 //
 // This is a REAL protocol-machine backend backed by libnghttp2, lazily loaded
 // via dlopen. It migrated out of sa_plugin_node so that every plugin can reuse
@@ -7,28 +8,26 @@
 // state machine lives here.
 
 const std = @import("std");
-const builtin = @import("builtin");
-const sio = @import("sio");
+pub const builtin = @import("builtin");
+pub const sio = @import("sio");
 
 // --- outcome helpers (mirrors the sa_plugin_node private surface) ---
 
-const UnsupportedStatus: u32 = 0x8000_0000;
+pub const UnsupportedStatus: u32 = 0x8000_0000;
 
-fn fail() u32 {
+pub fn fail() u32 {
     return UnsupportedStatus;
 }
 
-const SA_STD_OK: i32 = 0;
-const SA_STD_ERR_NO_MEMORY: i32 = -12;
-const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
+pub const SA_STD_OK: i32 = 0;
+pub const SA_STD_ERR_NO_MEMORY: i32 = -12;
+pub const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
 
 // wasm32-wasi: usize is 32-bit, C ABI passes u64 lengths. Checked conversion.
-fn u64ToUsize(v: u64) ?usize {
-    return std.math.cast(usize, v);
-}
+pub const u64ToUsize = @import("sa_http2_util.zig").u64ToUsize;
 
-var buffer_registry_mutex = std.Io.Mutex.init;
-var buffer_slots = std.ArrayListUnmanaged(?BufferEntry).empty;
+pub var buffer_registry_mutex = std.Io.Mutex.init;
+pub var buffer_slots = std.ArrayListUnmanaged(?BufferEntry).empty;
 
 const BufferEntry = struct {
     bytes: []u8,
@@ -38,244 +37,62 @@ const BufferEntry = struct {
 // sa_fs_read_buffer / sa_json_buffer "return a handle, free with *_free"
 // convention. On failure the bytes are freed and 0 is returned (0 == invalid
 // handle, consistent with sci's other handle registries).
-fn registerBuffer(bytes: []u8) u64 {
-    buffer_registry_mutex.lockUncancelable(sio.io());
-    defer buffer_registry_mutex.unlock(sio.io());
-    var i: usize = 0;
-    while (i < buffer_slots.items.len) : (i += 1) {
-        if (buffer_slots.items[i] == null) {
-            buffer_slots.items[i] = .{ .bytes = bytes };
-            return @intCast(i + 1);
-        }
-    }
-    buffer_slots.append(std.heap.page_allocator, .{ .bytes = bytes }) catch {
-        std.heap.page_allocator.free(bytes);
-        return 0;
-    };
-    return @intCast(buffer_slots.items.len);
-}
+pub const registerBuffer = @import("sa_http2_util.zig").registerBuffer;
 
-fn takeBuffer(handle: u64) ?[]u8 {
-    if (handle == 0) return null;
-    buffer_registry_mutex.lockUncancelable(sio.io());
-    defer buffer_registry_mutex.unlock(sio.io());
-    const idx: usize = @intCast(handle - 1);
-    if (idx >= buffer_slots.items.len) return null;
-    const entry = buffer_slots.items[idx] orelse return null;
-    return entry.bytes;
-}
+pub const takeBuffer = @import("sa_http2_util.zig").takeBuffer;
 
-fn registerOwnedString(text: []const u8) u64 {
-    const owned = std.heap.page_allocator.dupe(u8, text) catch return 0;
-    return registerBuffer(owned);
-}
+pub const registerOwnedString = @import("sa_http2_util.zig").registerOwnedString;
 
 // NOTE(Zig 0.17): `Managed.writer()` is gone; bridge formatted output
 // through an allocating writer using the list's own allocator.
-fn managedPrint(list: *std.array_list.Managed(u8), comptime fmt: []const u8, args: anytype) !void {
-    var aw: std.Io.Writer.Allocating = .init(list.allocator);
-    defer aw.deinit();
-    try aw.writer.print(fmt, args);
-    try list.appendSlice(aw.written());
-}
+pub const managedPrint = @import("sa_http2_util.zig").managedPrint;
 
-fn jsonEscapeAppend(out: *std.array_list.Managed(u8), bytes: []const u8) !void {
-    for (bytes) |b| switch (b) {
-        '"' => try out.appendSlice("\\\""),
-        '\\' => try out.appendSlice("\\\\"),
-        '\n' => try out.appendSlice("\\n"),
-        '\r' => try out.appendSlice("\\r"),
-        '\t' => try out.appendSlice("\\t"),
-        else => if (b < 0x20) try managedPrint(out, "\\u{x:0>4}", .{b}) else try out.append(b),
-    };
-}
+pub const jsonEscapeAppend = @import("sa_http2_util.zig").jsonEscapeAppend;
 
-fn appendJsonString(out: *std.array_list.Managed(u8), bytes: []const u8) !void {
-    try out.append('"');
-    try jsonEscapeAppend(out, bytes);
-    try out.append('"');
-}
+pub const appendJsonString = @import("sa_http2_util.zig").appendJsonString;
 
-fn appendStringArray(out: *std.array_list.Managed(u8), items: []const []const u8) !void {
-    try out.append('[');
-    for (items, 0..) |item, i| {
-        if (i != 0) try out.append(',');
-        try appendJsonString(out, item);
-    }
-    try out.append(']');
-}
+pub const appendStringArray = @import("sa_http2_util.zig").appendStringArray;
 
 // --- libnghttp2 opaque C surface ---
 
-const Nghttp2Session = opaque {};
-const Nghttp2SessionCallbacks = opaque {};
-const Nghttp2Frame = opaque {};
+pub const Nghttp2Session = @import("sa_http2_nghttp2.zig").Nghttp2Session;
+pub const Nghttp2SessionCallbacks = @import("sa_http2_nghttp2.zig").Nghttp2SessionCallbacks;
+pub const Nghttp2Frame = @import("sa_http2_nghttp2.zig").Nghttp2Frame;
 
-const Nghttp2Nv = extern struct {
-    name: [*]u8,
-    value: [*]u8,
-    namelen: usize,
-    valuelen: usize,
-    flags: u8,
-};
+pub const Nghttp2Nv = @import("sa_http2_nghttp2.zig").Nghttp2Nv;
 
-const Nghttp2DataSource = extern union {
-    fd: c_int,
-    ptr: ?*anyopaque,
-};
+pub const Nghttp2DataSource = @import("sa_http2_nghttp2.zig").Nghttp2DataSource;
 
-const Nghttp2DataProvider = extern struct {
-    source: Nghttp2DataSource,
-    read_callback: ?*const fn (?*Nghttp2Session, i32, [*]u8, usize, *u32, *Nghttp2DataSource, ?*anyopaque) callconv(.c) isize,
-};
+pub const Nghttp2DataProvider = @import("sa_http2_nghttp2.zig").Nghttp2DataProvider;
 
-const Nghttp2Version = extern struct {
-    age: c_int,
-    version_num: c_int,
-    // The full nghttp2_version struct also exposes version_str/proto_str, but
-    // their offset/availability differs across nghttp2 releases. We only need
-    // version_num (stable int at offset 4), so the struct is intentionally
-    // truncated here.
-};
+pub const Nghttp2Version = @import("sa_http2_nghttp2.zig").Nghttp2Version;
 
-const Nghttp2OnHeaderCallback = *const fn (?*Nghttp2Session, ?*const Nghttp2Frame, [*]const u8, usize, [*]const u8, usize, u8, ?*anyopaque) callconv(.c) c_int;
-const Nghttp2OnDataChunkRecvCallback = *const fn (?*Nghttp2Session, u8, i32, [*]const u8, usize, ?*anyopaque) callconv(.c) c_int;
-const Nghttp2OnFrameRecvCallback = *const fn (?*Nghttp2Session, ?*const Nghttp2Frame, ?*anyopaque) callconv(.c) c_int;
+pub const Nghttp2OnHeaderCallback = @import("sa_http2_nghttp2.zig").Nghttp2OnHeaderCallback;
+pub const Nghttp2OnDataChunkRecvCallback = @import("sa_http2_nghttp2.zig").Nghttp2OnDataChunkRecvCallback;
+pub const Nghttp2OnFrameRecvCallback = @import("sa_http2_nghttp2.zig").Nghttp2OnFrameRecvCallback;
 
-const Nghttp2CallbacksNewFn = *const fn (*?*Nghttp2SessionCallbacks) callconv(.c) c_int;
-const Nghttp2CallbacksDelFn = *const fn (?*Nghttp2SessionCallbacks) callconv(.c) void;
-const Nghttp2SetOnHeaderFn = *const fn (?*Nghttp2SessionCallbacks, Nghttp2OnHeaderCallback) callconv(.c) void;
-const Nghttp2SetOnDataChunkRecvFn = *const fn (?*Nghttp2SessionCallbacks, Nghttp2OnDataChunkRecvCallback) callconv(.c) void;
-const Nghttp2SetOnFrameRecvFn = *const fn (?*Nghttp2SessionCallbacks, Nghttp2OnFrameRecvCallback) callconv(.c) void;
-const Nghttp2SessionClientNewFn = *const fn (*?*Nghttp2Session, ?*const Nghttp2SessionCallbacks, ?*anyopaque) callconv(.c) c_int;
-const Nghttp2SessionDelFn = *const fn (?*Nghttp2Session) callconv(.c) void;
-const Nghttp2SubmitRequestFn = *const fn (?*Nghttp2Session, ?*const anyopaque, [*]const Nghttp2Nv, usize, ?*const Nghttp2DataProvider, ?*anyopaque) callconv(.c) i32;
-const Nghttp2SubmitSettingsFn = *const fn (?*Nghttp2Session, u8, ?*const anyopaque, usize) callconv(.c) c_int;
-const Nghttp2SessionMemSendFn = *const fn (?*Nghttp2Session, *?[*]const u8) callconv(.c) isize;
-const Nghttp2SessionMemRecvFn = *const fn (?*Nghttp2Session, [*]const u8, usize) callconv(.c) isize;
-const Nghttp2SessionWantFn = *const fn (?*Nghttp2Session) callconv(.c) c_int;
-const Nghttp2VersionFn = *const fn (c_int) callconv(.c) ?*const Nghttp2Version;
+pub const Nghttp2CallbacksNewFn = @import("sa_http2_nghttp2.zig").Nghttp2CallbacksNewFn;
+pub const Nghttp2CallbacksDelFn = @import("sa_http2_nghttp2.zig").Nghttp2CallbacksDelFn;
+pub const Nghttp2SetOnHeaderFn = @import("sa_http2_nghttp2.zig").Nghttp2SetOnHeaderFn;
+pub const Nghttp2SetOnDataChunkRecvFn = @import("sa_http2_nghttp2.zig").Nghttp2SetOnDataChunkRecvFn;
+pub const Nghttp2SetOnFrameRecvFn = @import("sa_http2_nghttp2.zig").Nghttp2SetOnFrameRecvFn;
+pub const Nghttp2SessionClientNewFn = @import("sa_http2_nghttp2.zig").Nghttp2SessionClientNewFn;
+pub const Nghttp2SessionDelFn = @import("sa_http2_nghttp2.zig").Nghttp2SessionDelFn;
+pub const Nghttp2SubmitRequestFn = @import("sa_http2_nghttp2.zig").Nghttp2SubmitRequestFn;
+pub const Nghttp2SubmitSettingsFn = @import("sa_http2_nghttp2.zig").Nghttp2SubmitSettingsFn;
+pub const Nghttp2SessionMemSendFn = @import("sa_http2_nghttp2.zig").Nghttp2SessionMemSendFn;
+pub const Nghttp2SessionMemRecvFn = @import("sa_http2_nghttp2.zig").Nghttp2SessionMemRecvFn;
+pub const Nghttp2SessionWantFn = @import("sa_http2_nghttp2.zig").Nghttp2SessionWantFn;
+pub const Nghttp2VersionFn = @import("sa_http2_nghttp2.zig").Nghttp2VersionFn;
 
-const Nghttp2Api = struct {
-    lib: if (builtin.cpu.arch.isWasm()) void else std.DynLib,
-    callbacks_new: Nghttp2CallbacksNewFn,
-    callbacks_del: Nghttp2CallbacksDelFn,
-    callbacks_set_on_header_callback: Nghttp2SetOnHeaderFn,
-    callbacks_set_on_data_chunk_recv_callback: Nghttp2SetOnDataChunkRecvFn,
-    callbacks_set_on_frame_recv_callback: Nghttp2SetOnFrameRecvFn,
-    session_client_new: Nghttp2SessionClientNewFn,
-    session_del: Nghttp2SessionDelFn,
-    submit_request: Nghttp2SubmitRequestFn,
-    submit_settings: Nghttp2SubmitSettingsFn,
-    session_mem_send: Nghttp2SessionMemSendFn,
-    session_mem_recv: Nghttp2SessionMemRecvFn,
-    session_want_read: Nghttp2SessionWantFn,
-    session_want_write: Nghttp2SessionWantFn,
-    version: Nghttp2VersionFn,
-};
+pub const Nghttp2Api = @import("sa_http2_nghttp2.zig").Nghttp2Api;
 
-var nghttp2_api: ?Nghttp2Api = null;
-var nghttp2_api_mutex = std.Io.Mutex.init;
+pub const nghttp2_api = @import("sa_http2_nghttp2.zig").nghttp2_api;
+pub const nghttp2_api_mutex = @import("sa_http2_nghttp2.zig").nghttp2_api_mutex;
 
-fn loadNghttp2Api() ?*Nghttp2Api {
-    if (comptime builtin.cpu.arch.isWasm()) {
-        return null;
-    } else {
-        return loadNghttp2ApiNative();
-    }
-}
+pub const loadNghttp2Api = @import("sa_http2_nghttp2.zig").loadNghttp2Api;
 
-fn loadNghttp2ApiNative() ?*Nghttp2Api {
-    if (comptime builtin.cpu.arch.isWasm()) return null;
-    nghttp2_api_mutex.lockUncancelable(sio.io());
-    defer nghttp2_api_mutex.unlock(sio.io());
-    if (nghttp2_api) |*api| return api;
-
-    const candidates = [_][]const u8{
-        "libnghttp2.so.14",
-        "/lib/x86_64-linux-gnu/libnghttp2.so.14",
-        "/usr/lib/x86_64-linux-gnu/libnghttp2.so.14",
-    };
-
-    for (candidates) |candidate| {
-        var lib = std.DynLib.open(candidate) catch continue;
-        const callbacks_new = lib.lookup(Nghttp2CallbacksNewFn, "nghttp2_session_callbacks_new") orelse {
-            lib.close();
-            continue;
-        };
-        const callbacks_del = lib.lookup(Nghttp2CallbacksDelFn, "nghttp2_session_callbacks_del") orelse {
-            lib.close();
-            continue;
-        };
-        const set_header = lib.lookup(Nghttp2SetOnHeaderFn, "nghttp2_session_callbacks_set_on_header_callback") orelse {
-            lib.close();
-            continue;
-        };
-        const set_data = lib.lookup(Nghttp2SetOnDataChunkRecvFn, "nghttp2_session_callbacks_set_on_data_chunk_recv_callback") orelse {
-            lib.close();
-            continue;
-        };
-        const set_frame = lib.lookup(Nghttp2SetOnFrameRecvFn, "nghttp2_session_callbacks_set_on_frame_recv_callback") orelse {
-            lib.close();
-            continue;
-        };
-        const session_client_new = lib.lookup(Nghttp2SessionClientNewFn, "nghttp2_session_client_new") orelse {
-            lib.close();
-            continue;
-        };
-        const session_del = lib.lookup(Nghttp2SessionDelFn, "nghttp2_session_del") orelse {
-            lib.close();
-            continue;
-        };
-        const submit_request = lib.lookup(Nghttp2SubmitRequestFn, "nghttp2_submit_request") orelse {
-            lib.close();
-            continue;
-        };
-        const submit_settings = lib.lookup(Nghttp2SubmitSettingsFn, "nghttp2_submit_settings") orelse {
-            lib.close();
-            continue;
-        };
-        const mem_send = lib.lookup(Nghttp2SessionMemSendFn, "nghttp2_session_mem_send") orelse {
-            lib.close();
-            continue;
-        };
-        const mem_recv = lib.lookup(Nghttp2SessionMemRecvFn, "nghttp2_session_mem_recv") orelse {
-            lib.close();
-            continue;
-        };
-        const want_read = lib.lookup(Nghttp2SessionWantFn, "nghttp2_session_want_read") orelse {
-            lib.close();
-            continue;
-        };
-        const want_write = lib.lookup(Nghttp2SessionWantFn, "nghttp2_session_want_write") orelse {
-            lib.close();
-            continue;
-        };
-        const version = lib.lookup(Nghttp2VersionFn, "nghttp2_version") orelse {
-            lib.close();
-            continue;
-        };
-        nghttp2_api = .{
-            .lib = lib,
-            .callbacks_new = callbacks_new,
-            .callbacks_del = callbacks_del,
-            .callbacks_set_on_header_callback = set_header,
-            .callbacks_set_on_data_chunk_recv_callback = set_data,
-            .callbacks_set_on_frame_recv_callback = set_frame,
-            .session_client_new = session_client_new,
-            .session_del = session_del,
-            .submit_request = submit_request,
-            .submit_settings = submit_settings,
-            .session_mem_send = mem_send,
-            .session_mem_recv = mem_recv,
-            .session_want_read = want_read,
-            .session_want_write = want_write,
-            .version = version,
-        };
-        return &nghttp2_api.?;
-    }
-    return null;
-}
+pub const loadNghttp2ApiNative = @import("sa_http2_nghttp2.zig").loadNghttp2ApiNative;
 
 // --- response state machine ---
 
@@ -370,7 +187,7 @@ fn http2Dial(host: []const u8, port: u16) !std.Io.net.Stream {
     return hn.connect(sio.io(), port, .{ .mode = .stream });
 }
 
-fn http2ParseUrl(url: []const u8) !struct { scheme: []const u8, host: []const u8, port: u16, path: []const u8 } {
+pub fn http2ParseUrl(url: []const u8) !struct { scheme: []const u8, host: []const u8, port: u16, path: []const u8 } {
     const marker = std.mem.indexOf(u8, url, "://") orelse return error.InvalidUrl;
     const scheme = url[0..marker];
     if (!std.mem.eql(u8, scheme, "http")) return error.UnsupportedScheme;
@@ -404,158 +221,51 @@ fn http2ParseUrl(url: []const u8) !struct { scheme: []const u8, host: []const u8
 
 // --- HTTP/2 settings serialization (frame helpers, no lib needed) ---
 
-const HTTP2_SETTINGS_HEADER_TABLE_SIZE: u16 = 0x1;
-const HTTP2_SETTINGS_ENABLE_PUSH: u16 = 0x2;
-const HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS: u16 = 0x3;
-const HTTP2_SETTINGS_INITIAL_WINDOW_SIZE: u16 = 0x4;
-const HTTP2_SETTINGS_MAX_FRAME_SIZE: u16 = 0x5;
-const HTTP2_SETTINGS_MAX_HEADER_LIST_SIZE: u16 = 0x6;
-const HTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL: u16 = 0x8;
-const HTTP2_MAX_FRAME_SIZE: u32 = 0x00ff_ffff;
-const HTTP2_MAX_INITIAL_WINDOW_SIZE: u32 = 0x7fff_ffff;
-const HTTP2_MAX_CUSTOM_SETTINGS: usize = 10;
-const HTTP2_CLIENT_PREFACE = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
-const HTTP2_FRAME_SETTINGS: u8 = 0x4;
-const HTTP2_FLAG_ACK: u8 = 0x1;
+pub const HTTP2_SETTINGS_HEADER_TABLE_SIZE = @import("sa_http2_settings.zig").HTTP2_SETTINGS_HEADER_TABLE_SIZE;
+pub const HTTP2_SETTINGS_ENABLE_PUSH = @import("sa_http2_settings.zig").HTTP2_SETTINGS_ENABLE_PUSH;
+pub const HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS = @import("sa_http2_settings.zig").HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS;
+pub const HTTP2_SETTINGS_INITIAL_WINDOW_SIZE = @import("sa_http2_settings.zig").HTTP2_SETTINGS_INITIAL_WINDOW_SIZE;
+pub const HTTP2_SETTINGS_MAX_FRAME_SIZE = @import("sa_http2_settings.zig").HTTP2_SETTINGS_MAX_FRAME_SIZE;
+pub const HTTP2_SETTINGS_MAX_HEADER_LIST_SIZE = @import("sa_http2_settings.zig").HTTP2_SETTINGS_MAX_HEADER_LIST_SIZE;
+pub const HTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL = @import("sa_http2_settings.zig").HTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL;
+pub const HTTP2_MAX_FRAME_SIZE = @import("sa_http2_settings.zig").HTTP2_MAX_FRAME_SIZE;
+pub const HTTP2_MAX_INITIAL_WINDOW_SIZE = @import("sa_http2_settings.zig").HTTP2_MAX_INITIAL_WINDOW_SIZE;
+pub const HTTP2_MAX_CUSTOM_SETTINGS = @import("sa_http2_settings.zig").HTTP2_MAX_CUSTOM_SETTINGS;
+pub const HTTP2_CLIENT_PREFACE = @import("sa_http2_settings.zig").HTTP2_CLIENT_PREFACE;
+pub const HTTP2_FRAME_SETTINGS = @import("sa_http2_settings.zig").HTTP2_FRAME_SETTINGS;
+pub const HTTP2_FLAG_ACK = @import("sa_http2_settings.zig").HTTP2_FLAG_ACK;
 
-const Nghttp2SettingsEntry = extern struct {
-    settings_id: i32,
-    value: u32,
-};
+pub const Nghttp2SettingsEntry = @import("sa_http2_nghttp2.zig").Nghttp2SettingsEntry;
 
-const Http2SettingPair = struct {
-    id: u16,
-    value: u32,
-};
+pub const Http2SettingPair = @import("sa_http2_settings.zig").Http2SettingPair;
 
-fn http2AppendSetting(out: *std.array_list.Managed(u8), id: u16, value: u32) !void {
-    try out.append(@intCast((id >> 8) & 0xff));
-    try out.append(@intCast(id & 0xff));
-    try out.append(@intCast((value >> 24) & 0xff));
-    try out.append(@intCast((value >> 16) & 0xff));
-    try out.append(@intCast((value >> 8) & 0xff));
-    try out.append(@intCast(value & 0xff));
-}
+pub const http2AppendSetting = @import("sa_http2_settings.zig").http2AppendSetting;
 
-fn http2JsonNumber(value: std.json.Value) ?u32 {
-    return switch (value) {
-        .integer => |n| if (n >= 0 and n <= std.math.maxInt(u32)) @intCast(n) else null,
-        .float => |n| blk: {
-            if (!std.math.isFinite(n) or n < 0 or n > @as(f64, @floatFromInt(std.math.maxInt(u32)))) break :blk null;
-            const rounded = @floor(n);
-            if (rounded != n) break :blk null;
-            break :blk @intFromFloat(n);
-        },
-        else => null,
-    };
-}
+pub const http2JsonNumber = @import("sa_http2_settings.zig").http2JsonNumber;
 
-fn http2JsonBool(value: std.json.Value) ?bool {
-    return switch (value) {
-        .bool => |b| b,
-        else => null,
-    };
-}
+pub const http2JsonBool = @import("sa_http2_settings.zig").http2JsonBool;
 
-fn http2AppendNumericSetting(out: *std.array_list.Managed(u8), obj: std.json.ObjectMap, key: []const u8, id: u16, min: u32, max: u32) !void {
-    const value = obj.get(key) orelse return;
-    const n = http2JsonNumber(value) orelse return error.InvalidSetting;
-    if (n < min or n > max) return error.InvalidSetting;
-    try http2AppendSetting(out, id, n);
-}
+pub const http2AppendNumericSetting = @import("sa_http2_settings.zig").http2AppendNumericSetting;
 
-fn http2AppendBoolSetting(out: *std.array_list.Managed(u8), obj: std.json.ObjectMap, key: []const u8, id: u16) !void {
-    const value = obj.get(key) orelse return;
-    const enabled = http2JsonBool(value) orelse return error.InvalidSetting;
-    try http2AppendSetting(out, id, if (enabled) 1 else 0);
-}
+pub const http2AppendBoolSetting = @import("sa_http2_settings.zig").http2AppendBoolSetting;
 
-fn http2AppendMaxHeaderSetting(out: *std.array_list.Managed(u8), obj: std.json.ObjectMap) !void {
-    const list_value = obj.get("maxHeaderListSize");
-    const size_value = obj.get("maxHeaderSize");
-    const value = size_value orelse list_value orelse return;
-    const n = http2JsonNumber(value) orelse return error.InvalidSetting;
-    try http2AppendSetting(out, HTTP2_SETTINGS_MAX_HEADER_LIST_SIZE, n);
-}
+pub const http2AppendMaxHeaderSetting = @import("sa_http2_settings.zig").http2AppendMaxHeaderSetting;
 
-fn http2KnownSetting(id: u16) bool {
-    return id == HTTP2_SETTINGS_HEADER_TABLE_SIZE or
-        id == HTTP2_SETTINGS_ENABLE_PUSH or
-        id == HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS or
-        id == HTTP2_SETTINGS_INITIAL_WINDOW_SIZE or
-        id == HTTP2_SETTINGS_MAX_FRAME_SIZE or
-        id == HTTP2_SETTINGS_MAX_HEADER_LIST_SIZE or
-        id == HTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL;
-}
+pub const http2KnownSetting = @import("sa_http2_settings.zig").http2KnownSetting;
 
-fn http2AppendCustomSettings(out: *std.array_list.Managed(u8), obj: std.json.ObjectMap) !void {
-    const custom = obj.get("customSettings") orelse return;
-    if (custom != .object) return error.InvalidSetting;
-    if (custom.object.count() > HTTP2_MAX_CUSTOM_SETTINGS) return error.InvalidSetting;
-    var it = custom.object.iterator();
-    while (it.next()) |entry| {
-        const id = std.fmt.parseInt(u16, entry.key_ptr.*, 10) catch return error.InvalidSetting;
-        if (id == 0) return error.InvalidSetting;
-        const n = http2JsonNumber(entry.value_ptr.*) orelse return error.InvalidSetting;
-        if (http2KnownSetting(id)) continue;
-        try http2AppendSetting(out, id, n);
-    }
-}
+pub const http2AppendCustomSettings = @import("sa_http2_settings.zig").http2AppendCustomSettings;
 
-fn http2ReadSetting(buf: []const u8, offset: usize) Http2SettingPair {
-    const id = (@as(u16, buf[offset]) << 8) | @as(u16, buf[offset + 1]);
-    const value = (@as(u32, buf[offset + 2]) << 24) |
-        (@as(u32, buf[offset + 3]) << 16) |
-        (@as(u32, buf[offset + 4]) << 8) |
-        @as(u32, buf[offset + 5]);
-    return .{ .id = id, .value = value };
-}
+pub const http2ReadSetting = @import("sa_http2_settings.zig").http2ReadSetting;
 
-fn http2AppendFrame(out: *std.array_list.Managed(u8), frame_type: u8, flags: u8, stream_id: u32, payload: []const u8) !void {
-    if (payload.len > HTTP2_MAX_FRAME_SIZE) return error.FrameTooLarge;
-    try out.append(@intCast((payload.len >> 16) & 0xff));
-    try out.append(@intCast((payload.len >> 8) & 0xff));
-    try out.append(@intCast(payload.len & 0xff));
-    try out.append(frame_type);
-    try out.append(flags);
-    const sid = stream_id & 0x7fff_ffff;
-    try out.append(@intCast((sid >> 24) & 0x7f));
-    try out.append(@intCast((sid >> 16) & 0xff));
-    try out.append(@intCast((sid >> 8) & 0xff));
-    try out.append(@intCast(sid & 0xff));
-    try out.appendSlice(payload);
-}
+pub const http2AppendFrame = @import("sa_http2_settings.zig").http2AppendFrame;
 
-const Http2FrameHeader = struct {
-    len: usize,
-    frame_type: u8,
-    flags: u8,
-    stream_id: u32,
-};
+pub const Http2FrameHeader = @import("sa_http2_settings.zig").Http2FrameHeader;
 
-fn http2ReadFrameHeader(buf: []const u8) !Http2FrameHeader {
-    if (buf.len < 9) return error.ShortFrameHeader;
-    const len = (@as(usize, buf[0]) << 16) | (@as(usize, buf[1]) << 8) | @as(usize, buf[2]);
-    const stream_id = (@as(u32, buf[5] & 0x7f) << 24) |
-        (@as(u32, buf[6]) << 16) |
-        (@as(u32, buf[7]) << 8) |
-        @as(u32, buf[8]);
-    return .{ .len = len, .frame_type = buf[3], .flags = buf[4], .stream_id = stream_id };
-}
+pub const http2ReadFrameHeader = @import("sa_http2_settings.zig").http2ReadFrameHeader;
 
-fn http2AppendJsonU32Field(out: *std.array_list.Managed(u8), first: *bool, name: []const u8, value: u32) !void {
-    if (!first.*) try out.append(',');
-    first.* = false;
-    try appendJsonString(out, name);
-    try managedPrint(out, ":{d}", .{value});
-}
+pub const http2AppendJsonU32Field = @import("sa_http2_settings.zig").http2AppendJsonU32Field;
 
-fn http2AppendJsonBoolField(out: *std.array_list.Managed(u8), first: *bool, name: []const u8, value: bool) !void {
-    if (!first.*) try out.append(',');
-    first.* = false;
-    try appendJsonString(out, name);
-    try out.appendSlice(if (value) ":true" else ":false");
-}
+pub const http2AppendJsonBoolField = @import("sa_http2_settings.zig").http2AppendJsonBoolField;
 
 // --- exported HTTP/2 surface (sa_std HTTP/2 — real libnghttp2 backend) ---
 
@@ -609,7 +319,7 @@ pub export fn sa_std_http2_client_request_with_settings(url_ptr: ?[*]const u8, u
     return http2ClientRequestImpl(url_ptr, url_len, method_ptr, method_len, body_ptr, body_len, sj, out_handle);
 }
 
-fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
+pub fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
     if (comptime builtin.cpu.arch.isWasm()) {
         var iov = [_]std.os.wasi.iovec_t{.{ .base = buf.ptr, .len = buf.len }};
         var n: usize = 0;
@@ -620,7 +330,6 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         return std.posix.read(fd, buf);
     }
 }
-
 
 fn http2ClientRequestImpl(url_ptr: ?[*]const u8, url_len: u64, method_ptr: ?[*]const u8, method_len: u64, body_ptr: ?[*]const u8, body_len: u64, settings_json: ?[]const u8, out_handle: ?*u64) i32 {
     const slot = out_handle orelse return SA_STD_ERR_INVALID_ARGUMENT;
@@ -951,27 +660,11 @@ pub export fn sa_std_http2_status_json(out_handle: ?*u64) i32 {
 
 // --- buffer-handle accessor / free surface (sci convention) ---
 
-pub export fn sa_std_http2_buffer_data(handle: u64) ?[*]const u8 {
-    const bytes = takeBuffer(handle) orelse return null;
-    return bytes.ptr;
-}
+pub const sa_std_http2_buffer_data = @import("sa_http2_buffer.zig").sa_std_http2_buffer_data;
 
-pub export fn sa_std_http2_buffer_len(handle: u64) u64 {
-    const bytes = takeBuffer(handle) orelse return 0;
-    return @intCast(bytes.len);
-}
+pub const sa_std_http2_buffer_len = @import("sa_http2_buffer.zig").sa_std_http2_buffer_len;
 
-pub export fn sa_std_http2_buffer_free(handle: u64) i32 {
-    buffer_registry_mutex.lockUncancelable(sio.io());
-    defer buffer_registry_mutex.unlock(sio.io());
-    if (handle == 0) return SA_STD_OK;
-    const idx: usize = @intCast(handle - 1);
-    if (idx >= buffer_slots.items.len) return SA_STD_ERR_INVALID_ARGUMENT;
-    const entry = buffer_slots.items[idx] orelse return SA_STD_ERR_INVALID_ARGUMENT;
-    buffer_slots.items[idx] = null;
-    std.heap.page_allocator.free(entry.bytes);
-    return SA_STD_OK;
-}
+pub const sa_std_http2_buffer_free = @import("sa_http2_buffer.zig").sa_std_http2_buffer_free;
 
 // ============================================================================
 // Unit tests — proof that the sa_std HTTP/2 surface works against the real
@@ -980,419 +673,12 @@ pub export fn sa_std_http2_buffer_free(handle: u64) i32 {
 // pulled into the test binary).
 // ============================================================================
 
-const testing = std.testing;
+pub const testing = std.testing;
 
-fn readHandle(handle: u64) []const u8 {
-    const len = sa_std_http2_buffer_len(handle);
-    const ptr = sa_std_http2_buffer_data(handle) orelse return "";
-    return ptr[0..@intCast(len)];
-}
-
-test "buffer handle register/data/len/free roundtrip" {
-    const bytes = try std.heap.page_allocator.dupe(u8, "hello-h2");
-    const h = registerBuffer(bytes);
-    try testing.expect(h != 0);
-    try testing.expectEqualStrings("hello-h2", readHandle(h));
-    try testing.expect(@as(u64, 8) == sa_std_http2_buffer_len(h));
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_buffer_free(h));
-    // double-free returns INVALID_ARGUMENT (handle now empty)
-    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_http2_buffer_free(h));
-    try testing.expectEqual(@as(?[*]const u8, null), sa_std_http2_buffer_data(h));
-    try testing.expectEqual(@as(u64, 0), sa_std_http2_buffer_len(0));
-}
-
-test "sa_std_http2_supported reflects real libnghttp2 availability" {
-    var supported: u32 = 0;
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_supported(&supported));
-    // On this host libnghttp2.so.14 is installed (verified at assessment time);
-    // the exported flag must therefore be 1.
-    try testing.expectEqual(@as(u32, 1), supported);
-}
-
-test "status json reports protocol machine on, libnghttp2 backend" {
-    var handle: u64 = 0;
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_status_json(&handle));
-    defer _ = sa_std_http2_buffer_free(handle);
-    const json = readHandle(handle);
-    try testing.expect(std.mem.indexOf(u8, json, "\"module\":\"http2\"") != null);
-    try testing.expect(std.mem.indexOf(u8, json, "\"backend\":\"libnghttp2\"") != null);
-    try testing.expect(std.mem.indexOf(u8, json, "\"protocolMachine\":true") != null);
-    try testing.expect(std.mem.indexOf(u8, json, "\"supported\":true") != null);
-}
-
-test "default settings json round-trips through pack -> unpack" {
-    // This exercises the real libnghttp2-independent settings frame codec that
-    // perform_server_handshake and the client both rely on.
-    var defaults_handle: u64 = 0;
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_get_default_settings_json(&defaults_handle));
-    defer _ = sa_std_http2_buffer_free(defaults_handle);
-    const defaults = readHandle(defaults_handle);
-
-    var packed_handle: u64 = 0;
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_get_packed_settings(defaults.ptr, defaults.len, &packed_handle));
-    const packed_bytes = readHandle(packed_handle);
-
-    var unpacked_handle: u64 = 0;
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_get_unpacked_settings_json(packed_bytes.ptr, packed_bytes.len, &unpacked_handle));
-    const unpacked = readHandle(unpacked_handle);
-
-    // The unpacked JSON must contain the same canonical numeric/bool fields we
-    // packed from the defaults. (HPACK-free settings pairs are self-inverse.)
-    try testing.expect(std.mem.indexOf(u8, unpacked, "\"headerTableSize\":4096") != null);
-    try testing.expect(std.mem.indexOf(u8, unpacked, "\"maxFrameSize\":16384") != null);
-    try testing.expect(std.mem.indexOf(u8, unpacked, "\"initialWindowSize\":65535") != null);
-    try testing.expect(std.mem.indexOf(u8, unpacked, "\"enablePush\":true") != null);
-
-    _ = sa_std_http2_buffer_free(packed_handle);
-    _ = sa_std_http2_buffer_free(unpacked_handle);
-}
-
-test "pack -> unpack is self-inverse for custom settings" {
-    const settings_json =
-        \\{"headerTableSize":8192,"maxConcurrentStreams":128,"initialWindowSize":65535,"maxFrameSize":16384,"customSettings":{"99":1,"500":4294967295}}
-    ;
-    var packed_handle: u64 = 0;
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_get_packed_settings(settings_json.ptr, settings_json.len, &packed_handle));
-    const packed_bytes = readHandle(packed_handle);
-    // 4 known keys present (headerTableSize, maxConcurrentStreams, initialWindowSize, maxFrameSize) + 2 custom = 6 pairs * 6 bytes = 36 bytes
-    try testing.expectEqual(@as(u64, 36), sa_std_http2_buffer_len(packed_handle));
-
-    var unpacked_handle: u64 = 0;
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_get_unpacked_settings_json(packed_bytes.ptr, packed_bytes.len, &unpacked_handle));
-    const unpacked = readHandle(unpacked_handle);
-    try testing.expect(std.mem.indexOf(u8, unpacked, "\"headerTableSize\":8192") != null);
-    try testing.expect(std.mem.indexOf(u8, unpacked, "\"maxConcurrentStreams\":128") != null);
-    try testing.expect(std.mem.indexOf(u8, unpacked, "\"customSettings\":{") != null);
-    try testing.expect(std.mem.indexOf(u8, unpacked, "\"99\":1") != null);
-    try testing.expect(std.mem.indexOf(u8, unpacked, "\"500\":4294967295") != null);
-
-    _ = sa_std_http2_buffer_free(packed_handle);
-    _ = sa_std_http2_buffer_free(unpacked_handle);
-}
-
-test "perform_server_handshake round-trips a client preface + SETTINGS frame" {
-    // Build a synthetic client preface: connection preface bytes followed by a
-    // single SETTINGS frame carrying one pair (max_frame_size=16384 == 0x05).
-    var input = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer input.deinit();
-    try input.appendSlice(HTTP2_CLIENT_PREFACE);
-    // frame: length=6, type=SETTINGS(4), flags=0, stream_id=0, payload 6 bytes
-    try input.append(0); // len >> 16
-    try input.append(0); // len >> 8
-    try input.append(6); // len
-    try input.append(HTTP2_FRAME_SETTINGS);
-    try input.append(0); // flags (no ACK)
-    try input.append(0); // stream_id bytes
-    try input.append(0);
-    try input.append(0);
-    try input.append(0);
-    // one setting: id=5 (MAX_FRAME_SIZE), value=16384
-    try input.append(0);
-    try input.append(5);
-    try input.append(0);
-    try input.append(0);
-    try input.append(0x40);
-    try input.append(0);
-
-    var out_bytes_handle: u64 = 0;
-    var out_json_handle: u64 = 0;
-    const server_settings_json = "{\"maxFrameSize\":16384}";
-    const status = sa_std_http2_perform_server_handshake(
-        input.items.ptr,
-        input.items.len,
-        server_settings_json.ptr,
-        server_settings_json.len,
-        &out_bytes_handle,
-        &out_json_handle,
-    );
-    try testing.expectEqual(@as(i32, SA_STD_OK), status);
-    defer _ = sa_std_http2_buffer_free(out_bytes_handle);
-    defer _ = sa_std_http2_buffer_free(out_json_handle);
-
-    const outbound = readHandle(out_bytes_handle);
-    // Server must emit two SETTINGS frames: the server's own settings + an ACK.
-    // Both are frame type 0x4; the second carries the ACK flag (0x1).
-    try testing.expect(outbound.len >= 18); // two 9-byte headers minimum
-    // First SETTINGS frame: 9-byte header (type at [3]) + 6-byte payload.
-    try testing.expectEqual(@as(u8, HTTP2_FRAME_SETTINGS), outbound[3]);
-    // Second frame (the ACK) starts at offset 9 + 6 = 15: type at [18], flags at [19].
-    try testing.expectEqual(@as(u8, HTTP2_FRAME_SETTINGS), outbound[15 + 3]);
-    try testing.expectEqual(@as(u8, HTTP2_FLAG_ACK), outbound[15 + 4]);
-
-    const meta = readHandle(out_json_handle);
-    try testing.expect(std.mem.indexOf(u8, meta, "\"preface\":true") != null);
-    try testing.expect(std.mem.indexOf(u8, meta, "\"clientSettingsBytes\":6") != null);
-    try testing.expect(std.mem.indexOf(u8, meta, "\"frames\":[\"SETTINGS\",\"SETTINGS_ACK\"]") != null);
-}
-
-test "perform_server_handshake rejects a missing/broken preface" {
-    var out_bytes: u64 = 0;
-    var out_json: u64 = 0;
-    // Too short to contain preface + a frame header.
-    const bad = "PRI * not a preface";
-    const status = sa_std_http2_perform_server_handshake(bad.ptr, bad.len, null, 0, &out_bytes, &out_json);
-    try testing.expect(status != SA_STD_OK);
-}
-
-test "sensitive headers list is a JSON array of known header names" {
-    var handle: u64 = 0;
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_sensitive_headers(&handle));
-    defer _ = sa_std_http2_buffer_free(handle);
-    const json = readHandle(handle);
-    try testing.expect(std.mem.indexOf(u8, json, "\"authorization\"") != null);
-    try testing.expect(std.mem.indexOf(u8, json, "\"cookie\"") != null);
-    try testing.expect(std.mem.indexOf(u8, json, "\"set-cookie\"") != null);
-}
-
-test "nghttp2 version json is present when supported" {
-    var supported: u32 = 0;
-    _ = sa_std_http2_supported(&supported);
-    if (supported == 0) return;
-
-    var handle: u64 = 0;
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_nghttp2_version_json(&handle));
-    defer _ = sa_std_http2_buffer_free(handle);
-    const json = readHandle(handle);
-    try testing.expect(std.mem.indexOf(u8, json, "\"version\":\"") != null);
-    try testing.expect(std.mem.indexOf(u8, json, "\"versionNum\":") != null);
-}
+pub const readHandle = @import("sa_http2_test.zig").readHandle;
 
 // ============================================================================
 // Stricter boundary / contract tests (added to defend the sinking invariants).
 // ============================================================================
 
-test "buffer handle rejects double-free and reading a freed handle" {
-    const bytes = try std.heap.page_allocator.dupe(u8, "boundary");
-    const h = registerBuffer(bytes);
-    try testing.expect(h != 0);
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_buffer_free(h));
-    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_http2_buffer_free(h));
-    try testing.expectEqual(@as(?[*]const u8, null), sa_std_http2_buffer_data(h));
-    try testing.expectEqual(@as(u64, 0), sa_std_http2_buffer_len(h));
-    try testing.expectEqual(@as(?[*]const u8, null), sa_std_http2_buffer_data(0));
-    try testing.expectEqual(@as(u64, 0), sa_std_http2_buffer_len(0));
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_buffer_free(0));
-}
-
-test "buffer handle registry survives a burst of many alloc/free cycles" {
-    var i: usize = 0;
-    while (i < 256) : (i += 1) {
-        var buf: [16]u8 = undefined;
-        const text = std.fmt.bufPrint(&buf, "h2-{d}", .{i}) catch unreachable;
-        const h = registerOwnedString(text);
-        try testing.expect(h != 0);
-        const len = sa_std_http2_buffer_len(h);
-        try testing.expectEqual(@as(u64, text.len), len);
-        const ptr = sa_std_http2_buffer_data(h) orelse return error.MissingData;
-        try testing.expectEqualStrings(text, ptr[0..@intCast(len)]);
-        try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_buffer_free(h));
-    }
-}
-
-test "buffer handle registry is thread-safe under concurrent alloc/free" {
-    const N: usize = 64;
-    const Writer = struct {
-        fn run() void {
-            const alloc = std.heap.page_allocator;
-            for (0..N) |_| {
-                const bytes = alloc.dupe(u8, "concurrent-h2") catch continue;
-                const h = registerBuffer(bytes);
-                if (h == 0) {
-                    alloc.free(bytes);
-                    continue;
-                }
-                _ = sa_std_http2_buffer_len(h);
-                _ = sa_std_http2_buffer_data(h);
-                _ = sa_std_http2_buffer_free(h);
-            }
-        }
-    };
-    var threads: [4]std.Thread = undefined;
-    for (&threads) |*t| t.* = try std.Thread.spawn(.{}, Writer.run, .{});
-    for (threads) |t| t.join();
-    // After the concurrent burst the registry must remain usable: a fresh
-    // handle can still be allocated, read, and freed cleanly (no state
-    // corruption from the concurrent alloc/free storm).
-    const probe = registerOwnedString("probe-after-concurrency");
-    try testing.expect(probe != 0);
-    try testing.expectEqual(@as(u64, 23), sa_std_http2_buffer_len(probe));
-    try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_http2_buffer_free(probe));
-    try testing.expectEqual(@as(i32, SA_STD_ERR_INVALID_ARGUMENT), sa_std_http2_buffer_free(probe));
-}
-
-test "get_packed_settings rejects malformed JSON and out-of-range values" {
-    var handle: u64 = 0;
-    // Not an object.
-    try testing.expect(sa_std_http2_get_packed_settings("not json".ptr, 8, &handle) != SA_STD_OK);
-    try testing.expectEqual(@as(u64, 0), handle);
-    // maxFrameSize below the RFC minimum 16384 must be rejected.
-    const too_small = "{\"maxFrameSize\":1024}";
-    try testing.expect(sa_std_http2_get_packed_settings(too_small.ptr, too_small.len, &handle) != SA_STD_OK);
-    try testing.expectEqual(@as(u64, 0), handle);
-    // maxFrameSize above the RFC maximum 0xffffff must be rejected.
-    const too_big = "{\"maxFrameSize\":33554432}";
-    try testing.expect(sa_std_http2_get_packed_settings(too_big.ptr, too_big.len, &handle) != SA_STD_OK);
-    try testing.expectEqual(@as(u64, 0), handle);
-}
-
-test "get_unpacked_settings_json rejects buffers whose length is not a multiple of 6" {
-    var handle: u64 = 0;
-    const bad = "12345"; // 5 bytes
-    try testing.expect(sa_std_http2_get_unpacked_settings_json(bad.ptr, bad.len, &handle) != SA_STD_OK);
-    try testing.expectEqual(@as(u64, 0), handle);
-    const bad2 = "1234567"; // 7 bytes
-    try testing.expect(sa_std_http2_get_unpacked_settings_json(bad2.ptr, bad2.len, &handle) != SA_STD_OK);
-    try testing.expectEqual(@as(u64, 0), handle);
-}
-
-test "perform_server_handshake rejects a SETTINGS frame that carries the ACK flag" {
-    // preface + a SETTINGS frame with ACK set (flags byte = 0x1) must fail.
-    var input = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer input.deinit();
-    try input.appendSlice(HTTP2_CLIENT_PREFACE);
-    try input.append(0); // len>>16
-    try input.append(0); // len>>8
-    try input.append(0); // len=0
-    try input.append(HTTP2_FRAME_SETTINGS);
-    try input.append(HTTP2_FLAG_ACK); // ACK — illegal for the *client* preface
-    try input.append(0);
-    try input.append(0);
-    try input.append(0);
-    try input.append(0);
-    var bytes_h: u64 = 0;
-    var json_h: u64 = 0;
-    const server_settings_json = "{\"maxFrameSize\":16384}";
-    const status = sa_std_http2_perform_server_handshake(input.items.ptr, input.items.len, server_settings_json.ptr, server_settings_json.len, &bytes_h, &json_h);
-    try testing.expect(status != SA_STD_OK);
-    try testing.expectEqual(@as(u64, 0), bytes_h);
-    try testing.expectEqual(@as(u64, 0), json_h);
-}
-
-test "perform_server_handshake rejects a non-SETTINGS first frame type" {
-    var input = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer input.deinit();
-    try input.appendSlice(HTTP2_CLIENT_PREFACE);
-    // PING frame (type 6) instead of SETTINGS — must fail.
-    try input.append(0);
-    try input.append(0);
-    try input.append(0);
-    try input.append(0x6); // PING
-    try input.append(0);
-    try input.append(0);
-    try input.append(0);
-    try input.append(0);
-    try input.append(0);
-    var bytes_h: u64 = 0;
-    var json_h: u64 = 0;
-    const status = sa_std_http2_perform_server_handshake(input.items.ptr, input.items.len, null, 0, &bytes_h, &json_h);
-    try testing.expect(status != SA_STD_OK);
-}
-
-test "perform_server_handshake rejects a SETTINGS frame on a non-zero stream id" {
-    var input = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer input.deinit();
-    try input.appendSlice(HTTP2_CLIENT_PREFACE);
-    try input.append(0);
-    try input.append(0);
-    try input.append(0);
-    try input.append(HTTP2_FRAME_SETTINGS);
-    try input.append(0);
-    try input.append(0);
-    try input.append(0);
-    try input.append(0);
-    try input.append(1); // stream_id LSB = 1, illegal for client preface SETTINGS
-    var bytes_h: u64 = 0;
-    var json_h: u64 = 0;
-    const status = sa_std_http2_perform_server_handshake(input.items.ptr, input.items.len, null, 0, &bytes_h, &json_h);
-    try testing.expect(status != SA_STD_OK);
-}
-
-test "http2ParseUrl validates scheme and authority" {
-    try testing.expectError(error.InvalidUrl, http2ParseUrl("not a url"));
-    try testing.expectError(error.InvalidUrl, http2ParseUrl("http://"));
-    try testing.expectError(error.UnsupportedScheme, http2ParseUrl("https://example.com/"));
-    // IPv6 literals carry ':' which must route through parseIp6, not the port split.
-    const parsed_ipv6 = try http2ParseUrl("http://[::1]:8080/path");
-    try testing.expectEqualStrings("::1", parsed_ipv6.host);
-    try testing.expectEqual(@as(u16, 8080), parsed_ipv6.port);
-    try testing.expectEqualStrings("/path", parsed_ipv6.path);
-    const parsed_default = try http2ParseUrl("http://example.com");
-    try testing.expectEqual(@as(u16, 80), parsed_default.port);
-    try testing.expectEqualStrings("/", parsed_default.path);
-}
-
-test "export fn return-status domain never overlaps SA_STD_OK" {
-    // Every error path must return a *negative* status, never 0; the buffer
-    // accessor math must keep 0 == invalid-handle invariant.
-    try testing.expectEqual(@as(u64, 0), sa_std_http2_buffer_len(0));
-    try testing.expect(SA_STD_OK == 0);
-    try testing.expect(SA_STD_ERR_NO_MEMORY < 0);
-    try testing.expect(SA_STD_ERR_INVALID_ARGUMENT < 0);
-    try testing.expect(@as(u32, 0x8000_0000) != 0); // UnsupportedStatus sentinel for flush
-}
-
-fn h2SettingsClientThread(port: u16) void {
-    var url_buf: [128]u8 = undefined;
-    const url = std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/", .{port}) catch return;
-    const settings = "{\"headerTableSize\":8192,\"initialWindowSize\":1000000,\"maxFrameSize\":32768}";
-    var out: u64 = 0;
-    _ = sa_std_http2_client_request_with_settings(url.ptr, url.len, "GET".ptr, 3, null, 0, settings.ptr, settings.len, &out);
-    if (out != 0) _ = sa_std_http2_buffer_free(out);
-}
-
-test "client_request_with_settings puts custom SETTINGS in the client preface" {
-    if (loadNghttp2Api() == null) return;
-    const probe = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
-    var listener = try probe.listen(sio.io(), .{ .reuse_address = true });
-    defer listener.deinit(sio.io());
-    const port = switch (listener.socket.address) {
-        .ip4 => |a| a.port,
-        .ip6 => |a| a.port,
-    };
-
-    const thread = try std.Thread.spawn(.{}, h2SettingsClientThread, .{port});
-    var stream = try listener.accept(sio.io());
-
-    // Accumulate bytes until the preface (24) + first frame are complete.
-    var buf: [8192]u8 = undefined;
-    var have: usize = 0;
-    var polls: usize = 0;
-    while (polls < 100) : (polls += 1) {
-        if (have >= 24 + 9) {
-            const hdr = try http2ReadFrameHeader(buf[24..]);
-            if (have >= 24 + 9 + hdr.len) break;
-        }
-        var fds = [_]std.posix.pollfd{.{ .fd = stream.socket.handle, .events = std.posix.POLL.IN, .revents = 0 }};
-        const ready = try std.posix.poll(&fds, 100);
-        if (ready == 0) continue;
-        const n = try posixRead(stream.socket.handle, buf[have..]);
-        if (n == 0) break;
-        have += n;
-    }
-    try testing.expect(have >= 24 + 9);
-    try testing.expect(std.mem.startsWith(u8, buf[0..24], "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"));
-    const hdr = try http2ReadFrameHeader(buf[24..]);
-    try testing.expectEqual(HTTP2_FRAME_SETTINGS, hdr.frame_type);
-    try testing.expectEqual(@as(u32, 0), hdr.stream_id);
-    const payload = buf[24 + 9 ..][0..hdr.len];
-    try testing.expect(payload.len % 6 == 0);
-    var found_table: ?u32 = null;
-    var found_window: ?u32 = null;
-    var found_frame: ?u32 = null;
-    var off: usize = 0;
-    while (off < payload.len) : (off += 6) {
-        const pair = http2ReadSetting(payload, off);
-        switch (pair.id) {
-            HTTP2_SETTINGS_HEADER_TABLE_SIZE => found_table = pair.value,
-            HTTP2_SETTINGS_INITIAL_WINDOW_SIZE => found_window = pair.value,
-            HTTP2_SETTINGS_MAX_FRAME_SIZE => found_frame = pair.value,
-            else => {},
-        }
-    }
-    try testing.expectEqual(@as(?u32, 8192), found_table);
-    try testing.expectEqual(@as(?u32, 1000000), found_window);
-    try testing.expectEqual(@as(?u32, 32768), found_frame);
-
-    stream.close(sio.io());
-    thread.join();
-}
+pub const h2SettingsClientThread = @import("sa_http2_test.zig").h2SettingsClientThread;
