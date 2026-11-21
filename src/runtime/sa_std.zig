@@ -1,5 +1,7 @@
 const std = @import("std");
 test "sa_std_tests" { std.testing.refAllDecls(@import("sa_std/sa_std_tests.zig")); }
+test "sa_std_tests_net" { std.testing.refAllDecls(@import("sa_std/tests_net.zig")); }
+test "sa_std_tests_codec" { std.testing.refAllDecls(@import("sa_std/tests_codec.zig")); }
 pub const builtin = @import("builtin");
 pub const sio = @import("sio");
 
@@ -67,86 +69,24 @@ pub fn saStdPolicyAllowsFsRead(path: []const u8) bool {
 // door. A policy that is present but unreadable or invalid is a hard
 // startup failure, never a silent fallback to legacy mode.
 
-var policy_context_storage: ?*sa_policy.PolicyContext = null;
-var policy_audit_fd: ?std.posix.fd_t = null;
+pub const policy_context_storage = @import("sa_std/policy.zig").policy_context_storage;
+pub var policy_audit_fd: ?std.posix.fd_t = null;
 
-fn policyBootstrapWriteStderr(text: []const u8) void {
-    _ = lxWrite(2, text) catch {};
-}
+pub const policyBootstrapWriteStderr = @import("sa_std/policy.zig").policyBootstrapWriteStderr;
 
-fn policyAuditSink(line: []const u8) void {
-    const fd = policy_audit_fd orelse return;
-    _ = lxWrite(fd, line) catch {};
-}
+pub const policyAuditSink = @import("sa_std/policy.zig").policyAuditSink;
 
-fn policyBootstrapFail(message: []const u8, code: u8) noreturn {
-    policyBootstrapWriteStderr("[sa-policy] ");
-    policyBootstrapWriteStderr(message);
-    policyBootstrapWriteStderr("\n");
-    std.process.exit(code);
-}
+pub const policyBootstrapFail = @import("sa_std/policy.zig").policyBootstrapFail;
 
-fn policyEnvOwned(allocator: std.mem.Allocator, name: []const u8) ?[]u8 {
+pub fn policyEnvOwned(allocator: std.mem.Allocator, name: []const u8) ?[]u8 {
     return sio.getEnvVarOwned(allocator, name) catch null;
 }
 
-fn policyEnvFlag(allocator: std.mem.Allocator, name: []const u8) bool {
-    const value = policyEnvOwned(allocator, name) orelse return false;
-    defer allocator.free(value);
-    return std.mem.eql(u8, value, "1");
-}
+pub const policyEnvFlag = @import("sa_std/policy.zig").policyEnvFlag;
 
-fn installPolicyText(allocator: std.mem.Allocator, text: []const u8) void {
-    const policy = sa_policy.parsePolicyJson(allocator, text) catch |err|
-        policyBootstrapFail(@errorName(err), 2);
+pub const installPolicyText = @import("sa_std/policy.zig").installPolicyText;
 
-    var audit_path: ?[]u8 = policyEnvOwned(allocator, "SA_AUDIT_FILE");
-    if (audit_path == null) {
-        if (policy.audit_sink) |sink| {
-            if (std.mem.startsWith(u8, sink, "file://")) {
-                audit_path = allocator.dupe(u8, sink["file://".len..]) catch null;
-            }
-        }
-    }
-    if (audit_path) |path| {
-        defer allocator.free(path);
-        var open_flags: std.posix.O = .{};
-        // WASI's O struct has no ACCMODE/APPEND fields (access mode and
-        // append live in fd rights/fdflags there); std.posix.openat maps
-        // what exists. Audit-sink open stays best-effort on every target.
-        if (comptime !is_wasm) {
-            open_flags.ACCMODE = .WRONLY;
-            open_flags.APPEND = true;
-        }
-        open_flags.CREAT = true;
-        if (std.posix.openat(std.posix.AT.FDCWD, path, open_flags, @as(std.posix.mode_t, 0o644))) |fd| {
-            policy_audit_fd = fd;
-            sa_policy.installAuditSink(policyAuditSink);
-        } else |_| {}
-    }
-
-    const context = allocator.create(sa_policy.PolicyContext) catch
-        policyBootstrapFail("out of memory", 2);
-    context.* = sa_policy.PolicyContext.init(allocator, 1, policy);
-    policy_context_storage = context;
-    sa_policy.installContext(context);
-
-    // One-time tokens delivered by the launcher (16_policy phase 1):
-    // the host mints them after approval and hands them over through
-    // SA_POLICY_TOKENS_JSON; they are minted into the root context
-    // here, before main runs.
-    if (policyEnvOwned(allocator, "SA_POLICY_TOKENS_JSON")) |tokens_text| {
-        defer allocator.free(tokens_text);
-        const specs = sa_policy.parseTokenSpecsJson(allocator, tokens_text) catch |err|
-            policyBootstrapFail(@errorName(err), 2);
-        defer sa_policy.freeTokenSpecs(allocator, specs);
-        const now_ns: i64 = @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
-        sa_policy.mintTokenSpecs(context, allocator, specs, now_ns) catch
-            policyBootstrapFail("out of memory", 2);
-    }
-}
-
-var policy_bootstrap_attempted: bool = false;
+pub const policy_bootstrap_attempted = @import("sa_std/policy.zig").policy_bootstrap_attempted;
 
 // ---------------------------------------------------------------------
 // DEF-R7: SIGPIPE policy (Jev ruling 2026-10-31:
@@ -166,27 +106,11 @@ var policy_bootstrap_attempted: bool = false;
 // installs the same disposition at its own main (src/main.zig).
 // Only SIGPIPE is touched; no other signal's disposition changes.
 
-var sigpipe_ignore_installed: bool = false;
+pub const sigpipe_ignore_installed = @import("sa_std/policy.zig").sigpipe_ignore_installed;
 
-pub fn applySigpipeIgnore() void {
-    // NOTE: do NOT gate this on @hasDecl(std.posix.SIG, "PIPE") —
-    // that is false on this Zig version (PIPE is an enum member, not
-    // a declaration), which is exactly why the http server's earlier
-    // attempt at this install (sa_http_server.zig) never took effect.
-    if (comptime !is_linux) return;
-    const act: std.posix.Sigaction = .{
-        .handler = .{ .handler = std.posix.SIG.IGN },
-        .mask = std.posix.sigemptyset(),
-        .flags = 0,
-    };
-    std.posix.sigaction(std.posix.SIG.PIPE, &act, null);
-}
+pub const applySigpipeIgnore = @import("sa_std/policy.zig").applySigpipeIgnore;
 
-fn installSigpipeIgnore() void {
-    if (sigpipe_ignore_installed) return;
-    sigpipe_ignore_installed = true;
-    applySigpipeIgnore();
-}
+pub const installSigpipeIgnore = @import("sa_std/policy.zig").installSigpipeIgnore;
 
 /// DEF-R7 startup entry called by every generated program main
 /// wrapper (LLVM shim + C backend) before user code runs. This is
@@ -195,62 +119,14 @@ fn installSigpipeIgnore() void {
 /// no other sa_std symbol, where the .init_array constructor alone
 /// would never be linked in. Exported on all targets; the install
 /// itself no-ops where SIGPIPE does not exist (wasm/windows).
-pub export fn sa_install_sigpipe_ignore() void {
-    installSigpipeIgnore();
-}
+pub const sa_install_sigpipe_ignore = @import("sa_std/policy.zig").sa_install_sigpipe_ignore;
 
-fn policyBootstrap() callconv(.c) void {
-    installSigpipeIgnore();
-    if (policy_bootstrap_attempted) return;
-    policy_bootstrap_attempted = true;
-    const allocator = std.heap.page_allocator;
-
-    if (policyEnvFlag(allocator, "SA_POLICY_ALLOW_ALL")) {
-        installPolicyText(allocator, "{\"permissions\":{\"net\":{\"mode\":\"allow\"},\"fs\":{\"mode\":\"allow\"},\"env\":{\"mode\":\"allow\"},\"run\":{\"mode\":\"allow\"},\"time\":{\"mode\":\"allow\"},\"random\":{\"mode\":\"allow\"}}}");
-        policyBootstrapWriteStderr("[sa-policy] allow-all policy engaged via SA_POLICY_ALLOW_ALL (audit trace)\n");
-        if (policy_audit_fd != null) {
-            const now_ns: i64 = @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
-            const event = sa_policy.AuditEvent{ .context_id = 1, .category = .run, .resource = "SA_POLICY_ALLOW_ALL", .decision = "allow-all", .source = "env" };
-            if (event.formatJsonLine(allocator, now_ns)) |line| {
-                defer allocator.free(line);
-                policyAuditSink(line);
-            } else |_| {}
-        }
-        return;
-    }
-
-    if (policyEnvOwned(allocator, "SA_POLICY_JSON")) |json_text| {
-        defer allocator.free(json_text);
-        installPolicyText(allocator, json_text);
-        return;
-    }
-
-    if (policyEnvOwned(allocator, "SA_POLICY_FILE")) |path| {
-        defer allocator.free(path);
-        var file = sio.cwd().openFile(path, .{}) catch
-            policyBootstrapFail("SA_POLICY_FILE is set but cannot be opened", 2);
-        defer file.close();
-        const text = file.readToEndAlloc(allocator, 1 << 20) catch
-            policyBootstrapFail("SA_POLICY_FILE cannot be read", 2);
-        defer allocator.free(text);
-        installPolicyText(allocator, text);
-        return;
-    }
-
-    if (policyEnvFlag(allocator, "SA_POLICY_REQUIRED")) {
-        policyBootstrapFail("SA_POLICY_REQUIRED is set but no policy was provided (set SA_POLICY_JSON, SA_POLICY_FILE, or SA_POLICY_ALLOW_ALL=1)", 1);
-    }
-
-    if (policyEnvOwned(allocator, "SA_POLICY_TOKENS_JSON")) |tokens_text| {
-        allocator.free(tokens_text);
-        policyBootstrapFail("SA_POLICY_TOKENS_JSON is set but no policy was provided (tokens need a policy context to bind to)", 1);
-    }
-}
+pub const policyBootstrap = @import("sa_std/policy.zig").policyBootstrap;
 
 // align(8) is load-bearing: with a larger section alignment the linker
 // pads .init_array up to the boundary, and glibc's init walk calls that
 // zero padding as a null function pointer before main ever runs.
-var policy_bootstrap_init_entry: *const fn () callconv(.c) void align(8) linksection(".init_array") = &policyBootstrap;
+pub const policy_bootstrap_init_entry = @import("sa_std/policy.zig").policy_bootstrap_init_entry;
 
 comptime {
     if (!builtin.is_test and builtin.os.tag == .linux and !is_wasm) {
@@ -1499,10 +1375,6 @@ pub const SA_PLUGIN_DESCRIPTOR_SYMBOL: [:0]const u8 = "saasm_plugin_descriptor_v
 
 pub const TestDebugScalar = @import("sa_std/test_debug.zig").TestDebugScalar;
 
-pub const test_debug_scalars = @import("sa_std/test_debug.zig").test_debug_scalars;
-pub const test_debug_next = @import("sa_std/test_debug.zig").test_debug_next;
-pub const test_debug_count = @import("sa_std/test_debug.zig").test_debug_count;
-pub const test_debug_mutex = @import("sa_std/test_debug.zig").test_debug_mutex;
 
 pub const SaPluginDescriptor = extern struct {
     abi_version: u32,
@@ -1985,13 +1857,7 @@ pub fn jsonKindOf(value: std.json.Value) u32 {
     };
 }
 
-pub fn jsonTextSlice(value: std.json.Value) ?[]const u8 {
-    return switch (value) {
-        .string => |text| text,
-        .number_string => |text| text,
-        else => null,
-    };
-}
+pub const jsonTextSlice = @import("sa_std/json_util.zig").jsonTextSlice;
 
 pub fn jsonValueAsF64(value: std.json.Value) !f64 {
     return switch (value) {
@@ -2051,20 +1917,9 @@ pub const jsonArrayGet = @import("sa_std/json_node.zig").jsonArrayGet;
 
 pub const jsonObjectKeyAt = @import("sa_std/json_node.zig").jsonObjectKeyAt;
 
-fn jsonStringifyAlloc(allocator: std.mem.Allocator, value: std.json.Value) ![]u8 {
-    var list = std.array_list.Managed(u8).init(allocator);
-    errdefer list.deinit();
-    try stringifyToList(&list, value);
-    return try list.toOwnedSlice();
-}
+pub const jsonStringifyAlloc = @import("sa_std/json_util.zig").jsonStringifyAlloc;
 
-pub fn jsonSerializeBuffer(allocator: std.mem.Allocator, value: std.json.Value) !u64 {
-    const bytes = try jsonStringifyAlloc(allocator, value);
-    return registerResource(.{ .json_buffer = .{ .allocator = allocator, .bytes = bytes } }) catch |err| {
-        allocator.free(bytes);
-        return err;
-    };
-}
+pub const jsonSerializeBuffer = @import("sa_std/json_util.zig").jsonSerializeBuffer;
 
 // Deep-copies a JSON value into `allocator` (the target document's arena),
 // duplicating every string, array and object so the copy shares no storage
@@ -2320,27 +2175,13 @@ pub const Resource = union(enum) {
 
 pub var registry_mutex: std.atomic.Mutex = .unlocked;
 var registry_slots = std.array_list.Managed(?Resource).init(std.heap.page_allocator);
-pub const pthread_registry_mutex = @import("sa_std/pthread.zig").pthread_registry_mutex;
-pub const pthread_slots = @import("sa_std/pthread.zig").pthread_slots;
-pub const pthread_free_slots = @import("sa_std/pthread.zig").pthread_free_slots;
-pub const raw_pthread_owners = @import("sa_std/pthread.zig").raw_pthread_owners;
 pub threadlocal var last_error: i32 = SA_STD_OK;
 var compatibility_mmap_page: [4096]u8 = std.mem.zeroes([4096]u8);
-var compatibility_dlopen_cookie: [1]u8 = .{0};
+pub const compatibility_dlopen_cookie = @import("sa_std/dlopen.zig").compatibility_dlopen_cookie;
 var compatibility_dlsym_cookie: [1]u8 = .{0};
-var compatibility_dl_error: [:0]const u8 = "unsupported";
+pub const compatibility_dl_error = @import("sa_std/dlopen.zig").compatibility_dl_error;
 
-const DynamicLibHandle = struct {
-    // wasm32-wasi has no dlopen; std.DynLib itself is @compileError on wasm,
-    // so the field must be conditional to keep the type compilable.
-    lib: if (builtin.cpu.arch.isWasm()) void else std.DynLib,
-
-    fn deinit(self: *DynamicLibHandle) void {
-        if (!builtin.cpu.arch.isWasm()) {
-            self.lib.close();
-        }
-    }
-};
+pub const DynamicLibHandle = @import("sa_std/dlopen.zig").DynamicLibHandle;
 
 pub const PthreadEntryFn = @import("sa_std/pthread.zig").PthreadEntryFn;
 
@@ -2535,18 +2376,10 @@ pub fn pathBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
     return path;
 }
 
-pub fn hostBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
-    const host = try constBytes(ptr, len);
-    if (host.len == 0) return error.InvalidArgument;
-    if (std.mem.indexOfScalar(u8, host, 0) != null) return error.InvalidArgument;
-    return host;
-}
+pub const hostBytes = @import("sa_std/ip_parse.zig").hostBytes;
 
 
-pub fn portFromU32(port: u32) !u16 {
-    if (port > std.math.maxInt(u16)) return error.InvalidArgument;
-    return @as(u16, @intCast(port));
-}
+pub const portFromU32 = @import("sa_std/ip_parse.zig").portFromU32;
 
 pub fn timevalFromNs(ns: u64) !Timeval {
     const sec = ns / std.time.ns_per_s;
@@ -2965,137 +2798,29 @@ pub fn getUnixSockAddr(fd: std.posix.fd_t, peer: bool) !struct { addr: SockAddrU
     return .{ .addr = addr, .len = len };
 }
 
-pub fn parseIp4Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !NetAddress {
-    const host = hostBytes(host_ptr, host_len) catch |err| return err;
-    const port16 = portFromU32(port) catch |err| return err;
-    // FreeBSD: the old net resolveIp bottoms out in if_nametoindex,
-    // which zig 0.14 leaves unimplemented for freebsd. Numeric literals
-    // parse locally; DNS names go through getAddressList below.
-    if (comptime builtin.os.tag == .freebsd) {
-        const parts = parseIpv4Ascii(host) orelse return error.InvalidArgument;
-        return NetAddress.initIp4(parts, port16);
-    }
-    const address = try NetAddress.resolveIp(host, port16);
-    if (address.storage.family != AFT.INET) return error.InvalidArgument;
-    return address;
-}
+pub const parseIp4Address = @import("sa_std/ip_parse.zig").parseIp4Address;
 
 // Parse one "::"-free half ("1:2:3" or trailing embedded IPv4) into out,
 // returning the group count. Used only on FreeBSD (see parseIpv6Freebsd).
-fn parseV6HalfFreebsd(s: []const u8, out: *[16]u8) ?usize {
-    if (s.len == 0) return null;
-    var n: usize = 0;
-    var it = std.mem.splitScalar(u8, s, ':');
-    while (it.next()) |part| {
-        if (part.len == 0) return null;
-        if (std.mem.indexOfScalar(u8, part, '.') != null) {
-            if (it.peek() != null) return null; // embedded IPv4 must be last
-            const v4 = parseIpv4Ascii(part) orelse return null;
-            if (n > 6) return null;
-            out[n * 2] = v4[0];
-            out[n * 2 + 1] = v4[1];
-            out[n * 2 + 2] = v4[2];
-            out[n * 2 + 3] = v4[3];
-            n += 2;
-        } else {
-            if (part.len > 4 or n > 7) return null;
-            const g = std.fmt.parseInt(u16, part, 16) catch return null;
-            out[n * 2] = @as(u8, @intCast(g >> 8));
-            out[n * 2 + 1] = @as(u8, @intCast(g & 0xff));
-            n += 1;
-        }
-    }
-    return n;
-}
+pub const parseV6HalfFreebsd = @import("sa_std/ip_parse.zig").parseV6HalfFreebsd;
 
 // Numeric IPv6 parser for FreeBSD: the old Ip6Address.resolve/parse and
 // Address.resolveIp all reach if_nametoindex (unimplemented for freebsd in
 // zig 0.14). Handles full, "::"-compressed and embedded-IPv4 forms.
-pub fn parseIpv6NumericFreebsd(text: []const u8) ?[16]u8 {
-    if (text.len == 0 or text.len > 45) return null;
-    var left = text;
-    var right: []const u8 = "";
-    var compressed = false;
-    if (std.mem.indexOf(u8, text, "::")) |idx| {
-        if (std.mem.indexOf(u8, text[idx + 2 ..], "::") != null) return null;
-        left = text[0..idx];
-        right = text[idx + 2 ..];
-        compressed = true;
-    } else if (text[0] == ':' or text[text.len - 1] == ':') {
-        return null;
-    }
-    var addr: [16]u8 = std.mem.zeroes([16]u8);
-    var head_n: usize = 0;
-    if (left.len > 0 or !compressed) {
-        head_n = parseV6HalfFreebsd(left, &addr) orelse return null;
-    }
-    if (compressed) {
-        if (right.len > 0) {
-            var tail: [16]u8 = std.mem.zeroes([16]u8);
-            const tail_n = parseV6HalfFreebsd(right, &tail) orelse return null;
-            const tail_bytes = tail_n * 2;
-            if (head_n * 2 + tail_bytes > 16) return null;
-            if (head_n == 8) return null; // "::" must compress at least one group
-            @memcpy(addr[16 - tail_bytes ..], tail[0..tail_bytes]);
-        } else if (head_n == 8) {
-            return null; // trailing "::" with nothing compressed
-        }
-    } else if (head_n != 8) {
-        return null;
-    }
-    return addr;
-}
+pub const parseIpv6NumericFreebsd = @import("sa_std/ip_parse.zig").parseIpv6NumericFreebsd;
 
 // "addr" or "addr%zone" (numeric zone, or interface name via libc
 // if_nametoindex which FreeBSD provides). Shared by parseIp6Address and
 // parseIpv6Ascii on FreeBSD.
-pub fn parseIp6FreebsdParts(host: []const u8) ?struct { addr: [16]u8, scope_id: u32 } {
-    var addr_text = host;
-    var scope_id: u32 = 0;
-    if (std.mem.indexOfScalar(u8, host, '%')) |pct| {
-        addr_text = host[0..pct];
-        const zone = host[pct + 1 ..];
-        if (zone.len == 0) return null;
-        scope_id = std.fmt.parseInt(u32, zone, 10) catch blk: {
-            if (zone.len >= std.c.IFNAMESIZE) return null;
-            var zbuf: [std.c.IFNAMESIZE:0]u8 = undefined;
-            @memcpy(zbuf[0..zone.len], zone);
-            zbuf[zone.len] = 0;
-            const idx = if_nametoindex(@as([*:0]const u8, @ptrCast(&zbuf)));
-            if (idx == 0) return null;
-            break :blk idx;
-        };
-    }
-    const octets = parseIpv6NumericFreebsd(addr_text) orelse return null;
-    return .{ .addr = octets, .scope_id = scope_id };
-}
+pub const parseIp6FreebsdParts = @import("sa_std/ip_parse.zig").parseIp6FreebsdParts;
 
 
 
-pub fn parseIp6Address(host_ptr: ?[*]const u8, host_len: u64, port: u32) !NetAddress {
-    const host = hostBytes(host_ptr, host_len) catch |err| return err;
-    const port16 = portFromU32(port) catch |err| return err;
-    if (comptime builtin.os.tag == .freebsd) {
-        const parsed = parseIp6FreebsdParts(host) orelse return error.InvalidArgument;
-        return NetAddress.initIp6(parsed.addr, port16, 0, parsed.scope_id);
-    }
-    const address = try NetAddress.resolveIp(host, port16);
-    if (address.storage.family != AFT.INET6) return error.InvalidArgument;
-    return address;
-}
+pub const parseIp6Address = @import("sa_std/ip_parse.zig").parseIp6Address;
 
-pub fn resolveFirstAddressFromParts(host: []const u8, port16: u16) !NetAddress {
-    var list = try netGetAddressList(std.heap.page_allocator, host, port16);
-    defer list.deinit();
-    if (list.addrs.len == 0) return error.HostLacksNetworkAddresses;
-    return list.addrs[0];
-}
+pub const resolveFirstAddressFromParts = @import("sa_std/ip_parse.zig").resolveFirstAddressFromParts;
 
-pub fn resolveFirstSocketAddress(host_ptr: ?[*]const u8, host_len: u64, port: u32) !NetAddress {
-    const host = hostBytes(host_ptr, host_len) catch |err| return err;
-    const port16 = portFromU32(port) catch |err| return err;
-    return resolveFirstAddressFromParts(host, port16);
-}
+pub const resolveFirstSocketAddress = @import("sa_std/ip_parse.zig").resolveFirstSocketAddress;
 
 pub fn makeIpv4Membership(multicast_addr: NetAddress, interface_addr: NetAddress) IpMreqC {
     return .{
@@ -3111,13 +2836,7 @@ pub fn makeIpv6Membership(multicast_addr: NetAddress, interface_index: u32) Ipv6
     };
 }
 
-fn socketFdFromHandle(handle: u64) !std.posix.fd_t {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    return try handleToFd(handle);
-}
+pub const socketFdFromHandle = @import("sa_std/fd_core.zig").socketFdFromHandle;
 
 pub fn ensureSocketHandle(handle: u64) !struct { fd: std.posix.fd_t, kind: enum { tcp_stream, tcp_listener, udp_socket } } {
     while (!registry_mutex.tryLock()) {
@@ -3175,25 +2894,7 @@ pub fn takeResourceLocked(handle: u64) ?Resource {
     return resource;
 }
 
-pub fn handleToFd(handle: u64) !std.posix.fd_t {
-    return switch (handle) {
-        SA_STD_STDIN => std.posix.STDIN_FILENO,
-        SA_STD_STDOUT => std.posix.STDOUT_FILENO,
-        SA_STD_STDERR => std.posix.STDERR_FILENO,
-        else => {
-            const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
-            return switch (resource.*) {
-                .file => |file| file.inner.handle,
-                .tcp_stream => |stream| stream,
-                .tcp_listener => |server| server.fd,
-                .udp_socket => |fd| fd,
-                .owned_fd => |fd| fd.fd,
-                .terminal_session => |session| session.fd,
-                else => error.InvalidHandle,
-            };
-        },
-    };
-}
+pub const handleToFd = @import("sa_std/fd_core.zig").handleToFd;
 
 pub const statTimeFieldName = @import("sa_std/dir_stat.zig").statTimeFieldName;
 
@@ -3430,23 +3131,7 @@ pub fn writeHandle(handle: u64, data: []const u8) !usize {
     }
 }
 
-fn statusName(code: i32) []const u8 {
-    return switch (code) {
-        SA_STD_OK => "ok",
-        SA_STD_ERR_INVALID_ARGUMENT => "invalid_argument",
-        SA_STD_ERR_INVALID_HANDLE => "invalid_handle",
-        SA_STD_ERR_NOT_FOUND => "not_found",
-        SA_STD_ERR_ACCESS => "access",
-        SA_STD_ERR_NO_MEMORY => "no_memory",
-        SA_STD_ERR_IO => "io",
-        SA_STD_ERR_NET => "net",
-        SA_STD_ERR_UNSUPPORTED => "unsupported",
-        SA_STD_ERR_TRUNCATED => "truncated",
-        SA_STD_ERR_PERMISSION_DENIED => "permission_denied",
-        SA_STD_ERR_UNKNOWN => "unknown",
-        else => "unknown",
-    };
-}
+pub const statusName = @import("sa_std/fallible.zig").statusName;
 
 fn statusFromTerm(term: sio.Child.Term) u32 {
     return switch (term) {
@@ -3898,7 +3583,7 @@ pub fn fileSetEndPos(f: sio.File, new_size: u64) !void {
 // and socket-address compat (old net Address type removed).
 // Verified against /opt/zig/.../lib/std/os/linux.zig + Io/net.zig via probes.
 // ---------------------------------------------------------------------------
-fn errnoToAny(e: anytype) anyerror {
+pub fn errnoToAny(e: anytype) anyerror {
     const n = @tagName(e);
     if (std.mem.eql(u8, n, "SUCCESS")) unreachable;
     if (std.mem.eql(u8, n, "INTR")) return error.Interrupted;
@@ -4013,10 +3698,7 @@ fn libcErrRc(rc: anytype) !void {
     if (rc < 0) return errnoToAny(std.posix.errno(rc));
 }
 
-fn libcFd(rc: c_int) !std.posix.fd_t {
-    if (rc < 0) return errnoToAny(std.posix.errno(rc));
-    return @intCast(rc);
-}
+pub const libcFd = @import("sa_std/fd_core.zig").libcFd;
 
 fn libcUsize(rc: isize) !usize {
     if (rc < 0) return errnoToAny(std.posix.errno(rc));
@@ -4032,7 +3714,7 @@ pub fn lxClose(fd: std.posix.fd_t) void {
     }
 }
 
-fn lxWrite(fd: std.posix.fd_t, bytes: []const u8) !usize {
+pub fn lxWrite(fd: std.posix.fd_t, bytes: []const u8) !usize {
     if (comptime is_wasm) return error.Unsupported;
     if (bytes.len == 0) return 0;
     if (comptime is_linux) return try lxCheck(std.os.linux.write(fd, bytes.ptr, bytes.len));
@@ -4085,19 +3767,7 @@ pub fn lxListen(fd: std.posix.fd_t, backlog: u32) !void {
     try libcErrRc(libc.listen(fd, @intCast(backlog)));
 }
 
-pub fn lxAccept(fd: std.posix.fd_t, addr: ?*SockAddrT, len: ?*SockLenT, flags: u32) !std.posix.fd_t {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        const rc = try lxCheck(std.os.linux.accept4(fd, addr, len, flags));
-        return @as(std.posix.fd_t, @bitCast(@as(u32, @truncate(rc))));
-    }
-    const rc = libc.accept(fd, addr, @ptrCast(len));
-    const new_fd = try libcFd(rc);
-    if ((flags & SOCKT.CLOEXEC) != 0) {
-        _ = libc.fcntl(new_fd, std.c.F.SETFD, @as(c_int, 1));
-    }
-    return new_fd;
-}
+pub const lxAccept = @import("sa_std/fd_core.zig").lxAccept;
 
 pub fn lxConnect(fd: std.posix.fd_t, addr: *const SockAddrT, len: SockLenT) !void {
     if (comptime is_wasm) return error.Unsupported;
@@ -4151,14 +3821,7 @@ pub fn lxSendmsg(fd: std.posix.fd_t, msg: *const MsghdrConstT, flags: u32) !usiz
     return try libcUsize(libc.sendmsg(fd, msg, @intCast(flags)));
 }
 
-pub fn lxDup(old: std.posix.fd_t) !std.posix.fd_t {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        const rc = try lxCheck(std.os.linux.dup(old));
-        return @as(std.posix.fd_t, @bitCast(@as(u32, @truncate(rc))));
-    }
-    return try libcFd(libc.dup(old));
-}
+pub const lxDup = @import("sa_std/fd_core.zig").lxDup;
 
 fn lxDup2(old: std.posix.fd_t, new: std.posix.fd_t) !void {
     if (comptime is_wasm) return error.Unsupported;
@@ -4268,11 +3931,7 @@ pub fn lxFcntl(fd: std.posix.fd_t, cmd: i32, arg: usize) !usize {
     return @intCast(rc);
 }
 
-fn lxIsatty(fd: std.posix.fd_t) bool {
-    if (comptime is_wasm) return false;
-    _ = std.posix.tcgetattr(fd) catch return false;
-    return true;
-}
+pub const lxIsatty = @import("sa_std/fd_core.zig").lxIsatty;
 
 pub fn lxUnlink(path: []const u8) !void {
     if (comptime is_wasm) return error.Unsupported;
@@ -4702,72 +4361,19 @@ pub fn openOwnedEnvBuffer(bytes: []u8) !u64 {
 
 pub const ThoughtStreamSplitter = @import("sa_std/chat_norm.zig").ThoughtStreamSplitter;
 
-const ListWriter = struct {
-    list: *std.array_list.Managed(u8),
-    pub fn writeAll(self: ListWriter, bytes: []const u8) !void {
-        try self.list.appendSlice(bytes);
-    }
-    pub fn writeByte(self: ListWriter, byte: u8) !void {
-        try self.list.append(byte);
-    }
-    pub fn print(self: ListWriter, comptime fmt: []const u8, args: anytype) !void {
-        var aw: std.Io.Writer.Allocating = .init(self.list.allocator);
-        defer aw.deinit();
-        try aw.writer.print(fmt, args);
-        try self.list.appendSlice(aw.written());
-    }
-};
+pub const ListWriter = @import("sa_std/json_util.zig").ListWriter;
 
-pub fn listWriter(list: *std.array_list.Managed(u8)) ListWriter {
-    return .{ .list = list };
-}
+pub const listWriter = @import("sa_std/json_util.zig").listWriter;
 
-pub fn stringifyToList(list: *std.array_list.Managed(u8), value: anytype) !void {
-    var aw: std.Io.Writer.Allocating = .init(list.allocator);
-    defer aw.deinit();
-    try std.json.Stringify.value(value, .{}, &aw.writer);
-    try list.appendSlice(aw.written());
-}
+pub const stringifyToList = @import("sa_std/json_util.zig").stringifyToList;
 
-pub fn appendJsonString(writer: ListWriter, text: []const u8) !void {
-    try stringifyToList(writer.list, text);
-}
+pub const appendJsonString = @import("sa_std/json_util.zig").appendJsonString;
 
-fn jsonStringLiteralAlloc(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
-    var out = std.array_list.Managed(u8).init(allocator);
-    errdefer out.deinit();
-    try appendJsonString(listWriter(&out), text);
-    return try out.toOwnedSlice();
-}
+pub const jsonStringLiteralAlloc = @import("sa_std/json_util.zig").jsonStringLiteralAlloc;
 
-fn jsonRpcParamLookupKey(key: []const u8) []const u8 {
-    if (key.len > 2 and key[0] == '"') {
-        if (std.mem.indexOfScalar(u8, key[1..], '"')) |end| {
-            if (end > 0) return key[1 .. 1 + end];
-        }
-    }
-    return key;
-}
+pub const jsonRpcParamLookupKey = @import("sa_std/json_util.zig").jsonRpcParamLookupKey;
 
-pub fn jsonRpcParamsStringLiteralAlloc(body: []const u8, key: []const u8, fallback: []const u8, emit_null_if_missing: bool) ![]u8 {
-    const lookup_key = jsonRpcParamLookupKey(key);
-    if (lookup_key.len != 0) {
-        var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, body, .{}) catch null;
-        if (parsed) |*document| {
-            defer document.deinit();
-            if (jsonObjectGetValue(document.value, "params")) |params| {
-                if (jsonObjectGetValue(params, lookup_key)) |value| {
-                    if (jsonTextSlice(value)) |text| {
-                        return try jsonStringLiteralAlloc(std.heap.page_allocator, text);
-                    }
-                }
-            }
-        }
-    }
-
-    if (emit_null_if_missing) return try std.heap.page_allocator.dupe(u8, "null");
-    return try jsonStringLiteralAlloc(std.heap.page_allocator, fallback);
-}
+pub const jsonRpcParamsStringLiteralAlloc = @import("sa_std/json_util.zig").jsonRpcParamsStringLiteralAlloc;
 
 pub const jsonU64Value = @import("sa_std/chat_norm.zig").jsonU64Value;
 
@@ -4849,12 +4455,7 @@ pub const nativeResponsesJsonNeedsNormalize = @import("sa_std/chat_norm.zig").na
 
 pub const denoResponsesJsonNormalize = @import("sa_std/chat_norm.zig").denoResponsesJsonNormalize;
 
-pub fn jsonObjectGetValue(value: std.json.Value, key: []const u8) ?std.json.Value {
-    return switch (value) {
-        .object => |object| object.get(key),
-        else => null,
-    };
-}
+pub const jsonObjectGetValue = @import("sa_std/json_util.zig").jsonObjectGetValue;
 
 pub const jsonArrayFirst = @import("sa_std/chat_norm.zig").jsonArrayFirst;
 
@@ -5015,20 +4616,11 @@ pub const xdgHomeSubdirAlloc = @import("sa_std/test_debug.zig").xdgHomeSubdirAll
 
 pub const xdgDirsAlloc = @import("sa_std/test_debug.zig").xdgDirsAlloc;
 
-pub fn Fallible(comptime T: type) type {
-    return extern struct {
-        status: i32,
-        value: T,
-    };
-}
+pub const Fallible = @import("sa_std/fallible.zig").Fallible;
 
-pub fn ok(comptime T: type, value: T) Fallible(T) {
-    return .{ .status = SA_STD_OK, .value = value };
-}
+pub const ok = @import("sa_std/fallible.zig").ok;
 
-pub fn fail(comptime T: type, status: i32) Fallible(T) {
-    return .{ .status = status, .value = std.mem.zeroes(T) };
-}
+pub const fail = @import("sa_std/fallible.zig").fail;
 
 // NOTE: sa_http_client_* used to be provided by the http-client plugin
 // and deliberately left undefined here (a stub once shadowed it). Since
@@ -5081,40 +4673,7 @@ pub const sa_std_net_error_code_from_posix_errno = @import("sa_std/std_net.zig")
 
 pub const sa_std_net_error_code_from_wsa_error = @import("sa_std/std_net.zig").sa_std_net_error_code_from_wsa_error;
 
-pub fn netErrorCodeName(code: i32) []const u8 {
-    return switch (code) {
-        0 => "ok",
-        1 => "unknown",
-        2 => "dns",
-        3 => "connection_refused",
-        4 => "timed_out",
-        5 => "connection_closed",
-        6 => "would_block",
-        7 => "invalid_address",
-        8 => "permission_denied",
-        9 => "unsupported",
-        10 => "invalid_input",
-        11 => "invalid_handle",
-        12 => "not_found",
-        13 => "out_of_memory",
-        14 => "io",
-        15 => "network_unreachable",
-        16 => "addr_in_use",
-        17 => "addr_not_available",
-        18 => "connection_reset",
-        19 => "connection_aborted",
-        20 => "not_connected",
-        21 => "host_unreachable",
-        22 => "broken_pipe",
-        23 => "already_exists",
-        24 => "interrupted",
-        25 => "unexpected_eof",
-        26 => "invalid_data",
-        27 => "network_down",
-        28 => "write_zero",
-        else => "unknown",
-    };
-}
+pub const netErrorCodeName = @import("sa_std/fallible.zig").netErrorCodeName;
 
 pub const sa_std_net_error_code_name = @import("sa_std/std_net.zig").sa_std_net_error_code_name;
 
@@ -5124,17 +4683,7 @@ pub const sa_std_net_error_code_from_native_error = @import("sa_std/std_net.zig"
 
 pub const sa_std_net_hostname = @import("sa_std/std_net.zig").sa_std_net_hostname;
 
-pub export fn sa_std_error_name(code: i32, out: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const name = statusName(code);
-    if (out_len) |len_ptr| len_ptr.* = @as(u64, @intCast(name.len));
-    if (out_cap == 0) return finish(SA_STD_OK);
-    const cap = lenAsUsize(out_cap) catch |err| return finishErr(err);
-    const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const copy_len = @min(cap, name.len);
-    @memcpy(out_ptr[0..copy_len], name[0..copy_len]);
-    if (copy_len != name.len) return finish(SA_STD_ERR_TRUNCATED);
-    return finish(SA_STD_OK);
-}
+pub const sa_std_error_name = @import("sa_std/fallible.zig").sa_std_error_name;
 
 pub export fn sa_std_stdin() u64 {
     return SA_STD_STDIN;
@@ -5154,16 +4703,7 @@ pub export fn sa_std_print(data: ?[*]const u8, len: u64) i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_println(data: ?[*]const u8, len: u64) Fallible(i32) {
-    // Contract alignment (A_min): io.sai declares `-> i32!`, and the
-    // interpreter already returns a fallible cell; the native runtime
-    // used to return the bare status word, so compiled callers read
-    // the payload slot of a cell that was never written.
-    const bytes = constBytes(data, len) catch |err| return fail(i32, finishErr(err));
-    sio.getStdOut().writeAll(bytes) catch |err| return fail(i32, finishErr(err));
-    sio.getStdOut().writeAll("\n") catch |err| return fail(i32, finishErr(err));
-    return ok(i32, 0);
-}
+pub const sa_std_println = @import("sa_std/fallible.zig").sa_std_println;
 
 pub const sa_deno_cwd = @import("sa_std/deno.zig").sa_deno_cwd;
 
@@ -5923,12 +5463,7 @@ pub const sa_thread_raw_pthread_join = @import("sa_std/pthread.zig").sa_thread_r
 
 pub const pthread_drop = @import("sa_std/pthread.zig").pthread_drop;
 
-pub fn dlopen(path_ptr: ?[*]const u8, flags: i32) callconv(.c) ?[*]u8 {
-    _ = path_ptr;
-    _ = flags;
-    last_error = SA_STD_ERR_UNSUPPORTED;
-    return compatibility_dlopen_cookie[0..].ptr;
-}
+pub const dlopen = @import("sa_std/dlopen.zig").dlopen;
 
 pub fn dlsym(handle: ?[*]u8, symbol_ptr: ?[*]const u8) callconv(.c) ?[*]u8 {
     _ = handle;
@@ -5943,76 +5478,15 @@ pub fn dlclose(handle: ?[*]u8) callconv(.c) i32 {
     return SA_STD_ERR_UNSUPPORTED;
 }
 
-pub export fn sa_dl_open(path_ptr: ?[*]const u8, path_len: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    // wasm32-wasi has no dlopen; comptime guard keeps std.DynLib refs out of wasm build.
-    if (comptime builtin.cpu.arch.isWasm()) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
+pub const sa_dl_open = @import("sa_std/dlopen.zig").sa_dl_open;
 
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    const path_z = std.heap.page_allocator.dupeSentinel(u8, path, 0) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(path_z);
-
-    const lib = std.DynLib.openZ(path_z) catch |err| switch (err) {
-        error.FileNotFound, error.NotElfFile, error.NotDynamicLibrary => {
-            compatibility_dl_error = "not_found";
-            return finish(SA_STD_ERR_NOT_FOUND);
-        },
-        error.OutOfMemory => return finish(SA_STD_ERR_NO_MEMORY),
-        else => return finish(SA_STD_ERR_UNKNOWN),
-    };
-
-    const handle = std.heap.page_allocator.create(DynamicLibHandle) catch |err| {
-        var lib_copy = lib;
-        lib_copy.close();
-        return finishErr(err);
-    };
-    handle.* = .{ .lib = lib };
-
-    const resource_handle = registerResource(.{ .dynamic_lib = handle }) catch |err| {
-        handle.deinit();
-        std.heap.page_allocator.destroy(handle);
-        return finishErr(err);
-    };
-
-    handle_ptr.* = resource_handle;
-    return finish(SA_STD_OK);
-}
-
-pub export fn sa_dl_sym(handle: u64, symbol_ptr: ?[*]const u8, symbol_len: u64, out_ptr: ?*?*anyopaque) i32 {
-    const result_ptr = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    result_ptr.* = null;
-    if (comptime builtin.cpu.arch.isWasm()) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (builtin.os.tag != .linux) return finish(SA_STD_ERR_UNSUPPORTED);
-
-    const symbol = pathBytes(symbol_ptr, symbol_len) catch |err| return finishErr(err);
-    const symbol_z = std.heap.page_allocator.dupeSentinel(u8, symbol, 0) catch |err| return finishErr(err);
-    defer std.heap.page_allocator.free(symbol_z);
-
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    const lib_handle = switch (resource.*) {
-        .dynamic_lib => |lib| lib,
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-    result_ptr.* = lib_handle.lib.lookup(*anyopaque, symbol_z) orelse {
-        compatibility_dl_error = "not_found";
-        return finish(SA_STD_ERR_NOT_FOUND);
-    };
-    return finish(SA_STD_OK);
-}
+pub const sa_dl_sym = @import("sa_std/dlopen.zig").sa_dl_sym;
 
 pub export fn sa_dl_close(handle: u64) i32 {
     return sa_std_close(handle);
 }
 
-pub export fn sa_dl_error() ?[*:0]const u8 {
-    return compatibility_dl_error.ptr;
-}
+pub const sa_dl_error = @import("sa_std/dlopen.zig").sa_dl_error;
 
 pub fn sqlite3_prepare(sqlite: ?[*]u8, sql: ?[*]const u8, len: i32, stmt_out: ?[*]u8) callconv(.c) i32 {
     _ = sqlite;
@@ -6310,53 +5784,11 @@ pub const sa_std_process_exec_capture_cwd = @import("sa_std/std_process.zig").sa
 
 pub const sa_std_process_close = @import("sa_std/std_process.zig").sa_std_process_close;
 
-pub export fn sa_std_fd_as_raw(handle: u64, out_fd: ?*i32) i32 {
-    const fd_ptr = out_fd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    fd_ptr.* = -1;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const fd = handleToFd(handle) catch |err| return finishErr(err);
-    fd_ptr.* = @as(i32, @intCast(fd));
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fd_as_raw = @import("sa_std/fd_core.zig").sa_std_fd_as_raw;
 
-pub export fn sa_std_fd_dup(handle: u64, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const fd = handleToFd(handle) catch |err| return finishErr(err);
-    const dup_fd = lxDup(fd) catch |err| return finishErr(err);
-    const dup_handle = registerResourceLocked(.{ .owned_fd = .{ .fd = dup_fd } }) catch |err| {
-        lxClose(dup_fd);
-        return finishErr(err);
-    };
-    handle_ptr.* = dup_handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fd_dup = @import("sa_std/fd_core.zig").sa_std_fd_dup;
 
-pub export fn sa_std_fd_dup_raw(fd: i32, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-
-    const source_fd = @as(std.posix.fd_t, @intCast(fd));
-    const dup_fd = lxDup(source_fd) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const dup_handle = registerResourceLocked(.{ .owned_fd = .{ .fd = dup_fd } }) catch |err| {
-        lxClose(dup_fd);
-        return finishErr(err);
-    };
-    handle_ptr.* = dup_handle;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fd_dup_raw = @import("sa_std/fd_core.zig").sa_std_fd_dup_raw;
 
 pub export fn sa_std_fd_from_raw(fd: i32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -6403,17 +5835,7 @@ pub export fn sa_std_fd_close_raw(fd: i32) i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_fd_is_terminal(handle: u64, out_flag: ?*u8) i32 {
-    const flag_ptr = out_flag orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    flag_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const fd = handleToFd(handle) catch |err| return finishErr(err);
-    flag_ptr.* = if (lxIsatty(fd)) 1 else 0;
-    return finish(SA_STD_OK);
-}
+pub const sa_std_fd_is_terminal = @import("sa_std/fd_core.zig").sa_std_fd_is_terminal;
 
 pub export fn sa_thread_current_id() u64 {
     return @as(u64, @intCast(std.Thread.getCurrentId()));
@@ -7237,32 +6659,7 @@ pub const sa_std_net_addr_format = @import("sa_std/std_net.zig").sa_std_net_addr
 
 pub const sa_net_addr_free = @import("sa_std/net.zig").sa_net_addr_free;
 
-pub fn parseIpv4Ascii(text: []const u8) ?[4]u8 {
-    var parts: [4]u8 = undefined;
-    var index: usize = 0;
-    var part_index: usize = 0;
-
-    while (part_index < 4) : (part_index += 1) {
-        if (index >= text.len) return null;
-        var value: u32 = 0;
-        var digits: usize = 0;
-        while (index < text.len and text[index] != '.') : (index += 1) {
-            const byte = text[index];
-            if (byte < '0' or byte > '9') return null;
-            value = value * 10 + @as(u32, byte - '0');
-            if (value > 255) return null;
-            digits += 1;
-        }
-        if (digits == 0) return null;
-        parts[part_index] = @as(u8, @intCast(value));
-        if (part_index < 3) {
-            if (index >= text.len or text[index] != '.') return null;
-            index += 1;
-        }
-    }
-    if (index != text.len) return null;
-    return parts;
-}
+pub const parseIpv4Ascii = @import("sa_std/ip_parse.zig").parseIpv4Ascii;
 
 pub fn parsePortAscii(text: []const u8) ?u16 {
     if (text.len == 0) return null;
@@ -7385,9 +6782,7 @@ pub const sa_fmt_i64_into = @import("sa_std/fmt.zig").sa_fmt_i64_into;
 
 pub const sa_test_debug_i64 = @import("sa_std/test_debug.zig").sa_test_debug_i64;
 
-pub export fn sa_test_fallible_i32_value(value: i32) Fallible(i32) {
-    return ok(i32, value);
-}
+pub const sa_test_fallible_i32_value = @import("sa_std/fallible.zig").sa_test_fallible_i32_value;
 
 pub const testTracePanicEnabled = @import("sa_std/test_debug.zig").testTracePanicEnabled;
 
