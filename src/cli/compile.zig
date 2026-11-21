@@ -28,6 +28,9 @@ const pkg_resolver = @import("../pkg/resolver.zig");
 const verifyProjectPackageState = @import("../cli.zig").verifyProjectPackageState;
 const trapFromPackagePreflightError = @import("trap_errors.zig").trapFromPackagePreflightError;
 const plugins = @import("../plugins.zig");
+const trapFromFlattenError = @import("trap_errors.zig").trapFromFlattenError;
+const MemoryStageReporterContext = @import("types.zig").MemoryStageReporterContext;
+const currentRssBytes = @import("types.zig").currentRssBytes;
 
 pub var test_source_tree_load_count: usize = 0;
 
@@ -338,7 +341,7 @@ pub fn sizeBitsForTriple(triple: ?[]const u8) u16 {
     return 64;
 }
 
-const projectLockPath = @import("cache.zig").projectLockPath;
+pub const projectLockPath = @import("cache.zig").projectLockPath;
 
 pub fn writeMemoryStageSample(writer: anytype, label: []const u8, value: ?u64, previous: ?u64) !void {
     try writer.writeAll("memory stage ");
@@ -453,13 +456,13 @@ pub fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return bytes;
 }
 
-const computeProjectBuildKey = @import("cache.zig").computeProjectBuildKey;
+pub const computeProjectBuildKey = @import("cache.zig").computeProjectBuildKey;
 
 pub fn recordMetricMemoryAfterEmit(metrics: *CompileMetrics) void {
     if (metrics.memory) |*memory| memory.recordAfterEmit();
 }
 
-const projectSumPath = @import("cache.zig").projectSumPath;
+pub const projectSumPath = @import("cache.zig").projectSumPath;
 
 pub fn writeMemoryDelta(writer: anytype, previous: ?u64, current: ?u64) !void {
     const prev = previous orelse return;
@@ -476,7 +479,7 @@ pub fn writeMemoryDelta(writer: anytype, previous: ?u64, current: ?u64) !void {
 
 const pruneSabFlatToSelectedTests = @import("cache.zig").pruneSabFlatToSelectedTests;
 
-const readSumFile = @import("cache.zig").readSumFile;
+pub const readSumFile = @import("cache.zig").readSumFile;
 
 pub fn trustedSabVerifyOk(allocator: std.mem.Allocator, flat: *flattener.FlattenResult) !referee.VerifyOk {
     // Verdict-cache fast path: the reused sigs never went through scope
@@ -519,7 +522,7 @@ pub fn trustedSabVerifyOk(allocator: std.mem.Allocator, flat: *flattener.Flatten
     };
 }
 
-const projectCacheHit = @import("cache.zig").projectCacheHit;
+pub const projectCacheHit = @import("cache.zig").projectCacheHit;
 
 pub fn recordMetricMemoryEnd(metrics: *CompileMetrics) void {
     if (metrics.memory) |*memory| memory.recordEnd();
@@ -722,4 +725,52 @@ pub fn manifestPluginImportRoots(manifest_file: *const manifest.Manifest, alloca
     }
 
     return try roots.toOwnedSlice();
+}
+
+/// Resolver diagnostics sink for plugin import resolution: the
+/// resolver reports non-fatal findings (an ambiguous bare plugin
+/// import that several plugins provide) through this callback; the
+/// CLI surfaces them on stderr.
+pub fn reportPluginImportDiagnostic(_: ?*anyopaque, message: []const u8) void {
+    std.debug.print("{s}\n", .{message});
+}
+
+pub fn writeVerifierMemoryStage(context: *MemoryStageReporterContext, stage: []const u8, completed: usize, total: usize) !void {
+    const rss = currentRssBytes();
+    if (context.memory) |memory| memory.recordVerifierStage(stage, rss);
+    if (rss) |value| {
+        if (context.peak_rss_bytes == null or value > context.peak_rss_bytes.?) {
+            context.peak_rss_bytes = value;
+        }
+    }
+
+    if (context.timing_live) {
+        if (context.timing_start) |start| {
+            const elapsed_ns = elapsedNs(start);
+            const delta_ns = elapsed_ns -| context.timing_prev_ns;
+            context.timing_prev_ns = elapsed_ns;
+            context.writer.print("[verify-stage] {s} {d:.3}ms (+{d:.3}ms)\n", .{ stage, @as(f64, @floatFromInt(elapsed_ns)) / 1_000_000.0, @as(f64, @floatFromInt(delta_ns)) / 1_000_000.0 }) catch {};
+        }
+    }
+
+    if (!context.live) {
+        context.previous_rss_bytes = rss;
+        return;
+    }
+
+    try context.writer.writeAll("memory stage verifier.");
+    try context.writer.writeAll(stage);
+    if (total != 0) {
+        try context.writer.print(" {d}/{d}", .{ completed, total });
+    }
+    try context.writer.writeByte(' ');
+    try writeMemoryAmount(context.writer, rss);
+    try writeMemoryDelta(context.writer, context.previous_rss_bytes, rss);
+    try context.writer.writeByte('\n');
+    context.previous_rss_bytes = rss;
+}
+
+pub fn reportVerifierMemoryStage(context: *anyopaque, stage: []const u8, completed: usize, total: usize) void {
+    const typed = @as(*MemoryStageReporterContext, @ptrCast(@alignCast(context)));
+    writeVerifierMemoryStage(typed, stage, completed, total) catch {};
 }

@@ -88,7 +88,7 @@ def extract_fn(path, name):
     lines = open(path).read().split("\n")
     start = None
     for i, l in enumerate(lines):
-        if re.match(r"^fn " + re.escape(name) + r"\(", l):
+        if re.match(r"^(pub )?fn " + re.escape(name) + r"\(", l):
             start = i
             break
     assert start is not None, f"{name} not found in {path}"
@@ -109,6 +109,8 @@ def move_fn(src_path, name, dst_path, dst_import_from_src):
     for idx, l in enumerate(block):
         if l.startswith("fn "):
             block[idx] = "pub " + l
+            break
+        if l.startswith("pub fn "):
             break
     else:
         raise AssertionError(f"no fn line in {name} block")

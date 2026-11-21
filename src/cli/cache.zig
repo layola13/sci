@@ -16,7 +16,12 @@ const DceMode = @import("../emit_options.zig").DceMode;
 const ensureParentDir = @import("compile.zig").ensureParentDir;
 const referee = @import("../referee.zig");
 const writeJsonString = @import("json.zig").writeJsonString;
-const stdTreeDigest = @import("../cli.zig").stdTreeDigest;
+const stdTreeDigest = @import("source_tree.zig").stdTreeDigest;
+const pkg_resolver = @import("../pkg/resolver.zig");
+const freeOwnedStringSlice = @import("compile.zig").freeOwnedStringSlice;
+const manifestDependencies = @import("compile.zig").manifestDependencies;
+const manifestPluginImportRoots = @import("compile.zig").manifestPluginImportRoots;
+const hashResolvedSourceTree = @import("source_tree.zig").hashResolvedSourceTree;
 
 pub fn pruneSabFlatToSelectedTests(allocator: std.mem.Allocator, flat: *flattener.FlattenResult, selected_test_names: []const []const u8) !void {
     if (selected_test_names.len == 0 or flat.function_sigs.len == 0 or flat.instructions.len == 0) return;
@@ -983,4 +988,63 @@ pub const CacheEvictionCandidate = struct {
 
 pub fn cacheEvictionCandidateLessThan(_: void, a: CacheEvictionCandidate, b: CacheEvictionCandidate) bool {
     return a.last_used_ns < b.last_used_ns;
+}
+
+pub fn projectFileMaybeHash(hasher: *std.crypto.hash.sha2.Sha256, allocator: std.mem.Allocator, path: []const u8) !void {
+    if (!projectPathExists(path)) return;
+    const bytes = try readTextFileAlloc(allocator, path);
+    defer allocator.free(bytes);
+    cacheBytes(hasher, bytes);
+}
+
+pub fn isHexCacheKey(name: []const u8) bool {
+    if (name.len != 64) return false;
+    for (name) |c| {
+        switch (c) {
+            '0'...'9', 'a'...'f' => {},
+            else => return false,
+        }
+    }
+    return true;
+}
+
+pub fn cacheDirTreeSize(dir: sio.Dir, depth: usize) u64 {
+    if (depth > 16) return 0;
+    var total: u64 = 0;
+    var iter = dir.iterate();
+    while (iter.next() catch null) |entry| {
+        switch (entry.kind) {
+            .file, .sym_link => {
+                const stat = dir.statFile(entry.name) catch continue;
+                if (stat.kind == .file) total += stat.size;
+            },
+            .directory => {
+                var sub = dir.openDir(entry.name, .{ .iterate = true }) catch continue;
+                const sub_total = cacheDirTreeSize(sub, depth + 1);
+                sub.close();
+                total += sub_total;
+            },
+            else => {},
+        }
+    }
+    return total;
+}
+
+pub fn projectFunctionCacheManifestPath(allocator: std.mem.Allocator, project_root: []const u8, key: ProjectCacheKey) ![]u8 {
+    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", BuildCacheKind.build_obj_incremental.dirName(), key.slice(), "manifest.json" });
+}
+
+pub fn cacheEntryLastUsedNs(allocator: std.mem.Allocator, entry_dir_path: []const u8) i128 {
+    var latest: i128 = 0;
+    if (sio.cwd().statFile(entry_dir_path)) |stat| {
+        latest = @max(latest, stat.mtime.toNanoseconds());
+    } else |_| {}
+    for ([_][]const u8{ "manifest.json", "last-used" }) |name| {
+        const path = std.fs.path.join(allocator, &.{ entry_dir_path, name }) catch continue;
+        defer allocator.free(path);
+        if (sio.cwd().statFile(path)) |stat| {
+            latest = @max(latest, stat.mtime.toNanoseconds());
+        } else |_| {}
+    }
+    return latest;
 }
