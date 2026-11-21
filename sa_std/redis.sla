@@ -219,7 +219,7 @@ fn redis_slice_len(sl: &Slice<u8>) -> u64 {
 
 fn redis_slice_byte(sl: &Slice<u8>, off: u64) -> u8 {
     let b: u8 = 0;
-    SLICE_GET(b, sl, off);
+    SLICE_GET_U8(b, sl, off);
     return b;
 }
 
@@ -978,7 +978,7 @@ fn redis_write_all(handle: u64, data: Vec<u8>) -> i32 {
         let j: u64 = 0;
         while j < chunk_len {
             let b: u8 = 0;
-            SLICE_GET(b, sl, off + j);
+            SLICE_GET_U8(b, sl, off + j);
             buf[j] = b;
             j = j + 1;
         }

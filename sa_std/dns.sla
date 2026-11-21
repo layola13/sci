@@ -173,7 +173,7 @@ fn dns_slice_len(sl: &Slice<u8>) -> u64 {
 
 fn dns_get_u8(sl: &Slice<u8>, off: u64) -> u8 {
     let b: u8 = 0;
-    SLICE_GET(b, sl, off);
+    SLICE_GET_U8(b, sl, off);
     return b;
 }
 
@@ -590,7 +590,7 @@ fn dns_resolve_first(server: Vec<u8>, server_port: u16) -> Result<u64, i32> {
     let i: u64 = 0;
     while i < n {
         let b: u8 = 0;
-        SLICE_GET(b, sl, i);
+        SLICE_GET_U8(b, sl, i);
         arr[i] = b;
         i = i + 1;
     }
@@ -612,7 +612,7 @@ fn dns_send_wire(sock: u64, wire: Vec<u8>) -> i32 {
     let i: u64 = 0;
     while i < n {
         let b: u8 = 0;
-        SLICE_GET(b, sl, i);
+        SLICE_GET_U8(b, sl, i);
         arr[i] = b;
         i = i + 1;
     }

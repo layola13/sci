@@ -181,7 +181,7 @@ fn bitpack_slice_len(sl: &Slice<u8>) -> u64 {
 
 fn bitpack_byte_at(sl: &Slice<u8>, off: u64) -> u8 {
     let b: u8 = 0;
-    SLICE_GET(b, sl, off);
+    SLICE_GET_U8(b, sl, off);
     return b;
 }
 

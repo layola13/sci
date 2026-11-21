@@ -37,9 +37,9 @@ fn bytes_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
     let i: u64 = 0;
     while i < n {
         let x: u8 = 0;
-        SLICE_GET(x, sa, i);
+        SLICE_GET_U8(x, sa, i);
         let y: u8 = 0;
-        SLICE_GET(y, sb, i);
+        SLICE_GET_U8(y, sb, i);
         if x != y {
             return false;
         };
@@ -51,7 +51,7 @@ fn bytes_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
 fn byte_at(v: &Vec<u8>, index: u64) -> u8 {
     let sl: Slice<u8> = VEC_AS_SLICE(v);
     let b: u8 = 0;
-    SLICE_GET(b, sl, index);
+    SLICE_GET_U8(b, sl, index);
     return b;
 }
 
@@ -94,7 +94,7 @@ fn wrap_ipv4(icmp_packet: Vec<u8>, ihl_words: u64, protocol: u8) -> Vec<u8> {
     let i: u64 = 0;
     while i < inner_len {
         let b: u8 = 0;
-        SLICE_GET(b, sl, i);
+        SLICE_GET_U8(b, sl, i);
         out.push(b);
         i = i + 1;
     }
@@ -163,7 +163,7 @@ fn wrap_ipv4(icmp_packet: Vec<u8>, ihl_words: u64, protocol: u8) -> Vec<u8> {
     let i: u64 = 0;
     while i < n {
         let b: u8 = 0;
-        SLICE_GET(b, sl, i);
+        SLICE_GET_U8(b, sl, i);
         if i == 8 {
             bad.push(65);
         } else {
@@ -242,7 +242,7 @@ fn wrap_ipv4(icmp_packet: Vec<u8>, ihl_words: u64, protocol: u8) -> Vec<u8> {
     let i: u64 = 0;
     while i < n {
         let b: u8 = 0;
-        SLICE_GET(b, sl, i);
+        SLICE_GET_U8(b, sl, i);
         if i == 0 {
             bad.push(101);
         } else {

@@ -174,6 +174,12 @@ L_RESERVE_DONE:
     !additional
     return vec
 
+// VECFIX phase 1: the value store dispatches on elem_size -- a
+// compact scalar element (1/2/4 bytes) is stored at its own width;
+// anything else keeps the historical single-word store. elem_size
+// has always been the buffer's byte stride (growth/copy arithmetic
+// below), and std callers already rely on the compact reading
+// (string byte pushes at elem_size 1, UTF-16 unit pushes at 2).
 @export sa_vec_push(^vec: ptr, value: u64, elem_size: u64) -> ^ptr:
 L_ENTRY:
     buf = take vec+Vec_ptr
@@ -224,7 +230,30 @@ L_REUSE:
 L_WRITE_GROW:
     write_off = mul len, elem_size
     write_ptr = ptr_add next_ptr, write_off
+    w_is1 = eq elem_size, 1
+    w_is2 = eq elem_size, 2
+    w_is4 = eq elem_size, 4
+    br w_is1 -> L_GROW_W1, L_GROW_N1
+L_GROW_N1:
+    br w_is2 -> L_GROW_W2, L_GROW_N2
+L_GROW_N2:
+    br w_is4 -> L_GROW_W4, L_GROW_W8
+L_GROW_W1:
+    store write_ptr+0, value as u8
+    jmp L_GROW_WDONE
+L_GROW_W2:
+    store write_ptr+0, value as u16
+    jmp L_GROW_WDONE
+L_GROW_W4:
+    store write_ptr+0, value as u32
+    jmp L_GROW_WDONE
+L_GROW_W8:
     store write_ptr+0, value as u64
+    jmp L_GROW_WDONE
+L_GROW_WDONE:
+    !w_is1
+    !w_is2
+    !w_is4
     next_len = add len, 1
     store vec+Vec_len, next_len as u64
     !write_ptr
@@ -246,7 +275,30 @@ L_WRITE_GROW:
 L_WRITE_REUSE:
     write_off = mul len, elem_size
     write_ptr = ptr_add buf, write_off
+    w_is1 = eq elem_size, 1
+    w_is2 = eq elem_size, 2
+    w_is4 = eq elem_size, 4
+    br w_is1 -> L_REUSE_W1, L_REUSE_N1
+L_REUSE_N1:
+    br w_is2 -> L_REUSE_W2, L_REUSE_N2
+L_REUSE_N2:
+    br w_is4 -> L_REUSE_W4, L_REUSE_W8
+L_REUSE_W1:
+    store write_ptr+0, value as u8
+    jmp L_REUSE_WDONE
+L_REUSE_W2:
+    store write_ptr+0, value as u16
+    jmp L_REUSE_WDONE
+L_REUSE_W4:
+    store write_ptr+0, value as u32
+    jmp L_REUSE_WDONE
+L_REUSE_W8:
     store write_ptr+0, value as u64
+    jmp L_REUSE_WDONE
+L_REUSE_WDONE:
+    !w_is1
+    !w_is2
+    !w_is4
     next_len = add len, 1
     store vec+Vec_len, next_len as u64
     !write_ptr
@@ -289,6 +341,74 @@ L_EMPTY:
     store out_value_slot+0, 0 as ptr
     !len
     !empty
+    !out_value_slot
+    !vec
+    return 0
+
+// VECFIX phase 1: sized twin of sa_vec_try_pop for compact-stride
+// buffers. The legacy 2-arg entry above keeps the word stride for
+// word-layout callers (the Rust compiler's text backend among them);
+// this entry walks at elem_size, zeroes the out slot, and moves the
+// element at its own width (the caller's typed load or cast applies
+// the element type's sign extension).
+@export sa_vec_try_pop_sized(&vec: ptr, &out_value_slot: ptr, elem_size: u64) -> i32:
+L_ENTRY:
+    len = load vec+Vec_len as u64
+    empty = eq len, 0
+    br empty -> L_EMPTY, L_READY
+L_READY:
+    buf = load vec+Vec_ptr as ptr
+    last_index = sub len, 1
+    last_off = mul last_index, elem_size
+    last_ptr = ptr_add buf, last_off
+    store out_value_slot+0, 0 as u64
+    w_is1 = eq elem_size, 1
+    w_is2 = eq elem_size, 2
+    w_is4 = eq elem_size, 4
+    br w_is1 -> L_POP_W1, L_POP_N1
+L_POP_N1:
+    br w_is2 -> L_POP_W2, L_POP_N2
+L_POP_N2:
+    br w_is4 -> L_POP_W4, L_POP_W8
+L_POP_W1:
+    value = load last_ptr+0 as u8
+    store out_value_slot+0, value as u8
+    jmp L_POP_DONE
+L_POP_W2:
+    value = load last_ptr+0 as u16
+    store out_value_slot+0, value as u16
+    jmp L_POP_DONE
+L_POP_W4:
+    value = load last_ptr+0 as u32
+    store out_value_slot+0, value as u32
+    jmp L_POP_DONE
+L_POP_W8:
+    value = load last_ptr+0 as u64
+    store out_value_slot+0, value as u64
+    jmp L_POP_DONE
+L_POP_DONE:
+    next_len = sub len, 1
+    store vec+Vec_len, next_len as u64
+    !last_ptr
+    !last_off
+    !last_index
+    !value
+    !w_is1
+    !w_is2
+    !w_is4
+    !next_len
+    !buf
+    !len
+    !empty
+    !elem_size
+    !out_value_slot
+    !vec
+    return 1
+L_EMPTY:
+    store out_value_slot+0, 0 as ptr
+    !len
+    !empty
+    !elem_size
     !out_value_slot
     !vec
     return 0
@@ -444,6 +564,86 @@ L_MISS:
     !vec
     return 0
 
+// VECFIX phase 1: sized twin of sa_vec_try_swap_remove, same
+// contract split as sa_vec_try_pop_sized (legacy entry = word
+// stride; this entry = elem_size stride, width-exact moves).
+@export sa_vec_try_swap_remove_sized(&vec: ptr, index: u64, &out_value_slot: ptr, elem_size: u64) -> i32:
+L_ENTRY:
+    len = load vec+Vec_len as u64
+    in_bounds = ult index, len
+    br in_bounds -> L_READY, L_MISS
+L_READY:
+    buf = load vec+Vec_ptr as ptr
+    last_index = sub len, 1
+    remove_off = mul index, elem_size
+    remove_ptr = ptr_add buf, remove_off
+    last_off = mul last_index, elem_size
+    last_ptr = ptr_add buf, last_off
+    store out_value_slot+0, 0 as u64
+    w_is1 = eq elem_size, 1
+    w_is2 = eq elem_size, 2
+    w_is4 = eq elem_size, 4
+    br w_is1 -> L_SWAP_W1, L_SWAP_N1
+L_SWAP_N1:
+    br w_is2 -> L_SWAP_W2, L_SWAP_N2
+L_SWAP_N2:
+    br w_is4 -> L_SWAP_W4, L_SWAP_W8
+L_SWAP_W1:
+    removed = load remove_ptr+0 as u8
+    last_value = load last_ptr+0 as u8
+    store remove_ptr+0, last_value as u8
+    store out_value_slot+0, removed as u8
+    jmp L_SWAP_DONE
+L_SWAP_W2:
+    removed = load remove_ptr+0 as u16
+    last_value = load last_ptr+0 as u16
+    store remove_ptr+0, last_value as u16
+    store out_value_slot+0, removed as u16
+    jmp L_SWAP_DONE
+L_SWAP_W4:
+    removed = load remove_ptr+0 as u32
+    last_value = load last_ptr+0 as u32
+    store remove_ptr+0, last_value as u32
+    store out_value_slot+0, removed as u32
+    jmp L_SWAP_DONE
+L_SWAP_W8:
+    removed = load remove_ptr+0 as u64
+    last_value = load last_ptr+0 as u64
+    store remove_ptr+0, last_value as u64
+    store out_value_slot+0, removed as u64
+    jmp L_SWAP_DONE
+L_SWAP_DONE:
+    next_len = sub len, 1
+    store vec+Vec_len, next_len as u64
+    !next_len
+    !last_value
+    !last_ptr
+    !last_off
+    !removed
+    !remove_ptr
+    !remove_off
+    !last_index
+    !buf
+    !w_is1
+    !w_is2
+    !w_is4
+    !in_bounds
+    !len
+    !elem_size
+    !index
+    !out_value_slot
+    !vec
+    return 1
+L_MISS:
+    store out_value_slot+0, 0 as ptr
+    !in_bounds
+    !len
+    !elem_size
+    !index
+    !out_value_slot
+    !vec
+    return 0
+
 @export sa_vec_try_remove(&vec: ptr, index: u64, &out_value_slot: ptr, elem_size: u64) -> i32:
 L_ENTRY:
     len = load vec+Vec_len as u64
@@ -454,7 +654,30 @@ L_READY:
     buf = load vec+Vec_ptr as ptr
     remove_off = mul index, elem_size
     remove_ptr = ptr_add buf, remove_off
+    w_is1 = eq elem_size, 1
+    w_is2 = eq elem_size, 2
+    w_is4 = eq elem_size, 4
+    br w_is1 -> L_REM_W1, L_REM_N1
+L_REM_N1:
+    br w_is2 -> L_REM_W2, L_REM_N2
+L_REM_N2:
+    br w_is4 -> L_REM_W4, L_REM_W8
+L_REM_W1:
+    removed = load remove_ptr+0 as u8
+    jmp L_REMOVE_LOADED
+L_REM_W2:
+    removed = load remove_ptr+0 as u16
+    jmp L_REMOVE_LOADED
+L_REM_W4:
+    removed = load remove_ptr+0 as u32
+    jmp L_REMOVE_LOADED
+L_REM_W8:
     removed = load remove_ptr+0 as u64
+    jmp L_REMOVE_LOADED
+L_REMOVE_LOADED:
+    !w_is1
+    !w_is2
+    !w_is4
     trailing = sub len, index
     trailing_after = sub trailing, 1
     move_bytes = mul trailing_after, elem_size

@@ -55,6 +55,14 @@
     !__slice_ptr_%out_value
 [END_MACRO]
 
+[MACRO] SLICE_GET_U8 %out_value, %slice_reg, %index
+    __slice_ptr_%out_value = load %slice_reg+Slice_ptr as ptr
+    __slice_item_%out_value = ptr_add __slice_ptr_%out_value, %index
+    %out_value = load __slice_item_%out_value+0 as u8
+    !__slice_item_%out_value
+    !__slice_ptr_%out_value
+[END_MACRO]
+
 // Rust method-name alias over SLICE_GET_U64.
 [MACRO] SLICE_GET %out_value, %slice_reg, %index
     EXPAND SLICE_GET_U64 %out_value, %slice_reg, %index

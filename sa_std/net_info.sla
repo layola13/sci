@@ -161,7 +161,7 @@ fn ni_slice_len(sl: &Slice<u8>) -> u64 {
 
 fn ni_get_u8(sl: &Slice<u8>, off: u64) -> u8 {
     let b: u8 = 0;
-    SLICE_GET(b, sl, off);
+    SLICE_GET_U8(b, sl, off);
     return b;
 }
 

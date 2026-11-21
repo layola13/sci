@@ -30,9 +30,9 @@ fn bytes_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
     let i: u64 = 0;
     while i < n {
         let x: u8 = 0;
-        SLICE_GET(x, sa, i);
+        SLICE_GET_U8(x, sa, i);
         let y: u8 = 0;
-        SLICE_GET(y, sb, i);
+        SLICE_GET_U8(y, sb, i);
         if x != y {
             return false;
         };
@@ -49,7 +49,7 @@ fn bytes_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
     let i: u64 = 0;
     while i < (len(url) as u64) {
         let b: u8 = 0;
-        SLICE_GET(b, usl, i);
+        SLICE_GET_U8(b, usl, i);
         arr[i] = b;
         i = i + 1;
     }

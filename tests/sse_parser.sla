@@ -35,7 +35,7 @@ fn vec_range(v: &Vec<u8>, begin: u64, end: u64) -> Vec<u8> {
     let i: u64 = begin;
     while i < end {
         let b: u8 = 0;
-        SLICE_GET(b, sl, i);
+        SLICE_GET_U8(b, sl, i);
         out.push(b);
         i = i + 1;
     }
@@ -52,9 +52,9 @@ fn bytes_eq(a: Vec<u8>, b: Vec<u8>) -> bool {
     let i: u64 = 0;
     while i < n {
         let x: u8 = 0;
-        SLICE_GET(x, sa, i);
+        SLICE_GET_U8(x, sa, i);
         let y: u8 = 0;
-        SLICE_GET(y, sb, i);
+        SLICE_GET_U8(y, sb, i);
         if x != y {
             return false;
         };
@@ -180,7 +180,7 @@ fn ev_type(p: &SseParser, index: u64) -> Vec<u8> {
     let i: u64 = 0;
     while i < 5 {
         let b: u8 = 0;
-        SLICE_GET(b, sl1, i);
+        SLICE_GET_U8(b, sl1, i);
         stream.push(b);
         i = i + 1;
     }
@@ -190,7 +190,7 @@ fn ev_type(p: &SseParser, index: u64) -> Vec<u8> {
     let j: u64 = 0;
     while j < (len(part2) as u64) {
         let b2: u8 = 0;
-        SLICE_GET(b2, sl2, j);
+        SLICE_GET_U8(b2, sl2, j);
         stream.push(b2);
         j = j + 1;
     }
@@ -216,7 +216,7 @@ fn ev_type(p: &SseParser, index: u64) -> Vec<u8> {
     let i: u64 = 0;
     while i < 9 {
         let b: u8 = 0;
-        SLICE_GET(b, slr, i);
+        SLICE_GET_U8(b, slr, i);
         c2.push(b);
         i = i + 1;
     }
@@ -235,7 +235,7 @@ fn ev_type(p: &SseParser, index: u64) -> Vec<u8> {
     let i: u64 = 0;
     while i < 9 {
         let b: u8 = 0;
-        SLICE_GET(b, slr, i);
+        SLICE_GET_U8(b, slr, i);
         stream.push(b);
         i = i + 1;
     }

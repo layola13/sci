@@ -420,7 +420,7 @@ fn proxy_slice_str(sl: &Slice<u8>, off: u64, n: u64) -> String {
         let i: u64 = 0;
         while i < chunk {
             let b: u8 = 0;
-            SLICE_GET(b, sl, off + done + i);
+            SLICE_GET_U8(b, sl, off + done + i);
             buf[i] = b;
             i = i + 1;
         }
@@ -814,12 +814,12 @@ fn proxy_slice_percent_decode(sl: &Slice<u8>, off: u64, n: u64) -> String {
     let i: u64 = 0;
     while i < n {
         let b: u8 = 0;
-        SLICE_GET(b, sl, off + i);
+        SLICE_GET_U8(b, sl, off + i);
         if b == 37 {
             let h1: u8 = 0;
-            SLICE_GET(h1, sl, off + i + 1);
+            SLICE_GET_U8(h1, sl, off + i + 1);
             let h2: u8 = 0;
-            SLICE_GET(h2, sl, off + i + 2);
+            SLICE_GET_U8(h2, sl, off + i + 2);
             let v: u8 = ((proxy_hex_val(h1) * 16 + proxy_hex_val(h2)) as u8);
             dec.push(v);
             i = i + 3;
@@ -1581,7 +1581,7 @@ fn proxy_read_head(kind: u32, handle: u64) -> ProxyHead {
     let i: u64 = 0;
     while i < 7 {
         let b: u8 = 0;
-        SLICE_GET(b, sl, i);
+        SLICE_GET_U8(b, sl, i);
         if b != expect[i] {
             return ProxyHead { status: SA_STD_ERR_NET, http_status: 0 };
         };
@@ -1591,7 +1591,7 @@ fn proxy_read_head(kind: u32, handle: u64) -> ProxyHead {
     let found: bool = false;
     while sp < hn {
         let b: u8 = 0;
-        SLICE_GET(b, sl, sp);
+        SLICE_GET_U8(b, sl, sp);
         if b == 32 {
             found = true;
             break;
@@ -1608,7 +1608,7 @@ fn proxy_read_head(kind: u32, handle: u64) -> ProxyHead {
     let d: u64 = 0;
     while d < 3 {
         let b: u8 = 0;
-        SLICE_GET(b, sl, sp + 1 + d);
+        SLICE_GET_U8(b, sl, sp + 1 + d);
         if !proxy_is_digit(b) {
             return ProxyHead { status: SA_STD_ERR_NET, http_status: 0 };
         };

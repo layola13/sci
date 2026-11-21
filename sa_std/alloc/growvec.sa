@@ -201,7 +201,30 @@ L_WRITE:
     base = load gv+GrowVec_ptr as ptr
     off = mul len, elem_size
     slot = ptr_add base, off
+    w_is1 = eq elem_size, 1
+    w_is2 = eq elem_size, 2
+    w_is4 = eq elem_size, 4
+    br w_is1 -> L_GV_W1, L_GV_N1
+L_GV_N1:
+    br w_is2 -> L_GV_W2, L_GV_N2
+L_GV_N2:
+    br w_is4 -> L_GV_W4, L_GV_W8
+L_GV_W1:
+    store slot+0, value as u8
+    jmp L_GV_WDONE
+L_GV_W2:
+    store slot+0, value as u16
+    jmp L_GV_WDONE
+L_GV_W4:
+    store slot+0, value as u32
+    jmp L_GV_WDONE
+L_GV_W8:
     store slot+0, value as u64
+    jmp L_GV_WDONE
+L_GV_WDONE:
+    !w_is1
+    !w_is2
+    !w_is4
     next_len = add len, 1
     store gv+GrowVec_len, next_len as u64
     !slot

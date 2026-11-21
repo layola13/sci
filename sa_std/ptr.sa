@@ -246,6 +246,14 @@
     store %ptr_reg+0, %value as u8
 [END_MACRO]
 
+[MACRO] PTR_WRITE_U16 %ptr_reg, %value
+    store %ptr_reg+0, %value as u16
+[END_MACRO]
+
+[MACRO] PTR_WRITE_U32 %ptr_reg, %value
+    store %ptr_reg+0, %value as u32
+[END_MACRO]
+
 [MACRO] PTR_WRITE_UNALIGNED_U8 %ptr_reg, %value
     store %ptr_reg+0, %value as u8
 [END_MACRO]

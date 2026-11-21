@@ -36,9 +36,9 @@ fn starts_with(text: Vec<u8>, prefix: Vec<u8>) -> bool {
     let i: u64 = 0;
     while i < n {
         let a: u8 = 0;
-        SLICE_GET(a, ts, i);
+        SLICE_GET_U8(a, ts, i);
         let b: u8 = 0;
-        SLICE_GET(b, ps, i);
+        SLICE_GET_U8(b, ps, i);
         if a != b {
             return false;
         };

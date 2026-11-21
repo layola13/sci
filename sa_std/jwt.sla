@@ -80,7 +80,7 @@ fn jwt_sl_len(sl: &Slice<u8>) -> u64 {
 
 fn jwt_get(sl: &Slice<u8>, off: u64) -> u8 {
     let b: u8 = 0;
-    SLICE_GET(b, sl, off);
+    SLICE_GET_U8(b, sl, off);
     return b;
 }
 
