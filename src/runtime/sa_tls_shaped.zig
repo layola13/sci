@@ -584,40 +584,26 @@ pub const sa_std_tls_shaped_hello_ja4 = @import("sa_tls_shaped_ja3.zig").sa_std_
 
 pub const testing = std.testing;
 
-pub const sslAvailable = @import("sa_tls_shaped_test.zig").sslAvailable;
 
 
 
-pub const makeCert = @import("sa_tls_shaped_test.zig").makeCert;
 
-pub const freePort = @import("sa_tls_shaped_test.zig").freePort;
 
-pub const spawnServer = @import("sa_tls_shaped_test.zig").spawnServer;
 
-pub const connectRetry = @import("sa_tls_shaped_test.zig").connectRetry;
 
-pub const negotiatedJson = @import("sa_tls_shaped_test.zig").negotiatedJson;
 
-pub const testDirSetup = @import("sa_tls_shaped_test.zig").testDirSetup;
 
 
 
 // ---- profile configuration additions (loopback only) ---------------------------
 
-pub const profileJson = @import("sa_tls_shaped_test.zig").profileJson;
-
-pub const connectRetryProfile = @import("sa_tls_shaped_test.zig").connectRetryProfile;
-
-pub const shapedEcho = @import("sa_tls_shaped_test.zig").shapedEcho;
-
-/// s_server round trip, mirroring the pre-existing shaped tests: server
-/// stdin is sent to us over TLS; what we write shows up on server stdout.
-pub const shapedServerRoundTrip = @import("sa_tls_shaped_test.zig").shapedServerRoundTrip;
 
 
 
 
-pub const opensslX509Field = @import("sa_tls_shaped_test.zig").opensslX509Field;
+
+
+
 
 
 

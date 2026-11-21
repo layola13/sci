@@ -58,11 +58,11 @@ pub const Document = struct {
     yaml_buf: ?[]u8 = null,
     json_buf: ?[]u8 = null,
 
-    fn alloc(self: *Document) std.mem.Allocator {
+    pub fn alloc(self: *Document) std.mem.Allocator {
         return self.arena.allocator();
     }
 
-    fn deinit(self: *Document) void {
+    pub fn deinit(self: *Document) void {
         if (self.yaml_buf) |buf| std.heap.page_allocator.free(buf);
         if (self.json_buf) |buf| std.heap.page_allocator.free(buf);
         self.arena.deinit();

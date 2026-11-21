@@ -1,5 +1,10 @@
 const std = @import("std");
 const common_upstream = @import("../common/upstream_loc.zig");
+const ConstDecl = @import("../common/const_decl.zig").ConstDecl;
+const DefDict = @import("def_dict.zig").DefDict;
+const FunctionSig = @import("../common/signature.zig").FunctionSig;
+const Instruction = @import("../common/instruction.zig").Instruction;
+const SymbolTable = @import("symbol.zig").SymbolTable;
 const emitParsedLine = @import("emitparsedline.zig").emitParsedLine;
 const isFunctionSigDeclared = @import("emitparsedline.zig").isFunctionSigDeclared;
 

@@ -5,6 +5,20 @@ const atomic = @import("../common/atomic.zig");
 const inst = @import("../common/instruction.zig");
 const sig = @import("../common/signature.zig");
 const sio = @import("sio");
+
+// Local aliases: the split renamed these helpers to *Impl below, but the
+// moved bodies still call them by their original short names.
+const bitcastValue = bitcastValueImpl;
+const floatValue = floatValueImpl;
+const intValue = intValueImpl;
+const isFloatLike = isFloatLikeImpl;
+const isIntLike = isIntLikeImpl;
+const isSignedInt = isSignedIntImpl;
+const maskForWidth = maskForWidthImpl;
+const primWidth = primWidthImpl;
+const traceRuntime = traceRuntimeImpl;
+const valueFromFloat = valueFromFloatImpl;
+const valueFromInt = valueFromIntImpl;
 const FunctionRange = @import("memory.zig").FunctionRange;
 const Interpreter = @import("interpreter.zig").Interpreter;
 const Memory = @import("memory.zig").Memory;
@@ -234,6 +248,7 @@ pub fn floatValueImpl(value: RegValue) f64 {
     };
 }
 pub fn coerceImpl(self: *Interpreter, value: RegValue, target: sig.PrimType) !RegValue {
+    _ = self;
     if (value.fallible) return RunError.InvalidOperand;
     if (value.ty == target) return value;
     if (value.ty == .v128 or target == .v128) return RunError.UnsupportedInstruction;

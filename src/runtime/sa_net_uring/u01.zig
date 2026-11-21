@@ -366,7 +366,7 @@ pub const TicketQueue = struct {
         self.* = undefined;
     }
 
-    fn isEmpty(self: *const TicketQueue) bool {
+    pub fn isEmpty(self: *const TicketQueue) bool {
         return self.head == self.tail;
     }
 

@@ -1,4 +1,7 @@
-pub fn emitJsonWriterWriteBool(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterWriteBool(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0) return 1;");
     try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
@@ -7,7 +10,10 @@ pub fn emitJsonWriterWriteBool(writer: anytype, name: []const u8, uniform_arity:
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterWriteI64(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterWriteI64(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0) return 1;");
     try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
@@ -19,7 +25,10 @@ pub fn emitJsonWriterWriteI64(writer: anytype, name: []const u8, uniform_arity: 
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterWriteF64(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterWriteF64(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0) return 1;");
     try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
@@ -34,7 +43,10 @@ pub fn emitJsonWriterWriteF64(writer: anytype, name: []const u8, uniform_arity: 
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterWriteString(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterWriteString(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0) return 1;");
     try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
@@ -44,7 +56,10 @@ pub fn emitJsonWriterWriteString(writer: anytype, name: []const u8, uniform_arit
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterWriteNull(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterWriteNull(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0) return 1;");
     try writer.writeAll(" if (!w->pending && w->depth > 0 && w->kinds[w->depth - 1] == '{') return 1;");
@@ -53,7 +68,10 @@ pub fn emitJsonWriterWriteNull(writer: anytype, name: []const u8, uniform_arity:
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterFinish(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterFinish(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" sa_store_u64(a1, 0);");
     try writer.writeAll(" if (w == 0 || !w->started || w->pending || w->depth != 0 || w->done) return 1;");
@@ -63,29 +81,44 @@ pub fn emitJsonWriterFinish(writer: anytype, name: []const u8, uniform_arity: us
     try writer.writeAll(" sa_store_u64(a1, h); return 0; } } }\n");
 }
 
-pub fn emitJsonWriterFree(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterFree(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0) return 0;");
     try writer.writeAll(" w->h = 0; return 0; } }\n");
 }
 
-pub fn emitJsonBufferData(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonBufferData(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_owned_buf_t *o = sa_owned_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 2) return 0;");
     try writer.writeAll(" return o->ptr; } }\n");
 }
 
-pub fn emitJsonBufferLen(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonBufferLen(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_owned_buf_t *o = sa_owned_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 2) return 0;");
     try writer.writeAll(" return o->len; } }\n");
 }
 
-pub fn emitJsonBufferFree(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonBufferFree(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_owned_drop(a0); return 0; } }\n");
 }
 
-pub fn emitNodePathNormalize(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitNodePathNormalize(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
     try writer.writeAll(" sa_u64 cap = a1 + 2;");
     try writer.writeAll(" sa_u64 p = sa_alloc(cap);");
@@ -95,7 +128,10 @@ pub fn emitNodePathNormalize(writer: anytype, name: []const u8, uniform_arity: u
     try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, n); return 0; } } }\n");
 }
 
-pub fn emitNodePathDirname(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitNodePathDirname(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
     try writer.writeAll(" size_t e = (size_t)a1;");
     try writer.writeAll(" while (e > 1 && sa_mem[x + e - 1] == '/') e--;");
@@ -115,7 +151,10 @@ pub fn emitNodePathDirname(writer: anytype, name: []const u8, uniform_arity: usi
     try writer.writeAll(" return 0; } } }\n");
 }
 
-pub fn emitNodePathExtname(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitNodePathExtname(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Zero-copy view into the input (no allocation needed).
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
     try writer.writeAll(" size_t i = (size_t)a1;");
@@ -129,13 +168,19 @@ pub fn emitNodePathExtname(writer: anytype, name: []const u8, uniform_arity: usi
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitNodePathIsAbsolute(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitNodePathIsAbsolute(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
     try writer.writeAll(" sa_u64 r = (a1 > 0 && sa_mem[x] == '/') ? 1 : 0;");
     try writer.writeAll(" sa_store_u32(a2, r); return 0; } }\n");
 }
 
-pub fn emitNodePathJoin(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitNodePathJoin(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // argv of (ptr,len) pairs; joined with '/' then normalized
     // in place (output never exceeds input + 1).
     try writer.writeAll(" { if (a1 > (sa_u64)0x100000u) return 1;");
@@ -162,7 +207,10 @@ pub fn emitNodePathJoin(writer: anytype, name: []const u8, uniform_arity: usize,
     try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, n); return 0; } } }\n");
 }
 
-pub fn emitNodeQsEscape(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitNodeQsEscape(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Node querystring.escape: alnum + ~!*()-'_. pass through,
     // everything else becomes %XX uppercase hex.
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
@@ -183,7 +231,10 @@ pub fn emitNodeQsEscape(writer: anytype, name: []const u8, uniform_arity: usize,
     try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
 }
 
-pub fn emitNodeQsUnescape(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitNodeQsUnescape(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // %XX (either case) decodes; malformed % and '+' pass through
     // literally (mirrors Node).
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
@@ -201,7 +252,10 @@ pub fn emitNodeQsUnescape(writer: anytype, name: []const u8, uniform_arity: usiz
     try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
 }
 
-pub fn emitNodePunyEncode(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitNodePunyEncode(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // RFC 3492 encode (UTF-8 in, ASCII out); invalid UTF-8 or
     // overflow yields 1. Output capped at 12x+16 (DoS bound).
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
@@ -257,7 +311,10 @@ pub fn emitNodePunyEncode(writer: anytype, name: []const u8, uniform_arity: usiz
     try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
 }
 
-pub fn emitNodePunyDecode(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitNodePunyDecode(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // RFC 3492 decode (ASCII in, UTF-8 out); malformed input or
     // overflow yields 1.
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
@@ -319,7 +376,10 @@ pub fn emitNodePunyDecode(writer: anytype, name: []const u8, uniform_arity: usiz
     try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
 }
 
-pub fn emitNodeBufConcat(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitNodeBufConcat(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // argv of (ptr,len) pairs concatenated in order.
     try writer.writeAll(" { if (a1 > (sa_u64)0x100000u) return 1;");
     try writer.writeAll(" uint32_t ab = sa_checked_addr(a0, (size_t)(a1 * 16));");
@@ -342,7 +402,10 @@ pub fn emitNodeBufConcat(writer: anytype, name: []const u8, uniform_arity: usize
     try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, total); return 0; } } }\n");
 }
 
-pub fn emitNodeRandBytes(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitNodeRandBytes(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Staged zero region (only the length is asserted).
     try writer.writeAll(" if (!sa_policy_check(5, 0, 0, 0)) return 10;");
     try writer.writeAll(" sa_u64 p = sa_alloc(a0 == 0 ? 1 : a0);");
@@ -351,7 +414,10 @@ pub fn emitNodeRandBytes(writer: anytype, name: []const u8, uniform_arity: usize
     try writer.writeAll(" sa_store_u64(a1, p); return 0; } }\n");
 }
 
-pub fn emitNodeCryptoHash(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitNodeCryptoHash(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Byte-exact algo dispatch (mirror native: sha256, sha512,
     // sha1, md5 in either case, status 2 otherwise); lowercase
     // hex digest materializes into fresh guest memory.
@@ -392,33 +458,54 @@ pub fn emitNodeCryptoHash(writer: anytype, name: []const u8, uniform_arity: usiz
     try writer.writeAll(" sa_store_u64(a4, p); sa_store_u64(a5, (sa_u64)hlen * 2); return 0; } } } }\n");
 }
 
-pub fn emitMathFloor(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitMathFloor(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // libm floor over the f64 bit pattern (mirrors sa_math_floor).
     try writer.writeAll(" { union { sa_u64 u; double v; } t; t.u = a0; t.v = floor(t.v); return t.u; } }\n");
 }
 
-pub fn emitMathCeil(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitMathCeil(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { union { sa_u64 u; double v; } t; t.u = a0; t.v = ceil(t.v); return t.u; } }\n");
 }
 
-pub fn emitMathSqrt(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitMathSqrt(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // C sqrt of a negative is NaN, matching Zig @sqrt.
     try writer.writeAll(" { union { sa_u64 u; double v; } t; t.u = a0; t.v = sqrt(t.v); return t.u; } }\n");
 }
 
-pub fn emitMathSin(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitMathSin(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { union { sa_u64 u; double v; } t; t.u = a0; t.v = sin(t.v); return t.u; } }\n");
 }
 
-pub fn emitMathCos(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitMathCos(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { union { sa_u64 u; double v; } t; t.u = a0; t.v = cos(t.v); return t.u; } }\n");
 }
 
-pub fn emitMathPow(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitMathPow(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { union { sa_u64 u; double v; } x; union { sa_u64 u; double v; } y; x.u = a0; y.u = a1; x.v = pow(x.v, y.v); return x.u; } }\n");
 }
 
-pub fn emitMathRandom(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitMathRandom(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Native sa_math_random is crypto-random in [0, 1), so exact
     // values can never match across backends; the binding keeps
     // the same 53-bit draw shape with a deterministic LCG state,

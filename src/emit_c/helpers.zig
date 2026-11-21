@@ -3,6 +3,7 @@ const chunk_1 = @import("helpers_1.zig").chunk_1;
 const chunk_2 = @import("helpers_2.zig").chunk_2;
 const chunk_3 = @import("helpers_3.zig").chunk_3;
 const chunk_4 = @import("helpers_4.zig").chunk_4;
+const std = @import("std");
 
 pub const kRuntimeHelpers: []const HelperDef = &(chunk_1 ++ chunk_2 ++ chunk_3 ++ chunk_4);
 

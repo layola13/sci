@@ -28,6 +28,8 @@ const tfArgIdentity = @import("tf_emit.zig").tfArgIdentity;
 const tfListHas = @import("tf_emit.zig").tfListHas;
 const tfListHasU64 = @import("tf_emit.zig").tfListHasU64;
 const writeConstSym = @import("ident.zig").writeConstSym;
+const last_c_func = @import("../emit_c.zig").last_c_func;
+const CEmitError = @import("../emit_c.zig").CEmitError;
 
 pub fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anytype, task: FuncTask, const_addrs: anytype, fn_idx: anytype, c_opt: CEmitOptions, sigmap: anytype, uniform_arity: usize, indirect_ret_width: ?u32, tf: ?TfFnCtx) !void {
     const fsig = verified.function_sigs[task.fsig_index];

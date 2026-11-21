@@ -1,23 +1,38 @@
-pub fn emitSignal(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitSignal(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Echo the signal number back (staged oracle semantics).
     try writer.writeAll(" return a0; }\n");
 }
 
-pub fn emitDlopen(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitDlopen(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Real zeroed region stands in for the OS handle (mirrors
     // JS __sa_alloc(8)); nonzero is what the oracle checks.
     try writer.writeAll(" return sa_alloc(8); }\n");
 }
 
-pub fn emitDlsym(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitDlsym(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" return sa_alloc(8); }\n");
 }
 
-pub fn emitDlclose(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitDlclose(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" return 0; }\n");
 }
 
-pub fn emitParseFloat(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitParseFloat(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Manual scan (whitespace/sign/digits/dot/exponent) then
     // strtod on the scanned span; no digits -> quiet NaN,
     // overflow -> signed inf (mirrors the interpreter).

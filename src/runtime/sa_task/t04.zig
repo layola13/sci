@@ -16,13 +16,11 @@ const Slot = @import("t01.zig").Slot;
 const WaitNode = @import("t01.zig").WaitNode;
 const alloc = @import("t01.zig").alloc;
 const cfg_stack_initial = @import("t01.zig").cfg_stack_initial;
-const deadlock_armed = @import("t02.zig").deadlock_armed;
 const deliverMonitor = @import("t03.zig").deliverMonitor;
 const ensureInit = @import("t03.zig").ensureInit;
 const guardLookup = @import("t01.zig").guardLookup;
 const guard_table = @import("t01.zig").guard_table;
 const linux = @import("t01.zig").linux;
-const live_count = @import("t02.zig").live_count;
 const monotonicNs = @import("t01.zig").monotonicNs;
 const noteProgress = @import("t01.zig").noteProgress;
 const parkBegin = @import("t02.zig").parkBegin;
@@ -33,11 +31,9 @@ const raiseTrap = @import("t03.zig").raiseTrap;
 const reapIfReadyLocked = @import("t01.zig").reapIfReadyLocked;
 const registryLookup = @import("t01.zig").registryLookup;
 const registryRecycle = @import("t01.zig").registryRecycle;
-const registry_mu = @import("t01.zig").registry_mu;
 const sa_chan_destroy = @import("t05.zig").sa_chan_destroy;
 const sa_chan_make = @import("t05.zig").sa_chan_make;
 const sa_task_spawn = @import("t03.zig").sa_task_spawn;
-const sched_mu = @import("t02.zig").sched_mu;
 const setTrapSink = @import("t03.zig").setTrapSink;
 const stackEntryLookup = @import("t01.zig").stackEntryLookup;
 const stack_grow_events = @import("t01.zig").stack_grow_events;
@@ -45,6 +41,8 @@ const supported = @import("t01.zig").supported;
 const switchToCarrier = @import("t02.zig").switchToCarrier;
 const systemQuiescent = @import("t03.zig").systemQuiescent;
 const timerAdd = @import("t02.zig").timerAdd;
+const t02 = @import("t02.zig");
+const t01 = @import("t01.zig");
 
 /// Register an exit monitor (companion): creates a dedicated
 /// capacity-1 channel and subscribes it to the watched
@@ -70,7 +68,7 @@ pub export fn sa_task_monitor(handle: u64, out_chan: ?*u64) i32 {
         return ERR_NOMEM;
     };
     sub.* = .{ .chan_handle = chan_h };
-    sched_mu.lock();
+    t02.sched_mu.lock();
     // Re-validate the handle INSIDE the critical section
     // (DEF-TASK-MONITOR-REAP-RACE): registryLookup above only
     // proves the slot held this generation at lookup time. The
@@ -86,7 +84,7 @@ pub export fn sa_task_monitor(handle: u64, out_chan: ?*u64) i32 {
     // sched_mu closes the window: a reap that already landed
     // shows .empty, a recycled slot shows the bumped gen.
     if (g.gen != @as(u32, @truncate(handle >> 32)) or g.state.load(.acquire) == .empty) {
-        sched_mu.unlock();
+        t02.sched_mu.unlock();
         _ = sa_chan_destroy(chan_h);
         alloc.destroy(sub);
         return ERR_INVALID_HANDLE;
@@ -99,18 +97,18 @@ pub export fn sa_task_monitor(handle: u64, out_chan: ?*u64) i32 {
         // the exit as a fresh delivery. Roll back the channel
         // and subscription allocated for this call.
         if (g.trap_consumed) {
-            sched_mu.unlock();
+            t02.sched_mu.unlock();
             _ = sa_chan_destroy(chan_h);
             alloc.destroy(sub);
             return ERR_INVALID_HANDLE;
         }
-        sched_mu.unlock();
+        t02.sched_mu.unlock();
         deliverMonitor(sub, handle, g.trapped, g.trap_code);
         alloc.destroy(sub);
     } else {
         sub.next = g.monitors;
         g.monitors = sub;
-        sched_mu.unlock();
+        t02.sched_mu.unlock();
     }
     out.* = chan_h;
     return SA_TASK_OK;
@@ -118,15 +116,15 @@ pub export fn sa_task_monitor(handle: u64, out_chan: ?*u64) i32 {
 
 pub export fn sa_task_yield() i32 {
     if (!supported) return ERR_UNSUPPORTED;
-    const g = current_g orelse {
+    const g = t02.current_g orelse {
         std.Thread.yield() catch {};
         return SA_TASK_OK;
     };
-    sched_mu.lock();
+    t02.sched_mu.lock();
     g.transition = true;
     g.yield_requeue = true;
     g.state.store(.runnable, .release);
-    sched_mu.unlock();
+    t02.sched_mu.unlock();
     switchToCarrier(g);
     return SA_TASK_OK;
 }
@@ -134,7 +132,7 @@ pub export fn sa_task_yield() i32 {
 pub export fn sa_task_sleep_ns(ns: u64) i32 {
     if (!supported) return ERR_UNSUPPORTED;
     if (ns == 0) return sa_task_yield();
-    if (current_g) |g| {
+    if (t02.current_g) |g| {
         g.park_gen += 1;
         g.wait_kind = .sleep;
         const deadline = monotonicNs() + @as(i64, @intCast(@min(ns, @as(u64, @intCast(std.math.maxInt(i64))))));
@@ -175,21 +173,21 @@ pub fn joinFinish(g: *Goroutine, gen: u32, status: i32) i32 {
     // (DEF-TASK-MONITOR-REAP-RACE): a bare-field read here raced
     // a concurrent trap_info consume, and a bare-field write of
     // trap_held raced goroutineExit's monitor delivery.
-    sched_mu.lock();
+    t02.sched_mu.lock();
     // A trap record already consumed by sa_task_trap_info leaves
     // the handle invalid: report that instead of replaying the
     // trap (or a clean status read from the not-yet-reaped
     // record). The consuming call already requested the reap.
     if (g.trap_consumed) {
-        sched_mu.unlock();
+        t02.sched_mu.unlock();
         return ERR_INVALID_HANDLE;
     }
     if (status == SA_TASK_TRAPPED and g.trap_sink != null) {
         g.trap_held = true;
-        sched_mu.unlock();
+        t02.sched_mu.unlock();
         return status;
     }
-    sched_mu.unlock();
+    t02.sched_mu.unlock();
     registryRecycle(g, gen);
     return status;
 }
@@ -198,7 +196,7 @@ pub export fn sa_task_join(handle: u64) i32 {
     if (!supported) return ERR_UNSUPPORTED;
     if (!ensureInit()) return ERR_UNSUPPORTED;
     const g = registryLookup(handle) orelse return ERR_INVALID_HANDLE;
-    if (current_g == g) return ERR_INVALID;
+    if (t02.current_g == g) return ERR_INVALID;
     // A detached handle is dead by declaration (DEF-R1): joining
     // it is an invalid-handle use, exactly like joining a handle
     // whose record a previous join already consumed.
@@ -211,26 +209,26 @@ pub export fn sa_task_join(handle: u64) i32 {
     // record is not final yet and report a trapped exit as a
     // clean SA_TASK_OK. joinFinish re-checks the consumed flag
     // under the same lock before acting on the status.
-    sched_mu.lock();
+    t02.sched_mu.lock();
     if (g.state.load(.acquire) == .done) {
         const status: i32 = if (g.trapped) SA_TASK_TRAPPED else SA_TASK_OK;
-        sched_mu.unlock();
+        t02.sched_mu.unlock();
         return joinFinish(g, g.gen, status);
     }
-    sched_mu.unlock();
+    t02.sched_mu.unlock();
     const node = alloc.create(WaitNode) catch return ERR_NOMEM;
     node.* = .{};
     var os_waiter: OsWaiter = .{};
-    if (current_g) |me| {
+    if (t02.current_g) |me| {
         node.g = me;
         me.wait_kind = .join;
     } else {
         node.os = &os_waiter;
     }
     const target_gen = g.gen;
-    sched_mu.lock();
+    t02.sched_mu.lock();
     if (g.state.load(.acquire) == .done) {
-        sched_mu.unlock();
+        t02.sched_mu.unlock();
         alloc.destroy(node);
         const status: i32 = if (g.trapped) SA_TASK_TRAPPED else SA_TASK_OK;
         return joinFinish(g, target_gen, status);
@@ -241,9 +239,9 @@ pub export fn sa_task_join(handle: u64) i32 {
     // snapshots the waiter list under the same lock, so its fire
     // either precedes registration (impossible: it would have
     // seen the done state above) or observes state == parked.
-    if (current_g) |me| parkBeginLocked(me);
-    sched_mu.unlock();
-    if (current_g) |me| {
+    if (t02.current_g) |me| parkBeginLocked(me);
+    t02.sched_mu.unlock();
+    if (t02.current_g) |me| {
         parkSwitch();
         me.wait_kind = .none;
         const status = me.wake_status;
@@ -267,8 +265,8 @@ pub export fn sa_task_join(handle: u64) i32 {
 pub export fn sa_task_detach(handle: u64) i32 {
     if (!supported) return ERR_UNSUPPORTED;
     const g = registryLookup(handle) orelse return ERR_INVALID_HANDLE;
-    registry_mu.lock();
-    defer registry_mu.unlock();
+    t01.registry_mu.lock();
+    defer t01.registry_mu.unlock();
     if (g.gen != @as(u32, @truncate(handle >> 32))) return ERR_INVALID_HANDLE;
     if (g.state.load(.acquire) == .empty) return ERR_INVALID_HANDLE;
     g.detached = true;
@@ -279,20 +277,20 @@ pub export fn sa_task_detach(handle: u64) i32 {
 pub export fn sa_task_current(out_handle: ?*u64) i32 {
     if (!supported) return ERR_UNSUPPORTED;
     const out = out_handle orelse return ERR_INVALID;
-    out.* = if (current_g) |g| g.handle() else 0;
+    out.* = if (t02.current_g) |g| g.handle() else 0;
     return SA_TASK_OK;
 }
 
 pub export fn sa_task_live_count(out_count: ?*u64) i32 {
     if (!supported) return ERR_UNSUPPORTED;
     const out = out_count orelse return ERR_INVALID;
-    out.* = @intCast(live_count.load(.acquire));
+    out.* = @intCast(t02.live_count.load(.acquire));
     return SA_TASK_OK;
 }
 
 pub export fn sa_task_deadlock_guard_arm() i32 {
     if (!supported) return ERR_UNSUPPORTED;
-    deadlock_armed.store(true, .release);
+    t02.deadlock_armed.store(true, .release);
     noteProgress();
     return SA_TASK_OK;
 }
@@ -410,7 +408,7 @@ pub var probe_stack_addr: std.atomic.Value(usize) = .init(0);
 pub var probe_release: std.atomic.Value(bool) = .init(false);
 
 pub fn probeWorker(_: ?*anyopaque) callconv(.c) void {
-    const g = current_g.?;
+    const g = t02.current_g.?;
     var marker: u8 = 0;
     probe_region_lo.store(@intFromPtr(g.region.ptr), .release);
     probe_stack_addr.store(@intFromPtr(&marker), .release);

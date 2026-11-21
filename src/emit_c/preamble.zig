@@ -1,6 +1,8 @@
 const std = @import("std");
 const CEmitOptions = @import("types.zig").CEmitOptions;
 const kHelpersSorted = @import("helpers.zig").kHelpersSorted;
+const cBracesBalanced = @import("../emit_c.zig").cBracesBalanced;
+const CEmitError = @import("../emit_c.zig").CEmitError;
 
 pub fn writePreamble(
     writer: anytype,

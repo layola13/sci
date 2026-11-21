@@ -37,3 +37,11 @@ pub const flattenWithPackages = @import("flattener/expandimportsinto.zig").flatt
 pub const flattenWithContextAndPackages = @import("flattener/expandimportsinto.zig").flattenWithContextAndPackages;
 pub const flattenFileWithPackages = @import("flattener/expandimportsinto.zig").flattenFileWithPackages;
 pub const flattenFileWithContextAndPackages = @import("flattener/expandimportsinto.zig").flattenFileWithContextAndPackages;
+
+test {
+    _ = @import("flattener/tests_10.zig");
+    _ = @import("flattener/tests_11.zig");
+    _ = @import("flattener/tests_12.zig");
+    _ = @import("flattener/tests_13.zig");
+    _ = @import("flattener/tests_14.zig");
+}

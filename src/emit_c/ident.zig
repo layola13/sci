@@ -3,6 +3,7 @@ const inst = @import("../common/instruction.zig");
 const sig = @import("../common/signature.zig");
 const const_decl = @import("../common/const_decl.zig");
 const FuncTask = @import("types.zig").FuncTask;
+const CEmitError = @import("../emit_c.zig").CEmitError;
 
 pub fn collectFuncTasks(allocator: std.mem.Allocator, verified: anytype) ![]FuncTask {
     var tasks = std.array_list.Managed(FuncTask).init(allocator);

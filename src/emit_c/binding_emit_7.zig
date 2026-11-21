@@ -1,4 +1,7 @@
-pub fn emitJsonParse(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonParse(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
     try writer.writeAll(" size_t pos = 0;");
     try writer.writeAll(" sa_json_node_t *nd = sa_json_parse_value(&sa_mem[x], (size_t)a1, &pos, 0);");
@@ -8,13 +11,19 @@ pub fn emitJsonParse(writer: anytype, name: []const u8, uniform_arity: usize, ga
     try writer.writeAll(" return nd->h; } }\n");
 }
 
-pub fn emitJsonFree(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonFree(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0) return 0;");
     try writer.writeAll(" o->h = 0; return 0; } }\n");
 }
 
-pub fn emitJsonObjectGet(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonObjectGet(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_store_u64(a3, 0);");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 7) return 1;");
@@ -35,7 +44,10 @@ pub fn emitJsonObjectGet(writer: anytype, name: []const u8, uniform_arity: usize
     try writer.writeAll(" return 1; } }\n");
 }
 
-pub fn emitJsonObjectGetI64(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonObjectGetI64(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_store_u64(a3, 0);");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 7) return 1;");
@@ -64,7 +76,10 @@ pub fn emitJsonObjectGetI64(writer: anytype, name: []const u8, uniform_arity: us
     try writer.writeAll(" return 1; } }\n");
 }
 
-pub fn emitJsonObjectGetString(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonObjectGetString(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_store_u64(a3, 0); sa_store_u64(a4, 0);");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 7) return 1;");
@@ -85,7 +100,10 @@ pub fn emitJsonObjectGetString(writer: anytype, name: []const u8, uniform_arity:
     try writer.writeAll(" return 1; } }\n");
 }
 
-pub fn emitJsonObjectGetBool(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonObjectGetBool(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_store_u8(a3, 0);");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 7) return 1;");
@@ -106,7 +124,10 @@ pub fn emitJsonObjectGetBool(writer: anytype, name: []const u8, uniform_arity: u
     try writer.writeAll(" return 1; } }\n");
 }
 
-pub fn emitJsonArrayGet(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonArrayGet(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_store_u64(a2, 0);");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 6) return 1;");
@@ -120,7 +141,10 @@ pub fn emitJsonArrayGet(writer: anytype, name: []const u8, uniform_arity: usize,
     try writer.writeAll(" sa_store_u64(a2, m->h); return 0; } } }\n");
 }
 
-pub fn emitJsonValueCount(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonValueCount(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_store_u64(a1, 0);");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || (o->kind != 6 && o->kind != 7)) return 1;");
@@ -131,7 +155,10 @@ pub fn emitJsonValueCount(writer: anytype, name: []const u8, uniform_arity: usiz
     try writer.writeAll(" sa_store_u64(a1, n); return 0; } }\n");
 }
 
-pub fn emitJsonAsI64(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonAsI64(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_store_u64(a1, 0);");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0) return 1;");
@@ -147,7 +174,10 @@ pub fn emitJsonAsI64(writer: anytype, name: []const u8, uniform_arity: usize, ga
     try writer.writeAll(" return 1; } }\n");
 }
 
-pub fn emitJsonObjectSetString(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonObjectSetString(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { if (a2 == 0) return 1;");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 7) return 2;");
@@ -171,7 +201,10 @@ pub fn emitJsonObjectSetString(writer: anytype, name: []const u8, uniform_arity:
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonObjectSetI64(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonObjectSetI64(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { if (a2 == 0) return 1;");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 7) return 2;");
@@ -194,7 +227,10 @@ pub fn emitJsonObjectSetI64(writer: anytype, name: []const u8, uniform_arity: us
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonObjectSetF64(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonObjectSetF64(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { if (a2 == 0) return 1;");
     try writer.writeAll(" union { sa_u64 u; double v; } t; t.u = a3;");
     try writer.writeAll(" if (!(t.v <= 1.7976931348623157e308 &&");
@@ -220,7 +256,10 @@ pub fn emitJsonObjectSetF64(writer: anytype, name: []const u8, uniform_arity: us
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonObjectSetBool(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonObjectSetBool(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { if (a2 == 0) return 1;");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 7) return 2;");
@@ -243,7 +282,10 @@ pub fn emitJsonObjectSetBool(writer: anytype, name: []const u8, uniform_arity: u
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonObjectSetNull(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonObjectSetNull(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { if (a2 == 0) return 1;");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 7) return 2;");
@@ -265,7 +307,10 @@ pub fn emitJsonObjectSetNull(writer: anytype, name: []const u8, uniform_arity: u
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonObjectSetNode(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonObjectSetNode(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { if (a2 == 0) return 1;");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 7) return 2;");
@@ -296,7 +341,10 @@ pub fn emitJsonObjectSetNode(writer: anytype, name: []const u8, uniform_arity: u
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonObjectRemove(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonObjectRemove(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { if (a2 == 0) return 1;");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 7) return 2;");
@@ -308,7 +356,10 @@ pub fn emitJsonObjectRemove(writer: anytype, name: []const u8, uniform_arity: us
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonArrayPushString(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonArrayPushString(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" {");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 6) return 2;");
@@ -321,7 +372,10 @@ pub fn emitJsonArrayPushString(writer: anytype, name: []const u8, uniform_arity:
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonArrayPushI64(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonArrayPushI64(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" {");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 6) return 2;");
@@ -333,7 +387,10 @@ pub fn emitJsonArrayPushI64(writer: anytype, name: []const u8, uniform_arity: us
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonArrayPushF64(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonArrayPushF64(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" {");
     try writer.writeAll(" union { sa_u64 u; double v; } t; t.u = a1;");
     try writer.writeAll(" if (!(t.v <= 1.7976931348623157e308 &&");
@@ -348,7 +405,10 @@ pub fn emitJsonArrayPushF64(writer: anytype, name: []const u8, uniform_arity: us
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonArrayPushBool(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonArrayPushBool(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" {");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 6) return 2;");
@@ -360,7 +420,10 @@ pub fn emitJsonArrayPushBool(writer: anytype, name: []const u8, uniform_arity: u
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonArrayPushNull(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonArrayPushNull(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" {");
     try writer.writeAll(" sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 6) return 2;");
@@ -371,7 +434,10 @@ pub fn emitJsonArrayPushNull(writer: anytype, name: []const u8, uniform_arity: u
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonArrayPushNode(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonArrayPushNode(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_node_t *o = sa_json_find(a0);");
     try writer.writeAll(" if (o == 0 || o->kind != 6) return 2;");
     try writer.writeAll(" sa_json_node_t *ch = sa_json_find(a1);");
@@ -382,7 +448,10 @@ pub fn emitJsonArrayPushNode(writer: anytype, name: []const u8, uniform_arity: u
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterNew(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterNew(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Minified-only writers in the corpus; other whitespace modes
     // or flags fail loudly rather than emitting wrong JSON.
     try writer.writeAll(" { sa_store_u64(a5, 0);");
@@ -398,7 +467,10 @@ pub fn emitJsonWriterNew(writer: anytype, name: []const u8, uniform_arity: usize
     try writer.writeAll(" sa_store_u64(a5, h); return 0; } } }\n");
 }
 
-pub fn emitJsonWriterBeginObject(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterBeginObject(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0) return 1;");
     try writer.writeAll(" if (w->pending) w->pending = 0;");
@@ -416,7 +488,10 @@ pub fn emitJsonWriterBeginObject(writer: anytype, name: []const u8, uniform_arit
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterEndObject(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterEndObject(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0 || w->depth == 0 || w->pending) return 1;");
     try writer.writeAll(" if (w->kinds[w->depth - 1] != '{') return 1;");
@@ -426,7 +501,10 @@ pub fn emitJsonWriterEndObject(writer: anytype, name: []const u8, uniform_arity:
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterBeginArray(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterBeginArray(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0) return 1;");
     try writer.writeAll(" if (w->pending) w->pending = 0;");
@@ -444,7 +522,10 @@ pub fn emitJsonWriterBeginArray(writer: anytype, name: []const u8, uniform_arity
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterEndArray(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterEndArray(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0 || w->depth == 0 || w->pending) return 1;");
     try writer.writeAll(" if (w->kinds[w->depth - 1] != '[') return 1;");
@@ -454,7 +535,10 @@ pub fn emitJsonWriterEndArray(writer: anytype, name: []const u8, uniform_arity: 
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterFieldBool(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterFieldBool(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
     try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
@@ -465,7 +549,10 @@ pub fn emitJsonWriterFieldBool(writer: anytype, name: []const u8, uniform_arity:
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterFieldI64(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterFieldI64(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
     try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
@@ -479,7 +566,10 @@ pub fn emitJsonWriterFieldI64(writer: anytype, name: []const u8, uniform_arity: 
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterFieldF64(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterFieldF64(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
     try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
@@ -496,7 +586,10 @@ pub fn emitJsonWriterFieldF64(writer: anytype, name: []const u8, uniform_arity: 
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterFieldString(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterFieldString(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
     try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");
@@ -508,7 +601,10 @@ pub fn emitJsonWriterFieldString(writer: anytype, name: []const u8, uniform_arit
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitJsonWriterObjectField(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitJsonWriterObjectField(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_json_writer_t *w = sa_json_writer_find(a0);");
     try writer.writeAll(" if (w == 0 || w->pending || w->depth == 0 || w->kinds[w->depth - 1] != '{') return 1;");
     try writer.writeAll(" uint32_t k = sa_checked_addr(a1, (size_t)a2);");

@@ -113,7 +113,7 @@ fn appendFunctionBody(out: *std.array_list.Managed(u8), allocator: std.mem.Alloc
     try out.append('\n');
 }
 
-fn collectTypeDefinitions(types: *std.StringHashMap([]const u8), source: []const u8) !void {
+fn collectTypeDefinitions(type_map: *std.StringHashMap([]const u8), source: []const u8) !void {
     var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |raw_line| {
         const line = trim(raw_line);
@@ -121,7 +121,7 @@ fn collectTypeDefinitions(types: *std.StringHashMap([]const u8), source: []const
         const marker = std.mem.indexOf(u8, line, " = type ") orelse continue;
         const name = trim(line[0..marker]);
         const body = trim(line[marker + " = type ".len ..]);
-        try types.put(name, body);
+        try type_map.put(name, body);
     }
 }
 

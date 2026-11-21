@@ -5,6 +5,7 @@ const fnIndexOf = @import("ident.zig").fnIndexOf;
 const regSlot = @import("ident.zig").regSlot;
 const tagToPrim = @import("ident.zig").tagToPrim;
 const writeConstSym = @import("ident.zig").writeConstSym;
+const CEmitError = @import("../emit_c.zig").CEmitError;
 
 pub fn resolveTextToC(writer: anytype, symbols: anytype, fsig: sig.FunctionSig, const_addrs: anytype, raw: []const u8) !void {
     var text = std.mem.trim(u8, raw, " \t");

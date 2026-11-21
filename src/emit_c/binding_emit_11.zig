@@ -1,37 +1,61 @@
-pub fn emitEnvGet(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitEnvGet(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Real host environment via libc (the native binding reads
     // the same process env); the value is copied into an owned
     // buffer of kind 4, the env-buffer registry kind.
     try writer.writeAll(" { if (a1 > 4096) return 0; char kb[4097]; uint32_t s = sa_checked_addr(a0, (size_t)a1); sa_u64 i; for (i = 0; i < a1; i++) kb[i] = (char)sa_mem[s + i]; kb[a1] = 0; const char *v = getenv(kb); if (v == 0) return 0; size_t n = strlen(v); sa_u64 p = sa_alloc(n == 0 ? 1 : (sa_u64)n); uint32_t d = sa_checked_addr(p, n == 0 ? 1 : n); size_t j; for (j = 0; j < n; j++) sa_mem[d + j] = (uint8_t)v[j]; return sa_owned_new(p, (sa_u64)n, 4); } }\n");
 }
 
-pub fn emitEnvHas(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitEnvHas(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Status semantics mirror the native binding: 0 = present,
     // 3 = SA_STD_ERR_NOT_FOUND.
     try writer.writeAll(" { if (a1 > 4096) return 1; char kb[4097]; uint32_t s = sa_checked_addr(a0, (size_t)a1); sa_u64 i; for (i = 0; i < a1; i++) kb[i] = (char)sa_mem[s + i]; kb[a1] = 0; return getenv(kb) != 0 ? 0 : 3; } }\n");
 }
 
-pub fn emitEnvSetVar(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitEnvSetVar(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { if (a1 > 4096 || a3 > 1048576) return 1; char kb[4097]; char *vb = (char *)malloc(a3 + 1); if (vb == 0) return 6; uint32_t s = sa_checked_addr(a0, (size_t)a1); uint32_t t = sa_checked_addr(a2, (size_t)a3); sa_u64 i; for (i = 0; i < a1; i++) kb[i] = (char)sa_mem[s + i]; kb[a1] = 0; for (i = 0; i < a3; i++) { if (sa_mem[t + i] == 0) { free(vb); return 1; } vb[i] = (char)sa_mem[t + i]; } vb[a3] = 0; int rc = setenv(kb, vb, 1); free(vb); return rc == 0 ? 0 : 6; } }\n");
 }
 
-pub fn emitEnvRemoveVar(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitEnvRemoveVar(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { if (a1 > 4096) return 1; char kb[4097]; uint32_t s = sa_checked_addr(a0, (size_t)a1); sa_u64 i; for (i = 0; i < a1; i++) kb[i] = (char)sa_mem[s + i]; kb[a1] = 0; return unsetenv(kb) == 0 ? 0 : 6; } }\n");
 }
 
-pub fn emitEnvBufferData(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitEnvBufferData(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_owned_buf_t *o = sa_owned_find(a0); if (o == 0 || o->kind != 4) return 0; return o->ptr; } }\n");
 }
 
-pub fn emitEnvBufferLen(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitEnvBufferLen(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_owned_buf_t *o = sa_owned_find(a0); if (o == 0 || o->kind != 4) return 0; return o->len; } }\n");
 }
 
-pub fn emitEnvBufferFree(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitEnvBufferFree(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_owned_drop(a0); return 0; } }\n");
 }
 
-pub fn emitDenoBtoaHandle(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitDenoBtoaHandle(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Standard-alphabet base64 with padding, matching the
     // native encoder; the result is an fmt buffer (kind 1),
     // consumed via sa_fmt_buffer_data/len/free as natively.
@@ -40,7 +64,10 @@ pub fn emitDenoBtoaHandle(writer: anytype, name: []const u8, uniform_arity: usiz
     try writer.writeAll(" { static const char T[65] = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"; uint32_t s = sa_checked_addr(a0, (size_t)a1); sa_u64 out_len = 4 * ((a1 + 2) / 3); sa_u64 p = sa_alloc(out_len == 0 ? 1 : out_len); uint32_t d = sa_checked_addr(p, out_len == 0 ? 1 : (size_t)out_len); sa_u64 i = 0, j = 0; while (i + 3 <= a1) { uint32_t v = ((uint32_t)sa_mem[s + i] << 16) | ((uint32_t)sa_mem[s + i + 1] << 8) | (uint32_t)sa_mem[s + i + 2]; sa_mem[d + j++] = (uint8_t)T[(v >> 18) & 63]; sa_mem[d + j++] = (uint8_t)T[(v >> 12) & 63]; sa_mem[d + j++] = (uint8_t)T[(v >> 6) & 63]; sa_mem[d + j++] = (uint8_t)T[v & 63]; i += 3; } if (a1 - i == 1) { uint32_t v = ((uint32_t)sa_mem[s + i] << 16); sa_mem[d + j++] = (uint8_t)T[(v >> 18) & 63]; sa_mem[d + j++] = (uint8_t)T[(v >> 12) & 63]; sa_mem[d + j++] = 61; sa_mem[d + j++] = 61; } else if (a1 - i == 2) { uint32_t v = ((uint32_t)sa_mem[s + i] << 16) | ((uint32_t)sa_mem[s + i + 1] << 8); sa_mem[d + j++] = (uint8_t)T[(v >> 18) & 63]; sa_mem[d + j++] = (uint8_t)T[(v >> 12) & 63]; sa_mem[d + j++] = (uint8_t)T[(v >> 6) & 63]; sa_mem[d + j++] = 61; } return sa_owned_new(p, out_len, 1); } }\n");
 }
 
-pub fn emitDenoBtoa(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitDenoBtoa(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
     try writer.writeAll(" if (a1 > (~(sa_u64)0 - 2) / 4 * 3) return 1;");
     try writer.writeAll(" sa_u64 n = (a1 + 2) / 3 * 4;");
@@ -65,7 +92,10 @@ pub fn emitDenoBtoa(writer: anytype, name: []const u8, uniform_arity: usize, gas
     try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
 }
 
-pub fn emitDenoAtob(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitDenoAtob(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
     try writer.writeAll(" if (a1 % 4 != 0) return 1;");
     try writer.writeAll(" sa_u64 p = sa_alloc(a1 == 0 ? 1 : a1 / 4 * 3);");
@@ -90,7 +120,10 @@ pub fn emitDenoAtob(writer: anytype, name: []const u8, uniform_arity: usize, gas
     try writer.writeAll(" sa_store_u64(a2, p); sa_store_u64(a3, w); return 0; } } }\n");
 }
 
-pub fn emitDenoReadFile(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitDenoReadFile(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Real host read into fresh guest memory (mirrors the deno
     // plugin); 0 ok, 2 on any failure.
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
@@ -115,7 +148,10 @@ pub fn emitDenoReadFile(writer: anytype, name: []const u8, uniform_arity: usize,
     try writer.writeAll(" sa_store_u64(a2, q); sa_store_u64(a3, (sa_u64)sz); return 0; } } }\n");
 }
 
-pub fn emitDenoWriteFile(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitDenoWriteFile(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
     try writer.writeAll(" uint32_t y = sa_checked_addr(a2, (size_t)a3);");
     try writer.writeAll(" if (a1 == 0) return 2;");
@@ -134,7 +170,10 @@ pub fn emitDenoWriteFile(writer: anytype, name: []const u8, uniform_arity: usize
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitDenoRemove(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitDenoRemove(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Non-recursive remove (files + empty dirs via libc
     // remove); recursive trees are out of scope for now.
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
@@ -149,7 +188,10 @@ pub fn emitDenoRemove(writer: anytype, name: []const u8, uniform_arity: usize, g
     try writer.writeAll(" return 0; } }\n");
 }
 
-pub fn emitDenoMkdir(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitDenoMkdir(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Recursive prefix walk (mkdir -p shape); EEXIST tolerated.
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
     try writer.writeAll(" if (a1 == 0) return 2;");
@@ -172,35 +214,59 @@ pub fn emitDenoMkdir(writer: anytype, name: []const u8, uniform_arity: usize, ga
     try writer.writeAll(" return 0; } } }\n");
 }
 
-pub fn emitHcWsRead(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitHcWsRead(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_http_obj_t *w = sa_http_find(sa_http_objs, a0); if (w == 0) return 1; if (!w->aux2) { sa_store_u64(a2, 0); sa_store_u64(a3, 0); sa_store_u64(a4, 0); return 2; } sa_store_u64(a2, w->aux2 - 1); sa_store_u64(a3, w->aux0); sa_store_u64(a4, w->aux1); w->aux2 = 0; return 0; } }\n");
 }
 
-pub fn emitHcWsWrite(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitHcWsWrite(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_http_obj_t *w = sa_http_find(sa_http_objs, a0); if (w == 0) return 1; if (sa_nb_ws_closed_get(a0)) return 2; if (w->aux2) return 1; w->aux0 = a2; w->aux1 = a3; w->aux2 = a1 + 1; return 0; } }\n");
 }
 
-pub fn emitHcWsFree(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitHcWsFree(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_nb_ws_meta_clear(a0); sa_http_drop(sa_http_objs, a0); return 0; } }\n");
 }
 
-pub fn emitHc2WsPoll(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitHc2WsPoll(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_http_obj_t *w = sa_http_find(sa_http_objs, a0); if (w == 0) return 5; sa_store_u64(a3, 2 | (w->aux2 < w->aux1 ? 1 : 0) | (sa_nb_ws_closed_get(a0) ? 4 : 0)); return 0; } }\n");
 }
 
-pub fn emitHc2WsRead(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitHc2WsRead(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_http_obj_t *w = sa_http_find(sa_http_objs, a0); if (w == 0) return 5; if (w->aux2 >= w->aux1) { if (sa_nb_ws_closed_get(a0)) { sa_store_u64(a3, 0); sa_store_u64(a4, 0); return 2; } return 1; } sa_store_u64(a2, (sa_u64)sa_nb_ws_opcode_get(a0)); sa_store_u64(a3, w->aux0 + w->aux2); sa_store_u64(a4, w->aux1 - w->aux2); w->aux2 = w->aux1; return 0; } }\n");
 }
 
-pub fn emitHc2WsWrite(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitHc2WsWrite(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_http_obj_t *w = sa_http_find(sa_http_objs, a0); if (w == 0) return 5; if (sa_nb_ws_closed_get(a0)) return 2; if (w->aux1 > w->aux2) return 1; w->aux0 = a2; w->aux1 = a3; w->aux2 = 0; sa_nb_ws_meta_set(a0, (int)a1, -1); sa_store_u64(a4, a3); return 0; } }\n");
 }
 
-pub fn emitHc2WsClose(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitHc2WsClose(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_http_obj_t *w = sa_http_find(sa_http_objs, a0); if (w == 0) return 5; sa_nb_ws_meta_set(a0, -1, 1); return 0; } }\n");
 }
 
-pub fn emitTimeUnixMs(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTimeUnixMs(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Real wall clock (mirrors the interpreter, not staged).
     try writer.writeAll(" { struct timespec ts;");
     try writer.writeAll(" if (!sa_policy_check(4, 0, 0, 0)) return 0;");
@@ -208,26 +274,38 @@ pub fn emitTimeUnixMs(writer: anytype, name: []const u8, uniform_arity: usize, g
     try writer.writeAll(" return (sa_u64)((sa_i64)ts.tv_sec * 1000 + ts.tv_nsec / 1000000); } }\n");
 }
 
-pub fn emitTimeGetFullYear(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTimeGetFullYear(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_i64 y, mo, d;");
     try writer.writeAll(" sa_civil_ymd((sa_i64)a0, &y, &mo, &d);");
     try writer.writeAll(" return (sa_u64)y; } }\n");
 }
 
-pub fn emitTimeGetMonth(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTimeGetMonth(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // 0-based like JS getMonth (mirrors the interpreter).
     try writer.writeAll(" { sa_i64 y, mo, d;");
     try writer.writeAll(" sa_civil_ymd((sa_i64)a0, &y, &mo, &d);");
     try writer.writeAll(" return (sa_u64)(mo - 1); } }\n");
 }
 
-pub fn emitTimeGetDate(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTimeGetDate(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_i64 y, mo, d;");
     try writer.writeAll(" sa_civil_ymd((sa_i64)a0, &y, &mo, &d);");
     try writer.writeAll(" return (sa_u64)d; } }\n");
 }
 
-pub fn emitTimeParseIso(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTimeParseIso(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     // Strict ISO YYYY-MM-DD[THH:MM:SS[.sss]][Z|+-HH:MM] to unix
     // millis; 0 ok (writes *out_ms, pre-zeroed), 1 invalid.
     try writer.writeAll(" { uint32_t x = sa_checked_addr(a0, (size_t)a1);");
@@ -326,7 +404,10 @@ pub fn emitTimeParseIso(writer: anytype, name: []const u8, uniform_arity: usize,
     try writer.writeAll(" return 0; } } }\n");
 }
 
-pub fn emitTimeSetField(writer: anytype, name: []const u8, uniform_arity: usize, gas: bool) !void {
+pub fn emitTimeSetField(writer: anytype, _name: []const u8, _uniform_arity: usize, _gas: bool) !void {
+    _ = _name;
+    _ = _uniform_arity;
+    _ = _gas;
     try writer.writeAll(" { sa_i64 ms = (sa_i64)a0; sa_u64 f = a1; sa_i64 v = (sa_i64)a2;");
     try writer.writeAll(" sa_i64 day_ms = sa_mod_floor(ms, 86400000);");
     try writer.writeAll(" sa_i64 y, mo, d;");

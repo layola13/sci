@@ -32,7 +32,6 @@ const foldFlowPlain = @import("y03.zig").foldFlowPlain;
 const getDocument = @import("y01.zig").getDocument;
 const isAnchorChar = @import("y02.zig").isAnchorChar;
 const last_error_buf = @import("y01.zig").last_error_buf;
-const last_error_len = @import("y01.zig").last_error_len;
 const newDocument = @import("y01.zig").newDocument;
 const null_value = @import("y01.zig").null_value;
 const parseDoubleQuoted = @import("y01.zig").parseDoubleQuoted;
@@ -43,6 +42,7 @@ const resolvePlainScalar = @import("y02.zig").resolvePlainScalar;
 const setLastError = @import("y01.zig").setLastError;
 const splitDocuments = @import("y02.zig").splitDocuments;
 const stringValue = @import("y01.zig").stringValue;
+const y01 = @import("y01.zig");
 
 pub const FlowParser = struct {
     p: *Parser,
@@ -461,7 +461,7 @@ pub fn parseToDocument(input: []const u8, index: ?usize) ?*Document {
     const range = split.ranges[index orelse 0];
     var parser = Parser{ .alloc = doc.alloc(), .lines = split.lines[range.start..range.end] };
     const root = parser.parseRoot() catch |err| {
-        if (err == error.OutOfMemory and last_error_len == 0) setLastError("yaml: out of memory", .{});
+        if (err == error.OutOfMemory and y01.last_error_len == 0) setLastError("yaml: out of memory", .{});
         doc.deinit();
         return null;
     };
@@ -521,13 +521,13 @@ pub export fn sa_yaml_free(handle: u64) i32 {
 pub export fn sa_yaml_last_error(out_ptr: ?*?[*]const u8, out_len: ?*u64) i32 {
     const ptr_slot = out_ptr orelse return ERR_INVALID;
     const len_slot = out_len orelse return ERR_INVALID;
-    if (last_error_len == 0) {
+    if (y01.last_error_len == 0) {
         ptr_slot.* = null;
         len_slot.* = 0;
         return ERR_NOT_FOUND;
     }
     ptr_slot.* = last_error_buf[0..last_error_len].ptr;
-    len_slot.* = @intCast(last_error_len);
+    len_slot.* = @intCast(y01.last_error_len);
     return OK;
 }
 
