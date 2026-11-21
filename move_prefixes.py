@@ -62,6 +62,8 @@ def find_end(s, ls):
 
 targets = []
 for i, l in enumerate(lines):
+    if "@import(" in l:
+        continue
     m = decl_re.match(l)
     if m and any(m.group(1).startswith(p) for p in prefixes):
         targets.append((i, m.group(1)))

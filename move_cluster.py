@@ -69,6 +69,8 @@ rel_dst = os.path.relpath(dst_path, os.path.dirname(src_path))
 decl_re = re.compile(r"^(?:pub\s+)?(?:export\s+)?(?:const|fn|var)\s+([A-Za-z0-9_]+)")
 targets = []
 for i, l in enumerate(lines):
+    if "@import(" in l:
+        continue
     m = decl_re.match(l)
     if m and m.group(1) in members:
         targets.append((i, m.group(1)))

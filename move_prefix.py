@@ -65,8 +65,12 @@ def find_end(s):
     return len(lines) - 1
 
 # collect decls to move (scan from bottom so line numbers stay valid)
+# SKIP alias/import lines (they contain @import(): moving a compressed
+# alias line would drag unrelated decls along and break relative paths).
 targets = []
 for i, l in enumerate(lines):
+    if "@import(" in l:
+        continue
     m = decl_re.match(l)
     if m and m.group(1).startswith(prefix):
         targets.append((i, m.group(1), "decl"))

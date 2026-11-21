@@ -1,6 +1,6 @@
 const std = @import("std");
-const spawn = @import("sa_std/spawn.zig");
-const policy = @import("sa_std/policy.zig");
+pub const spawn = @import("sa_std/spawn.zig");
+pub const policy = @import("sa_std/policy.zig");
 test "sa_std_tests" { std.testing.refAllDecls(@import("sa_std/sa_std_tests.zig")); }
 test "sa_std_tests_net" { std.testing.refAllDecls(@import("sa_std/tests_net.zig")); }
 test "sa_std_tests_codec" { std.testing.refAllDecls(@import("sa_std/tests_codec.zig")); }
@@ -225,34 +225,22 @@ pub const sa_time_instant_ns = @import("sa_std/time.zig").sa_time_instant_ns; pu
 pub const sa_time_get_hours = @import("sa_std/time.zig").sa_time_get_hours; pub const sa_time_get_minutes = @import("sa_std/time.zig").sa_time_get_minutes; pub const sa_time_get_seconds = @import("sa_std/time.zig").sa_time_get_seconds; pub const sa_time_get_milliseconds = @import("sa_std/time.zig").sa_time_get_milliseconds; pub const sa_time_get_day = @import("sa_std/time.zig").sa_time_get_day; pub const sa_time_format_utc = @import("sa_std/time.zig").sa_time_format_utc; pub const sa_time_set_field = @import("sa_std/time.zig").sa_time_set_field; pub const sa_time_unix_ns = @import("sa_std/time.zig").sa_time_unix_ns;
 pub const sa_time_utc_now = @import("sa_std/time.zig").sa_time_utc_now; pub const sa_time_sleep_ns = @import("sa_std/time.zig").sa_time_sleep_ns; pub const sa_time_sleep_ms = @import("sa_std/time.zig").sa_time_sleep_ms;
 
-
 /// Runtime permission gate (sala 16_policy): checked at resource
 /// acquisition points only. No context installed -> allowed (the
 /// host surface enforces "no policy, no start"). Denial returns the
 /// dedicated SA_STD_ERR_PERMISSION_DENIED status; getters without a
 /// status channel (env, time, random) deny by returning zero, and
 /// every denial is audit-logged through the installed sink.
-pub fn policyAllows(resource: sa_policy.Resource) bool {
-    // On wasm there is no ELF-constructor guarantee, so the first gated
-    // call installs the policy lazily (policyBootstrap is idempotent).
-    if (comptime is_wasm) policyBootstrap();
-    if (sa_policy.active_context == null) return true;
-    const now_ns: i64 = @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
-    return sa_policy.gate(std.heap.page_allocator, resource, now_ns);
-}
+pub const policyAllows = @import("sa_std/hub.zig").policyAllows;
 
 /// Run-category policy check shared with satellite runtime files
 /// (sa_pty.zig): a PTY spawn acquires a process exactly like the spawn
 /// funnel above, so it goes through the same 16_policy gate.
-pub fn saStdPolicyAllowsRun(program: []const u8) bool {
-    return policyAllows(.{ .run = program });
-}
+pub const saStdPolicyAllowsRun = @import("sa_std/core_misc3.zig").saStdPolicyAllowsRun;
 
 /// Fs-read policy check shared with satellite runtime files
 /// (sa_fs_watch.zig): registering a watch is a read-side acquisition.
-pub fn saStdPolicyAllowsFsRead(path: []const u8) bool {
-    return policyAllows(.{ .fs = .{ .path = path, .write = false } });
-}
+pub const saStdPolicyAllowsFsRead = @import("sa_std/core_misc3.zig").saStdPolicyAllowsFsRead;
 
 // ---------------------------------------------------------------------
 // Policy bootstrap for produced binaries (sala 16_policy phase 1,
@@ -274,15 +262,7 @@ pub fn saStdPolicyAllowsFsRead(path: []const u8) bool {
 
 pub var policy_audit_fd: ?std.posix.fd_t = null;
 
-
-
-
-pub fn policyEnvOwned(allocator: std.mem.Allocator, name: []const u8) ?[]u8 {
-    return sio.getEnvVarOwned(allocator, name) catch null;
-}
-
-
-
+pub const policyEnvOwned = @import("sa_std/core_misc3.zig").policyEnvOwned;
 
 // ---------------------------------------------------------------------
 // DEF-R7: SIGPIPE policy (Jev ruling 2026-10-31:
@@ -302,9 +282,6 @@ pub fn policyEnvOwned(allocator: std.mem.Allocator, name: []const u8) ?[]u8 {
 // installs the same disposition at its own main (src/main.zig).
 // Only SIGPIPE is touched; no other signal's disposition changes.
 
-
-
-
 // DEF-R7 startup entry called by every generated program main
 // wrapper (LLVM shim + C backend) before user code runs. This is
 // the coverage backbone: a plain reference from the wrapper extracts
@@ -312,7 +289,6 @@ pub fn policyEnvOwned(allocator: std.mem.Allocator, name: []const u8) ?[]u8 {
 // no other sa_std symbol, where the .init_array constructor alone
 // would never be linked in. Exported on all targets; the install
 // itself no-ops where SIGPIPE does not exist (wasm/windows).
-
 
 // align(8) is load-bearing: with a larger section alignment the linker
 // pads .init_array up to the boundary, and glibc's init walk calls that
@@ -325,77 +301,46 @@ comptime {
     }
 }
 
-
 // wasm32-wasi compat (stage1: archive must compile; sockets/process/dlopen
 // stubbed to UNSUPPORTED): SockAddrT/W/SIG are `void` on wasi, and
 // std.os.linux has no wasm syscalls. Provide minimal layout-compatible
 // aliases so signatures type-check; bodies return UNSUPPORTED via
 // `if (comptime is_wasm)` guards.
-pub const is_wasm = builtin.cpu.arch.isWasm();
-pub const is_linux = builtin.os.tag == .linux;
-const WasiSockAddrUn = extern struct { family: u16 = 0, path: [108]u8 = undefined };
-const WasiSockAddrIn = extern struct { port: u16 = 0, addr: u32 = 0, zero: [8]u8 = undefined };
-const WasiSockAddrIn6 = extern struct { port: u16 = 0, flowinfo: u32 = 0, addr: [16]u8 = undefined, scope_id: u32 = 0 };
-const WasiSockAddrStorage = extern struct { family: u16 = 0, __pad: [126]u8 = undefined };
-const WasiSockAddr = extern struct { family: u16 = 0, data: [14]u8 = undefined };
-pub const SockAddrUnT = if (is_wasm) WasiSockAddrUn else std.posix.sockaddr.un;
-const SockAddrInT = if (is_wasm) WasiSockAddrIn else std.posix.sockaddr.in;
-const SockAddrIn6T = if (is_wasm) WasiSockAddrIn6 else std.posix.sockaddr.in6;
-pub const SockAddrStorageT = if (is_wasm) WasiSockAddrStorage else std.posix.sockaddr.storage;
-pub const SockAddrT = if (is_wasm) WasiSockAddr else std.posix.sockaddr;
-pub const SockLenT = if (is_wasm) u32 else std.posix.socklen_t;
+pub const is_wasm = @import("sa_std/hub.zig").is_wasm;
+pub const is_linux = @import("sa_std/hub.zig").is_linux;
+pub const WasiSockAddrUn = @import("sa_std/sock_types.zig").WasiSockAddrUn;
+pub const WasiSockAddrIn = @import("sa_std/sock_types.zig").WasiSockAddrIn;
+pub const WasiSockAddrIn6 = @import("sa_std/sock_types.zig").WasiSockAddrIn6;
+pub const WasiSockAddrStorage = @import("sa_std/sock_types.zig").WasiSockAddrStorage;
+pub const WasiSockAddr = @import("sa_std/sock_types.zig").WasiSockAddr;
+pub const SockAddrUnT = @import("sa_std/sock_types.zig").SockAddrUnT;
+pub const SockAddrInT = @import("sa_std/sock_types.zig").SockAddrInT;
+pub const SockAddrIn6T = @import("sa_std/sock_types.zig").SockAddrIn6T;
+pub const SockAddrStorageT = @import("sa_std/sock_types.zig").SockAddrStorageT;
+pub const SockAddrT = @import("sa_std/sock_types.zig").SockAddrT;
+pub const SockLenT = @import("sa_std/sock_types.zig").SockLenT;
 // wasi has no wait macros/signals (std.posix.W/SIG are void); dummies so
 // status helpers type-check (callers stubbed to UNSUPPORTED on wasm).
 // wasi-libc has no AF/SOL (void via std.c); Linux-value dummies for compile.
-const WasiAF = struct {
-    pub const UNIX: u16 = 1;
-    pub const INET: u16 = 2;
-    pub const INET6: u16 = 10;
-};
-pub const AFT = if (is_wasm) WasiAF else std.posix.AF;
-const WasiSOL = struct {
-    pub const SOCKET: u32 = 1;
-};
-pub const SOLT = if (is_wasm) WasiSOL else std.posix.SOL;
-const WasiSO = struct {
-    pub const REUSEADDR: u32 = 2;
-    pub const TYPE: u32 = 3;
-    pub const ERROR: u32 = 4;
-    pub const BROADCAST: u32 = 6;
-    pub const SNDBUF: u32 = 7;
-    pub const RCVBUF: u32 = 8;
-    pub const KEEPALIVE: u32 = 9;
-    pub const LINGER: u32 = 13;
-    pub const REUSEPORT: u32 = 15;
-    pub const PEERCRED: u32 = 17;
-    pub const RCVTIMEO: u32 = 20;
-    pub const SNDTIMEO: u32 = 21;
-    pub const ACCEPTCONN: u32 = 30;
-};
-pub const SOT = if (is_wasm) WasiSO else std.posix.SO;
-const WasiIPPROTO = struct {
-    pub const IP: u32 = 0;
-    pub const TCP: u32 = 6;
-    pub const UDP: u32 = 17;
-    pub const IPV6: u32 = 41;
-};
-pub const IPPROTOT = if (is_wasm) WasiIPPROTO else std.posix.IPPROTO;
-const WasiSOCK = struct {
-    pub const STREAM: u32 = 1;
-    pub const DGRAM: u32 = 2;
-    pub const NONBLOCK: u32 = 2048;
-    pub const CLOEXEC: u32 = 524288;
-};
-pub const SOCKT = if (is_wasm) WasiSOCK else std.posix.SOCK;
+pub const WasiAF = @import("sa_std/sock_types.zig").WasiAF;
+pub const AFT = @import("sa_std/sock_types.zig").AFT;
+pub const WasiSOL = @import("sa_std/sock_types.zig").WasiSOL;
+pub const SOLT = @import("sa_std/core_misc3.zig").SOLT;
+pub const WasiSO = @import("sa_std/sock_types.zig").WasiSO;
+pub const SOT = @import("sa_std/sock_types.zig").SOT;
+pub const WasiIPPROTO = @import("sa_std/sock_types.zig").WasiIPPROTO;
+pub const IPPROTOT = @import("sa_std/sock_types.zig").IPPROTOT;
+pub const WasiSOCK = @import("sa_std/sock_types.zig").WasiSOCK;
+pub const SOCKT = @import("sa_std/sock_types.zig").SOCKT;
 // Linux-only socket options/constants fall back to neutral values elsewhere;
 // the export functions that use them are compiled out of non-Linux builds.
-pub const TCP_QUICKACK: u32 = if (is_linux) std.os.linux.TCP.QUICKACK else 0;
-pub const TCP_DEFER_ACCEPT: u32 = if (is_linux) std.os.linux.TCP.DEFER_ACCEPT else 0;
-pub const TCP_KEEPIDLE: u32 = if (is_linux) std.os.linux.TCP.KEEPIDLE else if (builtin.os.tag == .freebsd) 256 else std.posix.TCP.KEEPALIVE;
-pub const TCP_KEEPINTVL: u32 = if (is_linux) std.os.linux.TCP.KEEPINTVL else std.posix.TCP.KEEPINTVL;
-pub const TCP_KEEPCNT: u32 = if (is_linux) std.os.linux.TCP.KEEPCNT else std.posix.TCP.KEEPCNT;
-pub const SO_PASSCRED: u32 = if (is_linux) std.os.linux.SO.PASSCRED else 0;
-pub const SO_MARK: u32 = if (is_linux) std.os.linux.SO.MARK else 0;
+pub const TCP_QUICKACK = @import("sa_std/sock_types.zig").TCP_QUICKACK;
+pub const TCP_DEFER_ACCEPT = @import("sa_std/sock_types.zig").TCP_DEFER_ACCEPT;
+pub const TCP_KEEPIDLE = @import("sa_std/sock_types.zig").TCP_KEEPIDLE;
+pub const TCP_KEEPINTVL = @import("sa_std/sock_types.zig").TCP_KEEPINTVL;
+pub const TCP_KEEPCNT = @import("sa_std/sock_types.zig").TCP_KEEPCNT;
+pub const SO_PASSCRED = @import("sa_std/sock_types.zig").SO_PASSCRED;
+pub const SO_MARK = @import("sa_std/core_types.zig").SO_MARK;
 // Pull the new sa_std protocol runtimes (http2/tls_server/dtls/quic) export
 // functions into the library object. Zig only emits `pub export fn`s of a
 // transitively-imported module when the root source actually retains the
@@ -450,300 +395,60 @@ comptime {
     _ = &@import("sa_ssh.zig").sa_std_ssh_server_listen;
     _ = &@import("sa_thread_local.zig").sa_thread_local_supported;
     _ = &@import("sa_ws_client.zig").sa_std_ws_client_supported;
-    // force-emit all fns of sa_cookie.zig (43 fns, loop over decls)
-    {
-        const m = @import("sa_cookie.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_crypto.zig (27 fns, loop over decls)
-    {
-        const m = @import("sa_crypto.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_crypto_asym.zig (17 fns, loop over decls)
-    {
-        const m = @import("sa_crypto_asym.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_fs_watch.zig (6 fns, loop over decls)
-    {
-        const m = @import("sa_fs_watch.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_http_client.zig (6 fns, loop over decls)
-    {
-        const m = @import("sa_http_client.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_http_server.zig (48 fns, loop over decls)
-    {
-        const m = @import("sa_http_server.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_mysql_client.zig (30 fns, loop over decls)
-    {
-        const m = @import("sa_mysql_client.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_pg.zig (4 fns, loop over decls)
-    {
-        const m = @import("sa_pg.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_pty.zig (10 fns, loop over decls)
-    {
-        const m = @import("sa_pty.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_quic.zig (3 fns, loop over decls)
-    {
-        const m = @import("sa_quic.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/deno.zig (37 fns, loop over decls)
-    {
-        const m = @import("sa_std/deno.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/env.zig (22 fns, loop over decls)
-    {
-        const m = @import("sa_std/env.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/fmt.zig (14 fns, loop over decls)
-    {
-        const m = @import("sa_std/fmt.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/fs.zig (55 fns, loop over decls)
-    {
-        const m = @import("sa_std/fs.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/fs_meta.zig (39 fns, loop over decls)
-    {
-        const m = @import("sa_std/fs_meta.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/io.zig (13 fns, loop over decls)
-    {
-        const m = @import("sa_std/io.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/json_io.zig (31 fns, loop over decls)
-    {
-        const m = @import("sa_std/json_io.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/math.zig (7 fns, loop over decls)
-    {
-        const m = @import("sa_std/math.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/net.zig (61 fns, loop over decls)
-    {
-        const m = @import("sa_std/net.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/regex.zig (22 fns, loop over decls)
-    {
-        const m = @import("sa_std/regex.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/std_fs.zig (27 fns, loop over decls)
-    {
-        const m = @import("sa_std/std_fs.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/std_net.zig (25 fns, loop over decls)
-    {
-        const m = @import("sa_std/std_net.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/std_net_tcp.zig (18 fns, loop over decls)
-    {
-        const m = @import("sa_std/std_net_tcp.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/std_net_tcp_stream.zig (33 fns, loop over decls)
-    {
-        const m = @import("sa_std/std_net_tcp_stream.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/std_net_udp.zig (21 fns, loop over decls)
-    {
-        const m = @import("sa_std/std_net_udp.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/std_net_udp_io.zig (15 fns, loop over decls)
-    {
-        const m = @import("sa_std/std_net_udp_io.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/std_net_udp_set.zig (14 fns, loop over decls)
-    {
-        const m = @import("sa_std/std_net_udp_set.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/std_net_unix.zig (20 fns, loop over decls)
-    {
-        const m = @import("sa_std/std_net_unix.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/std_net_unix_dgram.zig (19 fns, loop over decls)
-    {
-        const m = @import("sa_std/std_net_unix_dgram.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/std_process.zig (35 fns, loop over decls)
-    {
-        const m = @import("sa_std/std_process.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/std_process_spawn.zig (15 fns, loop over decls)
-    {
-        const m = @import("sa_std/std_process_spawn.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/str.zig (10 fns, loop over decls)
-    {
-        const m = @import("sa_std/str.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/string.zig (14 fns, loop over decls)
-    {
-        const m = @import("sa_std/string.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/term.zig (7 fns, loop over decls)
-    {
-        const m = @import("sa_std/term.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/time.zig (19 fns, loop over decls)
-    {
-        const m = @import("sa_std/time.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_tls_client.zig (11 fns, loop over decls)
-    {
-        const m = @import("sa_tls_client.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_tls_server.zig (8 fns, loop over decls)
-    {
-        const m = @import("sa_tls_server.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_tls_shaped.zig (4 fns, loop over decls)
-    {
-        const m = @import("sa_tls_shaped.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_toml.zig (29 fns, loop over decls)
-    {
-        const m = @import("sa_toml.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_tree_sitter.zig (34 fns, loop over decls)
-    {
-        const m = @import("sa_tree_sitter.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_yaml.zig (31 fns, loop over decls)
-    {
-        const m = @import("sa_yaml.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
-    // force-emit all fns of sa_std/b64_simd.zig (loop over decls)
-    {
-        const m = @import("sa_std/b64_simd.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
+    { const m = @import("sa_cookie.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_crypto.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_crypto_asym.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_fs_watch.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_http_client.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_http_server.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_mysql_client.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_pg.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_pty.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_quic.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/deno.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/env.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/fmt.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/fs.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/fs_meta.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/io.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/json_io.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/math.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/net.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/regex.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/std_fs.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/std_net.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/std_net_tcp.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/std_net_tcp_stream.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/std_net_udp.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/std_net_udp_io.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/std_net_udp_set.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/std_net_unix.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/std_net_unix_dgram.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/std_process.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/std_process_spawn.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/str.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/string.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/term.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/time.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_tls_client.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_tls_server.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_tls_shaped.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_toml.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_tree_sitter.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_yaml.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/b64_simd.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/core_export.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/core_misc.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/core_misc2.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/dlopen.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/fallible.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/fd_core.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/io_plan.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/policy.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/proc_wait.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/spawn.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/test_debug.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_std/text_util.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     if (builtin.os.tag == .linux) {
     }
     _ = &sa_task.sa_task_spawn;
@@ -754,39 +459,15 @@ comptime {
     _ = &sa_task.sa_sync_mutex_new;
     _ = &sa_task.sa_sync_waitgroup_new;
     _ = &sa_task.sa_sync_once_new;
-    // force-emit all fns of sa_std/json.zig (loop over decls)
-    {
-        const m = @import("sa_std/json.zig");
-        for (std.meta.declarations(m)) |decl_name| {
-            _ = &@field(m, decl_name);
-        }
-    }
+    { const m = @import("sa_std/json.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     if (builtin.os.tag == .linux) {
         _ = &@import("sa_net_uring.zig").sa_netx_init;
     }
 }
 
-pub const RegexC = if (is_wasm) extern struct {
-    re_nsub: usize,
-    __opaque: ?*anyopaque,
-    __padding: [4]?*anyopaque,
-    __nsub2: usize,
-    __padding2: u8,
-} else extern struct {
-    buffer: ?*anyopaque,
-    allocated: c_ulong,
-    used: c_ulong,
-    syntax: c_ulong,
-    fastmap: ?[*]u8,
-    translate: ?[*]u8,
-    re_nsub: usize,
-    flags: u32,
-};
+pub const RegexC = @import("sa_std/core_misc2.zig").RegexC;
 
-pub const RegexMatchC = extern struct {
-    rm_so: c_int,
-    rm_eo: c_int,
-};
+pub const RegexMatchC = @import("sa_std/core_misc3.zig").RegexMatchC;
 
 extern fn regcomp(preg: ?*RegexC, pattern: [*c]const u8, cflags: c_int) c_int;
 extern fn regexec(preg: ?*const RegexC, text: [*c]const u8, nmatch: usize, pmatch: [*]RegexMatchC, eflags: c_int) c_int;
@@ -794,19 +475,11 @@ extern fn regfree(preg: ?*RegexC) void;
 extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern fn unsetenv(name: [*:0]const u8) c_int;
 
-const InAddrC = extern struct {
-    s_addr: u32,
-};
+pub const InAddrC = @import("sa_std/sock_types.zig").InAddrC;
 
-const IpMreqC = extern struct {
-    imr_multiaddr: InAddrC,
-    imr_interface: InAddrC,
-};
+pub const IpMreqC = @import("sa_std/core_misc2.zig").IpMreqC;
 
-const Ipv6MreqC = extern struct {
-    ipv6mr_multiaddr: [16]u8,
-    ipv6mr_interface: u32,
-};
+pub const Ipv6MreqC = @import("sa_std/core_misc.zig").Ipv6MreqC;
 
 extern "c" var environ: [*:null]?[*:0]u8;
 
@@ -824,24 +497,16 @@ comptime {
     }
 }
 
-
-
 // --- Cross-platform compat: Linux-first, macOS via conditionals ---
 // waitid/pidfd flags are Linux-only; 0 elsewhere (pidfd path is Linux-only).
 // MSG_PEEK: std.posix.MSG is Linux-only in zig 0.14; Darwin value is 0x2.
 // TCP_NODELAY == 1 on Linux, macOS and FreeBSD. Spell it out: std.posix.TCP
 // is void on FreeBSD in zig 0.14, and std.os.linux.TCP.* are Linux values.
-pub const tcp_nodelay: u32 = 1;
+pub const tcp_nodelay = @import("sa_std/core_util.zig").tcp_nodelay;
 // --- FreeBSD compat (zig 0.14 std leaves several POSIX surfaces
 // unimplemented for freebsd: uname, TCP consts, if_nametoindex) ---
-const fbsd_sys_nmln: usize = 256;
-pub const fbsd_utsname = extern struct {
-    sysname: [fbsd_sys_nmln]u8,
-    nodename: [fbsd_sys_nmln]u8,
-    release: [fbsd_sys_nmln]u8,
-    version: [fbsd_sys_nmln]u8,
-    machine: [fbsd_sys_nmln]u8,
-};
+pub const fbsd_sys_nmln = @import("sa_std/hub.zig").fbsd_sys_nmln;
+pub const fbsd_utsname = @import("sa_std/core_misc2.zig").fbsd_utsname;
 extern fn uname(buf: *fbsd_utsname) c_int;
 extern fn if_nametoindex(ifname: [*:0]const u8) c_uint;
 // Non-Linux targets call libc recvmsg directly. Note: the extern name must be
@@ -854,191 +519,50 @@ extern "c" fn __error() *c_int;
 /// Cap on iovec entries accepted per vectored call. Matches POSIX IOV_MAX where
 /// available and stays comfortably below common OS hard limits.
 
+pub const IP_MULTICAST_TTL_OPT = @import("sa_std/sock_types.zig").IP_MULTICAST_TTL_OPT;
+pub const IP_MULTICAST_LOOP_OPT = @import("sa_std/sock_types.zig").IP_MULTICAST_LOOP_OPT;
+pub const IP_MULTICAST_IF_OPT = @import("sa_std/sock_types.zig").IP_MULTICAST_IF_OPT;
+pub const IP_ADD_MEMBERSHIP_OPT = @import("sa_std/sock_types.zig").IP_ADD_MEMBERSHIP_OPT;
+pub const IP_DROP_MEMBERSHIP_OPT = @import("sa_std/sock_types.zig").IP_DROP_MEMBERSHIP_OPT;
+pub const IPV6_JOIN_GROUP_OPT = @import("sa_std/sock_types.zig").IPV6_JOIN_GROUP_OPT;
+pub const IPV6_LEAVE_GROUP_OPT = @import("sa_std/sock_types.zig").IPV6_LEAVE_GROUP_OPT;
+pub const IPV6_MULTICAST_HOPS_OPT = @import("sa_std/sock_types.zig").IPV6_MULTICAST_HOPS_OPT;
+pub const IPV6_MULTICAST_LOOP_OPT = @import("sa_std/sock_types.zig").IPV6_MULTICAST_LOOP_OPT;
+pub const IPV6_MULTICAST_IF_OPT = @import("sa_std/sock_types.zig").IPV6_MULTICAST_IF_OPT;
 
+pub const SA_PLUGIN_DESCRIPTOR_SYMBOL = @import("sa_std/hub.zig").SA_PLUGIN_DESCRIPTOR_SYMBOL;
 
-pub const IP_MULTICAST_TTL_OPT: u32 = 33;
-pub const IP_MULTICAST_LOOP_OPT: u32 = 34;
-pub const IP_MULTICAST_IF_OPT: u32 = 32;
-pub const IP_ADD_MEMBERSHIP_OPT: u32 = 35;
-pub const IP_DROP_MEMBERSHIP_OPT: u32 = 36;
-pub const IPV6_JOIN_GROUP_OPT: u32 = 20;
-pub const IPV6_LEAVE_GROUP_OPT: u32 = 21;
-pub const IPV6_MULTICAST_HOPS_OPT: u32 = 18;
-pub const IPV6_MULTICAST_LOOP_OPT: u32 = 19;
-pub const IPV6_MULTICAST_IF_OPT: u32 = 17;
-
-pub const SA_PLUGIN_DESCRIPTOR_SYMBOL: [:0]const u8 = "saasm_plugin_descriptor_v1";
-
-
-
-pub const SaPluginDescriptor = extern struct {
-    abi_version: u32,
-    descriptor_size: u32,
-    name: [*:0]const u8,
-};
-
-
-
+pub const SaPluginDescriptor = @import("sa_std/core_misc2.zig").SaPluginDescriptor;
 
 // eflags slot value for regexec: restrict the search to the pmatch[0] range
 // while reporting absolute offsets. glibc assigns it the same numeric value
 // as the SA_REGEX_NEWLINE *cflag*; the two live in different parameters.
 
-pub const SaJsonToken = extern struct {
-    kind: u32,
-    text_ptr: ?[*]const u8,
-    text_len: u64,
-};
+pub const SaJsonToken = @import("sa_std/core_misc2.zig").SaJsonToken;
 
-pub const SaJsonStringifyOptions = extern struct {
-    whitespace: u32 = SA_JSON_WHITESPACE_MINIFIED,
-    emit_null_optional_fields: u8 = 1,
-    emit_strings_as_arrays: u8 = 0,
-    escape_unicode: u8 = 0,
-    emit_nonportable_numbers_as_strings: u8 = 0,
-};
+pub const SaJsonStringifyOptions = @import("sa_std/core_misc2.zig").SaJsonStringifyOptions;
 
-const DEFAULT_CAPTURE_LIMIT: usize = 50 * 1024;
+pub const DEFAULT_CAPTURE_LIMIT = @import("sa_std/hub.zig").DEFAULT_CAPTURE_LIMIT;
 
-const empty_bytes: [0]u8 = .{};
-const empty_mut_bytes: [0]u8 = .{};
+pub const empty_bytes = @import("sa_std/hub.zig").empty_bytes;
+pub const empty_mut_bytes = @import("sa_std/hub.zig").empty_mut_bytes;
 
-const BufferHandle = struct {
-    allocator: std.mem.Allocator,
-    bytes: []u8,
+pub const BufferHandle = @import("sa_std/handles.zig").BufferHandle;
 
-    pub fn deinit(self: *BufferHandle) void {
-        if (self.bytes.len != 0) self.allocator.free(self.bytes);
-        self.bytes = &.{};
-    }
-};
+pub const DirEntryHandle = @import("sa_std/handles.zig").DirEntryHandle;
 
+pub const NetAddrHandle = @import("sa_std/handles.zig").NetAddrHandle;
 
+pub const NetAddrListHandle = @import("sa_std/handles.zig").NetAddrListHandle;
 
+pub const registerNetAddrList = @import("sa_std/core_util.zig").registerNetAddrList;
+pub const registerNetAddrOutLocked = @import("sa_std/core_util.zig").registerNetAddrOutLocked;
 
-const DirEntryHandle = struct {
-    allocator: std.mem.Allocator,
-    name: []u8,
-    kind: u32,
-    ino: u64,
+pub const addressHostText = @import("sa_std/hub.zig").addressHostText;
 
-    pub fn deinit(self: *DirEntryHandle) void {
-        if (self.name.len != 0) self.allocator.free(self.name);
-        self.name = &.{};
-    }
-};
+pub const addressSocketText = @import("sa_std/core_misc.zig").addressSocketText;
 
-pub const NetAddrHandle = struct {
-    allocator: std.mem.Allocator,
-    host: []u8,
-    addr: NetAddress,
-
-    pub fn deinit(self: *NetAddrHandle) void {
-        if (self.host.len != 0) self.allocator.free(self.host);
-        self.host = &.{};
-    }
-
-    pub fn init(allocator: std.mem.Allocator, address: NetAddress) !NetAddrHandle {
-        const host = try addressHostText(allocator, address);
-        return .{
-            .allocator = allocator,
-            .host = host,
-            .addr = address,
-        };
-    }
-};
-
-const NetAddrListHandle = struct {
-    allocator: std.mem.Allocator,
-    addresses: []NetAddress,
-    next_index: usize = 0,
-
-    pub fn deinit(self: *NetAddrListHandle) void {
-        if (self.addresses.len != 0) self.allocator.free(self.addresses);
-        self.addresses = &.{};
-        self.next_index = 0;
-    }
-};
-
-
-
-
-
-
-pub fn registerNetAddrList(host: []const u8, port: u16) !u64 {
-    var list = try netGetAddressList(std.heap.page_allocator, host, port);
-    defer list.deinit();
-    if (list.addrs.len == 0) return error.HostLacksNetworkAddresses;
-    const addresses = try std.heap.page_allocator.dupe(NetAddress, list.addrs);
-    errdefer std.heap.page_allocator.free(addresses);
-    return registerResource(.{ .net_addr_list = .{
-        .allocator = std.heap.page_allocator,
-        .addresses = addresses,
-    } });
-}
-pub fn registerNetAddrOutLocked(address: NetAddress, out_handle: *u64) i32 {
-    var net_addr = NetAddrHandle.init(std.heap.page_allocator, address) catch |err| return finishErr(err);
-    const handle = registerResourceLocked(.{ .net_addr = net_addr }) catch |err| {
-        net_addr.deinit();
-        return finishErr(err);
-    };
-    out_handle.* = handle;
-    return finish(SA_STD_OK);
-}
-
-fn addressHostText(allocator: std.mem.Allocator, address: NetAddress) ![]u8 {
-    return switch (address.storage.family) {
-        AFT.INET => blk: {
-            const sin: *const SockAddrInT = @ptrCast(@alignCast(&address.storage));
-            const ip: [4]u8 = @bitCast(sin.addr);
-            break :blk try std.fmt.allocPrint(allocator, "{}.{}.{}.{}", .{ ip[0], ip[1], ip[2], ip[3] });
-        },
-        AFT.INET6 => blk: {
-            const sin6: *const SockAddrIn6T = @ptrCast(@alignCast(&address.storage));
-            var segbuf: [8]u16 = undefined;
-            var i: usize = 0;
-            while (i < 8) : (i += 1) {
-                segbuf[i] = std.mem.readInt(u16, sin6.addr[i * 2 ..][0..2], .big);
-            }
-            var outbuf: [64]u8 = undefined;
-            const text = try std.fmt.bufPrint(&outbuf, "{x}:{x}:{x}:{x}:{x}:{x}:{x}:{x}", .{
-                segbuf[0], segbuf[1], segbuf[2], segbuf[3], segbuf[4], segbuf[5], segbuf[6], segbuf[7],
-            });
-            if (sin6.scope_id != 0) {
-                const with_scope = try std.fmt.allocPrint(allocator, "{s}%{d}", .{ text, sin6.scope_id });
-                break :blk with_scope;
-            }
-            break :blk try allocator.dupe(u8, text);
-        },
-        AFT.UNIX => try allocator.dupe(u8, address.unixPath()),
-        else => try allocator.dupe(u8, ""),
-    };
-}
-
-pub fn addressSocketText(allocator: std.mem.Allocator, address: NetAddress) ![]u8 {
-    return switch (address.storage.family) {
-        AFT.INET, AFT.INET6 => blk: {
-            const host = try addressHostText(allocator, address);
-            defer allocator.free(host);
-            if (address.storage.family == AFT.INET6) {
-                break :blk try std.fmt.allocPrint(allocator, "[{s}]:{d}", .{ host, address.getPort() });
-            }
-            break :blk try std.fmt.allocPrint(allocator, "{s}:{d}", .{ host, address.getPort() });
-        },
-        else => try addressHostText(allocator, address),
-    };
-}
-
-const FmtHandle = struct {
-    allocator: std.mem.Allocator,
-    bytes: []u8,
-
-    fn deinit(self: *FmtHandle) void {
-        if (self.bytes.len != 0) self.allocator.free(self.bytes);
-        self.bytes = &.{};
-    }
-};
-
+pub const FmtHandle = @import("sa_std/handles.zig").FmtHandle;
 
 // A JSON node handle addresses a value inside its document tree by PATH
 // (object keys / array indices from the document root). Every acquire
@@ -1048,103 +572,14 @@ const FmtHandle = struct {
 // it) detaches the handle: later operations fail with InvalidHandle
 // instead of reading a stale snapshot.
 
-
 // Returns a fully-owned copy of `base` with `segment` appended (key bytes
 // duplicated with `allocator`).
 
+pub const JsonBufferHandle = @import("sa_std/handles.zig").JsonBufferHandle;
 
-pub const JsonBufferHandle = struct {
-    allocator: std.mem.Allocator,
-    bytes: []u8,
+pub const JsonWriterHandle = @import("sa_std/handles.zig").JsonWriterHandle;
 
-    pub fn deinit(self: *JsonBufferHandle) void {
-        if (self.bytes.len != 0) self.allocator.free(self.bytes);
-        self.bytes = &.{};
-    }
-};
-
-
-
-pub const JsonWriterHandle = struct {
-    allocator: std.mem.Allocator,
-    aw: std.Io.Writer.Allocating,
-    stream: std.json.Stringify,
-    options: std.json.Stringify.Options,
-    root_value_started: bool = false,
-    root_value_complete: bool = false,
-    open_depth: u32 = 0,
-    result_buffer: ?u64 = null,
-
-    pub fn init(allocator: std.mem.Allocator, options: std.json.Stringify.Options) !*JsonWriterHandle {
-        const handle = try allocator.create(JsonWriterHandle);
-        handle.* = .{
-            .allocator = allocator,
-            .aw = .init(allocator),
-            .stream = undefined,
-            .options = options,
-            .root_value_started = false,
-            .root_value_complete = false,
-            .open_depth = 0,
-            .result_buffer = null,
-        };
-        handle.stream = .{ .writer = &handle.aw.writer, .options = options };
-        return handle;
-    }
-
-    pub fn deinit(self: *JsonWriterHandle) void {
-        self.aw.deinit();
-        self.allocator.destroy(self);
-    }
-};
-
-pub const RegexHandle = struct {
-    allocator: std.mem.Allocator,
-    pattern_z: []u8,
-    compiled: RegexC,
-    compiled_valid: bool = false,
-
-    pub fn init(allocator: std.mem.Allocator, pattern: []const u8, cflags: c_int) !*RegexHandle {
-        if (std.mem.indexOfScalar(u8, pattern, 0) != null) return error.InvalidArgument;
-        const owned_pattern = try allocator.alloc(u8, pattern.len + 1);
-        errdefer allocator.free(owned_pattern);
-        @memcpy(owned_pattern[0..pattern.len], pattern);
-        owned_pattern[pattern.len] = 0;
-        const handle = try allocator.create(RegexHandle);
-        errdefer allocator.destroy(handle);
-        handle.* = .{
-            .allocator = allocator,
-            .pattern_z = owned_pattern,
-            .compiled = undefined,
-            .compiled_valid = false,
-        };
-        const pattern_c: [*:0]const u8 = @ptrCast(owned_pattern.ptr);
-        const rc = regcomp(&handle.compiled, pattern_c, cflags);
-        if (rc != SA_REGEX_REG_NOERROR) {
-            return regexErrorToZig(rc);
-        }
-        handle.compiled_valid = true;
-        return handle;
-    }
-
-    pub fn deinit(self: *RegexHandle) void {
-        if (self.compiled_valid) regfree(&self.compiled);
-        if (self.pattern_z.len != 0) self.allocator.free(self.pattern_z);
-        self.pattern_z = &.{};
-        self.compiled_valid = false;
-    }
-
-    pub fn destroy(self: *RegexHandle) void {
-        self.deinit();
-        self.allocator.destroy(self);
-    }
-};
-
-
-
-
-
-
-
+pub const RegexHandle = @import("sa_std/core_types.zig").RegexHandle;
 
 // Copies text into an owned NUL-terminated buffer, rejecting embedded NUL
 // bytes exactly like regexMatchHandle does.
@@ -1158,7 +593,6 @@ pub const RegexHandle = struct {
 // one byte — the byte-level form of the JS global-exec loop (JS advances
 // one code point; this engine is byte-oriented). Caller owns the returned
 // outer slice and every inner groups slice.
-
 
 // Appends the JS-style substitution of `replacement` for one match:
 // $$ is a literal $, $& the whole match, $` the text before the match,
@@ -1177,547 +611,103 @@ pub const RegexHandle = struct {
 // limit == 0 means no limit in this API (JS limit 0 returns [] — a
 // deliberate divergence, documented in regex.sai).
 
-pub fn jsonKindOf(value: std.json.Value) u32 {
-    return switch (value) {
-        .null => SA_JSON_KIND_NULL,
-        .bool => SA_JSON_KIND_BOOL,
-        .integer => SA_JSON_KIND_INTEGER,
-        .float => SA_JSON_KIND_FLOAT,
-        .number_string => SA_JSON_KIND_NUMBER_STRING,
-        .string => SA_JSON_KIND_STRING,
-        .array => SA_JSON_KIND_ARRAY,
-        .object => SA_JSON_KIND_OBJECT,
-    };
-}
+pub const jsonKindOf = @import("sa_std/text_util.zig").jsonKindOf;
 
+pub const jsonValueAsF64 = @import("sa_std/text_util.zig").jsonValueAsF64;
 
-pub fn jsonValueAsF64(value: std.json.Value) !f64 {
-    return switch (value) {
-        .integer => |inner| @as(f64, @floatFromInt(inner)),
-        .float => |inner| {
-            if (!std.math.isFinite(inner)) return error.InvalidArgument;
-            return inner;
-        },
-        .number_string => |text| blk: {
-            const parsed = std.fmt.parseFloat(f64, text) catch return error.InvalidArgument;
-            if (!std.math.isFinite(parsed)) break :blk error.InvalidArgument;
-            break :blk parsed;
-        },
-        else => error.InvalidArgument,
-    };
-}
+pub const jsonValueAsI64 = @import("sa_std/text_util.zig").jsonValueAsI64;
 
-pub fn jsonValueAsI64(value: std.json.Value) !i64 {
-    return switch (value) {
-        .integer => |inner| inner,
-        .float => |inner| blk: {
-            if (!std.math.isFinite(inner)) break :blk error.InvalidArgument;
-            if (@round(inner) != inner) break :blk error.InvalidArgument;
-            if (inner > @as(f64, @floatFromInt(std.math.maxInt(i64)))) break :blk error.InvalidArgument;
-            if (inner < @as(f64, @floatFromInt(std.math.minInt(i64)))) break :blk error.InvalidArgument;
-            break :blk @as(i64, @intFromFloat(inner));
-        },
-        .number_string => |text| std.fmt.parseInt(i64, text, 10) catch |err| switch (err) {
-            error.Overflow, error.InvalidCharacter => return error.InvalidArgument,
-        },
-        else => error.InvalidArgument,
-    };
-}
-
-pub fn jsonValueAsBool(value: std.json.Value) !bool {
-    return switch (value) {
-        .bool => |inner| inner,
-        else => error.InvalidArgument,
-    };
-}
-
-
+pub const jsonValueAsBool = @import("sa_std/text_util.zig").jsonValueAsBool;
 
 // Walks `path` from the document root and returns a pointer to the live
 // tree value. The pointer is only valid until the next tree mutation.
 
-
-
-
-
-
-
-
 // Deep-copies a JSON value into `allocator` (the target document's arena),
 // duplicating every string, array and object so the copy shares no storage
 // with the source tree.
-pub fn jsonValueClone(allocator: std.mem.Allocator, value: std.json.Value) !std.json.Value {
-    return switch (value) {
-        .null => .null,
-        .bool => |inner| .{ .bool = inner },
-        .integer => |inner| .{ .integer = inner },
-        .float => |inner| .{ .float = inner },
-        .number_string => |text| .{ .number_string = try allocator.dupe(u8, text) },
-        .string => |text| .{ .string = try allocator.dupe(u8, text) },
-        .array => |array| blk: {
-            var cloned = std.json.Array.init(allocator);
-            errdefer cloned.deinit();
-            for (array.items) |item| {
-                try cloned.append(try jsonValueClone(allocator, item));
-            }
-            break :blk .{ .array = cloned };
-        },
-        .object => |object| blk: {
-            var cloned: std.json.ObjectMap = .empty;
-            var it = object.iterator();
-            while (it.next()) |entry| {
-                const key_copy = try allocator.dupe(u8, entry.key_ptr.*);
-                try cloned.put(allocator, key_copy, try jsonValueClone(allocator, entry.value_ptr.*));
-            }
-            break :blk .{ .object = cloned };
-        },
-    };
-}
-
+pub const jsonValueClone = @import("sa_std/text_util.zig").jsonValueClone;
 
 // Resolves the handle's slot under the registry lock for an in-place tree
 // mutation. The caller must hold no other registry acquisition.
 
+pub const acquireJsonWriterForWrite = @import("sa_std/core_misc.zig").acquireJsonWriterForWrite;
 
+pub const markJsonWriterValueComplete = @import("sa_std/core_misc3.zig").markJsonWriterValueComplete;
 
+pub const jsonWriterObjectFieldLocked = @import("sa_std/text_util.zig").jsonWriterObjectFieldLocked;
 
-pub fn acquireJsonWriterForWrite(writer: u64) !*JsonWriterHandle {
-    const resource = getResourceLocked(writer) orelse return error.InvalidHandle;
-    const writer_handle = switch (resource.*) {
-        .json_writer => |handle| handle,
-        else => return error.InvalidHandle,
-    };
-    if (writer_handle.result_buffer != null) return error.InvalidHandle;
-    if (writer_handle.root_value_complete and writer_handle.open_depth == 0) return error.InvalidArgument;
-    return writer_handle;
-}
+pub const tokenTypeOf = @import("sa_std/text_util.zig").tokenTypeOf;
 
-pub fn markJsonWriterValueComplete(writer_handle: *JsonWriterHandle) void {
-    writer_handle.root_value_started = true;
-    writer_handle.root_value_complete = writer_handle.open_depth == 0;
-}
+pub const tokenTextSlice = @import("sa_std/text_util.zig").tokenTextSlice;
 
-pub fn jsonWriterObjectFieldLocked(writer_handle: *JsonWriterHandle, key: []const u8) !void {
-    if (writer_handle.result_buffer != null) return error.InvalidHandle;
-    if (writer_handle.open_depth == 0) return error.InvalidArgument;
-    try writer_handle.stream.objectField(key);
-}
+pub const EnvHandle = @import("sa_std/handles.zig").EnvHandle;
 
-pub fn tokenTypeOf(token: std.json.Token) u32 {
-    return switch (token) {
-        .object_begin => SA_JSON_TOKEN_OBJECT_BEGIN,
-        .object_end => SA_JSON_TOKEN_OBJECT_END,
-        .array_begin => SA_JSON_TOKEN_ARRAY_BEGIN,
-        .array_end => SA_JSON_TOKEN_ARRAY_END,
-        .true => SA_JSON_TOKEN_TRUE,
-        .false => SA_JSON_TOKEN_FALSE,
-        .null => SA_JSON_TOKEN_NULL,
-        .number => SA_JSON_TOKEN_NUMBER,
-        .partial_number => SA_JSON_TOKEN_PARTIAL_NUMBER,
-        .allocated_number => SA_JSON_TOKEN_ALLOCATED_NUMBER,
-        .string => SA_JSON_TOKEN_STRING,
-        .partial_string => SA_JSON_TOKEN_PARTIAL_STRING,
-        .partial_string_escaped_1 => SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_1,
-        .partial_string_escaped_2 => SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_2,
-        .partial_string_escaped_3 => SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_3,
-        .partial_string_escaped_4 => SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_4,
-        .allocated_string => SA_JSON_TOKEN_ALLOCATED_STRING,
-        .end_of_document => SA_JSON_TOKEN_END_OF_DOCUMENT,
-    };
-}
+pub const TimeDate = @import("sa_std/handles.zig").TimeDate;
 
-pub fn tokenTextSlice(token: std.json.Token) ?[]const u8 {
-    return switch (token) {
-        .number => |slice| slice,
-        .partial_number => |slice| slice,
-        .string => |slice| slice,
-        .partial_string => |slice| slice,
-        else => null,
-    };
-}
+pub const SaNetAddr = @import("sa_std/core_misc2.zig").SaNetAddr;
 
+pub const Timeval = @import("sa_std/handles.zig").Timeval;
+pub const LingerOption = @import("sa_std/handles.zig").LingerOption;
+pub const Timespec = @import("sa_std/handles.zig").Timespec;
+pub const TimespecSec = @import("sa_std/core_misc2.zig").TimespecSec;
+pub const TimespecNsec = @import("sa_std/core_misc2.zig").TimespecNsec;
 
+pub const OwnedFdHandle = @import("sa_std/handles.zig").OwnedFdHandle;
 
-const EnvHandle = struct {
-    allocator: std.mem.Allocator,
-    bytes: []u8,
+pub const TerminalSession = @import("sa_std/handles.zig").TerminalSession;
 
-    fn deinit(self: *EnvHandle) void {
-        if (self.bytes.len != 0) self.allocator.free(self.bytes);
-        self.bytes = &.{};
-    }
-};
+pub const SaProcessArgv = @import("sa_std/core_misc.zig").SaProcessArgv;
 
-pub const TimeDate = extern struct {
-    unix_ms: i64,
-    unix_ns: i64,
-    year: u16,
-    month: u8,
-    day: u8,
-    hour: u8,
-    minute: u8,
-    second: u8,
-    millisecond: u16,
-};
+pub const SaTermWinsize = @import("sa_std/core_misc2.zig").SaTermWinsize;
 
-const SaNetAddr = extern struct {
-    family: u32,
-    port: u32,
-    host_ptr: [*]u8,
-    host_len: u64,
-    scope_id: u64,
-};
+pub const SaTermEpollEvent = @import("sa_std/core_misc3.zig").SaTermEpollEvent;
 
-pub const Timeval = std.posix.timeval;
-const LingerOption = extern struct { onoff: i32, linger: i32 };
-pub const Timespec = std.posix.timespec;
-const TimespecSec = @TypeOf(@as(Timespec, .{ .sec = 0, .nsec = 0 }).sec);
-const TimespecNsec = @TypeOf(@as(Timespec, .{ .sec = 0, .nsec = 0 }).nsec);
+pub const TcpListener = @import("sa_std/handles.zig").TcpListener;
 
-const OwnedFdHandle = struct {
-    fd: std.posix.fd_t,
-
-    fn deinit(self: *OwnedFdHandle) void {
-        lxClose(self.fd);
-        self.fd = -1;
-    }
-};
-
-const TerminalSession = struct {
-    fd: std.posix.fd_t,
-    saved: std.posix.termios,
-
-    fn deinit(self: *TerminalSession) !void {
-        try std.posix.tcsetattr(self.fd, .FLUSH, self.saved);
-    }
-};
-
-pub const SaProcessArgv = extern struct {
-    data: [*]const u8,
-    len: u64,
-};
-
-pub const SaTermWinsize = extern struct {
-    row: u16,
-    col: u16,
-    xpixel: u16,
-    ypixel: u16,
-};
-
-pub const SaTermEpollEvent = extern struct {
-    events: u32,
-    data: u64,
-};
-
-
-pub const TcpListener = struct {
-    fd: std.posix.fd_t,
-    addr: NetAddress,
-};
-
-pub const Resource = union(enum) {
-    file: sio.File,
-    dynamic_lib: *DynamicLibHandle,
-    tcp_stream: std.posix.fd_t,
-    tcp_listener: TcpListener,
-    udp_socket: std.posix.socket_t,
-    buffer: BufferHandle,
-    metadata: MetadataHandle,
-    dir_entries: DirEntriesHandle,
-    dir_entry: DirEntryHandle,
-    net_addr: NetAddrHandle,
-    net_addr_list: NetAddrListHandle,
-    unix_addr: UnixAddrHandle,
-    fmt: FmtHandle,
-    env: EnvHandle,
-    json_node: JsonNodeHandle,
-    json_buffer: JsonBufferHandle,
-    json_scanner: *JsonScannerHandle,
-    json_stream: *JsonStreamHandle,
-    json_writer: *JsonWriterHandle,
-    regex: *RegexHandle,
-    regex_match: *RegexMatchHandle,
-    regex_match_list: *RegexMatchListHandle,
-    regex_split_list: *RegexSplitListHandle,
-    regex_buffer: *RegexBufferHandle,
-    owned_fd: OwnedFdHandle,
-    terminal_session: TerminalSession,
-    process: ProcessHandle,
-
-    pub fn close(self: *Resource) !void {
-        switch (self.*) {
-            .file => |file| file.close(),
-            .dynamic_lib => |handle| {
-                handle.deinit();
-                std.heap.page_allocator.destroy(handle);
-            },
-            .tcp_stream => |stream| lxClose(stream),
-            .tcp_listener => |*server| lxClose(server.fd),
-            .udp_socket => |fd| lxClose(fd),
-            .buffer => |*buffer| buffer.deinit(),
-            .metadata => |*metadata| metadata.deinit(),
-            .dir_entries => |*entries| entries.deinit(),
-            .dir_entry => |*entry| entry.deinit(),
-            .net_addr => |*addr| addr.deinit(),
-            .net_addr_list => |*list| list.deinit(),
-            .unix_addr => |*addr| addr.deinit(),
-            .fmt => |*fmt| fmt.deinit(),
-            .env => |*env| env.deinit(),
-            .json_node => |*node| node.deinit(),
-            .json_buffer => |*buffer| buffer.deinit(),
-            .json_scanner => |scanner| scanner.destroy(),
-            .json_stream => |stream| stream.deinit(),
-            .json_writer => |writer| writer.deinit(),
-            .regex => |regex| regex.destroy(),
-            .regex_match => |match| match.destroy(),
-            .regex_match_list => |list| list.destroy(),
-            .regex_split_list => |list| list.destroy(),
-            .regex_buffer => |buffer| buffer.destroy(),
-            .owned_fd => |*fd| fd.deinit(),
-            .terminal_session => |*session| {
-                // No terminal sessions can exist on WASI (raw_enter stubbed);
-                // skip the tcsetattr restore, which wasi-libc does not provide.
-                if (is_wasm) {} else try session.deinit();
-            },
-            .process => |*proc| proc.deinit(),
-        }
-        self.* = undefined;
-    }
-};
+pub const Resource = @import("sa_std/handles.zig").Resource;
 
 pub var registry_mutex: std.atomic.Mutex = .unlocked;
 pub threadlocal var last_error: i32 = SA_STD_OK;
-var compatibility_mmap_page: [4096]u8 = std.mem.zeroes([4096]u8);
-var compatibility_dlsym_cookie: [1]u8 = .{0};
-
-
+pub const compatibility_mmap_page = @import("sa_std/core_misc2.zig").compatibility_mmap_page;
+pub const compatibility_dlsym_cookie = @import("sa_std/core_misc2.zig").compatibility_dlsym_cookie;
 
 extern fn sa_host_pthread_create(thread: *std.c.pthread_t, attr: ?*const std.c.pthread_attr_t, start_routine: *const fn (?*anyopaque) callconv(.c) ?*anyopaque, arg: ?*anyopaque) callconv(.c) c_int;
 extern fn sa_host_pthread_join(thread: std.c.pthread_t, retval: ?*?*anyopaque) callconv(.c) c_int;
 extern fn sa_host_pthread_detach(thread: std.c.pthread_t) callconv(.c) c_int;
 
+pub const finish = @import("sa_std/core_util.zig").finish;
 
+pub const mapError = @import("sa_std/core_misc.zig").mapError;
 
+pub const finishErr = @import("sa_std/core_util.zig").finishErr;
 
+pub const fillUtcNow = @import("sa_std/core_misc.zig").fillUtcNow;
 
+pub const monotonicNowNs = @import("sa_std/core_misc.zig").monotonicNowNs;
 
+pub const lenAsUsize = @import("sa_std/hub.zig").lenAsUsize;
 
+pub const constBytes = @import("sa_std/hub.zig").constBytes;
 
+pub const mutBytes = @import("sa_std/core_misc2.zig").mutBytes;
 
+pub const pathBytes = @import("sa_std/core_misc2.zig").pathBytes;
 
+pub const setSocketOptBool = @import("sa_std/core_util.zig").setSocketOptBool;
 
+pub const setSocketOptInt = @import("sa_std/core_util.zig").setSocketOptInt;
 
+pub const setSocketOptU32 = @import("sa_std/core_util.zig").setSocketOptU32;
 
+pub const setSocketOptByte = @import("sa_std/core_util.zig").setSocketOptByte;
 
+pub const setSocketOptBytes = @import("sa_std/core_util.zig").setSocketOptBytes;
 
+pub const lingerSeconds = @import("sa_std/core_misc3.zig").lingerSeconds;
 
+pub const setSocketOptLinger = @import("sa_std/core_util.zig").setSocketOptLinger;
 
-
-
-pub fn finish(status: i32) i32 {
-    last_error = status;
-    return status;
-}
-
-pub fn mapError(err: anyerror) i32 {
-    return switch (err) {
-        error.InvalidArgument => SA_STD_ERR_INVALID_ARGUMENT,
-        error.InvalidHandle => SA_STD_ERR_INVALID_HANDLE,
-        error.OutOfMemory => SA_STD_ERR_NO_MEMORY,
-        error.PathAlreadyExists => SA_STD_ERR_ALREADY_EXISTS,
-        error.FileNotFound => SA_STD_ERR_NOT_FOUND,
-        error.AccessDenied, error.PermissionDenied => SA_STD_ERR_ACCESS,
-        error.WouldBlock => SA_STD_ERR_IO,
-        error.NotATerminal, error.ProcessOrphaned => SA_STD_ERR_UNSUPPORTED,
-        error.FileDescriptorAlreadyPresentInSet, error.OperationCausesCircularLoop => SA_STD_ERR_INVALID_ARGUMENT,
-        error.FileDescriptorNotRegistered => SA_STD_ERR_INVALID_HANDLE,
-        error.FileDescriptorIncompatibleWithEpoll => SA_STD_ERR_UNSUPPORTED,
-        error.SyntaxError,
-        error.UnexpectedEndOfInput,
-        error.UnexpectedToken,
-        error.InvalidNumber,
-        error.DuplicateField,
-        error.UnknownField,
-        error.MissingField,
-        error.LengthMismatch,
-        error.InvalidEnumTag,
-        error.ValueTooLong,
-        error.BufferUnderrun,
-        => SA_STD_ERR_INVALID_ARGUMENT,
-        error.PolicyDenied => SA_STD_ERR_PERMISSION_DENIED,
-        error.AlreadyConnected,
-        error.ConnectionPending,
-        error.SocketNotConnected,
-        error.UnreachableAddress,
-        error.NetworkSubsystemFailed,
-        => SA_STD_ERR_NET,
-        error.MessageTooBig, error.NoSpaceLeft => SA_STD_ERR_TRUNCATED,
-        error.Unsupported, error.SystemResources, error.ProcessFdQuotaExceeded, error.SystemFdQuotaExceeded => SA_STD_ERR_UNSUPPORTED,
-        error.ProcessNotFound, error.AlreadyTerminated => SA_STD_ERR_INVALID_HANDLE,
-        error.NameTooLong,
-        error.BadPathName,
-        error.InvalidUtf8,
-        error.InvalidWtf8,
-        error.NotDir,
-        error.IsDir,
-        error.InvalidIPAddressFormat,
-        error.InvalidCharacter,
-        error.InvalidEnd,
-        error.Incomplete,
-        error.NonCanonical,
-        error.InvalidIpv4Mapping,
-        error.Overflow,
-        => SA_STD_ERR_INVALID_ARGUMENT,
-        error.RegexInvalidArgument,
-        error.RegexNoMatch,
-        error.RegexBadPattern,
-        error.RegexOutOfMemory,
-        error.UnknownHostName,
-        error.TemporaryNameServerFailure,
-        error.NameServerFailure,
-        error.NetworkUnreachable,
-        error.ConnectionRefused,
-        error.ConnectionResetByPeer,
-        error.ConnectionTimedOut,
-        error.AddressInUse,
-        error.AddressNotAvailable,
-        error.HostLacksNetworkAddresses,
-        error.ServiceUnavailable,
-        => SA_STD_ERR_NET,
-        else => SA_STD_ERR_IO,
-    };
-}
-
-pub fn finishErr(err: anyerror) i32 {
-    return finish(mapError(err));
-}
-
-pub fn fillUtcNow(out: *TimeDate) !void {
-    const now_ts = std.Io.Clock.real.now(sio.io());
-    const unix_ms = now_ts.toMilliseconds();
-    const unix_s = @divFloor(unix_ms, std.time.ms_per_s);
-    if (unix_s < 0) return error.Unsupported;
-
-    const unix_ns_raw = now_ts.toNanoseconds();
-    const unix_ns = std.math.cast(i64, unix_ns_raw) orelse return error.Overflow;
-    const epoch_seconds = std.time.epoch.EpochSeconds{ .secs = @as(u64, @intCast(unix_s)) };
-    const epoch_day = epoch_seconds.getEpochDay();
-    const year_day = epoch_day.calculateYearDay();
-    const month_day = year_day.calculateMonthDay();
-    const day_seconds = epoch_seconds.getDaySeconds();
-
-    out.* = .{
-        .unix_ms = unix_ms,
-        .unix_ns = unix_ns,
-        .year = year_day.year,
-        .month = @backingInt(month_day.month),
-        .day = @as(u8, @intCast(month_day.day_index + 1)),
-        .hour = day_seconds.getHoursIntoDay(),
-        .minute = day_seconds.getMinutesIntoHour(),
-        .second = day_seconds.getSecondsIntoMinute(),
-        .millisecond = @as(u16, @intCast(@mod(unix_ms, std.time.ms_per_s))),
-    };
-}
-
-pub fn monotonicNowNs() !u64 {
-    // Raw monotonic-clock reading (ns since boot), the same contract
-    // sa_time_unix_ns already uses for the wall clock: callers diff two
-    // readings, and a reading of 0 is reserved for policy denial or
-    // clock failure. (The previous origin-relative form returned
-    // exactly 0 to the first caller in every process, which read as a
-    // dead clock on every surface exposing the raw value:
-    // Instant::now().raw_ns(), timer_now_ns, sched_now_ns.)
-    const now_ns: i128 = std.Io.Clock.awake.now(sio.io()).toNanoseconds();
-    if (now_ns <= 0) return 0;
-    if (now_ns > std.math.maxInt(u64)) return std.math.maxInt(u64);
-    return @intCast(now_ns);
-}
-
-pub fn lenAsUsize(len: u64) !usize {
-    if (len > @as(u64, @intCast(std.math.maxInt(usize)))) return error.InvalidArgument;
-    return @as(usize, @intCast(len));
-}
-
-pub fn constBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
-    const n = try lenAsUsize(len);
-    if (n == 0) return &.{};
-    const p = ptr orelse return error.InvalidArgument;
-    return p[0..n];
-}
-
-
-pub fn mutBytes(ptr: ?[*]u8, len: u64) ![]u8 {
-    const n = try lenAsUsize(len);
-    if (n == 0) return empty_mut_bytes[0..];
-    const p = ptr orelse return error.InvalidArgument;
-    return p[0..n];
-}
-
-pub fn pathBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
-    const path = try constBytes(ptr, len);
-    if (path.len == 0) return error.InvalidArgument;
-    if (std.mem.indexOfScalar(u8, path, 0) != null) return error.InvalidArgument;
-    return path;
-}
-
-
-
-
-
-
-pub fn setSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled: bool) !void {
-    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
-    var value: i32 = if (enabled) 1 else 0;
-    try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&value));
-}
-
-pub fn setSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32, value: i32) !void {
-    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
-    var mutable = value;
-    try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&mutable));
-}
-
-pub fn setSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32, value: u32) !void {
-    var mutable = value;
-    try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&mutable));
-}
-
-
-pub fn setSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32, value: u8) !void {
-    var mutable = value;
-    try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&mutable));
-}
-
-pub fn setSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, bytes: []const u8) !void {
-    try std.posix.setsockopt(fd, level, optname, bytes);
-}
-
-fn lingerSeconds(timeout_ns: u64) !i32 {
-    const seconds = timeout_ns / std.time.ns_per_s;
-    return std.math.cast(i32, seconds) orelse error.InvalidArgument;
-}
-
-pub fn setSocketOptLinger(fd: std.posix.fd_t, enabled: bool, timeout_ns: u64) !void {
-    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
-    const seconds = if (enabled) try lingerSeconds(timeout_ns) else 0;
-    var value = LingerOption{ .onoff = if (enabled) 1 else 0, .linger = seconds };
-    try std.posix.setsockopt(fd, SOLT.SOCKET, SOT.LINGER, std.mem.asBytes(&value));
-}
-
-pub fn getSocketOptLinger(fd: std.posix.fd_t) !LingerOption {
-    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
-    var value = LingerOption{ .onoff = 0, .linger = 0 };
-    var len: SockLenT = @sizeOf(LingerOption);
-    const rc = std.os.linux.getsockopt(fd, SOLT.SOCKET, SOT.LINGER, @as([*]u8, @ptrCast(&value)), &len);
-    switch (std.os.linux.errno(rc)) {
-        .SUCCESS => {
-            if (len != @sizeOf(LingerOption)) return error.UnexpectedSize;
-            return value;
-        },
-        else => return error.InvalidArgument,
-    }
-}
-
+pub const getSocketOptLinger = @import("sa_std/core_util.zig").getSocketOptLinger;
 
 // DEF-NET-V6-DTLS (D1): raw setsockopt that surfaces kernel refusals as
 // errors. std.posix.setsockopt maps EINVAL/BADF/NOTSOCK to `unreachable`,
@@ -1736,13 +726,7 @@ pub fn getSocketOptLinger(fd: std.posix.fd_t) !LingerOption {
 // shape is restored best-effort so a failed change does not silently
 // destroy a working handle.
 
-
-pub const LinuxUCred = extern struct {
-    pid: i32,
-    uid: u32,
-    gid: u32,
-};
-
+pub const LinuxUCred = @import("sa_std/core_misc3.zig").LinuxUCred;
 
 // W1-DEF-UNIX-DGRAM-PEERCRED-ZERO: for path-bound unix datagram
 // sockets the kernel answers SO_PEERCRED with the zero sentinel
@@ -1756,100 +740,29 @@ pub const LinuxUCred = extern struct {
 // on lookup, so a recycled handle/fd pair cannot resurrect a
 // stale credential. All access under registry_mutex.
 
-
-
-
 /// Unix datagram sockets in this std carry SO_PASSCRED from birth
 /// so the receive path can harvest SCM_CREDENTIALS (see above).
 /// Best effort: failure only means peer_cred reports NOT_FOUND
 /// for a connected socket instead of answering with a wrong or
 /// zero credential.
-pub fn armPeerCredHarvest(fd: std.posix.fd_t) void {
-    if (comptime !is_linux) return;
-    setSocketOptBool(fd, SOLT.SOCKET, SO_PASSCRED, true) catch {};
-}
+pub const armPeerCredHarvest = @import("sa_std/core_misc3.zig").armPeerCredHarvest;
 
 /// Extract the sender credential from a recvmsg control chain
 /// (SOL_SOCKET / SCM_CREDENTIALS), same walk as udp_recv_msg.
 
-pub fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
-    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
-    var value: i32 = 0;
-    var len: SockLenT = @sizeOf(i32);
-    const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
-    switch (std.os.linux.errno(rc)) {
-        .SUCCESS => {
-            if (len != @sizeOf(i32)) return error.UnexpectedSize;
-            return value;
-        },
-        else => return error.InvalidArgument,
-    }
-}
+pub const getSocketOptInt = @import("sa_std/core_util.zig").getSocketOptInt;
 
+pub const getSocketOptByte = @import("sa_std/core_util.zig").getSocketOptByte;
 
-pub fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
-    var value: u8 = 0;
-    var len: SockLenT = @sizeOf(u8);
-    const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
-    switch (std.os.linux.errno(rc)) {
-        .SUCCESS => {
-            if (len != @sizeOf(u8)) return error.UnexpectedSize;
-            return value;
-        },
-        else => return error.InvalidArgument,
-    }
-}
+pub const getSocketOptU32 = @import("sa_std/core_util.zig").getSocketOptU32;
 
-pub fn getSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32) !u32 {
-    var value: u32 = 0;
-    var len: SockLenT = @sizeOf(u32);
-    const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
-    switch (std.os.linux.errno(rc)) {
-        .SUCCESS => {
-            if (len != @sizeOf(u32)) return error.UnexpectedSize;
-            return value;
-        },
-        else => return error.InvalidArgument,
-    }
-}
+pub const getSocketOptBytes = @import("sa_std/core_util.zig").getSocketOptBytes;
 
-pub fn getSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, out: []u8) !void {
-    var len: SockLenT = @intCast(out.len);
-    const rc = std.os.linux.getsockopt(fd, level, optname, out.ptr, &len);
-    switch (std.os.linux.errno(rc)) {
-        .SUCCESS => {
-            if (len != out.len) return error.UnexpectedSize;
-        },
-        else => return error.InvalidArgument,
-    }
-}
+pub const socketIsStream = @import("sa_std/core_util.zig").socketIsStream;
 
+pub const socketIsDatagram = @import("sa_std/core_util.zig").socketIsDatagram;
 
-
-
-pub fn socketIsStream(fd: std.posix.fd_t) !bool {
-    const socket_type = try getSocketOptInt(fd, SOLT.SOCKET, std.os.linux.SO.TYPE);
-    return socket_type == @as(i32, @intCast(SOCKT.STREAM));
-}
-
-pub fn socketIsDatagram(fd: std.posix.fd_t) !bool {
-    const socket_type = try getSocketOptInt(fd, SOLT.SOCKET, std.os.linux.SO.TYPE);
-    return socket_type == @as(i32, @intCast(SOCKT.DGRAM));
-}
-
-
-pub fn getUnixSockAddr(fd: std.posix.fd_t, peer: bool) !struct { addr: SockAddrUnT, len: SockLenT } {
-    var addr: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
-    @memset(&addr.path, 0);
-    var len: SockLenT = @sizeOf(SockAddrUnT);
-    if (peer) {
-        try lxGetpeername(fd, @as(*SockAddrT, @ptrCast(&addr)), &len);
-    } else {
-        try lxGetsockname(fd, @as(*SockAddrT, @ptrCast(&addr)), &len);
-    }
-    return .{ .addr = addr, .len = len };
-}
-
+pub const getUnixSockAddr = @import("sa_std/core_util.zig").getUnixSockAddr;
 
 // Parse one "::"-free half ("1:2:3" or trailing embedded IPv4) into out,
 // returning the group count. Used only on FreeBSD (see parseIpv6Freebsd).
@@ -1862,86 +775,17 @@ pub fn getUnixSockAddr(fd: std.posix.fd_t, peer: bool) !struct { addr: SockAddrU
 // if_nametoindex which FreeBSD provides). Shared by parseIp6Address and
 // parseIpv6Ascii on FreeBSD.
 
+pub const makeIpv4Membership = @import("sa_std/core_misc2.zig").makeIpv4Membership;
 
+pub const makeIpv6Membership = @import("sa_std/core_misc.zig").makeIpv6Membership;
 
+pub const getResourceLocked = @import("sa_std/core_util.zig").getResourceLocked;
 
+pub const registerResourceLocked = @import("sa_std/core_util.zig").registerResourceLocked;
 
+pub const registerResource = @import("sa_std/core_util.zig").registerResource;
 
-pub fn makeIpv4Membership(multicast_addr: NetAddress, interface_addr: NetAddress) IpMreqC {
-    return .{
-        .imr_multiaddr = .{ .s_addr = multicast_addr.in4AddrU32() },
-        .imr_interface = .{ .s_addr = interface_addr.in4AddrU32() },
-    };
-}
-
-pub fn makeIpv6Membership(multicast_addr: NetAddress, interface_index: u32) Ipv6MreqC {
-    return .{
-        .ipv6mr_multiaddr = multicast_addr.in6AddrBytes(),
-        .ipv6mr_interface = interface_index,
-    };
-}
-
-
-
-
-pub fn getResourceLocked(handle: u64) ?*Resource {
-    const idx = dynamicIndex(handle) orelse return null;
-    if (idx >= spawn.registry_slots.items.len) return null;
-    if (spawn.registry_slots.items[idx]) |*resource| return resource;
-    return null;
-}
-
-pub fn registerResourceLocked(resource: Resource) !u64 {
-    for (spawn.registry_slots.items, 0..) |slot, idx| {
-        if (slot == null) {
-            spawn.registry_slots.items[idx] = resource;
-            return FIRST_DYNAMIC_HANDLE + @as(u64, @intCast(idx));
-        }
-    }
-    const idx = spawn.registry_slots.items.len;
-    try spawn.registry_slots.append(resource);
-    return FIRST_DYNAMIC_HANDLE + @as(u64, @intCast(idx));
-}
-
-pub fn registerResource(resource: Resource) !u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    return try registerResourceLocked(resource);
-}
-
-
-
-
-
-
-
-
-
-pub fn applyRawMode(term: *std.posix.termios) void {
-    term.iflag.IGNBRK = false;
-    term.iflag.BRKINT = false;
-    term.iflag.PARMRK = false;
-    term.iflag.ISTRIP = false;
-    term.iflag.INLCR = false;
-    term.iflag.IGNCR = false;
-    term.iflag.ICRNL = false;
-    term.iflag.IXON = false;
-    term.iflag.IXOFF = false;
-    term.oflag.OPOST = false;
-    term.cflag.CSIZE = .CS8;
-    term.cflag.PARENB = false;
-    term.cflag.CREAD = true;
-    term.lflag.ISIG = false;
-    term.lflag.ICANON = false;
-    term.lflag.ECHO = false;
-    term.lflag.IEXTEN = false;
-    term.cc[@backingInt(std.posix.V.MIN)] = 1;
-    term.cc[@backingInt(std.posix.V.TIME)] = 0;
-}
-
-
+pub const applyRawMode = @import("sa_std/core_misc.zig").applyRawMode;
 
 // DEF-R5: the registry mutex guards the handle table only; it
 // must never be held across a syscall that can block. The data
@@ -1958,35 +802,14 @@ pub fn applyRawMode(term: *std.posix.termios) void {
 // carrier count (slaredis registration A). In-memory kinds
 // (.buffer/.process) never block and keep the locked path.
 
-pub fn lockRegistry() void {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-}
-
+pub const lockRegistry = @import("sa_std/core_misc.zig").lockRegistry;
 
 /// DEF-R5: snapshot a tcp_stream / udp_socket fd under the
 /// registry lock and drop the lock before any blocking syscall
 /// (see the IoPlan note above).
-pub fn tcpStreamFd(handle: u64) ?std.posix.fd_t {
-    lockRegistry();
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return null;
-    return switch (resource.*) {
-        .tcp_stream => |s| s,
-        else => null,
-    };
-}
+pub const tcpStreamFd = @import("sa_std/core_util.zig").tcpStreamFd;
 
-pub fn udpSocketFd(handle: u64) ?std.posix.fd_t {
-    lockRegistry();
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return null;
-    return switch (resource.*) {
-        .udp_socket => |fd| fd,
-        else => null,
-    };
-}
+pub const udpSocketFd = @import("sa_std/core_misc.zig").udpSocketFd;
 
 // Read once from a handle without holding the registry mutex
 // across a blocking syscall (see the IoPlan note above).
@@ -1997,894 +820,141 @@ pub fn udpSocketFd(handle: u64) ?std.posix.fd_t {
 /// while file writes write all bytes (sio.File.write is
 /// writeAll).
 
+pub const statusFromTerm = @import("sa_std/core_misc.zig").statusFromTerm;
 
-fn statusFromTerm(term: sio.Child.Term) u32 {
-    return switch (term) {
-        .exited => |code| code,
-        .signal => 128,
-        .stopped => 130,
-        .unknown => 127,
-    };
-}
+pub const argvFromBlob = @import("sa_std/core_misc.zig").argvFromBlob;
 
-fn argvFromBlob(allocator: std.mem.Allocator, blob: []const u8) ![]const []const u8 {
-    var count: usize = 1;
-    for (blob) |b| {
-        if (b == 0) count += 1;
-    }
-    const args = try allocator.alloc([]const u8, count);
-    errdefer allocator.free(args);
+pub const argvFromEntries = @import("sa_std/core_misc.zig").argvFromEntries;
 
-    var start: usize = 0;
-    var index: usize = 0;
-    while (start <= blob.len) {
-        const end = std.mem.indexOfScalarPos(u8, blob, start, 0) orelse blob.len;
-        if (end == start) {
-            if (end == blob.len) break;
-            start = end + 1;
-            continue;
-        }
-        args[index] = blob[start..end];
-        index += 1;
-        if (end == blob.len) break;
-        start = end + 1;
-    }
-    return args[0..index];
-}
+pub const waitStatusFromSiginfo = @import("sa_std/core_misc.zig").waitStatusFromSiginfo;
 
-pub fn argvFromEntries(allocator: std.mem.Allocator, argv_ptr: ?[*]const SaProcessArgv, argv_len: u64) ![]const []const u8 {
-    const count = try lenAsUsize(argv_len);
-    if (count == 0) return error.InvalidArgument;
-    const entries = argv_ptr orelse return error.InvalidArgument;
-    const args = try allocator.alloc([]const u8, count);
-    errdefer allocator.free(args);
+pub const sendSignalToProcessGroup = @import("sa_std/core_misc.zig").sendSignalToProcessGroup;
 
-    for (args, 0..) |*slot, index| {
-        const entry = entries[index];
-        const n = try lenAsUsize(entry.len);
-        slot.* = if (n == 0) &.{} else entry.data[0..n];
-    }
-    return args;
-}
+pub const errnoToSetupError = @import("sa_std/core_misc.zig").errnoToSetupError;
 
+pub const filePread = @import("sa_std/file_ops.zig").filePread;
 
+pub const filePreadAll = @import("sa_std/file_ops.zig").filePreadAll;
 
+pub const filePwrite = @import("sa_std/file_ops.zig").filePwrite;
 
+pub const filePwriteAll = @import("sa_std/file_ops.zig").filePwriteAll;
 
+pub const fileSeekBy = @import("sa_std/file_ops.zig").fileSeekBy;
 
+pub const fileSeekFromEnd = @import("sa_std/file_ops.zig").fileSeekFromEnd;
 
+pub const fileGetPos = @import("sa_std/file_ops.zig").fileGetPos;
 
-
-
-
-
-
-
-pub fn waitStatusFromSiginfo(siginfo: std.posix.siginfo_t) u32 {
-    const status = @as(u32, @intCast(siginfo.fields.common.second.sigchld.status));
-    return switch (siginfo.code) {
-        1 => (status & 0xff) << 8, // CLD_EXITED
-        2 => status, // CLD_KILLED
-        3 => status | 0x80, // CLD_DUMPED
-        6 => 0xffff, // CLD_CONTINUED
-        4, 5 => ((status & 0xff) << 8) | 0x7f, // CLD_TRAPPED / CLD_STOPPED
-        else => 0,
-    };
-}
-
-
-
-
-pub fn sendSignalToProcessGroup(pgid: std.posix.pid_t, signum: u8) !void {
-    const target: std.posix.pid_t = -pgid;
-    var attempts: u8 = 0;
-    while (true) : (attempts += 1) {
-        lxKill(target, signum) catch |err| switch (err) {
-            error.ProcessNotFound => {
-                if (attempts >= 50) return err;
-                sio.io().sleep(.fromNanoseconds(1 * std.time.ns_per_ms), .awake) catch {};
-                continue;
-            },
-            else => return err,
-        };
-        return;
-    }
-}
-
-fn errnoToSetupError(errno: std.posix.E) anyerror {
-    return switch (errno) {
-        .SUCCESS => unreachable,
-        .INVAL => error.InvalidArgument,
-        .PERM, .ACCES => error.PermissionDenied,
-        .NOENT => error.FileNotFound,
-        .NOMEM => error.OutOfMemory,
-        .NOTDIR => error.NotDir,
-        else => error.Unexpected,
-    };
-}
-
-
-
-
-
-
-pub fn filePread(f: sio.File, buffer: []u8, offset: u64) !usize {
-    return try f.inner.readPositional(sio.io(), &.{buffer}, offset);
-}
-
-pub fn filePreadAll(f: sio.File, buffer: []u8, offset: u64) !usize {
-    var index: usize = 0;
-    while (index != buffer.len) {
-        const n = try f.inner.readPositional(sio.io(), &.{buffer[index..]}, offset + index);
-        if (n == 0) return error.EndOfStream;
-        index += n;
-    }
-    return index;
-}
-
-pub fn filePwrite(f: sio.File, buffer: []const u8, offset: u64) !usize {
-    return try f.inner.writePositional(sio.io(), &.{buffer}, offset);
-}
-
-pub fn filePwriteAll(f: sio.File, buffer: []const u8, offset: u64) !void {
-    return try f.inner.writePositionalAll(sio.io(), buffer, offset);
-}
-
-pub fn fileSeekBy(f: sio.File, offset: i64) !void {
-    if (comptime builtin.cpu.arch.isWasm()) {
-        return error.Unsupported;
-    } else {
-        const rc = std.os.linux.lseek(f.inner.handle, 0, std.posix.SEEK.CUR);
-        if (std.os.linux.errno(rc) != .SUCCESS) return error.Io;
-        const cur: i64 = @bitCast(@as(u64, @intCast(rc)));
-        const new_pos = cur + offset;
-        if (new_pos < 0) return error.InvalidArgument;
-        try f.seekTo(@as(u64, @intCast(new_pos)));
-    }
-}
-
-pub fn fileSeekFromEnd(f: sio.File, offset: i64) !void {
-    const len = try f.length();
-    const new_pos = @as(i64, @intCast(len)) + offset;
-    if (new_pos < 0) return error.InvalidArgument;
-    try f.seekTo(@as(u64, @intCast(new_pos)));
-}
-
-pub fn fileGetPos(f: sio.File) !u64 {
-    if (comptime builtin.cpu.arch.isWasm()) {
-        return error.Unsupported;
-    } else {
-        const rc = std.os.linux.lseek(f.inner.handle, 0, std.posix.SEEK.CUR);
-        if (std.os.linux.errno(rc) != .SUCCESS) return error.Io;
-        return @as(u64, @intCast(rc));
-    }
-}
-
-pub fn fileSetEndPos(f: sio.File, new_size: u64) !void {
-    try f.inner.setLength(sio.io(), new_size);
-}
+pub const fileSetEndPos = @import("sa_std/file_ops.zig").fileSetEndPos;
 
 // ---------------------------------------------------------------------------
 // 0.17 compat: linux-syscall wrappers (old std.posix throwing helpers removed)
 // and socket-address compat (old net Address type removed).
 // Verified against /opt/zig/.../lib/std/os/linux.zig + Io/net.zig via probes.
 // ---------------------------------------------------------------------------
-pub fn errnoToAny(e: anytype) anyerror {
-    const n = @tagName(e);
-    if (std.mem.eql(u8, n, "SUCCESS")) unreachable;
-    if (std.mem.eql(u8, n, "INTR")) return error.Interrupted;
-    if (std.mem.eql(u8, n, "AGAIN")) return error.WouldBlock;
-    if (std.mem.eql(u8, n, "BADF")) return error.InvalidHandle;
-    if (std.mem.eql(u8, n, "ACCES")) return error.AccessDenied;
-    if (std.mem.eql(u8, n, "PERM")) return error.PermissionDenied;
-    if (std.mem.eql(u8, n, "NOENT")) return error.FileNotFound;
-    if (std.mem.eql(u8, n, "EXIST")) return error.PathAlreadyExists;
-    if (std.mem.eql(u8, n, "NOTDIR")) return error.NotDir;
-    if (std.mem.eql(u8, n, "ISDIR")) return error.IsDir;
-    if (std.mem.eql(u8, n, "NAMETOOLONG")) return error.NameTooLong;
-    if (std.mem.eql(u8, n, "NOSPC")) return error.NoSpaceLeft;
-    if (std.mem.eql(u8, n, "MFILE")) return error.ProcessFdQuotaExceeded;
-    if (std.mem.eql(u8, n, "NFILE")) return error.SystemFdQuotaExceeded;
-    if (std.mem.eql(u8, n, "NOMEM")) return error.SystemResources;
-    if (std.mem.eql(u8, n, "INVAL")) return error.InvalidArgument;
-    if (std.mem.eql(u8, n, "SRCH")) return error.ProcessNotFound;
-    if (std.mem.eql(u8, n, "CHILD")) return error.ProcessNotFound;
-    if (std.mem.eql(u8, n, "TIMEDOUT")) return error.ConnectionTimedOut;
-    if (std.mem.eql(u8, n, "INPROGRESS")) return error.ConnectionPending;
-    if (std.mem.eql(u8, n, "ALREADY")) return error.AlreadyConnected;
-    if (std.mem.eql(u8, n, "CONNREFUSED")) return error.ConnectionRefused;
-    if (std.mem.eql(u8, n, "CONNRESET")) return error.ConnectionResetByPeer;
-    if (std.mem.eql(u8, n, "CONNABORTED")) return error.ConnectionAborted;
-    if (std.mem.eql(u8, n, "NOTCONN")) return error.SocketNotConnected;
-    if (std.mem.eql(u8, n, "NETUNREACH")) return error.NetworkUnreachable;
-    if (std.mem.eql(u8, n, "HOSTUNREACH")) return error.HostUnreachable;
-    if (std.mem.eql(u8, n, "ADDRINUSE")) return error.AddressInUse;
-    if (std.mem.eql(u8, n, "ADDRNOTAVAIL")) return error.AddressNotAvailable;
-    if (std.mem.eql(u8, n, "MSGSIZE")) return error.MessageTooBig;
-    if (std.mem.eql(u8, n, "NOTSOCK")) return error.NotSocket;
-    if (std.mem.eql(u8, n, "OPNOTSUPP")) return error.OperationNotSupported;
-    if (std.mem.eql(u8, n, "AFNOSUPPORT")) return error.AddressFamilyNotSupported;
-    if (std.mem.eql(u8, n, "PROTONOSUPPORT")) return error.ProtocolNotSupported;
-    if (std.mem.eql(u8, n, "PIPE")) return error.BrokenPipe;
-    if (std.mem.eql(u8, n, "NOTTY")) return error.NotATerminal;
-    if (std.mem.eql(u8, n, "FBIG")) return error.FileTooBig;
-    if (std.mem.eql(u8, n, "ROFS")) return error.ReadOnlyFileSystem;
-    if (std.mem.eql(u8, n, "LOOP")) return error.SymLinkLoop;
-    if (std.mem.eql(u8, n, "FAULT")) return error.Unexpected;
-    if (std.mem.eql(u8, n, "BUSY")) return error.FileBusy;
-    if (std.mem.eql(u8, n, "XDEV")) return error.RenameAcrossMountPoints;
-    if (std.mem.eql(u8, n, "TXTBSY")) return error.FileBusy;
-    return error.Unexpected;
-}
+pub const errnoToAny = @import("sa_std/hub.zig").errnoToAny;
 
-
-pub fn lxCheck(rc: usize) !usize {
-    if (comptime is_wasm) return error.Unsupported;
-    const e = std.os.linux.errno(rc);
-    if (e != .SUCCESS) return lxErr(e);
-    return rc;
-}
+pub const lxCheck = @import("sa_std/lx.zig").lxCheck;
 
 // --- libc fallbacks (macOS/FreeBSD) ---------------------------------------
 
-pub const libc = struct {
-    extern "c" fn socket(domain: c_int, socket_type: c_int, protocol: c_int) c_int;
-    extern "c" fn bind(fd: c_int, addr: *const SockAddrT, len: libc_socklen_t) c_int;
-    extern "c" fn listen(fd: c_int, backlog: c_int) c_int;
-    extern "c" fn accept(fd: c_int, addr: ?*SockAddrT, len: ?*libc_socklen_t) c_int;
-    extern "c" fn connect(fd: c_int, addr: *const SockAddrT, len: libc_socklen_t) c_int;
-    extern "c" fn shutdown(fd: c_int, how: c_int) c_int;
-    extern "c" fn sendto(fd: c_int, buf: *const anyopaque, len: usize, flags: c_int, addr: ?*const SockAddrT, addrlen: libc_socklen_t) isize;
-    extern "c" fn recvfrom(fd: c_int, buf: *anyopaque, len: usize, flags: c_int, addr: ?*SockAddrT, addrlen: ?*libc_socklen_t) isize;
-    extern "c" fn sendmsg(fd: c_int, msg: *const MsghdrConstT, flags: c_int) isize;
-    extern "c" fn getsockname(fd: c_int, addr: *SockAddrT, len: *libc_socklen_t) c_int;
-    extern "c" fn getpeername(fd: c_int, addr: *SockAddrT, len: *libc_socklen_t) c_int;
-    extern "c" fn getsockopt(fd: c_int, level: c_int, optname: c_int, optval: *anyopaque, optlen: *libc_socklen_t) c_int;
-    extern "c" fn setsockopt(fd: c_int, level: c_int, optname: c_int, optval: *const anyopaque, optlen: libc_socklen_t) c_int;
-    extern "c" fn close(fd: c_int) c_int;
-    extern "c" fn read(fd: c_int, buf: *anyopaque, count: usize) isize;
-    extern "c" fn write(fd: c_int, buf: *const anyopaque, count: usize) isize;
-    extern "c" fn readv(fd: c_int, iov: [*]const std.posix.iovec, iovcnt: c_int) isize;
-    extern "c" fn writev(fd: c_int, iov: [*]const std.posix.iovec_const, iovcnt: c_int) isize;
-    extern "c" fn dup(fd: c_int) c_int;
-    extern "c" fn dup2(old: c_int, new: c_int) c_int;
-    extern "c" fn fork() c_int;
-    extern "c" fn pipe(fds: *[2]c_int) c_int;
-    extern "c" fn chdir(path: [*:0]const u8) c_int;
-    extern "c" fn chroot(path: [*:0]const u8) c_int;
-    extern "c" fn setgroups(count: c_int, groups: [*]const std.c.gid_t) c_int;
-    extern "c" fn setsid() std.c.pid_t;
-    extern "c" fn setgid(gid: std.c.gid_t) c_int;
-    extern "c" fn setuid(uid: std.c.uid_t) c_int;
-    extern "c" fn setpgid(pid: std.c.pid_t, pgid: std.c.pid_t) c_int;
-    extern "c" fn fcntl(fd: c_int, cmd: c_int, ...) c_int;
-    extern "c" fn unlink(path: [*:0]const u8) c_int;
-    extern "c" fn mkdirat(dirfd: c_int, path: [*:0]const u8, mode: std.c.mode_t) c_int;
-    extern "c" fn fchmodat(dirfd: c_int, path: [*:0]const u8, mode: std.c.mode_t, flags: c_int) c_int;
-    extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8) c_int;
-    extern "c" fn futimens(fd: c_int, times: *const [2]std.posix.timespec) c_int;
-    extern "c" fn kill(pid: std.c.pid_t, sig: c_int) c_int;
-    extern "c" fn waitpid(pid: std.c.pid_t, status: *c_int, options: c_int) std.c.pid_t;
-    extern "c" fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) c_int;
-    extern "c" fn _exit(code: c_int) noreturn;
-    extern "c" fn ioctl(fd: c_int, request: c_ulong, ...) c_int;
-    extern "c" fn socketpair(domain: c_int, socket_type: c_int, protocol: c_int, sv: *[2]c_int) c_int;
-    extern "c" fn chown(path: [*:0]const u8, owner: std.c.uid_t, group: std.c.gid_t) c_int;
-    extern "c" fn lchown(path: [*:0]const u8, owner: std.c.uid_t, group: std.c.gid_t) c_int;
-    extern "c" fn fchown(fd: c_int, owner: std.c.uid_t, group: std.c.gid_t) c_int;
-    extern "c" fn mknod(path: [*:0]const u8, mode: std.c.mode_t, dev: std.c.dev_t) c_int;
-};
+pub const libc = @import("sa_std/hub.zig").libc;
 
-pub fn libcErrRc(rc: anytype) !void {
-    if (rc < 0) return errnoToAny(std.posix.errno(rc));
-}
+pub const libcErrRc = @import("sa_std/core_misc3.zig").libcErrRc;
 
+pub const libcUsize = @import("sa_std/core_misc3.zig").libcUsize;
 
-pub fn libcUsize(rc: isize) !usize {
-    if (rc < 0) return errnoToAny(std.posix.errno(rc));
-    return @intCast(rc);
-}
+pub const lxClose = @import("sa_std/lx.zig").lxClose;
 
-pub fn lxClose(fd: std.posix.fd_t) void {
-    if (comptime is_wasm) return;
-    if (comptime is_linux) {
-        _ = std.os.linux.close(fd);
-    } else {
-        _ = libc.close(fd);
-    }
-}
+pub const lxWrite = @import("sa_std/lx.zig").lxWrite;
 
-pub fn lxWrite(fd: std.posix.fd_t, bytes: []const u8) !usize {
-    if (comptime is_wasm) return error.Unsupported;
-    if (bytes.len == 0) return 0;
-    if (comptime is_linux) return try lxCheck(std.os.linux.write(fd, bytes.ptr, bytes.len));
-    return try libcUsize(libc.write(fd, bytes.ptr, bytes.len));
-}
+pub const lxReadv = @import("sa_std/lx.zig").lxReadv;
 
+pub const lxWritev = @import("sa_std/lx.zig").lxWritev;
 
-pub fn lxReadv(fd: std.posix.fd_t, iov: []std.posix.iovec) !usize {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) return try lxCheck(std.os.linux.readv(fd, iov.ptr, iov.len));
-    return try libcUsize(libc.readv(fd, iov.ptr, @intCast(iov.len)));
-}
+pub const lxSocket = @import("sa_std/lx.zig").lxSocket;
 
-pub fn lxWritev(fd: std.posix.fd_t, iov: []const std.posix.iovec_const) !usize {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) return try lxCheck(std.os.linux.writev(fd, iov.ptr, iov.len));
-    return try libcUsize(libc.writev(fd, iov.ptr, @intCast(iov.len)));
-}
+pub const lxShutdown = @import("sa_std/lx.zig").lxShutdown;
 
-pub fn lxSocket(domain: u32, sock_type: u32, protocol: u32) !std.posix.fd_t {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        const rc = try lxCheck(std.os.linux.socket(domain, sock_type, protocol));
-        return @as(std.posix.fd_t, @bitCast(@as(u32, @truncate(rc))));
-    }
-    return try libcFd(libc.socket(@intCast(domain), @intCast(sock_type), @intCast(protocol)));
-}
+pub const lxSend = @import("sa_std/lx.zig").lxSend;
 
+pub const lxRecv = @import("sa_std/lx.zig").lxRecv;
 
+pub const lxSendto = @import("sa_std/lx.zig").lxSendto;
 
+pub const lxRecvfrom = @import("sa_std/lx.zig").lxRecvfrom;
 
+pub const lxUnlink = @import("sa_std/lx.zig").lxUnlink;
 
-pub fn lxShutdown(fd: std.posix.fd_t, how: i32) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.shutdown(fd, how));
-        return;
-    }
-    try libcErrRc(libc.shutdown(fd, @intCast(how)));
-}
+pub const lxMkdirat = @import("sa_std/lx.zig").lxMkdirat;
 
-pub fn lxSend(fd: std.posix.fd_t, bytes: []const u8, flags: u32) !usize {
-    if (comptime is_wasm) return error.Unsupported;
-    if (bytes.len == 0) return 0;
-    if (comptime is_linux) return try lxCheck(std.os.linux.sendto(fd, bytes.ptr, bytes.len, flags, null, 0));
-    return try libcUsize(libc.sendto(fd, bytes.ptr, bytes.len, @intCast(flags), null, 0));
-}
+pub const lxFchmodat = @import("sa_std/lx.zig").lxFchmodat;
 
-pub fn lxRecv(fd: std.posix.fd_t, buf: []u8, flags: u32) !usize {
-    if (comptime is_wasm) return error.Unsupported;
-    if (buf.len == 0) return 0;
-    if (comptime is_linux) return try lxCheck(std.os.linux.recvfrom(fd, buf.ptr, buf.len, flags, null, null));
-    return try libcUsize(libc.recvfrom(fd, buf.ptr, buf.len, @intCast(flags), null, null));
-}
+pub const lxLink = @import("sa_std/lx.zig").lxLink;
 
-pub fn lxSendto(fd: std.posix.fd_t, bytes: []const u8, flags: u32, addr: ?*const SockAddrT, len: SockLenT) !usize {
-    if (comptime is_wasm) return error.Unsupported;
-    if (bytes.len == 0) return 0;
-    if (comptime is_linux) return try lxCheck(std.os.linux.sendto(fd, bytes.ptr, bytes.len, flags, addr, len));
-    return try libcUsize(libc.sendto(fd, bytes.ptr, bytes.len, @intCast(flags), addr, @intCast(len)));
-}
+pub const lxFutimens = @import("sa_std/lx.zig").lxFutimens;
 
-pub fn lxRecvfrom(fd: std.posix.fd_t, buf: []u8, flags: u32, addr: ?*SockAddrT, len: ?*SockLenT) !usize {
-    if (comptime is_wasm) return error.Unsupported;
-    if (buf.len == 0) return 0;
-    if (comptime is_linux) return try lxCheck(std.os.linux.recvfrom(fd, buf.ptr, buf.len, flags, addr, len));
-    return try libcUsize(libc.recvfrom(fd, buf.ptr, buf.len, @intCast(flags), addr, @ptrCast(len)));
-}
+pub const lxKill = @import("sa_std/lx.zig").lxKill;
 
+pub const lxGetpeername = @import("sa_std/lx.zig").lxGetpeername;
 
+pub const lxEpollCreate1 = @import("sa_std/lx.zig").lxEpollCreate1;
 
+pub const lxEpollCtl = @import("sa_std/lx.zig").lxEpollCtl;
 
-
-
-
-
-
-
-
-
-
-
-
-pub fn lxUnlink(path: []const u8) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    const z = try std.posix.toPosixPath(path);
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.unlink(&z));
-        return;
-    }
-    try libcErrRc(libc.unlink(&z));
-}
-
-pub fn lxMkdirat(dirfd: std.posix.fd_t, path: []const u8, mode: std.posix.mode_t) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    const z = try std.posix.toPosixPath(path);
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.mkdirat(dirfd, &z, mode));
-        return;
-    }
-    try libcErrRc(libc.mkdirat(dirfd, &z, @intCast(mode)));
-}
-
-pub fn lxFchmodat(dirfd: std.posix.fd_t, path: []const u8, mode: std.posix.mode_t) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    const z = try std.posix.toPosixPath(path);
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.fchmodat(dirfd, &z, mode));
-        return;
-    }
-    try libcErrRc(libc.fchmodat(dirfd, &z, @intCast(mode), 0));
-}
-
-pub fn lxLink(old: []const u8, new: []const u8) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    const old_z = try std.posix.toPosixPath(old);
-    const new_z = try std.posix.toPosixPath(new);
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.link(&old_z, &new_z));
-        return;
-    }
-    try libcErrRc(libc.link(&old_z, &new_z));
-}
-
-pub fn lxFutimens(fd: std.posix.fd_t, times: *const [2]std.posix.timespec) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.futimens(fd, times));
-        return;
-    }
-    try libcErrRc(libc.futimens(fd, times));
-}
-
-pub fn lxKill(pid: std.posix.pid_t, sig: u8) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.kill(pid, @fromBackingInt(@intCast(sig))));
-        return;
-    }
-    try libcErrRc(libc.kill(@intCast(pid), @intCast(sig)));
-}
-
-
-pub fn lxGetpeername(fd: std.posix.fd_t, addr: *SockAddrT, len: *SockLenT) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.getpeername(fd, addr, len));
-        return;
-    }
-    try libcErrRc(libc.getpeername(fd, addr, @ptrCast(len)));
-}
-
-
-pub fn lxEpollCreate1(flags: u32) !std.posix.fd_t {
-    if (comptime !is_linux) return error.Unsupported;
-    if (comptime is_wasm) return error.Unsupported;
-    const rc = try lxCheck(std.os.linux.epoll_create1(flags));
-    return @as(std.posix.fd_t, @bitCast(@as(u32, @truncate(rc))));
-}
-
-pub fn lxEpollCtl(epfd: std.posix.fd_t, op: u32, fd: std.posix.fd_t, event: ?*std.os.linux.epoll_event) !void {
-    if (comptime !is_linux) return error.Unsupported;
-    if (comptime is_wasm) return error.Unsupported;
-    _ = try lxCheck(std.os.linux.epoll_ctl(epfd, op, fd, event));
-}
-
-pub fn lxEpollWait(epfd: std.posix.fd_t, events: []std.os.linux.epoll_event, timeout_ms: i32) usize {
-    if (comptime !is_linux) return 0;
-    if (comptime is_wasm) return;
-    const rc = std.os.linux.epoll_wait(epfd, events.ptr, @as(u32, @intCast(events.len)), timeout_ms);
-    if (std.os.linux.errno(rc) != .SUCCESS) return 0;
-    return rc;
-}
-
-
+pub const lxEpollWait = @import("sa_std/lx.zig").lxEpollWait;
 
 // Old std.posix.execvpeZ: exec with PATH search. Reimplemented on execve.
-
 
 // ---------------------------------------------------------------------------
 // 0.17 compat: socket addresses (old net Address type removed).
 // Raw sockaddr storage + constructors; DNS via std.Io.net.
 // ---------------------------------------------------------------------------
-pub const NetAddress = struct {
-    storage: SockAddrStorageT = makeSockAddrStorage(),
-    len: SockLenT = @sizeOf(SockAddrStorageT),
+pub const NetAddress = @import("sa_std/core_types.zig").NetAddress;
 
-    pub fn sockAddr(self: *const NetAddress) *const SockAddrT {
-        return @ptrCast(&self.storage);
-    }
+pub const NetAddressList = @import("sa_std/core_types.zig").NetAddressList;
 
-    pub fn sockAddrMut(self: *NetAddress) *SockAddrT {
-        return @ptrCast(&self.storage);
-    }
-
-    pub fn getOsSockLen(self: NetAddress) SockLenT {
-        return self.len;
-    }
-
-    pub fn getPort(self: NetAddress) u16 {
-        return switch (self.storage.family) {
-            AFT.INET => blk: {
-                const sin: *const SockAddrInT = @ptrCast(@alignCast(&self.storage));
-                break :blk std.mem.bigToNative(u16, sin.port);
-            },
-            AFT.INET6 => blk: {
-                const sin6: *const SockAddrIn6T = @ptrCast(@alignCast(&self.storage));
-                break :blk std.mem.bigToNative(u16, sin6.port);
-            },
-            else => 0,
-        };
-    }
-
-    pub fn initIp4(parts: [4]u8, port: u16) NetAddress {
-        const sin = SockAddrInT{
-            .port = std.mem.nativeToBig(u16, port),
-            .addr = @bitCast(parts),
-        };
-        var a = NetAddress{ .len = @sizeOf(SockAddrInT) };
-        @memcpy(std.mem.asBytes(&a.storage)[0..@sizeOf(SockAddrInT)], std.mem.asBytes(&sin));
-        return a;
-    }
-
-    pub fn initIp6(bytes: [16]u8, port: u16, flowinfo: u32, scope_id: u32) NetAddress {
-        const sin6 = SockAddrIn6T{
-            .port = std.mem.nativeToBig(u16, port),
-            .flowinfo = flowinfo,
-            .addr = bytes,
-            .scope_id = scope_id,
-        };
-        var a = NetAddress{ .len = @sizeOf(SockAddrIn6T) };
-        @memcpy(std.mem.asBytes(&a.storage)[0..@sizeOf(SockAddrIn6T)], std.mem.asBytes(&sin6));
-        return a;
-    }
-
-    pub fn initUnix(path: []const u8) !NetAddress {
-        const off = @offsetOf(SockAddrUnT, "path");
-        if (off + path.len + 1 > @sizeOf(SockAddrUnT)) return error.NameTooLong;
-        var sun: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
-        @memcpy(sun.path[0..path.len], path);
-        sun.path[path.len] = 0;
-        var a = NetAddress{ .len = @as(SockLenT, @intCast(off + path.len + 1)) };
-        @memset(std.mem.asBytes(&a.storage), 0);
-        @memcpy(std.mem.asBytes(&a.storage)[0..@sizeOf(SockAddrUnT)], std.mem.asBytes(&sun));
-        return a;
-    }
-
-    pub fn fromIp(ip: std.Io.net.IpAddress) NetAddress {
-        return switch (ip) {
-            .ip4 => |v4| initIp4(v4.bytes, v4.port),
-            .ip6 => |v6| initIp6(v6.bytes, v6.port, v6.flow, v6.interface.index),
-        };
-    }
-
-    pub fn resolveIp(host: []const u8, port: u16) !NetAddress {
-        if (std.Io.net.IpAddress.parse(host, port)) |ip| {
-            return fromIp(ip);
-        } else |_| {}
-        var list = try netGetAddressList(std.heap.page_allocator, host, port);
-        defer list.deinit();
-        if (list.addrs.len == 0) return error.HostLacksNetworkAddresses;
-        return list.addrs[0];
-    }
-
-    pub fn unixPath(self: *const NetAddress) []const u8 {
-        const sun: *const SockAddrUnT = @ptrCast(&self.storage);
-        return std.mem.sliceTo(&sun.path, 0);
-    }
-
-    pub fn fromUnixSockaddr(sun: SockAddrUnT, len: SockLenT) NetAddress {
-        var a = NetAddress{ .len = len };
-        @memset(std.mem.asBytes(&a.storage), 0);
-        @memcpy(std.mem.asBytes(&a.storage)[0..@sizeOf(SockAddrUnT)], std.mem.asBytes(&sun));
-        return a;
-    }
-
-    pub fn in6ScopeId(self: *const NetAddress) u32 {
-        const sin6: *const SockAddrIn6T = @ptrCast(@alignCast(&self.storage));
-        return sin6.scope_id;
-    }
-
-    pub fn in4AddrU32(self: *const NetAddress) u32 {
-        const sin: *const SockAddrInT = @ptrCast(@alignCast(&self.storage));
-        return sin.addr;
-    }
-
-    pub fn in6AddrBytes(self: *const NetAddress) [16]u8 {
-        const sin6: *const SockAddrIn6T = @ptrCast(@alignCast(&self.storage));
-        return sin6.addr;
-    }
-};
-
-const NetAddressList = struct {
-    addrs: []NetAddress,
-    allocator: std.mem.Allocator,
-
-    pub fn deinit(self: *NetAddressList) void {
-        self.allocator.free(self.addrs);
-        self.addrs = &.{};
-    }
-};
-
-pub fn netGetAddressList(allocator: std.mem.Allocator, host: []const u8, port: u16) !NetAddressList {
-    if (std.Io.net.IpAddress.parse(host, port)) |ip| {
-        const addrs = try allocator.alloc(NetAddress, 1);
-        addrs[0] = NetAddress.fromIp(ip);
-        return .{ .addrs = addrs, .allocator = allocator };
-    } else |_| {}
-    const hn = try std.Io.net.HostName.init(host);
-    var qbuf: [16]std.Io.net.HostName.LookupResult = undefined;
-    var q = std.Io.Queue(std.Io.net.HostName.LookupResult).init(&qbuf);
-    hn.lookup(sio.io(), &q, .{ .port = port }) catch |err| switch (err) {
-        error.UnknownHostName => return error.UnknownHostName,
-        else => return err,
-    };
-    q.close(sio.io());
-    var out: std.array_list.Managed(NetAddress) = .init(allocator);
-    errdefer out.deinit();
-    var drain: [16]std.Io.net.HostName.LookupResult = undefined;
-    while (true) {
-        const n = q.get(sio.io(), &drain, 0) catch |err| switch (err) {
-            error.Closed => break,
-            else => return err,
-        };
-        if (n == 0) break;
-        for (drain[0..n]) |r| {
-            if (r == .address) try out.append(NetAddress.fromIp(r.address));
-        }
-    }
-    if (out.items.len == 0) {
-        out.deinit();
-        return error.HostLacksNetworkAddresses;
-    }
-    return .{ .addrs = try out.toOwnedSlice(), .allocator = allocator };
-}
+pub const netGetAddressList = @import("sa_std/core_misc.zig").netGetAddressList;
 
 // ---------------------------------------------------------------------------
 // 0.17 compat: portable file metadata. Linux keeps statx; other targets use
 // the Io vtable stat (which maps to lstat/stat internally).
 // ---------------------------------------------------------------------------
 
+pub const formatInteger = @import("sa_std/text_util.zig").formatInteger;
 
+pub const formatFloat = @import("sa_std/text_util.zig").formatFloat;
 
+pub const formatBool = @import("sa_std/text_util.zig").formatBool;
 
+pub const formatBytes = @import("sa_std/text_util.zig").formatBytes;
 
+pub const writeFormattedInto = @import("sa_std/file_ops.zig").writeFormattedInto;
 
+pub const stringConcat = @import("sa_std/core_types.zig").stringConcat;
 
+pub const openOwnedBuffer = @import("sa_std/file_ops.zig").openOwnedBuffer;
 
+pub const openOwnedByteBuffer = @import("sa_std/file_ops.zig").openOwnedByteBuffer;
 
-pub fn formatInteger(value: anytype, base: u32) ![]u8 {
-    const actual_base: u8 = switch (base) {
-        2, 8, 10 => @as(u8, @intCast(base)),
-        16, 17 => 16,
-        else => return error.InvalidArgument,
-    };
-    const case: std.fmt.Case = if (base == 17) .upper else .lower;
-    var buf: [128]u8 = undefined;
-    const n = std.fmt.printInt(&buf, value, actual_base, case, .{});
-    const text = buf[0..n];
-    return std.heap.page_allocator.dupe(u8, text);
-}
+pub const openOwnedEnvBuffer = @import("sa_std/file_ops.zig").openOwnedEnvBuffer;
 
-pub fn formatFloat(value: f64, precision: u32) ![]u8 {
-    var buf: [256]u8 = undefined;
-    const text = try std.fmt.bufPrint(&buf, "{d:.[1]}", .{ value, @as(usize, @intCast(precision)) });
-    return std.heap.page_allocator.dupe(u8, text);
-}
+pub const jsonStringValue = @import("sa_std/text_util.zig").jsonStringValue;
 
-pub fn formatBool(value: bool) ![]u8 {
-    return std.heap.page_allocator.dupe(u8, if (value) "true" else "false");
-}
+pub const envKeyBytes = @import("sa_std/core_util.zig").envKeyBytes;
 
-pub fn formatBytes(bytes: []const u8) ![]u8 {
-    return std.heap.page_allocator.dupe(u8, bytes);
-}
+pub const EnvVarJson = @import("sa_std/core_misc3.zig").EnvVarJson;
 
-pub fn writeFormattedInto(out: ?[*]u8, out_cap: u64, out_len: ?*u64, text: []const u8) i32 {
-    if (out_len) |ptr| ptr.* = @as(u64, @intCast(text.len));
-    if (out_cap == 0) return finish(SA_STD_OK);
-    const buffer = mutBytes(out, out_cap) catch |err| return finishErr(err);
-    if (buffer.len < text.len) return finish(SA_STD_ERR_TRUNCATED);
-    if (text.len != 0) @memcpy(buffer[0..text.len], text);
-    return finish(SA_STD_OK);
-}
+pub const appendEnvVarJson = @import("sa_std/text_util.zig").appendEnvVarJson;
 
-pub fn stringConcat(left: []const u8, right: []const u8) ![]u8 {
-    var bytes = try std.heap.page_allocator.alloc(u8, left.len + right.len);
-    if (left.len != 0) std.mem.copyForwards(u8, bytes[0..left.len], left);
-    if (right.len != 0) std.mem.copyForwards(u8, bytes[left.len .. left.len + right.len], right);
-    return bytes;
-}
+pub const envVarsJsonAlloc = @import("sa_std/core_util.zig").envVarsJsonAlloc;
 
+pub const processArgsJsonAlloc = @import("sa_std/core_misc.zig").processArgsJsonAlloc;
 
-pub fn openOwnedBuffer(bytes: []u8) !u64 {
-    return registerResource(.{ .fmt = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
-        std.heap.page_allocator.free(bytes);
-        return err;
-    };
-}
+pub const envSplitPathsJsonAlloc = @import("sa_std/core_util.zig").envSplitPathsJsonAlloc;
 
-pub fn openOwnedByteBuffer(bytes: []u8) !u64 {
-    return registerResource(.{ .buffer = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
-        std.heap.page_allocator.free(bytes);
-        return err;
-    };
-}
-
-pub fn openOwnedEnvBuffer(bytes: []u8) !u64 {
-    return registerResource(.{ .env = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
-        std.heap.page_allocator.free(bytes);
-        return err;
-    };
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-pub fn jsonStringValue(value: ?std.json.Value) []const u8 {
-    const actual = value orelse return "";
-    return switch (actual) {
-        .string => |text| text,
-        else => "",
-    };
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-pub fn envKeyBytes(key_ptr: ?[*]const u8, key_len: u64) ![]const u8 {
-    const key = try constBytes(key_ptr, key_len);
-    if (key.len == 0) return error.InvalidArgument;
-    if (std.mem.indexOfScalar(u8, key, 0) != null) return error.InvalidArgument;
-    if (std.mem.indexOfScalar(u8, key, '=') != null) return error.InvalidArgument;
-    return key;
-}
-
-
-
-const EnvVarJson = struct {
-    key: []const u8,
-    value: []const u8,
-};
-
-fn appendEnvVarJson(pairs: *std.array_list.Managed(EnvVarJson), entry: []const u8) !void {
-    const eq = std.mem.indexOfScalar(u8, entry, '=') orelse return;
-    if (eq == 0) return;
-    try pairs.append(.{ .key = entry[0..eq], .value = entry[eq + 1 ..] });
-}
-
-pub fn envVarsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
-    var pairs = std.array_list.Managed(EnvVarJson).init(allocator);
-    defer pairs.deinit();
-
-    {
-        var i: usize = 0;
-        while (environ[i] != null) : (i += 1) {
-            try appendEnvVarJson(&pairs, std.mem.span(environ[i].?));
-        }
-    }
-
-    return std.json.Stringify.valueAlloc(allocator, pairs.items, .{});
-}
-
-pub fn processArgsJsonAlloc(allocator: std.mem.Allocator) ![]u8 {
-    if (builtin.os.tag == .linux) {
-        const file = sio.openFileAbsolute("/proc/self/cmdline", .{}) catch |err| switch (err) {
-            error.FileNotFound, error.AccessDenied => null,
-            else => return err,
-        };
-        if (file) |cmdline_file| {
-            defer cmdline_file.close();
-            const cmdline = try cmdline_file.readToEndAlloc(allocator, 1024 * 1024);
-            defer allocator.free(cmdline);
-
-            var args = std.array_list.Managed([]const u8).init(allocator);
-            defer args.deinit();
-            var it = std.mem.splitScalar(u8, cmdline, 0);
-            while (it.next()) |arg| {
-                if (arg.len == 0) continue;
-                try args.append(arg);
-            }
-            return std.json.Stringify.valueAlloc(allocator, args.items, .{});
-        }
-    }
-
-    const args = try sio.argsAlloc(allocator);
-    defer sio.argsFree(allocator, args);
-    return std.json.Stringify.valueAlloc(allocator, args, .{});
-}
-
-pub fn envSplitPathsJsonAlloc(allocator: std.mem.Allocator, path_list: []const u8) ![]u8 {
-    var parts = std.array_list.Managed([]const u8).init(allocator);
-    defer parts.deinit();
-
-    var it = std.mem.splitScalar(u8, path_list, ':');
-    while (it.next()) |part| {
-        try parts.append(part);
-    }
-
-    return std.json.Stringify.valueAlloc(allocator, parts.items, .{});
-}
-
-pub fn envJoinPathsJsonAlloc(allocator: std.mem.Allocator, paths_json: []const u8) ![]u8 {
-    const parsed = try std.json.parseFromSlice([]const []const u8, allocator, paths_json, .{});
-    defer parsed.deinit();
-
-    for (parsed.value) |path| {
-        if (std.mem.indexOfScalar(u8, path, 0) != null) return error.InvalidArgument;
-    }
-
-    return std.mem.join(allocator, ":", parsed.value);
-}
-
-
-
-
-
-
+pub const envJoinPathsJsonAlloc = @import("sa_std/core_util.zig").envJoinPathsJsonAlloc;
 
 // NOTE: sa_http_client_* used to be provided by the http-client plugin
 // and deliberately left undefined here (a stub once shadowed it). Since
@@ -2892,9 +962,7 @@ pub fn envJoinPathsJsonAlloc(allocator: std.mem.Allocator, paths_json: []const u
 // (src/runtime/sa_http_client.zig, migrated from the plugin under the
 // all-cores-built-in doctrine); the plugin keeps only framework wraps.
 
-pub export fn sa_std_version() u32 {
-    return SA_STD_ABI_VERSION;
-}
+pub const sa_std_version = @import("sa_std/core_export.zig").sa_std_version;
 
 // --- Checked i64 arithmetic (sa_std/num.sai) ------------------------------
 // Exact-result arithmetic with Rust `overflow-checks = true` semantics:
@@ -2904,72 +972,23 @@ pub export fn sa_std_version() u32 {
 // channel, so the trap here is a diagnostic on stderr plus process
 // abort -- never a wrapped result, never a silent status (the .sai
 // signature returns the bare i64 and has no status channel).
-fn saNumCheckedTrap(comptime symbol: []const u8, a: i64, b: i64) noreturn {
-    std.debug.print("[sa-std] {s}({d}, {d}): i64 overflow, trapping (PANIC_ARITH_OVERFLOW=9001)\n", .{ symbol, a, b });
-    std.process.abort();
-}
+pub const saNumCheckedTrap = @import("sa_std/core_misc3.zig").saNumCheckedTrap;
 
-pub export fn sa_num_add_checked(a: i64, b: i64) i64 {
-    const result = @addWithOverflow(a, b);
-    if (result[1] != 0) saNumCheckedTrap("sa_num_add_checked", a, b);
-    return result[0];
-}
+pub const sa_num_add_checked = @import("sa_std/core_export.zig").sa_num_add_checked;
 
-pub export fn sa_num_sub_checked(a: i64, b: i64) i64 {
-    const result = @subWithOverflow(a, b);
-    if (result[1] != 0) saNumCheckedTrap("sa_num_sub_checked", a, b);
-    return result[0];
-}
+pub const sa_num_sub_checked = @import("sa_std/core_export.zig").sa_num_sub_checked;
 
-pub export fn sa_num_mul_checked(a: i64, b: i64) i64 {
-    const result = @mulWithOverflow(a, b);
-    if (result[1] != 0) saNumCheckedTrap("sa_num_mul_checked", a, b);
-    return result[0];
-}
+pub const sa_num_mul_checked = @import("sa_std/core_export.zig").sa_num_mul_checked;
 
-pub export fn sa_std_last_error() i32 {
-    return last_error;
-}
+pub const sa_std_last_error = @import("sa_std/core_export.zig").sa_std_last_error;
 
+pub const sa_std_stdin = @import("sa_std/core_export.zig").sa_std_stdin;
 
+pub const sa_std_stdout = @import("sa_std/core_export.zig").sa_std_stdout;
 
+pub const sa_std_stderr = @import("sa_std/core_export.zig").sa_std_stderr;
 
-
-
-
-
-
-
-pub export fn sa_std_stdin() u64 {
-    return SA_STD_STDIN;
-}
-
-pub export fn sa_std_stdout() u64 {
-    return SA_STD_STDOUT;
-}
-
-pub export fn sa_std_stderr() u64 {
-    return SA_STD_STDERR;
-}
-
-pub export fn sa_std_print(data: ?[*]const u8, len: u64) i32 {
-    const bytes = constBytes(data, len) catch |err| return finishErr(err);
-    sio.getStdOut().writeAll(bytes) catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
+pub const sa_std_print = @import("sa_std/core_export.zig").sa_std_print;
 
 // SIMD hex decoder: native bulk-decode fast path (mirrors the sa_hexdec
 // JS host-codec shim contract). Decodes ASCII hex pairs into bytes at
@@ -2977,61 +996,9 @@ pub export fn sa_std_print(data: ?[*]const u8, len: u64) i32 {
 // first invalid char or odd trailing nibble and returns the bytes
 // written so far; clean even-length input of n chars yields exactly
 // n/2. Caller must provide at least n/2 bytes of output.
-fn hexSimdNibbleVal(c: u8) ?u8 {
-    if (c >= '0' and c <= '9') return c - '0';
-    if (c >= 'A' and c <= 'F') return c - 'A' + 10;
-    if (c >= 'a' and c <= 'f') return c - 'a' + 10;
-    return null;
-}
+pub const hexSimdNibbleVal = @import("sa_std/text_util.zig").hexSimdNibbleVal;
 
-pub export fn sa_hexdec_simd(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8) u64 {
-    const input = constBytes(in_ptr, in_len) catch return 0;
-    const n = input.len;
-    if (n == 0) return 0;
-    const out_p = out_ptr orelse return 0;
-    const out = out_p[0 .. n / 2];
-    const V32 = @Vector(32, u8);
-    const z0: V32 = @splat(@as(u8, '0'));
-    const z9: V32 = @splat(@as(u8, '9'));
-    const zA: V32 = @splat(@as(u8, 'A'));
-    const zF: V32 = @splat(@as(u8, 'F'));
-    const za: V32 = @splat(@as(u8, 'a'));
-    const zf: V32 = @splat(@as(u8, 'f'));
-    const ten: V32 = @splat(@as(u8, 10));
-    const one: V32 = @splat(@as(u8, 1));
-    const zero: V32 = @splat(@as(u8, 0));
-    const four: @Vector(16, u8) = @splat(@as(u8, 4));
-    const even_idx: [16]i32 = .{ 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30 };
-    const odd_idx: [16]i32 = .{ 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31 };
-    var i: usize = 0;
-    var w: usize = 0;
-    while (i + 32 <= n) {
-        const chunk: V32 = input[i..][0..32].*;
-        const in09 = @select(u8, chunk >= z0, @select(u8, chunk <= z9, one, zero), zero);
-        const inAF = @select(u8, chunk >= zA, @select(u8, chunk <= zF, one, zero), zero);
-        const inaf = @select(u8, chunk >= za, @select(u8, chunk <= zf, one, zero), zero);
-        const valid = in09 | inAF | inaf;
-        if (@reduce(.Min, valid) == 0) break;
-        const nib = in09 * (chunk -% z0) + inAF * (chunk -% (zA -% ten)) + inaf * (chunk -% (za -% ten));
-        const evens = @shuffle(u8, nib, @as(V32, undefined), even_idx);
-        const odds = @shuffle(u8, nib, @as(V32, undefined), odd_idx);
-        const joined: @Vector(16, u8) = (evens << four) | odds;
-        out[w..][0..16].* = joined;
-        i += 32;
-        w += 16;
-    }
-    while (i + 2 <= n) {
-        const hi = hexSimdNibbleVal(input[i]) orelse break;
-        const lo = hexSimdNibbleVal(input[i + 1]) orelse break;
-        out[w] = (hi << 4) | lo;
-        i += 2;
-        w += 1;
-    }
-    return @intCast(w);
-}
-
-
-
+pub const sa_hexdec_simd = @import("sa_std/text_util.zig").sa_hexdec_simd;
 
 // SIMD base64 decoder: native bulk-decode fast path. Decodes clean
 // A-Za-z0-9+/ quanta at 32 input chars per vector iteration with a
@@ -3042,84 +1009,23 @@ pub export fn sa_hexdec_simd(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8)
 extern fn sa_cpu_has_avx2() c_int;
 extern fn sa_b64dec_avx2(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8) u64;
 
-
-
-
-
-
 // Bulk substring search for native peers (mirrors the sa_mfind_u8 JS
 // fused shim contract): returns the first index of needle in haystack,
 // or hay_len on miss (one-past-end sentinel, always representable).
 // Empty needle matches at 0 (memmem semantics). Delegates to the Zig
 // standard library search (library-grade, memchr-class).
-pub export fn sa_mfind_u8(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]const u8, ndl_len: u64) u64 {
-    const hay = constBytes(hay_ptr, hay_len) catch return hay_len;
-    const ndl = constBytes(ndl_ptr, ndl_len) catch return hay.len;
-    if (ndl.len == 0) return 0;
-    if (ndl.len > hay.len) return hay.len;
-    if (std.mem.indexOf(u8, hay, ndl)) |idx| return @intCast(idx);
-    return hay.len;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+pub const sa_mfind_u8 = @import("sa_std/text_util.zig").sa_mfind_u8;
 
 /// Zero-padded decimal append. (std.fmt `{d:04}` on 0.14 misplaces the
 /// sign, emitting `+` for positives, so ISO dates pad manually instead.)
-fn appendPadded(out: *std.array_list.Managed(u8), val: i64, width: usize) !void {
-    if (val < 0) {
-        try out.append('-');
-        const rest = if (width > 0) width - 1 else 0;
-        // Years never approach minInt; negation is safe here.
-        return appendPadded(out, -val, rest);
-    }
-    var tmp: [32]u8 = undefined;
-    const s = try std.fmt.bufPrint(&tmp, "{d}", .{val});
-    var i: usize = s.len;
-    while (i < width) : (i += 1) try out.append('0');
-    try out.appendSlice(s);
-}
+pub const appendPadded = @import("sa_std/text_util.zig").appendPadded;
 
 /// UTC `YYYY-MM-DDTHH:MM:SS.sssZ` append shared by the ISO formatters.
-pub fn appendIsoUtc(out: *std.array_list.Managed(u8), year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, milli: i64) !void {
-    try appendPadded(out, year, 4);
-    try out.append('-');
-    try appendPadded(out, month, 2);
-    try out.append('-');
-    try appendPadded(out, day, 2);
-    try out.append('T');
-    try appendPadded(out, hour, 2);
-    try out.append(':');
-    try appendPadded(out, minute, 2);
-    try out.append(':');
-    try appendPadded(out, second, 2);
-    try out.append('.');
-    try appendPadded(out, milli, 3);
-    try out.append('Z');
-}
-
+pub const appendIsoUtc = @import("sa_std/text_util.zig").appendIsoUtc;
 
 extern fn getifaddrs(ifap: *?*struct_ifaddrs) c_int;
 extern fn freeifaddrs(ifa: ?*struct_ifaddrs) void;
 extern fn inet_ntop(af: c_int, src: ?*const anyopaque, dst: [*]u8, size: c_uint) ?[*:0]const u8;
-
-
-
-
-
-
 
 pub extern fn getpid() c_int;
 extern fn getppid() c_int;
@@ -3146,105 +1052,6 @@ extern fn getpagesize() c_int;
 // precedent), so the runtime-abi-check header counts are
 // unchanged. Linux only for now; the Windows runtime mirror does
 // not implement the symbol yet.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ---------------------------------------------------------------------------
 // Unicode normalization (ICU unorm2) for tsgosa String.prototype.normalize.
@@ -3277,71 +1084,11 @@ extern fn unorm2_normalize_74(norm2: ?*anyopaque, src: [*]const u16, src_len: c_
 extern fn u_strFromUTF8_74(dest: [*]u16, dest_cap: c_int, dest_len: ?*c_int, src: [*]const u8, src_len: c_int, err: *c_int) ?[*]u16;
 extern fn u_strToUTF8_74(dest: ?[*]u8, dest_cap: c_int, dest_len: ?*c_int, src: [*]const u16, src_len: c_int, err: *c_int) ?[*]u8;
 
-const icu_err_overflow: c_int = 15;
+pub const icu_err_overflow = @import("sa_std/hub.zig").icu_err_overflow;
 
-fn unicodeNormalizerForForm(form: i32) ?*anyopaque {
-    var err: c_int = 0;
-    const inst = switch (form) {
-        0 => unorm2_getNFCInstance_74(&err),
-        1 => unorm2_getNFDInstance_74(&err),
-        2 => unorm2_getNFKCInstance_74(&err),
-        3 => unorm2_getNFKDInstance_74(&err),
-        else => @panic("sa_unicode_normalize: invalid form code"),
-    };
-    if (err > 0 or inst == null) @panic("sa_unicode_normalize: ICU instance failed");
-    return inst;
-}
+pub const unicodeNormalizerForForm = @import("sa_std/core_misc.zig").unicodeNormalizerForForm;
 
-pub export fn sa_unicode_normalize(text: ?[*]const u8, text_len: u64, form: i32, out: ?[*]u8, out_cap: u64) i64 {
-    if (text_len == 0) return 0;
-    if (text_len > 0x7fffffff) @panic("sa_unicode_normalize: input too long");
-    const input = constBytes(text, text_len) catch @panic("sa_unicode_normalize: null input");
-    const norm = unicodeNormalizerForForm(form);
-
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    // UTF-8 -> UTF-16. UTF-16 units never exceed UTF-8 bytes (1-byte char
-    // -> 1 unit; 4-byte char -> 2 units), so text_len units always suffice.
-    const utf16_cap: c_int = @intCast(text_len);
-    const utf16 = alloc.alloc(u16, @as(usize, @intCast(text_len))) catch @panic("sa_unicode_normalize: alloc failed");
-    var utf16_len: c_int = 0;
-    var err: c_int = 0;
-    _ = u_strFromUTF8_74(utf16.ptr, utf16_cap, &utf16_len, input.ptr, utf16_cap, &err);
-    if (err > 0) @panic("sa_unicode_normalize: invalid UTF-8 input");
-
-    // Normalize in UTF-16. Decomposition can expand, so grow on overflow
-    // (unorm2_normalize_74 returns the needed length on overflow).
-    var norm_cap: usize = @as(usize, @intCast(utf16_len)) * 2;
-    if (norm_cap < 16) norm_cap = 16;
-    var norm_buf = alloc.alloc(u16, norm_cap) catch @panic("sa_unicode_normalize: alloc failed");
-    err = 0;
-    var norm_len = unorm2_normalize_74(norm, utf16.ptr, utf16_len, norm_buf.ptr, @intCast(norm_cap), &err);
-    if (err == icu_err_overflow) {
-        if (norm_len <= 0) @panic("sa_unicode_normalize: ICU normalize failed");
-        norm_cap = @intCast(norm_len);
-        norm_buf = alloc.alloc(u16, norm_cap) catch @panic("sa_unicode_normalize: alloc failed");
-        err = 0;
-        norm_len = unorm2_normalize_74(norm, utf16.ptr, utf16_len, norm_buf.ptr, @intCast(norm_cap), &err);
-        if (err != 0) @panic("sa_unicode_normalize: ICU normalize failed");
-    } else if (err > 0) {
-        @panic("sa_unicode_normalize: ICU normalize failed");
-    }
-
-    // Measure the UTF-8 length (destCapacity 0 query), then fill or report.
-    var utf8_len: c_int = 0;
-    err = 0;
-    _ = u_strToUTF8_74(null, 0, &utf8_len, norm_buf.ptr, norm_len, &err);
-    if (err > 0 and err != icu_err_overflow) @panic("sa_unicode_normalize: ICU UTF-8 measure failed");
-    if (out_cap == 0 or out == null) return utf8_len;
-    if (@as(u64, @intCast(utf8_len)) > out_cap) return utf8_len;
-    var written: c_int = 0;
-    err = 0;
-    _ = u_strToUTF8_74(out.?, @intCast(out_cap), &written, norm_buf.ptr, norm_len, &err);
-    if (err > 0) @panic("sa_unicode_normalize: ICU UTF-8 convert failed");
-    return written;
-}
+pub const sa_unicode_normalize = @import("sa_std/core_export.zig").sa_unicode_normalize;
 
 // Host presence probing (lazy const-slot design, Phase 0; JEV js_shim_native_zero).
 // SA native execution runs under the sa interpreter/LLVM with no JS host
@@ -3351,68 +1098,14 @@ pub export fn sa_unicode_normalize(text: ?[*]const u8, text_len: u64, form: i32,
 // JEV-rejected (Bun sets no distinctive environment variable by default).
 // The SA interpreter cannot run externs (UnsupportedExtern); this function
 // executes under build-exe (LLVM), like sa_unicode_normalize above.
-pub export fn sa_host_is_bun() i32 {
-    return 0;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+pub const sa_host_is_bun = @import("sa_std/core_export.zig").sa_host_is_bun;
 
 /// Shared civil split: i64 unix millis to (days since epoch, millis
 /// within day, Hinnant y/m/d, h/mi/s/ms). Negative inputs fold via
 /// floored division; field order matches the getters below.
-const CivilParts = struct {
-    year: i64,
-    month: i64,
-    day: i64,
-    hour: i64,
-    minute: i64,
-    second: i64,
-    milli: i64,
-    days: i64,
-};
+pub const CivilParts = @import("sa_std/core_misc.zig").CivilParts;
 
-pub fn civilParts(ms: i64) CivilParts {
-    const ms_per_day: i64 = 86400000;
-    var days = @divFloor(ms, ms_per_day);
-    var day_ms = @mod(ms, ms_per_day);
-    if (day_ms < 0) {
-        day_ms += ms_per_day;
-        days -= 1;
-    }
-    const z: i64 = days + 719468;
-    const era: i64 = if (z >= 0) @divFloor(z, 146097) else @divFloor(z - 146096, 146097);
-    const doe: i64 = z - era * 146097;
-    const yoe: i64 = @divFloor(doe - @divFloor(doe, 1460) + @divFloor(doe, 36524) - @divFloor(doe, 146096), 365);
-    const y: i64 = yoe + era * 400;
-    const doy: i64 = doe - (365 * yoe + @divFloor(yoe, 4) - @divFloor(yoe, 100));
-    const mp: i64 = @divFloor(5 * doy + 2, 153);
-    const month: i64 = if (mp < 10) mp + 3 else mp - 9;
-    return .{
-        .year = if (month <= 2) y + 1 else y,
-        .month = month,
-        .day = doy - @divFloor(153 * mp + 2, 5) + 1,
-        .hour = @divFloor(day_ms, 3600000),
-        .minute = @divFloor(@mod(day_ms, 3600000), 60000),
-        .second = @divFloor(@mod(day_ms, 60000), 1000),
-        .milli = @mod(day_ms, 1000),
-        .days = days,
-    };
-}
+pub const civilParts = @import("sa_std/core_misc.zig").civilParts;
 
 // JS `Date.toISOString` shape for an i64 unix-millis value: UTC
 // `YYYY-MM-DDTHH:MM:SS.sssZ` (millis precision, zero-padded; years
@@ -3430,45 +1123,18 @@ pub fn civilParts(ms: i64) CivilParts {
 /// JS Date getters over i64 unix millis (UTC; month 0-based like JS,
 /// day 0=Sunday like JS: 1970-01-01 was a Thursday).
 
+pub const weekdayNames = @import("sa_std/core_misc3.zig").weekdayNames;
+pub const monthNames = @import("sa_std/hub.zig").monthNames;
 
+pub const appendTwo = @import("sa_std/text_util.zig").appendTwo;
 
-
-
-
-
-
-pub const weekdayNames = [_][]const u8{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
-pub const monthNames = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-
-pub fn appendTwo(out: *std.array_list.Managed(u8), val: i64) !void {
-    var tmp: [32]u8 = undefined;
-    const s = try std.fmt.bufPrint(&tmp, "{d}", .{val});
-    var i: usize = s.len;
-    while (i < 2) : (i += 1) try out.append('0');
-    try out.appendSlice(s);
-}
-
-pub fn appendFour(out: *std.array_list.Managed(u8), val: i64) !void {
-    var tmp: [32]u8 = undefined;
-    const s = try std.fmt.bufPrint(&tmp, "{d}", .{val});
-    var i: usize = s.len;
-    while (i < 4) : (i += 1) try out.append('0');
-    try out.appendSlice(s);
-}
+pub const appendFour = @import("sa_std/text_util.zig").appendFour;
 
 /// Fixed UTC string forms for Date toString/toDateString/toTimeString/
 /// toUTCString (fmt 0..3), byte-exact with Node under UTC. Years use the
 /// same 4-digit zero pad as the ISO path (documented bound 0..9999).
 
-pub fn daysFromCivil(y_in: i64, m_in: i64, d: i64) i64 {
-    const y: i64 = if (m_in <= 2) y_in - 1 else y_in;
-    const era: i64 = if (y >= 0) @divFloor(y, 400) else @divFloor(y - 399, 400);
-    const yoe: i64 = y - era * 400;
-    const mp: i64 = @mod(m_in - 3, 12);
-    const doy: i64 = @divFloor(153 * mp + 2, 5) + d - 1;
-    const doe: i64 = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy;
-    return era * 146097 + doe - 719468;
-}
+pub const daysFromCivil = @import("sa_std/core_misc2.zig").daysFromCivil;
 
 // JS Date setters over i64 unix millis (field 0..6). Components apply
 // then normalize with floored divmod, so out-of-range values roll over
@@ -3476,98 +1142,28 @@ pub fn daysFromCivil(y_in: i64, m_in: i64, d: i64) i64 {
 // Unknown field ids return the input unchanged (frontends only ever
 // send 0..6 via fixed table extras).
 
-
-
-
-
-
-
-
-
 // Compatibility shims for the rosetta demos that model host APIs directly.
-pub fn fd_open(path_ptr: ?[*]const u8) callconv(.c) i32 {
-    _ = path_ptr;
-    last_error = SA_STD_OK;
-    return 3;
-}
+pub const fd_open = @import("sa_std/core_misc2.zig").fd_open;
 
-pub fn fd_read(fd: i32) callconv(.c) i32 {
-    _ = fd;
-    last_error = SA_STD_OK;
-    return 3;
-}
+pub const fd_read = @import("sa_std/core_misc2.zig").fd_read;
 
-pub fn fd_close(fd: i32) callconv(.c) i32 {
-    _ = fd;
-    last_error = SA_STD_ERR_UNSUPPORTED;
-    return SA_STD_ERR_UNSUPPORTED;
-}
+pub const fd_close = @import("sa_std/core_misc2.zig").fd_close;
 
-pub fn mmap(fd: i32, len: i32) callconv(.c) ?[*]u8 {
-    _ = fd;
-    _ = len;
-    last_error = SA_STD_OK;
-    return compatibility_mmap_page[0..].ptr;
-}
+pub const mmap = @import("sa_std/core_misc2.zig").mmap;
 
-pub fn munmap(map: ?[*]u8, len: i32) callconv(.c) i32 {
-    _ = map;
-    _ = len;
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
-}
+pub const munmap = @import("sa_std/core_misc2.zig").munmap;
 
-pub fn signal(sig: i32, handler: ?[*]const u8) callconv(.c) i32 {
-    _ = handler;
-    last_error = SA_STD_OK;
-    return sig;
-}
+pub const signal = @import("sa_std/core_misc.zig").signal;
 
+pub const dlsym = @import("sa_std/core_misc2.zig").dlsym;
 
+pub const dlclose = @import("sa_std/core_types.zig").dlclose;
 
+pub const sqlite3_prepare = @import("sa_std/core_util.zig").sqlite3_prepare;
 
+pub const sqlite3_step = @import("sa_std/core_util.zig").sqlite3_step;
 
-
-
-
-
-pub fn dlsym(handle: ?[*]u8, symbol_ptr: ?[*]const u8) callconv(.c) ?[*]u8 {
-    _ = handle;
-    _ = symbol_ptr;
-    last_error = SA_STD_ERR_UNSUPPORTED;
-    return compatibility_dlsym_cookie[0..].ptr;
-}
-
-pub fn dlclose(handle: ?[*]u8) callconv(.c) i32 {
-    _ = handle;
-    last_error = SA_STD_ERR_UNSUPPORTED;
-    return SA_STD_ERR_UNSUPPORTED;
-}
-
-
-
-
-
-pub fn sqlite3_prepare(sqlite: ?[*]u8, sql: ?[*]const u8, len: i32, stmt_out: ?[*]u8) callconv(.c) i32 {
-    _ = sqlite;
-    _ = sql;
-    _ = len;
-    _ = stmt_out;
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
-}
-
-pub fn sqlite3_step(stmt: ?[*]u8) callconv(.c) i32 {
-    _ = stmt;
-    last_error = SA_STD_OK;
-    return 1;
-}
-
-pub fn sqlite3_finalize(stmt: ?[*]u8) callconv(.c) i32 {
-    _ = stmt;
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
-}
+pub const sqlite3_finalize = @import("sa_std/core_util.zig").sqlite3_finalize;
 
 comptime {
     if (!builtin.is_test) {
@@ -3633,155 +1229,17 @@ comptime {
     }
 }
 
+pub const ProcessOutputStream = @import("sa_std/core_types.zig").ProcessOutputStream;
 
+pub const readProcessOutput = @import("sa_std/file_ops.zig").readProcessOutput;
 
+pub const sa_std_fd_from_raw = @import("sa_std/core_export.zig").sa_std_fd_from_raw;
 
+pub const sa_std_fd_close_raw = @import("sa_std/core_export.zig").sa_std_fd_close_raw;
 
+pub const sa_thread_current_id = @import("sa_std/core_export.zig").sa_thread_current_id;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-const ProcessOutputStream = enum { stdout, stderr };
-
-pub fn readProcessOutput(handle: u64, stream: ProcessOutputStream, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
-    if (out_read) |ptr| ptr.* = 0;
-    const output = mutBytes(out, out_cap) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .process => |*proc| {
-            if (!proc.capture_output or !proc.exited) return finish(SA_STD_ERR_INVALID_HANDLE);
-            const src = switch (stream) {
-                .stdout => proc.stdout_buf,
-                .stderr => proc.stderr_buf,
-            };
-            const pos_ptr = switch (stream) {
-                .stdout => &proc.stdout_pos,
-                .stderr => &proc.stderr_pos,
-            };
-            if (pos_ptr.* >= src.len) return finish(SA_STD_OK);
-            const remaining = src.len - pos_ptr.*;
-            const copy_len = @min(output.len, remaining);
-            @memcpy(output[0..copy_len], src[pos_ptr.* .. pos_ptr.* + copy_len]);
-            pos_ptr.* += copy_len;
-            if (out_read) |ptr| ptr.* = @as(u64, @intCast(copy_len));
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
-
-
-
-
-
-
-
-
-
-pub export fn sa_std_fd_from_raw(fd: i32, out_handle: ?*u64) i32 {
-    const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    handle_ptr.* = 0;
-    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const handle = registerResourceLocked(.{ .owned_fd = .{ .fd = @as(std.posix.fd_t, @intCast(fd)) } }) catch |err| return finishErr(err);
-    handle_ptr.* = handle;
-    return finish(SA_STD_OK);
-}
-
-
-pub export fn sa_std_fd_close_raw(fd: i32) i32 {
-    if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    lxClose(@as(std.posix.fd_t, @intCast(fd)));
-    return finish(SA_STD_OK);
-}
-
-
-pub export fn sa_thread_current_id() u64 {
-    return @as(u64, @intCast(std.Thread.getCurrentId()));
-}
-
-pub export fn sa_thread_yield_now() i32 {
-    std.Thread.yield() catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+pub const sa_thread_yield_now = @import("sa_std/core_export.zig").sa_thread_yield_now;
 
 // W1-DEF-IO-BUFFER-API: io buffers are registry handles, the same
 // BufferHandle resources sa_io_read_line registers and the
@@ -3791,287 +1249,45 @@ pub export fn sa_thread_yield_now() i32 {
 // ignored its argument entirely. All three now resolve the handle
 // through the registry, sharing the fs family's implementation.
 
-
-
-
-
-
-
-
 /// Atomic create-exclusive open (2026-10-26): read|write|create with
 /// O_EXCL merged through custom flags. An existing path fails with
 /// SA_STD_ERR_ALREADY_EXISTS (via error.PathAlreadyExists in mapError),
 /// which lock-file protocols need to tell "lost the race" apart from a
 /// generic IO failure.
 
+pub const metadataModeMatches = @import("sa_std/core_types.zig").metadataModeMatches;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-pub fn metadataModeMatches(handle: u64, mode_bits: u64) u8 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .metadata => |*metadata| if ((@as(u64, @intCast(metadata.raw.mode)) & std.posix.S.IFMT) == mode_bits) 1 else 0,
-        else => 0,
-    };
-}
-
-pub fn mkdirPathWithMode(path: []const u8, mode: std.posix.mode_t) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (path.len == 0) return error.BadPathName;
-
-    var index: usize = if (path[0] == '/') 1 else 0;
-    while (index < path.len and path[index] == '/') : (index += 1) {}
-
-    while (index <= path.len) {
-        var next = index;
-        while (next < path.len and path[next] != '/') : (next += 1) {}
-        if (next > 0) {
-            const prefix = path[0..next];
-            if (prefix.len != 0 and !(prefix.len == 1 and prefix[0] == '/')) {
-                // Compared, not switched on: lxMkdirat's inferred
-                // error set on wasm lacks PathAlreadyExists (its
-                // wasm branch returns only error.Unsupported), and a
-                // catch-switch arm must name a set member.
-                lxMkdirat(std.posix.AT.FDCWD, prefix, mode) catch |err| {
-                    if (err != error.PathAlreadyExists) return err;
-                };
-            }
-        }
-        if (next == path.len) break;
-        index = next + 1;
-        while (index < path.len and path[index] == '/') : (index += 1) {}
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+pub const mkdirPathWithMode = @import("sa_std/file_ops.zig").mkdirPathWithMode;
 
 /// One mkdir -p segment: create the directory, or accept an existing
 /// one only when it really is a directory. An existing non-directory
 /// reports PathAlreadyExists (final segment) or fails the next
 /// segment with NotDir; neither is a silent success.
-fn mkdirPOne(prefix: []const u8) !void {
-    // Compared, not switched on: see the wasm error-set note at the
-    // other lxMkdirat call site.
-    lxMkdirat(std.posix.AT.FDCWD, prefix, 0o777) catch |err| {
-        if (err == error.PathAlreadyExists) {
-            const stat = try sio.cwd().statFile(prefix);
-            if (stat.kind != .directory) return error.PathAlreadyExists;
-        } else return err;
-    };
-}
+pub const mkdirPOne = @import("sa_std/file_ops.zig").mkdirPOne;
 
-pub fn mkdirP(path: []const u8) !void {
-    if (path.len == 0) return error.InvalidArgument;
-    var index: usize = 0;
-    while (index <= path.len) {
-        const at_boundary = index == path.len or path[index] == '/';
-        if (at_boundary and index > 0) {
-            const prefix = path[0..index];
-            if (!std.mem.eql(u8, prefix, "/") and !std.mem.eql(u8, prefix, ".")) {
-                try mkdirPOne(prefix);
-            }
-        }
-        index += 1;
-    }
-}
+pub const mkdirP = @import("sa_std/file_ops.zig").mkdirP;
 
 /// mkdir -p (2026-10-26): create every missing directory along the
 /// path. Existing directories along the way (including the final
 /// segment) are success; the TS mkdirSync(recursive) counterpart.
 
+pub const timespecFromUnixMs = @import("sa_std/core_misc2.zig").timespecFromUnixMs;
 
+pub const chownId = @import("sa_std/file_ops.zig").chownId;
 
+pub const groupId = @import("sa_std/core_misc3.zig").groupId;
 
+pub const finishErrnoAny = @import("sa_std/core_util.zig").finishErrnoAny;
 
+pub const finishChownErrno = @import("sa_std/core_util.zig").finishChownErrno;
 
-
-
-
-
-pub fn timespecFromUnixMs(unix_ms: i64) !Timespec {
-    const sec = @divFloor(unix_ms, 1000);
-    const rem_ms = @mod(unix_ms, 1000);
-    const sec_value = std.math.cast(TimespecSec, sec) orelse return error.InvalidArgument;
-    const nsec_value = std.math.cast(TimespecNsec, rem_ms * 1_000_000) orelse return error.InvalidArgument;
-    return .{ .sec = sec_value, .nsec = nsec_value };
-}
-
-
-
-
-pub fn chownId(value: u32, enabled: u32) std.c.uid_t {
-    return if (enabled != 0) @as(std.c.uid_t, @intCast(value)) else ~@as(std.c.uid_t, 0);
-}
-
-pub fn groupId(value: u32, enabled: u32) std.c.gid_t {
-    return if (enabled != 0) @as(std.c.gid_t, @intCast(value)) else ~@as(std.c.gid_t, 0);
-}
-
-pub fn finishErrnoAny(e: anytype) i32 {
-    const n = @tagName(e);
-    if (std.mem.eql(u8, n, "SUCCESS")) return finish(SA_STD_OK);
-    if (std.mem.eql(u8, n, "INTR")) return finish(SA_STD_ERR_IO);
-    if (std.mem.eql(u8, n, "BADF")) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (std.mem.eql(u8, n, "ACCES") or std.mem.eql(u8, n, "PERM") or std.mem.eql(u8, n, "ROFS")) return finish(SA_STD_ERR_ACCESS);
-    if (std.mem.eql(u8, n, "NOENT") or std.mem.eql(u8, n, "NOTDIR")) return finish(SA_STD_ERR_NOT_FOUND);
-    if (std.mem.eql(u8, n, "FAULT") or std.mem.eql(u8, n, "INVAL") or std.mem.eql(u8, n, "NAMETOOLONG") or std.mem.eql(u8, n, "LOOP")) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    if (std.mem.eql(u8, n, "NOMEM")) return finish(SA_STD_ERR_NO_MEMORY);
-    return finish(SA_STD_ERR_IO);
-}
-
-pub fn finishChownErrno(rc: usize) i32 {
-    return finishErrnoAny(std.os.linux.errno(rc));
-}
-
-pub fn chownPath(path_ptr: ?[*]const u8, path_len: u64, uid: u32, gid: u32, has_uid: u32, has_gid: u32, nofollow: bool) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const path = pathBytes(path_ptr, path_len) catch |err| return finishErr(err);
-    if (comptime is_linux) {
-        const path_z = std.posix.toPosixPath(path) catch |err| return finishErr(err);
-        const flags: u32 = if (nofollow) std.os.linux.AT.SYMLINK_NOFOLLOW else 0;
-        const rc = std.os.linux.syscall5(
-            .fchownat,
-            @as(usize, @bitCast(@as(isize, std.os.linux.AT.FDCWD))),
-            @intFromPtr(&path_z),
-            chownId(uid, has_uid),
-            groupId(gid, has_gid),
-            flags,
-        );
-        switch (std.os.linux.errno(rc)) {
-            .INTR => return chownPath(path_ptr, path_len, uid, gid, has_uid, has_gid, nofollow),
-            else => return finishChownErrno(rc),
-        }
-    }
-    const path_z = std.posix.toPosixPath(path) catch |err| return finishErr(err);
-    const rc = if (nofollow)
-        libc.lchown(&path_z, chownId(uid, has_uid), groupId(gid, has_gid))
-    else
-        libc.chown(&path_z, chownId(uid, has_uid), groupId(gid, has_gid));
-    return finishErrnoAny(std.posix.errno(rc));
-}
-
-
-
-
-
-
-
-
-
-
-
-
+pub const chownPath = @import("sa_std/file_ops.zig").chownPath;
 
 // Reverse DNS lookup (getnameinfo, NI_NAMEREQD) for a resolved address
 // handle produced by sa_std_net_to_socket_addr_list/_first or a stream's
 // peer/local addr. Output semantics mirror sa_std_net_hostname: call with
 // (null, 0, &len) to size the buffer; SA_STD_ERR_TRUNCATED when it does
 // not fit. SA_STD_ERR_IO when the address has no name (NXDOMAIN / no PTR).
-
-
-
-
-
-
-
-
-
 
 // Interest/readiness bits for sa_std_net_poll_wait. The interest
 // mask (input) and the readiness mask (output) share the read and
@@ -4081,7 +1297,7 @@ pub fn chownPath(path_ptr: ?[*]const u8, path_len: u64, uid: u32, gid: u32, has_
 /// Larger connection sets are served by waiting on slices of the
 /// set in rotation; the cap is loud (invalid argument), never a
 /// silent truncation.
-pub const poll_wait_stack_handles: usize = 256;
+pub const poll_wait_stack_handles = @import("sa_std/core_types.zig").poll_wait_stack_handles;
 
 // Block until at least one of the given socket handles (TCP
 // streams, TCP listeners, UDP sockets) is ready for the requested
@@ -4096,16 +1312,8 @@ pub const poll_wait_stack_handles: usize = 256;
 // ready set. Handles must outlive the call. Native only; WASM
 // returns SA_STD_ERR_UNSUPPORTED.
 
-
-
-
-
-
-
-
 // SO_KEEPALIVE on a connected TCP stream. Codex's socket2 users enable this to
 // keep idle upstream connections alive; exposed here so SA callers match parity.
-
 
 // Tune the Linux TCP keepalive timers (idle before first probe, interval
 // between probes, probe count before dropping). All three are in whole units
@@ -4115,24 +1323,6 @@ pub const poll_wait_stack_handles: usize = 256;
 // tcp_listener resource kind). Allows rebinding a TIME_WAIT address.
 
 // SO_REUSEPORT on a TCP listener handle for load-balanced multi-acceptor setups.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // Raw-socket creation (wave-3 fill; the missing primitive BE
 // registered for the ICMP transport half). domain / sock_type /
@@ -4152,16 +1342,7 @@ pub const poll_wait_stack_handles: usize = 256;
 // the Windows root does not implement it (see
 // docs/runtime_abi_windows_unsupported.txt).
 
-pub fn lxSendfile(out_fd: std.posix.fd_t, in_fd: std.posix.fd_t, offset: *u64, count: usize) !usize {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        var off: i64 = @intCast(offset.*);
-        const rc = try lxCheck(std.os.linux.sendfile(out_fd, in_fd, &off, count));
-        offset.* = @intCast(off);
-        return rc;
-    }
-    return error.Unsupported;
-}
+pub const lxSendfile = @import("sa_std/lx.zig").lxSendfile;
 
 // Zero-copy file-to-socket send (sendfile(2); wave-3 fill -- the
 // surface was verified absent tree-wide before this addition).
@@ -4178,56 +1359,6 @@ pub fn lxSendfile(out_fd: std.posix.fd_t, in_fd: std.posix.fd_t, offset: *u64, c
 // other platforms return SA_STD_ERR_UNSUPPORTED (the Windows root
 // does not implement it; see the ABI unsupported manifest).
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ---------------------------------------------------------------------------
 // Generic socket-option passthrough + datagram receive enhancements
 // (wave-2 fill). The passthrough is the Python net census's
@@ -4239,191 +1370,40 @@ pub fn lxSendfile(out_fd: std.posix.fd_t, in_fd: std.posix.fd_t, offset: *u64, c
 // sa_std_net_unix_stream_peer_cred, already exists below).
 // ---------------------------------------------------------------------------
 
-
-
-
-
 // out_flags bits of sa_std_net_udp_recv_msg; mirrored as
 // SA_NET_RECV_MSG_* in sa_std/net.sla.
-pub const recv_msg_flag_pktinfo: u32 = 1;
-pub const recv_msg_flag_timestamp: u32 = 2;
-pub const recv_msg_flag_ctrunc: u32 = 4;
-pub const recv_msg_flag_trunc: u32 = 8;
+pub const recv_msg_flag_pktinfo = @import("sa_std/core_misc3.zig").recv_msg_flag_pktinfo;
+pub const recv_msg_flag_timestamp = @import("sa_std/core_misc3.zig").recv_msg_flag_timestamp;
+pub const recv_msg_flag_ctrunc = @import("sa_std/core_misc3.zig").recv_msg_flag_ctrunc;
+pub const recv_msg_flag_trunc = @import("sa_std/core_misc3.zig").recv_msg_flag_trunc;
 
 // Linux control-message numbers the parser keys on (asm-generic /
 // in.h values; net.sla pins the SLA-facing names). std.os.linux
 // does not name SO_TIMESTAMP, so the literal is spelled out here.
-pub const cmsg_level_ip: i32 = 0; // IPPROTO_IP
-pub const cmsg_level_ipv6: i32 = 41; // IPPROTO_IPV6
-pub const cmsg_type_ip_pktinfo: i32 = 8; // IP_PKTINFO
-pub const cmsg_type_ipv6_pktinfo: i32 = 50; // IPV6_PKTINFO
-pub const cmsg_type_timestamp: i32 = 29; // SO_TIMESTAMP
+pub const cmsg_level_ip = @import("sa_std/sock_types.zig").cmsg_level_ip;
+pub const cmsg_level_ipv6 = @import("sa_std/sock_types.zig").cmsg_level_ipv6;
+pub const cmsg_type_ip_pktinfo = @import("sa_std/sock_types.zig").cmsg_type_ip_pktinfo;
+pub const cmsg_type_ipv6_pktinfo = @import("sa_std/sock_types.zig").cmsg_type_ipv6_pktinfo;
+pub const cmsg_type_timestamp = @import("sa_std/sock_types.zig").cmsg_type_timestamp;
 
+pub const recv_multi_max_msgs = @import("sa_std/core_types.zig").recv_multi_max_msgs;
 
+pub const parsePortAscii = @import("sa_std/core_util.zig").parsePortAscii;
 
-pub const recv_multi_max_msgs: usize = 64;
+pub const writeIpv6SegmentsNative = @import("sa_std/file_ops.zig").writeIpv6SegmentsNative;
 
+pub const parseIpv6Ascii = @import("sa_std/core_util.zig").parseIpv6Ascii;
 
+pub const parseSocketAddrV6Ascii = @import("sa_std/core_util.zig").parseSocketAddrV6Ascii;
 
+pub const readIpv6SegmentsNative = @import("sa_std/file_ops.zig").readIpv6SegmentsNative;
 
-
-
-
-pub fn parsePortAscii(text: []const u8) ?u16 {
-    if (text.len == 0) return null;
-    var value: u32 = 0;
-    for (text) |byte| {
-        if (byte < '0' or byte > '9') return null;
-        value = value * 10 + @as(u32, byte - '0');
-        if (value > std.math.maxInt(u16)) return null;
-    }
-    return @as(u16, @intCast(value));
-}
-
-
-
-pub fn writeIpv6SegmentsNative(out: []u8, octets: *const [16]u8) void {
-    var index: usize = 0;
-    while (index < 8) : (index += 1) {
-        const seg = std.mem.readInt(u16, octets[index * 2 ..][0..2], .big);
-        // Match SA `store ... as u16` host layout (x86_64 little-endian tests).
-        std.mem.writeInt(u16, out[index * 2 ..][0..2], seg, .little);
-    }
-}
-
-pub fn parseIpv6Ascii(text: []const u8) ?struct { octets: [16]u8, scope_id: u32 } {
-    // FreeBSD: Ip6Address.resolve reaches unimplemented if_nametoindex.
-    if (comptime builtin.os.tag == .freebsd) {
-        const parsed = parseIp6FreebsdParts(text) orelse return null;
-        return .{ .octets = parsed.addr, .scope_id = parsed.scope_id };
-    }
-    const parsed = std.Io.net.IpAddress.resolve(sio.io(), text, 0) catch return null;
-    return switch (parsed) {
-        .ip6 => |v6| .{ .octets = v6.bytes, .scope_id = v6.interface.index },
-        .ip4 => null,
-    };
-}
-
-pub fn parseSocketAddrV6Ascii(text: []const u8) ?struct { octets: [16]u8, port: u16, scope_id: u32 } {
-    if (text.len < 4 or text[0] != '[') return null;
-    const close = std.mem.lastIndexOfScalar(u8, text, ']') orelse return null;
-    if (close == 0 or close + 1 >= text.len or text[close + 1] != ':') return null;
-    const ip_text = text[1..close];
-    if (ip_text.len == 0) return null;
-    const port = parsePortAscii(text[close + 2 ..]) orelse return null;
-    const parsed = parseIpv6Ascii(ip_text) orelse return null;
-    return .{
-        .octets = parsed.octets,
-        .port = port,
-        .scope_id = parsed.scope_id,
-    };
-}
-
-
-
-pub fn readIpv6SegmentsNative(raw: *const [16]u8) [8]u16 {
-    var segments: [8]u16 = undefined;
-    var i: usize = 0;
-    while (i < 8) : (i += 1) {
-        segments[i] = std.mem.readInt(u16, raw[i * 2 ..][0..2], .little);
-    }
-    return segments;
-}
-
-pub fn formatIpv6Segments(buffer: []u8, segments: *const [8]u16) ![]u8 {
-    var longest_start: usize = 8;
-    var longest_len: usize = 0;
-    var current_start: usize = 0;
-    var current_len: usize = 0;
-    for (segments.*, 0..) |segment, index| {
-        if (segment == 0) {
-            if (current_len == 0) current_start = index;
-            current_len += 1;
-            if (current_len > longest_len) {
-                longest_start = current_start;
-                longest_len = current_len;
-            }
-        } else {
-            current_len = 0;
-        }
-    }
-    if (longest_len < 2) {
-        longest_start = 8;
-        longest_len = 0;
-    }
-
-    var w: std.Io.Writer = .fixed(buffer);
-    var i: usize = 0;
-    var abbreviated = false;
-    while (i < segments.len) : (i += 1) {
-        if (i == longest_start) {
-            if (!abbreviated) {
-                try w.writeAll(if (i == 0) "::" else ":");
-                abbreviated = true;
-            }
-            i += longest_len - 1;
-            continue;
-        }
-        if (abbreviated) abbreviated = false;
-        try w.print("{x}", .{segments[i]});
-        if (i != segments.len - 1) try w.writeByte(':');
-    }
-    return w.buffered();
-}
+pub const formatIpv6Segments = @import("sa_std/text_util.zig").formatIpv6Segments;
 
 // sa_net_format_ascii_batch_v1
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // Float math for frontends (v0.24a; Haxe Math.* surface).
 // Pure f64 functions; random yields [0, 1) from 53 crypto bits.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // Single-byte string from a char code (JS `String.fromCharCode` over the
 // subset's byte-oriented strings; exact inverse of byte `charCodeAt`).
@@ -4454,60 +1434,14 @@ pub fn formatIpv6Segments(buffer: []u8, segments: *const [8]u16) ![]u8 {
 // `Infinity`/`NaN` (sign applies to Infinity only), decimal with optional
 // fraction/exponent; trailing garbage ignored; no digits at all yields
 // quiet NaN; overflow yields signed infinity.
-pub export fn sa_parse_float(ptr: ?[*]const u8, len: u64) f64 {
-    const bytes = constBytes(ptr, len) catch return std.math.nan(f64);
-    var i: usize = 0;
-    while (i < bytes.len and isAsciiWhitespace(bytes[i])) : (i += 1) {}
-    var negative = false;
-    if (i < bytes.len and (bytes[i] == '+' or bytes[i] == '-')) {
-        negative = bytes[i] == '-';
-        i += 1;
-    }
-    const rest = bytes[i..];
-    if (rest.len >= 8 and std.mem.eql(u8, rest[0..8], "Infinity")) return if (negative) -std.math.inf(f64) else std.math.inf(f64);
-    if (rest.len >= 3 and std.mem.eql(u8, rest[0..3], "NaN")) return std.math.nan(f64);
-    // Scan the maximal decimal prefix: digits[.digits][(e|E)[+-]digits],
-    // requiring at least one digit on either side of the dot.
-    var j: usize = 0;
-    while (j < rest.len and rest[j] >= '0' and rest[j] <= '9') : (j += 1) {}
-    const int_digits = j;
-    if (j < rest.len and rest[j] == '.') {
-        j += 1;
-        while (j < rest.len and rest[j] >= '0' and rest[j] <= '9') : (j += 1) {}
-    }
-    const frac_digits = j - int_digits - @as(usize, if (j > int_digits and rest[int_digits] == '.') 1 else 0);
-    if (int_digits == 0 and frac_digits == 0) return std.math.nan(f64);
-    var k: usize = j;
-    if (k < rest.len and (rest[k] == 'e' or rest[k] == 'E')) {
-        var m: usize = k + 1;
-        if (m < rest.len and (rest[m] == '+' or rest[m] == '-')) m += 1;
-        const exp_start = m;
-        while (m < rest.len and rest[m] >= '0' and rest[m] <= '9') : (m += 1) {}
-        if (m > exp_start) k = m;
-    }
-    const num = std.fmt.parseFloat(f64, rest[0..k]) catch |err| {
-        if (err == error.Overflow) return if (negative) -std.math.inf(f64) else std.math.inf(f64);
-        return std.math.nan(f64);
-    };
-    // parseFloat scanned an unsigned prefix; apply the leading sign here
-    // (a second negation of an explicitly signed prefix cannot occur:
-    // the scan above never consumes '+'/'-').
-    return if (negative) -num else num;
-}
+pub const sa_parse_float = @import("sa_std/core_export.zig").sa_parse_float;
 
 // JS `String.prototype.repeat`: `bytes` concatenated `count` times.
 // `count == 0` yields an empty handle; size overflow yields 0
 // (OOM-equivalent). Fresh buffer handle, concat read-back protocol.
 
 /// Shared pad filler: `pad` bytes tiled/truncated to exactly `fill` bytes.
-pub fn tilePad(owned: []u8, pad: []const u8) void {
-    var i: usize = 0;
-    while (i < owned.len) {
-        const n = @min(pad.len, owned.len - i);
-        std.mem.copyForwards(u8, owned[i..][0..n], pad[0..n]);
-        i += n;
-    }
-}
+pub const tilePad = @import("sa_std/core_misc2.zig").tilePad;
 
 // JS `String.prototype.padStart`: left-pad with tiled `pad` to
 // `target_len` bytes. Shorter-or-equal input and empty `pad` return an
@@ -4532,158 +1466,27 @@ pub fn tilePad(owned: []u8, pad: []const u8) void {
 /// U+FFFD replacement bytes: the subset has no exceptions, and a specified
 /// replacement beats a silent wrong encoding. Fresh buffer handle.
 
+pub const utf8ScalarAt = @import("sa_std/text_util.zig").utf8ScalarAt;
 
+pub const utf8LossyInvalidWidth = @import("sa_std/text_util.zig").utf8LossyInvalidWidth;
 
-pub fn utf8ScalarAt(bytes: []const u8, index: usize) !struct { scalar: u32, width: usize } {
-    if (index >= bytes.len) return error.FileNotFound;
-    const b0 = bytes[index];
-    if (b0 < 0x80) return .{ .scalar = b0, .width = 1 };
+pub const utf8CharRangeAt = @import("sa_std/text_util.zig").utf8CharRangeAt;
 
-    const width: usize = if (b0 >= 0xc2 and b0 <= 0xdf) 2 else if (b0 >= 0xe0 and b0 <= 0xef) 3 else if (b0 >= 0xf0 and b0 <= 0xf4) 4 else return error.InvalidArgument;
-    if (index + width > bytes.len) return error.InvalidArgument;
-
-    const b1 = bytes[index + 1];
-    if (b1 < 0x80 or b1 > 0xbf) return error.InvalidArgument;
-    if (width == 2) return .{ .scalar = ((@as(u32, b0) & 0x1f) << 6) | (@as(u32, b1) & 0x3f), .width = 2 };
-
-    const b2 = bytes[index + 2];
-    if (b2 < 0x80 or b2 > 0xbf) return error.InvalidArgument;
-    if (width == 3) {
-        if (b0 == 0xe0 and b1 < 0xa0) return error.InvalidArgument;
-        if (b0 == 0xed and b1 >= 0xa0) return error.InvalidArgument;
-        return .{ .scalar = ((@as(u32, b0) & 0x0f) << 12) | ((@as(u32, b1) & 0x3f) << 6) | (@as(u32, b2) & 0x3f), .width = 3 };
-    }
-
-    const b3 = bytes[index + 3];
-    if (b3 < 0x80 or b3 > 0xbf) return error.InvalidArgument;
-    if (b0 == 0xf0 and b1 < 0x90) return error.InvalidArgument;
-    if (b0 == 0xf4 and b1 >= 0x90) return error.InvalidArgument;
-    return .{ .scalar = ((@as(u32, b0) & 0x07) << 18) | ((@as(u32, b1) & 0x3f) << 12) | ((@as(u32, b2) & 0x3f) << 6) | (@as(u32, b3) & 0x3f), .width = 4 };
-}
-
-pub fn utf8LossyInvalidWidth(bytes: []const u8, index: usize) usize {
-    const b0 = bytes[index];
-    const expected_width: usize = if (b0 >= 0xc2 and b0 <= 0xdf) 2 else if (b0 >= 0xe0 and b0 <= 0xef) 3 else if (b0 >= 0xf0 and b0 <= 0xf4) 4 else return 1;
-    var width: usize = 1;
-    while (width < expected_width and index + width < bytes.len) : (width += 1) {
-        const byte = bytes[index + width];
-        if (byte < 0x80 or byte > 0xbf) break;
-    }
-    return width;
-}
-
-pub fn utf8CharRangeAt(bytes: []const u8, char_index: u64) !struct { start: usize, len: usize, scalar: u32 } {
-    var byte_index: usize = 0;
-    var current: u64 = 0;
-    while (byte_index < bytes.len) {
-        const decoded = try utf8ScalarAt(bytes, byte_index);
-        if (current == char_index) return .{ .start = byte_index, .len = decoded.width, .scalar = decoded.scalar };
-        byte_index += decoded.width;
-        current += 1;
-    }
-    return error.FileNotFound;
-}
-
-
-
-
-
-
-
-pub fn isAsciiWhitespace(byte: u8) bool {
-    return switch (byte) {
-        ' ', '\t', '\n', '\r', 0x0b, 0x0c => true,
-        else => false,
-    };
-}
-
-
-
-
-
-
+pub const isAsciiWhitespace = @import("sa_std/core_types.zig").isAsciiWhitespace;
 
 // Raw free for SA `alloc` blocks (the native emitter lowers `alloc` to
 // libc malloc). SA-level code that must release a heap block through a
 // real call -- e.g. sa_vec_free, whose `!` releases the emitter may
 // lower to bookkeeping only -- goes through this export instead.
-pub export fn sa_mem_free(ptr: ?*anyopaque) void {
-    if (comptime is_wasm) return;
-    if (ptr) |p| std.c.free(p);
-}
+pub const sa_mem_free = @import("sa_std/core_export.zig").sa_mem_free;
 
-pub export fn sa_print_bytes(msg: ?[*]const u8, len: u64) void {
-    _ = sa_std_print(msg, len);
-}
+pub const sa_print_bytes = @import("sa_std/core_export.zig").sa_print_bytes;
 
-
-
-
-
-
-
-
-
-pub fn tcpConnectTimeoutMs(timeout_ns: u64) !i32 {
-    if (timeout_ns == 0) return error.InvalidArgument;
-    const whole_ms = timeout_ns / std.time.ns_per_ms;
-    const rounded_ms = whole_ms + @intFromBool(timeout_ns % std.time.ns_per_ms != 0);
-    return std.math.cast(i32, rounded_ms) orelse error.InvalidArgument;
-}
-
-
-
-
+pub const tcpConnectTimeoutMs = @import("sa_std/core_util.zig").tcpConnectTimeoutMs;
 
 // Unix domain socket support. Streams and listeners reuse the existing
 // tcp_stream / tcp_listener resource kinds so read/write/peek/shutdown/close
 // and accept all flow through the same sa_std_net_tcp_* paths.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ---- TLS/network fingerprint primitives (JA3 / JA4) ----
 //
@@ -4694,14 +1497,7 @@ pub fn tcpConnectTimeoutMs(timeout_ns: u64) !i32 {
 // so these are exposed here. They are pure functions over caller-provided bytes
 // — no sockets, no allocation beyond the caller's output buffer.
 
-pub fn writeHexLower(dst: []u8, bytes: []const u8) void {
-    const hex = "0123456789abcdef";
-    var i: usize = 0;
-    while (i < bytes.len) : (i += 1) {
-        dst[i * 2] = hex[bytes[i] >> 4];
-        dst[i * 2 + 1] = hex[bytes[i] & 0x0f];
-    }
-}
+pub const writeHexLower = @import("sa_std/file_ops.zig").writeHexLower;
 
 // md5 of the input, written as 32 lowercase hex chars into out (cap must be >= 32).
 // This is exactly the JA3 hash given a pre-built JA3 string.
@@ -4717,79 +1513,15 @@ pub fn writeHexLower(dst: []u8, bytes: []const u8) void {
 // HMAC-SHA-256 (RFC 2104, vectors in RFC 4231) of msg under key, written
 // as 64 lowercase hex chars into out (cap must be >= 64). Same status
 // model as sa_std_net_sha256_hex.
-pub export fn sa_hmac_sha256_hex(key_ptr: ?[*]const u8, key_len: u64, msg_ptr: ?[*]const u8, msg_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    len_slot.* = 0;
-    if (out_cap < 64) return finish(SA_STD_ERR_TRUNCATED);
-    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
-    const msg = constBytes(msg_ptr, msg_len) catch |err| return finishErr(err);
-    const out = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var digest: [32]u8 = undefined;
-    std.crypto.auth.hmac.sha2.HmacSha256.create(&digest, msg, key);
-    writeHexLower(out[0..64], digest[0..]);
-    len_slot.* = 64;
-    return finish(SA_STD_OK);
-}
+pub const sa_hmac_sha256_hex = @import("sa_std/core_misc.zig").sa_hmac_sha256_hex;
 
 // HMAC-SHA-1 (RFC 2104, vectors in RFC 2202) of msg under key, written
 // as 40 lowercase hex chars into out (cap must be >= 40).
-pub export fn sa_hmac_sha1_hex(key_ptr: ?[*]const u8, key_len: u64, msg_ptr: ?[*]const u8, msg_len: u64, out_ptr: ?[*]u8, out_cap: u64, out_len: ?*u64) i32 {
-    const len_slot = out_len orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    len_slot.* = 0;
-    if (out_cap < 40) return finish(SA_STD_ERR_TRUNCATED);
-    const key = constBytes(key_ptr, key_len) catch |err| return finishErr(err);
-    const msg = constBytes(msg_ptr, msg_len) catch |err| return finishErr(err);
-    const out = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    var digest: [20]u8 = undefined;
-    std.crypto.auth.hmac.HmacSha1.create(&digest, msg, key);
-    writeHexLower(out[0..40], digest[0..]);
-    len_slot.* = 40;
-    return finish(SA_STD_OK);
-}
+pub const sa_hmac_sha1_hex = @import("sa_std/core_misc.zig").sa_hmac_sha1_hex;
 
 // Fill the caller buffer with bytes from the OS CSPRNG (the same source
 // behind cryptoRandomU64 and sa_deno_random_uuid). A zero length is a
 // no-op success, including with a null pointer.
-pub export fn sa_crypto_random_bytes(out_ptr: ?[*]u8, len: u64) i32 {
-    if (len == 0) return finish(SA_STD_OK);
-    const out = out_ptr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const n = lenAsUsize(len) catch |err| return finishErr(err);
-    sio.io().random(out[0..n]);
-    return finish(SA_STD_OK);
-}
+pub const sa_crypto_random_bytes = @import("sa_std/core_misc2.zig").sa_crypto_random_bytes;
 
-pub fn expectTimeoutRoundedUpWithin(requested_ns: u64, observed_ns: u64) !void {
-    try std.testing.expect(observed_ns >= requested_ns);
-    try std.testing.expect(observed_ns - requested_ns <= 10 * std.time.ns_per_ms);
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+pub const expectTimeoutRoundedUpWithin = @import("sa_std/core_misc3.zig").expectTimeoutRoundedUpWithin;
