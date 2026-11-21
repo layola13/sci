@@ -536,6 +536,48 @@ comptime {
             _ = &@field(m, decl_name);
         }
     }
+    // force-emit all fns of sa_tls_server_cert.zig (loop over decls)
+    {
+        const m = @import("sa_tls_server_cert.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_cookie_jar.zig (loop over decls)
+    {
+        const m = @import("sa_cookie_jar.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_cookie_set.zig (loop over decls)
+    {
+        const m = @import("sa_cookie_set.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_cookie_header.zig (loop over decls)
+    {
+        const m = @import("sa_cookie_header.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_mysql_client_bind.zig (loop over decls)
+    {
+        const m = @import("sa_mysql_client_bind.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_mysql_client_result_api.zig (loop over decls)
+    {
+        const m = @import("sa_mysql_client_result_api.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
     if (builtin.os.tag == .linux) {
     }
     _ = &sa_task.sa_task_spawn;

@@ -95,15 +95,15 @@ pub const Seq = struct {
     content: []const u8,
     pos: usize = 0,
 
-    fn next(self: *Seq) error{Invalid}!Elem {
+    pub fn next(self: *Seq) error{Invalid}!Elem {
         if (self.pos >= self.content.len) return error.Invalid;
         return readElem(self.content, &self.pos);
     }
-    fn peekTag(self: *const Seq) error{Invalid}!u8 {
+    pub fn peekTag(self: *const Seq) error{Invalid}!u8 {
         if (self.pos >= self.content.len) return error.Invalid;
         return self.content[self.pos];
     }
-    fn done(self: *const Seq) bool {
+    pub fn done(self: *const Seq) bool {
         return self.pos >= self.content.len;
     }
 };
