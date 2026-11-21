@@ -182,3 +182,12 @@ pub fn opIsFloat(kind: inst.OpKind) bool {
         else => false,
     };
 }
+
+pub fn offIsZero(op: inst.Operand) bool {
+    return switch (op) {
+        .imm_int => |v| v == 0,
+        .imm_i64 => |v| v == 0,
+        .imm_u64 => |v| v == 0,
+        else => false,
+    };
+}
