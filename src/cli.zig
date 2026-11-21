@@ -43,59 +43,11 @@ const common_upstream = @import("common/upstream_loc.zig");
 
 const DceMode = emit_options.DceMode;
 
-fn intermediateArtifactPath(allocator: std.mem.Allocator, out_path: []const u8) ![]u8 {
-    return try std.fmt.allocPrint(allocator, "{s}.sa.bc", .{out_path});
-}
+const intermediateArtifactPath = @import("cli/build_lib.zig").intermediateArtifactPath;
 
-const CompileOk = struct {
-    flat: flattener.FlattenResult,
-    verified: referee.VerifyOk,
-    metrics: CompileMetrics,
-    /// Set by releaseFlatInstructions(): the flat.instructions storage was
-    /// freed at the emit seam, so the per-item allocations it shares with
-    /// verified.annotated[].base (upstream_loc.file, native_reg_names) are
-    /// released from the annotated copies in deinit instead of via
-    /// flat.deinit's (then empty) per-item loop.
-    flat_instructions_released: bool = false,
+const CompileOk = @import("cli/types.zig").CompileOk;
 
-    fn deinit(self: *CompileOk, allocator: std.mem.Allocator) void {
-        if (self.flat_instructions_released) {
-            // Mirrors FlattenResult.deinit's per-item frees, minus
-            // package_identity (already freed at the seam). The annotated
-            // base entries are shallow copies of the flat instructions, so
-            // these pointers are the same allocations, freed exactly once.
-            for (self.verified.annotated) |ann| {
-                if (ann.base.upstream_loc) |loc| allocator.free(loc.file);
-                if (ann.base.native_reg_names.len != 0) allocator.free(ann.base.native_reg_names);
-            }
-        }
-        self.verified.deinit(allocator);
-        self.flat.deinit(allocator);
-        self.* = undefined;
-    }
-
-    /// Emit-seam release of the flat instruction store: after
-    /// compileSource, emit consumes only verified.annotated, so the flat
-    /// array (one of the two full-size instruction copies held in
-    /// residency) is dead. Frees the per-item package_identity strings
-    /// (flat-owned; the emit paths never read them) and the array body.
-    /// Per-item allocations shared with annotated[].base
-    /// (upstream_loc.file, native_reg_names) deliberately stay alive for
-    /// emit; deinit releases them (see above).
-    fn releaseFlatInstructions(self: *CompileOk, allocator: std.mem.Allocator) void {
-        for (self.flat.instructions) |ins| {
-            if (ins.package_identity) |identity| allocator.free(identity);
-        }
-        allocator.free(self.flat.instructions);
-        self.flat.instructions = &.{};
-        self.flat_instructions_released = true;
-    }
-};
-
-const CompileResult = union(enum) {
-    ok: CompileOk,
-    trap: trap.TrapReport,
-};
+const CompileResult = @import("cli/types.zig").CompileResult;
 
 const GraphNodeKind = enum {
     source_file,
@@ -126,184 +78,26 @@ const FunctionSizeEntry = struct {
     byte_count: u64,
 };
 
-const CompilePhaseMetrics = struct {
-    load_ns: u64 = 0,
-    setup_ns: u64 = 0,
-    flatten_ns: u64 = 0,
-    verify_ns: u64 = 0,
-    emit_ns: ?u64 = null,
-    link_ns: ?u64 = null,
-    total_ns: ?u64 = null,
-};
+const CompilePhaseMetrics = @import("cli/types.zig").CompilePhaseMetrics;
 
-const VerifierMemoryMetrics = struct {
-    start_rss_bytes: ?u64 = null,
-    after_classify_rss_bytes: ?u64 = null,
-    after_metadata_rss_bytes: ?u64 = null,
-    after_chunks_rss_bytes: ?u64 = null,
-    parallel_start_rss_bytes: ?u64 = null,
-    parallel_after_worker_allocators_rss_bytes: ?u64 = null,
-    parallel_after_body_rss_bytes: ?u64 = null,
-    parallel_merge_rss_bytes: ?u64 = null,
-    after_body_rss_bytes: ?u64 = null,
-    after_finalize_rss_bytes: ?u64 = null,
-    empty_rss_bytes: ?u64 = null,
-};
+const VerifierMemoryMetrics = @import("cli/types.zig").VerifierMemoryMetrics;
 
-const CompileMemoryMetrics = struct {
-    start_rss_bytes: ?u64 = null,
-    after_load_rss_bytes: ?u64 = null,
-    after_setup_rss_bytes: ?u64 = null,
-    after_flatten_rss_bytes: ?u64 = null,
-    after_verify_rss_bytes: ?u64 = null,
-    after_emit_rss_bytes: ?u64 = null,
-    after_link_rss_bytes: ?u64 = null,
-    end_rss_bytes: ?u64 = null,
-    peak_rss_bytes: ?u64 = null,
-    verifier: VerifierMemoryMetrics = .{},
+const CompileMemoryMetrics = @import("cli/types.zig").CompileMemoryMetrics;
 
-    fn updatePeak(self: *CompileMemoryMetrics, rss: ?u64) void {
-        const value = rss orelse return;
-        if (self.peak_rss_bytes == null or value > self.peak_rss_bytes.?) {
-            self.peak_rss_bytes = value;
-        }
-    }
+const BackendIrMetrics = @import("cli/types.zig").BackendIrMetrics;
 
-    fn recordStart(self: *CompileMemoryMetrics) void {
-        const rss = currentRssBytes();
-        self.start_rss_bytes = rss;
-        self.updatePeak(rss);
-    }
-
-    fn recordAfterLoad(self: *CompileMemoryMetrics) void {
-        const rss = currentRssBytes();
-        self.after_load_rss_bytes = rss;
-        self.updatePeak(rss);
-    }
-
-    fn recordAfterSetup(self: *CompileMemoryMetrics) void {
-        const rss = currentRssBytes();
-        self.after_setup_rss_bytes = rss;
-        self.updatePeak(rss);
-    }
-
-    fn recordAfterFlatten(self: *CompileMemoryMetrics) void {
-        const rss = currentRssBytes();
-        self.after_flatten_rss_bytes = rss;
-        self.updatePeak(rss);
-    }
-
-    fn recordAfterVerify(self: *CompileMemoryMetrics) void {
-        const rss = currentRssBytes();
-        self.after_verify_rss_bytes = rss;
-        self.updatePeak(rss);
-    }
-
-    fn recordAfterEmit(self: *CompileMemoryMetrics) void {
-        const rss = currentRssBytes();
-        self.after_emit_rss_bytes = rss;
-        self.updatePeak(rss);
-    }
-
-    fn recordAfterLink(self: *CompileMemoryMetrics) void {
-        const rss = currentRssBytes();
-        self.after_link_rss_bytes = rss;
-        self.updatePeak(rss);
-    }
-
-    fn recordEnd(self: *CompileMemoryMetrics) void {
-        const rss = currentRssBytes();
-        self.end_rss_bytes = rss;
-        self.updatePeak(rss);
-    }
-
-    fn recordVerifierStage(self: *CompileMemoryMetrics, stage: []const u8, rss: ?u64) void {
-        if (std.mem.eql(u8, stage, "start")) {
-            self.verifier.start_rss_bytes = rss;
-        } else if (std.mem.eql(u8, stage, "after_classify")) {
-            self.verifier.after_classify_rss_bytes = rss;
-        } else if (std.mem.eql(u8, stage, "after_metadata")) {
-            self.verifier.after_metadata_rss_bytes = rss;
-        } else if (std.mem.eql(u8, stage, "after_chunks")) {
-            self.verifier.after_chunks_rss_bytes = rss;
-        } else if (std.mem.eql(u8, stage, "parallel_start")) {
-            self.verifier.parallel_start_rss_bytes = rss;
-        } else if (std.mem.eql(u8, stage, "parallel_after_worker_allocators")) {
-            self.verifier.parallel_after_worker_allocators_rss_bytes = rss;
-        } else if (std.mem.eql(u8, stage, "parallel_after_body")) {
-            self.verifier.parallel_after_body_rss_bytes = rss;
-        } else if (std.mem.eql(u8, stage, "parallel_merge")) {
-            self.verifier.parallel_merge_rss_bytes = rss;
-        } else if (std.mem.eql(u8, stage, "after_body")) {
-            self.verifier.after_body_rss_bytes = rss;
-        } else if (std.mem.eql(u8, stage, "after_finalize")) {
-            self.verifier.after_finalize_rss_bytes = rss;
-        } else if (std.mem.eql(u8, stage, "empty")) {
-            self.verifier.empty_rss_bytes = rss;
-        }
-        self.updatePeak(rss);
-    }
-};
-
-const BackendIrMetrics = struct {
-    functions: u64 = 0,
-    blocks: u64 = 0,
-    instructions: u64 = 0,
-    alloca_slots: u64 = 0,
-    loads: u64 = 0,
-    stores: u64 = 0,
-};
-
-const CompileMetrics = struct {
-    compile_tokens: u64,
-    instruction_count: u64,
-    phases: ?CompilePhaseMetrics = null,
-    memory: ?CompileMemoryMetrics = null,
-    backend_ir: ?BackendIrMetrics = null,
-    cache: ?BuildCacheMetrics = null,
-};
+const CompileMetrics = @import("cli/types.zig").CompileMetrics;
 
 const BuildCacheMetrics = struct {
     kind: []const u8,
     hit: bool,
 };
 
-fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const referee.VerifyOk, phases: ?CompilePhaseMetrics, memory: ?CompileMemoryMetrics) CompileMetrics {
-    const compile_tokens = @as(u64, flat.instructions.len) + @as(u64, flat.const_decls.len) + @as(u64, flat.function_sigs.len) + @as(u64, flat.test_sigs.len) + @as(u64, verified.annotated.len);
-    return .{
-        .compile_tokens = compile_tokens,
-        .instruction_count = @as(u64, verified.annotated.len),
-        .phases = phases,
-        .memory = memory,
-    };
-}
+const computeCompileMetrics = @import("cli/compile.zig").computeCompileMetrics;
 
-fn currentRssBytes() ?u64 {
-    if (builtin.os.tag != .linux) return null;
+const currentRssBytes = @import("cli/types.zig").currentRssBytes;
 
-    var file = sio.openFileAbsolute("/proc/self/statm", .{}) catch return null;
-    defer file.close();
-
-    var buf: [128]u8 = undefined;
-    var len: usize = 0;
-    while (len < buf.len) {
-        const n = file.read(buf[len..]) catch return null;
-        if (n == 0) break;
-        len += n;
-    }
-    var it = std.mem.tokenizeAny(u8, buf[0..len], " \t\r\n");
-    _ = it.next() orelse return null;
-    const rss_pages_text = it.next() orelse return null;
-    const rss_pages = std.fmt.parseInt(u64, rss_pages_text, 10) catch return null;
-    const page_size: u64 = @intCast(std.heap.pageSize());
-    return rss_pages * page_size;
-}
-
-fn elapsedNs(start: std.Io.Timestamp) u64 {
-    const end = std.Io.Clock.awake.now(sio.io());
-    const ns: i96 = start.durationTo(end).toNanoseconds();
-    return if (ns < 0) 0 else @intCast(ns);
-}
+const elapsedNs = @import("cli/compile.zig").elapsedNs;
 
 fn finishProfileMetrics(metrics: *CompileMetrics, emit_ns: ?u64, link_ns: ?u64, total_ns: ?u64) void {
     if (metrics.phases) |phases| {
@@ -319,16 +113,7 @@ fn finishProfileMetrics(metrics: *CompileMetrics, emit_ns: ?u64, link_ns: ?u64, 
     }
 }
 
-/// Stage timing (SA_STAGE_TIMING=1): env-gated wall-clock phase summary
-/// for build pipelines. When the variable is unset this is fully inert:
-/// no timers run, no output is produced, and compile behaviour is
-/// unchanged. When set, executeBuildExe forces phase profiling on and
-/// prints one `[stage-timing]` line per successful build; the language
-/// frontend dispatch in routeLanguageFrontend prints its own
-/// `[stage-timing] frontend:` line.
-fn stageTimingEnabled() bool {
-    return boolEnv("SA_STAGE_TIMING");
-}
+const stageTimingEnabled = @import("cli/compile.zig").stageTimingEnabled;
 
 fn printStageTiming(writer: anytype, metrics: *const CompileMetrics) void {
     const phases = metrics.phases orelse return;
@@ -633,48 +418,7 @@ fn writeSizeText(writer: anytype, metrics: CompileMetrics, entries: []const Func
     }
 }
 
-const CompileOptions = struct {
-    jobs: ?usize = null,
-    jobs_explicit: bool = false,
-    dce: DceMode = .std,
-    incremental_cache: bool = true,
-    offline: bool = false,
-    ci: bool = false,
-    allow_unaudited_risks: bool = false,
-    auto_approve_requested: bool = false,
-    permission_set: ?[]const u8 = null,
-    allow_env_requested: bool = false,
-    allow_net_requested: bool = false,
-    allow_read_requested: bool = false,
-    allow_write_requested: bool = false,
-    allow_run_requested: bool = false,
-    package_name: ?[]const u8 = null,
-    project_root: ?[]const u8 = null,
-    profile: bool = false,
-    mem_report: bool = false,
-    mem_report_live: bool = false,
-    stdin_reader: ?*std.Io.Reader = null,
-    stdin_is_tty: ?bool = null,
-    diagnostic_writer: ?*std.Io.Writer = null,
-    sab_selected_test_names: []const []const u8 = &.{},
-    sab_skip_verify: bool = false,
-    /// Skip the process-global verdict-cache fast path and always run the
-    /// referee, leaving the returned FlattenResult pristine. Required by
-    /// consumers that re-derive everything from the flat itself (check
-    /// --emit-sab): the fast path's trusted shell repurposes the flat in
-    /// place (reg operands localized to slots, symbols/function sigs moved
-    /// out), which the standalone SAB encode/verify cannot consume
-    /// (finding D: second in-process emit-sab on an identical stream
-    /// trapped with a spurious verification trap).
-    skip_verdict_cache: bool = false,
-    target_triple: ?[]const u8 = null,
-    /// Rust-style mutability: allocations bind immutable values and writing
-    /// through them requires an explicit exclusive borrow.
-    default_immutable: bool = false,
-    /// EXPERIMENTAL: mark LLVM fadd/fmul/fsub/fdiv with 'fast' math flags
-    /// so FP reductions vectorize (matmul ~2.5x). Opt-in; changes FP semantics.
-    fast_math: bool = false,
-};
+const CompileOptions = @import("cli/types.zig").CompileOptions;
 
 const TestCommandOptions = struct {
     selection: test_meta.TestSelection,
@@ -909,51 +653,13 @@ const ProjectBuildArtifact = struct {
     }
 };
 
-const ProjectContext = struct {
-    root_path: []const u8,
-    member_root_path: []const u8,
-    workspace_manifest_path: []const u8,
-    member_manifest_path: []const u8,
-    manifest: ?manifest.Manifest,
-    workspace_manifest: ?manifest.Manifest,
-    member_manifest: ?manifest.Manifest,
-    lock_file: ?manifest.LockFile,
-    sum_file: ?manifest.SumFile,
+const ProjectContext = @import("cli/types.zig").ProjectContext;
 
-    fn deinit(self: *ProjectContext, allocator: std.mem.Allocator) void {
-        if (self.manifest) |*m| m.deinit(allocator);
-        if (self.workspace_manifest) |*m| m.deinit(allocator);
-        if (self.member_manifest) |*m| m.deinit(allocator);
-        if (self.lock_file) |*lock| lock.deinit(allocator);
-        if (self.sum_file) |*sum| sum.deinit(allocator);
-        allocator.free(self.root_path);
-        allocator.free(self.member_root_path);
-        allocator.free(self.workspace_manifest_path);
-        allocator.free(self.member_manifest_path);
-        self.* = undefined;
-    }
-};
+const WasmTarget = @import("cli/types.zig").WasmTarget;
 
-const WasmTarget = struct {
-    triple: []const u8,
-    no_entry: bool,
-    size_bits: u16,
-};
+const nativeSizeBits = @import("cli/compile.zig").nativeSizeBits;
 
-fn nativeSizeBits() u16 {
-    return @as(u16, @bitSizeOf(usize));
-}
-
-/// Pointer size for a cross-compilation triple (zig-style arch-os-abi).
-/// Unknown triples default to 64-bit.
-fn sizeBitsForTriple(triple: ?[]const u8) u16 {
-    const t = triple orelse return nativeSizeBits();
-    const arch = if (std.mem.indexOfScalar(u8, t, '-')) |i| t[0..i] else t;
-    for ([_][]const u8{ "wasm32", "i386", "i486", "i586", "i686", "arm", "armeb", "thumb", "riscv32", "mips", "mipsel", "mips64el", "powerpc", "sparc", "sparcel", "s390", "xcore", "nvptx", "amdgcn", "bpfel", "bpfeb", "csky", "hexagon", "m68k", "msp430", "avr", "arc", "xtensa" }) |a32| {
-        if (std.mem.eql(u8, arch, a32)) return 32;
-    }
-    return 64;
-}
+const sizeBitsForTriple = @import("cli/compile.zig").sizeBitsForTriple;
 
 fn tripleIsWindows(triple: ?[]const u8) bool {
     const t = triple orelse return builtin.os.tag == .windows;
@@ -964,11 +670,7 @@ fn executableSuffixForTriple(triple: ?[]const u8) []const u8 {
     return if (tripleIsWindows(triple)) ".exe" else "";
 }
 
-fn boolEnv(name: []const u8) bool {
-    const value = sio.getEnvVarOwned(std.heap.page_allocator, name) catch return false;
-    defer std.heap.page_allocator.free(value);
-    return value.len != 0 and !std.mem.eql(u8, value, "0") and !std.mem.eql(u8, value, "false") and !std.mem.eql(u8, value, "False");
-}
+const boolEnv = @import("cli/compile.zig").boolEnv;
 
 fn cguSeqShardCount() ?usize {
     const value = sio.getEnvVarOwned(std.heap.page_allocator, "SA_CGU_SEQ_SHARDS") catch return null;
@@ -1038,9 +740,7 @@ fn projectRootDir(allocator: std.mem.Allocator) ![]u8 {
     return sio.cwd().realpathAlloc(allocator, ".") catch return error.InvalidPath;
 }
 
-fn pathJoinAlloc(allocator: std.mem.Allocator, parts: []const []const u8) ![]u8 {
-    return try std.fs.path.join(allocator, parts);
-}
+const pathJoinAlloc = @import("cli/compile.zig").pathJoinAlloc;
 
 fn projectPathExists(path: []const u8) bool {
     sio.cwd().access(path, .{}) catch return false;
@@ -1063,9 +763,7 @@ fn projectManifestPath(allocator: std.mem.Allocator, root_path: []const u8) ![]u
     return try pathJoinAlloc(allocator, &.{ root_path, "sa.mod" });
 }
 
-fn projectLockPath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
-    return try pathJoinAlloc(allocator, &.{ root_path, "sa.lock" });
-}
+const projectLockPath = @import("cli/compile.zig").projectLockPath;
 
 fn projectSumPath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
     return try pathJoinAlloc(allocator, &.{ root_path, "sa.sum" });
@@ -1083,16 +781,7 @@ fn readManifestFile(allocator: std.mem.Allocator, path: []const u8) !manifest.Ma
     return try manifest.parseManifestWithFile(allocator, source, path);
 }
 
-fn readLockFile(allocator: std.mem.Allocator, path: []const u8) !?manifest.LockFile {
-    const source = sio.cwd().openFile(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return null,
-        else => return err,
-    };
-    defer source.close();
-    const bytes = try source.readToEndAlloc(allocator, 16 * 1024 * 1024);
-    defer allocator.free(bytes);
-    return try manifest.parseLock(allocator, bytes);
-}
+const readLockFile = @import("cli/compile.zig").readLockFile;
 
 fn readSumFile(allocator: std.mem.Allocator, path: []const u8) !?manifest.SumFile {
     const source = sio.cwd().openFile(path, .{}) catch |err| switch (err) {
@@ -1105,38 +794,7 @@ fn readSumFile(allocator: std.mem.Allocator, path: []const u8) !?manifest.SumFil
     return try manifest.parseSum(allocator, bytes);
 }
 
-fn loadProjectContext(allocator: std.mem.Allocator, root_path: []const u8, package_name: ?[]const u8) !ProjectContext {
-    const resolution = try pkg_workspace.resolveFromRootPath(allocator, root_path, .{ .request = package_name });
-
-    var ctx = ProjectContext{
-        .root_path = resolution.workspace_root,
-        .member_root_path = resolution.member_root,
-        .workspace_manifest_path = resolution.workspace_manifest_path,
-        .member_manifest_path = resolution.member_manifest_path,
-        .manifest = resolution.effective_manifest,
-        .workspace_manifest = resolution.workspace_manifest,
-        .member_manifest = resolution.member_manifest,
-        .lock_file = null,
-        .sum_file = null,
-    };
-    errdefer ctx.deinit(allocator);
-    if (resolution.selected_package) |name| allocator.free(name);
-    if (resolution.workspace_rel_member_path) |path| allocator.free(path);
-
-    const lock_path = try projectLockPath(allocator, ctx.root_path);
-    defer allocator.free(lock_path);
-    if (try readLockFile(allocator, lock_path)) |lock_file| {
-        ctx.lock_file = lock_file;
-    }
-
-    const sum_path = try projectSumPath(allocator, ctx.root_path);
-    defer allocator.free(sum_path);
-    if (try readSumFile(allocator, sum_path)) |sum_file| {
-        ctx.sum_file = sum_file;
-    }
-
-    return ctx;
-}
+const loadProjectContext = @import("cli/compile.zig").loadProjectContext;
 
 fn sourceHashHex(hash: [32]u8) [64]u8 {
     return std.fmt.bytesToHex(hash, .lower);
@@ -1314,35 +972,17 @@ const TmpWorkDir = struct {
     }
 };
 
-fn writeFile(dir: sio.Dir, path: []const u8, bytes: []const u8) !void {
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(bytes);
-}
+const writeFile = @import("cli/build_lib.zig").writeFile;
 
-fn forbiddenHint(hit: flattener.ForbiddenHit) []const u8 {
-    return switch (hit.token) {
-        .brace_open, .brace_close => "remove brace syntax and flatten the control flow into labels and jumps",
-        .keyword_if, .keyword_else, .keyword_while, .keyword_for => "replace control-flow keywords with labels and jmp/br instructions",
-        .property_chain => "replace dotted property access with explicit SSA registers or constant expansion",
-    };
-}
+const forbiddenHint = @import("cli/trap_errors.zig").forbiddenHint;
 
-fn lineContains(line: ?[]const u8, needle: []const u8) bool {
-    return if (line) |text| std.mem.indexOf(u8, text, needle) != null else false;
-}
+const lineContains = @import("cli/trap_errors.zig").lineContains;
 
 const writeJsonString = @import("cli/json.zig").writeJsonString;
 
 const writeMaybeJsonString = @import("cli/json.zig").writeMaybeJsonString;
 
-fn copyContextLine(report: *trap.TrapReport, idx: usize, line_no: u32, text: []const u8) void {
-    if (idx >= report.context.len) return;
-    report.context[idx].line = line_no;
-    report.context[idx].text = null;
-    report.context[idx].text_buf = std.mem.zeroes([256]u8);
-    copyTextBuf(&report.context[idx].text_buf, std.mem.trimEnd(u8, text, "\r"));
-}
+const copyContextLine = @import("cli/trap_errors.zig").copyContextLine;
 
 fn copyBadToken(report: *trap.TrapReport, token: []const u8) void {
     report.bad_token = null;
@@ -1363,64 +1003,15 @@ fn setContextFromLine(report: *trap.TrapReport, line_no: u32, text: ?[]const u8)
     }
 }
 
-fn setRepairAlternatives(report: *trap.TrapReport, alternatives: []const []const u8) void {
-    const limit = @min(report.repair_alternatives.len, alternatives.len);
-    report.repair_alternatives_len = @intCast(limit);
-    for (0..limit) |idx| {
-        report.repair_alternatives[idx] = null;
-        report.repair_alternatives_buf[idx] = std.mem.zeroes([64]u8);
-        copyTextBuf(&report.repair_alternatives_buf[idx], alternatives[idx]);
-        const end = std.mem.indexOfScalar(u8, report.repair_alternatives_buf[idx][0..], 0) orelse alternatives[idx].len;
-        report.repair_alternatives[idx] = report.repair_alternatives_buf[idx][0..end];
-    }
-}
+const setRepairAlternatives = @import("cli/trap_errors.zig").setRepairAlternatives;
 
-fn firstBadTokenForTypeLine(line: ?[]const u8) ?[]const u8 {
-    const text = line orelse return null;
-    if (std.mem.indexOf(u8, text, "*")) |idx| {
-        const tail = text[idx..];
-        const end = std.mem.indexOfAny(u8, tail, " \t,)]}") orelse tail.len;
-        return tail[0..end];
-    }
-    if (std.mem.indexOf(u8, text, "bool")) |_| return "bool";
-    if (std.mem.indexOf(u8, text, "string")) |_| return "string";
-    if (std.mem.indexOf(u8, text, "&")) |_| return "&";
-    return null;
-}
+const firstBadTokenForTypeLine = @import("cli/trap_errors.zig").firstBadTokenForTypeLine;
 
-fn fillContextWindow(report: *trap.TrapReport, source: []const u8, center_line: u32) void {
-    const start_line = if (center_line > 2) center_line - 2 else 1;
-    var idx: usize = 0;
-    var line_no = start_line;
-    while (idx < report.context.len and line_no <= center_line + 2) : ({
-        idx += 1;
-        line_no += 1;
-    }) {
-        if (lineAt(source, line_no)) |line| {
-            copyContextLine(report, idx, line_no, sourceExcerpt(line));
-        }
-    }
-    report.context_len = @intCast(idx);
-}
+const fillContextWindow = @import("cli/trap_errors.zig").fillContextWindow;
 
-fn setLineText(report: *trap.TrapReport, text: []const u8) void {
-    report.source_text = null;
-    report.original_text = null;
-    report.source_text_buf = std.mem.zeroes([256]u8);
-    report.original_text_buf = std.mem.zeroes([256]u8);
-    copyTextBuf(&report.source_text_buf, text);
-    copyTextBuf(&report.original_text_buf, text);
-}
+const setLineText = @import("cli/trap_errors.zig").setLineText;
 
-fn unsupportedTypeHint(line: ?[]const u8) []const u8 {
-    if (lineContains(line, "call @")) {
-        return "inspect the callee declaration referenced by this call site; the unsupported annotation is usually in the imported signature";
-    }
-    if (lineContains(line, "@import")) {
-        return "inspect the imported file for unsupported primitive names or ownership suffixes";
-    }
-    return "check the primitive type names and ownership suffixes in the declaration";
-}
+const unsupportedTypeHint = @import("cli/trap_errors.zig").unsupportedTypeHint;
 
 const cliErrorInfo = @import("cli/errors.zig").cliErrorInfo;
 
@@ -1428,64 +1019,21 @@ const printCliError = @import("cli/errors.zig").printCliError;
 
 const printLlvmcEmitError = @import("cli/errors.zig").printLlvmcEmitError;
 
-fn importResolutionMessage(err: anyerror) []const u8 {
-    return switch (err) {
-        error.InvalidImportPath => "invalid import path",
-        error.PackageNotResolved => "import path could not be resolved",
-        error.AmbiguousPackageVersion => "multiple package versions match this import",
-        error.PrecompiledArtifactRejected => "precompiled artifact imports are not allowed",
-        error.InvalidPath => "invalid path while resolving an import",
-        else => "import resolution failed",
-    };
-}
+const importResolutionMessage = @import("cli/trap_errors.zig").importResolutionMessage;
 
-fn importResolutionHint(line: ?[]const u8, err: anyerror) []const u8 {
-    _ = line;
-    return switch (err) {
-        error.InvalidImportPath => "use a valid relative `.sa` or package identity without `../`, empty segments, or whitespace",
-        error.PackageNotResolved => "check the import path, package identity, local vendor tree, and package cache",
-        error.AmbiguousPackageVersion => "pin the required package ref in `sa.mod` so the resolver can choose one version",
-        error.PrecompiledArtifactRejected => "depend on the source package instead of a precompiled artifact",
-        error.InvalidPath => "check the project root or import path for filesystem errors",
-        else => "check the import path, package identity, local vendor tree, and package cache",
-    };
-}
+const importResolutionHint = @import("cli/trap_errors.zig").importResolutionHint;
 
-fn lineAt(source: []const u8, target_line: u32) ?[]const u8 {
-    if (target_line == 0) return null;
-    var iter = std.mem.splitScalar(u8, source, '\n');
-    var line_no: u32 = 1;
-    while (iter.next()) |line| : (line_no += 1) {
-        if (line_no == target_line) return line;
-    }
-    return null;
-}
+const lineAt = @import("cli/text.zig").lineAt;
 
-fn sourceExcerpt(line: []const u8) []const u8 {
-    return std.mem.trimEnd(u8, line, "\r");
-}
+const sourceExcerpt = @import("cli/trap_errors.zig").sourceExcerpt;
 
-fn copyTextBuf(dest: []u8, text: []const u8) void {
-    const len = @min(dest.len, text.len);
-    std.mem.copyForwards(u8, dest[0..len], text[0..len]);
-}
+const copyTextBuf = @import("cli/text.zig").copyTextBuf;
 
-fn bufText(buf: []const u8) []const u8 {
-    return buf[0..(std.mem.indexOfScalar(u8, buf, 0) orelse buf.len)];
-}
+const bufText = @import("cli/text.zig").bufText;
 
-fn textOrBuf(value: ?[]const u8, buf: []const u8) []const u8 {
-    if (value) |text| return text;
-    return bufText(buf);
-}
+const textOrBuf = @import("cli/text.zig").textOrBuf;
 
-fn reportText(report: *const trap.TrapReport) []const u8 {
-    if (report.source_text) |text| return text;
-    const source_fallback = bufText(report.source_text_buf[0..]);
-    if (source_fallback.len != 0) return source_fallback;
-    if (report.original_text) |text| return text;
-    return bufText(report.original_text_buf[0..]);
-}
+const reportText = @import("cli/errors.zig").reportText;
 
 const printUpstreamLocation = @import("cli/errors.zig").printUpstreamLocation;
 
@@ -1621,15 +1169,7 @@ fn writeSuccessJson(writer: anytype, metrics: CompileMetrics) !void {
     try writer.writeAll("}\n");
 }
 
-fn writeMemoryAmount(writer: anytype, value: ?u64) !void {
-    const bytes = value orelse {
-        try writer.writeAll("n/a");
-        return;
-    };
-    const bytes_per_mib: u64 = 1024 * 1024;
-    const tenths = (bytes * 10 + bytes_per_mib / 2) / bytes_per_mib;
-    try writer.print("{d}.{d} MiB", .{ tenths / 10, tenths % 10 });
-}
+const writeMemoryAmount = @import("cli/compile.zig").writeMemoryAmount;
 
 fn writeMemoryDelta(writer: anytype, previous: ?u64, current: ?u64) !void {
     const prev = previous orelse return;
@@ -1651,20 +1191,9 @@ fn writeMemoryStageLine(writer: anytype, label: []const u8, value: ?u64, previou
     try writer.writeByte('\n');
 }
 
-fn writeMemoryStageSample(writer: anytype, label: []const u8, value: ?u64, previous: ?u64) !void {
-    try writer.writeAll("memory stage ");
-    try writer.writeAll(label);
-    try writer.writeByte(' ');
-    try writeMemoryAmount(writer, value);
-    try writeMemoryDelta(writer, previous, value);
-    try writer.writeByte('\n');
-}
+const writeMemoryStageSample = @import("cli/compile.zig").writeMemoryStageSample;
 
-fn writeMemoryStageSampleForOptions(options: CompileOptions, label: []const u8, value: ?u64, previous: ?u64) !void {
-    if (!options.mem_report_live) return;
-    const writer = options.diagnostic_writer orelse return;
-    try writeMemoryStageSample(writer, label, value, previous);
-}
+const writeMemoryStageSampleForOptions = @import("cli/compile.zig").writeMemoryStageSampleForOptions;
 
 const MemoryStageReporterContext = struct {
     writer: *std.Io.Writer,
@@ -2611,261 +2140,18 @@ fn skillsCommand(allocator: std.mem.Allocator, writer: anytype, json_mode: bool)
     return 0;
 }
 
-fn daemonWrite(stream: std.Io.net.Stream, bytes: []const u8) void {
-    var wbuf: [8192]u8 = undefined;
-    var w = stream.writer(sio.io(), &wbuf);
-    w.interface.writeAll(bytes) catch {};
-    w.interface.flush() catch {};
-}
+const daemonWrite = @import("cli/daemon.zig").daemonWrite;
 
-fn daemonWorker(allocator: std.mem.Allocator, stream: std.Io.net.Stream, in_flight: *std.atomic.Value(usize)) void {
-    defer _ = in_flight.fetchSub(1, .monotonic);
-    handleDaemonConnection(allocator, stream);
-}
+const daemonWorker = @import("cli/daemon.zig").daemonWorker;
 
-var daemon_shutdown_flag = std.atomic.Value(bool).init(false);
-var daemon_in_flight_global = std.atomic.Value(usize).init(0);
-var daemon_cwd_lock: std.Io.RwLock = .init;
 
-fn handleDaemonConnection(allocator: std.mem.Allocator, stream: std.Io.net.Stream) void {
-    defer stream.close(sio.io());
-    var request_buf = std.array_list.Managed(u8).init(allocator);
-    defer request_buf.deinit();
-    var read_buf: [4096]u8 = undefined;
-    var request_line: []const u8 = &.{};
-    var sock_rbuf: [4096]u8 = undefined;
-    var sock_reader = stream.reader(sio.io(), &sock_rbuf);
-    while (true) {
-        const n = sock_reader.interface.readSliceShort(read_buf[0..]) catch return;
-        if (n == 0) return;
-        if (request_buf.items.len > daemon_client.MAX_REQUEST_BYTES - n) {
-            daemonWrite(stream, "{\"status\":\"error\",\"message\":\"request too large\"}\n");
-            return;
-        }
-        request_buf.appendSlice(read_buf[0..n]) catch return;
-        if (std.mem.indexOfScalar(u8, request_buf.items, '\n')) |newline| {
-            request_line = std.mem.trimEnd(u8, request_buf.items[0..newline], "\r ");
-            break;
-        }
-    }
-    if (request_line.len == 0) return;
+const handleDaemonConnection = @import("cli/daemon.zig").handleDaemonConnection;
 
-    // Control ops that don't need argv execution.
-    if (std.mem.indexOf(u8, request_line, "\"op\":\"ping\"") != null or std.mem.indexOf(u8, request_line, "\"op\": \"ping\"") != null) {
-        const st = daemon_cancel.stats();
-        const vs = incr_verify.stats();
-        const as = affected_tests.stats();
-        var aw: std.Io.Writer.Allocating = .init(allocator);
-        defer aw.deinit();
-        aw.writer.print(
-            "{{\"status\":\"ok\",\"code\":0,\"metrics\":{{\"in_flight\":{d},\"accepted\":{d},\"canceled\":{d},\"busy_rejects\":{d},\"verdict_hits\":{d},\"verdict_misses\":{d},\"affected_hits\":{d},\"affected_misses\":{d}}}}}\n",
-            .{
-                daemon_in_flight_global.load(.monotonic),
-                st.accepted,
-                st.canceled,
-                st.busy_rejects,
-                vs.hits,
-                vs.misses,
-                as.hits,
-                as.misses,
-            },
-        ) catch return;
-        daemonWrite(stream, aw.written());
-        return;
-    }
-    if (std.mem.indexOf(u8, request_line, "\"op\":\"shutdown\"") != null or std.mem.indexOf(u8, request_line, "\"op\": \"shutdown\"") != null) {
-        daemon_shutdown_flag.store(true, .monotonic);
-        daemonWrite(stream, "{\"status\":\"ok\",\"code\":0,\"message\":\"shutting down\"}\n");
-        return;
-    }
-    if (std.mem.indexOf(u8, request_line, "\"op\":\"cancel\"") != null or std.mem.indexOf(u8, request_line, "\"op\": \"cancel\"") != null) {
-        const agent_id = daemon_cancel.parseJsonStrField(request_line, "\"agent_id\"") orelse "";
-        const gen = daemon_cancel.cancelAgent(agent_id);
-        daemon_cancel.noteCanceled();
-        var aw: std.Io.Writer.Allocating = .init(allocator);
-        defer aw.deinit();
-        aw.writer.print("{{\"status\":\"ok\",\"code\":0,\"canceled_generation\":{d}}}\n", .{gen}) catch return;
-        daemonWrite(stream, aw.written());
-        return;
-    }
+const parseDaemonArgv = @import("cli/daemon.zig").parseDaemonArgv;
 
-    // Cooperative cancellation: skip work if a newer generation superseded this.
-    const agent_id = daemon_cancel.parseJsonStrField(request_line, "\"agent_id\"") orelse "";
-    const generation = daemon_cancel.parseJsonU64Field(request_line, "\"generation\"") orelse 0;
-    if (agent_id.len != 0) {
-        _ = daemon_cancel.registerGeneration(agent_id, generation);
-        if (!daemon_cancel.generationIsCurrent(agent_id, generation)) {
-            daemon_cancel.noteCanceled();
-            daemonWrite(stream, "{\"status\":\"canceled\"}\n");
-            return;
-        }
-    }
+const freeDaemonArgv = @import("cli/daemon.zig").freeDaemonArgv;
 
-    // Per-agent quota: reject if this agent already has too many in-flight
-    // requests. Prevents one agent from starving others. Empty id = unlimited.
-    if (agent_id.len != 0 and !daemon_cancel.acquireSlot(agent_id)) {
-        daemonWrite(stream, "{\"status\":\"busy\",\"message\":\"per-agent quota exceeded\"}\n");
-        return;
-    }
-    defer if (agent_id.len != 0) daemon_cancel.releaseSlot(agent_id);
-
-    const parsed = parseDaemonArgv(allocator, request_line) catch {
-        daemonWrite(stream, "{\"status\":\"error\",\"message\":\"invalid request\"}\n");
-        return;
-    };
-    defer freeDaemonArgv(allocator, parsed);
-
-    const requested_cwd = daemon_cancel.parseJsonStrField(request_line, "\"cwd\"");
-    if (requested_cwd != null) {
-        daemon_cwd_lock.lock(sio.io()) catch {};
-    } else {
-        daemon_cwd_lock.lockShared(sio.io()) catch {};
-    }
-    defer if (requested_cwd != null) daemon_cwd_lock.unlock(sio.io()) else daemon_cwd_lock.unlockShared(sio.io());
-
-    var old_cwd_buf: [sio.max_path_bytes]u8 = undefined;
-    const old_cwd = if (requested_cwd != null) sio.cwd().realpath(".", &old_cwd_buf) catch null else null;
-    if (requested_cwd) |cwd| {
-        sio.changeCurDir(cwd) catch {
-            daemonWrite(stream, "{\"status\":\"error\",\"message\":\"invalid cwd\"}\n");
-            return;
-        };
-    }
-    defer if (old_cwd) |c| sio.changeCurDir(c) catch {};
-
-    const wall_start = std.Io.Clock.awake.now(sio.io());
-    var resp: std.Io.Writer.Allocating = .init(allocator);
-    defer resp.deinit();
-    const code: u8 = executeWithWritersAndOptions(allocator, parsed, &resp.writer, &resp.writer, .{}) catch |err| blk: {
-        resp.clearRetainingCapacity();
-        resp.writer.print("execution error: {s}", .{@errorName(err)}) catch {};
-        break :blk @as(u8, 1);
-    };
-    const wall_ms: u64 = elapsedNs(wall_start) / 1_000_000;
-    const vs = incr_verify.stats();
-    const as = affected_tests.stats();
-
-    // Re-check cancellation after work (cooperative end boundary).
-    if (agent_id.len != 0 and !daemon_cancel.generationIsCurrent(agent_id, generation)) {
-        daemon_cancel.noteCanceled();
-        daemonWrite(stream, "{\"status\":\"canceled\"}\n");
-        return;
-    }
-
-    var haw: std.Io.Writer.Allocating = .init(allocator);
-    defer haw.deinit();
-    haw.writer.print(
-        "{{\"status\":\"ok\",\"code\":{d},\"len\":{d},\"metrics\":{{\"wall_ms\":{d},\"verdict_hits\":{d},\"verdict_misses\":{d},\"affected_hits\":{d},\"affected_misses\":{d}}}}}\n",
-        .{ code, resp.written().len, wall_ms, vs.hits, vs.misses, as.hits, as.misses },
-    ) catch return;
-    daemonWrite(stream, haw.written());
-    daemonWrite(stream, resp.written());
-}
-
-fn parseDaemonArgv(allocator: std.mem.Allocator, request: []const u8) ![]const []const u8 {
-    // Prefer explicit argv array. Also accept op/file/args document style.
-    if (std.mem.indexOf(u8, request, "\"argv\"")) |_| {
-        const lb = std.mem.indexOfScalar(u8, request, '[') orelse return error.InvalidRequest;
-        const rb = std.mem.lastIndexOfScalar(u8, request, ']') orelse return error.InvalidRequest;
-        if (rb <= lb) return error.InvalidRequest;
-        const inner = request[lb + 1 .. rb];
-        var list = std.array_list.Managed([]const u8).init(allocator);
-        errdefer {
-            for (list.items) |it| allocator.free(it);
-            list.deinit();
-        }
-        var i: usize = 0;
-        while (i < inner.len) {
-            if (inner[i] != '"') {
-                i += 1;
-                continue;
-            }
-            i += 1;
-            var item = std.array_list.Managed(u8).init(allocator);
-            errdefer item.deinit();
-            while (i < inner.len and inner[i] != '"') {
-                if (inner[i] == '\\' and i + 1 < inner.len) {
-                    i += 1;
-                }
-                try item.append(inner[i]);
-                i += 1;
-            }
-            i += 1; // closing quote
-            try list.append(try item.toOwnedSlice());
-        }
-        // Normalize argv[0] to "sa". Clients may send the real binary path
-        // (e.g. zig-out/bin/sa) or omit argv[0] entirely and start at the command.
-        if (list.items.len == 0) {
-            try list.insert(0, try allocator.dupe(u8, "sa"));
-        } else if (std.mem.eql(u8, list.items[0], "sa") or std.mem.endsWith(u8, list.items[0], "/sa")) {
-            if (!std.mem.eql(u8, list.items[0], "sa")) {
-                allocator.free(list.items[0]);
-                list.items[0] = try allocator.dupe(u8, "sa");
-            }
-        } else if (commandFromName(list.items[0]) != null or std.mem.eql(u8, list.items[0], "help") or std.mem.eql(u8, list.items[0], "version")) {
-            try list.insert(0, try allocator.dupe(u8, "sa"));
-        } else {
-            // Unknown first token: still force sa so dispatch can error cleanly.
-            try list.insert(0, try allocator.dupe(u8, "sa"));
-        }
-        return try list.toOwnedSlice();
-    }
-
-    // Document-style: {"op":"build","file":"x.sa","args":["--json"]}
-    const op = daemon_cancel.parseJsonStrField(request, "\"op\"") orelse return error.InvalidRequest;
-    var list = std.array_list.Managed([]const u8).init(allocator);
-    errdefer {
-        for (list.items) |it| allocator.free(it);
-        list.deinit();
-    }
-    try list.append(try allocator.dupe(u8, "sa"));
-    try list.append(try allocator.dupe(u8, op));
-    if (daemon_cancel.parseJsonStrField(request, "\"file\"")) |file| {
-        try list.append(try allocator.dupe(u8, file));
-    }
-    // Best-effort: pull string items after "args"
-    if (std.mem.indexOf(u8, request, "\"args\"")) |ap| {
-        const sub = request[ap..];
-        const lb = std.mem.indexOfScalar(u8, sub, '[') orelse 0;
-        const rb = std.mem.indexOfScalar(u8, sub, ']') orelse 0;
-        if (rb > lb) {
-            const inner = sub[lb + 1 .. rb];
-            var i: usize = 0;
-            while (i < inner.len) {
-                if (inner[i] != '"') {
-                    i += 1;
-                    continue;
-                }
-                i += 1;
-                var item = std.array_list.Managed(u8).init(allocator);
-                errdefer item.deinit();
-                while (i < inner.len and inner[i] != '"') {
-                    if (inner[i] == '\\' and i + 1 < inner.len) i += 1;
-                    try item.append(inner[i]);
-                    i += 1;
-                }
-                i += 1;
-                try list.append(try item.toOwnedSlice());
-            }
-        }
-    }
-    return try list.toOwnedSlice();
-}
-
-fn freeDaemonArgv(allocator: std.mem.Allocator, argv: []const []const u8) void {
-    for (argv) |a| allocator.free(a);
-    allocator.free(argv);
-}
-
-fn restrictDaemonSocket(socket_path: []const u8) bool {
-    if (comptime builtin.os.tag != .linux) return true;
-    var path_buf: [sio.max_path_bytes + 1]u8 = undefined;
-    const path_slice = std.fmt.bufPrint(path_buf[0..sio.max_path_bytes], "{s}", .{socket_path}) catch return false;
-    path_buf[path_slice.len] = 0;
-    const path_z: [*:0]const u8 = @ptrCast(&path_buf);
-    const rc = std.os.linux.chmod(path_z, 0o600);
-    return std.os.linux.errno(rc) == .SUCCESS;
-}
+const restrictDaemonSocket = @import("cli/daemon.zig").restrictDaemonSocket;
 
 fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
     // The persistent daemon relies on Unix-domain sockets, which are not
@@ -2880,75 +2166,11 @@ fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout:
     }
 }
 
-fn daemonCommandUnix(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
-    var socket_path: []const u8 = "/tmp/sa-daemon.sock";
-    var max_workers: usize = 8;
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--socket") and i + 1 < args.len) {
-            socket_path = args[i + 1];
-            i += 1;
-        } else if (std.mem.eql(u8, args[i], "--max-workers") and i + 1 < args.len) {
-            max_workers = std.fmt.parseInt(usize, args[i + 1], 10) catch 8;
-            i += 1;
-        } else if (std.mem.eql(u8, args[i], "--per-agent-limit") and i + 1 < args.len) {
-            daemon_cancel.setPerAgentLimit(std.fmt.parseInt(u32, args[i + 1], 10) catch 4);
-            i += 1;
-        }
-    }
-    sio.cwd().deleteFile(socket_path) catch {};
-    const ua = try std.Io.net.UnixAddress.init(socket_path);
-    var server = ua.listen(sio.io(), .{}) catch |err| {
-        try stderr.print("daemon: failed to listen on {s}: {s}\n", .{ socket_path, @errorName(err) });
-        return 1;
-    };
-    defer server.deinit(sio.io());
-    if (!restrictDaemonSocket(socket_path)) {
-        try stderr.print("daemon: failed to restrict socket permissions for {s}\n", .{socket_path});
-        return 1;
-    }
-    try stdout.print("sa daemon listening on {s} (max_workers={d})\n", .{ socket_path, max_workers });
-
-    var in_flight = std.atomic.Value(usize).init(0);
-    daemon_shutdown_flag.store(false, .monotonic);
-    while (!daemon_shutdown_flag.load(.monotonic)) {
-        const stream = server.accept(sio.io()) catch |err| {
-            if (daemon_shutdown_flag.load(.monotonic)) break;
-            try stderr.print("daemon: accept failed: {s}\n", .{@errorName(err)});
-            continue;
-        };
-        // Backpressure: at capacity, handle inline (blocks accept) instead of
-        // spawning unbounded threads. Bounds memory under many agents.
-        daemon_in_flight_global.store(in_flight.load(.monotonic), .monotonic);
-        if (in_flight.load(.monotonic) >= max_workers) {
-            handleDaemonConnection(allocator, stream);
-            continue;
-        }
-        _ = in_flight.fetchAdd(1, .monotonic);
-        daemon_in_flight_global.store(in_flight.load(.monotonic), .monotonic);
-        const thread = std.Thread.spawn(.{}, daemonWorker, .{ allocator, stream, &in_flight }) catch {
-            _ = in_flight.fetchSub(1, .monotonic);
-            handleDaemonConnection(allocator, stream);
-            continue;
-        };
-        thread.detach();
-    }
-    // Wait briefly for in-flight workers to drain.
-    var spins: usize = 0;
-    while (in_flight.load(.monotonic) > 0 and spins < 1000) : (spins += 1) {
-        sio.io().sleep(.fromNanoseconds(1 * std.time.ns_per_ms), .awake) catch {};
-    }
-    sio.cwd().deleteFile(socket_path) catch {};
-    return 0;
-}
+const daemonCommandUnix = @import("cli/daemon.zig").daemonCommandUnix;
 
 const trapFromFlattenError = @import("cli/trap_errors.zig").trapFromFlattenError;
 
-const PackageTrapInfo = struct {
-    kind: trap.Trap,
-    message: []const u8,
-    hint: ?[]const u8,
-};
+const PackageTrapInfo = @import("cli/types.zig").PackageTrapInfo;
 
 const trapFromPackagePreflightError = @import("cli/trap_errors.zig").trapFromPackagePreflightError;
 
@@ -3338,74 +2560,9 @@ fn configureCompileDiagnostics(options: *CompileOptions, json_mode: bool) void {
     options.mem_report_live = options.mem_report and !json_mode;
 }
 
-fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    if (builtin.is_test) test_source_tree_load_count += 1;
-    var file = try sio.cwd().openFile(path, .{});
-    defer file.close();
-    // C2b: the 16 MiB cap also guards .sab inputs, but the SLA compiler
-    // emits .sab files far beyond that for large module closures
-    // (measured 20-85 MiB for the saVmTool closure), so `sa test` on
-    // such a .sab died with error.StreamTooLong before doing any work.
-    // Source files are fully buffered by every downstream stage anyway;
-    // keep a 1 GiB sanity ceiling instead.
-    const bytes = try file.readToEndAlloc(allocator, 1024 * 1024 * 1024);
-    // A SAB fragment container is not a program: whatever path or
-    // extension it arrives under, it must never be flattened as text
-    // or decoded as a module here. Reject it by name at the single
-    // source-loading choke point every command path shares.
-    if (sab.isFragmentBytes(bytes)) {
-        allocator.free(bytes);
-        return error.SabFragmentNotAProgram;
-    }
-    return bytes;
-}
+const loadSource = @import("cli/compile.zig").loadSource;
 
-fn loadSabFlat(allocator: std.mem.Allocator, source_path: []const u8) !flattener.FlattenResult {
-    const bytes = try loadSource(allocator, source_path);
-    defer allocator.free(bytes);
-    var module = try sab.decodeModule(allocator, bytes);
-    errdefer module.deinit(allocator);
-
-    var symbols = flattener.SymbolTable.init(allocator);
-    errdefer symbols.deinit();
-    for (module.symbols) |name| _ = try symbols.intern(name);
-
-    if (module.owns_symbol_text) {
-        for (module.symbols) |name| allocator.free(name);
-    }
-    allocator.free(module.symbols);
-    module.symbols = &.{};
-    module.owns_symbol_text = false;
-
-    var test_sigs = std.array_list.Managed(flattener.FunctionSig).init(allocator);
-    errdefer test_sigs.deinit();
-    for (module.function_sigs) |fsig| {
-        if (fsig.kind == .test_func) try test_sigs.append(fsig);
-    }
-
-    const loc_table = try allocator.alloc(?common_upstream.UpstreamLoc, module.instructions.len);
-    @memset(loc_table, null);
-
-    const result = flattener.FlattenResult{
-        .instructions = module.instructions,
-        .const_decls = module.const_decls,
-        .function_sigs = module.function_sigs,
-        .test_sigs = try test_sigs.toOwnedSlice(),
-        .cached_macro_defs = &.{},
-        .def_dict = flattener.DefDict.init(allocator),
-        .symbols = symbols,
-        .loc_table = loc_table,
-        .layout_versions = &.{},
-        .package_identities = std.StringHashMap(void).init(allocator),
-        .owned_text = module.owned_text,
-        .trap = null,
-    };
-    module.instructions = &.{};
-    module.const_decls = &.{};
-    module.function_sigs = &.{};
-    module.owned_text = &.{};
-    return result;
-}
+const loadSabFlat = @import("cli/compile.zig").loadSabFlat;
 
 fn collectSabTestListFast(allocator: std.mem.Allocator, source_path: []const u8) !test_meta.TestList {
     const bytes = try loadSource(allocator, source_path);
@@ -3896,18 +3053,9 @@ fn trustedSabVerifyOk(allocator: std.mem.Allocator, flat: *flattener.FlattenResu
 
 var test_source_tree_load_count: usize = 0;
 
-fn resolveProjectFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8, package_name: ?[]const u8) !pkg_workspace.PackageResolution {
-    const real_source = try sio.cwd().realpathAlloc(allocator, source_path);
-    defer allocator.free(real_source);
-    const source_dir = std.fs.path.dirname(real_source) orelse ".";
-    return try pkg_workspace.resolveFromRootPath(allocator, source_dir, .{ .request = package_name });
-}
+const resolveProjectFromSourcePath = @import("cli/compile.zig").resolveProjectFromSourcePath;
 
-fn projectRootFromSourcePath(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
-    var resolved = try resolveProjectFromSourcePath(allocator, source_path, null);
-    defer resolved.deinit(allocator);
-    return try allocator.dupe(u8, resolved.workspace_root);
-}
+const projectRootFromSourcePath = @import("cli/compile.zig").projectRootFromSourcePath;
 
 fn stdRootFromEnv(allocator: std.mem.Allocator) ![]u8 {
     const repo_std_root = try std.fs.path.join(allocator, &.{ build_options.repo_root, "sa_std" });
@@ -4195,216 +3343,7 @@ fn manifestPluginImportRoots(manifest_file: *const manifest.Manifest, allocator:
     return try roots.toOwnedSlice();
 }
 
-fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, options: CompileOptions) !CompileResult {
-    var memory_metrics: ?CompileMemoryMetrics = if (options.mem_report) .{} else null;
-    if (memory_metrics) |*memory| {
-        memory.recordStart();
-        try writeMemoryStageSampleForOptions(options, "start", memory.start_rss_bytes, null);
-    }
-
-    const total_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    if (std.mem.endsWith(u8, source_path, ".sab")) {
-        const load_flat_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-        var flat = try loadSabFlat(allocator, source_path);
-        errdefer flat.deinit(allocator);
-        const load_flat_ns = if (load_flat_start) |start| elapsedNs(start) else null;
-        const prune_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-        try pruneSabFlatToSelectedTests(allocator, &flat, options.sab_selected_test_names);
-        const prune_ns = if (prune_start) |start| elapsedNs(start) else null;
-        const verify_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-        if (options.sab_skip_verify and options.sab_selected_test_names.len != 0) {
-            const trusted = try trustedSabVerifyOk(allocator, &flat);
-            const verify_ns = if (verify_start) |start| elapsedNs(start) else null;
-            if (options.profile) {
-                var null_buf: [64]u8 = undefined;
-                var null_discarding: std.Io.Writer.Discarding = .init(&null_buf);
-                const writer = options.diagnostic_writer orelse &null_discarding.writer;
-                try writer.print(
-                    "profile sab load_flat={d:.3}ms prune={d:.3}ms verify={d:.3}ms trusted=1\n",
-                    .{
-                        @as(f64, @floatFromInt(load_flat_ns orelse 0)) / 1_000_000.0,
-                        @as(f64, @floatFromInt(prune_ns orelse 0)) / 1_000_000.0,
-                        @as(f64, @floatFromInt(verify_ns orelse 0)) / 1_000_000.0,
-                    },
-                );
-            }
-            return .{ .ok = .{ .flat = flat, .verified = trusted, .metrics = computeCompileMetrics(&flat, &trusted, if (options.profile) .{ .load_ns = load_flat_ns orelse 0, .setup_ns = 0, .flatten_ns = prune_ns orelse 0, .verify_ns = verify_ns orelse 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } };
-        }
-        const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{
-            .jobs = options.jobs,
-            .stage_reporter = null,
-            .predecoded_symbol_names = flat.symbols.names.items,
-            .predecoded_function_sigs = flat.function_sigs,
-            .check_exit_leaks = options.sab_selected_test_names.len == 0,
-            .default_immutable = options.default_immutable,
-        });
-        const verify_ns = if (verify_start) |start| elapsedNs(start) else null;
-        if (options.profile) {
-            var null_buf: [64]u8 = undefined;
-            var null_discarding: std.Io.Writer.Discarding = .init(&null_buf);
-            const writer = options.diagnostic_writer orelse &null_discarding.writer;
-            try writer.print(
-                "profile sab load_flat={d:.3}ms prune={d:.3}ms verify={d:.3}ms\n",
-                .{
-                    @as(f64, @floatFromInt(load_flat_ns orelse 0)) / 1_000_000.0,
-                    @as(f64, @floatFromInt(prune_ns orelse 0)) / 1_000_000.0,
-                    @as(f64, @floatFromInt(verify_ns orelse 0)) / 1_000_000.0,
-                },
-            );
-        }
-        return switch (verified) {
-            .ok => |ok| blk: {
-                const digest = incr_verify.hashInstructionsMode(flat.instructions, verifyModeByte(options.default_immutable));
-                incr_verify.recordVerified(digest);
-                break :blk .{ .ok = .{ .flat = flat, .verified = ok, .metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics) } };
-            },
-            .trap => |report| {
-                var r = report;
-                if (r.file == null) setFile(&r, source_path);
-                flat.deinit(allocator);
-                return .{ .trap = r };
-            },
-        };
-    }
-    const load_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    const source = try loadSource(allocator, source_path);
-    defer allocator.free(source);
-    const load_ns = if (load_start) |start| elapsedNs(start) else 0;
-    if (memory_metrics) |*memory| {
-        memory.recordAfterLoad();
-        try writeMemoryStageSampleForOptions(options, "after_load", memory.after_load_rss_bytes, memory.start_rss_bytes);
-    }
-
-    const setup_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    var resolution = if (options.project_root) |project_root|
-        try pkg_workspace.resolveFromRootPath(allocator, project_root, .{ .request = options.package_name })
-    else
-        try resolveProjectFromSourcePath(allocator, source_path, options.package_name);
-    defer resolution.deinit(allocator);
-
-    const project_root = resolution.workspace_root;
-    const member_root = resolution.member_root;
-    const std_root = try stdRootFromEnv(allocator);
-    defer allocator.free(std_root);
-
-    const project_manifest = resolution.effective_manifest;
-
-    var dependency_slice: []pkg_resolver.Dependency = &.{};
-    defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
-
-    var plugin_import_roots: []const []const u8 = &.{};
-    defer if (plugin_import_roots.len != 0) freeOwnedStringSlice(allocator, plugin_import_roots);
-    const stable_import_roots = try defaultStableImportRoots(allocator, member_root);
-    defer freeOwnedStringSlice(allocator, stable_import_roots);
-
-    if (project_manifest) |*m| {
-        verifyProjectPackageState(allocator, project_root, m.*, options) catch |err| {
-            if (trapFromPackagePreflightError(err)) |report| {
-                return .{ .trap = report };
-            }
-            return err;
-        };
-        dependency_slice = try manifestDependencies(m, allocator);
-        plugin_import_roots = try manifestPluginImportRoots(m, allocator);
-    }
-
-    const package_grants: []const manifest.RequireEntry = if (project_manifest) |*m| m.requires else &.{};
-
-    var error_ctx: flattener.ErrorContext = .{};
-    const resolve_ctx = flattener.ResolveContext{
-        .dependencies = dependency_slice,
-        .options = .{
-            .project_root = project_root,
-            .std_root = std_root,
-            .offline = options.offline,
-            .plugin_import_roots = plugin_import_roots,
-            .stable_import_roots = stable_import_roots,
-            .diagnostics = &reportPluginImportDiagnostic,
-        },
-    };
-    const setup_ns = if (setup_start) |start| elapsedNs(start) else 0;
-    if (memory_metrics) |*memory| {
-        memory.recordAfterSetup();
-        try writeMemoryStageSampleForOptions(options, "after_setup", memory.after_setup_rss_bytes, memory.after_load_rss_bytes);
-    }
-
-    const flatten_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    var flat = flattener.flattenFileWithContextAndPackages(allocator, source_path, source, &error_ctx, resolve_ctx) catch |err| {
-        return .{ .trap = trapFromFlattenError(source_path, source, err, flattener.errorReport(&error_ctx)) };
-    };
-    errdefer flat.deinit(allocator);
-    const flatten_ns = if (flatten_start) |start| elapsedNs(start) else 0;
-    if (memory_metrics) |*memory| {
-        memory.recordAfterFlatten();
-        try writeMemoryStageSampleForOptions(options, "after_flatten", memory.after_flatten_rss_bytes, memory.after_setup_rss_bytes);
-    }
-
-    var null_buf: [64]u8 = undefined;
-    var null_discarding: std.Io.Writer.Discarding = .init(&null_buf);
-    var verifier_stage_context = MemoryStageReporterContext{
-        .writer = options.diagnostic_writer orelse &null_discarding.writer,
-        .memory = if (memory_metrics) |*memory| memory else null,
-        .previous_rss_bytes = if (memory_metrics) |memory| memory.after_flatten_rss_bytes else null,
-        .peak_rss_bytes = if (memory_metrics) |memory| memory.peak_rss_bytes else null,
-        .live = options.mem_report_live,
-        .timing_live = options.profile,
-        .timing_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null,
-    };
-    const verifier_stage_reporter: ?referee.VerifyStageReporter = if (options.mem_report or options.profile)
-        .{ .context = &verifier_stage_context, .report_fn = reportVerifierMemoryStage }
-    else
-        null;
-
-    const verify_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    const content_hash = incr_verify.hashInstructionsMode(flat.instructions, verifyModeByte(options.default_immutable));
-    // Phase B-B hybrid: on verdict hit rebuild a trusted annotated shell from the
-    // current FlattenResult (no dangling VerifyOk reuse). Misses run the referee.
-    if (incr_verify.isVerified(content_hash)) {
-        const trusted = try trustedSabVerifyOk(allocator, &flat);
-        const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
-        if (memory_metrics) |*memory| {
-            memory.recordAfterVerify();
-            try writeMemoryStageSampleForOptions(options, "after_verify", memory.after_verify_rss_bytes, memory.after_flatten_rss_bytes);
-            memory.recordEnd();
-        }
-        var metrics = computeCompileMetrics(&flat, &trusted, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
-        metrics.cache = .{ .kind = "verdict", .hit = true };
-        return .{ .ok = .{ .flat = flat, .verified = trusted, .metrics = metrics } };
-    }
-    const verified = try referee.verifyWithOptions(allocator, flat.instructions, flat.const_decls, .{ .jobs = options.jobs, .package_grants = package_grants, .stage_reporter = verifier_stage_reporter, .default_immutable = options.default_immutable });
-    const verify_ns = if (verify_start) |start| elapsedNs(start) else 0;
-    if (memory_metrics) |*memory| {
-        memory.updatePeak(verifier_stage_context.peak_rss_bytes);
-        memory.recordAfterVerify();
-        try writeMemoryStageSampleForOptions(options, "after_verify", memory.after_verify_rss_bytes, memory.after_flatten_rss_bytes);
-        memory.recordEnd();
-    }
-
-    return switch (verified) {
-        .ok => |ok| blk: {
-            incr_verify.recordVerified(content_hash);
-            // NOTE: no recordResultFromInstructions call here on purpose
-            // (LINE-OPT-INCR-SNAPSHOT-FIX, R320 opt1_stop). The B-B result
-            // snapshot it built is a write-only cache: hasResult has zero
-            // call sites and its documented consumer restoreMinimal()
-            // does not exist, while recording deep-clones every
-            // instruction through page_allocator (~+1.9 GiB peak on a
-            // 100k cold compile). The verdict-only cache above
-            // (recordVerified) is the live cache and is untouched.
-            var metrics = computeCompileMetrics(&flat, &ok, if (options.profile) .{ .load_ns = load_ns, .setup_ns = setup_ns, .flatten_ns = flatten_ns, .verify_ns = verify_ns, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, memory_metrics);
-            metrics.cache = .{ .kind = "verdict", .hit = false };
-            break :blk .{ .ok = .{ .flat = flat, .verified = ok, .metrics = metrics } };
-        },
-        .trap => |report| {
-            var r = report;
-            if (r.file == null) {
-                setFile(&r, source_path);
-            }
-            flat.deinit(allocator);
-            return .{ .trap = r };
-        },
-    };
-}
+const compileSource = @import("cli/compile.zig").compileSource;
 
 fn collectExternalSymbolNames(allocator: std.mem.Allocator, verified: *const referee.VerifyOk) ![]const []const u8 {
     var names = std.array_list.Managed([]const u8).init(allocator);
@@ -4461,11 +3400,7 @@ pub fn defaultExecutableSuffix() []const u8 {
     return if (builtin.os.tag == .windows) ".exe" else "";
 }
 
-fn ensureParentDir(path: []const u8) !void {
-    if (std.fs.path.dirname(path)) |dir| {
-        if (dir.len != 0) try sio.cwd().makePath(dir);
-    }
-}
+const ensureParentDir = @import("cli/compile.zig").ensureParentDir;
 
 fn writeAllFile(path: []const u8, bytes: []const u8) !void {
     try ensureParentDir(path);
@@ -4526,13 +3461,7 @@ const CacheCleanOptions = struct {
     include_frontend_project_cache: bool = false,
 };
 
-const ProjectCacheKey = struct {
-    hex: [64]u8,
-
-    fn slice(self: *const ProjectCacheKey) []const u8 {
-        return self.hex[0..];
-    }
-};
+const ProjectCacheKey = @import("cli/types.zig").ProjectCacheKey;
 
 fn cacheBytes(hasher: *std.crypto.hash.sha2.Sha256, bytes: []const u8) void {
     hasher.update(bytes);
@@ -5102,136 +4031,7 @@ fn cacheBuildSemanticFlags(
     cacheBool(hasher, fast_math);
 }
 
-fn computeProjectBuildKey(
-    allocator: std.mem.Allocator,
-    project_context: *const ProjectContext,
-    project_root: []const u8,
-    source_path: []const u8,
-    target_name: []const u8,
-    source_suffix: []const u8,
-    kind: BuildCacheKind,
-    debug: bool,
-    optimization: driver.Optimization,
-    incremental: bool,
-    wasm: ?WasmTarget,
-    hash_source_tree: bool,
-    offline: bool,
-    dce: DceMode,
-    default_immutable: bool,
-    fast_math: bool,
-) !ProjectCacheKey {
-    const std_root = try stdRootFromEnv(allocator);
-    defer allocator.free(std_root);
-
-    // Cache keys are semantic identities (cache-dedup P3): they are built
-    // only from what the build means — source contents, compiler version,
-    // flags, the std tree's content digest — never from where anything
-    // happens to live on disk. The checkout path of the project, the
-    // absolute spelling of the source path, and file timestamps of build
-    // products must not appear here, or the same meaning keys differently
-    // in every tree and sharing is impossible by construction. The domain
-    // literal carries a generation marker so entries minted by the old
-    // location-based formula can never be mistaken for semantic ones.
-    const project_root_real = sio.cwd().realpathAlloc(allocator, project_root) catch try allocator.dupe(u8, project_root);
-    defer allocator.free(project_root_real);
-    const key_source_path = try cacheKeyNormalizedPath(allocator, project_root_real, source_path);
-    defer allocator.free(key_source_path);
-
-    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    cacheBytes(&hasher, "sa-build-cache-v2");
-    cacheBytes(&hasher, cacheCompilerVersion());
-    cacheBytes(&hasher, kind.dirName());
-    cacheBytes(&hasher, key_source_path);
-    cacheBytes(&hasher, target_name);
-    cacheBytes(&hasher, source_suffix);
-    cacheBuildSemanticFlags(&hasher, debug, optimization, incremental, dce, default_immutable, fast_math);
-    // The linked sa_std runtime is identified by the semantic digest of
-    // the std source tree it is built from. The previous formula fed the
-    // archive's (size, mtime) stat pair: a byte-identical archive rebuild
-    // — the normal case when a suite loop rebuilds its tree each round —
-    // changed only the mtime and still invalidated every cached entry in
-    // every project (measured invalidation radius: 100%). The archive
-    // bytes themselves cannot key anything either: they are not
-    // reproducible across checkouts. The source tree is the version of
-    // the std that the archive means, so its content digest is the key.
-    if (try stdTreeDigest(allocator, std_root)) |digest| {
-        cacheBytes(&hasher, "std-tree-digest-v1");
-        hasher.update(&digest);
-    }
-    if (wasm) |target| {
-        cacheBytes(&hasher, target.triple);
-        cacheBool(&hasher, target.no_entry);
-        cacheU64(&hasher, target.size_bits);
-        // The wasm sa_std archive is stripped at build time (see build.zig:
-        // `.strip = true` for wasi). The std source-tree digest alone cannot
-        // distinguish a stripped from an unstripped archive built from the
-        // same source, so cache entries minted before this change would be
-        // revived with the old 14 MB runtime. Bump this generation marker to
-        // invalidate them; byte-identical function is preserved.
-        cacheBytes(&hasher, "wasm-std-stripped-v1");
-    }
-
-    const project_manifest = project_context.manifest;
-    if (project_manifest) |*m| {
-        // Manifest identity is the project-relative path (its layout role)
-        // plus its content; the absolute spelling would reintroduce the
-        // checkout location into the key.
-        const key_workspace_manifest_path = try cacheKeyNormalizedPath(allocator, project_root_real, project_context.workspace_manifest_path);
-        defer allocator.free(key_workspace_manifest_path);
-        cacheBytes(&hasher, key_workspace_manifest_path);
-        if (projectPathExists(project_context.workspace_manifest_path)) {
-            const workspace_manifest_bytes = try readTextFileAlloc(allocator, project_context.workspace_manifest_path);
-            defer allocator.free(workspace_manifest_bytes);
-            cacheBytes(&hasher, workspace_manifest_bytes);
-        }
-        if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
-            const key_member_manifest_path = try cacheKeyNormalizedPath(allocator, project_root_real, project_context.member_manifest_path);
-            defer allocator.free(key_member_manifest_path);
-            cacheBytes(&hasher, key_member_manifest_path);
-            if (projectPathExists(project_context.member_manifest_path)) {
-                const member_manifest_bytes = try readTextFileAlloc(allocator, project_context.member_manifest_path);
-                defer allocator.free(member_manifest_bytes);
-                cacheBytes(&hasher, member_manifest_bytes);
-            }
-        }
-        if (project_context.lock_file != null) {
-            const lock_path = try projectLockPath(allocator, project_context.root_path);
-            defer allocator.free(lock_path);
-            try projectFileMaybeHash(&hasher, allocator, lock_path);
-        }
-        if (project_context.sum_file != null) {
-            const sum_path = try projectSumPath(allocator, project_context.root_path);
-            defer allocator.free(sum_path);
-            try projectFileMaybeHash(&hasher, allocator, sum_path);
-        }
-        var dependency_slice: []pkg_resolver.Dependency = &.{};
-        defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
-        var plugin_import_roots: []const []const u8 = &.{};
-        defer if (plugin_import_roots.len != 0) freeOwnedStringSlice(allocator, plugin_import_roots);
-        if (m.requires.len != 0) {
-            dependency_slice = try manifestDependencies(m, allocator);
-        }
-        if (m.plugin_requires.len != 0) {
-            plugin_import_roots = try manifestPluginImportRoots(m, allocator);
-        }
-
-        if (hash_source_tree) {
-            try hashResolvedSourceTree(allocator, &hasher, dependency_slice, plugin_import_roots, project_context.root_path, std_root, offline, source_path);
-        }
-    } else {
-        try projectFileMaybeHash(&hasher, allocator, project_context.workspace_manifest_path);
-        if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
-            try projectFileMaybeHash(&hasher, allocator, project_context.member_manifest_path);
-        }
-        if (hash_source_tree) {
-            try hashResolvedSourceTree(allocator, &hasher, &.{}, &.{}, project_context.root_path, std_root, offline, source_path);
-        }
-    }
-
-    var out: [32]u8 = undefined;
-    hasher.final(&out);
-    return .{ .hex = std.fmt.bytesToHex(out, .lower) };
-}
+const computeProjectBuildKey = @import("cli/compile.zig").computeProjectBuildKey;
 
 fn projectCacheDir(allocator: std.mem.Allocator, project_root: []const u8, kind: BuildCacheKind, key: ProjectCacheKey) ![]u8 {
     return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", kind.dirName(), key.slice() });
@@ -6632,537 +5432,11 @@ fn executeRun(
     }
 }
 
-fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, incremental: bool, compile_options_in: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
-    var compile_options = compile_options_in;
-    if (stageTimingEnabled()) compile_options.profile = true;
-    const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    const project_root_owned = compile_options.project_root == null;
-    const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
-    defer if (project_root_owned) allocator.free(project_root);
-    var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
-    defer project_context.deinit(allocator);
-    const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", compile_options.target_triple orelse "", .build_exe, debug, optimization, false, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
-    else
-        null;
-    const artifact_path = try intermediateArtifactPath(allocator, out_path);
-    defer allocator.free(artifact_path);
+const executeBuildExe = @import("cli/build_exe.zig").executeBuildExe;
 
-    if (cache_key) |key| {
-        if (try projectCacheHit(allocator, project_root, .build_exe, key, artifact_path, out_path)) {
-            try makeExecutable(out_path);
-            if (diagnostics_mode == .json or compile_options.mem_report) {
-                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = true } };
-                if (stageTimingEnabled()) printStageTiming(stderr, &metrics);
-                try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
-            }
-            return 0;
-        }
-    }
+const executeBuildObj = @import("cli/build_exe.zig").executeBuildObj;
 
-    const compiled = try compileSource(allocator, source_path, compile_options);
-    switch (compiled) {
-        .trap => |report| {
-            try printTrapReport(stderr, report, diagnostics_mode);
-            return 1;
-        },
-        .ok => |ok| {
-            var owned = ok;
-            defer owned.deinit(allocator);
-            rejectNpmBindsUnlessJs("sa build-exe", &owned.flat, stderr) catch return 1;
-            // verify->emit seam: rejectNpmBindsUnlessJs is the last reader
-            // of owned.flat above; everything below consumes owned.verified
-            // (plus flat.loc_table / flat.def_dict only). Release the flat
-            // instruction store before emit so its residency does not
-            // stack under the emit peak.
-            owned.releaseFlatInstructions(allocator);
-            const emit_std_root = try stdRootFromEnv(allocator);
-            defer allocator.free(emit_std_root);
-            const std_archive_path = saStdArchivePathForTarget(allocator, compile_options.target_triple) catch |err| {
-                if (err == error.ArchiveNotFoundForTarget) {
-                    try stderr.print("error: no sa_std archive for target '{s}'. Build it with:\n", .{compile_options.target_triple.?});
-                    try stderr.writeAll("  zig build -Dtarget=<triple> sa-std-static\n");
-                    try stderr.writeAll("then copy zig-out/lib/<libsa_std.a|sa_std.lib> to $SA_STD_DIR/<triple>/\n");
-                    return 1;
-                }
-                return err;
-            };
-            defer allocator.free(std_archive_path);
-            const size_bits = sizeBitsForTriple(compile_options.target_triple);
-
-            // TASK64: --incremental exe builds reuse the build-obj
-            // per-function object cache (buildIncrementalObject):
-            // only functions whose body/signature changed are
-            // re-emitted to LLVM; the cached .o files are merged
-            // (ld -r) and linked into the exe. The whole-artifact
-            // build-exe cache above still serves the no-op case and
-            // the entry is stored below, like the CGU path (which
-            // likewise produces no whole-module bitcode artifact).
-            // --target is rejected, like build-obj --incremental.
-            if (incremental) {
-                if (compile_options.target_triple != null) {
-                    try stderr.writeAll("error: --target cannot be combined with --incremental yet\n");
-                    return 1;
-                }
-                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization, true, null, false, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math);
-                const incr_obj_path = try std.fmt.allocPrint(allocator, "{s}.incr.o", .{out_path});
-                defer allocator.free(incr_obj_path);
-                const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, incr_obj_path, debug, optimization, compile_options, stderr) catch |err| {
-                    try printLlvmcEmitError(stderr, err, diagnostics_mode);
-                    return 1;
-                };
-                const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
-                recordMetricMemoryAfterEmit(&owned.metrics);
-                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
-
-                var link_inputs = std.array_list.Managed([]const u8).init(allocator);
-                defer link_inputs.deinit();
-                var owned_link_inputs = std.array_list.Managed([]const u8).init(allocator);
-                defer {
-                    for (owned_link_inputs.items) |arg| allocator.free(arg);
-                    owned_link_inputs.deinit();
-                }
-                if (!try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified, stderr)) return 1;
-                const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                driver.compileExe(allocator, incr_obj_path, out_path, optimization, std_archive_path, link_inputs.items, debug, stderr, compile_options.target_triple) catch |err| switch (err) {
-                    error.ChildProcessFailed => return 1,
-                    else => return err,
-                };
-                const link_ns = if (link_start) |start| elapsedNs(start) else null;
-                recordMetricMemoryAfterLink(&owned.metrics);
-                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_link", memory.after_link_rss_bytes, memory.after_emit_rss_bytes);
-                recordMetricMemoryEnd(&owned.metrics);
-                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
-                finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
-                if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_exe, key, out_path, out_path);
-                attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
-                if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = false };
-
-                if (stageTimingEnabled()) printStageTiming(stderr, &owned.metrics);
-                try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
-                return 0;
-            }
-
-            const worker_count = blk: {
-                if (compile_options.jobs) |j| {
-                    break :blk j;
-                }
-                break :blk std.Thread.getCpuCount() catch 1;
-            };
-            const emission_workers = @max(@min(worker_count, 4), 1);
-            const seq_shards = cguSeqShardCount();
-            const use_cgu = seq_shards != null or (emission_workers > 1 and owned.verified.function_sigs.len >= 100);
-            // LINE-PEAK50-EMIT Form 1: sequential shards when explicitly
-            // requested (SA_CGU_SEQ_SHARDS wins over the parallel opt-in)
-            // or, by default, for large modules (fn count above the gate).
-            // SA_CGU_PARALLEL=1 opts back into the old parallel path for
-            // large modules.
-            const sequential_cgu = seq_shards != null or (!cguForceParallel() and owned.verified.function_sigs.len > cgu_seq_fn_threshold);
-
-            if (use_cgu) {
-                const cgu_count = if (seq_shards) |n| n else @min(@max(emission_workers, 2), 4);
-
-                const cgu_obj_paths = try allocator.alloc([]const u8, cgu_count);
-                defer {
-                    for (cgu_obj_paths) |p| allocator.free(p);
-                    allocator.free(cgu_obj_paths);
-                }
-                for (0..cgu_count) |i| {
-                    cgu_obj_paths[i] = try std.fmt.allocPrint(allocator, "{s}_cgu_{d}.o", .{ out_path, i });
-                }
-
-                // Ensure parent directory exists for all of them
-                for (cgu_obj_paths) |p| {
-                    try ensureParentDir(p);
-                }
-
-                // Parallel emit CGU bitcode files
-                const VerifiedType = @TypeOf(owned.verified);
-                const CguEmitWorker = struct {
-                    alloc_val: std.mem.Allocator,
-                    verified_ptr: *const VerifiedType,
-                    def_dict_ptr: ?*const flattener.DefDict,
-                    loc_table_val: @TypeOf(owned.flat.loc_table),
-                    source_path_val: []const u8,
-                    size_bits_val: u16,
-                    debug_val: bool,
-                    jobs_val: ?usize,
-                    dce_val: DceMode,
-                    fast_math_val: bool,
-                    cgu_idx_val: usize,
-                    cgu_count_val: usize,
-                    object_path_val: []const u8,
-                    opt_level_val: u8,
-                    std_root_val: []const u8,
-                    target_triple_val: ?[]const u8,
-                    err: ?anyerror = null,
-
-                    pub fn run(self: *@This()) void {
-                        emit_llvm_llvmc.emitLlvmcToObject(
-                            self.alloc_val,
-                            self.verified_ptr.*,
-                            self.def_dict_ptr,
-                            self.loc_table_val,
-                            self.source_path_val,
-                            self.size_bits_val,
-                            .{
-                                .debug = self.debug_val,
-                                .jobs = self.jobs_val,
-                                .opt_level = self.opt_level_val,
-                                .codegen_unit_index = self.cgu_idx_val,
-                                .codegen_unit_count = self.cgu_count_val,
-                                .dce = self.dce_val,
-                                .fast_math = self.fast_math_val,
-                                .std_root = self.std_root_val,
-                                .target_triple = self.target_triple_val,
-                            },
-                            self.object_path_val,
-                            self.opt_level_val,
-                        ) catch |err| {
-                            self.err = err;
-                        };
-                    }
-                };
-
-                var cgu_emit_workers = try allocator.alloc(CguEmitWorker, cgu_count);
-                defer allocator.free(cgu_emit_workers);
-
-                for (0..cgu_count) |i| {
-                    cgu_emit_workers[i] = .{
-                        .alloc_val = allocator,
-                        .verified_ptr = &owned.verified,
-                        .def_dict_ptr = &owned.flat.def_dict,
-                        .loc_table_val = owned.flat.loc_table,
-                        .source_path_val = source_path,
-                        .size_bits_val = size_bits,
-                        .debug_val = debug,
-                        // LINE-PEAK50-EMIT Form 1: a sequential shard may
-                        // use the full worker pool for its internal
-                        // ParallelEmitJob codegen (same CModule output, less
-                        // wall time); parallel shards keep jobs=1 to avoid
-                        // oversubscription (4 shards x N workers).
-                        .jobs_val = if (sequential_cgu) emission_workers else if (compile_options.jobs) |j| if (j > 1) 1 else j else 1,
-                        .dce_val = compile_options.dce,
-                        .fast_math_val = compile_options.fast_math,
-                        .cgu_idx_val = i,
-                        .cgu_count_val = cgu_count,
-                        .object_path_val = cgu_obj_paths[i],
-                        .opt_level_val = emitOptLevel(debug, optimization),
-                        .std_root_val = emit_std_root,
-                        .target_triple_val = compile_options.target_triple,
-                    };
-                }
-
-                const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                if (sequential_cgu) {
-                    // Sequential shard emission (LINE-OPT-CGU-SHARD
-                    // prototype, now the Form 1 default for large modules).
-                    // Each shard's emit call builds and deinits its own
-                    // arenas, so shard i's C fragments and LLVM module are
-                    // released before shard i+1 starts; peak emit residency
-                    // is one shard's working set.
-                    for (cgu_emit_workers) |*w| w.run();
-                } else {
-                    var cgu_emit_threads = try allocator.alloc(std.Thread, cgu_count - 1);
-                    defer allocator.free(cgu_emit_threads);
-
-                    var started_cgu_emit: usize = 0;
-                    errdefer {
-                        while (started_cgu_emit > 0) {
-                            started_cgu_emit -= 1;
-                            cgu_emit_threads[started_cgu_emit].join();
-                        }
-                    }
-
-                    while (started_cgu_emit < cgu_count - 1) : (started_cgu_emit += 1) {
-                        cgu_emit_threads[started_cgu_emit] = try std.Thread.spawn(.{}, CguEmitWorker.run, .{&cgu_emit_workers[started_cgu_emit + 1]});
-                    }
-
-                    cgu_emit_workers[0].run();
-
-                    while (started_cgu_emit > 0) {
-                        started_cgu_emit -= 1;
-                        cgu_emit_threads[started_cgu_emit].join();
-                    }
-                }
-
-                for (cgu_emit_workers) |w| {
-                    if (w.err) |err| return err;
-                }
-                const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
-                recordMetricMemoryAfterEmit(&owned.metrics);
-                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
-
-                var link_inputs = std.array_list.Managed([]const u8).init(allocator);
-                defer link_inputs.deinit();
-                var owned_link_inputs = std.array_list.Managed([]const u8).init(allocator);
-                defer {
-                    for (owned_link_inputs.items) |arg| allocator.free(arg);
-                    owned_link_inputs.deinit();
-                }
-
-                for (1..cgu_count) |i| {
-                    try link_inputs.append(cgu_obj_paths[i]);
-                }
-                if (compile_options.target_triple) |triple| {
-                    const extern_names = try collectExternalSymbolNames(allocator, &owned.verified);
-                    defer allocator.free(extern_names);
-                    if (extern_names.len != 0) {
-                        try stderr.print("error: --target {s} does not support native plugins yet (program uses extern symbol '{s}')\n", .{ triple, extern_names[0] });
-                        return 1;
-                    }
-                } else {
-                    if (!try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified, stderr)) return 1;
-                }
-
-                const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                driver.compileExe(allocator, cgu_obj_paths[0], out_path, optimization, std_archive_path, link_inputs.items, debug, stderr, compile_options.target_triple) catch |err| switch (err) {
-                    error.ChildProcessFailed => return 1,
-                    else => return err,
-                };
-                const link_ns = if (link_start) |start| elapsedNs(start) else null;
-                recordMetricMemoryAfterLink(&owned.metrics);
-                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_link", memory.after_link_rss_bytes, memory.after_emit_rss_bytes);
-                recordMetricMemoryEnd(&owned.metrics);
-                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
-                finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
-                // CGU emission produces no whole-module bitcode artifact, so
-                // record the linked executable as the artifact payload: the
-                // build-exe cache entry must still be stored, otherwise every
-                // --jobs build misses the cache and recompiles from scratch.
-                // The hit path consumes output.bin; artifact.sa.bc is only
-                // restored to the intermediate path, which build-exe does
-                // not read back.
-                if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_exe, key, out_path, out_path);
-            } else {
-                try ensureParentDir(artifact_path);
-                const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
-                    try printLlvmcEmitError(stderr, err, diagnostics_mode);
-                    return 1;
-                };
-                const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
-                recordMetricMemoryAfterEmit(&owned.metrics);
-                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
-
-                const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                var link_inputs = std.array_list.Managed([]const u8).init(allocator);
-                defer link_inputs.deinit();
-                var owned_link_inputs = std.array_list.Managed([]const u8).init(allocator);
-                defer {
-                    for (owned_link_inputs.items) |arg| allocator.free(arg);
-                    owned_link_inputs.deinit();
-                }
-                if (compile_options.target_triple) |triple| {
-                    const extern_names = try collectExternalSymbolNames(allocator, &owned.verified);
-                    defer allocator.free(extern_names);
-                    if (extern_names.len != 0) {
-                        try stderr.print("error: --target {s} does not support native plugins yet (program uses extern symbol '{s}')\n", .{ triple, extern_names[0] });
-                        return 1;
-                    }
-                } else {
-                    if (!try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified, stderr)) return 1;
-                }
-                driver.compileExe(allocator, artifact_path, out_path, optimization, std_archive_path, link_inputs.items, debug, stderr, compile_options.target_triple) catch |err| switch (err) {
-                    error.ChildProcessFailed => return 1,
-                    else => return err,
-                };
-                const link_ns = if (link_start) |start| elapsedNs(start) else null;
-                recordMetricMemoryAfterLink(&owned.metrics);
-                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_link", memory.after_link_rss_bytes, memory.after_emit_rss_bytes);
-                recordMetricMemoryEnd(&owned.metrics);
-                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
-                finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
-                if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_exe, key, artifact_path, out_path);
-            }
-            attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
-            if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = false };
-
-            if (stageTimingEnabled()) printStageTiming(stderr, &owned.metrics);
-            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
-            return 0;
-        },
-    }
-}
-
-fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, incremental: bool, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
-    const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    const project_root_owned = compile_options.project_root == null;
-    const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
-    defer if (project_root_owned) allocator.free(project_root);
-    var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
-    defer project_context.deinit(allocator);
-    const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", compile_options.target_triple orelse "", .build_obj, debug, optimization, incremental, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
-    else
-        null;
-    const artifact_path = try intermediateArtifactPath(allocator, out_path);
-    defer allocator.free(artifact_path);
-
-    if (cache_key) |key| {
-        if (try projectCacheHit(allocator, project_root, .build_obj, key, artifact_path, out_path)) {
-            if (diagnostics_mode == .json or compile_options.mem_report) {
-                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = true } };
-                try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
-            }
-            return 0;
-        }
-    }
-
-    const compiled = try compileSource(allocator, source_path, compile_options);
-    switch (compiled) {
-        .trap => |report| {
-            try printTrapReport(stderr, report, diagnostics_mode);
-            return 1;
-        },
-        .ok => |ok| {
-            var owned = ok;
-            defer owned.deinit(allocator);
-            rejectNpmBindsUnlessJs("sa build-obj", &owned.flat, stderr) catch return 1;
-            const emit_std_root = try stdRootFromEnv(allocator);
-            defer allocator.free(emit_std_root);
-            try ensureParentDir(artifact_path);
-            const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-            const opt_level = emitOptLevel(debug, optimization);
-            if (compile_options.target_triple != null and incremental) {
-                try stderr.writeAll("error: --target cannot be combined with --incremental yet\n");
-                return 1;
-            }
-            const size_bits = sizeBitsForTriple(compile_options.target_triple);
-            if (incremental) {
-                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization, true, null, false, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math);
-                try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
-                emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
-                    try printLlvmcEmitError(stderr, err, diagnostics_mode);
-                    return 1;
-                };
-            } else {
-                emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path, out_path, opt_level) catch |err| {
-                    try printLlvmcEmitError(stderr, err, diagnostics_mode);
-                    return 1;
-                };
-            }
-            recordMetricMemoryAfterEmit(&owned.metrics);
-            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
-            recordMetricMemoryEnd(&owned.metrics);
-            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
-            finishProfileMetrics(&owned.metrics, if (emit_start) |start| elapsedNs(start) else null, null, if (total_start) |start| elapsedNs(start) else null);
-            attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
-            if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_obj, key, artifact_path, out_path);
-            if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_obj.dirName(), .hit = false };
-            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
-            return 0;
-        },
-    }
-}
-
-fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, target: WasmTarget, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
-    const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    const project_root_owned = compile_options.project_root == null;
-    const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
-    defer if (project_root_owned) allocator.free(project_root);
-    var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
-    defer project_context.deinit(allocator);
-    const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization, false, target, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
-    else
-        null;
-    const artifact_path = try intermediateArtifactPath(allocator, out_path);
-    defer allocator.free(artifact_path);
-
-    if (cache_key) |key| {
-        if (try projectCacheHit(allocator, project_root, .build_wasm, key, artifact_path, out_path)) {
-            if (diagnostics_mode == .json or compile_options.mem_report) {
-                const metrics = CompileMetrics{ .compile_tokens = 0, .instruction_count = 0, .phases = if (compile_options.profile) .{ .load_ns = 0, .setup_ns = 0, .flatten_ns = 0, .verify_ns = 0, .emit_ns = 0, .link_ns = 0, .total_ns = if (total_start) |start| elapsedNs(start) else null } else null, .memory = cacheHitMemoryMetrics(compile_options.mem_report), .cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = true } };
-                try writeSuccessDiagnostics(stderr, metrics, diagnostics_mode);
-            }
-            return 0;
-        }
-    }
-
-    const compiled = try compileSource(allocator, source_path, compile_options);
-    switch (compiled) {
-        .trap => |report| {
-            try printTrapReport(stderr, report, diagnostics_mode);
-            return 1;
-        },
-        .ok => |ok| {
-            var owned = ok;
-            defer owned.deinit(allocator);
-            rejectNpmBindsUnlessJs("sa build-wasm", &owned.flat, stderr) catch return 1;
-            if (comptime !build_options.llvm_enabled) {
-                // LLVM-C is unavailable in this build. Reuse the pure-Zig C
-                // backend and let `zig cc` lower the portable C to wasm, so
-                // `build-wasm` still produces a runnable module without LLVM.
-                const c_path = try std.fmt.allocPrint(allocator, "{s}.wasm.c", .{artifact_path});
-                defer allocator.free(c_path);
-                defer sio.cwd().deleteFile(c_path) catch {};
-                try ensureParentDir(c_path);
-                const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                emit_c.emitCToFile(allocator, owned.verified, source_path, target.size_bits, .{ .debug_comments = debug }, c_path) catch |err| {
-                    try stderr.print("error: C backend emit failed: {s}", .{@errorName(err)});
-                    if (emit_c.last_c_func.len != 0) try stderr.print(" in {s}", .{emit_c.last_c_func});
-                    if (emit_c.last_c_inst.len != 0) try stderr.print(": {s}", .{std.mem.trim(u8, emit_c.last_c_inst, " \t\r\n")});
-                    try stderr.writeAll("\n");
-                    try stderr.writeAll("hint: this sa build has no LLVM-C backend, so wasm fell back to the limited C emitter; rebuild with -Dllvm=true for full wasm support\n");
-                    return 1;
-                };
-                const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
-                recordMetricMemoryAfterEmit(&owned.metrics);
-                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
-
-                const c_std_archive_path: ?[]u8 = wasmStdArchivePath(allocator, target, stderr) catch return 1;
-                defer if (c_std_archive_path) |p| allocator.free(p);
-                const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-                driver.compileWasm(allocator, c_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, c_std_archive_path, stderr) catch |err| switch (err) {
-                    error.ChildProcessFailed => return 1,
-                    else => return err,
-                };
-                const link_ns = if (link_start) |start| elapsedNs(start) else null;
-                recordMetricMemoryAfterLink(&owned.metrics);
-                recordMetricMemoryEnd(&owned.metrics);
-                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
-                finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
-                attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
-                if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_wasm, key, c_path, out_path);
-                if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = false };
-                try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
-                return 0;
-            }
-            const emit_std_root = try stdRootFromEnv(allocator);
-            defer allocator.free(emit_std_root);
-            try ensureParentDir(artifact_path);
-            const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, target.size_bits, .{ .debug = debug, .wasm_compat = true, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root }, artifact_path) catch |err| {
-                try printLlvmcEmitError(stderr, err, diagnostics_mode);
-                return 1;
-            };
-            const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
-            recordMetricMemoryAfterEmit(&owned.metrics);
-            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
-
-            const std_archive_path: ?[]u8 = wasmStdArchivePath(allocator, target, stderr) catch return 1;
-            defer if (std_archive_path) |p| allocator.free(p);
-            const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-            driver.compileWasm(allocator, artifact_path, out_path, .{ .triple = target.triple, .no_entry = target.no_entry }, optimization, debug, std_archive_path, stderr) catch |err| switch (err) {
-                error.ChildProcessFailed => return 1,
-                else => return err,
-            };
-            const link_ns = if (link_start) |start| elapsedNs(start) else null;
-            recordMetricMemoryAfterLink(&owned.metrics);
-            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_link", memory.after_link_rss_bytes, memory.after_emit_rss_bytes);
-            recordMetricMemoryEnd(&owned.metrics);
-            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
-            finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
-            attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
-            if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_wasm, key, artifact_path, out_path);
-            if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_wasm.dirName(), .hit = false };
-            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
-            return 0;
-        },
-    }
-}
+const executeBuildWasm = @import("cli/build_exe.zig").executeBuildWasm;
 
 fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, js_format: emit_js.JsFormat, debug: bool, emit_dts: bool, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
     const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
@@ -7198,39 +5472,7 @@ fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_pat
     }
 }
 
-fn executeBuildC(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
-    const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    const compiled = try compileSource(allocator, source_path, compile_options);
-    switch (compiled) {
-        .trap => |report| {
-            try printTrapReport(stderr, report, diagnostics_mode);
-            return 1;
-        },
-        .ok => |ok| {
-            var owned = ok;
-            defer owned.deinit(allocator);
-            try ensureParentDir(out_path);
-            const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-            const size_bits = sizeBitsForTriple(compile_options.target_triple);
-            emit_c.emitCToFile(allocator, owned.verified, source_path, size_bits, .{ .debug_comments = debug }, out_path) catch |err| {
-                try stderr.print("error: C backend emit failed: {s}", .{@errorName(err)});
-                if (emit_c.last_c_func.len != 0) try stderr.print(" in {s}", .{emit_c.last_c_func});
-                if (emit_c.last_c_inst.len != 0) try stderr.print(": {s}", .{std.mem.trim(u8, emit_c.last_c_inst, " \t\r\n")});
-                try stderr.writeAll("\n");
-                return 1;
-            };
-            const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
-            recordMetricMemoryAfterEmit(&owned.metrics);
-            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
-            recordMetricMemoryEnd(&owned.metrics);
-            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
-            finishProfileMetrics(&owned.metrics, emit_ns, null, if (total_start) |start| elapsedNs(start) else null);
-            attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
-            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
-            return 0;
-        },
-    }
-}
+const executeBuildC = @import("cli/build_exe.zig").executeBuildC;
 
 // ---------------------------------------------------------------------------
 // build-lib: native library target (shared/static) driven by an explicit
@@ -7253,58 +5495,19 @@ fn executeBuildC(allocator: std.mem.Allocator, source_path: []const u8, out_path
 // own @export definitions bind directly and no glue is generated.
 // ---------------------------------------------------------------------------
 
-const LibKind = enum {
-    shared,
-    static,
-};
+const LibKind = @import("cli/types.zig").LibKind;
 
-const LibTargetFamily = enum {
-    elf,
-    pe,
-    mach_o,
-};
+const LibTargetFamily = @import("cli/types.zig").LibTargetFamily;
 
-const LibContractParam = struct {
-    name: []const u8,
-    type_name: []const u8,
-    borrowed: bool,
-};
+const LibContractParam = @import("cli/types.zig").LibContractParam;
 
-const LibContractEntry = struct {
-    name: []const u8,
-    params: []const LibContractParam,
-    return_type: []const u8,
-};
+const LibContractEntry = @import("cli/types.zig").LibContractEntry;
 
-const LibContract = struct {
-    entries: []const LibContractEntry,
-    /// Library stem (contract file basename without extension); drives
-    /// the header name, the <stem>_api type, and the generated entries.
-    stem: []const u8,
-    /// Uppercased stem with non-alphanumerics folded to '_'; the macro
-    /// prefix (<STEM>_API, <STEM>_ABI_VERSION, <STEM>_STATIC, ...).
-    macro_prefix: []const u8,
-};
+const LibContract = @import("cli/types.zig").LibContract;
 
-fn libContractTypeValid(type_name: []const u8, allow_void: bool) bool {
-    const scalar = [_][]const u8{
-        "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "f32", "f64", "ptr",
-    };
-    for (scalar) |candidate| {
-        if (std.mem.eql(u8, type_name, candidate)) return true;
-    }
-    return allow_void and std.mem.eql(u8, type_name, "void");
-}
+const libContractTypeValid = @import("cli/build_lib.zig").libContractTypeValid;
 
-fn libContractIdentValid(name: []const u8) bool {
-    if (name.len == 0) return false;
-    const first = name[0];
-    if (!(std.ascii.isAlphabetic(first) or first == '_')) return false;
-    for (name[1..]) |ch| {
-        if (!(std.ascii.isAlphanumeric(ch) or ch == '_')) return false;
-    }
-    return true;
-}
+const libContractIdentValid = @import("cli/build_lib.zig").libContractIdentValid;
 
 fn libContractCType(type_name: []const u8) []const u8 {
     const map = .{
@@ -7327,107 +5530,7 @@ fn libContractCType(type_name: []const u8) []const u8 {
     unreachable;
 }
 
-fn parseLibContract(arena: std.mem.Allocator, contract_path: []const u8, source: []const u8, stderr: anytype) !?LibContract {
-    const stem_raw = std.fs.path.stem(contract_path);
-    if (!libContractIdentValid(stem_raw)) {
-        try stderr.print("error: build-lib contract file name '{s}' is not a valid C identifier stem\n", .{stem_raw});
-        return null;
-    }
-    const stem = try arena.dupe(u8, stem_raw);
-    const macro_prefix = try arena.alloc(u8, stem.len);
-    for (stem, 0..) |ch, i| {
-        macro_prefix[i] = if (std.ascii.isAlphanumeric(ch)) std.ascii.toUpper(ch) else '_';
-    }
-
-    var entries = std.array_list.Managed(LibContractEntry).init(arena);
-    var lines = std.mem.splitScalar(u8, source, '\n');
-    var line_no: usize = 0;
-    while (lines.next()) |raw_line| {
-        line_no += 1;
-        const line = std.mem.trim(u8, raw_line, " \t\r");
-        if (line.len == 0) continue;
-        if (std.mem.startsWith(u8, line, "//")) continue;
-        if (!std.mem.startsWith(u8, line, "@export ")) {
-            try stderr.print("error: {s}:{d}: expected an @export declaration line\n", .{ contract_path, line_no });
-            return null;
-        }
-        const rest = std.mem.trimStart(u8, line["@export".len..], " \t");
-        const paren = std.mem.indexOfScalar(u8, rest, '(') orelse {
-            try stderr.print("error: {s}:{d}: missing '(' in @export declaration\n", .{ contract_path, line_no });
-            return null;
-        };
-        const name = std.mem.trim(u8, rest[0..paren], " \t");
-        if (!libContractIdentValid(name)) {
-            try stderr.print("error: {s}:{d}: invalid export name '{s}'\n", .{ contract_path, line_no, name });
-            return null;
-        }
-        for (entries.items) |existing| {
-            if (std.mem.eql(u8, existing.name, name)) {
-                try stderr.print("error: {s}:{d}: duplicate export '{s}'\n", .{ contract_path, line_no, name });
-                return null;
-            }
-        }
-        const close = std.mem.lastIndexOfScalar(u8, rest, ')') orelse {
-            try stderr.print("error: {s}:{d}: missing ')' in @export declaration\n", .{ contract_path, line_no });
-            return null;
-        };
-        var tail = std.mem.trim(u8, rest[close + 1 ..], " \t");
-        if (tail.len != 0 and (tail[tail.len - 1] == ':' or tail[tail.len - 1] == ';')) {
-            tail = std.mem.trimEnd(u8, tail[0 .. tail.len - 1], " \t");
-        }
-        if (!std.mem.startsWith(u8, tail, "->")) {
-            try stderr.print("error: {s}:{d}: expected '-> <type>' after the parameter list\n", .{ contract_path, line_no });
-            return null;
-        }
-        const return_type = std.mem.trim(u8, tail[2..], " \t");
-        if (!libContractTypeValid(return_type, true)) {
-            try stderr.print("error: {s}:{d}: unsupported return type '{s}'\n", .{ contract_path, line_no, return_type });
-            return null;
-        }
-        var params = std.array_list.Managed(LibContractParam).init(arena);
-        const params_text = std.mem.trim(u8, rest[paren + 1 .. close], " \t");
-        if (params_text.len != 0) {
-            var param_iter = std.mem.splitScalar(u8, params_text, ',');
-            while (param_iter.next()) |param_raw| {
-                var param_text = std.mem.trim(u8, param_raw, " \t");
-                var borrowed = false;
-                if (std.mem.startsWith(u8, param_text, "&")) {
-                    borrowed = true;
-                    param_text = std.mem.trimStart(u8, param_text[1..], " \t");
-                }
-                const colon = std.mem.lastIndexOfScalar(u8, param_text, ':') orelse {
-                    try stderr.print("error: {s}:{d}: parameter '{s}' is missing ': <type>'\n", .{ contract_path, line_no, param_text });
-                    return null;
-                };
-                const param_name = std.mem.trim(u8, param_text[0..colon], " \t");
-                const param_type = std.mem.trim(u8, param_text[colon + 1 ..], " \t");
-                if (!libContractIdentValid(param_name)) {
-                    try stderr.print("error: {s}:{d}: invalid parameter name '{s}'\n", .{ contract_path, line_no, param_name });
-                    return null;
-                }
-                if (!libContractTypeValid(param_type, false)) {
-                    try stderr.print("error: {s}:{d}: unsupported parameter type '{s}'\n", .{ contract_path, line_no, param_type });
-                    return null;
-                }
-                if (borrowed and !std.mem.eql(u8, param_type, "ptr")) {
-                    try stderr.print("error: {s}:{d}: borrowed parameter '&{s}' must be of type ptr in build-lib v1\n", .{ contract_path, line_no, param_name });
-                    return null;
-                }
-                try params.append(.{ .name = param_name, .type_name = param_type, .borrowed = borrowed });
-            }
-        }
-        try entries.append(.{
-            .name = name,
-            .params = try params.toOwnedSlice(),
-            .return_type = return_type,
-        });
-    }
-    return .{
-        .entries = try entries.toOwnedSlice(),
-        .stem = stem,
-        .macro_prefix = macro_prefix,
-    };
-}
+const parseLibContract = @import("cli/build_lib.zig").parseLibContract;
 
 fn writeLibCParams(writer: anytype, entry: LibContractEntry) !void {
     if (entry.params.len == 0) {
@@ -7617,18 +5720,7 @@ fn generateLibExportedSymbolsList(arena: std.mem.Allocator, contract: LibContrac
     return try aw.toOwnedSlice();
 }
 
-fn libTargetFamily(compile_options: CompileOptions) LibTargetFamily {
-    if (compile_options.target_triple) |triple| {
-        if (std.mem.indexOf(u8, triple, "windows") != null) return .pe;
-        if (std.mem.indexOf(u8, triple, "macos") != null or std.mem.indexOf(u8, triple, "darwin") != null) return .mach_o;
-        return .elf;
-    }
-    return switch (builtin.os.tag) {
-        .windows => .pe,
-        .macos => .mach_o,
-        else => .elf,
-    };
-}
+const libTargetFamily = @import("cli/build_lib.zig").libTargetFamily;
 
 fn libSharedSuffix(family: LibTargetFamily) []const u8 {
     return switch (family) {
@@ -7682,168 +5774,7 @@ fn lowerSlaUnitViaFrontend(allocator: std.mem.Allocator, source_path: []const u8
     };
 }
 
-fn executeBuildLib(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, kind: LibKind, contract_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
-    var arena_state = std.heap.ArenaAllocator.init(allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    // 1. Export contract (single source for header, table, export control).
-    const contract_source = sio.cwd().readFileAlloc(allocator, contract_path, 16 * 1024 * 1024) catch |err| {
-        try stderr.print("error: cannot read build-lib contract '{s}': {s}\n", .{ contract_path, @errorName(err) });
-        return 1;
-    };
-    defer allocator.free(contract_source);
-    const contract = (try parseLibContract(arena, contract_path, contract_source, stderr)) orelse return 1;
-
-    // Paths for the deliverables and the generated intermediates. The
-    // header is a deliverable and lands next to the library output; the
-    // generated sources sit next to it too, named after the output.
-    const out_dir = std.fs.path.dirname(out_path) orelse ".";
-    const header_path = try std.fs.path.join(arena, &.{ out_dir, try std.fmt.allocPrint(arena, "{s}.h", .{contract.stem}) });
-    const artifact_path = try intermediateArtifactPath(arena, out_path);
-    const object_path = try std.fmt.allocPrint(arena, "{s}.lib.o", .{out_path});
-    const api_source_path = try std.fmt.allocPrint(arena, "{s}.lib_api.c", .{out_path});
-    const family = libTargetFamily(compile_options);
-
-    // 2. For .sla sources, generate the forwarding unit (root + SA glue)
-    //    and compile that instead of the user's file.
-    var compile_path = source_path;
-    if (std.mem.eql(u8, std.fs.path.extension(source_path), ".sla")) {
-        if (std.mem.indexOfAny(u8, source_path, "\"\n") != null) {
-            try stderr.print("error: build-lib cannot quote source path '{s}' into the generated root unit\n", .{source_path});
-            return 1;
-        }
-        const glue_path = try std.fmt.allocPrint(arena, "{s}.lib_glue.sa", .{out_path});
-        const root_path = try std.fmt.allocPrint(arena, "{s}.lib_root.sla", .{out_path});
-        try ensureParentDir(glue_path);
-        const abs_source = try sio.cwd().realpathAlloc(arena, source_path);
-        const abs_glue_dir = try sio.cwd().realpathAlloc(arena, std.fs.path.dirname(glue_path) orelse ".");
-        const abs_glue_path = try std.fs.path.join(arena, &.{ abs_glue_dir, std.fs.path.basename(glue_path) });
-        try writeFile(sio.cwd(), glue_path, try generateLibGlueSa(arena, contract));
-        try writeFile(sio.cwd(), root_path, try generateLibRootSla(arena, contract, abs_source, abs_glue_path));
-        const lowered_path = try std.fmt.allocPrint(arena, "{s}.lib_root.sa", .{out_path});
-        lowerSlaUnitViaFrontend(allocator, root_path, lowered_path, stderr) catch |err| switch (err) {
-            error.LanguageFrontendMissing, error.FrontendBuildFailed => return 1,
-            else => return err,
-        };
-        compile_path = lowered_path;
-    }
-
-    // 3. Compile the (possibly generated) source to a verified module.
-    const compiled = try compileSource(allocator, compile_path, compile_options);
-    switch (compiled) {
-        .trap => |report| {
-            try printTrapReport(stderr, report, diagnostics_mode);
-            return 1;
-        },
-        .ok => |ok| {
-            var owned = ok;
-            defer owned.deinit(allocator);
-            rejectNpmBindsUnlessJs("sa build-lib", &owned.flat, stderr) catch return 1;
-            const emit_std_root = try stdRootFromEnv(allocator);
-            defer allocator.free(emit_std_root);
-            const std_archive_path = saStdArchivePathForTarget(allocator, compile_options.target_triple) catch |err| {
-                if (err == error.ArchiveNotFoundForTarget) {
-                    try stderr.print("error: no sa_std archive for target '{s}'. Build it with:\n", .{compile_options.target_triple.?});
-                    try stderr.writeAll("  zig build -Dtarget=<triple> sa-std-static\n");
-                    try stderr.writeAll("then copy zig-out/lib/<libsa_std.a|sa_std.lib> to $SA_STD_DIR/<triple>/\n");
-                    return 1;
-                }
-                return err;
-            };
-            defer allocator.free(std_archive_path);
-            const size_bits = sizeBitsForTriple(compile_options.target_triple);
-
-            try ensureParentDir(artifact_path);
-            emit_llvm_llvmc.emitLlvmcToArtifacts(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, compile_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = emitOptLevel(debug, optimization), .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path, object_path, emitOptLevel(debug, optimization)) catch |err| {
-                try printLlvmcEmitError(stderr, err, diagnostics_mode);
-                return 1;
-            };
-
-            // 4. Header + API table unit (deliverable header is written
-            //    before linking so it exists even if the link fails).
-            try ensureParentDir(header_path);
-            try writeFile(sio.cwd(), header_path, try generateLibHeader(arena, contract));
-            const abs_header = try sio.cwd().realpathAlloc(arena, header_path);
-            try writeFile(sio.cwd(), api_source_path, try generateLibApiSource(arena, contract, kind, abs_header));
-
-            // 5. Link or archive. The sa_std archive is an input of the
-            //    shared link, and is folded into the static archive
-            //    through a relocatable combine, so both artifacts are
-            //    self-contained.
-            switch (kind) {
-                .shared => {
-                    var control = driver.SharedExportControl{};
-                    switch (family) {
-                        .elf => {
-                            const script_path = try std.fmt.allocPrint(arena, "{s}.lib_exports.map", .{out_path});
-                            try writeFile(sio.cwd(), script_path, try generateLibVersionScript(arena, contract));
-                            control.soname_arg = try std.fmt.allocPrint(arena, "-Wl,-soname,{s}", .{std.fs.path.basename(out_path)});
-                            control.version_script_arg = try std.fmt.allocPrint(arena, "-Wl,--version-script,{s}", .{script_path});
-                        },
-                        .mach_o => {
-                            const list_path = try std.fmt.allocPrint(arena, "{s}.lib_exports.txt", .{out_path});
-                            try writeFile(sio.cwd(), list_path, try generateLibExportedSymbolsList(arena, contract));
-                            control.exported_symbols_list_arg = try std.fmt.allocPrint(arena, "-Wl,-exported_symbols_list,{s}", .{list_path});
-                        },
-                        .pe => {
-                            const def_path = try std.fmt.allocPrint(arena, "{s}.lib_exports.def", .{out_path});
-                            try writeFile(sio.cwd(), def_path, try generateLibDefFile(arena, contract));
-                            control.def_file_path = def_path;
-                            const implib_path = try std.fs.path.join(arena, &.{ out_dir, try std.fmt.allocPrint(arena, "{s}.lib", .{contract.stem}) });
-                            control.implib_arg = try std.fmt.allocPrint(arena, "-Wl,--out-implib,{s}", .{implib_path});
-                        },
-                    }
-                    driver.compileShared(allocator, object_path, api_source_path, out_path, optimization, std_archive_path, debug, stderr, compile_options.target_triple, control) catch |err| switch (err) {
-                        error.ChildProcessFailed => return 1,
-                        else => return err,
-                    };
-                    // 6. Post-link surface check on host-target builds:
-                    //    every contract symbol plus the two generated
-                    //    entries must resolve in the produced artifact.
-                    if (compile_options.target_triple == null) {
-                        var dyn_lib = dynlib_compat.DynLib.open(out_path) catch {
-                            try stderr.print("error: build-lib produced '{s}' but it cannot be opened as a shared library\n", .{out_path});
-                            return 1;
-                        };
-                        defer dyn_lib.close();
-                        var names = std.array_list.Managed([:0]const u8).init(arena);
-                        for (contract.entries) |entry| {
-                            try names.append(try libDupeZ(arena, entry.name));
-                        }
-                        try names.append(try libDupeZ(arena, try std.fmt.allocPrint(arena, "{s}_get_api", .{contract.stem})));
-                        try names.append(try libDupeZ(arena, try std.fmt.allocPrint(arena, "{s}_abi_version", .{contract.stem})));
-                        for (names.items) |symbol| {
-                            if (dyn_lib.lookup(*anyopaque, symbol) == null) {
-                                try stderr.print("error: build-lib artifact '{s}' does not export contract symbol '{s}'\n", .{ out_path, symbol });
-                                return 1;
-                            }
-                        }
-                    }
-                },
-                .static => {
-                    const api_object_path = try std.fmt.allocPrint(arena, "{s}.lib_api.o", .{out_path});
-                    const combined_path = try std.fmt.allocPrint(arena, "{s}.lib_combined.o", .{out_path});
-                    driver.compileObj(allocator, api_source_path, api_object_path, optimization, debug, stderr, compile_options.target_triple) catch |err| switch (err) {
-                        error.ChildProcessFailed => return 1,
-                        else => return err,
-                    };
-                    driver.compileRelocatableObj(allocator, &.{ object_path, api_object_path, std_archive_path }, combined_path, stderr) catch |err| switch (err) {
-                        error.ChildProcessFailed => return 1,
-                        else => return err,
-                    };
-                    driver.compileArchive(allocator, out_path, &.{combined_path}, stderr) catch |err| switch (err) {
-                        error.ChildProcessFailed => return 1,
-                        else => return err,
-                    };
-                },
-            }
-
-            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
-            return 0;
-        },
-    }
-}
+const executeBuildLib = @import("cli/build_lib.zig").executeBuildLib;
 
 fn executeLayout(
     allocator: std.mem.Allocator,

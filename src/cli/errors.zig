@@ -1,4 +1,9 @@
 const std = @import("std");
+const copyTextBuf = @import("text.zig").copyTextBuf;
+const writeMaybeJsonString = @import("json.zig").writeMaybeJsonString;
+const textOrBuf = @import("text.zig").textOrBuf;
+const bufText = @import("text.zig").bufText;
+const emit_llvm_llvmc = @import("../emit_llvm_llvmc.zig");
 const trap = @import("../common/trap.zig");
 const DiagnosticsMode = @import("types.zig").DiagnosticsMode;
 const CliErrorInfo = @import("types.zig").CliErrorInfo;
@@ -277,4 +282,12 @@ pub fn printMaskState(writer: anytype, report: trap.TrapReport) !void {
     if (report.actual_mask) |actual| {
         try writer.print("  state: {d}\n", .{actual});
     }
+}
+
+pub fn reportText(report: *const trap.TrapReport) []const u8 {
+    if (report.source_text) |text| return text;
+    const source_fallback = bufText(report.source_text_buf[0..]);
+    if (source_fallback.len != 0) return source_fallback;
+    if (report.original_text) |text| return text;
+    return bufText(report.original_text_buf[0..]);
 }

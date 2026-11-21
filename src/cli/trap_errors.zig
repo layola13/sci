@@ -1,4 +1,7 @@
 const std = @import("std");
+const copyTextBuf = @import("text.zig").copyTextBuf;
+const lineAt = @import("text.zig").lineAt;
+const PackageTrapInfo = @import("types.zig").PackageTrapInfo;
 const flattener = @import("../flattener.zig");
 const trap = @import("../common/trap.zig");
 
@@ -489,4 +492,110 @@ pub fn trapFromPackagePreflightError(err: anyerror) ?trap.TrapReport {
         .message = info.message,
         .hint = info.hint,
     };
+}
+
+pub fn importResolutionMessage(err: anyerror) []const u8 {
+    return switch (err) {
+        error.InvalidImportPath => "invalid import path",
+        error.PackageNotResolved => "import path could not be resolved",
+        error.AmbiguousPackageVersion => "multiple package versions match this import",
+        error.PrecompiledArtifactRejected => "precompiled artifact imports are not allowed",
+        error.InvalidPath => "invalid path while resolving an import",
+        else => "import resolution failed",
+    };
+}
+
+pub fn forbiddenHint(hit: flattener.ForbiddenHit) []const u8 {
+    return switch (hit.token) {
+        .brace_open, .brace_close => "remove brace syntax and flatten the control flow into labels and jumps",
+        .keyword_if, .keyword_else, .keyword_while, .keyword_for => "replace control-flow keywords with labels and jmp/br instructions",
+        .property_chain => "replace dotted property access with explicit SSA registers or constant expansion",
+    };
+}
+
+pub fn importResolutionHint(line: ?[]const u8, err: anyerror) []const u8 {
+    _ = line;
+    return switch (err) {
+        error.InvalidImportPath => "use a valid relative `.sa` or package identity without `../`, empty segments, or whitespace",
+        error.PackageNotResolved => "check the import path, package identity, local vendor tree, and package cache",
+        error.AmbiguousPackageVersion => "pin the required package ref in `sa.mod` so the resolver can choose one version",
+        error.PrecompiledArtifactRejected => "depend on the source package instead of a precompiled artifact",
+        error.InvalidPath => "check the project root or import path for filesystem errors",
+        else => "check the import path, package identity, local vendor tree, and package cache",
+    };
+}
+
+pub fn firstBadTokenForTypeLine(line: ?[]const u8) ?[]const u8 {
+    const text = line orelse return null;
+    if (std.mem.indexOf(u8, text, "*")) |idx| {
+        const tail = text[idx..];
+        const end = std.mem.indexOfAny(u8, tail, " \t,)]}") orelse tail.len;
+        return tail[0..end];
+    }
+    if (std.mem.indexOf(u8, text, "bool")) |_| return "bool";
+    if (std.mem.indexOf(u8, text, "string")) |_| return "string";
+    if (std.mem.indexOf(u8, text, "&")) |_| return "&";
+    return null;
+}
+
+pub fn unsupportedTypeHint(line: ?[]const u8) []const u8 {
+    if (lineContains(line, "call @")) {
+        return "inspect the callee declaration referenced by this call site; the unsupported annotation is usually in the imported signature";
+    }
+    if (lineContains(line, "@import")) {
+        return "inspect the imported file for unsupported primitive names or ownership suffixes";
+    }
+    return "check the primitive type names and ownership suffixes in the declaration";
+}
+
+pub fn setLineText(report: *trap.TrapReport, text: []const u8) void {
+    report.source_text = null;
+    report.original_text = null;
+    report.source_text_buf = std.mem.zeroes([256]u8);
+    report.original_text_buf = std.mem.zeroes([256]u8);
+    copyTextBuf(&report.source_text_buf, text);
+    copyTextBuf(&report.original_text_buf, text);
+}
+
+pub fn lineContains(line: ?[]const u8, needle: []const u8) bool {
+    return if (line) |text| std.mem.indexOf(u8, text, needle) != null else false;
+}
+
+pub fn sourceExcerpt(line: []const u8) []const u8 {
+    return std.mem.trimEnd(u8, line, "\r");
+}
+
+pub fn fillContextWindow(report: *trap.TrapReport, source: []const u8, center_line: u32) void {
+    const start_line = if (center_line > 2) center_line - 2 else 1;
+    var idx: usize = 0;
+    var line_no = start_line;
+    while (idx < report.context.len and line_no <= center_line + 2) : ({
+        idx += 1;
+        line_no += 1;
+    }) {
+        if (lineAt(source, line_no)) |line| {
+            copyContextLine(report, idx, line_no, sourceExcerpt(line));
+        }
+    }
+    report.context_len = @intCast(idx);
+}
+
+pub fn copyContextLine(report: *trap.TrapReport, idx: usize, line_no: u32, text: []const u8) void {
+    if (idx >= report.context.len) return;
+    report.context[idx].line = line_no;
+    report.context[idx].text = null;
+    report.context[idx].text_buf = std.mem.zeroes([256]u8);
+    copyTextBuf(&report.context[idx].text_buf, std.mem.trimEnd(u8, text, "\r"));
+}
+
+pub fn setRepairAlternatives(report: *trap.TrapReport, alternatives: []const []const u8) void {
+    const limit = @min(report.repair_alternatives.len, alternatives.len);
+    report.repair_alternatives_len = @intCast(limit);
+    for (0..limit) |idx| {
+        report.repair_alternatives[idx] = null;
+        report.repair_alternatives_buf[idx] = std.mem.zeroes([64]u8);
+        copyTextBuf(&report.repair_alternatives_buf[idx], alternatives[idx]);
+        const end = std.mem.indexOfScalar(u8, report.repair_alternatives_buf[idx][0..], 0) orelse alternatives[idx].len;
+        report.repair_alternatives[idx] = report.repair_alternatives_buf[idx][0..end];
+    }
 }
