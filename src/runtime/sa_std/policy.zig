@@ -7,31 +7,31 @@ const policyEnvOwned = @import("../sa_std.zig").policyEnvOwned;
 const sa_policy = @import("../sa_std.zig").sa_policy;
 const sio = @import("../sa_std.zig").sio;
 
-var policy_context_storage: ?*sa_policy.PolicyContext = null;
+pub var policy_context_storage: ?*sa_policy.PolicyContext = null;
 
-fn policyBootstrapWriteStderr(text: []const u8) void {
+pub fn policyBootstrapWriteStderr(text: []const u8) void {
     _ = lxWrite(2, text) catch {};
 }
 
-fn policyAuditSink(line: []const u8) void {
-    const fd = policy_audit_fd orelse return;
+pub fn policyAuditSink(line: []const u8) void {
+    const fd = sa_std.policy_audit_fd orelse return;
     _ = lxWrite(fd, line) catch {};
 }
 
-fn policyBootstrapFail(message: []const u8, code: u8) noreturn {
+pub fn policyBootstrapFail(message: []const u8, code: u8) noreturn {
     policyBootstrapWriteStderr("[sa-policy] ");
     policyBootstrapWriteStderr(message);
     policyBootstrapWriteStderr("\n");
     std.process.exit(code);
 }
 
-fn policyEnvFlag(allocator: std.mem.Allocator, name: []const u8) bool {
+pub fn policyEnvFlag(allocator: std.mem.Allocator, name: []const u8) bool {
     const value = policyEnvOwned(allocator, name) orelse return false;
     defer allocator.free(value);
     return std.mem.eql(u8, value, "1");
 }
 
-fn installPolicyText(allocator: std.mem.Allocator, text: []const u8) void {
+pub fn installPolicyText(allocator: std.mem.Allocator, text: []const u8) void {
     const policy = sa_policy.parsePolicyJson(allocator, text) catch |err|
         policyBootstrapFail(@errorName(err), 2);
 
@@ -55,7 +55,7 @@ fn installPolicyText(allocator: std.mem.Allocator, text: []const u8) void {
         }
         open_flags.CREAT = true;
         if (std.posix.openat(std.posix.AT.FDCWD, path, open_flags, @as(std.posix.mode_t, 0o644))) |fd| {
-            policy_audit_fd = fd;
+            sa_std.policy_audit_fd = fd;
             sa_policy.installAuditSink(policyAuditSink);
         } else |_| {}
     }
@@ -81,9 +81,9 @@ fn installPolicyText(allocator: std.mem.Allocator, text: []const u8) void {
     }
 }
 
-var policy_bootstrap_attempted: bool = false;
+pub var policy_bootstrap_attempted: bool = false;
 
-var sigpipe_ignore_installed: bool = false;
+pub var sigpipe_ignore_installed: bool = false;
 
 pub fn applySigpipeIgnore() void {
     // NOTE: do NOT gate this on @hasDecl(std.posix.SIG, "PIPE") —
@@ -99,7 +99,7 @@ pub fn applySigpipeIgnore() void {
     std.posix.sigaction(std.posix.SIG.PIPE, &act, null);
 }
 
-fn installSigpipeIgnore() void {
+pub fn installSigpipeIgnore() void {
     if (sigpipe_ignore_installed) return;
     sigpipe_ignore_installed = true;
     applySigpipeIgnore();
@@ -109,7 +109,7 @@ pub export fn sa_install_sigpipe_ignore() void {
     installSigpipeIgnore();
 }
 
-fn policyBootstrap() callconv(.c) void {
+pub fn policyBootstrap() callconv(.c) void {
     installSigpipeIgnore();
     if (policy_bootstrap_attempted) return;
     policy_bootstrap_attempted = true;
@@ -118,7 +118,7 @@ fn policyBootstrap() callconv(.c) void {
     if (policyEnvFlag(allocator, "SA_POLICY_ALLOW_ALL")) {
         installPolicyText(allocator, "{\"permissions\":{\"net\":{\"mode\":\"allow\"},\"fs\":{\"mode\":\"allow\"},\"env\":{\"mode\":\"allow\"},\"run\":{\"mode\":\"allow\"},\"time\":{\"mode\":\"allow\"},\"random\":{\"mode\":\"allow\"}}}");
         policyBootstrapWriteStderr("[sa-policy] allow-all policy engaged via SA_POLICY_ALLOW_ALL (audit trace)\n");
-        if (policy_audit_fd != null) {
+        if (sa_std.policy_audit_fd != null) {
             const now_ns: i64 = @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
             const event = sa_policy.AuditEvent{ .context_id = 1, .category = .run, .resource = "SA_POLICY_ALLOW_ALL", .decision = "allow-all", .source = "env" };
             if (event.formatJsonLine(allocator, now_ns)) |line| {
@@ -157,4 +157,4 @@ fn policyBootstrap() callconv(.c) void {
     }
 }
 
-var policy_bootstrap_init_entry: *const fn () callconv(.c) void align(8) linksection(".init_array") = &policyBootstrap;
+pub var policy_bootstrap_init_entry: *const fn () callconv(.c) void align(8) linksection(".init_array") = &policyBootstrap;
