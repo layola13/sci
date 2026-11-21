@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("../sa_std.zig").builtin;
 const constBytes = @import("../sa_std.zig").constBytes;
+extern fn sa_b64dec_avx2(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8) u64;
+extern fn sa_cpu_has_avx2() c_int;
 
 fn b64SimdSextetVal(c: u8) ?u8 {
     if (c >= 'A' and c <= 'Z') return c - 'A';
