@@ -347,7 +347,14 @@ static void optimize_module_ir(EmitCtx *e, int opt_level) {
         if (level >= 3) {
             LLVMAddLoopUnrollPass(mpm);
             LLVMAddLoopVectorizePass(mpm);
-            LLVMAddSLPVectorizePass(mpm);
+            /* No SLPVectorizePass here. The transcribed PMB O3 pipeline
+             * schedules SLPVectorize=false, and this second SLP run
+             * misfires on data-dependent early-exit loops: it packs the
+             * Mandelbrot xx/yy sdivs into <2 x i64>, forcing a
+             * vector<->scalar shuffle on every iteration (task 53 A/B:
+             * arith --release-fast 0.316s -> 0.138s when this line is
+             * removed; the LoopVectorize passes correctly decline the
+             * loop). */
         }
         LLVMAddCFGSimplificationPass(mpm);
         LLVMAddAggressiveDCEPass(mpm);
