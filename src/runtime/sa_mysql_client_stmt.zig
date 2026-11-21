@@ -28,7 +28,7 @@ pub const Stmt = struct {
     param_count: usize,
     bindings: []Binding,
 
-    fn deinit(self: *Stmt) void {
+    pub fn deinit(self: *Stmt) void {
         for (self.bindings) |b| {
             switch (b) {
                 .bytes => |bytes| alloc.free(bytes),

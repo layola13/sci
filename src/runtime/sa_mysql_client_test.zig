@@ -295,7 +295,7 @@ pub fn hexToBytes(comptime hex: []const u8, out: []u8) void {
     }
 }
 
-const FakeServer = struct {
+pub const FakeServer = struct {
     listener: *std.Io.net.Server,
     token_ok: bool = false,
     user_ok: bool = false,
