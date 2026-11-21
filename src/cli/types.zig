@@ -6,6 +6,8 @@ const flattener = @import("../flattener.zig");
 const std = @import("std");
 const DceMode = @import("../emit_options.zig").DceMode;
 const trap = @import("../common/trap.zig");
+const test_meta = @import("../test_meta.zig");
+const driver = @import("../driver/zigcc.zig");
 /// Shared types for the CLI (moved out of cli.zig).
 
 pub const Command = enum {
@@ -498,3 +500,40 @@ pub const TmpWorkDir = struct {
         self.* = undefined;
     }
 };
+
+pub const TestCommandOptions = struct {
+    selection: test_meta.TestSelection,
+    list: bool = false,
+    compile_only: bool = false,
+    trace_panic: bool = false,
+    affected: bool = false,
+    // Test binaries are dev-time artifacts: link with zero optimization by
+    // default; --release-small/--release-fast opt in to LLVM optimization.
+    optimization: driver.Optimization = .none,
+};
+
+pub const ExecuteOptions = struct {
+    stdin_reader: ?*std.Io.Reader = null,
+    stdin_is_tty: ?bool = null,
+};
+
+pub const LanguageRoute = union(enum) {
+    handled: u8,
+    rewritten: [][]const u8,
+};
+
+pub fn applyExecuteOptions(options: *CompileOptions, exec_options: ExecuteOptions, diagnostic_writer: *std.Io.Writer) void {
+    options.stdin_reader = exec_options.stdin_reader;
+    options.stdin_is_tty = exec_options.stdin_is_tty;
+    options.diagnostic_writer = diagnostic_writer;
+}
+
+pub fn newCompileOptions(exec_options: ExecuteOptions, diagnostic_writer: *std.Io.Writer) CompileOptions {
+    var options: CompileOptions = .{};
+    applyExecuteOptions(&options, exec_options, diagnostic_writer);
+    return options;
+}
+
+pub fn configureCompileDiagnostics(options: *CompileOptions, json_mode: bool) void {
+    options.mem_report_live = options.mem_report and !json_mode;
+}

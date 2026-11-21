@@ -22,6 +22,7 @@ const freeOwnedStringSlice = @import("compile.zig").freeOwnedStringSlice;
 const manifestDependencies = @import("compile.zig").manifestDependencies;
 const manifestPluginImportRoots = @import("compile.zig").manifestPluginImportRoots;
 const hashResolvedSourceTree = @import("source_tree.zig").hashResolvedSourceTree;
+const test_meta = @import("../test_meta.zig");
 
 pub fn pruneSabFlatToSelectedTests(allocator: std.mem.Allocator, flat: *flattener.FlattenResult, selected_test_names: []const []const u8) !void {
     if (selected_test_names.len == 0 or flat.function_sigs.len == 0 or flat.instructions.len == 0) return;
@@ -1047,4 +1048,149 @@ pub fn cacheEntryLastUsedNs(allocator: std.mem.Allocator, entry_dir_path: []cons
         } else |_| {}
     }
     return latest;
+}
+
+pub fn jsonBool(value: std.json.Value) !bool {
+    return switch (value) {
+        .bool => |v| v,
+        else => error.InvalidCacheManifest,
+    };
+}
+
+pub fn jsonU32(value: std.json.Value) !u32 {
+    return switch (value) {
+        .integer => |v| if (v >= 0 and v <= std.math.maxInt(u32)) @intCast(v) else error.InvalidCacheManifest,
+        else => error.InvalidCacheManifest,
+    };
+}
+
+pub fn jsonStringDup(allocator: std.mem.Allocator, value: std.json.Value) ![]u8 {
+    return switch (value) {
+        .string => |text| try allocator.dupe(u8, text),
+        else => error.InvalidCacheManifest,
+    };
+}
+
+pub fn jsonOptionalStringDup(allocator: std.mem.Allocator, value: std.json.Value) !?[]u8 {
+    return switch (value) {
+        .null => null,
+        .string => |text| try allocator.dupe(u8, text),
+        else => error.InvalidCacheManifest,
+    };
+}
+
+pub fn projectCacheReadTestMetadata(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    key: ProjectCacheKey,
+) !test_meta.TestList {
+    const metadata_path = try projectCacheTestMetadataPath(allocator, project_root, key);
+    defer allocator.free(metadata_path);
+    const metadata_bytes = try readTextFileAlloc(allocator, metadata_path);
+    defer allocator.free(metadata_bytes);
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, metadata_bytes, .{});
+    defer parsed.deinit();
+    if (!jsonIntEquals(try jsonGetObject(parsed.value, "version"), 1)) return error.InvalidCacheManifest;
+    const tests_value = try jsonGetObject(parsed.value, "tests");
+    const tests_array = switch (tests_value) {
+        .array => |array| array.items,
+        else => return error.InvalidCacheManifest,
+    };
+
+    var tests = std.array_list.Managed(test_meta.TestDescAndFn).init(allocator);
+    errdefer {
+        for (tests.items) |*test_case| test_case.deinit(allocator);
+        tests.deinit();
+    }
+    for (tests_array) |item| {
+        switch (item) {
+            .object => {},
+            else => return error.InvalidCacheManifest,
+        }
+        const name = try jsonStringDup(allocator, try jsonGetObject(item, "name"));
+        errdefer allocator.free(name);
+        const selector = try jsonStringDup(allocator, try jsonGetObject(item, "selector"));
+        errdefer allocator.free(selector);
+        const source_file = try jsonOptionalStringDup(allocator, try jsonGetObject(item, "source_file"));
+        errdefer if (source_file) |file| allocator.free(file);
+        try tests.append(.{
+            .desc = .{
+                .id = try jsonU32(try jsonGetObject(item, "id")),
+                .name = name,
+                .source_file = source_file,
+                .line = try jsonU32(try jsonGetObject(item, "line")),
+                .col = try jsonU32(try jsonGetObject(item, "col")),
+                .ignored = try jsonBool(try jsonGetObject(item, "ignored")),
+                .should_panic = try jsonBool(try jsonGetObject(item, "should_panic")),
+            },
+            .testfn = .{ .selector_name = selector },
+        });
+    }
+    return .{ .tests = try tests.toOwnedSlice(), .order = .Unsorted };
+}
+
+pub fn projectCacheStoreTest(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    key: ProjectCacheKey,
+    artifact_path: []const u8,
+    out_path: []const u8,
+    test_list: test_meta.TestList,
+) !void {
+    const cached_artifact = try projectCacheArtifactPath(allocator, project_root, .test_cache, key, "artifact.sa.bc");
+    defer allocator.free(cached_artifact);
+    const cached_output = try projectCacheArtifactPath(allocator, project_root, .test_cache, key, "output.bin");
+    defer allocator.free(cached_output);
+    try copyFileAlloc(allocator, artifact_path, cached_artifact);
+    try copyFileAlloc(allocator, out_path, cached_output);
+    try projectCacheWriteTestMetadata(allocator, project_root, key, test_list);
+    try projectCacheWriteManifest(allocator, project_root, .test_cache, key, cached_artifact, cached_output);
+    enforceProjectCacheBudget(allocator, project_root, .test_cache, key);
+}
+
+pub fn projectCacheWriteTestMetadata(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    key: ProjectCacheKey,
+    test_list: test_meta.TestList,
+) !void {
+    const metadata_path = try projectCacheTestMetadataPath(allocator, project_root, key);
+    defer allocator.free(metadata_path);
+    try ensureParentDir(metadata_path);
+    var file = try sio.cwd().createFile(metadata_path, .{ .truncate = true });
+    defer file.close();
+    var fbuf: [8192]u8 = undefined;
+    var fw = file.writer(&fbuf);
+    const writer = &fw.interface;
+    try writer.writeAll("{\"version\":1,\"tests\":[");
+    for (test_list.tests, 0..) |test_case, idx| {
+        if (idx != 0) try writer.writeByte(',');
+        try writer.writeAll("{\"id\":");
+        try writer.print("{d}", .{test_case.desc.id});
+        try writer.writeAll(",\"name\":");
+        try writeJsonString(writer, test_case.desc.name);
+        try writer.writeAll(",\"selector\":");
+        try writeJsonString(writer, test_case.testfn.selector_name);
+        try writer.writeAll(",\"source_file\":");
+        try writeOptionalJsonString(writer, test_case.desc.source_file);
+        try writer.writeAll(",\"line\":");
+        try writer.print("{d}", .{test_case.desc.line});
+        try writer.writeAll(",\"col\":");
+        try writer.print("{d}", .{test_case.desc.col});
+        try writer.writeAll(",\"ignored\":");
+        try writer.writeAll(if (test_case.desc.ignored) "true" else "false");
+        try writer.writeAll(",\"should_panic\":");
+        try writer.writeAll(if (test_case.desc.should_panic) "true" else "false");
+        try writer.writeByte('}');
+    }
+    try writer.writeAll("]}\n");
+    try fw.interface.flush();
+}
+
+pub fn writeOptionalJsonString(writer: anytype, value: ?[]const u8) !void {
+    if (value) |text| {
+        try writeJsonString(writer, text);
+    } else {
+        try writer.writeAll("null");
+    }
 }
