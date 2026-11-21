@@ -10,6 +10,7 @@ const driver = @import("driver/zigcc.zig");
 const emit_options = @import("emit_options.zig");
 const emit_llvm_llvmc = @import("emit_llvm_llvmc.zig");
 const emit_js = @import("emit_js.zig");
+const emit_js_types = @import("emit_js/types.zig");
 const emit_c = @import("emit_c.zig");
 const bc2sa = @import("llvm2sa.zig");
 const layout = @import("layout.zig");
@@ -8586,8 +8587,8 @@ fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_pat
             const size_bits = sizeBitsForTriple(compile_options.target_triple);
             emit_js.emitJsToFile(allocator, owned.verified, source_path, size_bits, .{ .format = js_format, .debug_comments = debug, .dce = compile_options.dce, .emit_dts = emit_dts }, &owned.flat.def_dict.npm_binds, out_path) catch |err| {
                 try stderr.print("error: JS backend emit failed: {s}", .{@errorName(err)});
-                if (emit_js.last_js_func.len != 0) try stderr.print(" in {s}", .{emit_js.last_js_func});
-                if (emit_js.last_js_inst.len != 0) try stderr.print(": {s}", .{std.mem.trim(u8, emit_js.last_js_inst, " \t\r\n")});
+                if (emit_js_types.last_js_func.len != 0) try stderr.print(" in {s}", .{emit_js_types.last_js_func});
+                if (emit_js_types.last_js_inst.len != 0) try stderr.print(": {s}", .{std.mem.trim(u8, emit_js_types.last_js_inst, " \t\r\n")});
                 try stderr.writeAll("\n");
                 return 1;
             };

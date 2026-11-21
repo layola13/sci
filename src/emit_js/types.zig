@@ -1,6 +1,7 @@
 const std = @import("std");
 const emit_options = @import("../emit_options.zig");
 const inst = @import("../common/instruction.zig");
+const sig = @import("../common/signature.zig");
 
 pub const JsEmitError = error{ Failed, InvalidOperand, UnknownFunction, UnsupportedInstruction, UnsupportedVariadic, UnsupportedNpmBinding, UnsupportedDtsType, OutOfMemory };
 
@@ -35,3 +36,15 @@ pub const FuncTask = struct {
     end_idx: usize, // exclusive
     kind: inst.InstKind,
 };
+
+/// Maps a callee name to its declared return primitive type.
+pub const CalleeRetTable = std.StringHashMap(sig.PrimType);
+
+pub const RetBaseInfo = union(enum) { alloc: void, param: usize };
+pub const RetBaseTable = std.StringHashMap(RetBaseInfo);
+
+pub const BaseSet = std.AutoHashMap(u32, void);
+
+/// Last instruction raw text seen by the emitter (diagnostics only).
+pub threadlocal var last_js_inst: []const u8 = "";
+pub threadlocal var last_js_func: []const u8 = "";
