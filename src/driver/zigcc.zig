@@ -38,7 +38,7 @@ var zig_exe_mu: std.atomic.Mutex = .unlocked;
 /// Absolute path of the `zig` driver, resolved once against the live PATH.
 /// See `sio.resolveHostExe`: Zig 0.17 child spawning ignores the live PATH,
 /// so a bare "zig" only resolves inside /usr/local/bin:/bin:/usr/bin.
-fn zigExe() []const u8 {
+pub fn zigExe() []const u8 {
     while (!zig_exe_mu.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -260,60 +260,9 @@ pub fn argvForRelocatableObj(
     return argv;
 }
 
-pub fn argvForWasm(
-    allocator: std.mem.Allocator,
-    artifact_path: []const u8,
-    out_path: []const u8,
-    target: Target,
-    optimization: Optimization,
-    debug: bool,
-    sa_std_archive_path: ?[]const u8,
-) !Argv {
-    var argv = Argv{ .items = std.array_list.Managed([]const u8).init(allocator) };
-    errdefer argv.deinit();
-    try argv.items.append(zigExe());
-    try argv.items.append("cc");
-    // NOTE(Zig 0.17): see argvForExe — disable the driver's default UBSan set.
-    try argv.items.append("-fno-sanitize=all");
-    if (debug) {
-        try argv.items.append("-g");
-    }
-    try argv.items.append("-target");
-    try argv.items.append(target.triple);
+pub const argvForWasm = @import("zigcc_wasm.zig").argvForWasm;
 
-    if (target.no_entry) {
-        try argv.items.append("-Wl,--no-entry");
-    }
-
-    try argv.items.append(if (debug) "-O0" else switch (optimization) {
-        .none => "-O0",
-        .release_small => "-O1",
-        .release_fast => "-O3",
-    });
-    // SIMD128 ships in every supported engine (wasmtime, node16+, bun,
-    // evergreen browsers) and is required for any v128 codegen: without it
-    // explicit vector kernels scalarize. Placed after -O so the existing
-    // positional argv tests are unaffected.
-    try argv.items.append("-mcpu=generic+simd128");
-    if (!debug) {
-        // Mirror argvForExe: the emitted bitcode carries DWARF (cc1 runs
-        // with -debug-info-kind=constructor) and wasm-ld copies those
-        // sections into the output -- on hello they are ~1.2 MB of the
-        // 1.45 MB module. The sa_std archive is already stripped at build
-        // time (04fd392d); this flag covers the program-object half.
-        // Placed after -O/-mcpu so the positional argv tests are unaffected.
-        try argv.items.append("-Wl,--strip-debug");
-    }
-    try argv.items.append(artifact_path);
-    if (sa_std_archive_path) |archive| {
-        try argv.items.append(archive);
-    }
-    try argv.items.append("-o");
-    try argv.items.append(out_path);
-    return argv;
-}
-
-fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
+pub fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.RunResult {
     var env_map = try zigChildEnvMap(allocator);
     defer if (env_map) |*m| m.deinit();
     return try sio.Child.run(.{
@@ -323,7 +272,7 @@ fn runProcess(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child
     });
 }
 
-fn runProcessFast(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.Term {
+pub fn runProcessFast(allocator: std.mem.Allocator, argv: []const []const u8) !sio.Child.Term {
     var child = sio.Child.init(argv, allocator);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Ignore;
@@ -351,12 +300,12 @@ fn printOutputSection(writer: anytype, label: []const u8, bytes: []const u8) !vo
     if (bytes[bytes.len - 1] != '\n') try writer.writeByte('\n');
 }
 
-fn printCompilerLaunchFailure(writer: anytype, argv: []const []const u8, action: []const u8, input_path: []const u8, out_path: []const u8, err: anyerror) !void {
+pub fn printCompilerLaunchFailure(writer: anytype, argv: []const []const u8, action: []const u8, input_path: []const u8, out_path: []const u8, err: anyerror) !void {
     try writer.print("error[ExternalCompiler]: failed to launch zig cc while {s} {s} -> {s}: {s}\n", .{ action, input_path, out_path, @errorName(err) });
     try printCommandLine(writer, argv);
 }
 
-fn printCompilerFailure(writer: anytype, argv: []const []const u8, action: []const u8, input_path: []const u8, out_path: []const u8, result: sio.Child.RunResult) !void {
+pub fn printCompilerFailure(writer: anytype, argv: []const []const u8, action: []const u8, input_path: []const u8, out_path: []const u8, result: sio.Child.RunResult) !void {
     switch (result.term) {
         .exited => |code| try writer.print("error[ExternalCompiler]: zig cc exited with code {d} while {s} {s} -> {s}\n", .{ code, action, input_path, out_path }),
         else => try writer.print("error[ExternalCompiler]: zig cc terminated unexpectedly while {s} {s} -> {s}\n", .{ action, input_path, out_path }),
@@ -641,39 +590,7 @@ pub fn compileArchive(
     }
 }
 
-pub fn compileWasm(
-    allocator: std.mem.Allocator,
-    artifact_path: []const u8,
-    out_path: []const u8,
-    target: Target,
-    optimization: Optimization,
-    debug: bool,
-    sa_std_archive_path: ?[]const u8,
-    stderr: anytype,
-) !void {
-    var argv = try argvForWasm(allocator, artifact_path, out_path, target, optimization, debug, sa_std_archive_path);
-    defer argv.deinit();
-    const argv_slice = argv.slice();
-    const term = runProcessFast(allocator, argv_slice) catch |err| {
-        try printCompilerLaunchFailure(stderr, argv_slice, "linking wasm", artifact_path, out_path, err);
-        return CompileError.ChildProcessFailed;
-    };
-
-    const failed = switch (term) {
-        .exited => |code| code != 0,
-        else => true,
-    };
-    if (failed) {
-        const result = runProcess(allocator, argv_slice) catch |err| {
-            try printCompilerLaunchFailure(stderr, argv_slice, "linking wasm", artifact_path, out_path, err);
-            return CompileError.ChildProcessFailed;
-        };
-        defer allocator.free(result.stdout);
-        defer allocator.free(result.stderr);
-        try printCompilerFailure(stderr, argv_slice, "linking wasm", artifact_path, out_path, result);
-        return CompileError.ChildProcessFailed;
-    }
-}
+pub const compileWasm = @import("zigcc_wasm.zig").compileWasm;
 
 test "argv helpers choose the requested optimization" {
     var exe_small = try argvForExe(std.testing.allocator, "input.bc", "out.exe", .release_small, "/repo/artifacts/sa_std/libsa_std.a", &.{}, false, null);

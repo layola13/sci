@@ -22,13 +22,13 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const sio = @import("sio");
+pub const sio = @import("sio");
 
 /// WASI has no dynamic loading (std.DynLib does not exist there);
 /// the stub keeps the libcrypt/libsecret loaders compiling and
 /// its open always fails, so both features report themselves
 /// missing (ERR_UNSUPPORTED) — loud, never a fake success.
-const DynLib = if (builtin.os.tag != .wasi) std.DynLib else struct {
+pub const DynLib = if (builtin.os.tag != .wasi) std.DynLib else struct {
     pub fn open(_: []const u8) error{Unsupported}!@This() {
         return error.Unsupported;
     }
@@ -40,14 +40,14 @@ const DynLib = if (builtin.os.tag != .wasi) std.DynLib else struct {
     pub fn close(_: *@This()) void {}
 };
 
-const OK: i32 = 0;
-const ERR_INVALID: i32 = 1;
+pub const OK: i32 = 0;
+pub const ERR_INVALID: i32 = 1;
 const ERR_HANDLE: i32 = 2;
-const ERR_NOT_FOUND: i32 = 3;
-const ERR_NOMEM: i32 = 5;
-const ERR_IO: i32 = 6;
-const ERR_UNSUPPORTED: i32 = 8;
-const ERR_TRUNCATED: i32 = 9;
+pub const ERR_NOT_FOUND: i32 = 3;
+pub const ERR_NOMEM: i32 = 5;
+pub const ERR_IO: i32 = 6;
+pub const ERR_UNSUPPORTED: i32 = 8;
+pub const ERR_TRUNCATED: i32 = 9;
 
 // ---------------- bcrypt (libcrypt) ----------------
 
@@ -73,7 +73,7 @@ fn ensureCrypt() bool {
     return true;
 }
 
-fn dupeZ(alloc: std.mem.Allocator, slice: []const u8) ![:0]u8 {
+pub fn dupeZ(alloc: std.mem.Allocator, slice: []const u8) ![:0]u8 {
     const buf = try alloc.allocSentinel(u8, slice.len, 0);
     @memcpy(buf[0..slice.len], slice);
     return buf;
@@ -143,159 +143,36 @@ pub export fn sa_bcrypt_verify(pw_ptr: ?[*]const u8, pw_len: u64, hash_ptr: ?[*]
 
 // ---------------- keyring (libsecret) ----------------
 
-const GError = extern struct {
-    domain: u32,
-    code: i32,
-    message: ?[*:0]const u8,
-};
+pub const GError = @import("sa_crypto_keyring.zig").GError;
 
-const SecretSchemaAttr = extern struct {
-    name: ?[*:0]const u8,
-    type_: c_int,
-};
+pub const SecretSchemaAttr = @import("sa_crypto_keyring.zig").SecretSchemaAttr;
 
-const SecretSchema = extern struct {
-    name: [*:0]const u8,
-    flags: c_int,
-    attributes: [32]SecretSchemaAttr,
-    reserved: c_int,
-    r1: ?*anyopaque = null,
-    r2: ?*anyopaque = null,
-    r3: ?*anyopaque = null,
-    r4: ?*anyopaque = null,
-    r5: ?*anyopaque = null,
-    r6: ?*anyopaque = null,
-    r7: ?*anyopaque = null,
-};
+pub const SecretSchema = @import("sa_crypto_keyring.zig").SecretSchema;
 
-const keyring_schema: SecretSchema = makeSchema();
-const attr_key: [*:0]const u8 = "key";
+pub const keyring_schema = @import("sa_crypto_keyring.zig").keyring_schema;
+pub const attr_key = @import("sa_crypto_keyring.zig").attr_key;
 
-fn makeSchema() SecretSchema {
-    var attrs: [32]SecretSchemaAttr = undefined;
-    for (&attrs) |*a| a.* = .{ .name = null, .type_ = 0 };
-    attrs[0] = .{ .name = "key", .type_ = 0 };
-    return .{
-        .name = "org.sa.std.Keyring",
-        .flags = 2, // SECRET_SCHEMA_DONT_MATCH_NAME
-        .attributes = attrs,
-        .reserved = 0,
-    };
-}
+pub const makeSchema = @import("sa_crypto_keyring.zig").makeSchema;
 
-const FnStoreSync = *const fn (*const SecretSchema, [*:0]const u8, [*:0]const u8, [*:0]const u8, ?*anyopaque, *?*GError, ...) callconv(.c) i32;
-const FnLookupSync = *const fn (*const SecretSchema, ?*anyopaque, *?*GError, ...) callconv(.c) ?[*:0]u8;
-const FnClearSync = *const fn (*const SecretSchema, ?*anyopaque, *?*GError, ...) callconv(.c) i32;
-const FnErrorFree = *const fn (?*GError) callconv(.c) void;
-const FnFree = *const fn (?*anyopaque) callconv(.c) void;
+pub const FnStoreSync = @import("sa_crypto_keyring.zig").FnStoreSync;
+pub const FnLookupSync = @import("sa_crypto_keyring.zig").FnLookupSync;
+pub const FnClearSync = @import("sa_crypto_keyring.zig").FnClearSync;
+pub const FnErrorFree = @import("sa_crypto_keyring.zig").FnErrorFree;
+pub const FnFree = @import("sa_crypto_keyring.zig").FnFree;
 
-var secret_mu = std.Io.Mutex.init;
-var secret_state: enum { unloaded, ready, missing } = .unloaded;
-var secret_lib: ?DynLib = null;
-var store_fn: FnStoreSync = undefined;
-var lookup_fn: FnLookupSync = undefined;
-var clear_fn: FnClearSync = undefined;
-var error_free_fn: FnErrorFree = undefined;
-var g_free_fn: FnFree = undefined;
 
-fn ensureSecret() bool {
-    secret_mu.lockUncancelable(sio.io());
-    defer secret_mu.unlock(sio.io());
-    if (secret_state != .unloaded) return secret_state == .ready;
-    secret_state = .missing;
-    var lib = DynLib.open("libsecret-1.so.0") catch return false;
-    store_fn = lib.lookup(FnStoreSync, "secret_password_store_sync") orelse return false;
-    lookup_fn = lib.lookup(FnLookupSync, "secret_password_lookup_sync") orelse return false;
-    clear_fn = lib.lookup(FnClearSync, "secret_password_clear_sync") orelse return false;
-    // g_error_free / g_free live in libglib, a hard dependency of
-    // libsecret; dlsym on the libsecret handle searches its dependency
-    // tree, and an explicit glib handle is the fallback.
-    var glib = DynLib.open("libglib-2.0.so.0") catch null;
-    error_free_fn = lib.lookup(FnErrorFree, "g_error_free") orelse blk: {
-        if (glib) |*g| break :blk g.lookup(FnErrorFree, "g_error_free") orelse return false;
-        return false;
-    };
-    g_free_fn = lib.lookup(FnFree, "g_free") orelse blk: {
-        if (glib) |*g| break :blk g.lookup(FnFree, "g_free") orelse return false;
-        return false;
-    };
-    secret_lib = lib;
-    secret_state = .ready;
-    return true;
-}
+pub const ensureSecret = @import("sa_crypto_keyring.zig").ensureSecret;
 
-pub export fn sa_keyring_available() u32 {
-    return if (ensureSecret()) 1 else 0;
-}
+pub const sa_keyring_available = @import("sa_crypto_keyring.zig").sa_keyring_available;
 
 /// Collection name for a call: empty -> "default".
-fn collectionZ(alloc: std.mem.Allocator, col_ptr: ?[*]const u8, col_len: u64) ![:0]u8 {
-    if (col_len == 0) return dupeZ(alloc, "default");
-    const cp = col_ptr orelse return error.InvalidArgument;
-    return dupeZ(alloc, cp[0..@intCast(col_len)]);
-}
+pub const collectionZ = @import("sa_crypto_keyring.zig").collectionZ;
 
-pub export fn sa_keyring_set(col_ptr: ?[*]const u8, col_len: u64, key_ptr: ?[*]const u8, key_len: u64, secret_ptr: ?[*]const u8, secret_len: u64) i32 {
-    const kp = key_ptr orelse return ERR_INVALID;
-    const sp = secret_ptr orelse return ERR_INVALID;
-    if (key_len == 0) return ERR_INVALID;
-    if (!ensureSecret()) return ERR_UNSUPPORTED;
-    const alloc = std.heap.page_allocator;
-    const col_z = collectionZ(alloc, col_ptr, col_len) catch return ERR_NOMEM;
-    defer alloc.free(col_z);
-    const key_z = dupeZ(alloc, kp[0..@intCast(key_len)]) catch return ERR_NOMEM;
-    defer alloc.free(key_z);
-    const secret_z = dupeZ(alloc, sp[0..@intCast(secret_len)]) catch return ERR_NOMEM;
-    defer alloc.free(secret_z);
-    var err: ?*GError = null;
-    const ok = store_fn(&keyring_schema, col_z.ptr, key_z, secret_z, null, &err, attr_key, key_z.ptr, @as(?*anyopaque, null));
-    if (err) |e| {
-        error_free_fn(e);
-        return ERR_IO;
-    }
-    return if (ok != 0) OK else ERR_IO;
-}
+pub const sa_keyring_set = @import("sa_crypto_keyring.zig").sa_keyring_set;
 
-pub export fn sa_keyring_get(key_ptr: ?[*]const u8, key_len: u64, out_ptr: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
-    const out_l = out_len orelse return ERR_INVALID;
-    out_l.* = 0;
-    const kp = key_ptr orelse return ERR_INVALID;
-    if (key_len == 0) return ERR_INVALID;
-    if (!ensureSecret()) return ERR_UNSUPPORTED;
-    const alloc = std.heap.page_allocator;
-    const key_z = dupeZ(alloc, kp[0..@intCast(key_len)]) catch return ERR_NOMEM;
-    defer alloc.free(key_z);
-    var err: ?*GError = null;
-    const found = lookup_fn(&keyring_schema, null, &err, attr_key, key_z.ptr, @as(?*anyopaque, null));
-    if (err) |e| {
-        error_free_fn(e);
-        return ERR_IO;
-    }
-    const text_z = found orelse return ERR_NOT_FOUND;
-    const text = std.mem.span(text_z);
-    defer g_free_fn(@ptrCast(text_z));
-    out_l.* = @intCast(text.len);
-    if (text.len > cap) return ERR_TRUNCATED;
-    const out = out_ptr orelse return ERR_INVALID;
-    @memcpy(out[0..text.len], text);
-    return OK;
-}
+pub const sa_keyring_get = @import("sa_crypto_keyring.zig").sa_keyring_get;
 
-pub export fn sa_keyring_remove(key_ptr: ?[*]const u8, key_len: u64) i32 {
-    const kp = key_ptr orelse return ERR_INVALID;
-    if (key_len == 0) return ERR_INVALID;
-    if (!ensureSecret()) return ERR_UNSUPPORTED;
-    const alloc = std.heap.page_allocator;
-    const key_z = dupeZ(alloc, kp[0..@intCast(key_len)]) catch return ERR_NOMEM;
-    defer alloc.free(key_z);
-    var err: ?*GError = null;
-    const ok = clear_fn(&keyring_schema, null, &err, attr_key, key_z.ptr, @as(?*anyopaque, null));
-    if (err) |e| {
-        error_free_fn(e);
-        return ERR_IO;
-    }
-    return if (ok != 0) OK else ERR_NOT_FOUND;
-}
+pub const sa_keyring_remove = @import("sa_crypto_keyring.zig").sa_keyring_remove;
 
 // ---------------- tests ----------------
 
@@ -368,7 +245,7 @@ test "keyring: library availability is reported honestly" {
 
 const ERR_ACCESS: i32 = 4;
 
-fn inSlice(ptr: ?[*]const u8, len: u64) ?[]const u8 {
+pub fn inSlice(ptr: ?[*]const u8, len: u64) ?[]const u8 {
     if (len == 0) return &.{};
     const p = ptr orelse return null;
     return p[0..@intCast(len)];
@@ -562,95 +439,25 @@ pub export fn sa_aes_gcm_decrypt(key_ptr: ?[*]const u8, key_len: u64, nonce_ptr:
 
 // ---- Ed25519 (seed-shaped keys; DER import lives in sa_crypto_asym.zig) ----
 
-const Ed25519 = std.crypto.sign.Ed25519;
+pub const Ed25519 = @import("sa_crypto_sign.zig").Ed25519;
 
-pub export fn sa_ed25519_public_key(seed_ptr: ?[*]const u8, out_ptr: ?[*]u8) i32 {
-    const seed = seed_ptr orelse return ERR_INVALID;
-    const out = out_ptr orelse return ERR_INVALID;
-    const kp = Ed25519.KeyPair.generateDeterministic(seed[0..32].*) catch return ERR_INVALID;
-    out[0..32].* = kp.public_key.toBytes();
-    return OK;
-}
+pub const sa_ed25519_public_key = @import("sa_crypto_sign.zig").sa_ed25519_public_key;
 
-pub export fn sa_ed25519_sign(seed_ptr: ?[*]const u8, msg_ptr: ?[*]const u8, msg_len: u64, out_ptr: ?[*]u8) i32 {
-    const seed = seed_ptr orelse return ERR_INVALID;
-    const msg = inSlice(msg_ptr, msg_len) orelse return ERR_INVALID;
-    const out = out_ptr orelse return ERR_INVALID;
-    const kp = Ed25519.KeyPair.generateDeterministic(seed[0..32].*) catch return ERR_INVALID;
-    const sig = kp.sign(msg, null) catch return ERR_INVALID;
-    out[0..64].* = sig.toBytes();
-    return OK;
-}
+pub const sa_ed25519_sign = @import("sa_crypto_sign.zig").sa_ed25519_sign;
 
-pub export fn sa_ed25519_verify(pk_ptr: ?[*]const u8, msg_ptr: ?[*]const u8, msg_len: u64, sig_ptr: ?[*]const u8, out_valid: ?*u32) i32 {
-    const ov = out_valid orelse return ERR_INVALID;
-    ov.* = 0;
-    const pk_b = pk_ptr orelse return ERR_INVALID;
-    const sig_b = sig_ptr orelse return ERR_INVALID;
-    const msg = inSlice(msg_ptr, msg_len) orelse return ERR_INVALID;
-    const pk = Ed25519.PublicKey.fromBytes(pk_b[0..32].*) catch return ERR_INVALID;
-    const sig = Ed25519.Signature.fromBytes(sig_b[0..64].*);
-    Ed25519.Signature.verify(sig, msg, pk) catch {
-        ov.* = 0;
-        return OK;
-    };
-    ov.* = 1;
-    return OK;
-}
+pub const sa_ed25519_verify = @import("sa_crypto_sign.zig").sa_ed25519_verify;
 
 // ---- ECDSA P-256 (raw x||y public keys, raw r||s signatures) ----
 
-const EcdsaP256 = std.crypto.sign.ecdsa.EcdsaP256Sha256;
+pub const EcdsaP256 = @import("sa_crypto_sign.zig").EcdsaP256;
 
-fn p256PublicKey(pk_xy: [*]const u8) ?EcdsaP256.PublicKey {
-    var sec1: [65]u8 = undefined;
-    sec1[0] = 0x04;
-    @memcpy(sec1[1..65], pk_xy[0..64]);
-    return EcdsaP256.PublicKey.fromSec1(&sec1) catch null;
-}
+pub const p256PublicKey = @import("sa_crypto_sign.zig").p256PublicKey;
 
-pub export fn sa_ecdsa_p256_verify(pk_ptr: ?[*]const u8, msg_ptr: ?[*]const u8, msg_len: u64, sig_ptr: ?[*]const u8, out_valid: ?*u32) i32 {
-    const ov = out_valid orelse return ERR_INVALID;
-    ov.* = 0;
-    const pk_b = pk_ptr orelse return ERR_INVALID;
-    const sig_b = sig_ptr orelse return ERR_INVALID;
-    const msg = inSlice(msg_ptr, msg_len) orelse return ERR_INVALID;
-    const pk = p256PublicKey(pk_b) orelse return ERR_INVALID;
-    const sig = EcdsaP256.Signature.fromBytes(sig_b[0..64].*);
-    EcdsaP256.Signature.verify(sig, msg, pk) catch {
-        ov.* = 0;
-        return OK;
-    };
-    ov.* = 1;
-    return OK;
-}
+pub const sa_ecdsa_p256_verify = @import("sa_crypto_sign.zig").sa_ecdsa_p256_verify;
 
-pub export fn sa_ecdsa_p256_verify_prehashed(pk_ptr: ?[*]const u8, digest_ptr: ?[*]const u8, sig_ptr: ?[*]const u8, out_valid: ?*u32) i32 {
-    const ov = out_valid orelse return ERR_INVALID;
-    ov.* = 0;
-    const pk_b = pk_ptr orelse return ERR_INVALID;
-    const dg_b = digest_ptr orelse return ERR_INVALID;
-    const sig_b = sig_ptr orelse return ERR_INVALID;
-    const pk = p256PublicKey(pk_b) orelse return ERR_INVALID;
-    const sig = EcdsaP256.Signature.fromBytes(sig_b[0..64].*);
-    EcdsaP256.Signature.verifyPrehashed(sig, dg_b[0..32].*, pk) catch {
-        ov.* = 0;
-        return OK;
-    };
-    ov.* = 1;
-    return OK;
-}
+pub const sa_ecdsa_p256_verify_prehashed = @import("sa_crypto_sign.zig").sa_ecdsa_p256_verify_prehashed;
 
-pub export fn sa_ecdsa_p256_sign(priv_ptr: ?[*]const u8, msg_ptr: ?[*]const u8, msg_len: u64, out_ptr: ?[*]u8) i32 {
-    const priv = priv_ptr orelse return ERR_INVALID;
-    const msg = inSlice(msg_ptr, msg_len) orelse return ERR_INVALID;
-    const out = out_ptr orelse return ERR_INVALID;
-    const sk = EcdsaP256.SecretKey.fromBytes(priv[0..32].*) catch return ERR_INVALID;
-    const kp = EcdsaP256.KeyPair.fromSecretKey(sk) catch return ERR_INVALID;
-    const sig = kp.sign(msg, null) catch return ERR_INVALID;
-    out[0..64].* = sig.toBytes();
-    return OK;
-}
+pub const sa_ecdsa_p256_sign = @import("sa_crypto_sign.zig").sa_ecdsa_p256_sign;
 
 // ---------------- crypto suite tests (known-answer vectors) ----------------
 
