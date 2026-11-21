@@ -412,41 +412,13 @@ const AgentSkillPaths = struct {
     }
 };
 
-const OwnedPluginRuntimeAuthorization = struct {
-    input: plugins.RuntimeAuthorizationInput = .{},
-    env: []const []const u8 = &.{},
-    read: []const []const u8 = &.{},
-    write: []const []const u8 = &.{},
-    net: []const []const u8 = &.{},
-    run: []const []const u8 = &.{},
-    project_root: ?[]u8 = null,
-
-    fn deinit(self: *OwnedPluginRuntimeAuthorization, allocator: std.mem.Allocator) void {
-        for (self.env) |entry| allocator.free(entry);
-        allocator.free(self.env);
-        for (self.read) |entry| allocator.free(entry);
-        allocator.free(self.read);
-        for (self.write) |entry| allocator.free(entry);
-        allocator.free(self.write);
-        for (self.net) |entry| allocator.free(entry);
-        allocator.free(self.net);
-        for (self.run) |entry| allocator.free(entry);
-        allocator.free(self.run);
-        if (self.project_root) |root| allocator.free(root);
-        self.* = undefined;
-    }
-};
+const OwnedPluginRuntimeAuthorization = @import("cli/types.zig").OwnedPluginRuntimeAuthorization;
 
 const CliErrorInfo = @import("cli/types.zig").CliErrorInfo;
 
 const Command = @import("cli/types.zig").Command;
 
-pub fn hasJsonFlag(argv: []const []const u8) bool {
-    for (argv) |arg| {
-        if (std.mem.eql(u8, arg, "--json")) return true;
-    }
-    return false;
-}
+pub const hasJsonFlag = @import("cli/help.zig").hasJsonFlag;
 
 fn stripJsonFlag(allocator: std.mem.Allocator, argv: []const []const u8) ![]const []const u8 {
     var items = std.array_list.Managed([]const u8).init(allocator);
@@ -603,39 +575,9 @@ const cgu_seq_fn_threshold = @import("cli/compile.zig").cgu_seq_fn_threshold;
 
 const cguForceParallel = @import("cli/compile.zig").cguForceParallel;
 
-fn stdinIsTty() bool {
-    if (comptime @import("builtin").os.tag == .windows) return false;
-    _ = std.posix.tcgetattr(std.posix.STDIN_FILENO) catch return false;
-    return true;
-}
+const stdinIsTty = @import("cli/package.zig").stdinIsTty;
 
-const StdinLineReader = struct {
-    inner: *std.Io.Reader,
-
-    pub fn readUntilDelimiterOrEof(self: StdinLineReader, buf: []u8, delimiter: u8) !?[]u8 {
-        var i: usize = 0;
-        var eof = false;
-        while (true) {
-            const b = self.inner.takeByte() catch |err| switch (err) {
-                error.EndOfStream => {
-                    eof = true;
-                    break;
-                },
-                else => return err,
-            };
-            if (b == delimiter) break;
-            if (i >= buf.len) return error.StreamTooLong;
-            buf[i] = b;
-            i += 1;
-        }
-        if (i == 0 and eof) return null;
-        return buf[0..i];
-    }
-
-    pub fn takeDelimiterExclusive(self: StdinLineReader, delimiter: u8) ![]u8 {
-        return try self.inner.takeDelimiterExclusive(delimiter);
-    }
-};
+const StdinLineReader = @import("cli/types.zig").StdinLineReader;
 
 fn isCiMode(options: ProjectBuildOptions) bool {
     return options.ci or boolEnv("CI") or boolEnv("GITHUB_ACTIONS") or !stdinIsTty();
@@ -1796,176 +1738,27 @@ const PackageTrapInfo = @import("cli/types.zig").PackageTrapInfo;
 
 const trapFromPackagePreflightError = @import("cli/trap_errors.zig").trapFromPackagePreflightError;
 
-fn pathExists(path: []const u8) !bool {
-    sio.cwd().access(path, .{ .read = true }) catch |err| switch (err) {
-        error.FileNotFound => return false,
-        else => return err,
-    };
-    return true;
-}
+const pathExists = @import("cli/package.zig").pathExists;
 
-fn dirExists(path: []const u8) bool {
-    var dir = sio.cwd().openDir(path, .{ .iterate = true }) catch return false;
-    dir.close();
-    return true;
-}
+const dirExists = @import("cli/package.zig").dirExists;
 
-fn globalCacheRoot(allocator: std.mem.Allocator, identity: []const u8, ref: []const u8) ![]u8 {
-    const home = sio.getEnvVarOwned(allocator, "HOME") catch {
-        return error.PackageNotResolved;
-    };
-    defer allocator.free(home);
-    const leaf = try std.fmt.allocPrint(allocator, "{s}@{s}", .{ identity, ref });
-    defer allocator.free(leaf);
-    return try std.fs.path.join(allocator, &.{ home, ".sa", "pkg", leaf });
-}
+const globalCacheRoot = @import("cli/package.zig").globalCacheRoot;
 
-fn resolvePackageAuditRoot(
-    allocator: std.mem.Allocator,
-    project_root: []const u8,
-    entry: manifest.RequireEntry,
-    offline: bool,
-) ![]u8 {
-    const local_root = try std.fs.path.join(allocator, &.{ project_root, "sa_vendor", entry.url });
-    errdefer allocator.free(local_root);
-    if (dirExists(local_root)) return local_root;
-    allocator.free(local_root);
+const resolvePackageAuditRoot = @import("cli/package.zig").resolvePackageAuditRoot;
 
-    if (offline) return error.PackageNotResolved;
+const hashesEqual = @import("cli/package.zig").hashesEqual;
 
-    const global_root = try globalCacheRoot(allocator, entry.url, entry.ref);
-    errdefer allocator.free(global_root);
-    if (dirExists(global_root)) return global_root;
-    allocator.free(global_root);
+const appendCiSummaryIfConfigured = @import("cli/package.zig").appendCiSummaryIfConfigured;
 
-    return error.PackageNotResolved;
-}
+const preflightCiPackage = @import("cli/package.zig").preflightCiPackage;
 
-fn hashesEqual(lhs: [32]u8, rhs: [32]u8) bool {
-    return std.mem.eql(u8, lhs[0..], rhs[0..]);
-}
+const preflightInteractivePackage = @import("cli/package.zig").preflightInteractivePackage;
 
-fn appendCiSummaryIfConfigured(
-    allocator: std.mem.Allocator,
-    report: pkg_audit.AuditReport,
-    status: pkg_ci.VerifyStatus,
-) !void {
-    const summary_path = sio.getEnvVarOwned(allocator, "GITHUB_STEP_SUMMARY") catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => return,
-        else => return err,
-    };
-    defer allocator.free(summary_path);
-    var summary_file = try sio.cwd().openFile(summary_path, .{ .mode = .write_only });
-    defer summary_file.close();
-    try summary_file.seekTo(try summary_file.getEndPos());
-    var sbuf: [8192]u8 = undefined;
-    var sw = summary_file.writer(&sbuf);
-    try pkg_ci.writeGithubSummary(&sw.interface, report, status);
-    try sw.interface.flush();
-}
+const verifyProjectPackageState = @import("cli/package.zig").verifyProjectPackageState;
 
-fn preflightCiPackage(
-    allocator: std.mem.Allocator,
-    report: pkg_audit.AuditReport,
-    expected_source_sha256: [32]u8,
-    options: CompileOptions,
-) !void {
-    const status = try pkg_ci.dualTrackVerify(report, .{
-        .expected_source_sha256 = expected_source_sha256,
-        .allow_unaudited_risks = options.allow_unaudited_risks,
-    });
-    if (status == .tainted_unaudited_code) {
-        var null_buf: [64]u8 = undefined;
-        var null_discarding: std.Io.Writer.Discarding = .init(&null_buf);
-        const writer = options.diagnostic_writer orelse &null_discarding.writer;
-        try pkg_ci.writeTaintBanner(writer, report);
-        try appendCiSummaryIfConfigured(allocator, report, status);
-    }
-}
+const manifestPermissionSetExists = @import("cli/package.zig").manifestPermissionSetExists;
 
-fn preflightInteractivePackage(
-    report: pkg_audit.AuditReport,
-    expected_source_sha256: [32]u8,
-    session: *pkg_confirm.Session,
-    options: CompileOptions,
-) !void {
-    if (!hashesEqual(report.source_sha256, expected_source_sha256)) return error.UpstreamShaMismatch;
-
-    var empty_input: std.Io.Reader = .fixed("");
-    var null_buf: [64]u8 = undefined;
-    var null_discarding: std.Io.Writer.Discarding = .init(&null_buf);
-    const base_reader = options.stdin_reader orelse &empty_input;
-    const stdin_adapter = StdinLineReader{ .inner = base_reader };
-    const writer = options.diagnostic_writer orelse &null_discarding.writer;
-    const stdin_is_tty = options.stdin_is_tty orelse stdinIsTty();
-    try pkg_confirm.confirmWithReaderWriter(
-        session,
-        report,
-        stdin_adapter,
-        writer,
-        stdin_is_tty,
-        options.auto_approve_requested,
-    );
-}
-
-pub fn verifyProjectPackageState(
-    allocator: std.mem.Allocator,
-    project_root: []const u8,
-    project_manifest: manifest.Manifest,
-    options: CompileOptions,
-) !void {
-    try pkg_mirror.rejectForbiddenGlobalConfig(allocator);
-
-    const sum_path = try std.fs.path.join(allocator, &.{ project_root, "sa.sum" });
-    defer allocator.free(sum_path);
-    if (try pathExists(sum_path)) {
-        try pkg_sum.verifyProjectSum(allocator, project_root, project_manifest);
-    }
-
-    var session = pkg_confirm.Session.init(allocator);
-    defer session.deinit();
-    const stdin_is_tty = options.stdin_is_tty orelse stdinIsTty();
-    const ci_mode = pkg_ci.detectMode(.{
-        .explicit_ci = options.ci,
-        // Plain pipes must not silently become the CI taint path; they should
-        // hit the interactive confirmation guard and fail with MissingTty.
-        .stdin_is_tty = if (options.ci) stdin_is_tty else true,
-    });
-    if (options.permission_set) |set_name| {
-        if (!manifestPermissionSetExists(project_manifest, set_name)) return error.InvalidPermissionSet;
-    } else if (ci_mode and project_manifest.permission_sets.len != 0 and !compileOptionsHaveAllowList(options)) {
-        return error.MissingPermissionSet;
-    }
-
-    for (project_manifest.requires) |entry| {
-        const audit_root = try resolvePackageAuditRoot(allocator, project_root, entry, options.offline);
-        defer allocator.free(audit_root);
-        var report = try pkg_audit.auditPackage(allocator, entry.url, entry.ref, audit_root, entry.grants);
-        defer report.deinit(allocator);
-
-        if (ci_mode) {
-            try preflightCiPackage(allocator, report, entry.source_sha256, options);
-        } else {
-            try preflightInteractivePackage(report, entry.source_sha256, &session, options);
-        }
-    }
-}
-
-fn manifestPermissionSetExists(project_manifest: manifest.Manifest, name: []const u8) bool {
-    if (std.mem.eql(u8, name, "@dev")) return true;
-    for (project_manifest.permission_sets) |set| {
-        if (std.mem.eql(u8, set.name, name)) return true;
-    }
-    return false;
-}
-
-fn compileOptionsHaveAllowList(options: CompileOptions) bool {
-    return options.allow_env_requested or
-        options.allow_net_requested or
-        options.allow_read_requested or
-        options.allow_write_requested or
-        options.allow_run_requested;
-}
+const compileOptionsHaveAllowList = @import("cli/package.zig").compileOptionsHaveAllowList;
 
 const verifyModeByte = @import("cli/compile.zig").verifyModeByte;
 
@@ -2109,52 +1902,17 @@ const stdRootFromEnv = @import("cli/cache.zig").stdRootFromEnv;
 
 const defaultStableImportRoots = @import("cli/compile.zig").defaultStableImportRoots;
 
-fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !?manifest.Manifest {
-    const manifest_path = try std.fs.path.join(allocator, &.{ project_root, "sa.mod" });
-    defer allocator.free(manifest_path);
+const readProjectManifest = @import("cli/plugin_cmd.zig").readProjectManifest;
 
-    const file = sio.cwd().openFile(manifest_path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return null,
-        else => return err,
-    };
-    defer file.close();
+const projectRootFromCurrentDir = @import("cli/package.zig").projectRootFromCurrentDir;
 
-    const source = try file.readToEndAlloc(allocator, manifest.max_manifest_bytes);
-    defer allocator.free(source);
-    return try manifest.parseManifestWithFile(allocator, source, manifest_path);
-}
+const parseAllowListFragment = @import("cli/plugin_cmd.zig").parseAllowListFragment;
 
-fn projectRootFromCurrentDir(allocator: std.mem.Allocator) ![]u8 {
-    var resolved = try pkg_workspace.resolveFromCurrentDir(allocator, .{});
-    defer resolved.deinit(allocator);
-    return try allocator.dupe(u8, resolved.workspace_root);
-}
+const appendPermissionSetStrings = @import("cli/plugin_cmd.zig").appendPermissionSetStrings;
 
-fn parseAllowListFragment(allocator: std.mem.Allocator, list: *std.array_list.Managed([]const u8), value_text: []const u8) !void {
-    var it = std.mem.splitScalar(u8, value_text, ',');
-    while (it.next()) |raw_item| {
-        const item = std.mem.trim(u8, raw_item, " \t\r\n");
-        if (item.len == 0) return error.InvalidArgument;
-        try list.append(try allocator.dupe(u8, item));
-    }
-}
+const validateRunAllowList = @import("cli/plugin_cmd.zig").validateRunAllowList;
 
-fn appendPermissionSetStrings(allocator: std.mem.Allocator, list: *std.array_list.Managed([]const u8), entries: []const []const u8) !void {
-    for (entries) |entry| try list.append(try allocator.dupe(u8, entry));
-}
-
-fn validateRunAllowList(entries: []const []const u8) !void {
-    for (entries) |entry| {
-        if (!std.fs.path.isAbsolute(entry)) return error.InvalidArgument;
-    }
-}
-
-fn findPermissionSet(project_manifest: manifest.Manifest, name: []const u8) ?*const manifest.PermissionSet {
-    for (project_manifest.permission_sets) |*set| {
-        if (std.mem.eql(u8, set.name, name)) return set;
-    }
-    return null;
-}
+const findPermissionSet = @import("cli/plugin_cmd.zig").findPermissionSet;
 
 const buildPluginRuntimeAuthorization = @import("cli/plugin_cmd.zig").buildPluginRuntimeAuthorization;
 
@@ -3192,26 +2950,9 @@ fn executeLayout(
     return 0;
 }
 
-fn fragmentParseMessage(err: sab_fragment.ParseError) []const u8 {
-    return switch (err) {
-        error.FragmentMissingHeader => "source does not start with a `#fragment <major>` header line",
-        error.FragmentVersionMismatch => "fragment format version does not match this host (expected major 1, minor 0)",
-        error.FragmentMissingField => "fragment header is missing a required field (#fragment-function, #fragment-reads, #fragment-owns, or #fragment-caller)",
-        error.FragmentUnknownDirective => "unknown #fragment-* directive in the header",
-        error.FragmentDuplicateDirective => "duplicate directive in the fragment header",
-        error.FragmentDuplicateRegister => "duplicate register name in a fragment header list",
-        error.FragmentBadHeaderLine => "malformed fragment header line",
-        error.FragmentHeaderAfterCode => "a #fragment header line appears after code; the header must precede all code",
-        error.OutOfMemory => "out of memory",
-    };
-}
+const fragmentParseMessage = @import("cli/encode.zig").fragmentParseMessage;
 
-fn deriveFragmentOutputPath(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
-    if (std.mem.endsWith(u8, source_path, ".sa")) {
-        return try std.fmt.allocPrint(allocator, "{s}safrag", .{source_path[0 .. source_path.len - 2]});
-    }
-    return try std.fmt.allocPrint(allocator, "{s}.safrag", .{source_path});
-}
+const deriveFragmentOutputPath = @import("cli/encode.zig").deriveFragmentOutputPath;
 
 const executeEncodeFragment = @import("cli/encode.zig").executeEncodeFragment;
 
@@ -3437,17 +3178,7 @@ pub fn executeWithWritersAndOptions(
     return try executeWithWritersAndOptionsImpl(allocator, argv, stdout, stderr, exec_options);
 }
 
-/// True when a require_plugin identity names the given language
-/// frontend: the identity itself, its basename, or the conventional
-/// `sa_plugin_<name>` source-directory basename.
-fn pluginRequireNamesFrontend(identity: []const u8, frontend_name: []const u8) bool {
-    if (std.mem.eql(u8, identity, frontend_name)) return true;
-    const base = std.fs.path.basename(identity);
-    if (std.mem.eql(u8, base, frontend_name)) return true;
-    const prefix = "sa_plugin_";
-    if (std.mem.startsWith(u8, base, prefix) and std.mem.eql(u8, base[prefix.len..], frontend_name)) return true;
-    return false;
-}
+const pluginRequireNamesFrontend = @import("cli/route.zig").pluginRequireNamesFrontend;
 
 const routeProjectVerb = @import("cli/route.zig").routeProjectVerb;
 

@@ -97,7 +97,7 @@ def extract_fn(path, name):
         start -= 1
     end = find_fn_end(lines, start if lines[start].startswith("fn ") else start)
     block = lines[start:end + 1]
-    assert block[0].startswith("fn ") or block[0].startswith("///"), block[0]
+    assert block[0].startswith("fn ") or block[0].startswith("pub fn ") or block[0].startswith("///"), block[0]
     assert block[-1] == "}", block[-1]
     return lines, start, end, block
 
