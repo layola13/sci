@@ -1,4 +1,10 @@
 const std = @import("std");
+const recordMetricMemoryEnd = @import("compile.zig").recordMetricMemoryEnd;
+const CompileMetrics = @import("types.zig").CompileMetrics;
+const projectCacheHit = @import("compile.zig").projectCacheHit;
+const writeMemoryStageSampleForOptions = @import("compile.zig").writeMemoryStageSampleForOptions;
+const intermediateArtifactPath = @import("build_lib.zig").intermediateArtifactPath;
+const recordMetricMemoryAfterEmit = @import("compile.zig").recordMetricMemoryAfterEmit;
 const computeProjectBuildKey = @import("compile.zig").computeProjectBuildKey;
 const elapsedNs = @import("compile.zig").elapsedNs;
 const ProjectCacheKey = @import("types.zig").ProjectCacheKey;
@@ -25,6 +31,26 @@ const layout = @import("../layout.zig");
 const sab = @import("../sab.zig");
 const plugins = @import("../plugins.zig");
 const DiagnosticsMode = @import("types.zig").DiagnosticsMode;
+const BuildCacheKind = @import("types.zig").BuildCacheKind;
+const CompileMemoryMetrics = @import("types.zig").CompileMemoryMetrics;
+const memoryEndPrevious = @import("types.zig").memoryEndPrevious;
+const finishProfileMetrics = @import("types.zig").finishProfileMetrics;
+const printStageTiming = @import("types.zig").printStageTiming;
+const writeSuccessDiagnostics = @import("errors.zig").writeSuccessDiagnostics;
+const rejectNpmBindsUnlessJs = @import("compile.zig").rejectNpmBindsUnlessJs;
+const stdRootFromEnv = @import("cache.zig").stdRootFromEnv;
+const saStdArchivePathForTarget = @import("compile.zig").saStdArchivePathForTarget;
+const attachBackendIrMetrics = @import("compile.zig").attachBackendIrMetrics;
+const cguSeqShardCount = @import("compile.zig").cguSeqShardCount;
+const recordMetricMemoryAfterLink = @import("compile.zig").recordMetricMemoryAfterLink;
+const printLlvmcEmitError = @import("errors.zig").printLlvmcEmitError;
+const CompileOk = @import("types.zig").CompileOk;
+const cguForceParallel = @import("compile.zig").cguForceParallel;
+const projectCacheStore = @import("cache.zig").projectCacheStore;
+const computeFunctionObjectKey = @import("cache.zig").computeFunctionObjectKey;
+const cgu_seq_fn_threshold = @import("compile.zig").cgu_seq_fn_threshold;
+const DceMode = @import("../emit_options.zig").DceMode;
+const projectFunctionCachePath = @import("cache.zig").projectFunctionCachePath;
 
 pub fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options_in: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
     var compile_options = compile_options_in;
@@ -536,4 +562,168 @@ pub fn executeBuildC(allocator: std.mem.Allocator, source_path: []const u8, out_
             return 0;
         },
     }
+}
+
+pub fn makeExecutable(path: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+    var file = try sio.cwd().openFile(path, .{ .mode = .read_write });
+    defer file.close();
+    try file.chmod(0o755);
+}
+
+pub fn cacheHitMemoryMetrics(enabled: bool) ?CompileMemoryMetrics {
+    if (!enabled) return null;
+    var memory = CompileMemoryMetrics{};
+    memory.recordStart();
+    memory.recordEnd();
+    return memory;
+}
+
+/// Resolve the sa_std archive for a wasm build. A module with an
+/// entry point always references the runtime from its generated main
+/// wrapper (DEF-R7), so a missing archive there is a hard error with
+/// the build remedy -- never a silent no-archive link that explodes
+/// later as an undefined symbol. No-entry (library) modules may
+/// legitimately link without the runtime, so for them a missing
+/// archive stays optional and yields null.
+pub fn wasmStdArchivePath(allocator: std.mem.Allocator, target: WasmTarget, stderr: anytype) !?[]u8 {
+    return saStdArchivePathForTarget(allocator, target.triple) catch |err| {
+        if (err == error.ArchiveNotFoundForTarget) {
+            if (target.no_entry) return null;
+            try stderr.print("error: no sa_std archive for target '{s}'. Build it with:\n", .{target.triple});
+            try stderr.writeAll("  zig build -Dtarget=<triple> sa-std-static\n");
+            try stderr.writeAll("then copy zig-out/lib/<libsa_std.a|sa_std.lib> to $SA_STD_DIR/<triple>/\n");
+            return error.ArchiveNotFoundForTarget;
+        }
+        return err;
+    };
+}
+
+pub fn emitOptLevel(debug: bool, optimization: driver.Optimization) u8 {
+    if (debug) return 0;
+    return switch (optimization) {
+        .none => 0,
+        .release_small => 1,
+        .release_fast => 3,
+    };
+}
+
+pub fn buildIncrementalObject(
+    allocator: std.mem.Allocator,
+    project_root: []const u8,
+    cache_key: ProjectCacheKey,
+    compiled: *const CompileOk,
+    source_path: []const u8,
+    out_path: []const u8,
+    debug: bool,
+    optimization: driver.Optimization,
+    compile_options: CompileOptions,
+    stderr: anytype,
+) !void {
+    const opt_level = emitOptLevel(debug, optimization);
+    const emit_std_root = try stdRootFromEnv(allocator);
+    defer allocator.free(emit_std_root);
+    var object_paths = std.array_list.Managed([]const u8).init(allocator);
+    defer {
+        for (object_paths.items) |path| allocator.free(path);
+        object_paths.deinit();
+    }
+    var function_keys = std.array_list.Managed([]const u8).init(allocator);
+    defer {
+        for (function_keys.items) |key| allocator.free(key);
+        function_keys.deinit();
+    }
+
+    var sig_index: usize = 0;
+    var idx: usize = 0;
+    var task_idx: usize = 0;
+    while (idx < compiled.verified.annotated.len) : (idx += 1) {
+        const item = compiled.verified.annotated[idx].base;
+        switch (item.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
+                if (sig_index >= compiled.verified.function_sigs.len) return error.UnknownFunction;
+                const current_sig_index = sig_index;
+                sig_index += 1;
+
+                var end = idx + 1;
+                while (end < compiled.verified.annotated.len and switch (compiled.verified.annotated[end].base.kind) {
+                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => false,
+                    else => true,
+                }) : (end += 1) {}
+
+                if (item.kind != .extern_decl) {
+                    const function_key = try computeFunctionObjectKey(allocator, source_path, &compiled.verified, current_sig_index, idx, end);
+                    var function_key_owned = true;
+                    errdefer if (function_key_owned) allocator.free(function_key);
+                    const object_path = try projectFunctionCachePath(allocator, project_root, cache_key, function_key);
+                    var object_path_owned = true;
+                    errdefer if (object_path_owned) allocator.free(object_path);
+                    if (!projectPathExists(object_path)) {
+                        try ensureParentDir(object_path);
+                        try emit_llvm_llvmc.emitLlvmcToObject(
+                            allocator,
+                            compiled.verified,
+                            &compiled.flat.def_dict,
+                            compiled.flat.loc_table,
+                            source_path,
+                            nativeSizeBits(),
+                            .{
+                                .debug = debug,
+                                .jobs = 1,
+                                .opt_level = opt_level,
+                                .function_task_index = task_idx,
+                                .dce = compile_options.dce,
+                                .fast_math = compile_options.fast_math,
+                                .std_root = emit_std_root,
+                            },
+                            object_path,
+                            opt_level,
+                        );
+                    }
+                    try function_keys.append(function_key);
+                    function_key_owned = false;
+                    try object_paths.append(object_path);
+                    object_path_owned = false;
+                }
+
+                task_idx += 1;
+                idx = end - 1;
+            },
+            else => {},
+        }
+    }
+
+    if (object_paths.items.len == 0) {
+        return error.UnknownFunction;
+    }
+
+    try ensureParentDir(out_path);
+    driver.compileRelocatableObj(allocator, object_paths.items, out_path, stderr) catch |err| switch (err) {
+        error.ChildProcessFailed => return error.ChildProcessFailed,
+        else => return err,
+    };
+
+    const manifest_path = try projectFunctionCacheManifestPath(allocator, project_root, cache_key);
+    defer allocator.free(manifest_path);
+    try ensureParentDir(manifest_path);
+    var manifest_file = try sio.cwd().createFile(manifest_path, .{ .truncate = true });
+    defer manifest_file.close();
+    var mfbuf: [8192]u8 = undefined;
+    var mfw = manifest_file.writer(&mfbuf);
+    const writer = &mfw.interface;
+    try writer.writeAll("{\"version\":1,\"kind\":\"build-obj-incremental\",\"source\":");
+    try writeJsonString(writer, source_path);
+    try writer.writeAll(",\"cache_key\":");
+    try writeJsonString(writer, cache_key.slice());
+    try writer.writeAll(",\"functions\":[");
+    for (function_keys.items, object_paths.items, 0..) |function_key, object_path, i| {
+        if (i != 0) try writer.writeByte(',');
+        try writer.writeAll("{\"key\":");
+        try writeJsonString(writer, function_key);
+        try writer.writeAll(",\"object\":");
+        try writeJsonString(writer, object_path);
+        try writer.writeByte('}');
+    }
+    try writer.writeAll("]}\n");
+    try mfw.interface.flush();
 }

@@ -1,4 +1,13 @@
 const std = @import("std");
+const incr_verify = @import("../incr_verify.zig");
+const DceMode = @import("../emit_options.zig").DceMode;
+const ProjectCacheKey = @import("types.zig").ProjectCacheKey;
+const isSabFunctionDecl = @import("cache.zig").isSabFunctionDecl;
+const WasmTarget = @import("types.zig").WasmTarget;
+const common_upstream = @import("../common/upstream_loc.zig");
+const manifest = @import("../pkg/manifest.zig");
+const builtin = @import("builtin");
+const BuildCacheKind = @import("types.zig").BuildCacheKind;
 const sio = @import("sio");
 const pkg_workspace = @import("../pkg/workspace.zig");
 const CompileMetrics = @import("types.zig").CompileMetrics;
@@ -11,6 +20,16 @@ const sab = @import("../sab.zig");
 const trap = @import("../common/trap.zig");
 const CompileOptions = @import("types.zig").CompileOptions;
 const CompileResult = @import("types.zig").CompileResult;
+const setFile = @import("trap_errors.zig").setFile;
+const stdRootFromEnv = @import("cache.zig").stdRootFromEnv;
+const build_options = @import("build_options");
+const BackendIrMetrics = @import("types.zig").BackendIrMetrics;
+const pkg_resolver = @import("../pkg/resolver.zig");
+const verifyProjectPackageState = @import("../cli.zig").verifyProjectPackageState;
+const trapFromPackagePreflightError = @import("trap_errors.zig").trapFromPackagePreflightError;
+const plugins = @import("../plugins.zig");
+
+pub var test_source_tree_load_count: usize = 0;
 
 pub fn computeCompileMetrics(flat: *const flattener.FlattenResult, verified: *const referee.VerifyOk, phases: ?CompilePhaseMetrics, memory: ?CompileMemoryMetrics) CompileMetrics {
     const compile_tokens = @as(u64, flat.instructions.len) + @as(u64, flat.const_decls.len) + @as(u64, flat.function_sigs.len) + @as(u64, flat.test_sigs.len) + @as(u64, verified.annotated.len);
@@ -319,9 +338,7 @@ pub fn sizeBitsForTriple(triple: ?[]const u8) u16 {
     return 64;
 }
 
-pub fn projectLockPath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
-    return try pathJoinAlloc(allocator, &.{ root_path, "sa.lock" });
-}
+const projectLockPath = @import("cache.zig").projectLockPath;
 
 pub fn writeMemoryStageSample(writer: anytype, label: []const u8, value: ?u64, previous: ?u64) !void {
     try writer.writeAll("memory stage ");
@@ -436,133 +453,273 @@ pub fn loadSource(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return bytes;
 }
 
-pub fn computeProjectBuildKey(
-    allocator: std.mem.Allocator,
-    project_context: *const ProjectContext,
-    project_root: []const u8,
-    source_path: []const u8,
-    target_name: []const u8,
-    source_suffix: []const u8,
-    kind: BuildCacheKind,
-    debug: bool,
-    release_fast: bool,
-    incremental: bool,
-    wasm: ?WasmTarget,
-    hash_source_tree: bool,
-    offline: bool,
-    dce: DceMode,
-    default_immutable: bool,
-    fast_math: bool,
-) !ProjectCacheKey {
-    const std_root = try stdRootFromEnv(allocator);
-    defer allocator.free(std_root);
+const computeProjectBuildKey = @import("cache.zig").computeProjectBuildKey;
 
-    // Cache keys are semantic identities (cache-dedup P3): they are built
-    // only from what the build means — source contents, compiler version,
-    // flags, the std tree's content digest — never from where anything
-    // happens to live on disk. The checkout path of the project, the
-    // absolute spelling of the source path, and file timestamps of build
-    // products must not appear here, or the same meaning keys differently
-    // in every tree and sharing is impossible by construction. The domain
-    // literal carries a generation marker so entries minted by the old
-    // location-based formula can never be mistaken for semantic ones.
-    const project_root_real = sio.cwd().realpathAlloc(allocator, project_root) catch try allocator.dupe(u8, project_root);
-    defer allocator.free(project_root_real);
-    const key_source_path = try cacheKeyNormalizedPath(allocator, project_root_real, source_path);
-    defer allocator.free(key_source_path);
+pub fn recordMetricMemoryAfterEmit(metrics: *CompileMetrics) void {
+    if (metrics.memory) |*memory| memory.recordAfterEmit();
+}
 
-    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    cacheBytes(&hasher, "sa-build-cache-v2");
-    cacheBytes(&hasher, cacheCompilerVersion());
-    cacheBytes(&hasher, kind.dirName());
-    cacheBytes(&hasher, key_source_path);
-    cacheBytes(&hasher, target_name);
-    cacheBytes(&hasher, source_suffix);
-    cacheBuildSemanticFlags(&hasher, debug, release_fast, incremental, dce, default_immutable, fast_math);
-    // The linked sa_std runtime is identified by the semantic digest of
-    // the std source tree it is built from. The previous formula fed the
-    // archive's (size, mtime) stat pair: a byte-identical archive rebuild
-    // — the normal case when a suite loop rebuilds its tree each round —
-    // changed only the mtime and still invalidated every cached entry in
-    // every project (measured invalidation radius: 100%). The archive
-    // bytes themselves cannot key anything either: they are not
-    // reproducible across checkouts. The source tree is the version of
-    // the std that the archive means, so its content digest is the key.
-    if (try stdTreeDigest(allocator, std_root)) |digest| {
-        cacheBytes(&hasher, "std-tree-digest-v1");
-        hasher.update(&digest);
-    }
-    if (wasm) |target| {
-        cacheBytes(&hasher, target.triple);
-        cacheBool(&hasher, target.no_entry);
-        cacheU64(&hasher, target.size_bits);
-        // The wasm sa_std archive is stripped at build time (see build.zig:
-        // `.strip = true` for wasi). The std source-tree digest alone cannot
-        // distinguish a stripped from an unstripped archive built from the
-        // same source, so cache entries minted before this change would be
-        // revived with the old 14 MB runtime. Bump this generation marker to
-        // invalidate them; byte-identical function is preserved.
-        cacheBytes(&hasher, "wasm-std-stripped-v1");
-    }
+const projectSumPath = @import("cache.zig").projectSumPath;
 
-    const project_manifest = project_context.manifest;
-    if (project_manifest) |*m| {
-        // Manifest identity is the project-relative path (its layout role)
-        // plus its content; the absolute spelling would reintroduce the
-        // checkout location into the key.
-        const key_workspace_manifest_path = try cacheKeyNormalizedPath(allocator, project_root_real, project_context.workspace_manifest_path);
-        defer allocator.free(key_workspace_manifest_path);
-        cacheBytes(&hasher, key_workspace_manifest_path);
-        if (projectPathExists(project_context.workspace_manifest_path)) {
-            const workspace_manifest_bytes = try readTextFileAlloc(allocator, project_context.workspace_manifest_path);
-            defer allocator.free(workspace_manifest_bytes);
-            cacheBytes(&hasher, workspace_manifest_bytes);
-        }
-        if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
-            const key_member_manifest_path = try cacheKeyNormalizedPath(allocator, project_root_real, project_context.member_manifest_path);
-            defer allocator.free(key_member_manifest_path);
-            cacheBytes(&hasher, key_member_manifest_path);
-            if (projectPathExists(project_context.member_manifest_path)) {
-                const member_manifest_bytes = try readTextFileAlloc(allocator, project_context.member_manifest_path);
-                defer allocator.free(member_manifest_bytes);
-                cacheBytes(&hasher, member_manifest_bytes);
-            }
-        }
-        if (project_context.lock_file != null) {
-            const lock_path = try projectLockPath(allocator, project_context.root_path);
-            defer allocator.free(lock_path);
-            try projectFileMaybeHash(&hasher, allocator, lock_path);
-        }
-        if (project_context.sum_file != null) {
-            const sum_path = try projectSumPath(allocator, project_context.root_path);
-            defer allocator.free(sum_path);
-            try projectFileMaybeHash(&hasher, allocator, sum_path);
-        }
-        var dependency_slice: []pkg_resolver.Dependency = &.{};
-        defer if (dependency_slice.len != 0) allocator.free(dependency_slice);
-        var plugin_import_roots: []const []const u8 = &.{};
-        defer if (plugin_import_roots.len != 0) freeOwnedStringSlice(allocator, plugin_import_roots);
-        if (m.requires.len != 0) {
-            dependency_slice = try manifestDependencies(m, allocator);
-        }
-        if (m.plugin_requires.len != 0) {
-            plugin_import_roots = try manifestPluginImportRoots(m, allocator);
-        }
-
-        if (hash_source_tree) {
-            try hashResolvedSourceTree(allocator, &hasher, dependency_slice, plugin_import_roots, project_context.root_path, std_root, offline, source_path);
-        }
+pub fn writeMemoryDelta(writer: anytype, previous: ?u64, current: ?u64) !void {
+    const prev = previous orelse return;
+    const curr = current orelse return;
+    try writer.writeAll("  delta ");
+    if (curr >= prev) {
+        try writer.writeByte('+');
+        try writeMemoryAmount(writer, curr - prev);
     } else {
-        try projectFileMaybeHash(&hasher, allocator, project_context.workspace_manifest_path);
-        if (!std.mem.eql(u8, project_context.member_manifest_path, project_context.workspace_manifest_path)) {
-            try projectFileMaybeHash(&hasher, allocator, project_context.member_manifest_path);
+        try writer.writeByte('-');
+        try writeMemoryAmount(writer, prev - curr);
+    }
+}
+
+const pruneSabFlatToSelectedTests = @import("cache.zig").pruneSabFlatToSelectedTests;
+
+const readSumFile = @import("cache.zig").readSumFile;
+
+pub fn trustedSabVerifyOk(allocator: std.mem.Allocator, flat: *flattener.FlattenResult) !referee.VerifyOk {
+    // Verdict-cache fast path: the reused sigs never went through scope
+    // finalization, so rebuild verifier-equivalent reg scopes (and localize
+    // body regs to slots) before codegen, which requires populated reg_ids.
+    try referee.populateTrustedRegScopes(allocator, flat.instructions, flat.const_decls, flat.function_sigs, &flat.symbols);
+    var annotated = std.array_list.Managed(referee.AnnotatedInstruction).init(allocator);
+    errdefer annotated.deinit();
+    var fatal_terminated = false;
+    for (flat.instructions) |item| {
+        if (fatal_terminated and item.kind != .label and !isSabFunctionDecl(item.kind)) continue;
+        if (item.kind == .label or isSabFunctionDecl(item.kind)) fatal_terminated = false;
+        try annotated.append(.{
+            .base = item,
+            .delta = .{ .changes = &.{} },
+            .gas_step_cost = 0,
+        });
+        if (item.kind == .panic or item.kind == .panic_msg) fatal_terminated = true;
+    }
+    const annotated_slice = try annotated.toOwnedSlice();
+    errdefer allocator.free(annotated_slice);
+
+    const function_sigs = flat.function_sigs;
+    flat.function_sigs = &.{};
+
+    const symbols = flat.symbols;
+    flat.symbols = flattener.SymbolTable.init(allocator);
+
+    return .{
+        .annotated = annotated_slice,
+        .function_sigs = function_sigs,
+        .symbols = symbols,
+        .const_decls = flat.const_decls,
+        .gas = .{
+            .max_alloc_bytes = 0,
+            .max_instruction_steps = .{ .bounded = 0 },
+            .call_depth = 0,
+            .has_unbounded_loop = false,
+        },
+    };
+}
+
+const projectCacheHit = @import("cache.zig").projectCacheHit;
+
+pub fn recordMetricMemoryEnd(metrics: *CompileMetrics) void {
+    if (metrics.memory) |*memory| memory.recordEnd();
+}
+
+/// Verification mode byte folded into the incremental verdict digest so a
+/// verdict produced in one mode is never reused in another.
+pub fn verifyModeByte(default_immutable: bool) u8 {
+    return if (default_immutable) 1 else 0;
+}
+
+/// `#npm_bind` bindings only lower under `sa build-js`. Every other
+/// emit/run path rejects them here with a targeted diagnostic instead of
+/// a confusing missing-symbol failure downstream (JS target only; the
+/// wasm and native backends have no ESM import mechanism).
+pub fn rejectNpmBindsUnlessJs(cmd_name: []const u8, flat: *const flattener.FlattenResult, stderr: anytype) !void {
+    if (flat.def_dict.npm_binds.count() == 0) return;
+    try stderr.print("error: {s} does not support `#npm_bind` npm imports; use `sa build-js` (JS target only)\n", .{cmd_name});
+    return error.NpmImportJsOnly;
+}
+
+pub fn tripleIsWindows(triple: ?[]const u8) bool {
+    const t = triple orelse return builtin.os.tag == .windows;
+    return std.mem.indexOf(u8, t, "windows") != null;
+}
+
+pub fn saStdArchivePath(allocator: std.mem.Allocator) ![]u8 {
+    const archive_name = switch (builtin.os.tag) {
+        .windows => "sa_std.lib",
+        else => "libsa_std.a",
+    };
+    if (builtin.is_test) {
+        return try allocator.dupe(u8, build_options.sa_std_archive_path);
+    }
+    const env_root: ?[]u8 = sio.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    if (env_root) |root| {
+        errdefer allocator.free(root);
+        const archive = try std.fs.path.join(allocator, &.{ root, archive_name });
+        if (sio.cwd().openFile(archive, .{})) |file| {
+            file.close();
+            allocator.free(root);
+            return archive;
+        } else |_| {
+            allocator.free(archive);
         }
-        if (hash_source_tree) {
-            try hashResolvedSourceTree(allocator, &hasher, &.{}, &.{}, project_context.root_path, std_root, offline, source_path);
+        allocator.free(root);
+    }
+    return try allocator.dupe(u8, build_options.sa_std_archive_path);
+}
+
+/// Locate the sa_std static archive for an optional cross-compilation triple.
+/// Layout: $SA_STD_DIR/<triple>/libsa_std.a (or sa_std.lib for windows triples).
+/// Returns error.ArchiveNotFoundForTarget when the triple archive is missing.
+pub fn saStdArchivePathForTarget(allocator: std.mem.Allocator, target_triple: ?[]const u8) ![]u8 {
+    const triple = target_triple orelse return saStdArchivePath(allocator);
+    const archive_name: []const u8 = if (tripleIsWindows(target_triple)) "sa_std.lib" else "libsa_std.a";
+    const env_root: ?[]u8 = sio.getEnvVarOwned(allocator, "SA_STD_DIR") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+    if (env_root) |root| {
+        defer allocator.free(root);
+        const archive = try std.fs.path.join(allocator, &.{ root, triple, archive_name });
+        errdefer allocator.free(archive);
+        if (sio.cwd().openFile(archive, .{})) |file| {
+            file.close();
+            return archive;
+        } else |_| {}
+        return error.ArchiveNotFoundForTarget;
+    }
+    // No SA_STD_DIR: fall back to the directory holding the host
+    // archive (the baked build path), with the same <triple>/ layout.
+    // This mirrors saStdArchivePath's own baked fallback for the host
+    // target; without it cross archives built into the tree were
+    // unreachable unless the user hand-exported SA_STD_DIR.
+    const host_archive = try saStdArchivePath(allocator);
+    defer allocator.free(host_archive);
+    const host_dir = std.fs.path.dirname(host_archive) orelse return error.ArchiveNotFoundForTarget;
+    const archive = try std.fs.path.join(allocator, &.{ host_dir, triple, archive_name });
+    errdefer allocator.free(archive);
+    if (sio.cwd().openFile(archive, .{})) |file| {
+        file.close();
+        return archive;
+    } else |_| {}
+    return error.ArchiveNotFoundForTarget;
+}
+
+pub fn estimateBackendIrMetrics(verified: *const referee.VerifyOk, debug: bool) BackendIrMetrics {
+    var out = BackendIrMetrics{};
+    var sig_index: usize = 0;
+    for (verified.annotated) |item| {
+        switch (item.base.kind) {
+            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
+                out.functions += 1;
+                out.blocks += 1;
+                if (sig_index < verified.function_sigs.len) {
+                    if (debug) out.alloca_slots += @as(u64, @intCast(verified.function_sigs[sig_index].reg_ids.len));
+                    sig_index += 1;
+                }
+            },
+            .label => out.blocks += 1,
+            .load, .take, .atomic_load => {
+                out.instructions += 1;
+                out.loads += 1;
+            },
+            .store, .atomic_store => {
+                out.instructions += 1;
+                out.stores += 1;
+            },
+            .move_, .release => {},
+            else => out.instructions += 1,
         }
     }
+    return out;
+}
 
-    var out: [32]u8 = undefined;
-    hasher.final(&out);
-    return .{ .hex = std.fmt.bytesToHex(out, .lower) };
+pub fn attachBackendIrMetrics(metrics: *CompileMetrics, verified: *const referee.VerifyOk, debug: bool) void {
+    if (metrics.phases == null) return;
+    metrics.backend_ir = estimateBackendIrMetrics(verified, debug);
+}
+
+pub fn cguSeqShardCount() ?usize {
+    const value = sio.getEnvVarOwned(std.heap.page_allocator, "SA_CGU_SEQ_SHARDS") catch return null;
+    defer std.heap.page_allocator.free(value);
+    const n = std.fmt.parseInt(usize, std.mem.trim(u8, value, " \t\r\n"), 10) catch return null;
+    if (n < 2 or n > 64) return null;
+    return n;
+}
+
+pub fn recordMetricMemoryAfterLink(metrics: *CompileMetrics) void {
+    if (metrics.memory) |*memory| memory.recordAfterLink();
+}
+
+pub fn freeOwnedStringSlice(allocator: std.mem.Allocator, items: []const []const u8) void {
+    for (items) |item| allocator.free(item);
+    allocator.free(items);
+}
+
+pub fn dirExistsAbsolute(path: []const u8) bool {
+    var dir = sio.openDirAbsolute(path, .{}) catch return false;
+    dir.close();
+    return true;
+}
+
+pub fn defaultStableImportRoots(allocator: std.mem.Allocator, project_root: []const u8) ![]const []const u8 {
+    var roots = std.array_list.Managed([]const u8).init(allocator);
+    errdefer {
+        for (roots.items) |root| allocator.free(root);
+        roots.deinit();
+    }
+
+    const unit_support = try std.fs.path.join(allocator, &.{ project_root, "tests", "unit_framework", "support" });
+    if (dirExistsAbsolute(unit_support)) {
+        try roots.append(unit_support);
+    } else {
+        allocator.free(unit_support);
+    }
+
+    return try roots.toOwnedSlice();
+}
+
+pub fn cguForceParallel() bool {
+    return boolEnv("SA_CGU_PARALLEL");
+}
+
+pub const cgu_seq_fn_threshold: usize = 2048;
+
+pub fn manifestDependencies(manifest_file: *const manifest.Manifest, allocator: std.mem.Allocator) ![]pkg_resolver.Dependency {
+    var deps = std.array_list.Managed(pkg_resolver.Dependency).init(allocator);
+    errdefer deps.deinit();
+
+    for (manifest_file.requires) |entry| {
+        try deps.append(.{
+            .url = entry.url,
+            .ref = entry.ref,
+            .source_sha256 = entry.source_sha256,
+        });
+    }
+
+    return try deps.toOwnedSlice();
+}
+
+pub fn manifestPluginImportRoots(manifest_file: *const manifest.Manifest, allocator: std.mem.Allocator) ![]const []const u8 {
+    var roots = std.array_list.Managed([]const u8).init(allocator);
+    errdefer {
+        for (roots.items) |root| allocator.free(root);
+        roots.deinit();
+    }
+
+    if (manifest_file.plugin_requires.len == 0) return try roots.toOwnedSlice();
+
+    const home = try plugins.pluginsHomePath(allocator);
+    defer allocator.free(home);
+
+    for (manifest_file.plugin_requires) |entry| {
+        try roots.append(try std.fs.path.join(allocator, &.{ home, "installed", entry.identity, "current", "sa" }));
+    }
+
+    return try roots.toOwnedSlice();
 }

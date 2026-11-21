@@ -599,3 +599,9 @@ pub fn setRepairAlternatives(report: *trap.TrapReport, alternatives: []const []c
         report.repair_alternatives[idx] = report.repair_alternatives_buf[idx][0..end];
     }
 }
+
+pub fn setFile(report: *trap.TrapReport, source_path: []const u8) void {
+    report.file = null;
+    report.file_buf = std.mem.zeroes([128]u8);
+    copyTextBuf(&report.file_buf, source_path);
+}
