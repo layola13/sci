@@ -37,12 +37,12 @@ const resumeSlot = @import("u03.zig").resumeSlot;
 const ticket_payload_capacity = @import("u01.zig").ticket_payload_capacity;
 const unmaskFrame = @import("u03.zig").unmaskFrame;
 const websocketAccept = @import("u03.zig").websocketAccept;
-const u03 = @import("u03.zig");
+const u03_mod = @import("u03.zig");
 
 pub export fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
     if (builtin.os.tag != .linux) return SA_NETX_ERR_UNSUPPORTED;
     if (slot_capacity == 0 or reactor_count == 0) return SA_NETX_ERR_INVALID_ARGUMENT;
-    if (u03.runtime_state.initialized) return SA_NETX_ERR_INVALID_ARGUMENT;
+    if (u03_mod.runtime_state.initialized) return SA_NETX_ERR_INVALID_ARGUMENT;
 
     const slot_capacity_usize = std.math.cast(usize, slot_capacity) orelse return SA_NETX_ERR_INVALID_ARGUMENT;
     if (slot_capacity_usize > std.math.maxInt(u32)) return SA_NETX_ERR_INVALID_ARGUMENT;
@@ -68,7 +68,7 @@ pub export fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
         };
     }
 
-    u03.runtime_state = .{
+    u03_mod.runtime_state = .{
         .initialized = true,
         .slot_pool = pool,
         .reactors = reactors,
@@ -80,16 +80,16 @@ pub export fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
 
     for (reactors) |*reactor| {
         reactor.startWorker() catch {
-            u03.runtime_state.worker_state.mutex.lockUncancelable(sio.io());
-            u03.runtime_state.worker_state.stop = true;
-            u03.runtime_state.worker_state.cond.broadcast(sio.io());
-            u03.runtime_state.worker_state.mutex.unlock(sio.io());
+            u03_mod.runtime_state.worker_state.mutex.lockUncancelable(sio.io());
+            u03_mod.runtime_state.worker_state.stop = true;
+            u03_mod.runtime_state.worker_state.cond.broadcast(sio.io());
+            u03_mod.runtime_state.worker_state.mutex.unlock(sio.io());
             var j: usize = 0;
             while (j < reactors.len) : (j += 1) reactors[j].deinit();
             std.heap.page_allocator.free(reactors);
             var pool_owned = pool;
             pool_owned.deinit();
-            u03.runtime_state = .{};
+            u03_mod.runtime_state = .{};
             return SA_NETX_ERR_IO;
         };
     }
@@ -98,8 +98,8 @@ pub export fn sa_netx_init(slot_capacity: u64, reactor_count: u32) i32 {
 }
 
 pub export fn sa_netx_listen(host_ptr: ?[*]const u8, host_len: u64, port: u16) i32 {
-    if (!u03.runtime_state.initialized) return SA_NETX_ERR_INVALID_HANDLE;
-    if (u03.runtime_state.listened) return SA_NETX_ERR_INVALID_ARGUMENT;
+    if (!u03_mod.runtime_state.initialized) return SA_NETX_ERR_INVALID_HANDLE;
+    if (u03_mod.runtime_state.listened) return SA_NETX_ERR_INVALID_ARGUMENT;
     const host = if (host_len == 0) "0.0.0.0" else blk: {
         const ptr = host_ptr orelse return SA_NETX_ERR_INVALID_ARGUMENT;
         const n = std.math.cast(usize, host_len) orelse return SA_NETX_ERR_INVALID_ARGUMENT;
@@ -108,39 +108,39 @@ pub export fn sa_netx_listen(host_ptr: ?[*]const u8, host_len: u64, port: u16) i
         break :blk host_slice;
     };
     const address = net.IpAddress.resolve(sio.io(), host, port) catch return SA_NETX_ERR_NET;
-    if (u03.runtime_state.reactors.len == 0) return SA_NETX_ERR_INVALID_HANDLE;
+    if (u03_mod.runtime_state.reactors.len == 0) return SA_NETX_ERR_INVALID_HANDLE;
 
-    const first_result = u03.runtime_state.reactors[0].beginCommand(.{
+    const first_result = u03_mod.runtime_state.reactors[0].beginCommand(.{
         .kind = .listen,
         .slot_id = 0,
         .address = address,
     });
     if (first_result != SA_NETX_OK) return first_result;
 
-    const listen_address = u03.runtime_state.reactors[0].server orelse return SA_NETX_ERR_IO;
-    u03.runtime_state.listen_address = listen_address.socket.address;
+    const listen_address = u03_mod.runtime_state.reactors[0].server orelse return SA_NETX_ERR_IO;
+    u03_mod.runtime_state.listen_address = listen_address.socket.address;
 
     var idx: usize = 1;
-    while (idx < u03.runtime_state.reactors.len) : (idx += 1) {
-        const result = u03.runtime_state.reactors[idx].beginCommand(.{
+    while (idx < u03_mod.runtime_state.reactors.len) : (idx += 1) {
+        const result = u03_mod.runtime_state.reactors[idx].beginCommand(.{
             .kind = .listen,
             .slot_id = 0,
-            .address = u03.runtime_state.listen_address.?,
+            .address = u03_mod.runtime_state.listen_address.?,
         });
         if (result != SA_NETX_OK) {
             var rollback_idx: usize = 0;
             while (rollback_idx < idx) : (rollback_idx += 1) {
-                _ = u03.runtime_state.reactors[rollback_idx].beginCommand(.{
+                _ = u03_mod.runtime_state.reactors[rollback_idx].beginCommand(.{
                     .kind = .listen,
                     .slot_id = 0,
                     .address = null,
                 });
             }
-            u03.runtime_state.listen_address = null;
+            u03_mod.runtime_state.listen_address = null;
             return result;
         }
     }
-    u03.runtime_state.listened = true;
+    u03_mod.runtime_state.listened = true;
     return SA_NETX_OK;
 }
 
@@ -150,12 +150,12 @@ pub export fn sa_netx_recv_ticket(reactor_id: u32, out_ticket: ?*Ticket) i32 {
     reactor.ticket_mutex.lockUncancelable(sio.io());
     defer reactor.ticket_mutex.unlock(sio.io());
     while (reactor.tickets.isEmpty()) {
-        if (u03.runtime_state.worker_state.stop) return SA_NETX_ERR_NOT_FOUND;
+        if (u03_mod.runtime_state.worker_state.stop) return SA_NETX_ERR_NOT_FOUND;
         reactor.ticket_cond.waitUncancelable(sio.io(), &reactor.ticket_mutex);
     }
     const ticket = reactor.tickets.pop().?;
     ticket_ptr.* = ticket;
-    if (u03.runtime_state.slot_pool) |*pool| {
+    if (u03_mod.runtime_state.slot_pool) |*pool| {
         if (pool.slotFromId(ticket.slot_id)) |slot| {
             resumeSlot(reactor, slot) catch |err| {
                 // Resume requests are retried through the reactor queue; this call only nudges current progress.
@@ -204,8 +204,8 @@ pub export fn sa_netx_broadcast(reactor_id: u32, slot_ids_ptr: ?[*]const u32, n:
 }
 
 pub export fn sa_netx_close_slot(slot_id: u32) i32 {
-    if (!u03.runtime_state.initialized) return SA_NETX_ERR_INVALID_HANDLE;
-    const pool = u03.runtime_state.slot_pool orelse return SA_NETX_ERR_INVALID_HANDLE;
+    if (!u03_mod.runtime_state.initialized) return SA_NETX_ERR_INVALID_HANDLE;
+    const pool = u03_mod.runtime_state.slot_pool orelse return SA_NETX_ERR_INVALID_HANDLE;
     const slot = pool.slotFromId(slot_id) orelse return SA_NETX_ERR_INVALID_HANDLE;
     const reactor = getReactor(slot.reactor_id) orelse return SA_NETX_ERR_INVALID_HANDLE;
     return reactor.beginCommand(.{
@@ -215,30 +215,30 @@ pub export fn sa_netx_close_slot(slot_id: u32) i32 {
 }
 
 pub export fn sa_netx_shutdown() i32 {
-    if (!u03.runtime_state.initialized) return SA_NETX_OK;
-    u03.runtime_state.worker_state.mutex.lockUncancelable(sio.io());
-    u03.runtime_state.worker_state.stop = true;
-    u03.runtime_state.worker_state.cond.broadcast(sio.io());
-    u03.runtime_state.worker_state.mutex.unlock(sio.io());
-    if (u03.runtime_state.reactors.len != 0) {
-        for (u03.runtime_state.reactors) |*reactor| {
+    if (!u03_mod.runtime_state.initialized) return SA_NETX_OK;
+    u03_mod.runtime_state.worker_state.mutex.lockUncancelable(sio.io());
+    u03_mod.runtime_state.worker_state.stop = true;
+    u03_mod.runtime_state.worker_state.cond.broadcast(sio.io());
+    u03_mod.runtime_state.worker_state.mutex.unlock(sio.io());
+    if (u03_mod.runtime_state.reactors.len != 0) {
+        for (u03_mod.runtime_state.reactors) |*reactor| {
             reactor.ticket_cond.broadcast(sio.io());
             reactor.deinit();
         }
-        std.heap.page_allocator.free(u03.runtime_state.reactors);
+        std.heap.page_allocator.free(u03_mod.runtime_state.reactors);
     }
-    if (u03.runtime_state.slot_pool) |*pool| {
+    if (u03_mod.runtime_state.slot_pool) |*pool| {
         pool.deinit();
     }
-    u03.runtime_state = .{};
+    u03_mod.runtime_state = .{};
     return SA_NETX_OK;
 }
 
 pub fn getReactor(reactor_id: u32) ?*Reactor {
-    if (!u03.runtime_state.initialized) return null;
+    if (!u03_mod.runtime_state.initialized) return null;
     const idx = @as(usize, @intCast(reactor_id));
-    if (idx >= u03.runtime_state.reactors.len) return null;
-    return &u03.runtime_state.reactors[idx];
+    if (idx >= u03_mod.runtime_state.reactors.len) return null;
+    return &u03_mod.runtime_state.reactors[idx];
 }
 
 pub const LoopbackClient = struct {
@@ -478,7 +478,7 @@ test "websocket upgrade and binary frame work end to end" {
 
     const listen_host = "127.0.0.1";
     try std.testing.expectEqual(@as(i32, SA_NETX_OK), sa_netx_listen(listen_host.ptr, listen_host.len, 0));
-    const listen_address = u03.runtime_state.listen_address orelse return error.TestUnexpectedResult;
+    const listen_address = u03_mod.runtime_state.listen_address orelse return error.TestUnexpectedResult;
 
     var collector_state = TicketCollector{
         .reactor_id = 0,

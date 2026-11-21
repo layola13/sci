@@ -11,7 +11,7 @@ const startsWithWord = @import("mergeworkspacememberset.zig").startsWithWord;
 const trim = @import("mergeworkspacememberset.zig").trim;
 
 
-fn stripInlineComment(line: []const u8) []const u8 {
+pub fn stripInlineComment(line: []const u8) []const u8 {
     var in_string = false;
     var escape = false;
     var i: usize = 0;
@@ -90,7 +90,7 @@ pub fn splitAssignment(text: []const u8) ?struct { key: []const u8, value: []con
     return null;
 }
 
-fn parseNamedValue(line: []const u8) ?struct { key: []const u8, value: []const u8 } {
+pub fn parseNamedValue(line: []const u8) ?struct { key: []const u8, value: []const u8 } {
     const trimmed = trim(line);
     if (trimmed.len == 0) return null;
     var key_end: usize = 0;
@@ -163,7 +163,7 @@ pub fn bareHexText(writer: anytype, hash: [32]u8) !void {
     try writer.print("{s}", .{encoded[0..]});
 }
 
-fn parseCapability(text: []const u8) ?Capability {
+pub fn parseCapability(text: []const u8) ?Capability {
     return if (std.mem.eql(u8, text, "mem_alloc")) .mem_alloc else if (std.mem.eql(u8, text, "mem_slice")) .mem_slice else if (std.mem.eql(u8, text, "io_read")) .io_read else if (std.mem.eql(u8, text, "io_write")) .io_write else if (std.mem.eql(u8, text, "net_tx")) .net_tx else if (std.mem.eql(u8, text, "net_rx")) .net_rx else if (std.mem.eql(u8, text, "proc_spawn")) .proc_spawn else if (std.mem.eql(u8, text, "proc_exit")) .proc_exit else if (std.mem.eql(u8, text, "proc_args")) .proc_args else if (std.mem.eql(u8, text, "time_now")) .time_now else if (std.mem.eql(u8, text, "rand_get")) .rand_get else null;
 }
 
@@ -183,14 +183,14 @@ pub fn capabilityName(cap: Capability) []const u8 {
     };
 }
 
-fn containsCapability(items: []const Capability, cap: Capability) bool {
+pub fn containsCapability(items: []const Capability, cap: Capability) bool {
     for (items) |item| {
         if (item == cap) return true;
     }
     return false;
 }
 
-fn parseCapabilityList(allocator: std.mem.Allocator, text: []const u8) ParseError![]const Capability {
+pub fn parseCapabilityList(allocator: std.mem.Allocator, text: []const u8) ParseError![]const Capability {
     const trimmed = trim(text);
     if (trimmed.len < 2 or trimmed[0] != '[' or trimmed[trimmed.len - 1] != ']') {
         return ParseError.InvalidFormat;
@@ -219,7 +219,7 @@ fn parseCapabilityList(allocator: std.mem.Allocator, text: []const u8) ParseErro
     return try list.toOwnedSlice();
 }
 
-fn parseGrantsClause(allocator: std.mem.Allocator, text: []const u8) ParseError![]const Capability {
+pub fn parseGrantsClause(allocator: std.mem.Allocator, text: []const u8) ParseError![]const Capability {
     const trimmed = trim(text);
     if (!startsWithWord(trimmed, "grants")) return ParseError.InvalidFormat;
     return try parseCapabilityList(allocator, trimmed["grants".len..]);
@@ -294,7 +294,7 @@ pub const PermissionSetBuilder = struct {
     net: std.array_list.Managed([]const u8),
     run: std.array_list.Managed([]const u8),
 
-    fn init(allocator: std.mem.Allocator, name: []const u8, source_file: []const u8, line_no: u32) ParseError!PermissionSetBuilder {
+    pub fn init(allocator: std.mem.Allocator, name: []const u8, source_file: []const u8, line_no: u32) ParseError!PermissionSetBuilder {
         return .{
             .allocator = allocator,
             .name = try allocator.dupe(u8, name),
@@ -308,7 +308,7 @@ pub const PermissionSetBuilder = struct {
         };
     }
 
-    fn deinit(self: *PermissionSetBuilder) void {
+    pub fn deinit(self: *PermissionSetBuilder) void {
         self.allocator.free(self.name);
         self.allocator.free(self.file);
         freeArrayListStrings(self.allocator, &self.env);
@@ -319,7 +319,7 @@ pub const PermissionSetBuilder = struct {
         self.* = undefined;
     }
 
-    fn finish(self: *PermissionSetBuilder) ParseError!PermissionSet {
+    pub fn finish(self: *PermissionSetBuilder) ParseError!PermissionSet {
         const result = PermissionSet{
             .name = self.name,
             .env = try self.env.toOwnedSlice(),
@@ -335,7 +335,7 @@ pub const PermissionSetBuilder = struct {
     }
 };
 
-fn freeArrayListStrings(allocator: std.mem.Allocator, list: *std.array_list.Managed([]const u8)) void {
+pub fn freeArrayListStrings(allocator: std.mem.Allocator, list: *std.array_list.Managed([]const u8)) void {
     for (list.items) |item| allocator.free(item);
     list.deinit();
 }
@@ -383,7 +383,7 @@ pub const PackageBuilder = struct {
     abi: ?u32 = null,
     features: std.array_list.Managed([]const u8),
 
-    fn init(allocator: std.mem.Allocator, source_file: []const u8, line_no: u32) ParseError!PackageBuilder {
+    pub fn init(allocator: std.mem.Allocator, source_file: []const u8, line_no: u32) ParseError!PackageBuilder {
         return .{
             .allocator = allocator,
             .file = try allocator.dupe(u8, source_file),
@@ -400,7 +400,7 @@ pub const PackageBuilder = struct {
         self.* = undefined;
     }
 
-    fn finish(self: *PackageBuilder) ParseError!PackageDecl {
+    pub fn finish(self: *PackageBuilder) ParseError!PackageDecl {
         const name = self.name orelse return ParseError.InvalidFormat;
         const result = PackageDecl{
             .name = name,
@@ -431,7 +431,7 @@ pub const WorkspaceBuilder = struct {
     members: std.array_list.Managed([]const u8),
     default_member: ?[]const u8 = null,
 
-    fn init(allocator: std.mem.Allocator, source_file: []const u8, line_no: u32) ParseError!WorkspaceBuilder {
+    pub fn init(allocator: std.mem.Allocator, source_file: []const u8, line_no: u32) ParseError!WorkspaceBuilder {
         return .{
             .allocator = allocator,
             .file = try allocator.dupe(u8, source_file),
@@ -440,14 +440,14 @@ pub const WorkspaceBuilder = struct {
         };
     }
 
-    fn deinit(self: *WorkspaceBuilder) void {
+    pub fn deinit(self: *WorkspaceBuilder) void {
         self.allocator.free(self.file);
         freeArrayListStrings(self.allocator, &self.members);
         if (self.default_member) |member| self.allocator.free(member);
         self.* = undefined;
     }
 
-    fn finish(self: *WorkspaceBuilder) ParseError!WorkspaceDecl {
+    pub fn finish(self: *WorkspaceBuilder) ParseError!WorkspaceDecl {
         const result = WorkspaceDecl{
             .members = try self.members.toOwnedSlice(),
             .default_member = self.default_member,
@@ -495,14 +495,14 @@ pub fn parsePackageItem(builder: *PackageBuilder, line: []const u8) ParseError!v
     return ParseError.InvalidFormat;
 }
 
-fn stringListContains(items: []const []const u8, needle: []const u8) bool {
+pub fn stringListContains(items: []const []const u8, needle: []const u8) bool {
     for (items) |item| {
         if (std.mem.eql(u8, item, needle)) return true;
     }
     return false;
 }
 
-fn parseStringListInto(allocator: std.mem.Allocator, text: []const u8, list: *std.array_list.Managed([]const u8)) ParseError!void {
+pub fn parseStringListInto(allocator: std.mem.Allocator, text: []const u8, list: *std.array_list.Managed([]const u8)) ParseError!void {
     const trimmed = trim(text);
     if (trimmed.len < 2 or trimmed[0] != '[' or trimmed[trimmed.len - 1] != ']') return ParseError.InvalidFormat;
     const body = trim(trimmed[1 .. trimmed.len - 1]);
@@ -544,7 +544,7 @@ fn parseStringListInto(allocator: std.mem.Allocator, text: []const u8, list: *st
     }
 }
 
-fn parseUniqueStringListInto(allocator: std.mem.Allocator, text: []const u8, list: *std.array_list.Managed([]const u8)) ParseError!void {
+pub fn parseUniqueStringListInto(allocator: std.mem.Allocator, text: []const u8, list: *std.array_list.Managed([]const u8)) ParseError!void {
     const before_len = list.items.len;
     errdefer {
         while (list.items.len > before_len) {

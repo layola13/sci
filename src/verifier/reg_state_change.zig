@@ -26,7 +26,7 @@ pub const RegStateChange = struct {
 pub const RegStateDelta = struct {
     changes: []RegStateChange,
 
-    fn deinit(self: *RegStateDelta, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *RegStateDelta, allocator: std.mem.Allocator) void {
         if (self.changes.len != 0) allocator.free(self.changes);
         self.* = undefined;
     }
@@ -43,7 +43,7 @@ pub const AnnotatedInstruction = struct {
     delta: RegStateDelta,
     gas_step_cost: u32,
 
-    fn deinit(self: *AnnotatedInstruction, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *AnnotatedInstruction, allocator: std.mem.Allocator) void {
         self.delta.deinit(allocator);
         self.* = undefined;
     }
@@ -97,7 +97,7 @@ pub const VerifyStageReporter = struct {
     context: *anyopaque,
     report_fn: *const fn (*anyopaque, []const u8, usize, usize) void,
 
-    fn report(self: VerifyStageReporter, stage: []const u8, completed: usize, total: usize) void {
+    pub fn report(self: VerifyStageReporter, stage: []const u8, completed: usize, total: usize) void {
         self.report_fn(self.context, stage, completed, total);
     }
 };
@@ -182,11 +182,11 @@ pub const ParallelVerifyWorker = struct {
     // verifying its next chunk with the same allocator.
     gpa: std.heap.DebugAllocator(.{ .thread_safe = true }) = .{},
 
-    fn allocator(self: *ParallelVerifyWorker) std.mem.Allocator {
+    pub fn allocator(self: *ParallelVerifyWorker) std.mem.Allocator {
         return self.gpa.allocator();
     }
 
-    fn deinit(self: *ParallelVerifyWorker) void {
+    pub fn deinit(self: *ParallelVerifyWorker) void {
         _ = self.gpa.deinit();
         self.* = .{};
     }
@@ -448,7 +448,7 @@ pub const FunctionRegScope = struct {
     owns_reg_ids: bool = true,
     slot_by_id: std.AutoHashMap(u32, u32),
 
-    fn init(allocator: std.mem.Allocator, reg_ids: []const u32) !FunctionRegScope {
+    pub fn init(allocator: std.mem.Allocator, reg_ids: []const u32) !FunctionRegScope {
         var slot_by_id = std.AutoHashMap(u32, u32).init(allocator);
         errdefer slot_by_id.deinit();
         try slot_by_id.ensureTotalCapacity(@intCast(reg_ids.len));
@@ -463,27 +463,27 @@ pub const FunctionRegScope = struct {
         };
     }
 
-    fn initBorrowed(allocator: std.mem.Allocator, reg_ids: []const u32) !FunctionRegScope {
+    pub fn initBorrowed(allocator: std.mem.Allocator, reg_ids: []const u32) !FunctionRegScope {
         var scope = try FunctionRegScope.init(allocator, reg_ids);
         scope.owns_reg_ids = false;
         return scope;
     }
 
-    fn deinit(self: *FunctionRegScope) void {
+    pub fn deinit(self: *FunctionRegScope) void {
         self.slot_by_id.deinit();
         if (self.owns_reg_ids and self.reg_ids.len != 0) self.allocator.free(self.reg_ids);
         self.* = undefined;
     }
 
-    fn slotOf(self: *const FunctionRegScope, reg_id: u32) ?u32 {
+    pub fn slotOf(self: *const FunctionRegScope, reg_id: u32) ?u32 {
         return self.slot_by_id.get(reg_id);
     }
 
-    fn globalId(self: *const FunctionRegScope, slot: u32) u32 {
+    pub fn globalId(self: *const FunctionRegScope, slot: u32) u32 {
         return self.reg_ids[@intCast(slot)];
     }
 
-    fn nameOf(self: *const FunctionRegScope, symbols: *const symbol.SymbolTable, slot: u32) ?[]const u8 {
+    pub fn nameOf(self: *const FunctionRegScope, symbols: *const symbol.SymbolTable, slot: u32) ?[]const u8 {
         if (@as(usize, @intCast(slot)) >= self.reg_ids.len) return null;
         return symbols.lookupName(self.globalId(slot));
     }
@@ -499,7 +499,7 @@ pub const ConstVTable = struct {
     name: []const u8,
     slots: []ConstVTableSlot,
 
-    fn deinit(self: *ConstVTable, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *ConstVTable, allocator: std.mem.Allocator) void {
         allocator.free(self.slots);
         allocator.free(self.name);
         self.* = undefined;
@@ -575,7 +575,7 @@ pub const LabelStateChange = struct {
 pub const LabelSnapshot = struct {
     changes: []LabelStateChange,
 
-    fn deinit(self: *LabelSnapshot, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *LabelSnapshot, allocator: std.mem.Allocator) void {
         if (self.changes.len != 0) allocator.free(self.changes);
         self.* = undefined;
     }

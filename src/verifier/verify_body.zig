@@ -524,6 +524,8 @@ fn verifyBodyStep(vb: *VerifyBodyCtx, raw_item: inst.Instruction, inst_idx: usiz
             if (try armVaEnd(vb, item, classified)) |r| return r;
         },
         .fence => {},
+        .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {},
+        .label => {},
     }
 
     const delta = try diffState(vb.allocator, snapshot_before, vb.state);

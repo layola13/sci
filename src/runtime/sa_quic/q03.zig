@@ -270,7 +270,7 @@ pub const H3StreamState = struct {
     pending_in: std.ArrayListUnmanaged(u8) = .empty,
     pending_in_fin: bool = false,
 
-    fn header(self: *const H3StreamState, name: []const u8) ?[]const u8 {
+    pub fn header(self: *const H3StreamState, name: []const u8) ?[]const u8 {
         for (self.headers.items) |h| {
             if (std.mem.eql(u8, h.name, name)) return h.value;
         }
@@ -357,7 +357,7 @@ pub const H3Session = struct {
         return 0;
     }
 
-    fn retryPending(self: *H3Session) void {
+    pub fn retryPending(self: *H3Session) void {
         var it = self.streams.iterator();
         while (it.next()) |e| {
             const st = e.value_ptr.*;
@@ -374,7 +374,7 @@ pub const H3Session = struct {
         return 0;
     }
 
-    fn streamClosed(self: *H3Session, stream_id: i64, app_error_code: u64) c_int {
+    pub fn streamClosed(self: *H3Session, stream_id: i64, app_error_code: u64) c_int {
         const ha = loadH3Api() orelse return -1;
         if (self.getStream(stream_id)) |st| st.closed = true;
         const h3 = self.h3 orelse return -1;
@@ -382,7 +382,7 @@ pub const H3Session = struct {
         return 0;
     }
 
-    fn writeStep(self: *H3Session, path: *NgPath, pi: *NgPktInfo, buf: []u8, wdatalen_out: *i64) i64 {
+    pub fn writeStep(self: *H3Session, path: *NgPath, pi: *NgPktInfo, buf: []u8, wdatalen_out: *i64) i64 {
         const ng = loadNgApi() orelse return -1;
         const ha = loadH3Api() orelse return -1;
         const qc = self.qc orelse return -1;

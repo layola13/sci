@@ -130,7 +130,7 @@ pub fn unpackSuccess(value: RegValue) RegValue {
     };
 }
 
-fn cloneValue(value: RegValue) RegValue {
+pub fn cloneValue(value: RegValue) RegValue {
     return .{
         .ty = value.ty,
         .bits = value.bits,
@@ -145,7 +145,7 @@ fn cloneValue(value: RegValue) RegValue {
     };
 }
 
-fn withExternHandle(value: RegValue) RegValue {
+pub fn withExternHandle(value: RegValue) RegValue {
     var out = cloneValue(value);
     out.extern_handle = true;
     return out;
@@ -156,7 +156,7 @@ pub fn makeFallibleI32(status: i32) RegValue {
     return packFallible(@as(u32, @intCast(status)), .{ .ty = .i32, .bits = status_bits });
 }
 
-fn requireNonFallible(value: RegValue) !RegValue {
+pub fn requireNonFallible(value: RegValue) !RegValue {
     if (value.fallible) return RunError.InvalidOperand;
     return value;
 }
@@ -165,7 +165,7 @@ pub const FrameRegs = struct {
     fsig: *const sig.FunctionSig,
     values: []?RegValue,
 
-    fn init(allocator: std.mem.Allocator, fsig: *const sig.FunctionSig) !FrameRegs {
+    pub fn init(allocator: std.mem.Allocator, fsig: *const sig.FunctionSig) !FrameRegs {
         const values = try allocator.alloc(?RegValue, fsig.reg_ids.len);
         @memset(values, null);
         return .{
@@ -174,36 +174,36 @@ pub const FrameRegs = struct {
         };
     }
 
-    fn deinit(self: *FrameRegs, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *FrameRegs, allocator: std.mem.Allocator) void {
         if (self.values.len != 0) allocator.free(self.values);
         self.* = undefined;
     }
 
-    fn get(self: *const FrameRegs, id: u32) ?RegValue {
+    pub fn get(self: *const FrameRegs, id: u32) ?RegValue {
         const idx: usize = @intCast(id);
         if (idx >= self.values.len) return null;
         return self.values[idx];
     }
 
-    fn getPtr(self: *FrameRegs, id: u32) ?*RegValue {
+    pub fn getPtr(self: *FrameRegs, id: u32) ?*RegValue {
         const idx: usize = @intCast(id);
         if (idx >= self.values.len) return null;
         if (self.values[idx]) |*value| return value;
         return null;
     }
 
-    fn put(self: *FrameRegs, id: u32, value: RegValue) !void {
+    pub fn put(self: *FrameRegs, id: u32, value: RegValue) !void {
         const idx: usize = @intCast(id);
         if (idx >= self.values.len) return RunError.InvalidOperand;
         self.values[idx] = value;
     }
 };
 
-fn readReg(regs: *FrameRegs, id: u32) !RegValue {
+pub fn readReg(regs: *FrameRegs, id: u32) !RegValue {
     return try requireNonFallible(regs.get(id) orelse return RunError.InvalidOperand);
 }
 
-fn readRawReg(regs: *FrameRegs, id: u32) !RegValue {
+pub fn readRawReg(regs: *FrameRegs, id: u32) !RegValue {
     return regs.get(id) orelse return RunError.InvalidOperand;
 }
 
@@ -232,7 +232,7 @@ pub fn ptrMetaFromValue(value: RegValue) ?PtrMeta {
     };
 }
 
-fn withPtrMeta(value: RegValue, meta: ?PtrMeta) RegValue {
+pub fn withPtrMeta(value: RegValue, meta: ?PtrMeta) RegValue {
     if (meta) |m| {
         return .{
             .ty = value.ty,
@@ -249,7 +249,7 @@ fn withPtrMeta(value: RegValue, meta: ?PtrMeta) RegValue {
     return value;
 }
 
-fn appendConstBytes(out: *std.array_list.Managed(u8), value: const_decl.ConstValue) !void {
+pub fn appendConstBytes(out: *std.array_list.Managed(u8), value: const_decl.ConstValue) !void {
     switch (value) {
         .hex => |literal| try out.appendSlice(literal.bytes),
         .utf8 => |literal| try out.appendSlice(literal.bytes),
@@ -275,7 +275,7 @@ pub fn materializeConstValue(allocator: std.mem.Allocator, value: const_decl.Con
     return try out.toOwnedSlice();
 }
 
-fn parseHexDigitPair(text: []const u8) !u8 {
+pub fn parseHexDigitPair(text: []const u8) !u8 {
     if (text.len != 2) return RunError.InvalidOperand;
     const hi = std.fmt.charToDigit(text[0], 16) catch return RunError.InvalidOperand;
     const lo = std.fmt.charToDigit(text[1], 16) catch return RunError.InvalidOperand;
@@ -384,14 +384,14 @@ pub const Memory = struct {
     allocator: std.mem.Allocator,
     blocks: std.array_list.Managed(Block),
 
-    fn init(allocator: std.mem.Allocator) Memory {
+    pub fn init(allocator: std.mem.Allocator) Memory {
         return .{
             .allocator = allocator,
             .blocks = std.array_list.Managed(Block).init(allocator),
         };
     }
 
-    fn deinit(self: *Memory) void {
+    pub fn deinit(self: *Memory) void {
         for (self.blocks.items) |blk| {
             if (blk.ptr_meta.len != 0) self.allocator.free(blk.ptr_meta);
             if (blk.vtable_slot_names.len != 0) self.allocator.free(blk.vtable_slot_names);
@@ -400,7 +400,7 @@ pub const Memory = struct {
         self.blocks.deinit();
     }
 
-    fn alloc(self: *Memory, size: usize) !u64 {
+    pub fn alloc(self: *Memory, size: usize) !u64 {
         const actual = if (size == 0) @as(usize, 1) else size;
         const data = try self.allocator.alloc(u8, actual);
         errdefer self.allocator.free(data);
@@ -412,7 +412,7 @@ pub const Memory = struct {
         return addr;
     }
 
-    fn allocConst(self: *Memory, size: usize, const_name: ?[]const u8, vtable_slot_names: []?[]const u8) !u64 {
+    pub fn allocConst(self: *Memory, size: usize, const_name: ?[]const u8, vtable_slot_names: []?[]const u8) !u64 {
         const actual = if (size == 0) @as(usize, 1) else size;
         const data = try self.allocator.alloc(u8, actual);
         errdefer self.allocator.free(data);
@@ -429,12 +429,12 @@ pub const Memory = struct {
         return addr;
     }
 
-    fn insertBlock(self: *Memory, block: Block) !void {
+    pub fn insertBlock(self: *Memory, block: Block) !void {
         const idx = self.lowerBoundBlock(block.addr);
         try self.blocks.insert(idx, block);
     }
 
-    fn free(self: *Memory, addr: u64) !void {
+    pub fn free(self: *Memory, addr: u64) !void {
         if (self.blockIndexByBase(addr)) |idx| {
             const blk = self.blocks.items[idx];
             if (blk.ptr_meta.len != 0) self.allocator.free(blk.ptr_meta);
@@ -444,7 +444,7 @@ pub const Memory = struct {
         }
     }
 
-    fn lowerBoundBlock(self: *const Memory, addr: u64) usize {
+    pub fn lowerBoundBlock(self: *const Memory, addr: u64) usize {
         var lo: usize = 0;
         var hi: usize = self.blocks.items.len;
         while (lo < hi) {
@@ -458,13 +458,13 @@ pub const Memory = struct {
         return lo;
     }
 
-    fn blockIndexByBase(self: *const Memory, addr: u64) ?usize {
+    pub fn blockIndexByBase(self: *const Memory, addr: u64) ?usize {
         const idx = self.lowerBoundBlock(addr);
         if (idx < self.blocks.items.len and self.blocks.items[idx].addr == addr) return idx;
         return null;
     }
 
-    fn blockIndexAt(self: *const Memory, addr: u64) ?usize {
+    pub fn blockIndexAt(self: *const Memory, addr: u64) ?usize {
         const upper = self.lowerBoundBlock(addr +| 1);
         if (upper == 0) return null;
         const idx = upper - 1;
@@ -474,7 +474,7 @@ pub const Memory = struct {
         return if (addr >= start and addr < end) idx else null;
     }
 
-    fn sliceAt(self: *Memory, addr: u64, len: usize) ![]u8 {
+    pub fn sliceAt(self: *Memory, addr: u64, len: usize) ![]u8 {
         const idx = self.blockIndexAt(addr) orelse return RunError.InvalidAddress;
         const blk = self.blocks.items[idx];
         const offset = @as(usize, @intCast(addr - blk.addr));
@@ -482,7 +482,7 @@ pub const Memory = struct {
         return blk.data[offset .. offset + len];
     }
 
-    fn writePtrMeta(self: *Memory, addr: u64, len: usize, meta: ?PtrMeta) !void {
+    pub fn writePtrMeta(self: *Memory, addr: u64, len: usize, meta: ?PtrMeta) !void {
         const idx = self.blockIndexAt(addr) orelse return RunError.InvalidAddress;
         const blk = &self.blocks.items[idx];
         const offset = @as(usize, @intCast(addr - blk.addr));
@@ -492,7 +492,7 @@ pub const Memory = struct {
         }
     }
 
-    fn ptrMetaAt(self: *const Memory, addr: u64, len: usize) ?PtrMeta {
+    pub fn ptrMetaAt(self: *const Memory, addr: u64, len: usize) ?PtrMeta {
         const idx = self.blockIndexAt(addr) orelse return null;
         const blk = self.blocks.items[idx];
         const offset = @as(usize, @intCast(addr - blk.addr));
@@ -506,12 +506,12 @@ pub const Memory = struct {
         return first;
     }
 
-    fn blockConstName(self: *const Memory, addr: u64) ?[]const u8 {
+    pub fn blockConstName(self: *const Memory, addr: u64) ?[]const u8 {
         const idx = self.blockIndexAt(addr) orelse return null;
         return self.blocks.items[idx].const_name;
     }
 
-    fn blockVtableSlotName(self: *const Memory, addr: u64) ?[]const u8 {
+    pub fn blockVtableSlotName(self: *const Memory, addr: u64) ?[]const u8 {
         const idx = self.blockIndexAt(addr) orelse return null;
         const blk = self.blocks.items[idx];
         if (blk.vtable_slot_names.len == 0) return null;
@@ -521,7 +521,7 @@ pub const Memory = struct {
         return blk.vtable_slot_names[slot_idx];
     }
 
-    fn blockMeta(self: *const Memory, addr: u64) ?PtrMeta {
+    pub fn blockMeta(self: *const Memory, addr: u64) ?PtrMeta {
         const idx = self.blockIndexAt(addr) orelse return null;
         const blk = self.blocks.items[idx];
         var meta = PtrMeta{
@@ -588,7 +588,7 @@ pub const FunctionRange = struct {
     labels: std.AutoHashMap(u32, usize),
     slot_by_id: std.AutoHashMap(u32, u32),
 
-    fn init(
+    pub fn init(
         allocator: std.mem.Allocator,
         program: *const referee.VerifyOk,
         sig_index: usize,
@@ -620,13 +620,13 @@ pub const FunctionRange = struct {
         };
     }
 
-    fn deinit(self: *FunctionRange) void {
+    pub fn deinit(self: *FunctionRange) void {
         self.labels.deinit();
         self.slot_by_id.deinit();
         self.* = undefined;
     }
 
-    fn slotOf(self: *const FunctionRange, global_id: u32) ?u32 {
+    pub fn slotOf(self: *const FunctionRange, global_id: u32) ?u32 {
         return self.slot_by_id.get(global_id);
     }
 };

@@ -42,6 +42,7 @@ pub fn armAlloc(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifi
         .text => |t| std.fmt.parseInt(u64, t, 10) catch 0,
         else => 0,
     };
+    return null;
 }
 
 pub fn armStackAlloc(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -54,6 +55,7 @@ pub fn armStackAlloc(vb: *VerifyBodyCtx, item: inst.Instruction, classified: cla
         .text => |t| std.fmt.parseInt(u64, t, 10) catch 0,
         else => 0,
     };
+    return null;
 }
 
 pub fn armLoad(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -74,6 +76,7 @@ pub fn armLoad(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifie
         attachInteriorChild(vb.state, vb.interior_parent, vb.interior_first_child, vb.interior_next_sibling, item.operands[1].reg, item.operands[0].reg);
         setInteriorOffsetFromBase(&vb.interior, item.operands[1].reg, item.operands[0].reg, staticByteOffset(item.operands[2]));
     }
+    return null;
 }
 
 pub fn armStore(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -100,12 +103,14 @@ pub fn armStore(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifi
             }
         }
     }
+    return null;
 }
 
 pub fn armAtomicLoad(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
     if (readCheck(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, vb.state, vb.flags)) |tr| return tr;
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, maskOf(.untracked), &vb.interior)) |tr| return tr;
     vb.flags[@intCast(item.operands[0].reg)] = regFlagEphemeralScalar;
+    return null;
 }
 
 pub fn armAtomicStore(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -117,6 +122,7 @@ pub fn armAtomicStore(vb: *VerifyBodyCtx, item: inst.Instruction, classified: cl
             }
         }
     }
+    return null;
 }
 
 pub fn armCmpxchg(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -129,6 +135,7 @@ pub fn armCmpxchg(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classi
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, vb.state, vb.flags, maskOf(.active), &vb.interior)) |tr| return tr;
     vb.flags[@intCast(item.operands[0].reg)] = 0;
     vb.flags[@intCast(item.operands[1].reg)] = 0;
+    return null;
 }
 
 pub fn armAtomicRmw(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -143,6 +150,7 @@ pub fn armAtomicRmw(vb: *VerifyBodyCtx, item: inst.Instruction, classified: clas
     }
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, maskOf(.active), &vb.interior)) |tr| return tr;
     vb.flags[@intCast(item.operands[0].reg)] = regFlagEphemeralScalar;
+    return null;
 }
 
 pub fn armOp(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -168,6 +176,7 @@ pub fn armOp(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.
     }
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, maskOf(.untracked), &vb.interior)) |tr| return tr;
     vb.flags[@intCast(item.operands[0].reg)] = 0;
+    return null;
 }
 
 pub fn armPtrAdd(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -197,6 +206,7 @@ pub fn armPtrAdd(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classif
         setInteriorOffsetFromBase(&vb.interior, item.operands[1].reg, item.operands[0].reg, staticByteOffset(item.operands[2]));
     }
     vb.flags[@intCast(item.operands[0].reg)] = 0;
+    return null;
 }
 
 pub fn armBorrow(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -229,11 +239,13 @@ pub fn armBorrow(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classif
     }
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, maskOf(.active) | maskOf(.borrow_view), &vb.interior)) |tr| return tr;
     setBorrowState(vb.state, vb.flags, vb.origins, vb.locks, item.operands[0].reg, source_reg, is_mut, false);
+    return null;
 }
 
 pub fn armMove(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
     if (readCheck(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags)) |tr| return tr;
     if (consumeSourceValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, vb.origins, vb.locks, vb.interior_parent, vb.interior_first_child, vb.interior_next_sibling, false, &vb.interior)) |tr| return tr;
+    return null;
 }
 
 pub fn armTransfer(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -286,4 +298,5 @@ pub fn armTransfer(vb: *VerifyBodyCtx, item: inst.Instruction, classified: class
     // ownership transfer"); pairing belongs to the SLA/codegen
     // layer, which owns the DropPlan and can see the drops.
     vb.state[ci] |= maskOf(.owns_children);
+    return null;
 }

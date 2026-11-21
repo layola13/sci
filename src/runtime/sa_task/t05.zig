@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const current_g = @import("t02.zig").current_g;
 const Channel = @import("t04.zig").Channel;
 const ERR_INVALID = @import("t01.zig").ERR_INVALID;
 const ERR_INVALID_HANDLE = @import("t01.zig").ERR_INVALID_HANDLE;
@@ -19,9 +18,6 @@ const WAKE_SEND_ON_CLOSED = @import("t04.zig").WAKE_SEND_ON_CLOSED;
 const WaitNode = @import("t01.zig").WaitNode;
 const alloc = @import("t01.zig").alloc;
 const chanLookup = @import("t04.zig").chanLookup;
-const chan_free = @import("t04.zig").chan_free;
-const chan_gens = @import("t04.zig").chan_gens;
-const chan_slots = @import("t04.zig").chan_slots;
 const ensureInit = @import("t03.zig").ensureInit;
 const fireNode = @import("t02.zig").fireNode;
 const parkBegin = @import("t02.zig").parkBegin;
@@ -31,6 +27,7 @@ const supported = @import("t01.zig").supported;
 const unpark = @import("t02.zig").unpark;
 const waitNodeAlloc = @import("t02.zig").waitNodeAlloc;
 const t04 = @import("t04.zig");
+const t02 = @import("t02.zig");
 
 pub fn chanRelease(ch: *Channel) void {
     if (ch.refs.fetchSub(1, .seq_cst) == 1) {
@@ -332,23 +329,23 @@ pub export fn sa_chan_make(capacity: u32, out_handle: ?*u64) i32 {
         };
     }
     t04.chan_registry_mu.lock();
-    if (chan_free.pop()) |idx| {
+    if (t04.chan_free.pop()) |idx| {
         ch.slot_idx = idx;
-        ch.gen = chan_gens.items[idx] +% 1;
+        ch.gen = t04.chan_gens.items[idx] +% 1;
         if (ch.gen == 0) ch.gen = 1;
-        chan_gens.items[idx] = ch.gen;
-        chan_slots.items[idx] = ch;
+        t04.chan_gens.items[idx] = ch.gen;
+        t04.chan_slots.items[idx] = ch;
     } else {
-        ch.slot_idx = @intCast(chan_slots.items.len);
+        ch.slot_idx = @intCast(t04.chan_slots.items.len);
         ch.gen = 1;
-        chan_slots.append(alloc, ch) catch {
+        t04.chan_slots.append(alloc, ch) catch {
             t04.chan_registry_mu.unlock();
             if (ch.buf.len > 0) alloc.free(ch.buf);
             alloc.destroy(ch);
             return ERR_NOMEM;
         };
-        chan_gens.append(alloc, 1) catch {
-            _ = chan_slots.pop();
+        t04.chan_gens.append(alloc, 1) catch {
+            _ = t04.chan_slots.pop();
             t04.chan_registry_mu.unlock();
             if (ch.buf.len > 0) alloc.free(ch.buf);
             alloc.destroy(ch);
@@ -365,11 +362,11 @@ pub export fn sa_chan_destroy(handle: u64) i32 {
     const idx: u32 = @truncate(handle);
     const gen: u32 = @truncate(handle >> 32);
     t04.chan_registry_mu.lock();
-    if (idx >= chan_slots.items.len) {
+    if (idx >= t04.chan_slots.items.len) {
         t04.chan_registry_mu.unlock();
         return ERR_INVALID_HANDLE;
     }
-    const ch = chan_slots.items[idx] orelse {
+    const ch = t04.chan_slots.items[idx] orelse {
         t04.chan_registry_mu.unlock();
         return ERR_INVALID_HANDLE;
     };
@@ -383,8 +380,8 @@ pub export fn sa_chan_destroy(handle: u64) i32 {
     chanFireAllOnDestroy(ch);
     ch.mu.unlock();
     t04.chan_registry_mu.lock();
-    chan_slots.items[idx] = null;
-    chan_free.append(alloc, idx) catch {};
+    t04.chan_slots.items[idx] = null;
+    t04.chan_free.append(alloc, idx) catch {};
     t04.chan_registry_mu.unlock();
     chanRelease(ch); // drop the handle's base reference
     return SA_TASK_OK;
@@ -426,16 +423,16 @@ pub export fn sa_chan_send(handle: u64, value_ptr: ?*const Slot) i32 {
     };
     node.* = .{ .slot = @constCast(val_ptr) };
     var os_waiter: OsWaiter = .{};
-    if (current_g) |me| {
+    if (t02.current_g) |me| {
         node.g = me;
         me.wait_kind = .chan_send;
     } else {
         node.os = &os_waiter;
     }
     queuePush(&ch.sendq_head, &ch.sendq_tail, node);
-    if (current_g) |_| parkBegin();
+    if (t02.current_g) |_| parkBegin();
     ch.mu.unlock();
-    if (current_g) |me| {
+    if (t02.current_g) |me| {
         parkSwitch();
         me.wait_kind = .none;
         return chanSendWakeStatus(me.wake_status);
@@ -478,17 +475,17 @@ pub export fn sa_chan_recv(handle: u64, out_value: ?*Slot, out_closed: ?*u32) i3
         };
         node.* = .{ .slot = out };
         var os_waiter: OsWaiter = .{};
-        if (current_g) |me| {
+        if (t02.current_g) |me| {
             node.g = me;
             me.wait_kind = .chan_recv;
         } else {
             node.os = &os_waiter;
         }
         queuePush(&ch.recvq_head, &ch.recvq_tail, node);
-        if (current_g) |_| parkBegin();
+        if (t02.current_g) |_| parkBegin();
         ch.mu.unlock();
         var status: i32 = undefined;
-        if (current_g) |me| {
+        if (t02.current_g) |me| {
             parkSwitch();
             me.wait_kind = .none;
             status = me.wake_status;

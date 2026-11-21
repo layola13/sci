@@ -88,11 +88,11 @@ pub const TfProgram = struct {
     may_store: [][]bool = &.{},
     may_store_any: []bool = &.{},
 
-    fn count(self: *const TfProgram) usize {
+    pub fn count(self: *const TfProgram) usize {
         return self.fsig_of_fnid.len;
     }
 
-    fn deinit(self: *TfProgram, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *TfProgram, allocator: std.mem.Allocator) void {
         self.fnid_of_fsig.deinit();
         self.fnid_by_name.deinit();
         if (self.fsig_of_fnid.len > 0) allocator.free(self.fsig_of_fnid);

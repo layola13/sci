@@ -69,7 +69,7 @@ pub const Document = struct {
         std.heap.page_allocator.destroy(self);
     }
 
-    fn invalidateBuffers(self: *Document) void {
+    pub fn invalidateBuffers(self: *Document) void {
         if (self.yaml_buf) |buf| {
             std.heap.page_allocator.free(buf);
             self.yaml_buf = null;
@@ -257,16 +257,16 @@ pub const TextCursor = struct {
     line: usize,
     col: usize,
 
-    fn peek(self: *const TextCursor) ?u8 {
+    pub fn peek(self: *const TextCursor) ?u8 {
         return if (self.i < self.buf.len) self.buf[self.i] else null;
     }
 
-    fn peekAt(self: *const TextCursor, off: usize) ?u8 {
+    pub fn peekAt(self: *const TextCursor, off: usize) ?u8 {
         const j = self.i + off;
         return if (j < self.buf.len) self.buf[j] else null;
     }
 
-    fn bump(self: *TextCursor) ?u8 {
+    pub fn bump(self: *TextCursor) ?u8 {
         const c = self.peek() orelse return null;
         self.i += 1;
         if (c == '\n') {

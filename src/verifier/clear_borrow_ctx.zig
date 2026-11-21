@@ -281,11 +281,11 @@ pub const VerifierBufferPool = struct {
     alloc_size: []u64 = &.{},
     alloc_size_known: []bool = &.{},
 
-    fn init(allocator: std.mem.Allocator) VerifierBufferPool {
+    pub fn init(allocator: std.mem.Allocator) VerifierBufferPool {
         return .{ .allocator = allocator };
     }
 
-    fn deinit(self: *VerifierBufferPool) void {
+    pub fn deinit(self: *VerifierBufferPool) void {
         const allocator = self.allocator;
         if (self.state.len != 0) self.allocator.free(self.state);
         if (self.flags.len != 0) self.allocator.free(self.flags);
@@ -303,7 +303,7 @@ pub const VerifierBufferPool = struct {
         self.* = .{ .allocator = allocator };
     }
 
-    fn ensureCapacity(self: *VerifierBufferPool, reg_count: usize) !void {
+    pub fn ensureCapacity(self: *VerifierBufferPool, reg_count: usize) !void {
         if (self.state.len >= reg_count) return;
 
         var next = VerifierBufferPool.init(self.allocator);
