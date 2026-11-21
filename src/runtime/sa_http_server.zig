@@ -712,6 +712,17 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         const bad = PollOutcome{ .status = .invalid, .recycled_ready = false, .listener_ready = false };
         var fds: [max_recycled_conns + 2]std.posix.pollfd = undefined;        var nfds: usize = 0;
         var nrec: usize = 0;
+        // TASK34 fix: record (conn, fd) per poll slot at build
+        // time. The re-walk below matches revents to a connection
+        // by POINTER + fd, never by pool position: the pool order
+        // changes between build and re-walk (a peer claim
+        // swapRemoves, a claim flip skips an entry), so positional
+        // matching attributed one connection's revents — e.g. a
+        // POLLNVAL from a conn a peer destroyed mid-poll — to a
+        // different, live connection, which claimRecycledFrom then
+        // destroyed as dead_reap (121/121 victims had an OPEN fd).
+        var slot_conn: [max_recycled_conns]*ConnState = undefined;
+        var slot_fd: [max_recycled_conns]std.posix.fd_t = undefined;
         {
             self.recycled_mutex.lockUncancelable(sio.io());
             defer self.recycled_mutex.unlock(sio.io());
@@ -727,6 +738,8 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                     out.n_ready = 1;
                     return out;
                 }
+                slot_conn[nfds] = conn;
+                slot_fd[nfds] = conn.stream.socket.handle;
                 fds[nfds] = .{
                     .fd = conn.stream.socket.handle,
                     .events = std.posix.POLL.IN,
@@ -787,12 +800,23 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
             const stamp_us = nowMicros();
             self.recycled_mutex.lockUncancelable(sio.io());
             defer self.recycled_mutex.unlock(sio.io());
-            var fi: usize = 0;
             for (self.recycled.items) |conn| {
                 if (conn.claimed.load(.acquire)) continue;
-                if (fi >= nrec) break;
-                const rev = fds[fi].revents;
-                fi += 1;
+                // TASK34 fix: match this connection's revents by
+                // (pointer, fd), not by pool position. A slot
+                // belongs to this conn only if both match: the
+                // pointer alone could be a reused ConnState, the
+                // fd alone could be a reused fd number. No match
+                // means the conn joined the pool after the poll
+                // was built (or was claimed then) — treat it as
+                // not ready; the next sweep will see it.
+                var rev: i16 = 0;
+                for (slot_conn[0..nrec], 0..) |sc, si| {
+                    if (sc == conn and slot_fd[si] == conn.stream.socket.handle) {
+                        rev = fds[si].revents;
+                        break;
+                    }
+                }
                 if (rev != 0) {
                     if (conn.queued_since_us == 0) conn.queued_since_us = stamp_us;
                     out.ready[out.n_ready] = .{ .conn = conn, .revents = rev, .has_buffered = false, .stamp_us = conn.queued_since_us };
@@ -1029,6 +1053,24 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                     // Reap a dead pooled connection; the claim keeps
                     // a peer sweep from double-freeing it.
                     if (self.tryClaimPooled(entry.conn)) {
+                        // TASK34 fix (defense in depth): the
+                        // revents here come from an earlier poll
+                        // of a snapshotted fd; re-verify the
+                        // connection's CURRENT fd is actually dead
+                        // before destroying it. A stale NVAL must
+                        // never kill a live connection: if the fd
+                        // is open, release the claim and leave the
+                        // connection pooled for the next sweep.
+                        var one = [_]std.posix.pollfd{.{
+                            .fd = entry.conn.stream.socket.handle,
+                            .events = std.posix.POLL.IN,
+                            .revents = 0,
+                        }};
+                        _ = std.posix.poll(&one, 0) catch 0;
+                        if (one[0].revents & (std.posix.POLL.ERR | std.posix.POLL.NVAL | std.posix.POLL.HUP) == 0) {
+                            entry.conn.claimed.store(false, .release);
+                            continue;
+                        }
                         self.removeFromPool(entry.conn);
                         self.destroyConn(entry.conn, true);
                     }
@@ -1058,12 +1100,24 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                     continue;
                 };
             }
-            const req = self.parseHead(conn, max_body_len) catch {
+            const req = self.parseHead(conn, max_body_len) catch |err| {
                 // A reused connection that stalls mid-head (or speaks garbage)
                 // is dropped outright: retrying a partial head is unsafe
                 // because std.http keeps a stale next_request_start across
                 // attempts, which would discard already-read bytes and
                 // mis-parse the remainder. The client simply reconnects.
+                // TASK34 fix: a probe-parse timeout with ZERO bytes
+                // buffered is an idle connection, not a broken one —
+                // no head bytes were consumed and no parse state
+                // exists — so destroying it would drop the client's
+                // not-yet-arrived request for nothing. Release the
+                // claim and leave it pooled; the next sweep claims
+                // it when the head actually arrives. A partial head
+                // (buffered > 0) is still destroyed outright above.
+                if (err == error.HttpHeadersUnreadable and conn.read_len == conn.request_start) {
+                    conn.claimed.store(false, .release);
+                    continue;
+                }
                 self.removeFromPool(conn);
                 self.destroyConn(conn, true);
                 continue;
@@ -1128,6 +1182,24 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
             if (!readable) {
                 if (dead or (rev & std.posix.POLL.HUP) != 0) {
                     if (self.tryClaimPooled(entry.conn)) {
+                        // TASK34 fix (defense in depth): the ready
+                        // set's revents are a hint from an earlier
+                        // poll; re-verify the connection's CURRENT
+                        // fd is actually dead before destroying it.
+                        // A stale/misattributed NVAL must never
+                        // kill a live connection: if the fd is
+                        // open, release the claim and leave the
+                        // connection pooled for the next sweep.
+                        var one = [_]std.posix.pollfd{.{
+                            .fd = entry.conn.stream.socket.handle,
+                            .events = std.posix.POLL.IN,
+                            .revents = 0,
+                        }};
+                        _ = std.posix.poll(&one, 0) catch 0;
+                        if (one[0].revents & (std.posix.POLL.ERR | std.posix.POLL.NVAL | std.posix.POLL.HUP) == 0) {
+                            entry.conn.claimed.store(false, .release);
+                            continue;
+                        }
                         self.removeFromPool(entry.conn);
                         self.destroyConn(entry.conn, true);
                     }
@@ -1173,7 +1245,14 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                     continue;
                 };
             }
-            const req = self.parseHead(conn, max_body_len) catch {
+            const req = self.parseHead(conn, max_body_len) catch |err| {
+                // TASK34 fix: idle probe timeout (zero bytes
+                // buffered) returns the connection to the pool
+                // instead of destroying it — see claimRecycled.
+                if (err == error.HttpHeadersUnreadable and conn.read_len == conn.request_start) {
+                    conn.claimed.store(false, .release);
+                    continue;
+                }
                 self.removeFromPool(conn);
                 self.destroyConn(conn, true);
                 continue;
