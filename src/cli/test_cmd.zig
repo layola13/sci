@@ -17,6 +17,22 @@ const referee = @import("../referee.zig");
 const projectRootFromSourcePath = @import("compile.zig").projectRootFromSourcePath;
 const loadProjectContext = @import("compile.zig").loadProjectContext;
 const referee_call = @import("../referee/call.zig");
+const common_signature = @import("../common/signature.zig");
+const ProjectCacheKey = @import("types.zig").ProjectCacheKey;
+const computeProjectBuildKey = @import("compile.zig").computeProjectBuildKey;
+const projectCacheReadTestMetadata = @import("cache.zig").projectCacheReadTestMetadata;
+const projectCacheHit = @import("cache.zig").projectCacheHit;
+const makeExecutable = @import("build_exe.zig").makeExecutable;
+const test_runner = @import("../test_runner.zig");
+const elapsedNs = @import("compile.zig").elapsedNs;
+const rejectNpmBindsUnlessJs = @import("compile.zig").rejectNpmBindsUnlessJs;
+const appendNativePluginLinkInputs = @import("build_exe.zig").appendNativePluginLinkInputs;
+const stdRootFromEnv = @import("cache.zig").stdRootFromEnv;
+const emit_llvm_llvmc = @import("../emit_llvm_llvmc.zig");
+const nativeSizeBits = @import("compile.zig").nativeSizeBits;
+const printLlvmcEmitError = @import("errors.zig").printLlvmcEmitError;
+const driver = @import("../driver/zigcc.zig");
+const projectCacheStoreTest = @import("cache.zig").projectCacheStoreTest;
 
 pub fn executeTest(
     allocator: std.mem.Allocator,
@@ -517,4 +533,27 @@ pub fn normalizeFnName(name: []const u8) []const u8 {
         }
     }
     return s;
+}
+
+pub fn hasExplicitTestSelection(selection: test_meta.TestSelection) bool {
+    return selection.include_filters.len != 0 or
+        selection.skip_filters.len != 0 or
+        selection.exact or
+        selection.ignored != .normal;
+}
+
+pub fn selectedTestNamesFromList(allocator: std.mem.Allocator, test_list: test_meta.TestList, selection: test_meta.TestSelection) ![]const []const u8 {
+    if (!hasExplicitTestSelection(selection)) return &.{};
+    const selected_count = selection.countSelected(test_list.tests);
+    if (selected_count == 0) return &.{};
+
+    const selected_names = try allocator.alloc([]const u8, selected_count);
+    errdefer allocator.free(selected_names);
+    var selected_index: usize = 0;
+    for (test_list.tests) |test_case| {
+        if (!selection.shouldRun(test_case)) continue;
+        selected_names[selected_index] = test_case.selectorName();
+        selected_index += 1;
+    }
+    return selected_names;
 }

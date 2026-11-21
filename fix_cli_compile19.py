@@ -19,7 +19,7 @@ def move_type(src_path, name, dst_path, dst_import_from_src):
     lines = open(src_path).read().split("\n")
     start = None
     for i, l in enumerate(lines):
-        if re.match(r"^const " + re.escape(name) + r" = ", l):
+        if re.match(r"^(pub )?const " + re.escape(name) + r" = ", l):
             start = i
             break
     assert start is not None, f"{name} not found in {src_path}"
