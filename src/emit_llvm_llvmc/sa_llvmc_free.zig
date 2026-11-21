@@ -422,7 +422,7 @@ pub const BuildState = struct {
     function_sig_index: *const std.StringHashMap(usize),
     shared: *const SharedEmitTables,
 
-    fn init(
+    pub fn init(
         allocator: std.mem.Allocator,
         symbols: *const @import("../flattener/symbol.zig").SymbolTable,
         fsig: sig.FunctionSig,
@@ -437,19 +437,19 @@ pub const BuildState = struct {
         return .{ .allocator = allocator, .symbols = symbols, .fsig = fsig, .reg_operands_are_global_ids = reg_operands_are_global_ids, .const_names = &shared.const_names, .anon_string_names = anon_string_names, .function_sigs = function_sigs, .function_sig_index = function_sig_index, .shared = shared };
     }
 
-    fn calleeSig(self: *BuildState, name: []const u8) ?sig.FunctionSig {
+    pub fn calleeSig(self: *BuildState, name: []const u8) ?sig.FunctionSig {
         const idx = self.function_sig_index.get(name) orelse return null;
         return self.function_sigs[idx];
     }
 
-    fn regGlobalId(self: *BuildState, slot_or_id: u32) !u32 {
+    pub fn regGlobalId(self: *BuildState, slot_or_id: u32) !u32 {
         if (self.reg_operands_are_global_ids) return slot_or_id;
         const slot_index: usize = @intCast(slot_or_id);
         if (slot_index < self.fsig.reg_ids.len) return self.fsig.globalId(slot_or_id);
         return slot_or_id;
     }
 
-    fn regSlot(self: *BuildState, slot_or_id: u32) !u32 {
+    pub fn regSlot(self: *BuildState, slot_or_id: u32) !u32 {
         if (self.reg_operands_are_global_ids) {
             return self.fsig.slotOf(slot_or_id) orelse return error.InvalidOperand;
         }
@@ -458,7 +458,7 @@ pub const BuildState = struct {
         return self.fsig.slotOf(slot_or_id) orelse return error.InvalidOperand;
     }
 
-    fn regName(self: *BuildState, slot_or_id: u32) ?[]const u8 {
+    pub fn regName(self: *BuildState, slot_or_id: u32) ?[]const u8 {
         const global_id = self.regGlobalId(slot_or_id) catch return null;
         return self.symbols.lookupName(global_id);
     }
@@ -467,7 +467,7 @@ pub const BuildState = struct {
         return self.regName(id);
     }
 
-    fn operand(self: *BuildState, op: inst.Operand) !COperand {
+    pub fn operand(self: *BuildState, op: inst.Operand) !COperand {
         return switch (op) {
             .reg => |slot_or_id| .{ .kind = .reg, .reg = try self.regSlot(slot_or_id), .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .i64, .name = null },
             .imm_i64 => |v| .{ .kind = .imm_i64, .reg = 0, .i64_value = v, .u64_value = 0, .f64_value = 0, .ty = .i64, .name = null },
@@ -479,7 +479,7 @@ pub const BuildState = struct {
         };
     }
 
-    fn callArgOperand(self: *BuildState, arg: call.ParsedArg) !COperand {
+    pub fn callArgOperand(self: *BuildState, arg: call.ParsedArg) !COperand {
         if (isRawQuotedStringArg(arg)) {
             const name = self.anon_string_names.get(arg.text) orelse return error.InvalidOperand;
             return .{ .kind = .const_ptr, .reg = 0, .i64_value = 0, .u64_value = 0, .f64_value = 0, .ty = .ptr, .name = name };
@@ -487,7 +487,7 @@ pub const BuildState = struct {
         return try self.textOperand(arg.text);
     }
 
-    fn textOperand(self: *BuildState, raw: []const u8) !COperand {
+    pub fn textOperand(self: *BuildState, raw: []const u8) !COperand {
         var text = std.mem.trim(u8, raw, " \t");
         if (text.len == 0) return error.InvalidOperand;
         if (text[0] == '&' or text[0] == '*' or text[0] == '^') text = std.mem.trim(u8, text[1..], " \t");

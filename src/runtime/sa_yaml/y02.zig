@@ -237,7 +237,7 @@ pub const MapPart = union(enum) { entry: Entry, merge: Value };
 pub const MapBuilder = struct {
     parts: std.array_list.Managed(MapPart),
 
-    fn addEntry(self: *MapBuilder, key: []const u8, value: Value, line: usize, col: usize) Fail!void {
+    pub fn addEntry(self: *MapBuilder, key: []const u8, value: Value, line: usize, col: usize) Fail!void {
         for (self.parts.items) |part| {
             switch (part) {
                 .entry => |e| {
@@ -249,7 +249,7 @@ pub const MapBuilder = struct {
         try self.parts.append(.{ .entry = .{ .key = key, .value = value } });
     }
 
-    fn addMergeChecked(self: *MapBuilder, value: Value, line: usize, col: usize) Fail!void {
+    pub fn addMergeChecked(self: *MapBuilder, value: Value, line: usize, col: usize) Fail!void {
         if (value.kind == KIND_TABLE) {
             try self.parts.append(.{ .merge = value });
             return;
@@ -266,7 +266,7 @@ pub const MapBuilder = struct {
         return failAt(line, col, "merge key value must be a mapping or a sequence of mappings");
     }
 
-    fn finish(self: *MapBuilder, alloc: std.mem.Allocator) Fail!Value {
+    pub fn finish(self: *MapBuilder, alloc: std.mem.Allocator) Fail!Value {
         const table = try alloc.create(Table);
         table.* = .{ .entries = std.array_list.Managed(Entry).init(alloc) };
         for (self.parts.items) |part| {

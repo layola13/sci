@@ -31,7 +31,6 @@ const findInEntries = @import("y02.zig").findInEntries;
 const foldFlowPlain = @import("y03.zig").foldFlowPlain;
 const getDocument = @import("y01.zig").getDocument;
 const isAnchorChar = @import("y02.zig").isAnchorChar;
-const last_error_buf = @import("y01.zig").last_error_buf;
 const newDocument = @import("y01.zig").newDocument;
 const null_value = @import("y01.zig").null_value;
 const parseDoubleQuoted = @import("y01.zig").parseDoubleQuoted;
@@ -50,7 +49,7 @@ pub const FlowParser = struct {
 
     const FlowNode = struct { value: Value, key_text: ?[]const u8 = null };
 
-    fn skipWs(self: *FlowParser) void {
+    pub fn skipWs(self: *FlowParser) void {
         while (self.cur.peek()) |c| {
             if (c == ' ' or c == '\t' or c == '\n' or c == '\r') {
                 _ = self.cur.bump();
@@ -67,7 +66,7 @@ pub const FlowParser = struct {
         }
     }
 
-    fn parseNode(self: *FlowParser) Fail!Value {
+    pub fn parseNode(self: *FlowParser) Fail!Value {
         const n = try self.parseNodeFull();
         return n.value;
     }
@@ -526,7 +525,7 @@ pub export fn sa_yaml_last_error(out_ptr: ?*?[*]const u8, out_len: ?*u64) i32 {
         len_slot.* = 0;
         return ERR_NOT_FOUND;
     }
-    ptr_slot.* = last_error_buf[0..last_error_len].ptr;
+    ptr_slot.* = y01.last_error_buf[0..y01.last_error_len].ptr;
     len_slot.* = @intCast(y01.last_error_len);
     return OK;
 }

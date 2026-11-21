@@ -15,11 +15,9 @@ const SA_TASK_TRAP_INTERNAL = @import("t01.zig").SA_TASK_TRAP_INTERNAL;
 const Slot = @import("t01.zig").Slot;
 const WaitNode = @import("t01.zig").WaitNode;
 const alloc = @import("t01.zig").alloc;
-const cfg_stack_initial = @import("t01.zig").cfg_stack_initial;
 const deliverMonitor = @import("t03.zig").deliverMonitor;
 const ensureInit = @import("t03.zig").ensureInit;
 const guardLookup = @import("t01.zig").guardLookup;
-const guard_table = @import("t01.zig").guard_table;
 const linux = @import("t01.zig").linux;
 const monotonicNs = @import("t01.zig").monotonicNs;
 const noteProgress = @import("t01.zig").noteProgress;
@@ -36,7 +34,6 @@ const sa_chan_make = @import("t05.zig").sa_chan_make;
 const sa_task_spawn = @import("t03.zig").sa_task_spawn;
 const setTrapSink = @import("t03.zig").setTrapSink;
 const stackEntryLookup = @import("t01.zig").stackEntryLookup;
-const stack_grow_events = @import("t01.zig").stack_grow_events;
 const supported = @import("t01.zig").supported;
 const switchToCarrier = @import("t02.zig").switchToCarrier;
 const systemQuiescent = @import("t03.zig").systemQuiescent;
@@ -476,7 +473,7 @@ test "sa_task.test.sched: reserve/commit grows in place for a deep descent (DEF-
     // 192 levels x ~16 KiB frames ~= 3 MiB of descent: far past
     // the 256 KiB initial commit, far below the 64 MiB cap.
     const depth: usize = 192;
-    const events0 = stack_grow_events.load(.monotonic);
+    const events0 = t01.stack_grow_events.load(.monotonic);
     r2_deepest_committed.store(0, .release);
     var h: u64 = 0;
     try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&r2GrowWorker, @ptrFromInt(depth), &h));
@@ -490,7 +487,7 @@ test "sa_task.test.sched: reserve/commit grows in place for a deep descent (DEF-
     try testing.expectEqual(expect, r2_sum.load(.acquire));
     // Growth actually happened (in place — not a silently
     // larger fixed stack):
-    try testing.expect(stack_grow_events.load(.monotonic) > events0);
+    try testing.expect(t01.stack_grow_events.load(.monotonic) > events0);
     // And by the deepest point the committed span had grown
     // well past the initial commit.
     try testing.expect(r2_deepest_top.load(.acquire) - r2_deepest_committed.load(.acquire) > 2 * 1024 * 1024);
@@ -513,7 +510,7 @@ test "sa_task.test.sched: parked shallow tasks keep commit at the initial quantu
     _ = linux.nanosleep(&ts, null);
     var total_committed: usize = 0;
     var found: usize = 0;
-    for (&guard_table) |*e| {
+    for (&t01.guard_table) |*e| {
         if (!e.live.load(.acquire)) continue;
         for (handles) |h| {
             if (e.id == h) {
@@ -526,7 +523,7 @@ test "sa_task.test.sched: parked shallow tasks keep commit at the initial quantu
     // Committed stays at the initial quantum per task (plus a
     // small slack) — NOT the 64 MiB reserve: idle tasks do not
     // commit their reservation.
-    try testing.expect(total_committed <= N * (cfg_stack_initial + 64 * 1024));
+    try testing.expect(total_committed <= N * (t01.cfg_stack_initial + 64 * 1024));
     r2_release.store(true, .release);
     for (handles) |h| try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
 }
@@ -612,7 +609,7 @@ pub const Channel = struct {
     dead: bool = false,
     refs: std.atomic.Value(u32) = .init(1),
 
-    fn handle(ch: *const Channel) u64 {
+    pub fn handle(ch: *const Channel) u64 {
         return (@as(u64, ch.gen) << 32) | @as(u64, ch.slot_idx);
     }
 };

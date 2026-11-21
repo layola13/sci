@@ -54,6 +54,7 @@ pub fn armAssign(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classif
     if (item.operands[1] == .reg and item.operands[1].reg != dst_id) {
         if (consumeSourceValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, vb.state, vb.flags, vb.origins, vb.locks, vb.interior_parent, vb.interior_first_child, vb.interior_next_sibling, true, &vb.interior)) |tr| return tr;
     }
+    return null;
 }
 
 pub fn armRelease(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -97,12 +98,14 @@ pub fn armRelease(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classi
             vb.state[idx] = maskOf(.consumed);
         }
     }
+    return null;
 }
 
 pub fn armRawCast(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
     if (!vb.current_is_ffi_wrapper) return trapReport(.illegal_unsafe_context, item, vb.current_function_text, vb.current_is_ffi_wrapper, null, null, null, "raw pointer and assume_* instructions are only legal inside @ffi_wrapper", null);
     if (readCheck(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, vb.state, vb.flags)) |tr| return tr;
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, maskOf(.untracked), &vb.interior)) |tr| return tr;
+    return null;
 }
 
 pub fn armAssumeSafe(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -120,6 +123,7 @@ pub fn armAssumeSafe(vb: *VerifyBodyCtx, item: inst.Instruction, classified: cla
     if ((vb.flags[@intCast(item.operands[1].reg)] & regFlagRawPointer) != 0) {
         vb.flags[@intCast(item.operands[0].reg)] |= regFlagRawPointer;
     }
+    return null;
 }
 
 pub fn armAssumeBorrow(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -131,6 +135,7 @@ pub fn armAssumeBorrow(vb: *VerifyBodyCtx, item: inst.Instruction, classified: c
     }
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, maskOf(.active) | maskOf(.borrow_view), &vb.interior)) |tr| return tr;
     setBorrowState(vb.state, vb.flags, vb.origins, vb.locks, item.operands[0].reg, item.operands[1].reg, is_mut, true);
+    return null;
 }
 
 pub fn armNative(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -143,6 +148,7 @@ pub fn armNative(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classif
             }
         }
     }
+    return null;
 }
 
 pub fn armJmp(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -177,6 +183,7 @@ pub fn armJmp(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier
         };
     }
     vb.terminated = true;
+    return null;
 }
 
 pub fn armBr(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -213,6 +220,7 @@ pub fn armBr(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.
         if (vb.defined_labels.contains(target)) vb.has_unbounded_loop = true;
     }
     vb.terminated = true;
+    return null;
 }
 
 pub fn armBrNull(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -249,4 +257,5 @@ pub fn armBrNull(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classif
         if (vb.defined_labels.contains(target)) vb.has_unbounded_loop = true;
     }
     vb.terminated = true;
+    return null;
 }

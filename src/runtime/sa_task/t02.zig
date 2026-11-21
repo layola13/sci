@@ -146,7 +146,7 @@ pub const Carrier = struct {
         return true;
     }
 
-    fn pop(c: *Carrier) ?*Goroutine {
+    pub fn pop(c: *Carrier) ?*Goroutine {
         c.runq_mu.lock();
         defer c.runq_mu.unlock();
         if (c.runq_len.load(.acquire) == 0) return null;
@@ -159,7 +159,7 @@ pub const Carrier = struct {
     /// Owner-only hot slot: the next goroutine this carrier
     /// runs, ahead of its queue. Never stolen by other
     /// carriers; consumed by findWork before the queue.
-    fn popRunnext(c: *Carrier) ?*Goroutine {
+    pub fn popRunnext(c: *Carrier) ?*Goroutine {
         c.runq_mu.lock();
         defer c.runq_mu.unlock();
         const g = c.runnext orelse return null;
@@ -167,13 +167,13 @@ pub const Carrier = struct {
         return g;
     }
 
-    fn runq_len_snapshot(c: *Carrier) usize {
+    pub fn runq_len_snapshot(c: *Carrier) usize {
         // Lock-free by design (see runq_len comment): a
         // heuristic for the steal scan only.
         return c.runq_len.load(.acquire);
     }
 
-    fn stealHalf(c: *Carrier, victim: *Carrier) ?*Goroutine {
+    pub fn stealHalf(c: *Carrier, victim: *Carrier) ?*Goroutine {
         // Caller guarantees c's own queue is empty (findWork only
         // steals after its own pop failed), so pushes cannot fill
         // it: at most 127 of 256 slots are taken from a victim.

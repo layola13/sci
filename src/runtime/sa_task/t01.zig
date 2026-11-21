@@ -51,7 +51,7 @@ pub const Mutex = struct {
         return m.state.cmpxchgStrong(0, 1, .acquire, .monotonic) == null;
     }
 
-    fn unlock(m: *Mutex) void {
+    pub fn unlock(m: *Mutex) void {
         const prev = m.state.swap(0, .release);
         if (prev == 2) futexWake(&m.state, 1);
     }
@@ -100,13 +100,13 @@ pub const OsWaiter = struct {
     word: std.atomic.Value(u32) = .init(0),
     status: i32 = SA_TASK_OK,
 
-    fn wait(os: *OsWaiter) void {
+    pub fn wait(os: *OsWaiter) void {
         _ = external_blocked.fetchAdd(1, .seq_cst);
         defer _ = external_blocked.fetchSub(1, .seq_cst);
         while (os.word.load(.acquire) == 0) futexWait(&os.word, 0, null);
     }
 
-    fn fire(os: *OsWaiter) void {
+    pub fn fire(os: *OsWaiter) void {
         os.word.store(1, .release);
         futexWake(&os.word, 1);
     }

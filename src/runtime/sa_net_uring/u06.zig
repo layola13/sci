@@ -25,9 +25,9 @@ const makeTicket = @import("u03.zig").makeTicket;
 const packUserData = @import("u03.zig").packUserData;
 const posix = @import("u01.zig").posix;
 const reactorWorkerMain = @import("u03.zig").reactorWorkerMain;
-const runtime_state = @import("u03.zig").runtime_state;
 const setNonBlocking = @import("u03.zig").setNonBlocking;
 const Reactor = @import("u02.zig").Reactor;
+const u03_mod = @import("u03.zig");
 
 pub fn init(id: u32, ticket_capacity: usize) !Reactor {
     var ring = linux.IoUring.init(256, 0) catch |err| switch (err) {
@@ -249,7 +249,7 @@ pub fn handleTimeoutCqe(self: *Reactor, cqe: linux.io_uring_cqe) !void {
 
 pub fn scanExpiredSlots(self: *Reactor) void {
     const now_ns = std.Io.Clock.awake.now(sio.io()).toNanoseconds();
-    if (runtime_state.slot_pool) |*pool| {
+    if (u03_mod.runtime_state.slot_pool) |*pool| {
         for (pool.slots) |*slot| {
             if (slot.reactor_id != self.id) continue;
             if (slot.state == .Free or slot.state == .Closing or slot.fd < 0) continue;
@@ -270,7 +270,7 @@ pub fn scanExpiredSlots(self: *Reactor) void {
 
 pub fn resumePausedSlots(self: *Reactor) void {
     if (self.ticketIsFull()) return;
-    if (runtime_state.slot_pool) |*pool| {
+    if (u03_mod.runtime_state.slot_pool) |*pool| {
         for (pool.slots) |*slot| {
             if (slot.reactor_id != self.id) continue;
             if (!slot.recv_paused) continue;
@@ -354,7 +354,7 @@ pub fn processPendingCommand(self: *Reactor) void {
             }
         },
         .send => {
-            var pool = runtime_state.slot_pool orelse {
+            var pool = u03_mod.runtime_state.slot_pool orelse {
                 result = SA_NETX_ERR_INVALID_HANDLE;
                 self.finishCommand(result);
                 return;
@@ -390,7 +390,7 @@ pub fn processPendingCommand(self: *Reactor) void {
             }
         },
         .broadcast => {
-            var pool = runtime_state.slot_pool orelse {
+            var pool = u03_mod.runtime_state.slot_pool orelse {
                 result = SA_NETX_ERR_INVALID_HANDLE;
                 self.finishCommand(result);
                 return;
@@ -446,7 +446,7 @@ pub fn processPendingCommand(self: *Reactor) void {
             }
         },
         .close => {
-            var pool = runtime_state.slot_pool orelse {
+            var pool = u03_mod.runtime_state.slot_pool orelse {
                 result = SA_NETX_ERR_INVALID_HANDLE;
                 self.finishCommand(result);
                 return;
@@ -559,7 +559,7 @@ pub fn handleAcceptCqe(self: *Reactor, cqe: linux.io_uring_cqe) !void {
 }
 
 pub fn handleRecvCqe(self: *Reactor, slot_id: u32, cqe: linux.io_uring_cqe) !void {
-    if (runtime_state.slot_pool) |*pool| {
+    if (u03_mod.runtime_state.slot_pool) |*pool| {
         const slot = pool.slotFromId(slot_id) orelse return;
         slot.recv_multishot_armed = self.recv_multishot_supported;
 
@@ -611,7 +611,7 @@ pub fn handleRecvCqe(self: *Reactor, slot_id: u32, cqe: linux.io_uring_cqe) !voi
 }
 
 pub fn handleSendCqe(self: *Reactor, slot_id: u32, cqe: linux.io_uring_cqe) !void {
-    if (runtime_state.slot_pool) |*pool| {
+    if (u03_mod.runtime_state.slot_pool) |*pool| {
         const slot = pool.slotFromId(slot_id) orelse return;
         if (cqe.flags & linux.IORING_CQE_F_NOTIF != 0) {
             slot.outbound_inflight = false;

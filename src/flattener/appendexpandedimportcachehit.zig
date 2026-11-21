@@ -23,19 +23,15 @@ const SourceLine = @import("importexpansion.zig").SourceLine;
 const cachedExpandedImportStillValid = @import("importexpansion.zig").cachedExpandedImportStillValid;
 const expandedImportCacheMap = @import("importexpansion.zig").expandedImportCacheMap;
 const expandedImportCacheMaxEntries = @import("importexpansion.zig").expandedImportCacheMaxEntries;
-const expanded_import_cache = @import("importexpansion.zig").expanded_import_cache;
-const expanded_import_cache_mutex = @import("importexpansion.zig").expanded_import_cache_mutex;
 const freeExpandedImportCacheEntry = @import("importexpansion.zig").freeExpandedImportCacheEntry;
 const freeImportSourceCacheEntry = @import("importexpansion.zig").freeImportSourceCacheEntry;
 const importSourceCacheMap = @import("importexpansion.zig").importSourceCacheMap;
 const importSourceCacheMaxEntries = @import("importexpansion.zig").importSourceCacheMaxEntries;
-const import_source_cache_mutex = @import("importexpansion.zig").import_source_cache_mutex;
 const nextExpandedImportCacheTickLocked = @import("importexpansion.zig").nextExpandedImportCacheTickLocked;
 const nextImportSourceCacheTickLocked = @import("importexpansion.zig").nextImportSourceCacheTickLocked;
 const rollbackExpandedImportCacheApply = @import("importexpansion.zig").rollbackExpandedImportCacheApply;
 const statImportSourceCacheEntry = @import("importexpansion.zig").statImportSourceCacheEntry;
-const test_expanded_import_cache_hits = @import("importexpansion.zig").test_expanded_import_cache_hits;
-const test_expanded_import_cache_stores = @import("importexpansion.zig").test_expanded_import_cache_stores;
+const importexpansion = @import("importexpansion.zig");
 
 
 pub fn appendExpandedImportCacheHit(
@@ -51,10 +47,10 @@ pub fn appendExpandedImportCacheHit(
     owned_paths: *std.array_list.Managed([]u8),
     layout_versions: *std.array_list.Managed(LayoutVersion),
 ) !bool {
-    while (!expanded_import_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer expanded_import_cache_mutex.unlock();
+    while (!importexpansion.expanded_import_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
+    defer importexpansion.expanded_import_cache_mutex.unlock();
 
-    if (expanded_import_cache == null) return false;
+    if (importexpansion.expanded_import_cache == null) return false;
     var cache = expandedImportCacheMap();
     const entry = cache.getPtr(cache_key) orelse return false;
     if (!cachedExpandedImportStillValid(entry.*)) {
@@ -125,7 +121,7 @@ pub fn appendExpandedImportCacheHit(
     }
 
     entry.last_used_tick = nextExpandedImportCacheTickLocked();
-    if (builtin.is_test) test_expanded_import_cache_hits += 1;
+    if (builtin.is_test) importexpansion.test_expanded_import_cache_hits += 1;
     return true;
 }
 
@@ -175,8 +171,8 @@ pub fn storeExpandedImportCacheEntry(
         copied_layouts += 1;
     }
 
-    while (!expanded_import_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer expanded_import_cache_mutex.unlock();
+    while (!importexpansion.expanded_import_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
+    defer importexpansion.expanded_import_cache_mutex.unlock();
     var cache = expandedImportCacheMap();
     if (cache.getPtr(cache_key)) |old| {
         freeExpandedImportCacheEntry(old.*);
@@ -198,7 +194,7 @@ pub fn storeExpandedImportCacheEntry(
         });
     }
     evictExpandedImportCacheIfNeeded(cache, expandedImportCacheMaxEntries());
-    if (builtin.is_test) test_expanded_import_cache_stores += 1;
+    if (builtin.is_test) importexpansion.test_expanded_import_cache_stores += 1;
 }
 
 pub fn storeImportSourceCacheEntry(key: []const u8, resolved: pkg_resolver.ResolvedImport) !void {
@@ -215,8 +211,8 @@ pub fn storeImportSourceCacheEntry(key: []const u8, resolved: pkg_resolver.Resol
     const package_identity = if (resolved.package_identity) |identity| try cache_allocator.dupe(u8, identity) else null;
     errdefer if (package_identity) |identity| cache_allocator.free(identity);
 
-    while (!import_source_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer import_source_cache_mutex.unlock();
+    while (!importexpansion.import_source_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
+    defer importexpansion.import_source_cache_mutex.unlock();
     var cache = importSourceCacheMap();
     if (cache.contains(key)) {
         cache_allocator.free(cache_key);

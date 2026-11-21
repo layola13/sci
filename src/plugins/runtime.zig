@@ -125,7 +125,7 @@ pub const Runtime = struct {
         runtime_load.loadWorkspacePluginsImpl(self);
     }
 
-    fn stageWorkspacePlugin(self: *Runtime, project_root: []const u8, identity: []const u8) !void {
+    pub fn stageWorkspacePlugin(self: *Runtime, project_root: []const u8, identity: []const u8) !void {
         return runtime_load.stageWorkspacePluginImpl(self, project_root, identity);
     }
 
@@ -145,11 +145,11 @@ pub const Runtime = struct {
         return runtime_links.appendSkillsImpl(self, list);
     }
 
-    fn shouldAdvertiseSkills(self: *const Runtime, loaded: LoadedPlugin) !bool {
+    pub fn shouldAdvertiseSkills(self: *const Runtime, loaded: LoadedPlugin) !bool {
         return runtime_links.shouldAdvertiseSkillsImpl(self, loaded);
     }
 
-    fn loadedPluginByName(self: *const Runtime, name: []const u8) ?*LoadedPlugin {
+    pub fn loadedPluginByName(self: *const Runtime, name: []const u8) ?*LoadedPlugin {
         return runtime_links.loadedPluginByNameImpl(self, name);
     }
 
@@ -180,7 +180,7 @@ pub const Runtime = struct {
         return runtime_links.appendNativeLinkInputsForExternsImpl(self, link_inputs, owned_link_inputs, symbol_names);
     }
 
-    fn appendDeclaredNativeLinks(
+    pub fn appendDeclaredNativeLinks(
         self: *Runtime,
         link_inputs: *std.array_list.Managed([]const u8),
         owned_link_inputs: *std.array_list.Managed([]const u8),
@@ -199,7 +199,7 @@ pub const Runtime = struct {
     /// confirmation whose permissions digest covers the current
     /// manifest (permissions.lock with confirmed=true, not a dev
     /// install).
-    fn nativeLinkDeclarationInEffect(
+    pub fn nativeLinkDeclarationInEffect(
         self: *Runtime,
         plugin_dir: []const u8,
         manifest: SapManifest,
@@ -211,7 +211,7 @@ pub const Runtime = struct {
     /// code when the plugin handled the command (failures are
     /// reported here and also yield a code), or null when the plugin
     /// takes no commands or answered unknown_command.
-    fn invokePluginCommand(
+    pub fn invokePluginCommand(
         self: *Runtime,
         loaded: *LoadedPlugin,
         c_argv: []const [*:0]const u8,
@@ -233,7 +233,7 @@ pub const Runtime = struct {
         return runtime_dispatch.dispatchCommandImpl(self, argv, stdout, stderr, json_mode);
     }
 
-    fn dispatchRecordedManifestHelpIfRequested(
+    pub fn dispatchRecordedManifestHelpIfRequested(
         self: *Runtime,
         argv: []const []const u8,
         stdout: anytype,
@@ -241,7 +241,7 @@ pub const Runtime = struct {
         return runtime_dispatch.dispatchRecordedManifestHelpIfRequestedImpl(self, argv, stdout);
     }
 
-    fn dispatchManifestHelpIfRequested(
+    pub fn dispatchManifestHelpIfRequested(
         self: *Runtime,
         argv: []const []const u8,
         loaded: *LoadedPlugin,
@@ -250,15 +250,15 @@ pub const Runtime = struct {
         return runtime_dispatch.dispatchManifestHelpIfRequestedImpl(self, argv, loaded, stdout);
     }
 
-    fn pluginCommandMatches(self: *Runtime, loaded: *LoadedPlugin, command: []const u8) !bool {
+    pub fn pluginCommandMatches(self: *Runtime, loaded: *LoadedPlugin, command: []const u8) !bool {
         return runtime_dispatch.pluginCommandMatchesImpl(self, loaded, command);
     }
 
-    fn writePluginManifestHelp(self: *Runtime, loaded: *LoadedPlugin, stdout: anytype) !void {
+    pub fn writePluginManifestHelp(self: *Runtime, loaded: *LoadedPlugin, stdout: anytype) !void {
         return runtime_dispatch.writePluginManifestHelpImpl(self, loaded, stdout);
     }
 
-    fn writeManifestHelpPath(
+    pub fn writeManifestHelpPath(
         self: *Runtime,
         sap_path: []const u8,
         stdout: anytype,
@@ -268,7 +268,7 @@ pub const Runtime = struct {
         return runtime_dispatch.writeManifestHelpPathImpl(self, sap_path, stdout, fallback_name, loaded);
     }
 
-    fn writeManifestHelpSource(
+    pub fn writeManifestHelpSource(
         self: *Runtime,
         source: []const u8,
         stdout: anytype,
@@ -278,19 +278,19 @@ pub const Runtime = struct {
         return runtime_dispatch.writeManifestHelpSourceImpl(self, source, stdout, loaded, fallback_name);
     }
 
-    fn pluginSapPath(self: *Runtime, loaded: *const LoadedPlugin) !?[]u8 {
+    pub fn pluginSapPath(self: *Runtime, loaded: *const LoadedPlugin) !?[]u8 {
         return runtime_dispatch.pluginSapPathImpl(self, loaded);
     }
 
-    fn loadInstalledRoot(self: *Runtime, root_path: []const u8) !void {
+    pub fn loadInstalledRoot(self: *Runtime, root_path: []const u8) !void {
         return runtime_load.loadInstalledRootImpl(self, root_path);
     }
 
-    fn loadDirectory(self: *Runtime, dir_path: []const u8) !void {
+    pub fn loadDirectory(self: *Runtime, dir_path: []const u8) !void {
         return runtime_load.loadDirectoryImpl(self, dir_path);
     }
 
-    fn loadLibrary(self: *Runtime, path: []const u8) !void {
+    pub fn loadLibrary(self: *Runtime, path: []const u8) !void {
         return runtime_load.loadLibraryImpl(self, path);
     }
 
@@ -318,7 +318,7 @@ pub const Runtime = struct {
         return runtime_frontends.languageFrontendInfosImpl(self, allocator);
     }
 
-    fn languageFrontendNamed(self: *const Runtime, name: []const u8) ?*const LanguageFrontend {
+    pub fn languageFrontendNamed(self: *const Runtime, name: []const u8) ?*const LanguageFrontend {
         return runtime_frontends.languageFrontendNamedImpl(self, name);
     }
 
@@ -349,23 +349,23 @@ pub const Runtime = struct {
         return runtime_frontends.registerLanguageFrontendImpl(self, plugin_name, extensions);
     }
 
-    fn noteCommandClaims(self: *Runtime, lib_path: []const u8) !void {
+    pub fn noteCommandClaims(self: *Runtime, lib_path: []const u8) !void {
         return runtime_frontends.noteCommandClaimsImpl(self, lib_path);
     }
 
-    fn noteLanguageFrontend(self: *Runtime, lib_path: []const u8) !void {
+    pub fn noteLanguageFrontend(self: *Runtime, lib_path: []const u8) !void {
         return runtime_frontends.noteLanguageFrontendImpl(self, lib_path);
     }
 
-    fn runtimePolicyDenialForLibrary(self: *Runtime, lib_path: []const u8) !?[]u8 {
+    pub fn runtimePolicyDenialForLibrary(self: *Runtime, lib_path: []const u8) !?[]u8 {
         return runtime_frontends.runtimePolicyDenialForLibraryImpl(self, lib_path);
     }
 
-    fn runtimeArtifactHashMismatch(self: *Runtime, lib_path: []const u8) !?[]u8 {
+    pub fn runtimeArtifactHashMismatch(self: *Runtime, lib_path: []const u8) !?[]u8 {
         return runtime_frontends.runtimeArtifactHashMismatchImpl(self, lib_path);
     }
 
-    fn runtimePolicyDenialForDirectory(self: *Runtime, dir_path: []const u8) !?[]u8 {
+    pub fn runtimePolicyDenialForDirectory(self: *Runtime, dir_path: []const u8) !?[]u8 {
         return runtime_frontends.runtimePolicyDenialForDirectoryImpl(self, dir_path);
     }
 
@@ -373,11 +373,11 @@ pub const Runtime = struct {
         return runtime_frontends.addDiagnosticImpl(self, path, reason);
     }
 
-    fn noteManifestHelpForLibrary(self: *Runtime, lib_path: []const u8) !void {
+    pub fn noteManifestHelpForLibrary(self: *Runtime, lib_path: []const u8) !void {
         return runtime_frontends.noteManifestHelpForLibraryImpl(self, lib_path);
     }
 
-    fn noteManifestHelpForDirectory(self: *Runtime, dir_path: []const u8) !void {
+    pub fn noteManifestHelpForDirectory(self: *Runtime, dir_path: []const u8) !void {
         return runtime_frontends.noteManifestHelpForDirectoryImpl(self, dir_path);
     }
 };

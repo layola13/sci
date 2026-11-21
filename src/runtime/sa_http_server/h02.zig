@@ -113,12 +113,12 @@ pub const HttpServer = struct {
         _ = self.hist[segment][histBucketFor(value)].fetchAdd(1, .monotonic);
     }
 
-    fn histDump(self: *HttpServer) void {
+    pub fn histDump(self: *HttpServer) void {
         return HttpServer_histDump(self);
     }
 
     /// Record one served accept (accept segment + periodic dump).
-    fn histServed(self: *HttpServer, accept_started_us: i64) void {
+    pub fn histServed(self: *HttpServer, accept_started_us: i64) void {
         return HttpServer_histServed(self, accept_started_us);
     }
 
@@ -183,11 +183,11 @@ pub const HttpServer = struct {
     /// is actionable so it can skip sweeping the idle pool when only the
     /// listener has traffic.
 
-    fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
+    pub fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         return HttpServer_posixRead(fd, buf);
     }
 
-    fn pollAcceptEx(self: *HttpServer, timeout_ms: u32) PollOutcome {
+    pub fn pollAcceptEx(self: *HttpServer, timeout_ms: u32) PollOutcome {
         return HttpServer_pollAcceptEx(self, timeout_ms);
     }
 
@@ -203,13 +203,13 @@ pub const HttpServer = struct {
         return HttpServer_acceptConfigured(self, max_body_len, receive_timeout_ms);
     }
 
-    fn acceptBounded(self: *HttpServer, max_body_len: usize, timeout_ms: u32) !*HttpRequest {
+    pub fn acceptBounded(self: *HttpServer, max_body_len: usize, timeout_ms: u32) !*HttpRequest {
         return HttpServer_acceptBounded(self, max_body_len, timeout_ms);
     }
 
     /// Remove a connection from the idle pool (claim path). The
     /// caller must own the connection's claim.
-    fn removeFromPool(self: *HttpServer, conn: *ConnState) void {
+    pub fn removeFromPool(self: *HttpServer, conn: *ConnState) void {
         return HttpServer_removeFromPool(self, conn);
     }
 
@@ -219,7 +219,7 @@ pub const HttpServer = struct {
     /// still pooled and unclaimed. Pointers from the candidate
     /// list are dereferenced only after a presence match under
     /// this lock, so a peer's claim/free cannot race the walk.
-    fn finishClaim(self: *HttpServer, conn: *ConnState, accounting: []const ReadyConn) void {
+    pub fn finishClaim(self: *HttpServer, conn: *ConnState, accounting: []const ReadyConn) void {
         return HttpServer_finishClaim(self, conn, accounting);
     }
 
@@ -227,7 +227,7 @@ pub const HttpServer = struct {
     /// connection's delivery wait and missed-round count land in
     /// the histograms, then finishClaim unlinks it and accounts
     /// the missed rounds of the candidates it beat.
-    fn completeClaim(self: *HttpServer, conn: *ConnState, accounting: []const ReadyConn) void {
+    pub fn completeClaim(self: *HttpServer, conn: *ConnState, accounting: []const ReadyConn) void {
         return HttpServer_completeClaim(self, conn, accounting);
     }
 
@@ -239,7 +239,7 @@ pub const HttpServer = struct {
     /// cannot free the connection before the claim lands. After a
     /// successful claim the caller owns the connection and may
     /// dereference it without holding the lock.
-    fn tryClaimPooled(self: *HttpServer, conn: *ConnState) bool {
+    pub fn tryClaimPooled(self: *HttpServer, conn: *ConnState) bool {
         return HttpServer_tryClaimPooled(self, conn);
     }
 
@@ -254,7 +254,7 @@ pub const HttpServer = struct {
     /// same way. Returns the first connection that yields a
     /// complete request, or null when every ready connection was
     /// claimed by a peer or none was ready; never blocks.
-    fn claimRecycled(self: *HttpServer, max_body_len: usize, post_parse_timeout: ?u32) ?*HttpRequest {
+    pub fn claimRecycled(self: *HttpServer, max_body_len: usize, post_parse_timeout: ?u32) ?*HttpRequest {
         return HttpServer_claimRecycled(self, max_body_len, post_parse_timeout);
     }
 
@@ -267,7 +267,7 @@ pub const HttpServer = struct {
     /// one-fd poll(0) freshness check) before any parse, so a
     /// connection a peer served and recycled in the meantime is
     /// never parsed on stale readiness.
-    fn claimRecycledFrom(self: *HttpServer, pr: *const PollOutcome, max_body_len: usize, post_parse_timeout: ?u32) ?*HttpRequest {
+    pub fn claimRecycledFrom(self: *HttpServer, pr: *const PollOutcome, max_body_len: usize, post_parse_timeout: ?u32) ?*HttpRequest {
         return HttpServer_claimRecycledFrom(self, pr, max_body_len, post_parse_timeout);
     }
 
@@ -275,7 +275,7 @@ pub const HttpServer = struct {
     /// the outcome's ready set when the poll collected one, else
     /// the legacy snapshot sweep (it also reaps dead connections
     /// a wake-only poll could not see).
-    fn claimFromOutcome(self: *HttpServer, pr: *const PollOutcome, max_body_len: usize, post_parse_timeout: ?u32) ?*HttpRequest {
+    pub fn claimFromOutcome(self: *HttpServer, pr: *const PollOutcome, max_body_len: usize, post_parse_timeout: ?u32) ?*HttpRequest {
         return HttpServer_claimFromOutcome(self, pr, max_body_len, post_parse_timeout);
     }
 
@@ -285,7 +285,7 @@ pub const HttpServer = struct {
     /// only return WouldBlock (no pending connection) rather than wedge.
     /// The head parse is always time-bounded: a client that connects but
     /// never sends a head must not wedge the single accept loop.
-    fn acceptFresh(
+    pub fn acceptFresh(
         self: *HttpServer,
         max_body_len: usize,
         parse_timeout: ?u32,
@@ -295,19 +295,19 @@ pub const HttpServer = struct {
         return HttpServer_acceptFresh(self, max_body_len, parse_timeout, post_parse, require_readable);
     }
 
-    fn connCompact(conn: *ConnState) void {
+    pub fn connCompact(conn: *ConnState) void {
         return HttpServer_connCompact(conn);
     }
 
-    fn connFill(conn: *ConnState) !void {
+    pub fn connFill(conn: *ConnState) !void {
         return HttpServer_connFill(conn);
     }
 
-    fn parseHead(self: *HttpServer, conn: *ConnState, max_body_len: usize) !*HttpRequest {
+    pub fn parseHead(self: *HttpServer, conn: *ConnState, max_body_len: usize) !*HttpRequest {
         return HttpServer_parseHead(self, conn, max_body_len);
     }
 
-    fn newConn(self: *HttpServer, accepted: std.Io.net.Stream) !*ConnState {
+    pub fn newConn(self: *HttpServer, accepted: std.Io.net.Stream) !*ConnState {
         return HttpServer_newConn(self, accepted);
     }
 

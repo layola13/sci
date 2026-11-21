@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const current_g = @import("t02.zig").current_g;
+const t05 = @import("t05.zig");
+const t02 = @import("t02.zig");
 const Channel = @import("t04.zig").Channel;
 const ERR_INVALID = @import("t01.zig").ERR_INVALID;
 const ERR_INVALID_HANDLE = @import("t01.zig").ERR_INVALID_HANDLE;
@@ -42,11 +43,9 @@ const selectAlloc = @import("t05.zig").selectAlloc;
 const selectRelease = @import("t05.zig").selectRelease;
 const selectTryClaim = @import("t05.zig").selectTryClaim;
 const selectUnclaim = @import("t05.zig").selectUnclaim;
-const select_gen_counter = @import("t05.zig").select_gen_counter;
 const supported = @import("t01.zig").supported;
 const testing = @import("t04.zig").testing;
 const timerAdd = @import("t02.zig").timerAdd;
-const wait_node_pool_len = @import("t02.zig").wait_node_pool_len;
 
 pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[*]Slot, count: u64, has_default: u32, timeout_ns: i64, out_index: ?*i64, out_closed: ?*u32) i32 {
     if (!supported) return ERR_UNSUPPORTED;
@@ -136,9 +135,9 @@ pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[
 
     // Phase 2: register one node per case and park.
     const sel = selectAlloc() orelse return ERR_NOMEM;
-    sel.gen = select_gen_counter.fetchAdd(1, .seq_cst) + 1;
+    sel.gen = t05.select_gen_counter.fetchAdd(1, .seq_cst) + 1;
     var os_waiter: OsWaiter = .{};
-    if (current_g) |me| {
+    if (t02.current_g) |me| {
         sel.owner_g = me;
         me.wait_kind = .select;
     } else {
@@ -169,7 +168,7 @@ pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[
     // a case during registration fires the waiter, and that wake
     // must find state == parked (see parkBegin). If a claim lands
     // during registration we cancel the park instead of switching.
-    if (current_g != null) parkBegin();
+    if (t02.current_g != null) parkBegin();
     var registered: usize = 0;
     var self_claimed = false;
     for (0..n) |i| {
@@ -271,7 +270,7 @@ pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[
         }
         if (!stack_nodes_on) alloc.free(nodes);
         selectRelease(sel);
-        if (current_g) |me| {
+        if (t02.current_g) |me| {
             parkCancel();
             me.wait_kind = .none;
         }
@@ -288,12 +287,12 @@ pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[
         }
     }
     if (claimed_now) {
-        if (current_g) |me| {
+        if (t02.current_g) |me| {
             parkCancel();
             me.wait_kind = .none;
         }
     } else {
-        if (current_g) |me| {
+        if (t02.current_g) |me| {
             parkSwitch();
             me.wait_kind = .none;
         } else {
@@ -492,7 +491,7 @@ test "sa_task.test.chan: pooled wait nodes keep delivery integrity across park c
     try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
     // The pool must actually be holding recycled nodes (if the
     // release path regresses to destroy, this stays 0).
-    try testing.expect(wait_node_pool_len > 0);
+    try testing.expect(t02.wait_node_pool_len > 0);
     try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
 }
 

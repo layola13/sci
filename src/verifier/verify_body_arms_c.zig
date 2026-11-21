@@ -232,6 +232,7 @@ pub fn armCall(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifie
         vb.terminated = true;
         vb.fatal_terminated = true;
     }
+    return null;
 }
 
 pub fn armTry(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -274,6 +275,7 @@ pub fn armTry(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier
 
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], dst_id, vb.state, vb.flags, maskOf(.active), &vb.interior)) |tr| return tr;
     vb.flags[@intCast(dst_id)] = 0;
+    return null;
 }
 
 pub fn armReturn(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -356,6 +358,7 @@ pub fn armReturn(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classif
         }
     }
     vb.terminated = true;
+    return null;
 }
 
 pub fn armVaStart(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -365,6 +368,7 @@ pub fn armVaStart(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classi
     // the load-of-pointer state shape.
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, maskOf(.active), &vb.interior)) |tr| return tr;
     vb.flags[@intCast(item.operands[0].reg)] = regFlagRawPointer;
+    return null;
 }
 
 pub fn armVaArg(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
@@ -372,8 +376,10 @@ pub fn armVaArg(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifi
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, maskOf(.active), &vb.interior)) |tr| return tr;
     const read_ty: sig.PrimType = if (item.operands[2] == .ty) (sig.primTypeFromTag(item.operands[2].ty) orelse .i64) else .i64;
     vb.flags[@intCast(item.operands[0].reg)] = if (read_ty == .ptr) regFlagRawPointer else regFlagEphemeralScalar;
+    return null;
 }
 
 pub fn armVaEnd(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
     if (readCheck(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags)) |tr| return tr;
+    return null;
 }

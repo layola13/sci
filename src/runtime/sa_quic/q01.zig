@@ -545,7 +545,7 @@ pub const QuicConn = struct {
             .user_data = null,
         };
     }
-    fn sendPacket(self: *QuicConn, bytes: []const u8) void {
+    pub fn sendPacket(self: *QuicConn, bytes: []const u8) void {
         if (self.owns_fd) {
             _ = lxSendTo(self.fd, bytes.ptr, bytes.len, 0, null, 0);
         } else {

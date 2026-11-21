@@ -225,7 +225,7 @@ test "c stdlink bindings cover the goroutine task family (C1)" {
 /// True iff every param a0..aN in a rendered binding body occurs at
 /// least twice (declaration plus a (void) cast or real use), so no
 /// -Wunused-parameter can fire. Enforces voids-mask precision forever.
-fn cParamsCovered(t: []const u8, uniform_arity: usize) bool {
+pub fn cParamsCovered(t: []const u8, uniform_arity: usize) bool {
     if (uniform_arity == 0) return true;
     var i: usize = 0;
     while (i < uniform_arity) : (i += 1) {

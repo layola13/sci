@@ -72,14 +72,14 @@ pub const Cursor = struct {
     bytes: []const u8,
     index: usize = 0,
 
-    fn readByte(self: *Cursor) Error!u8 {
+    pub fn readByte(self: *Cursor) Error!u8 {
         if (self.index >= self.bytes.len) return error.TruncatedSab;
         const byte = self.bytes[self.index];
         self.index += 1;
         return byte;
     }
 
-    fn readSlice(self: *Cursor, len: usize) Error![]const u8 {
+    pub fn readSlice(self: *Cursor, len: usize) Error![]const u8 {
         if (len > self.bytes.len - self.index) return error.TruncatedSab;
         const start = self.index;
         self.index += len;

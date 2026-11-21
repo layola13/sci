@@ -43,7 +43,7 @@ pub const LayoutVersion = struct {
     path: []u8,
     version: u64,
 
-    fn deinit(self: *LayoutVersion, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *LayoutVersion, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
         self.* = undefined;
     }
@@ -59,7 +59,7 @@ pub const MacroDef = struct {
     owned_params: [][]const u8 = &.{},
     owned_variadic_param: ?[]u8 = null,
 
-    fn deinit(self: *MacroDef, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *MacroDef, allocator: std.mem.Allocator) void {
         if (self.owned_body_lines.len != 0) deinitOwnedSourceLines(allocator, self.owned_body_lines);
         if (self.owned_name) |name| allocator.free(name);
         if (self.owned_params.len != 0) {
@@ -79,7 +79,7 @@ pub const CachedMacroLine = struct {
     package_identity: ?[]u8 = null,
     package_source_sha256: ?[32]u8 = null,
 
-    fn deinit(self: *CachedMacroLine, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *CachedMacroLine, allocator: std.mem.Allocator) void {
         allocator.free(self.text);
         if (self.package_identity) |identity| allocator.free(identity);
         self.* = undefined;
@@ -92,7 +92,7 @@ pub const CachedMacroDef = struct {
     variadic_param: ?[]u8 = null,
     body_lines: []CachedMacroLine,
 
-    fn deinit(self: *CachedMacroDef, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *CachedMacroDef, allocator: std.mem.Allocator) void {
         allocator.free(self.name);
         for (self.params) |param| allocator.free(param);
         allocator.free(self.params);
@@ -145,7 +145,7 @@ pub const ErrorContext = struct {
         return self.detail_buf[0..self.detail_len];
     }
 
-    fn reset(self: *ErrorContext) void {
+    pub fn reset(self: *ErrorContext) void {
         self.source_line = null;
         self.source_path_len = 0;
         self.detail_len = 0;

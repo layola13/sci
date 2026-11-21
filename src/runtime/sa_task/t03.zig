@@ -1,7 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const carrier_self = @import("t02.zig").carrier_self;
-const current_g = @import("t02.zig").current_g;
 const Carrier = @import("t02.zig").Carrier;
 const ERR_INVALID = @import("t01.zig").ERR_INVALID;
 const ERR_INVALID_HANDLE = @import("t01.zig").ERR_INVALID_HANDLE;
@@ -17,32 +15,21 @@ const SA_TASK_TRAPPED = @import("t01.zig").SA_TASK_TRAPPED;
 const TrapSinkFn = @import("t01.zig").TrapSinkFn;
 const alloc = @import("t01.zig").alloc;
 const allocStack = @import("t01.zig").allocStack;
-const carriers = @import("t02.zig").carriers;
-const cfg_carriers = @import("t01.zig").cfg_carriers;
-const cfg_idle_backoff_ns = @import("t01.zig").cfg_idle_backoff_ns;
-const cfg_idle_backoff_passes = @import("t01.zig").cfg_idle_backoff_passes;
-const cfg_stack_cap = @import("t01.zig").cfg_stack_cap;
 const chanLookup = @import("t04.zig").chanLookup;
 const chanRelease = @import("t05.zig").chanRelease;
 const chanTrySend = @import("t05.zig").chanTrySend;
 const ctxResume = @import("t01.zig").ctxResume;
 const ctxSwitch = @import("t01.zig").ctxSwitch;
-const deadlock_armed = @import("t02.zig").deadlock_armed;
 const enqueueRunnable = @import("t02.zig").enqueueRunnable;
-const external_blocked = @import("t01.zig").external_blocked;
 const fireNode = @import("t02.zig").fireNode;
 const fireTimers = @import("t02.zig").fireTimers;
 const freeStack = @import("t01.zig").freeStack;
 const futexWait = @import("t01.zig").futexWait;
 const globalPop = @import("t02.zig").globalPop;
-const global_runq_head = @import("t02.zig").global_runq_head;
-const idle_carriers = @import("t02.zig").idle_carriers;
 const initStackFrame = @import("t01.zig").initStackFrame;
 const installAltStack = @import("t02.zig").installAltStack;
 const installSegvHandler = @import("t02.zig").installSegvHandler;
-const last_progress_ns = @import("t01.zig").last_progress_ns;
 const linux = @import("t01.zig").linux;
-const live_count = @import("t02.zig").live_count;
 const monotonicNs = @import("t01.zig").monotonicNs;
 const netWaiterCount = @import("t07.zig").netWaiterCount;
 const noteProgress = @import("t01.zig").noteProgress;
@@ -52,7 +39,6 @@ const reapIfReadyLocked = @import("t01.zig").reapIfReadyLocked;
 const registryAlloc = @import("t01.zig").registryAlloc;
 const registryLookup = @import("t01.zig").registryLookup;
 const registryRecycle = @import("t01.zig").registryRecycle;
-const registry_mu = @import("t01.zig").registry_mu;
 const sa_task_ctx_arm = @import("t01.zig").sa_task_ctx_arm;
 const sleepNs = @import("t01.zig").sleepNs;
 const supported = @import("t01.zig").supported;
@@ -60,7 +46,6 @@ const switchToCarrier = @import("t02.zig").switchToCarrier;
 const timerMain = @import("t02.zig").timerMain;
 const timerNextDeadline = @import("t02.zig").timerNextDeadline;
 const wakeCarriers = @import("t02.zig").wakeCarriers;
-const wake_word = @import("t02.zig").wake_word;
 const t01 = @import("t01.zig");
 const t02 = @import("t02.zig");
 
@@ -74,7 +59,7 @@ pub fn deliverMonitor(sub: *MonitorSub, watched: u64, trapped: bool, trap_code: 
 }
 
 pub fn goroutineExit() noreturn {
-    const g = current_g orelse unreachable;
+    const g = t02.current_g orelse unreachable;
     // Fire join waiters.
     t02.sched_mu.lock();
     const waiters = g.join_waiters;
@@ -89,10 +74,10 @@ pub fn goroutineExit() noreturn {
     t02.sched_mu.unlock();
     // Deposit the stack with our carrier for post-switch freeing
     // (the struct may be recycled only after that handoff).
-    if (carrier_self) |c| c.exit_region = g.region;
+    if (t02.carrier_self) |c| c.exit_region = g.region;
     // Decrement BEFORE waking joiners: once a join returns, the
     // goroutine must already be out of the live count.
-    _ = live_count.fetchSub(1, .seq_cst);
+    _ = t02.live_count.fetchSub(1, .seq_cst);
     noteProgress();
     // Monitor delivery: after the trap record is final, before
     // join waiters fire (DESIGN/monitor contract).
@@ -114,7 +99,7 @@ pub fn goroutineExit() noreturn {
 }
 
 pub fn trampoline() callconv(.c) void {
-    const g = current_g orelse processTrap("trampoline without a current goroutine");
+    const g = t02.current_g orelse processTrap("trampoline without a current goroutine");
     // Arm the boundary rescue frame BEFORE running user code: a
     // runtime trap inside the goroutine resumes this frame (the
     // arm call re-emerges returning 1) instead of unwinding. The
@@ -141,7 +126,7 @@ pub fn trampoline() callconv(.c) void {
 /// switch to the boundary rescue context. Outside a goroutine
 /// this is the plain process trap.
 pub fn raiseTrap(code: i32, msg: []const u8) noreturn {
-    if (current_g) |g| {
+    if (t02.current_g) |g| {
         if (g.rescue_armed) {
             g.trap_code = code;
             const n = @min(msg.len, g.trap_msg.len);
@@ -158,7 +143,7 @@ pub fn raiseTrap(code: i32, msg: []const u8) noreturn {
 /// goroutine (the extern registration surface is reserved for the
 /// SLA syntax batch; see module header).
 pub fn setTrapSink(sink: ?TrapSinkFn, ctx: ?*anyopaque) void {
-    if (current_g) |g| {
+    if (t02.current_g) |g| {
         g.trap_sink = sink;
         g.trap_ctx = ctx;
     }
@@ -171,10 +156,10 @@ pub fn findWork(c: *Carrier) ?*Goroutine {
     if (c.pop()) |g| return g;
     if (globalPop()) |g| return g;
     // Steal: start from a rotating victim to spread load.
-    const start = @as(usize, @intCast(monotonicNs())) % @max(carriers.len, 1);
+    const start = @as(usize, @intCast(monotonicNs())) % @max(t02.carriers.len, 1);
     var i: usize = 0;
-    while (i < carriers.len) : (i += 1) {
-        const v = &carriers[(start + i) % carriers.len];
+    while (i < t02.carriers.len) : (i += 1) {
+        const v = &t02.carriers[(start + i) % t02.carriers.len];
         if (v == c) continue;
         if (v.runq_len_snapshot() > 1) {
             if (c.stealHalf(v)) |g| return g;
@@ -187,9 +172,9 @@ pub fn runGoroutine(c: *Carrier, g: *Goroutine) void {
     g.state.store(.running, .release);
     c.empty_passes = 0;
     c.current = g;
-    current_g = g;
+    t02.current_g = g;
     ctxSwitch(&c.sched_sp, g.sp);
-    current_g = null;
+    t02.current_g = null;
     c.current = null;
     // The goroutine has fully switched out; complete any deferred
     // wake/requeue recorded during its switch-out window.
@@ -215,21 +200,21 @@ pub fn runGoroutine(c: *Carrier, g: *Goroutine) void {
         // consumes it. Marking the handoff complete may release
         // a reap that a join already requested.
         freeStack(region);
-        registry_mu.lock();
+        t01.registry_mu.lock();
         g.exit_handed_off = true;
         // A reap a join already requested completes here; a
         // detached record (DEF-R1) is reaped here unconditionally
         // — no join will ever consume it.
         if (g.reap_requested or g.detached) reapIfReadyLocked(g);
-        registry_mu.unlock();
+        t01.registry_mu.unlock();
     }
 }
 
 pub fn runnableTotal() usize {
     var total: usize = 0;
-    for (carriers) |*c| total += c.runq_len_snapshot();
+    for (t02.carriers) |*c| total += c.runq_len_snapshot();
     t02.sched_mu.lock();
-    var n = global_runq_head;
+    var n = t02.global_runq_head;
     while (n) |g| {
         total += 1;
         n = g.qnext;
@@ -244,25 +229,25 @@ pub fn runnableTotal() usize {
 /// is blocked inside a runtime call, and no progress has been
 /// made for the grace window.
 pub fn systemQuiescent() bool {
-    if (live_count.load(.acquire) == 0) return false;
+    if (t02.live_count.load(.acquire) == 0) return false;
     if (runnableTotal() != 0) return false;
     if (timerNextDeadline() != null) return false;
     if (netWaiterCount() != 0) return false;
-    if (external_blocked.load(.acquire) != 0) return false;
-    const since = monotonicNs() - last_progress_ns.load(.acquire);
+    if (t01.external_blocked.load(.acquire) != 0) return false;
+    const since = monotonicNs() - t01.last_progress_ns.load(.acquire);
     return since >= 250 * std.time.ns_per_ms;
 }
 
 pub fn deadlockCheck() void {
-    if (!deadlock_armed.load(.acquire)) return;
+    if (!t02.deadlock_armed.load(.acquire)) return;
     if (!systemQuiescent()) return;
     var buf: [128]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, "deadlock: all {d} goroutines are parked (guard armed)", .{live_count.load(.acquire)}) catch "deadlock";
+    const msg = std.fmt.bufPrint(&buf, "deadlock: all {d} goroutines are parked (guard armed)", .{t02.live_count.load(.acquire)}) catch "deadlock";
     processTrap(msg);
 }
 
 pub fn carrierMain(c: *Carrier) void {
-    carrier_self = c;
+    t02.carrier_self = c;
     installAltStack();
     while (true) {
         if (findWork(c)) |g| {
@@ -276,16 +261,16 @@ pub fn carrierMain(c: *Carrier) void {
             continue;
         }
         deadlockCheck();
-        const w = wake_word.load(.acquire);
+        const w = t02.wake_word.load(.acquire);
         // Mark idle BEFORE the last pre-sleep findWork check:
         // an enqueuer that observes idle>0 wakes one sleeper,
         // and an enqueuer that observes idle==0 still cannot
         // strand us — either its item predates our findWork
         // check (we pick it up) or its wake_word bump postdates
         // our snapshot w (futexWait returns immediately).
-        _ = idle_carriers.fetchAdd(1, .acq_rel);
+        _ = t02.idle_carriers.fetchAdd(1, .acq_rel);
         if (findWork(c)) |g| {
-            _ = idle_carriers.fetchSub(1, .acq_rel);
+            _ = t02.idle_carriers.fetchSub(1, .acq_rel);
             runGoroutine(c, g);
             continue;
         }
@@ -298,7 +283,7 @@ pub fn carrierMain(c: *Carrier) void {
             const cap: u64 = 10 * std.time.ns_per_ms;
             timeout_ns = if (timeout_ns) |t| @min(t, cap) else cap;
         }
-        if (deadlock_armed.load(.acquire)) {
+        if (t02.deadlock_armed.load(.acquire)) {
             // The quiescence predicate includes a 250 ms
             // no-progress grace window, but an idle carrier
             // with no timers and no net waiters would otherwise
@@ -311,7 +296,7 @@ pub fn carrierMain(c: *Carrier) void {
             const cap: u64 = 50 * std.time.ns_per_ms;
             timeout_ns = if (timeout_ns) |t| @min(t, cap) else cap;
         }
-        if (cfg_idle_backoff_ns > 0 and c.empty_passes >= cfg_idle_backoff_passes) {
+        if (t01.cfg_idle_backoff_ns > 0 and c.empty_passes >= t01.cfg_idle_backoff_passes) {
             // Bounded idle backoff (task 118, kernel 3): this
             // carrier has been woken N times in a row and found
             // nothing — the work went to another carrier. Sleep
@@ -328,18 +313,18 @@ pub fn carrierMain(c: *Carrier) void {
             // Durations are staggered by carrier slot so the
             // carriers do not all re-enter the poll loop
             // simultaneously.
-            const base_ns = cfg_idle_backoff_ns;
+            const base_ns = t01.cfg_idle_backoff_ns;
             const stagger_ns = base_ns / 2 * @as(u64, @intCast(c.idx % 3));
             var sleep_ns: u64 = base_ns + stagger_ns;
             if (timeout_ns) |t| sleep_ns = @min(sleep_ns, t);
             sleepNs(sleep_ns);
             c.empty_passes = 0;
-            _ = idle_carriers.fetchSub(1, .acq_rel);
+            _ = t02.idle_carriers.fetchSub(1, .acq_rel);
             continue;
         }
         c.empty_passes += 1;
-        futexWait(&wake_word, w, timeout_ns);
-        _ = idle_carriers.fetchSub(1, .acq_rel);
+        futexWait(&t02.wake_word, w, timeout_ns);
+        _ = t02.idle_carriers.fetchSub(1, .acq_rel);
     }
 }
 
@@ -399,24 +384,24 @@ pub fn initScheduler() void {
     }
     if (envUsize("SA_TASK_STACK_CAP_KIB")) |kib| {
         const clamped = std.math.clamp(kib, 1024, 1024 * 1024);
-        cfg_stack_cap = clamped * 1024;
+        t01.cfg_stack_cap = clamped * 1024;
     }
-    if (cfg_stack_cap < t01.cfg_stack_initial) cfg_stack_cap = t01.cfg_stack_initial;
+    if (t01.cfg_stack_cap < t01.cfg_stack_initial) t01.cfg_stack_cap = t01.cfg_stack_initial;
     const cpu = std.Thread.getCpuCount() catch 1;
     var want = envUsize("SA_TASK_CARRIERS") orelse cpu;
     want = std.math.clamp(want, 1, 128);
-    cfg_carriers = want;
+    t01.cfg_carriers = want;
     if (envUsize("SA_TASK_IDLE_BACKOFF_NS")) |ns| {
-        cfg_idle_backoff_ns = ns;
+        t01.cfg_idle_backoff_ns = ns;
     }
     if (envUsize("SA_TASK_IDLE_BACKOFF_PASSES")) |n| {
-        cfg_idle_backoff_passes = @intCast(@min(n, 1_000_000));
+        t01.cfg_idle_backoff_passes = @intCast(@min(n, 1_000_000));
     }
-    carriers = alloc.alloc(Carrier, want) catch processTrap("sa_task: out of memory starting scheduler");
-    for (carriers) |*c| c.* = .{};
+    t02.carriers = alloc.alloc(Carrier, want) catch processTrap("sa_task: out of memory starting scheduler");
+    for (t02.carriers) |*c| c.* = .{};
     installSegvHandler();
     noteProgress();
-    for (carriers, 0..) |*c, i| {
+    for (t02.carriers, 0..) |*c, i| {
         c.idx = i;
         c.thread = std.Thread.spawn(.{}, carrierMain, .{c}) catch processTrap("sa_task: cannot spawn carrier thread");
         if (c.thread) |t| t.detach();
@@ -572,7 +557,7 @@ pub export fn sa_task_spawn(entry: ?*const anyopaque, arg: ?*anyopaque, out_hand
     };
     g.region = region;
     initStackFrame(g);
-    _ = live_count.fetchAdd(1, .seq_cst);
+    _ = t02.live_count.fetchAdd(1, .seq_cst);
     noteProgress();
     out.* = g.handle();
     enqueueRunnable(g);
@@ -612,7 +597,7 @@ pub export fn sa_task_spawn_supervised(entry: ?*const anyopaque, arg: ?*anyopaqu
     };
     g.region = region;
     initStackFrame(g);
-    _ = live_count.fetchAdd(1, .seq_cst);
+    _ = t02.live_count.fetchAdd(1, .seq_cst);
     noteProgress();
     out.* = g.handle();
     enqueueRunnable(g);

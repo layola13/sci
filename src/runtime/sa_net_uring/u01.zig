@@ -114,7 +114,7 @@ pub const ReactorCommandQueue = struct {
     mask: u32 = 0,
     mmap_bytes: []align(std.heap.page_size_min) u8 = &.{},
 
-    fn init(requested_capacity: usize) !ReactorCommandQueue {
+    pub fn init(requested_capacity: usize) !ReactorCommandQueue {
         const cap = try ceilPow2(@max(requested_capacity, 64));
         if (cap - 1 > std.math.maxInt(u32)) return error.OutOfMemory;
         const bytes_len = std.math.mul(usize, cap, @sizeOf(ReactorCommand)) catch return error.OutOfMemory;
@@ -140,7 +140,7 @@ pub const ReactorCommandQueue = struct {
         };
     }
 
-    fn deinit(self: *ReactorCommandQueue) void {
+    pub fn deinit(self: *ReactorCommandQueue) void {
         if (self.mmap_bytes.len != 0) {
             const bytes: []align(std.heap.page_size_min) const u8 = self.mmap_bytes;
             std.posix.munmap(bytes);
@@ -148,26 +148,26 @@ pub const ReactorCommandQueue = struct {
         self.* = undefined;
     }
 
-    fn isEmpty(self: *const ReactorCommandQueue) bool {
+    pub fn isEmpty(self: *const ReactorCommandQueue) bool {
         return self.head == self.tail;
     }
 
-    fn isFull(self: *const ReactorCommandQueue) bool {
+    pub fn isFull(self: *const ReactorCommandQueue) bool {
         return self.tail -% self.head == self.storage.len;
     }
 
-    fn freeCount(self: *const ReactorCommandQueue) usize {
+    pub fn freeCount(self: *const ReactorCommandQueue) usize {
         return self.storage.len - @as(usize, @intCast(self.tail -% self.head));
     }
 
-    fn push(self: *ReactorCommandQueue, command: ReactorCommand) bool {
+    pub fn push(self: *ReactorCommandQueue, command: ReactorCommand) bool {
         if (self.isFull()) return false;
         self.storage[self.tail & self.mask] = command;
         self.tail +%= 1;
         return true;
     }
 
-    fn pop(self: *ReactorCommandQueue) ?ReactorCommand {
+    pub fn pop(self: *ReactorCommandQueue) ?ReactorCommand {
         if (self.isEmpty()) return null;
         const command = self.storage[self.head & self.mask];
         self.head +%= 1;
@@ -253,7 +253,7 @@ pub const ConnectionSlot = struct {
     last_active_ns: u64 = 0,
     handshake_deadline_ns: u64 = 0,
 
-    fn initFree(self: *ConnectionSlot, slot_id: u32) void {
+    pub fn initFree(self: *ConnectionSlot, slot_id: u32) void {
         self.fd = -1;
         self.reactor_id = 0;
         self.slot_id = slot_id;
@@ -272,7 +272,7 @@ pub const ConnectionSlot = struct {
         self.handshake_deadline_ns = 0;
     }
 
-    fn initAccepted(self: *ConnectionSlot, reactor_id: u32, fd: posix.fd_t, now_ns: u64) void {
+    pub fn initAccepted(self: *ConnectionSlot, reactor_id: u32, fd: posix.fd_t, now_ns: u64) void {
         self.fd = fd;
         self.reactor_id = reactor_id;
         self.state = .Accepting;
@@ -292,14 +292,14 @@ pub const ConnectionSlot = struct {
         @memset(self.outbound_scratch[0..], 0);
     }
 
-    fn clear(self: *ConnectionSlot) void {
+    pub fn clear(self: *ConnectionSlot) void {
         if (self.fd >= 0) {
             _ = linux.close(self.fd);
         }
         self.initFree(self.slot_id);
     }
 
-    fn markActive(self: *ConnectionSlot, now_ns: u64) void {
+    pub fn markActive(self: *ConnectionSlot, now_ns: u64) void {
         self.last_active_ns = now_ns;
         if (self.state == .Handshake or self.state == .Reading) {
             self.handshake_deadline_ns = now_ns + HANDSHAKE_TIMEOUT_NS;
@@ -320,7 +320,7 @@ pub const TicketQueue = struct {
     mask: u32 = 0,
     mmap_bytes: []align(std.heap.page_size_min) u8 = &.{},
 
-    fn init(requested_capacity: usize) !TicketQueue {
+    pub fn init(requested_capacity: usize) !TicketQueue {
         const cap = try ceilPow2(@max(requested_capacity, 64));
         if (cap - 1 > std.math.maxInt(u32)) return error.OutOfMemory;
         const bytes_len = std.math.mul(usize, cap, @sizeOf(Ticket)) catch return error.OutOfMemory;
@@ -355,7 +355,7 @@ pub const TicketQueue = struct {
         };
     }
 
-    fn deinit(self: *TicketQueue) void {
+    pub fn deinit(self: *TicketQueue) void {
         if (self.mmap_bytes.len != 0) {
             const bytes: []align(std.heap.page_size_min) const u8 = self.mmap_bytes;
             std.posix.munmap(bytes);
@@ -370,11 +370,11 @@ pub const TicketQueue = struct {
         return self.head == self.tail;
     }
 
-    fn isFull(self: *const TicketQueue) bool {
+    pub fn isFull(self: *const TicketQueue) bool {
         return self.tail -% self.head == self.storage.len;
     }
 
-    fn push(self: *TicketQueue, ticket: Ticket) bool {
+    pub fn push(self: *TicketQueue, ticket: Ticket) bool {
         if (self.isFull()) return false;
         const payload_len = @as(usize, @intCast(ticket.payload_len));
         if (payload_len > ticket_payload_capacity) return false;
@@ -392,7 +392,7 @@ pub const TicketQueue = struct {
         return true;
     }
 
-    fn pop(self: *TicketQueue) ?Ticket {
+    pub fn pop(self: *TicketQueue) ?Ticket {
         if (self.isEmpty()) return null;
         const ticket = self.storage[self.head & self.mask];
         self.head +%= 1;
@@ -406,7 +406,7 @@ pub const SlotPool = struct {
     capacity: usize,
     next_hint: usize = 0,
 
-    fn init(capacity: usize) !SlotPool {
+    pub fn init(capacity: usize) !SlotPool {
         if (capacity == 0) return error.InvalidArgument;
         if (capacity > std.math.maxInt(u32)) return error.InvalidArgument;
         const bytes_len = std.math.mul(usize, capacity, @sizeOf(ConnectionSlot)) catch return error.OutOfMemory;
@@ -436,7 +436,7 @@ pub const SlotPool = struct {
         };
     }
 
-    fn deinit(self: *SlotPool) void {
+    pub fn deinit(self: *SlotPool) void {
         if (self.bytes.len != 0) {
             const bytes: []align(std.heap.page_size_min) const u8 = self.bytes;
             std.posix.munmap(bytes);
@@ -444,18 +444,18 @@ pub const SlotPool = struct {
         self.* = undefined;
     }
 
-    fn slotFromId(self: *const SlotPool, slot_id: u32) ?*ConnectionSlot {
+    pub fn slotFromId(self: *const SlotPool, slot_id: u32) ?*ConnectionSlot {
         if (slot_id == 0) return null;
         const idx = @as(usize, @intCast(slot_id - 1));
         if (idx >= self.capacity) return null;
         return &self.slots[idx];
     }
 
-    fn slotIdFromIndex(index: usize) u32 {
+    pub fn slotIdFromIndex(index: usize) u32 {
         return @as(u32, @intCast(index + 1));
     }
 
-    fn allocSlot(self: *SlotPool, reactor_id: u32, fd: posix.fd_t, now_ns: u64) ?*ConnectionSlot {
+    pub fn allocSlot(self: *SlotPool, reactor_id: u32, fd: posix.fd_t, now_ns: u64) ?*ConnectionSlot {
         var scanned: usize = 0;
         while (scanned < self.capacity) : (scanned += 1) {
             const idx = (self.next_hint + scanned) % self.capacity;

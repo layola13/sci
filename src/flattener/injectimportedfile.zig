@@ -20,13 +20,12 @@ const cloneRemappedSymbolText = @import("cloneremappedsymboltext.zig").cloneRema
 const expandImportsInto = @import("expandimportsinto.zig").expandImportsInto;
 const freeImportSourceCacheEntry = @import("importexpansion.zig").freeImportSourceCacheEntry;
 const importSourceCacheMaxEntries = @import("importexpansion.zig").importSourceCacheMaxEntries;
-const import_source_cache = @import("importexpansion.zig").import_source_cache;
-const import_source_cache_mutex = @import("importexpansion.zig").import_source_cache_mutex;
 const isImportCacheCandidate = @import("importexpansion.zig").isImportCacheCandidate;
 const markSeenImportContextDependency = @import("importexpansion.zig").markSeenImportContextDependency;
 const nextImportSourceCacheTickLocked = @import("importexpansion.zig").nextImportSourceCacheTickLocked;
 const recordLayoutVersion = @import("renderwithtokenreplacements.zig").recordLayoutVersion;
 const storeImportSourceCacheEntry = @import("appendexpandedimportcachehit.zig").storeImportSourceCacheEntry;
+const importexpansion = @import("importexpansion.zig");
 
 
 pub fn cloneRemappedInstruction(
@@ -127,17 +126,17 @@ pub fn readImportFile(
     const cache_key = try buildImportSourceCacheKey(allocator, base_dir, import_path, resolve_ctx);
     defer allocator.free(cache_key);
 
-    while (!import_source_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    if (import_source_cache) |*cache| {
+    while (!importexpansion.import_source_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
+    if (importexpansion.import_source_cache) |*cache| {
         if (cache.getPtr(cache_key)) |cached| {
             if (cachedImportStillValid(cached.*)) {
                 const max_entries = importSourceCacheMaxEntries();
                 cached.last_used_tick = nextImportSourceCacheTickLocked();
                 const cloned = cloneCachedImport(allocator, cached.*, max_entries == null) catch |err| {
-                    import_source_cache_mutex.unlock();
+                    importexpansion.import_source_cache_mutex.unlock();
                     return err;
                 };
-                import_source_cache_mutex.unlock();
+                importexpansion.import_source_cache_mutex.unlock();
                 return cloned;
             }
             if (cache.fetchRemove(cache_key)) |removed| {
@@ -147,7 +146,7 @@ pub fn readImportFile(
             }
         }
     }
-    import_source_cache_mutex.unlock();
+    importexpansion.import_source_cache_mutex.unlock();
 
     const deps = if (resolve_ctx) |ctx| ctx.dependencies else &.{};
     var options: pkg_resolver.ResolveOptions = .{};

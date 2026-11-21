@@ -38,7 +38,7 @@ pub const Parser = struct {
     anchors: std.StringHashMapUnmanaged(Value) = .empty,
     pending: ?LineView = null,
 
-    fn registerAnchor(self: *Parser, name: []const u8, value: Value) Fail!void {
+    pub fn registerAnchor(self: *Parser, name: []const u8, value: Value) Fail!void {
         try self.anchors.put(self.alloc, try self.alloc.dupe(u8, name), value);
     }
 
@@ -63,7 +63,7 @@ pub const Parser = struct {
         };
     }
 
-    fn parseRoot(self: *Parser) Fail!Value {
+    pub fn parseRoot(self: *Parser) Fail!Value {
         self.skipBlankLines();
         if (self.pos >= self.lines.len) return null_value;
         const v = try self.parseBlockNode(0, null, 0);
