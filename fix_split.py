@@ -11,7 +11,7 @@ dst = open(dst_path).read()
 parent_lines = open(parent_path).read().split("\n")
 
 # top-level decls in parent: name -> (line index, is_pub, kind)
-decl_re = re.compile(r"^(pub\s+)?(?:export\s+)?(const|fn|var)\s+([A-Za-z0-9_]+)")
+decl_re = re.compile(r"^(pub\s+)?(?:export\s+)?(?:threadlocal\s+)?(const|fn|var)\s+([A-Za-z0-9_]+)")
 parent_decls = {}
 for i, l in enumerate(parent_lines):
     m = decl_re.match(l)
