@@ -2,10 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const sio = @import("sio");
 
-const flattener = @import("flattener.zig");
-const emit_js = @import("emit_js.zig");
 const manifest = @import("pkg/manifest.zig");
-const referee = @import("referee.zig");
 const daemon_client = @import("daemon_client.zig");
 
 
