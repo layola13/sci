@@ -1,4 +1,6 @@
 const std = @import("std");
+const spawn = @import("sa_std/spawn.zig");
+const policy = @import("sa_std/policy.zig");
 test "sa_std_tests" { std.testing.refAllDecls(@import("sa_std/sa_std_tests.zig")); }
 test "sa_std_tests_net" { std.testing.refAllDecls(@import("sa_std/tests_net.zig")); }
 test "sa_std_tests_codec" { std.testing.refAllDecls(@import("sa_std/tests_codec.zig")); }
@@ -22,6 +24,207 @@ pub const sa_task = if (is_wasm) @import("sa_task_coop.zig") else @import("sa_ta
 // tried and removed: SA-built binaries segfault at startup when
 // the archive carries an .init_array entry — see sa_task.zig.)
 pub const sa_identity = @import("sa_identity.zig");
+
+// Re-exports: decls moved to sa_std/* submodules (grouped by module).
+// --- sa_std/b64_simd.zig ---
+pub const b64SimdSextetVal = @import("sa_std/b64_simd.zig").b64SimdSextetVal; pub const sa_b64dec_simd = @import("sa_std/b64_simd.zig").sa_b64dec_simd;
+// --- sa_std/chat_fallback.zig ---
+pub const jsonBoolValue = @import("sa_std/chat_fallback.zig").jsonBoolValue; pub const appendJsonFieldName = @import("sa_std/chat_fallback.zig").appendJsonFieldName; pub const appendSystemText = @import("sa_std/chat_fallback.zig").appendSystemText; pub const responseContentTextOnlyAlloc = @import("sa_std/chat_fallback.zig").responseContentTextOnlyAlloc; pub const appendMappedResponseContentPart = @import("sa_std/chat_fallback.zig").appendMappedResponseContentPart; pub const appendResponseContentAsChat = @import("sa_std/chat_fallback.zig").appendResponseContentAsChat; pub const isResponsesToolCallType = @import("sa_std/chat_fallback.zig").isResponsesToolCallType; pub const isResponsesToolOutputType = @import("sa_std/chat_fallback.zig").isResponsesToolOutputType;
+pub const responseToolCallNameForChat = @import("sa_std/chat_fallback.zig").responseToolCallNameForChat; pub const collectResponseToolCallNames = @import("sa_std/chat_fallback.zig").collectResponseToolCallNames; pub const appendChatMessagePrefix = @import("sa_std/chat_fallback.zig").appendChatMessagePrefix; pub const appendResponseMessageAsChat = @import("sa_std/chat_fallback.zig").appendResponseMessageAsChat; pub const appendResponseToolCallAsChat = @import("sa_std/chat_fallback.zig").appendResponseToolCallAsChat; pub const appendResponseToolOutputAsChat = @import("sa_std/chat_fallback.zig").appendResponseToolOutputAsChat; pub const appendNormalizedChatTool = @import("sa_std/chat_fallback.zig").appendNormalizedChatTool; pub const appendNormalizedChatToolsField = @import("sa_std/chat_fallback.zig").appendNormalizedChatToolsField;
+pub const appendResponseFormatFromText = @import("sa_std/chat_fallback.zig").appendResponseFormatFromText; pub const shouldSkipResponsesFallbackField = @import("sa_std/chat_fallback.zig").shouldSkipResponsesFallbackField; pub const denoResponsesChatFallbackRequest = @import("sa_std/chat_fallback.zig").denoResponsesChatFallbackRequest;
+// --- sa_std/chat_norm.zig ---
+pub const longestSuffixPrefix = @import("sa_std/chat_norm.zig").longestSuffixPrefix; pub const ThoughtStreamSplitter = @import("sa_std/chat_norm.zig").ThoughtStreamSplitter; pub const jsonU64Value = @import("sa_std/chat_norm.zig").jsonU64Value; pub const appendResponseCreated = @import("sa_std/chat_norm.zig").appendResponseCreated; pub const appendReasoningDelta = @import("sa_std/chat_norm.zig").appendReasoningDelta; pub const appendReasoningDone = @import("sa_std/chat_norm.zig").appendReasoningDone; pub const appendMessageDelta = @import("sa_std/chat_norm.zig").appendMessageDelta; pub const appendMessageDone = @import("sa_std/chat_norm.zig").appendMessageDone;
+pub const requestAllowsContinuation = @import("sa_std/chat_norm.zig").requestAllowsContinuation; pub const isProgressOnlyText = @import("sa_std/chat_norm.zig").isProgressOnlyText; pub const appendContinuationTool = @import("sa_std/chat_norm.zig").appendContinuationTool; pub const appendContinuationToolJson = @import("sa_std/chat_norm.zig").appendContinuationToolJson; pub const ChatToolCallState = @import("sa_std/chat_norm.zig").ChatToolCallState; pub const shellQuote = @import("sa_std/chat_norm.zig").shellQuote; pub const isSensitiveEnvPath = @import("sa_std/chat_norm.zig").isSensitiveEnvPath; pub const appendCommandArguments = @import("sa_std/chat_norm.zig").appendCommandArguments;
+pub const appendReadCommand = @import("sa_std/chat_norm.zig").appendReadCommand; pub const splitMcpNamespace = @import("sa_std/chat_norm.zig").splitMcpNamespace; pub const denormalizeMcpServerNameAlloc = @import("sa_std/chat_norm.zig").denormalizeMcpServerNameAlloc; pub const requestMentionsTool = @import("sa_std/chat_norm.zig").requestMentionsTool; pub const normalizeChatToolArguments = @import("sa_std/chat_norm.zig").normalizeChatToolArguments; pub const appendNormalizedToolCall = @import("sa_std/chat_norm.zig").appendNormalizedToolCall; pub const appendNormalizedToolCallJson = @import("sa_std/chat_norm.zig").appendNormalizedToolCallJson; pub const findToolCallState = @import("sa_std/chat_norm.zig").findToolCallState;
+pub const parseToolCallIndex = @import("sa_std/chat_norm.zig").parseToolCallIndex; pub const appendResponseDone = @import("sa_std/chat_norm.zig").appendResponseDone; pub const appendChatUsageJson = @import("sa_std/chat_norm.zig").appendChatUsageJson; pub const appendChatJsonReasoningItem = @import("sa_std/chat_norm.zig").appendChatJsonReasoningItem; pub const appendChatJsonMessageItem = @import("sa_std/chat_norm.zig").appendChatJsonMessageItem; pub const appendOutputComma = @import("sa_std/chat_norm.zig").appendOutputComma; pub const denoChatJsonToResponses = @import("sa_std/chat_norm.zig").denoChatJsonToResponses; pub const ThoughtSplit = @import("sa_std/chat_norm.zig").ThoughtSplit;
+pub const splitThoughtTextAlloc = @import("sa_std/chat_norm.zig").splitThoughtTextAlloc; pub const appendMergedReasoningText = @import("sa_std/chat_norm.zig").appendMergedReasoningText; pub const appendReasoningFields = @import("sa_std/chat_norm.zig").appendReasoningFields; pub const isNativeReasoningType = @import("sa_std/chat_norm.zig").isNativeReasoningType; pub const appendNativeReasoningItem = @import("sa_std/chat_norm.zig").appendNativeReasoningItem; pub const appendNativeMessageItem = @import("sa_std/chat_norm.zig").appendNativeMessageItem; pub const appendNativeNormalizedOutput = @import("sa_std/chat_norm.zig").appendNativeNormalizedOutput; pub const nativeResponsesJsonNeedsNormalize = @import("sa_std/chat_norm.zig").nativeResponsesJsonNeedsNormalize;
+pub const denoResponsesJsonNormalize = @import("sa_std/chat_norm.zig").denoResponsesJsonNormalize; pub const jsonArrayFirst = @import("sa_std/chat_norm.zig").jsonArrayFirst; pub const normalizeResponsesArgumentsString = @import("sa_std/chat_norm.zig").normalizeResponsesArgumentsString; pub const normalizeResponsesEventData = @import("sa_std/chat_norm.zig").normalizeResponsesEventData; pub const appendNormalizedResponsesSseBlock = @import("sa_std/chat_norm.zig").appendNormalizedResponsesSseBlock; pub const denoResponsesSseNormalize = @import("sa_std/chat_norm.zig").denoResponsesSseNormalize; pub const appendChatSseDataChunk = @import("sa_std/chat_norm.zig").appendChatSseDataChunk; pub const denoChatSseToResponses = @import("sa_std/chat_norm.zig").denoChatSseToResponses;
+// --- sa_std/consts.zig ---
+pub const SA_STD_ABI_VERSION = @import("sa_std/consts.zig").SA_STD_ABI_VERSION; pub const SA_STD_OK = @import("sa_std/consts.zig").SA_STD_OK; pub const SA_STD_ERR_INVALID_ARGUMENT = @import("sa_std/consts.zig").SA_STD_ERR_INVALID_ARGUMENT; pub const SA_STD_ERR_INVALID_HANDLE = @import("sa_std/consts.zig").SA_STD_ERR_INVALID_HANDLE; pub const SA_STD_ERR_NOT_FOUND = @import("sa_std/consts.zig").SA_STD_ERR_NOT_FOUND; pub const SA_STD_ERR_ACCESS = @import("sa_std/consts.zig").SA_STD_ERR_ACCESS; pub const SA_STD_ERR_NO_MEMORY = @import("sa_std/consts.zig").SA_STD_ERR_NO_MEMORY; pub const SA_STD_ERR_IO = @import("sa_std/consts.zig").SA_STD_ERR_IO;
+pub const SA_STD_ERR_NET = @import("sa_std/consts.zig").SA_STD_ERR_NET; pub const SA_STD_ERR_UNSUPPORTED = @import("sa_std/consts.zig").SA_STD_ERR_UNSUPPORTED; pub const SA_STD_ERR_TRUNCATED = @import("sa_std/consts.zig").SA_STD_ERR_TRUNCATED; pub const SA_STD_ERR_PERMISSION_DENIED = @import("sa_std/consts.zig").SA_STD_ERR_PERMISSION_DENIED; pub const SA_STD_ERR_ALREADY_EXISTS = @import("sa_std/consts.zig").SA_STD_ERR_ALREADY_EXISTS; pub const SA_STD_ERR_UNKNOWN = @import("sa_std/consts.zig").SA_STD_ERR_UNKNOWN; pub const SA_NET_IOV_MAX = @import("sa_std/consts.zig").SA_NET_IOV_MAX; pub const SA_STD_STDIN = @import("sa_std/consts.zig").SA_STD_STDIN;
+pub const SA_STD_STDOUT = @import("sa_std/consts.zig").SA_STD_STDOUT; pub const SA_STD_STDERR = @import("sa_std/consts.zig").SA_STD_STDERR; pub const SA_FS_FILE_REGULAR = @import("sa_std/consts.zig").SA_FS_FILE_REGULAR; pub const SA_FS_FILE_DIR = @import("sa_std/consts.zig").SA_FS_FILE_DIR; pub const SA_FS_FILE_SYMLINK = @import("sa_std/consts.zig").SA_FS_FILE_SYMLINK; pub const SA_FS_FILE_OTHER = @import("sa_std/consts.zig").SA_FS_FILE_OTHER; pub const SA_JSON_KIND_INVALID = @import("sa_std/consts.zig").SA_JSON_KIND_INVALID; pub const SA_JSON_KIND_NULL = @import("sa_std/consts.zig").SA_JSON_KIND_NULL;
+pub const SA_JSON_KIND_BOOL = @import("sa_std/consts.zig").SA_JSON_KIND_BOOL; pub const SA_JSON_KIND_INTEGER = @import("sa_std/consts.zig").SA_JSON_KIND_INTEGER; pub const SA_JSON_KIND_FLOAT = @import("sa_std/consts.zig").SA_JSON_KIND_FLOAT; pub const SA_JSON_KIND_NUMBER_STRING = @import("sa_std/consts.zig").SA_JSON_KIND_NUMBER_STRING; pub const SA_JSON_KIND_STRING = @import("sa_std/consts.zig").SA_JSON_KIND_STRING; pub const SA_JSON_KIND_ARRAY = @import("sa_std/consts.zig").SA_JSON_KIND_ARRAY; pub const SA_JSON_KIND_OBJECT = @import("sa_std/consts.zig").SA_JSON_KIND_OBJECT; pub const SA_JSON_TOKEN_INVALID = @import("sa_std/consts.zig").SA_JSON_TOKEN_INVALID;
+pub const SA_JSON_TOKEN_OBJECT_BEGIN = @import("sa_std/consts.zig").SA_JSON_TOKEN_OBJECT_BEGIN; pub const SA_JSON_TOKEN_OBJECT_END = @import("sa_std/consts.zig").SA_JSON_TOKEN_OBJECT_END; pub const SA_JSON_TOKEN_ARRAY_BEGIN = @import("sa_std/consts.zig").SA_JSON_TOKEN_ARRAY_BEGIN; pub const SA_JSON_TOKEN_ARRAY_END = @import("sa_std/consts.zig").SA_JSON_TOKEN_ARRAY_END; pub const SA_JSON_TOKEN_TRUE = @import("sa_std/consts.zig").SA_JSON_TOKEN_TRUE; pub const SA_JSON_TOKEN_FALSE = @import("sa_std/consts.zig").SA_JSON_TOKEN_FALSE; pub const SA_JSON_TOKEN_NULL = @import("sa_std/consts.zig").SA_JSON_TOKEN_NULL; pub const SA_JSON_TOKEN_NUMBER = @import("sa_std/consts.zig").SA_JSON_TOKEN_NUMBER;
+pub const SA_JSON_TOKEN_PARTIAL_NUMBER = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_NUMBER; pub const SA_JSON_TOKEN_STRING = @import("sa_std/consts.zig").SA_JSON_TOKEN_STRING; pub const SA_JSON_TOKEN_PARTIAL_STRING = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING; pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_1 = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_1; pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_2 = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_2; pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_3 = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_3; pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_4 = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_4; pub const SA_JSON_TOKEN_END_OF_DOCUMENT = @import("sa_std/consts.zig").SA_JSON_TOKEN_END_OF_DOCUMENT;
+pub const SA_JSON_TOKEN_ALLOCATED_NUMBER = @import("sa_std/consts.zig").SA_JSON_TOKEN_ALLOCATED_NUMBER; pub const SA_JSON_TOKEN_ALLOCATED_STRING = @import("sa_std/consts.zig").SA_JSON_TOKEN_ALLOCATED_STRING; pub const SA_JSON_WHITESPACE_MINIFIED = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_MINIFIED; pub const SA_JSON_WHITESPACE_INDENT_1 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_1; pub const SA_JSON_WHITESPACE_INDENT_2 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_2; pub const SA_JSON_WHITESPACE_INDENT_3 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_3; pub const SA_JSON_WHITESPACE_INDENT_4 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_4; pub const SA_JSON_WHITESPACE_INDENT_8 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_8;
+pub const SA_JSON_WHITESPACE_INDENT_TAB = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_TAB; pub const SA_REGEX_EXTENDED = @import("sa_std/consts.zig").SA_REGEX_EXTENDED; pub const SA_REGEX_ICASE = @import("sa_std/consts.zig").SA_REGEX_ICASE; pub const SA_REGEX_NEWLINE = @import("sa_std/consts.zig").SA_REGEX_NEWLINE; pub const SA_REGEX_NOSUB = @import("sa_std/consts.zig").SA_REGEX_NOSUB; pub const SA_REGEX_NOTBOL = @import("sa_std/consts.zig").SA_REGEX_NOTBOL; pub const SA_REGEX_NOTEOL = @import("sa_std/consts.zig").SA_REGEX_NOTEOL; pub const SA_REGEX_STARTEND = @import("sa_std/consts.zig").SA_REGEX_STARTEND;
+pub const SA_REGEX_REG_NOERROR = @import("sa_std/consts.zig").SA_REGEX_REG_NOERROR; pub const SA_REGEX_REG_OK = @import("sa_std/consts.zig").SA_REGEX_REG_OK; pub const SA_REGEX_REG_NOMATCH = @import("sa_std/consts.zig").SA_REGEX_REG_NOMATCH; pub const SA_REGEX_REG_BADPAT = @import("sa_std/consts.zig").SA_REGEX_REG_BADPAT; pub const SA_REGEX_REG_ECOLLATE = @import("sa_std/consts.zig").SA_REGEX_REG_ECOLLATE; pub const SA_REGEX_REG_ECTYPE = @import("sa_std/consts.zig").SA_REGEX_REG_ECTYPE; pub const SA_REGEX_REG_EESCAPE = @import("sa_std/consts.zig").SA_REGEX_REG_EESCAPE; pub const SA_REGEX_REG_ESUBREG = @import("sa_std/consts.zig").SA_REGEX_REG_ESUBREG;
+pub const SA_REGEX_REG_EBRACK = @import("sa_std/consts.zig").SA_REGEX_REG_EBRACK; pub const SA_REGEX_REG_EPAREN = @import("sa_std/consts.zig").SA_REGEX_REG_EPAREN; pub const SA_REGEX_REG_EBRACE = @import("sa_std/consts.zig").SA_REGEX_REG_EBRACE; pub const SA_REGEX_REG_BADBR = @import("sa_std/consts.zig").SA_REGEX_REG_BADBR; pub const SA_REGEX_REG_ERANGE = @import("sa_std/consts.zig").SA_REGEX_REG_ERANGE; pub const SA_REGEX_REG_ESPACE = @import("sa_std/consts.zig").SA_REGEX_REG_ESPACE; pub const SA_REGEX_REG_BADRPT = @import("sa_std/consts.zig").SA_REGEX_REG_BADRPT; pub const SA_REGEX_REG_ENOSYS = @import("sa_std/consts.zig").SA_REGEX_REG_ENOSYS;
+pub const SA_NET_UNIX_ADDR_UNNAMED = @import("sa_std/consts.zig").SA_NET_UNIX_ADDR_UNNAMED; pub const SA_NET_UNIX_ADDR_PATHNAME = @import("sa_std/consts.zig").SA_NET_UNIX_ADDR_PATHNAME; pub const SA_NET_UNIX_ADDR_ABSTRACT = @import("sa_std/consts.zig").SA_NET_UNIX_ADDR_ABSTRACT; pub const SA_STD_NET_POLL_READ = @import("sa_std/consts.zig").SA_STD_NET_POLL_READ; pub const SA_STD_NET_POLL_WRITE = @import("sa_std/consts.zig").SA_STD_NET_POLL_WRITE; pub const SA_STD_NET_POLL_ERROR = @import("sa_std/consts.zig").SA_STD_NET_POLL_ERROR; pub const SA_STD_NET_POLL_MAX_HANDLES = @import("sa_std/consts.zig").SA_STD_NET_POLL_MAX_HANDLES;
+// --- sa_std/deno.zig ---
+pub const sa_deno_cwd = @import("sa_std/deno.zig").sa_deno_cwd; pub const sa_deno_chdir = @import("sa_std/deno.zig").sa_deno_chdir; pub const sa_deno_env_set = @import("sa_std/deno.zig").sa_deno_env_set; pub const sa_deno_env_delete = @import("sa_std/deno.zig").sa_deno_env_delete; pub const sa_deno_random_uuid = @import("sa_std/deno.zig").sa_deno_random_uuid; pub const sa_deno_make_temp_dir = @import("sa_std/deno.zig").sa_deno_make_temp_dir; pub const sa_deno_make_temp_file = @import("sa_std/deno.zig").sa_deno_make_temp_file; pub const sa_deno_args_json = @import("sa_std/deno.zig").sa_deno_args_json;
+pub const sa_deno_btoa = @import("sa_std/deno.zig").sa_deno_btoa; pub const sa_deno_atob = @import("sa_std/deno.zig").sa_deno_atob; pub const sa_deno_text_encode = @import("sa_std/deno.zig").sa_deno_text_encode; pub const sa_deno_text_decode = @import("sa_std/deno.zig").sa_deno_text_decode; pub const sa_deno_chat_sse_to_responses = @import("sa_std/deno.zig").sa_deno_chat_sse_to_responses; pub const sa_deno_chat_json_to_responses = @import("sa_std/deno.zig").sa_deno_chat_json_to_responses; pub const sa_deno_responses_sse_normalize = @import("sa_std/deno.zig").sa_deno_responses_sse_normalize; pub const sa_deno_responses_json_normalize = @import("sa_std/deno.zig").sa_deno_responses_json_normalize;
+pub const sa_deno_responses_request_normalize = @import("sa_std/deno.zig").sa_deno_responses_request_normalize; pub const sa_deno_responses_chat_fallback_request = @import("sa_std/deno.zig").sa_deno_responses_chat_fallback_request; pub const sa_deno_jsonrpc_params_string_literal = @import("sa_std/deno.zig").sa_deno_jsonrpc_params_string_literal; pub const sa_deno_version_json = @import("sa_std/deno.zig").sa_deno_version_json; pub const sa_deno_version_deno = @import("sa_std/deno.zig").sa_deno_version_deno; pub const sa_deno_build_json = @import("sa_std/deno.zig").sa_deno_build_json; pub const sa_deno_build_os = @import("sa_std/deno.zig").sa_deno_build_os; pub const sa_deno_build_platform_family = @import("sa_std/deno.zig").sa_deno_build_platform_family;
+pub const sa_deno_date_now_iso = @import("sa_std/deno.zig").sa_deno_date_now_iso; pub const sa_deno_hostname = @import("sa_std/deno.zig").sa_deno_hostname; pub const sa_deno_os_release = @import("sa_std/deno.zig").sa_deno_os_release; pub const sa_deno_os_uptime = @import("sa_std/deno.zig").sa_deno_os_uptime; pub const sa_deno_loadavg = @import("sa_std/deno.zig").sa_deno_loadavg; pub const sa_deno_system_memory_info = @import("sa_std/deno.zig").sa_deno_system_memory_info; pub const sa_deno_network_interfaces = @import("sa_std/deno.zig").sa_deno_network_interfaces; pub const sa_deno_pid = @import("sa_std/deno.zig").sa_deno_pid;
+pub const sa_deno_ppid = @import("sa_std/deno.zig").sa_deno_ppid; pub const sa_deno_uid = @import("sa_std/deno.zig").sa_deno_uid; pub const sa_deno_gid = @import("sa_std/deno.zig").sa_deno_gid; pub const sa_deno_exec_path = @import("sa_std/deno.zig").sa_deno_exec_path; pub const sa_deno_memory_usage = @import("sa_std/deno.zig").sa_deno_memory_usage;
+// --- sa_std/dir_stat.zig ---
+pub const MetadataHandle = @import("sa_std/dir_stat.zig").MetadataHandle; pub const DirEntrySnapshot = @import("sa_std/dir_stat.zig").DirEntrySnapshot; pub const DirEntriesHandle = @import("sa_std/dir_stat.zig").DirEntriesHandle; pub const statTimeFieldName = @import("sa_std/dir_stat.zig").statTimeFieldName; pub const timeSpecMs = @import("sa_std/dir_stat.zig").timeSpecMs; pub const metadataU64Field = @import("sa_std/dir_stat.zig").metadataU64Field; pub const metadataI64TimeFieldMs = @import("sa_std/dir_stat.zig").metadataI64TimeFieldMs; pub const metadataI64TimeFieldSec = @import("sa_std/dir_stat.zig").metadataI64TimeFieldSec;
+pub const metadataI64TimeFieldNsec = @import("sa_std/dir_stat.zig").metadataI64TimeFieldNsec; pub const RawStat = @import("sa_std/dir_stat.zig").RawStat; pub const timestampToRawTs = @import("sa_std/dir_stat.zig").timestampToRawTs; pub const kindModeBits = @import("sa_std/dir_stat.zig").kindModeBits; pub const rawStatFromIo = @import("sa_std/dir_stat.zig").rawStatFromIo; pub const lxStatxNoFollow = @import("sa_std/dir_stat.zig").lxStatxNoFollow; pub const statFromRaw = @import("sa_std/dir_stat.zig").statFromRaw; pub const statxDevId = @import("sa_std/dir_stat.zig").statxDevId;
+pub const tsToMs = @import("sa_std/dir_stat.zig").tsToMs; pub const writeJsonBoolField = @import("sa_std/dir_stat.zig").writeJsonBoolField; pub const nsToMs = @import("sa_std/dir_stat.zig").nsToMs; pub const writeJsonIntField = @import("sa_std/dir_stat.zig").writeJsonIntField; pub const writeMetadataJson = @import("sa_std/dir_stat.zig").writeMetadataJson; pub const writeMetadataJsonExt = @import("sa_std/dir_stat.zig").writeMetadataJsonExt; pub const dirEntryKindFromLinuxType = @import("sa_std/dir_stat.zig").dirEntryKindFromLinuxType; pub const dirEntryKindFromIo = @import("sa_std/dir_stat.zig").dirEntryKindFromIo;
+pub const readDirEntriesLinux = @import("sa_std/dir_stat.zig").readDirEntriesLinux;
+// --- sa_std/dlopen.zig ---
+pub const compatibility_dlopen_cookie = @import("sa_std/dlopen.zig").compatibility_dlopen_cookie; pub const compatibility_dl_error = @import("sa_std/dlopen.zig").compatibility_dl_error; pub const DynamicLibHandle = @import("sa_std/dlopen.zig").DynamicLibHandle; pub const dlopen = @import("sa_std/dlopen.zig").dlopen; pub const sa_dl_open = @import("sa_std/dlopen.zig").sa_dl_open; pub const sa_dl_sym = @import("sa_std/dlopen.zig").sa_dl_sym; pub const sa_dl_error = @import("sa_std/dlopen.zig").sa_dl_error;
+// --- sa_std/env.zig ---
+pub const sa_env_get = @import("sa_std/env.zig").sa_env_get; pub const sa_env_current_dir = @import("sa_std/env.zig").sa_env_current_dir; pub const sa_env_set_current_dir = @import("sa_std/env.zig").sa_env_set_current_dir; pub const sa_env_temp_dir = @import("sa_std/env.zig").sa_env_temp_dir; pub const sa_env_current_exe = @import("sa_std/env.zig").sa_env_current_exe; pub const sa_env_home_dir = @import("sa_std/env.zig").sa_env_home_dir; pub const sa_env_args_json = @import("sa_std/env.zig").sa_env_args_json; pub const sa_env_vars_json = @import("sa_std/env.zig").sa_env_vars_json;
+pub const sa_env_split_paths_json = @import("sa_std/env.zig").sa_env_split_paths_json; pub const sa_env_join_paths_json = @import("sa_std/env.zig").sa_env_join_paths_json; pub const sa_env_xdg_data_home_dir = @import("sa_std/env.zig").sa_env_xdg_data_home_dir; pub const sa_env_xdg_config_home_dir = @import("sa_std/env.zig").sa_env_xdg_config_home_dir; pub const sa_env_xdg_state_home_dir = @import("sa_std/env.zig").sa_env_xdg_state_home_dir; pub const sa_env_xdg_cache_home_dir = @import("sa_std/env.zig").sa_env_xdg_cache_home_dir; pub const sa_env_xdg_data_dirs = @import("sa_std/env.zig").sa_env_xdg_data_dirs; pub const sa_env_xdg_config_dirs = @import("sa_std/env.zig").sa_env_xdg_config_dirs;
+pub const sa_env_has = @import("sa_std/env.zig").sa_env_has; pub const sa_env_set_var = @import("sa_std/env.zig").sa_env_set_var; pub const sa_env_remove_var = @import("sa_std/env.zig").sa_env_remove_var; pub const sa_env_buffer_data = @import("sa_std/env.zig").sa_env_buffer_data; pub const sa_env_buffer_len = @import("sa_std/env.zig").sa_env_buffer_len; pub const sa_env_buffer_free = @import("sa_std/env.zig").sa_env_buffer_free;
+// --- sa_std/fallible.zig ---
+pub const statusName = @import("sa_std/fallible.zig").statusName; pub const Fallible = @import("sa_std/fallible.zig").Fallible; pub const ok = @import("sa_std/fallible.zig").ok; pub const fail = @import("sa_std/fallible.zig").fail; pub const netErrorCodeName = @import("sa_std/fallible.zig").netErrorCodeName; pub const sa_std_error_name = @import("sa_std/fallible.zig").sa_std_error_name; pub const sa_std_println = @import("sa_std/fallible.zig").sa_std_println; pub const sa_test_fallible_i32_value = @import("sa_std/fallible.zig").sa_test_fallible_i32_value;
+// --- sa_std/fd_core.zig ---
+pub const socketFdFromHandle = @import("sa_std/fd_core.zig").socketFdFromHandle; pub const handleToFd = @import("sa_std/fd_core.zig").handleToFd; pub const libcFd = @import("sa_std/fd_core.zig").libcFd; pub const lxAccept = @import("sa_std/fd_core.zig").lxAccept; pub const lxDup = @import("sa_std/fd_core.zig").lxDup; pub const lxIsatty = @import("sa_std/fd_core.zig").lxIsatty; pub const sa_std_fd_as_raw = @import("sa_std/fd_core.zig").sa_std_fd_as_raw; pub const sa_std_fd_dup = @import("sa_std/fd_core.zig").sa_std_fd_dup;
+pub const sa_std_fd_dup_raw = @import("sa_std/fd_core.zig").sa_std_fd_dup_raw; pub const sa_std_fd_is_terminal = @import("sa_std/fd_core.zig").sa_std_fd_is_terminal;
+// --- sa_std/fmt.zig ---
+pub const sa_fmt_i64 = @import("sa_std/fmt.zig").sa_fmt_i64; pub const sa_fmt_i64_into = @import("sa_std/fmt.zig").sa_fmt_i64_into; pub const sa_fmt_u64 = @import("sa_std/fmt.zig").sa_fmt_u64; pub const sa_fmt_u64_into = @import("sa_std/fmt.zig").sa_fmt_u64_into; pub const sa_fmt_f64 = @import("sa_std/fmt.zig").sa_fmt_f64; pub const sa_fmt_f64_into = @import("sa_std/fmt.zig").sa_fmt_f64_into; pub const sa_fmt_bool = @import("sa_std/fmt.zig").sa_fmt_bool; pub const sa_fmt_bool_into = @import("sa_std/fmt.zig").sa_fmt_bool_into;
+pub const sa_fmt_bytes = @import("sa_std/fmt.zig").sa_fmt_bytes; pub const sa_fmt_bytes_into = @import("sa_std/fmt.zig").sa_fmt_bytes_into; pub const sa_fmt_buffer_data = @import("sa_std/fmt.zig").sa_fmt_buffer_data; pub const sa_fmt_buffer_len = @import("sa_std/fmt.zig").sa_fmt_buffer_len; pub const sa_fmt_buffer_write_to = @import("sa_std/fmt.zig").sa_fmt_buffer_write_to; pub const sa_fmt_buffer_free = @import("sa_std/fmt.zig").sa_fmt_buffer_free;
+// --- sa_std/fs.zig ---
+pub const saFsOpenFile = @import("sa_std/fs.zig").saFsOpenFile; pub const sa_fs_open_accmode_mask = @import("sa_std/fs.zig").sa_fs_open_accmode_mask; pub const sa_fs_file_open = @import("sa_std/fs.zig").sa_fs_file_open; pub const sa_fs_file_create = @import("sa_std/fs.zig").sa_fs_file_create; pub const sa_fs_file_close = @import("sa_std/fs.zig").sa_fs_file_close; pub const sa_fs_file_read = @import("sa_std/fs.zig").sa_fs_file_read; pub const sa_fs_file_read_exact = @import("sa_std/fs.zig").sa_fs_file_read_exact; pub const sa_fs_file_write = @import("sa_std/fs.zig").sa_fs_file_write;
+pub const sa_fs_file_write_all = @import("sa_std/fs.zig").sa_fs_file_write_all; pub const sa_fs_file_flush = @import("sa_std/fs.zig").sa_fs_file_flush; pub const sa_fs_file_sync_data = @import("sa_std/fs.zig").sa_fs_file_sync_data; pub const sa_fs_file_sync = @import("sa_std/fs.zig").sa_fs_file_sync; pub const sa_fs_file_truncate = @import("sa_std/fs.zig").sa_fs_file_truncate; pub const sa_fs_file_seek = @import("sa_std/fs.zig").sa_fs_file_seek; pub const sa_fs_read_file = @import("sa_std/fs.zig").sa_fs_read_file; pub const sa_fs_read_to_string = @import("sa_std/fs.zig").sa_fs_read_to_string;
+pub const sa_fs_write_file = @import("sa_std/fs.zig").sa_fs_write_file; pub const sa_fs_read_buffer_data = @import("sa_std/fs.zig").sa_fs_read_buffer_data; pub const sa_fs_read_buffer_len = @import("sa_std/fs.zig").sa_fs_read_buffer_len; pub const sa_fs_read_buffer_free = @import("sa_std/fs.zig").sa_fs_read_buffer_free; pub const sa_fs_read_file_base64 = @import("sa_std/fs.zig").sa_fs_read_file_base64; pub const sa_fs_write_file_base64 = @import("sa_std/fs.zig").sa_fs_write_file_base64; pub const sa_fs_read_dir_json = @import("sa_std/fs.zig").sa_fs_read_dir_json; pub const sa_fs_dir_buffer_data = @import("sa_std/fs.zig").sa_fs_dir_buffer_data;
+pub const sa_fs_dir_buffer_len = @import("sa_std/fs.zig").sa_fs_dir_buffer_len; pub const sa_fs_dir_buffer_free = @import("sa_std/fs.zig").sa_fs_dir_buffer_free; pub const sa_fs_read_dir_entries = @import("sa_std/fs.zig").sa_fs_read_dir_entries; pub const sa_fs_dir_entries_len = @import("sa_std/fs.zig").sa_fs_dir_entries_len; pub const sa_fs_dir_entries_free = @import("sa_std/fs.zig").sa_fs_dir_entries_free; pub const sa_fs_dir_entry_name_ptr = @import("sa_std/fs.zig").sa_fs_dir_entry_name_ptr; pub const sa_fs_dir_entry_name_len = @import("sa_std/fs.zig").sa_fs_dir_entry_name_len; pub const sa_fs_dir_entry_file_name_ptr = @import("sa_std/fs.zig").sa_fs_dir_entry_file_name_ptr;
+pub const sa_fs_dir_entry_file_name_len = @import("sa_std/fs.zig").sa_fs_dir_entry_file_name_len; pub const sa_fs_dir_entry_kind = @import("sa_std/fs.zig").sa_fs_dir_entry_kind; pub const sa_fs_dir_entry_ino = @import("sa_std/fs.zig").sa_fs_dir_entry_ino; pub const sa_fs_dir_entry_free = @import("sa_std/fs.zig").sa_fs_dir_entry_free; pub const sa_fs_metadata = @import("sa_std/fs.zig").sa_fs_metadata; pub const sa_fs_metadata_json = @import("sa_std/fs.zig").sa_fs_metadata_json; pub const sa_fs_metadata_is_file = @import("sa_std/fs.zig").sa_fs_metadata_is_file; pub const sa_fs_metadata_is_directory = @import("sa_std/fs.zig").sa_fs_metadata_is_directory;
+pub const sa_fs_metadata_is_symlink = @import("sa_std/fs.zig").sa_fs_metadata_is_symlink; pub const sa_fs_metadata_is_block_device = @import("sa_std/fs.zig").sa_fs_metadata_is_block_device; pub const sa_fs_metadata_is_char_device = @import("sa_std/fs.zig").sa_fs_metadata_is_char_device; pub const sa_fs_metadata_is_fifo = @import("sa_std/fs.zig").sa_fs_metadata_is_fifo; pub const sa_fs_metadata_is_socket = @import("sa_std/fs.zig").sa_fs_metadata_is_socket; pub const sa_fs_metadata_modified_ms = @import("sa_std/fs.zig").sa_fs_metadata_modified_ms; pub const sa_fs_metadata_created_ms = @import("sa_std/fs.zig").sa_fs_metadata_created_ms; pub const sa_fs_metadata_accessed_ms = @import("sa_std/fs.zig").sa_fs_metadata_accessed_ms;
+pub const sa_fs_metadata_changed_ms = @import("sa_std/fs.zig").sa_fs_metadata_changed_ms; pub const sa_fs_metadata_len = @import("sa_std/fs.zig").sa_fs_metadata_len; pub const sa_fs_metadata_mode = @import("sa_std/fs.zig").sa_fs_metadata_mode; pub const sa_fs_metadata_uid = @import("sa_std/fs.zig").sa_fs_metadata_uid; pub const sa_fs_metadata_gid = @import("sa_std/fs.zig").sa_fs_metadata_gid; pub const sa_fs_metadata_ino = @import("sa_std/fs.zig").sa_fs_metadata_ino; pub const sa_fs_metadata_dev = @import("sa_std/fs.zig").sa_fs_metadata_dev; pub const sa_fs_metadata_nlink = @import("sa_std/fs.zig").sa_fs_metadata_nlink;
+pub const sa_fs_metadata_rdev = @import("sa_std/fs.zig").sa_fs_metadata_rdev; pub const sa_fs_metadata_blksize = @import("sa_std/fs.zig").sa_fs_metadata_blksize; pub const sa_fs_metadata_blocks = @import("sa_std/fs.zig").sa_fs_metadata_blocks; pub const sa_fs_metadata_st_dev = @import("sa_std/fs.zig").sa_fs_metadata_st_dev; pub const sa_fs_metadata_st_ino = @import("sa_std/fs.zig").sa_fs_metadata_st_ino; pub const sa_fs_metadata_st_mode = @import("sa_std/fs.zig").sa_fs_metadata_st_mode; pub const sa_fs_metadata_st_nlink = @import("sa_std/fs.zig").sa_fs_metadata_st_nlink; pub const sa_fs_metadata_st_uid = @import("sa_std/fs.zig").sa_fs_metadata_st_uid;
+pub const sa_fs_metadata_st_gid = @import("sa_std/fs.zig").sa_fs_metadata_st_gid; pub const sa_fs_metadata_st_rdev = @import("sa_std/fs.zig").sa_fs_metadata_st_rdev; pub const sa_fs_metadata_st_size = @import("sa_std/fs.zig").sa_fs_metadata_st_size; pub const sa_fs_metadata_st_atime = @import("sa_std/fs.zig").sa_fs_metadata_st_atime; pub const sa_fs_metadata_st_atime_nsec = @import("sa_std/fs.zig").sa_fs_metadata_st_atime_nsec; pub const sa_fs_metadata_st_mtime = @import("sa_std/fs.zig").sa_fs_metadata_st_mtime; pub const sa_fs_metadata_st_mtime_nsec = @import("sa_std/fs.zig").sa_fs_metadata_st_mtime_nsec; pub const sa_fs_metadata_st_ctime = @import("sa_std/fs.zig").sa_fs_metadata_st_ctime;
+pub const sa_fs_metadata_st_ctime_nsec = @import("sa_std/fs.zig").sa_fs_metadata_st_ctime_nsec; pub const sa_fs_metadata_st_blksize = @import("sa_std/fs.zig").sa_fs_metadata_st_blksize; pub const sa_fs_metadata_st_blocks = @import("sa_std/fs.zig").sa_fs_metadata_st_blocks; pub const sa_fs_metadata_free = @import("sa_std/fs.zig").sa_fs_metadata_free; pub const sa_fs_remove_file = @import("sa_std/fs.zig").sa_fs_remove_file; pub const sa_fs_rename = @import("sa_std/fs.zig").sa_fs_rename; pub const sa_fs_make_dir = @import("sa_std/fs.zig").sa_fs_make_dir; pub const sa_fs_make_dir_mode = @import("sa_std/fs.zig").sa_fs_make_dir_mode;
+pub const sa_fs_mkdir_p = @import("sa_std/fs.zig").sa_fs_mkdir_p; pub const sa_fs_create_dir = @import("sa_std/fs.zig").sa_fs_create_dir; pub const sa_fs_create_dir_mode = @import("sa_std/fs.zig").sa_fs_create_dir_mode; pub const sa_fs_remove_dir = @import("sa_std/fs.zig").sa_fs_remove_dir; pub const sa_fs_remove_dir_all = @import("sa_std/fs.zig").sa_fs_remove_dir_all; pub const sa_fs_remove_path = @import("sa_std/fs.zig").sa_fs_remove_path; pub const sa_fs_copy_file = @import("sa_std/fs.zig").sa_fs_copy_file; pub const sa_fs_set_permissions = @import("sa_std/fs.zig").sa_fs_set_permissions;
+pub const sa_fs_set_times_ms = @import("sa_std/fs.zig").sa_fs_set_times_ms; pub const sa_fs_hard_link = @import("sa_std/fs.zig").sa_fs_hard_link; pub const sa_fs_symlink = @import("sa_std/fs.zig").sa_fs_symlink; pub const sa_fs_chown = @import("sa_std/fs.zig").sa_fs_chown; pub const sa_fs_lchown = @import("sa_std/fs.zig").sa_fs_lchown; pub const sa_fs_fchown = @import("sa_std/fs.zig").sa_fs_fchown; pub const sa_fs_chroot = @import("sa_std/fs.zig").sa_fs_chroot; pub const sa_fs_mkfifo = @import("sa_std/fs.zig").sa_fs_mkfifo;
+// --- sa_std/iface_json.zig ---
+pub const struct_sockaddr = @import("sa_std/iface_json.zig").struct_sockaddr; pub const struct_ifaddrs = @import("sa_std/iface_json.zig").struct_ifaddrs; pub const appendJsonEscapedString = @import("sa_std/iface_json.zig").appendJsonEscapedString; pub const buildInterfaceAddressesJson = @import("sa_std/iface_json.zig").buildInterfaceAddressesJson;
+// --- sa_std/io.zig ---
+pub const sa_io_read_line = @import("sa_std/io.zig").sa_io_read_line; pub const sa_io_stdin = @import("sa_std/io.zig").sa_io_stdin; pub const sa_io_stdout = @import("sa_std/io.zig").sa_io_stdout; pub const sa_io_stderr = @import("sa_std/io.zig").sa_io_stderr; pub const sa_io_read = @import("sa_std/io.zig").sa_io_read; pub const sa_io_read_exact = @import("sa_std/io.zig").sa_io_read_exact; pub const sa_io_write = @import("sa_std/io.zig").sa_io_write; pub const sa_io_write_all = @import("sa_std/io.zig").sa_io_write_all;
+pub const sa_io_flush = @import("sa_std/io.zig").sa_io_flush; pub const sa_io_close = @import("sa_std/io.zig").sa_io_close; pub const sa_io_buffer_data = @import("sa_std/io.zig").sa_io_buffer_data; pub const sa_io_buffer_len = @import("sa_std/io.zig").sa_io_buffer_len; pub const sa_io_buffer_free = @import("sa_std/io.zig").sa_io_buffer_free;
+// --- sa_std/io_plan.zig ---
+pub const readHandleLocked = @import("sa_std/io_plan.zig").readHandleLocked; pub const IoPlan = @import("sa_std/io_plan.zig").IoPlan; pub const ioPlanLocked = @import("sa_std/io_plan.zig").ioPlanLocked; pub const readHandle = @import("sa_std/io_plan.zig").readHandle; pub const writeHandle = @import("sa_std/io_plan.zig").writeHandle; pub const lxRead = @import("sa_std/io_plan.zig").lxRead; pub const sa_std_write = @import("sa_std/io_plan.zig").sa_std_write; pub const sa_std_read = @import("sa_std/io_plan.zig").sa_std_read;
+// --- sa_std/ip_parse.zig ---
+pub const hostBytes = @import("sa_std/ip_parse.zig").hostBytes; pub const portFromU32 = @import("sa_std/ip_parse.zig").portFromU32; pub const parseIp4Address = @import("sa_std/ip_parse.zig").parseIp4Address; pub const parseV6HalfFreebsd = @import("sa_std/ip_parse.zig").parseV6HalfFreebsd; pub const parseIpv6NumericFreebsd = @import("sa_std/ip_parse.zig").parseIpv6NumericFreebsd; pub const parseIp6FreebsdParts = @import("sa_std/ip_parse.zig").parseIp6FreebsdParts; pub const parseIp6Address = @import("sa_std/ip_parse.zig").parseIp6Address; pub const resolveFirstAddressFromParts = @import("sa_std/ip_parse.zig").resolveFirstAddressFromParts;
+pub const resolveFirstSocketAddress = @import("sa_std/ip_parse.zig").resolveFirstSocketAddress; pub const parseIpv4Ascii = @import("sa_std/ip_parse.zig").parseIpv4Ascii;
+// --- sa_std/json.zig ---
+pub const sa_json_parse = @import("sa_std/json.zig").sa_json_parse; pub const sa_json_kind = @import("sa_std/json.zig").sa_json_kind; pub const sa_json_object_get = @import("sa_std/json.zig").sa_json_object_get; pub const sa_json_array_get = @import("sa_std/json.zig").sa_json_array_get; pub const sa_json_object_key_at = @import("sa_std/json.zig").sa_json_object_key_at; pub const sa_json_object_get_string = @import("sa_std/json.zig").sa_json_object_get_string; pub const sa_json_object_get_bool = @import("sa_std/json.zig").sa_json_object_get_bool; pub const sa_json_object_get_i64 = @import("sa_std/json.zig").sa_json_object_get_i64;
+pub const sa_json_object_get_f64 = @import("sa_std/json.zig").sa_json_object_get_f64; pub const sa_json_as_f64 = @import("sa_std/json.zig").sa_json_as_f64; pub const sa_json_as_i64 = @import("sa_std/json.zig").sa_json_as_i64; pub const sa_json_as_bool = @import("sa_std/json.zig").sa_json_as_bool; pub const sa_json_string_ptr = @import("sa_std/json.zig").sa_json_string_ptr; pub const sa_json_string_len = @import("sa_std/json.zig").sa_json_string_len; pub const sa_json_value_count = @import("sa_std/json.zig").sa_json_value_count; pub const sa_json_free = @import("sa_std/json.zig").sa_json_free;
+pub const sa_json_stringify = @import("sa_std/json.zig").sa_json_stringify; pub const sa_json_object_set_string = @import("sa_std/json.zig").sa_json_object_set_string; pub const sa_json_object_set_i64 = @import("sa_std/json.zig").sa_json_object_set_i64; pub const sa_json_object_set_f64 = @import("sa_std/json.zig").sa_json_object_set_f64; pub const sa_json_object_set_bool = @import("sa_std/json.zig").sa_json_object_set_bool; pub const sa_json_object_set_null = @import("sa_std/json.zig").sa_json_object_set_null; pub const sa_json_object_set_node = @import("sa_std/json.zig").sa_json_object_set_node; pub const sa_json_object_remove = @import("sa_std/json.zig").sa_json_object_remove;
+pub const sa_json_array_push_string = @import("sa_std/json.zig").sa_json_array_push_string; pub const sa_json_array_push_i64 = @import("sa_std/json.zig").sa_json_array_push_i64; pub const sa_json_array_push_f64 = @import("sa_std/json.zig").sa_json_array_push_f64; pub const sa_json_array_push_bool = @import("sa_std/json.zig").sa_json_array_push_bool; pub const sa_json_array_push_null = @import("sa_std/json.zig").sa_json_array_push_null; pub const sa_json_array_push_node = @import("sa_std/json.zig").sa_json_array_push_node; pub const sa_json_scanner_new = @import("sa_std/json.zig").sa_json_scanner_new; pub const sa_json_scanner_feed = @import("sa_std/json.zig").sa_json_scanner_feed;
+pub const sa_json_scanner_end_input = @import("sa_std/json.zig").sa_json_scanner_end_input; pub const sa_json_scanner_next = @import("sa_std/json.zig").sa_json_scanner_next; pub const sa_json_scanner_free = @import("sa_std/json.zig").sa_json_scanner_free; pub const sa_json_stream_new = @import("sa_std/json.zig").sa_json_stream_new; pub const sa_json_stream_next = @import("sa_std/json.zig").sa_json_stream_next; pub const sa_json_stream_get_slice_ptr = @import("sa_std/json.zig").sa_json_stream_get_slice_ptr; pub const sa_json_stream_get_slice_len = @import("sa_std/json.zig").sa_json_stream_get_slice_len; pub const sa_json_stream_free = @import("sa_std/json.zig").sa_json_stream_free;
+pub const sa_json_writer_free = @import("sa_std/json.zig").sa_json_writer_free; pub const sa_json_writer_new = @import("sa_std/json.zig").sa_json_writer_new; pub const sa_json_writer_begin_object = @import("sa_std/json.zig").sa_json_writer_begin_object; pub const sa_json_writer_end_object = @import("sa_std/json.zig").sa_json_writer_end_object; pub const sa_json_writer_begin_array = @import("sa_std/json.zig").sa_json_writer_begin_array; pub const sa_json_writer_end_array = @import("sa_std/json.zig").sa_json_writer_end_array; pub const sa_json_writer_object_field = @import("sa_std/json.zig").sa_json_writer_object_field; pub const sa_json_writer_field_string = @import("sa_std/json.zig").sa_json_writer_field_string;
+pub const sa_json_writer_field_bool = @import("sa_std/json.zig").sa_json_writer_field_bool; pub const sa_json_writer_field_i64 = @import("sa_std/json.zig").sa_json_writer_field_i64; pub const sa_json_writer_field_f64 = @import("sa_std/json.zig").sa_json_writer_field_f64; pub const sa_json_writer_field_null = @import("sa_std/json.zig").sa_json_writer_field_null; pub const sa_json_writer_field_node = @import("sa_std/json.zig").sa_json_writer_field_node; pub const sa_json_writer_write_bool = @import("sa_std/json.zig").sa_json_writer_write_bool; pub const sa_json_writer_write_i64 = @import("sa_std/json.zig").sa_json_writer_write_i64; pub const sa_json_writer_write_f64 = @import("sa_std/json.zig").sa_json_writer_write_f64;
+pub const sa_json_writer_write_string = @import("sa_std/json.zig").sa_json_writer_write_string; pub const sa_json_writer_write_null = @import("sa_std/json.zig").sa_json_writer_write_null; pub const sa_json_writer_write_node = @import("sa_std/json.zig").sa_json_writer_write_node; pub const sa_json_writer_finish = @import("sa_std/json.zig").sa_json_writer_finish; pub const sa_json_writer_finish_buffer = @import("sa_std/json.zig").sa_json_writer_finish_buffer; pub const sa_json_buffer_data = @import("sa_std/json.zig").sa_json_buffer_data; pub const sa_json_buffer_len = @import("sa_std/json.zig").sa_json_buffer_len; pub const sa_json_buffer_free = @import("sa_std/json.zig").sa_json_buffer_free;
+// --- sa_std/json_node.zig ---
+pub const JsonDocumentHandle = @import("sa_std/json_node.zig").JsonDocumentHandle; pub const JsonPathSegment = @import("sa_std/json_node.zig").JsonPathSegment; pub const freeJsonPath = @import("sa_std/json_node.zig").freeJsonPath; pub const jsonPathAppend = @import("sa_std/json_node.zig").jsonPathAppend; pub const JsonNodeHandle = @import("sa_std/json_node.zig").JsonNodeHandle; pub const registerJsonNode = @import("sa_std/json_node.zig").registerJsonNode; pub const acquireJsonNode = @import("sa_std/json_node.zig").acquireJsonNode; pub const jsonResolvePathPtr = @import("sa_std/json_node.zig").jsonResolvePathPtr;
+pub const jsonResolvePath = @import("sa_std/json_node.zig").jsonResolvePath; pub const jsonDocumentFromSlice = @import("sa_std/json_node.zig").jsonDocumentFromSlice; pub const jsonObjectGet = @import("sa_std/json_node.zig").jsonObjectGet; pub const jsonArrayGet = @import("sa_std/json_node.zig").jsonArrayGet; pub const jsonObjectKeyAt = @import("sa_std/json_node.zig").jsonObjectKeyAt; pub const JsonMutation = @import("sa_std/json_node.zig").JsonMutation; pub const jsonMutationTarget = @import("sa_std/json_node.zig").jsonMutationTarget; pub const jsonObjectSetLocked = @import("sa_std/json_node.zig").jsonObjectSetLocked;
+pub const jsonArrayPushLocked = @import("sa_std/json_node.zig").jsonArrayPushLocked; pub const jsonObjectRemoveLocked = @import("sa_std/json_node.zig").jsonObjectRemoveLocked;
+// --- sa_std/json_scan.zig ---
+pub const JsonScannerHandle = @import("sa_std/json_scan.zig").JsonScannerHandle; pub const JsonStreamHandle = @import("sa_std/json_scan.zig").JsonStreamHandle; pub const tokenTextBytes = @import("sa_std/json_scan.zig").tokenTextBytes; pub const jsonScannerFeed = @import("sa_std/json_scan.zig").jsonScannerFeed;
+// --- sa_std/json_util.zig ---
+pub const jsonTextSlice = @import("sa_std/json_util.zig").jsonTextSlice; pub const jsonStringifyAlloc = @import("sa_std/json_util.zig").jsonStringifyAlloc; pub const jsonSerializeBuffer = @import("sa_std/json_util.zig").jsonSerializeBuffer; pub const ListWriter = @import("sa_std/json_util.zig").ListWriter; pub const listWriter = @import("sa_std/json_util.zig").listWriter; pub const stringifyToList = @import("sa_std/json_util.zig").stringifyToList; pub const appendJsonString = @import("sa_std/json_util.zig").appendJsonString; pub const jsonStringLiteralAlloc = @import("sa_std/json_util.zig").jsonStringLiteralAlloc;
+pub const jsonRpcParamLookupKey = @import("sa_std/json_util.zig").jsonRpcParamLookupKey; pub const jsonRpcParamsStringLiteralAlloc = @import("sa_std/json_util.zig").jsonRpcParamsStringLiteralAlloc; pub const jsonObjectGetValue = @import("sa_std/json_util.zig").jsonObjectGetValue;
+// --- sa_std/math.zig ---
+pub const sa_math_floor = @import("sa_std/math.zig").sa_math_floor; pub const sa_math_ceil = @import("sa_std/math.zig").sa_math_ceil; pub const sa_math_sqrt = @import("sa_std/math.zig").sa_math_sqrt; pub const sa_math_sin = @import("sa_std/math.zig").sa_math_sin; pub const sa_math_cos = @import("sa_std/math.zig").sa_math_cos; pub const sa_math_pow = @import("sa_std/math.zig").sa_math_pow; pub const sa_math_random = @import("sa_std/math.zig").sa_math_random;
+// --- sa_std/net.zig ---
+pub const sa_net_iov = @import("sa_std/net.zig").sa_net_iov; pub const sa_net_tcp_connect = @import("sa_std/net.zig").sa_net_tcp_connect; pub const sa_net_tcp_stream_read = @import("sa_std/net.zig").sa_net_tcp_stream_read; pub const sa_net_tcp_stream_peek = @import("sa_std/net.zig").sa_net_tcp_stream_peek; pub const sa_net_tcp_stream_write = @import("sa_std/net.zig").sa_net_tcp_stream_write; pub const sa_net_tcp_stream_write_all = @import("sa_std/net.zig").sa_net_tcp_stream_write_all; pub const sa_net_tcp_stream_read_exact = @import("sa_std/net.zig").sa_net_tcp_stream_read_exact; pub const sa_net_tcp_stream_flush = @import("sa_std/net.zig").sa_net_tcp_stream_flush;
+pub const sa_net_tcp_stream_peer_addr = @import("sa_std/net.zig").sa_net_tcp_stream_peer_addr; pub const sa_net_tcp_stream_shutdown = @import("sa_std/net.zig").sa_net_tcp_stream_shutdown; pub const sa_net_tcp_stream_set_read_timeout = @import("sa_std/net.zig").sa_net_tcp_stream_set_read_timeout; pub const sa_net_tcp_stream_set_write_timeout = @import("sa_std/net.zig").sa_net_tcp_stream_set_write_timeout; pub const sa_net_tcp_stream_set_nonblocking = @import("sa_std/net.zig").sa_net_tcp_stream_set_nonblocking; pub const sa_net_tcp_stream_set_nodelay = @import("sa_std/net.zig").sa_net_tcp_stream_set_nodelay; pub const sa_net_tcp_stream_set_ttl = @import("sa_std/net.zig").sa_net_tcp_stream_set_ttl; pub const sa_net_tcp_stream_close = @import("sa_std/net.zig").sa_net_tcp_stream_close;
+pub const sa_net_tcp_listener_bind = @import("sa_std/net.zig").sa_net_tcp_listener_bind; pub const sa_net_tcp_listener_accept = @import("sa_std/net.zig").sa_net_tcp_listener_accept; pub const sa_net_tcp_listener_local_addr = @import("sa_std/net.zig").sa_net_tcp_listener_local_addr; pub const sa_net_tcp_listener_close = @import("sa_std/net.zig").sa_net_tcp_listener_close; pub const sa_net_udp_set_read_timeout = @import("sa_std/net.zig").sa_net_udp_set_read_timeout; pub const sa_net_udp_set_write_timeout = @import("sa_std/net.zig").sa_net_udp_set_write_timeout; pub const sa_net_udp_set_nonblocking = @import("sa_std/net.zig").sa_net_udp_set_nonblocking; pub const sa_net_udp_set_broadcast = @import("sa_std/net.zig").sa_net_udp_set_broadcast;
+pub const sa_net_udp_set_ttl = @import("sa_std/net.zig").sa_net_udp_set_ttl; pub const sa_net_udp_set_multicast_loop_v4 = @import("sa_std/net.zig").sa_net_udp_set_multicast_loop_v4; pub const sa_net_udp_set_multicast_ttl_v4 = @import("sa_std/net.zig").sa_net_udp_set_multicast_ttl_v4; pub const sa_net_udp_join_multicast_v4 = @import("sa_std/net.zig").sa_net_udp_join_multicast_v4; pub const sa_net_udp_leave_multicast_v4 = @import("sa_std/net.zig").sa_net_udp_leave_multicast_v4; pub const sa_net_udp_join_multicast_v6 = @import("sa_std/net.zig").sa_net_udp_join_multicast_v6; pub const sa_net_udp_leave_multicast_v6 = @import("sa_std/net.zig").sa_net_udp_leave_multicast_v6; pub const sa_net_udp_bind = @import("sa_std/net.zig").sa_net_udp_bind;
+pub const sa_net_udp_connect = @import("sa_std/net.zig").sa_net_udp_connect; pub const sa_net_udp_local_addr = @import("sa_std/net.zig").sa_net_udp_local_addr; pub const sa_net_udp_send = @import("sa_std/net.zig").sa_net_udp_send; pub const sa_net_udp_recv = @import("sa_std/net.zig").sa_net_udp_recv; pub const sa_net_udp_peek = @import("sa_std/net.zig").sa_net_udp_peek; pub const sa_net_udp_send_to = @import("sa_std/net.zig").sa_net_udp_send_to; pub const sa_net_udp_recv_from = @import("sa_std/net.zig").sa_net_udp_recv_from; pub const sa_net_udp_peek_from = @import("sa_std/net.zig").sa_net_udp_peek_from;
+pub const sa_net_udp_close = @import("sa_std/net.zig").sa_net_udp_close; pub const sa_net_addr_host = @import("sa_std/net.zig").sa_net_addr_host; pub const sa_net_addr_host_len = @import("sa_std/net.zig").sa_net_addr_host_len; pub const sa_net_addr_port = @import("sa_std/net.zig").sa_net_addr_port; pub const sa_net_addr_family = @import("sa_std/net.zig").sa_net_addr_family; pub const sa_net_addr_scope_id = @import("sa_std/net.zig").sa_net_addr_scope_id; pub const sa_net_addr_free = @import("sa_std/net.zig").sa_net_addr_free; pub const sa_net_ipv4_parse_ascii = @import("sa_std/net.zig").sa_net_ipv4_parse_ascii;
+pub const sa_net_socket_addr_v4_parse_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v4_parse_ascii; pub const sa_net_ipv6_parse_ascii = @import("sa_std/net.zig").sa_net_ipv6_parse_ascii; pub const sa_net_socket_addr_v6_parse_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v6_parse_ascii; pub const sa_net_ipv4_format_ascii = @import("sa_std/net.zig").sa_net_ipv4_format_ascii; pub const sa_net_ipv6_format_ascii = @import("sa_std/net.zig").sa_net_ipv6_format_ascii; pub const sa_net_socket_addr_v4_format_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v4_format_ascii; pub const sa_net_socket_addr_v6_format_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v6_format_ascii; pub const sa_net_unix_addr_kind = @import("sa_std/net.zig").sa_net_unix_addr_kind;
+pub const sa_net_unix_addr_is_unnamed = @import("sa_std/net.zig").sa_net_unix_addr_is_unnamed; pub const sa_net_unix_addr_path_ptr = @import("sa_std/net.zig").sa_net_unix_addr_path_ptr; pub const sa_net_unix_addr_path_len = @import("sa_std/net.zig").sa_net_unix_addr_path_len; pub const sa_net_unix_addr_abstract_ptr = @import("sa_std/net.zig").sa_net_unix_addr_abstract_ptr; pub const sa_net_unix_addr_abstract_len = @import("sa_std/net.zig").sa_net_unix_addr_abstract_len; pub const sa_net_unix_addr_free = @import("sa_std/net.zig").sa_net_unix_addr_free;
+// --- sa_std/normalize.zig ---
+pub const normalizeMcpServerNameAlloc = @import("sa_std/normalize.zig").normalizeMcpServerNameAlloc; pub const normalizeResponsesRequestArgumentsString = @import("sa_std/normalize.zig").normalizeResponsesRequestArgumentsString; pub const normalizeResponsesRequestValue = @import("sa_std/normalize.zig").normalizeResponsesRequestValue; pub const denoResponsesRequestNormalize = @import("sa_std/normalize.zig").denoResponsesRequestNormalize;
+// --- sa_std/policy.zig ---
+pub const policyBootstrapWriteStderr = @import("sa_std/policy.zig").policyBootstrapWriteStderr; pub const policyAuditSink = @import("sa_std/policy.zig").policyAuditSink; pub const policyBootstrapFail = @import("sa_std/policy.zig").policyBootstrapFail; pub const policyEnvFlag = @import("sa_std/policy.zig").policyEnvFlag; pub const installPolicyText = @import("sa_std/policy.zig").installPolicyText; pub const applySigpipeIgnore = @import("sa_std/policy.zig").applySigpipeIgnore; pub const installSigpipeIgnore = @import("sa_std/policy.zig").installSigpipeIgnore; pub const sa_install_sigpipe_ignore = @import("sa_std/policy.zig").sa_install_sigpipe_ignore;
+pub const policyBootstrap = @import("sa_std/policy.zig").policyBootstrap;
+// --- sa_std/proc_wait.zig ---
+pub const WasiW = @import("sa_std/proc_wait.zig").WasiW; pub const WT = @import("sa_std/proc_wait.zig").WT; pub const w_exited = @import("sa_std/proc_wait.zig").w_exited; pub const w_nohang = @import("sa_std/proc_wait.zig").w_nohang; pub const ProcessHandle = @import("sa_std/proc_wait.zig").ProcessHandle; pub const capture_fd_to_owned = @import("sa_std/proc_wait.zig").capture_fd_to_owned; pub const statusFromWaitStatus = @import("sa_std/proc_wait.zig").statusFromWaitStatus; pub const rawWaitStatus = @import("sa_std/proc_wait.zig").rawWaitStatus;
+pub const waitStatusCode = @import("sa_std/proc_wait.zig").waitStatusCode; pub const waitStatusSignal = @import("sa_std/proc_wait.zig").waitStatusSignal; pub const waitStatusCoreDumped = @import("sa_std/proc_wait.zig").waitStatusCoreDumped; pub const waitStatusStoppedSignal = @import("sa_std/proc_wait.zig").waitStatusStoppedSignal; pub const waitStatusContinued = @import("sa_std/proc_wait.zig").waitStatusContinued; pub const waitProcessIgnoringMissing = @import("sa_std/proc_wait.zig").waitProcessIgnoringMissing; pub const waitPidfdStatus = @import("sa_std/proc_wait.zig").waitPidfdStatus; pub const finalizeProcessExit = @import("sa_std/proc_wait.zig").finalizeProcessExit;
+pub const sa_std_pidfd_wait_raw = @import("sa_std/proc_wait.zig").sa_std_pidfd_wait_raw; pub const sa_std_pidfd_wait = @import("sa_std/proc_wait.zig").sa_std_pidfd_wait; pub const sa_std_pidfd_try_wait_raw = @import("sa_std/proc_wait.zig").sa_std_pidfd_try_wait_raw; pub const sa_std_pidfd_try_wait = @import("sa_std/proc_wait.zig").sa_std_pidfd_try_wait;
+// --- sa_std/pthread.zig ---
+pub const PthreadEntryFn = @import("sa_std/pthread.zig").PthreadEntryFn; pub const PthreadTask = @import("sa_std/pthread.zig").PthreadTask; pub const PthreadHandle = @import("sa_std/pthread.zig").PthreadHandle; pub const RawPthreadOwner = @import("sa_std/pthread.zig").RawPthreadOwner; pub const RawPthreadTransfer = @import("sa_std/pthread.zig").RawPthreadTransfer; pub const pthreadToRaw = @import("sa_std/pthread.zig").pthreadToRaw; pub const rawToPthread = @import("sa_std/pthread.zig").rawToPthread; pub const pthreadTaskMain = @import("sa_std/pthread.zig").pthreadTaskMain;
+pub const pthreadTaskMainC = @import("sa_std/pthread.zig").pthreadTaskMainC; pub const mapPthreadCreateError = @import("sa_std/pthread.zig").mapPthreadCreateError; pub const spawnPthread = @import("sa_std/pthread.zig").spawnPthread; pub const joinPthreadHandle = @import("sa_std/pthread.zig").joinPthreadHandle; pub const allocPthreadHandle = @import("sa_std/pthread.zig").allocPthreadHandle; pub const takePthreadHandle = @import("sa_std/pthread.zig").takePthreadHandle; pub const freePthreadHandle = @import("sa_std/pthread.zig").freePthreadHandle; pub const transferPthreadHandleToRaw = @import("sa_std/pthread.zig").transferPthreadHandleToRaw;
+pub const findRawPthreadTask = @import("sa_std/pthread.zig").findRawPthreadTask; pub const removeRawPthreadOwner = @import("sa_std/pthread.zig").removeRawPthreadOwner; pub const pthread_spawn = @import("sa_std/pthread.zig").pthread_spawn; pub const pthread_spawn_detached = @import("sa_std/pthread.zig").pthread_spawn_detached; pub const pthread_join = @import("sa_std/pthread.zig").pthread_join; pub const sa_thread_as_pthread_t = @import("sa_std/pthread.zig").sa_thread_as_pthread_t; pub const sa_thread_into_pthread_t = @import("sa_std/pthread.zig").sa_thread_into_pthread_t; pub const sa_thread_raw_pthread_join = @import("sa_std/pthread.zig").sa_thread_raw_pthread_join;
+pub const pthread_drop = @import("sa_std/pthread.zig").pthread_drop;
+// --- sa_std/regex.zig ---
+pub const sa_regex_compile = @import("sa_std/regex.zig").sa_regex_compile; pub const sa_regex_match = @import("sa_std/regex.zig").sa_regex_match; pub const sa_regex_group_ptr = @import("sa_std/regex.zig").sa_regex_group_ptr; pub const sa_regex_group_len = @import("sa_std/regex.zig").sa_regex_group_len; pub const sa_regex_group_start = @import("sa_std/regex.zig").sa_regex_group_start; pub const sa_regex_group_count = @import("sa_std/regex.zig").sa_regex_group_count; pub const sa_regex_free = @import("sa_std/regex.zig").sa_regex_free; pub const sa_regex_match_free = @import("sa_std/regex.zig").sa_regex_match_free;
+pub const sa_regex_match_all = @import("sa_std/regex.zig").sa_regex_match_all; pub const sa_regex_match_list_count = @import("sa_std/regex.zig").sa_regex_match_list_count; pub const sa_regex_match_list_at = @import("sa_std/regex.zig").sa_regex_match_list_at; pub const sa_regex_match_list_free = @import("sa_std/regex.zig").sa_regex_match_list_free; pub const sa_regex_replace = @import("sa_std/regex.zig").sa_regex_replace; pub const sa_regex_replace_all = @import("sa_std/regex.zig").sa_regex_replace_all; pub const sa_regex_buffer_data = @import("sa_std/regex.zig").sa_regex_buffer_data; pub const sa_regex_buffer_len = @import("sa_std/regex.zig").sa_regex_buffer_len;
+pub const sa_regex_buffer_free = @import("sa_std/regex.zig").sa_regex_buffer_free; pub const sa_regex_split = @import("sa_std/regex.zig").sa_regex_split; pub const sa_regex_split_count = @import("sa_std/regex.zig").sa_regex_split_count; pub const sa_regex_split_ptr = @import("sa_std/regex.zig").sa_regex_split_ptr; pub const sa_regex_split_len = @import("sa_std/regex.zig").sa_regex_split_len; pub const sa_regex_split_free = @import("sa_std/regex.zig").sa_regex_split_free;
+// --- sa_std/regex_core.zig ---
+pub const RegexMatchHandle = @import("sa_std/regex_core.zig").RegexMatchHandle; pub const RegexMatchListHandle = @import("sa_std/regex_core.zig").RegexMatchListHandle; pub const RegexSplitListHandle = @import("sa_std/regex_core.zig").RegexSplitListHandle; pub const RegexBufferHandle = @import("sa_std/regex_core.zig").RegexBufferHandle; pub const regexErrorToZig = @import("sa_std/regex_core.zig").regexErrorToZig; pub const regexGroupCount = @import("sa_std/regex_core.zig").regexGroupCount; pub const regexMatchHandle = @import("sa_std/regex_core.zig").regexMatchHandle; pub const regexOwnedTextZ = @import("sa_std/regex_core.zig").regexOwnedTextZ;
+pub const regexExecRange = @import("sa_std/regex_core.zig").regexExecRange; pub const regexCollectMatches = @import("sa_std/regex_core.zig").regexCollectMatches; pub const regexAppendGroup = @import("sa_std/regex_core.zig").regexAppendGroup; pub const regexAppendExpansion = @import("sa_std/regex_core.zig").regexAppendExpansion; pub const regexBuildReplace = @import("sa_std/regex_core.zig").regexBuildReplace; pub const regexSplitHandle = @import("sa_std/regex_core.zig").regexSplitHandle; pub const regexReplaceBuffer = @import("sa_std/regex_core.zig").regexReplaceBuffer;
+// --- sa_std/sock_core.zig ---
+pub const makeSockAddrStorage = @import("sa_std/sock_core.zig").makeSockAddrStorage; pub const UnixSockAddr = @import("sa_std/sock_core.zig").UnixSockAddr; pub const WasiMsghdr = @import("sa_std/sock_core.zig").WasiMsghdr; pub const MsghdrT = @import("sa_std/sock_core.zig").MsghdrT; pub const MsghdrConstT = @import("sa_std/sock_core.zig").MsghdrConstT; pub const msg_peek = @import("sa_std/sock_core.zig").msg_peek; pub const portableRecvmsg = @import("sa_std/sock_core.zig").portableRecvmsg; pub const UnixAddrHandle = @import("sa_std/sock_core.zig").UnixAddrHandle;
+pub const unix_sockaddr_path_offset = @import("sa_std/sock_core.zig").unix_sockaddr_path_offset; pub const unixAddrFromSockaddr = @import("sa_std/sock_core.zig").unixAddrFromSockaddr; pub const registerUnixAddrOutLocked = @import("sa_std/sock_core.zig").registerUnixAddrOutLocked; pub const unixSockAddrFromHandle = @import("sa_std/sock_core.zig").unixSockAddrFromHandle; pub const TimevalSec = @import("sa_std/sock_core.zig").TimevalSec; pub const TimevalUsec = @import("sa_std/sock_core.zig").TimevalUsec; pub const timevalFromNs = @import("sa_std/sock_core.zig").timevalFromNs; pub const nsFromTimeval = @import("sa_std/sock_core.zig").nsFromTimeval;
+pub const setSocketOptTimeval = @import("sa_std/sock_core.zig").setSocketOptTimeval; pub const getSocketOptBool = @import("sa_std/sock_core.zig").getSocketOptBool; pub const lxSetSocketOptBool = @import("sa_std/sock_core.zig").lxSetSocketOptBool; pub const rebuildTcpListenerV6Only = @import("sa_std/sock_core.zig").rebuildTcpListenerV6Only; pub const rebuildUdpSocketV6Only = @import("sa_std/sock_core.zig").rebuildUdpSocketV6Only; pub const getUnixPeerCred = @import("sa_std/sock_core.zig").getUnixPeerCred; pub const PeerCredSlot = @import("sa_std/sock_core.zig").PeerCredSlot; pub const peer_cred_slots = @import("sa_std/sock_core.zig").peer_cred_slots;
+pub const peer_cred_cursor = @import("sa_std/sock_core.zig").peer_cred_cursor; pub const storeHarvestedPeerCredLocked = @import("sa_std/sock_core.zig").storeHarvestedPeerCredLocked; pub const harvestedPeerCredLocked = @import("sa_std/sock_core.zig").harvestedPeerCredLocked; pub const scmCredentials = @import("sa_std/sock_core.zig").scmCredentials; pub const getSocketOptTimeval = @import("sa_std/sock_core.zig").getSocketOptTimeval; pub const socketAddressFamily = @import("sa_std/sock_core.zig").socketAddressFamily; pub const socketIsUnix = @import("sa_std/sock_core.zig").socketIsUnix; pub const socketIsInet = @import("sa_std/sock_core.zig").socketIsInet;
+pub const socketAcceptConn = @import("sa_std/sock_core.zig").socketAcceptConn; pub const ensureSocketHandle = @import("sa_std/sock_core.zig").ensureSocketHandle; pub const libc_socklen_t = @import("sa_std/sock_core.zig").libc_socklen_t; pub const lxBind = @import("sa_std/sock_core.zig").lxBind; pub const lxListen = @import("sa_std/sock_core.zig").lxListen; pub const lxConnect = @import("sa_std/sock_core.zig").lxConnect; pub const lxSendmsg = @import("sa_std/sock_core.zig").lxSendmsg; pub const lxFcntl = @import("sa_std/sock_core.zig").lxFcntl;
+pub const lxGetsockname = @import("sa_std/sock_core.zig").lxGetsockname; pub const lxGetsockoptError = @import("sa_std/sock_core.zig").lxGetsockoptError; pub const cmsg_level_socket = @import("sa_std/sock_core.zig").cmsg_level_socket; pub const cmsgAlign = @import("sa_std/sock_core.zig").cmsgAlign; pub const tcpConnectToHostFd = @import("sa_std/sock_core.zig").tcpConnectToHostFd; pub const connectUnixSocketFd = @import("sa_std/sock_core.zig").connectUnixSocketFd; pub const tcpConnectAddressTimeout = @import("sa_std/sock_core.zig").tcpConnectAddressTimeout; pub const unixDatagramRecvFrom = @import("sa_std/sock_core.zig").unixDatagramRecvFrom;
+// --- sa_std/spawn.zig ---
+pub const WasiSIG = @import("sa_std/spawn.zig").WasiSIG; pub const SIGT = @import("sa_std/spawn.zig").SIGT; pub const FIRST_DYNAMIC_HANDLE = @import("sa_std/spawn.zig").FIRST_DYNAMIC_HANDLE; pub const constU32s = @import("sa_std/spawn.zig").constU32s; pub const dynamicIndex = @import("sa_std/spawn.zig").dynamicIndex; pub const takeResourceLocked = @import("sa_std/spawn.zig").takeResourceLocked; pub const killAndWaitChild = @import("sa_std/spawn.zig").killAndWaitChild; pub const envpFromCurrentProcess = @import("sa_std/spawn.zig").envpFromCurrentProcess;
+pub const ProcessSpawnMode = @import("sa_std/spawn.zig").ProcessSpawnMode; pub const ProcessSpawnConfig = @import("sa_std/spawn.zig").ProcessSpawnConfig; pub const SpawnResult = @import("sa_std/spawn.zig").SpawnResult; pub const openPidfd = @import("sa_std/spawn.zig").openPidfd; pub const sendSignalToPidfd = @import("sa_std/spawn.zig").sendSignalToPidfd; pub const applyProcessCommandExtSetup = @import("sa_std/spawn.zig").applyProcessCommandExtSetup; pub const spawnProcessConfiguredCwd = @import("sa_std/spawn.zig").spawnProcessConfiguredCwd; pub const spawnProcessCwd = @import("sa_std/spawn.zig").spawnProcessCwd;
+pub const spawnProcess = @import("sa_std/spawn.zig").spawnProcess; pub const lxErr = @import("sa_std/spawn.zig").lxErr; pub const lxDup2 = @import("sa_std/spawn.zig").lxDup2; pub const lxFork = @import("sa_std/spawn.zig").lxFork; pub const lxPipe2 = @import("sa_std/spawn.zig").lxPipe2; pub const lxChdir = @import("sa_std/spawn.zig").lxChdir; pub const lxChroot = @import("sa_std/spawn.zig").lxChroot; pub const lxSetgroups = @import("sa_std/spawn.zig").lxSetgroups;
+pub const lxSetsid = @import("sa_std/spawn.zig").lxSetsid; pub const lxSetgid = @import("sa_std/spawn.zig").lxSetgid; pub const lxSetuid = @import("sa_std/spawn.zig").lxSetuid; pub const lxSetpgid = @import("sa_std/spawn.zig").lxSetpgid; pub const LxWaitResult = @import("sa_std/spawn.zig").LxWaitResult; pub const lxWaitpid = @import("sa_std/spawn.zig").lxWaitpid; pub const lxExecvpeZ = @import("sa_std/spawn.zig").lxExecvpeZ; pub const lxExit = @import("sa_std/spawn.zig").lxExit;
+pub const sa_std_close = @import("sa_std/spawn.zig").sa_std_close; pub const sa_dl_close = @import("sa_std/spawn.zig").sa_dl_close; pub const processCommandExtConfig = @import("sa_std/spawn.zig").processCommandExtConfig; pub const sa_std_pidfd_kill = @import("sa_std/spawn.zig").sa_std_pidfd_kill; pub const sa_std_pidfd_send_signal = @import("sa_std/spawn.zig").sa_std_pidfd_send_signal; pub const sa_std_fd_into_raw = @import("sa_std/spawn.zig").sa_std_fd_into_raw;
+// --- sa_std/std_fs.zig ---
+pub const sa_std_fs_open_read = @import("sa_std/std_fs.zig").sa_std_fs_open_read; pub const sa_std_fs_open_write = @import("sa_std/std_fs.zig").sa_std_fs_open_write; pub const sa_std_fs_remove = @import("sa_std/std_fs.zig").sa_std_fs_remove; pub const sa_std_fs_exists = @import("sa_std/std_fs.zig").sa_std_fs_exists; pub const sa_std_fs_try_exists = @import("sa_std/std_fs.zig").sa_std_fs_try_exists; pub const sa_std_fs_len = @import("sa_std/std_fs.zig").sa_std_fs_len; pub const sa_std_fs_open_options = @import("sa_std/std_fs.zig").sa_std_fs_open_options; pub const sa_std_fs_open_create_excl = @import("sa_std/std_fs.zig").sa_std_fs_open_create_excl;
+pub const sa_std_fs_file_from_raw_fd = @import("sa_std/std_fs.zig").sa_std_fs_file_from_raw_fd; pub const sa_std_fs_file_read = @import("sa_std/std_fs.zig").sa_std_fs_file_read; pub const sa_std_fs_file_read_at = @import("sa_std/std_fs.zig").sa_std_fs_file_read_at; pub const sa_std_fs_file_read_exact_at = @import("sa_std/std_fs.zig").sa_std_fs_file_read_exact_at; pub const sa_std_fs_file_write = @import("sa_std/std_fs.zig").sa_std_fs_file_write; pub const sa_std_fs_file_write_at = @import("sa_std/std_fs.zig").sa_std_fs_file_write_at; pub const sa_std_fs_file_write_all_at = @import("sa_std/std_fs.zig").sa_std_fs_file_write_all_at; pub const sa_std_fs_file_seek = @import("sa_std/std_fs.zig").sa_std_fs_file_seek;
+pub const sa_std_fs_read_file = @import("sa_std/std_fs.zig").sa_std_fs_read_file; pub const sa_std_fs_read_to_string = @import("sa_std/std_fs.zig").sa_std_fs_read_to_string; pub const sa_std_fs_read_file_base64 = @import("sa_std/std_fs.zig").sa_std_fs_read_file_base64; pub const sa_std_fs_read_dir_json = @import("sa_std/std_fs.zig").sa_std_fs_read_dir_json; pub const sa_std_fs_read_dir_entries = @import("sa_std/std_fs.zig").sa_std_fs_read_dir_entries; pub const sa_std_fs_dir_entries_get = @import("sa_std/std_fs.zig").sa_std_fs_dir_entries_get; pub const sa_std_fs_metadata = @import("sa_std/std_fs.zig").sa_std_fs_metadata; pub const sa_std_fs_metadata_json = @import("sa_std/std_fs.zig").sa_std_fs_metadata_json;
+pub const sa_std_fs_metadata_free = @import("sa_std/std_fs.zig").sa_std_fs_metadata_free; pub const sa_std_fs_canonicalize = @import("sa_std/std_fs.zig").sa_std_fs_canonicalize; pub const sa_std_fs_read_link = @import("sa_std/std_fs.zig").sa_std_fs_read_link;
+// --- sa_std/std_net.zig ---
+pub const sa_std_net_error_code_from_status = @import("sa_std/std_net.zig").sa_std_net_error_code_from_status; pub const sa_std_net_error_code_from_posix_errno = @import("sa_std/std_net.zig").sa_std_net_error_code_from_posix_errno; pub const sa_std_net_error_code_from_wsa_error = @import("sa_std/std_net.zig").sa_std_net_error_code_from_wsa_error; pub const sa_std_net_error_code_name = @import("sa_std/std_net.zig").sa_std_net_error_code_name; pub const sa_std_net_error_platform = @import("sa_std/std_net.zig").sa_std_net_error_platform; pub const sa_std_net_error_code_from_native_error = @import("sa_std/std_net.zig").sa_std_net_error_code_from_native_error; pub const sa_std_net_hostname = @import("sa_std/std_net.zig").sa_std_net_hostname; pub const sa_std_net_interface_addresses_json = @import("sa_std/std_net.zig").sa_std_net_interface_addresses_json;
+pub const sa_std_net_to_socket_addr_list = @import("sa_std/std_net.zig").sa_std_net_to_socket_addr_list; pub const sa_std_net_addr_list_next = @import("sa_std/std_net.zig").sa_std_net_addr_list_next; pub const sa_std_net_addr_list_remaining = @import("sa_std/std_net.zig").sa_std_net_addr_list_remaining; pub const sa_std_net_addr_list_reset = @import("sa_std/std_net.zig").sa_std_net_addr_list_reset; pub const sa_std_net_addr_list_free = @import("sa_std/std_net.zig").sa_std_net_addr_list_free; pub const sa_std_net_addr_reverse_lookup = @import("sa_std/std_net.zig").sa_std_net_addr_reverse_lookup; pub const sa_std_net_to_socket_addr_first = @import("sa_std/std_net.zig").sa_std_net_to_socket_addr_first; pub const sa_std_net_poll_wait = @import("sa_std/std_net.zig").sa_std_net_poll_wait;
+pub const sa_std_net_raw_socket = @import("sa_std/std_net.zig").sa_std_net_raw_socket; pub const sa_std_net_socket_setsockopt = @import("sa_std/std_net.zig").sa_std_net_socket_setsockopt; pub const sa_std_net_socket_getsockopt = @import("sa_std/std_net.zig").sa_std_net_socket_getsockopt; pub const sa_std_net_socket_setsockopt_int = @import("sa_std/std_net.zig").sa_std_net_socket_setsockopt_int; pub const sa_std_net_socket_getsockopt_int = @import("sa_std/std_net.zig").sa_std_net_socket_getsockopt_int; pub const sa_std_net_addr_format = @import("sa_std/std_net.zig").sa_std_net_addr_format; pub const sa_std_net_ja3_hash = @import("sa_std/std_net.zig").sa_std_net_ja3_hash; pub const sa_std_net_sha256_hex = @import("sa_std/std_net.zig").sa_std_net_sha256_hex;
+pub const sa_std_net_ja4_hash12 = @import("sa_std/std_net.zig").sa_std_net_ja4_hash12;
+// --- sa_std/std_net_tcp.zig ---
+pub const sa_std_net_tcp_listener_set_reuseaddr = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_reuseaddr; pub const sa_std_net_tcp_listener_set_reuseport = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_reuseport; pub const sa_std_net_tcp_listener_try_clone = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_try_clone; pub const sa_std_net_tcp_listener_set_only_v6 = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_only_v6; pub const sa_std_net_tcp_listener_only_v6 = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_only_v6; pub const sa_std_net_tcp_listener_set_nonblocking = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_nonblocking; pub const sa_std_net_tcp_listener_set_ttl = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_ttl; pub const sa_std_net_tcp_listener_ttl = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_ttl;
+pub const sa_std_net_tcp_listener_take_error = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_take_error; pub const sa_std_net_tcp_listen = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listen; pub const sa_std_net_tcp_accept = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_accept; pub const sa_std_net_tcp_accept_addr = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_accept_addr; pub const sa_std_net_tcp_listener_local_addr = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_local_addr; pub const sa_std_net_tcp_listener_from_raw_fd = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_from_raw_fd; pub const sa_std_net_tcp_connect = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect; pub const sa_std_net_tcp_connect_timeout = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout;
+pub const sa_std_net_tcp_connect_timeout_addr = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout_addr; pub const sa_std_net_tcp_connect_timeout_all = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout_all;
+// --- sa_std/std_net_tcp_stream.zig ---
+pub const sa_std_net_tcp_stream_read = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read; pub const sa_std_net_tcp_stream_read_vectored = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read_vectored; pub const sa_std_net_tcp_stream_write_vectored = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write_vectored; pub const sa_std_net_tcp_stream_peek = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_peek; pub const sa_std_net_tcp_stream_write = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write; pub const sa_std_net_tcp_stream_peer_addr = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_peer_addr; pub const sa_std_net_tcp_stream_local_addr = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_local_addr; pub const sa_std_net_tcp_stream_try_clone = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_try_clone;
+pub const sa_std_net_tcp_stream_set_nonblocking = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_nonblocking; pub const sa_std_net_tcp_stream_set_nodelay = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_nodelay; pub const sa_std_net_tcp_stream_set_linger = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_linger; pub const sa_std_net_tcp_stream_linger = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_linger; pub const sa_std_net_tcp_stream_set_quickack = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_quickack; pub const sa_std_net_tcp_stream_quickack = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_quickack; pub const sa_std_net_tcp_stream_set_deferaccept = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_deferaccept; pub const sa_std_net_tcp_stream_deferaccept = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_deferaccept;
+pub const sa_std_net_tcp_stream_set_keepalive = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_keepalive; pub const sa_std_net_tcp_stream_keepalive = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_keepalive; pub const sa_std_net_tcp_stream_set_keepalive_params = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_keepalive_params; pub const sa_std_net_tcp_stream_set_read_timeout = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_read_timeout; pub const sa_std_net_tcp_stream_set_write_timeout = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_write_timeout; pub const sa_std_net_tcp_stream_set_ttl = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_ttl; pub const sa_std_net_tcp_stream_read_timeout = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read_timeout; pub const sa_std_net_tcp_stream_write_timeout = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write_timeout;
+pub const sa_std_net_tcp_stream_nodelay = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_nodelay; pub const sa_std_net_tcp_stream_ttl = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_ttl; pub const sa_std_net_tcp_stream_set_recv_buffer_size = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_recv_buffer_size; pub const sa_std_net_tcp_stream_recv_buffer_size = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_recv_buffer_size; pub const sa_std_net_tcp_stream_set_send_buffer_size = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_send_buffer_size; pub const sa_std_net_tcp_stream_send_buffer_size = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_send_buffer_size; pub const sa_std_net_tcp_stream_take_error = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_take_error; pub const sa_std_net_tcp_stream_send_file = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_send_file;
+pub const sa_std_net_tcp_stream_from_raw_fd = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_from_raw_fd;
+// --- sa_std/std_net_udp.zig ---
+pub const sa_std_net_udp_try_clone = @import("sa_std/std_net_udp.zig").sa_std_net_udp_try_clone; pub const sa_std_net_udp_bind = @import("sa_std/std_net_udp.zig").sa_std_net_udp_bind; pub const sa_std_net_udp_from_raw_fd = @import("sa_std/std_net_udp.zig").sa_std_net_udp_from_raw_fd; pub const sa_std_net_udp_local_addr = @import("sa_std/std_net_udp.zig").sa_std_net_udp_local_addr; pub const sa_std_net_udp_peer_addr = @import("sa_std/std_net_udp.zig").sa_std_net_udp_peer_addr; pub const sa_std_net_udp_connect = @import("sa_std/std_net_udp.zig").sa_std_net_udp_connect; pub const sa_std_net_udp_connect_addr = @import("sa_std/std_net_udp.zig").sa_std_net_udp_connect_addr; pub const sa_std_net_udp_only_v6 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_only_v6;
+pub const sa_std_net_udp_read_timeout = @import("sa_std/std_net_udp.zig").sa_std_net_udp_read_timeout; pub const sa_std_net_udp_write_timeout = @import("sa_std/std_net_udp.zig").sa_std_net_udp_write_timeout; pub const sa_std_net_udp_broadcast = @import("sa_std/std_net_udp.zig").sa_std_net_udp_broadcast; pub const sa_std_net_udp_join_multicast_v4 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_join_multicast_v4; pub const sa_std_net_udp_leave_multicast_v4 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_leave_multicast_v4; pub const sa_std_net_udp_join_multicast_v6 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_join_multicast_v6; pub const sa_std_net_udp_leave_multicast_v6 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_leave_multicast_v6; pub const sa_std_net_udp_ttl = @import("sa_std/std_net_udp.zig").sa_std_net_udp_ttl;
+pub const sa_std_net_udp_take_error = @import("sa_std/std_net_udp.zig").sa_std_net_udp_take_error; pub const sa_std_net_udp_send = @import("sa_std/std_net_udp.zig").sa_std_net_udp_send; pub const sa_std_net_udp_recv = @import("sa_std/std_net_udp.zig").sa_std_net_udp_recv; pub const sa_std_net_udp_peek = @import("sa_std/std_net_udp.zig").sa_std_net_udp_peek; pub const sa_std_net_udp_peek_from = @import("sa_std/std_net_udp.zig").sa_std_net_udp_peek_from;
+// --- sa_std/std_net_udp_io.zig ---
+pub const sa_std_net_udp_recv_buffer_size = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_buffer_size; pub const sa_std_net_udp_send_buffer_size = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_buffer_size; pub const sa_std_net_udp_multicast_loop_v4 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_loop_v4; pub const sa_std_net_udp_multicast_ttl_v4 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_ttl_v4; pub const sa_std_net_udp_multicast_loop_v6 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_loop_v6; pub const sa_std_net_udp_multicast_hops_v6 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_hops_v6; pub const sa_std_net_udp_multicast_if_v4 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_if_v4; pub const sa_std_net_udp_multicast_if_v6 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_if_v6;
+pub const sa_std_net_udp_send_to = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_to; pub const sa_std_net_udp_recv_from = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_from; pub const sa_std_net_udp_send_vectored = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_vectored; pub const sa_std_net_udp_send_to_vectored = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_to_vectored; pub const sa_std_net_udp_recv_from_vectored = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_from_vectored; pub const sa_std_net_udp_recv_msg = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_msg; pub const sa_std_net_udp_recv_multi = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_multi;
+// --- sa_std/std_net_udp_set.zig ---
+pub const sa_std_net_udp_set_only_v6 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_only_v6; pub const sa_std_net_udp_set_nonblocking = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_nonblocking; pub const sa_std_net_udp_set_broadcast = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_broadcast; pub const sa_std_net_udp_set_ttl = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_ttl; pub const sa_std_net_udp_set_read_timeout = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_read_timeout; pub const sa_std_net_udp_set_write_timeout = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_write_timeout; pub const sa_std_net_udp_set_recv_buffer_size = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_recv_buffer_size; pub const sa_std_net_udp_set_send_buffer_size = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_send_buffer_size;
+pub const sa_std_net_udp_set_multicast_loop_v4 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_loop_v4; pub const sa_std_net_udp_set_multicast_ttl_v4 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_ttl_v4; pub const sa_std_net_udp_set_multicast_loop_v6 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_loop_v6; pub const sa_std_net_udp_set_multicast_hops_v6 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_hops_v6; pub const sa_std_net_udp_set_multicast_if_v4 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_if_v4; pub const sa_std_net_udp_set_multicast_if_v6 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_if_v6;
+// --- sa_std/std_net_unix.zig ---
+pub const sa_std_net_unix_listen = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listen; pub const sa_std_net_unix_addr_from_abstract_name = @import("sa_std/std_net_unix.zig").sa_std_net_unix_addr_from_abstract_name; pub const sa_std_net_unix_addr_from_pathname = @import("sa_std/std_net_unix.zig").sa_std_net_unix_addr_from_pathname; pub const sa_std_net_unix_listen_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listen_addr; pub const sa_std_net_unix_accept = @import("sa_std/std_net_unix.zig").sa_std_net_unix_accept; pub const sa_std_net_unix_accept_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_accept_addr; pub const sa_std_net_unix_pair = @import("sa_std/std_net_unix.zig").sa_std_net_unix_pair; pub const sa_std_net_unix_listener_local_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_local_addr;
+pub const sa_std_net_unix_listener_try_clone = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_try_clone; pub const sa_std_net_unix_listener_from_raw_fd = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_from_raw_fd; pub const sa_std_net_unix_stream_local_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_local_addr; pub const sa_std_net_unix_stream_try_clone = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_try_clone; pub const sa_std_net_unix_stream_from_raw_fd = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_from_raw_fd; pub const sa_std_net_unix_stream_peer_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_peer_addr; pub const sa_std_net_unix_stream_set_passcred = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_set_passcred; pub const sa_std_net_unix_stream_passcred = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_passcred;
+pub const sa_std_net_unix_stream_set_mark = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_set_mark; pub const sa_std_net_unix_stream_peer_cred = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_peer_cred; pub const sa_std_net_unix_connect = @import("sa_std/std_net_unix.zig").sa_std_net_unix_connect; pub const sa_std_net_unix_connect_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_connect_addr;
+// --- sa_std/std_net_unix_dgram.zig ---
+pub const sa_std_net_unix_datagram_peer_cred = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peer_cred; pub const sa_std_net_unix_datagram_unbound = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_unbound; pub const sa_std_net_unix_datagram_bind = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_bind; pub const sa_std_net_unix_datagram_bind_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_bind_addr; pub const sa_std_net_unix_datagram_pair = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_pair; pub const sa_std_net_unix_datagram_connect = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_connect; pub const sa_std_net_unix_datagram_connect_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_connect_addr; pub const sa_std_net_unix_datagram_try_clone = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_try_clone;
+pub const sa_std_net_unix_datagram_from_raw_fd = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_from_raw_fd; pub const sa_std_net_unix_datagram_local_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_local_addr; pub const sa_std_net_unix_datagram_peer_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peer_addr; pub const sa_std_net_unix_datagram_set_passcred = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_set_passcred; pub const sa_std_net_unix_datagram_passcred = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_passcred; pub const sa_std_net_unix_datagram_set_mark = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_set_mark; pub const sa_std_net_unix_datagram_shutdown = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_shutdown; pub const sa_std_net_unix_datagram_send_to = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_send_to;
+pub const sa_std_net_unix_datagram_send_to_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_send_to_addr; pub const sa_std_net_unix_datagram_recv_from = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_recv_from; pub const sa_std_net_unix_datagram_peek_from = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peek_from;
+// --- sa_std/std_process.zig ---
+pub const sa_std_process_run = @import("sa_std/std_process.zig").sa_std_process_run; pub const sa_std_process_run_cwd = @import("sa_std/std_process.zig").sa_std_process_run_cwd; pub const sa_std_process_spawn = @import("sa_std/std_process.zig").sa_std_process_spawn; pub const sa_std_process_spawn_cwd = @import("sa_std/std_process.zig").sa_std_process_spawn_cwd; pub const sa_std_process_spawn_stream = @import("sa_std/std_process.zig").sa_std_process_spawn_stream; pub const sa_std_process_spawn_stream_cwd = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_cwd; pub const sa_std_process_spawn_bidi = @import("sa_std/std_process.zig").sa_std_process_spawn_bidi; pub const sa_std_process_spawn_bidi_cwd = @import("sa_std/std_process.zig").sa_std_process_spawn_bidi_cwd;
+pub const sa_std_process_run_command_ext = @import("sa_std/std_process.zig").sa_std_process_run_command_ext; pub const sa_std_process_spawn_command_ext = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext; pub const sa_std_process_spawn_stream_command_ext = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext; pub const sa_std_process_run_command_ext_pidfd = @import("sa_std/std_process.zig").sa_std_process_run_command_ext_pidfd; pub const sa_std_process_spawn_command_ext_pidfd = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext_pidfd; pub const sa_std_process_spawn_stream_command_ext_pidfd = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext_pidfd; pub const sa_std_process_run_command_ext_uid_gid = @import("sa_std/std_process.zig").sa_std_process_run_command_ext_uid_gid; pub const sa_std_process_spawn_command_ext_uid_gid = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext_uid_gid;
+pub const sa_std_process_spawn_stream_command_ext_uid_gid = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext_uid_gid; pub const sa_std_process_run_command_ext_groups = @import("sa_std/std_process.zig").sa_std_process_run_command_ext_groups; pub const sa_std_process_spawn_command_ext_groups = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext_groups; pub const sa_std_process_spawn_stream_command_ext_groups = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext_groups; pub const sa_std_process_run_command_ext_chroot = @import("sa_std/std_process.zig").sa_std_process_run_command_ext_chroot; pub const sa_std_process_spawn_command_ext_chroot = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext_chroot; pub const sa_std_process_spawn_stream_command_ext_chroot = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext_chroot; pub const sa_std_process_exec_command_ext = @import("sa_std/std_process.zig").sa_std_process_exec_command_ext;
+pub const sa_std_process_id = @import("sa_std/std_process.zig").sa_std_process_id; pub const sa_std_process_parent_id = @import("sa_std/std_process.zig").sa_std_process_parent_id; pub const sa_std_process_user_id = @import("sa_std/std_process.zig").sa_std_process_user_id; pub const sa_std_process_group_id = @import("sa_std/std_process.zig").sa_std_process_group_id; pub const sa_std_process_abort = @import("sa_std/std_process.zig").sa_std_process_abort; pub const sa_std_process_child_id = @import("sa_std/std_process.zig").sa_std_process_child_id; pub const sa_std_process_wait = @import("sa_std/std_process.zig").sa_std_process_wait; pub const sa_std_process_wait_raw = @import("sa_std/std_process.zig").sa_std_process_wait_raw;
+pub const sa_std_process_try_wait = @import("sa_std/std_process.zig").sa_std_process_try_wait; pub const sa_std_process_try_wait_raw = @import("sa_std/std_process.zig").sa_std_process_try_wait_raw; pub const sa_std_process_kill = @import("sa_std/std_process.zig").sa_std_process_kill; pub const sa_std_process_send_signal = @import("sa_std/std_process.zig").sa_std_process_send_signal; pub const sa_std_process_send_process_group_signal = @import("sa_std/std_process.zig").sa_std_process_send_process_group_signal; pub const sa_std_process_kill_process_group = @import("sa_std/std_process.zig").sa_std_process_kill_process_group; pub const sa_std_process_pidfd = @import("sa_std/std_process.zig").sa_std_process_pidfd; pub const sa_std_process_into_pidfd = @import("sa_std/std_process.zig").sa_std_process_into_pidfd;
+pub const sa_std_process_exit_status_code = @import("sa_std/std_process.zig").sa_std_process_exit_status_code; pub const sa_std_process_exit_status_signal = @import("sa_std/std_process.zig").sa_std_process_exit_status_signal; pub const sa_std_process_exit_status_core_dumped = @import("sa_std/std_process.zig").sa_std_process_exit_status_core_dumped; pub const sa_std_process_exit_status_stopped_signal = @import("sa_std/std_process.zig").sa_std_process_exit_status_stopped_signal; pub const sa_std_process_exit_status_continued = @import("sa_std/std_process.zig").sa_std_process_exit_status_continued; pub const sa_std_process_read_stdout = @import("sa_std/std_process.zig").sa_std_process_read_stdout; pub const sa_std_process_read_stderr = @import("sa_std/std_process.zig").sa_std_process_read_stderr; pub const sa_std_process_exec_capture = @import("sa_std/std_process.zig").sa_std_process_exec_capture;
+pub const sa_std_process_exec_capture_cwd = @import("sa_std/std_process.zig").sa_std_process_exec_capture_cwd; pub const sa_std_process_close = @import("sa_std/std_process.zig").sa_std_process_close;
+// --- sa_std/str.zig ---
+pub const sa_str_is_ascii = @import("sa_std/str.zig").sa_str_is_ascii; pub const sa_str_eq_ignore_ascii_case = @import("sa_std/str.zig").sa_str_eq_ignore_ascii_case; pub const sa_str_utf8_char_count = @import("sa_std/str.zig").sa_str_utf8_char_count; pub const sa_str_utf8_validate = @import("sa_std/str.zig").sa_str_utf8_validate; pub const sa_str_utf8_char_at = @import("sa_std/str.zig").sa_str_utf8_char_at; pub const sa_str_utf8_char_at_byte = @import("sa_std/str.zig").sa_str_utf8_char_at_byte; pub const sa_str_utf8_lossy_next = @import("sa_std/str.zig").sa_str_utf8_lossy_next; pub const sa_str_utf8_char_range_at = @import("sa_std/str.zig").sa_str_utf8_char_range_at;
+pub const sa_str_trim_ascii_start_index = @import("sa_std/str.zig").sa_str_trim_ascii_start_index; pub const sa_str_trim_ascii_end_len = @import("sa_std/str.zig").sa_str_trim_ascii_end_len;
+// --- sa_std/string.zig ---
+pub const sa_string_concat = @import("sa_std/string.zig").sa_string_concat; pub const sa_string_from_char_code = @import("sa_std/string.zig").sa_string_from_char_code; pub const sa_string_index_of = @import("sa_std/string.zig").sa_string_index_of; pub const sa_string_last_index_of = @import("sa_std/string.zig").sa_string_last_index_of; pub const sa_string_starts_with = @import("sa_std/string.zig").sa_string_starts_with; pub const sa_string_ends_with = @import("sa_std/string.zig").sa_string_ends_with; pub const sa_string_to_lower_ascii = @import("sa_std/string.zig").sa_string_to_lower_ascii; pub const sa_string_to_upper_ascii = @import("sa_std/string.zig").sa_string_to_upper_ascii;
+pub const sa_string_repeat = @import("sa_std/string.zig").sa_string_repeat; pub const sa_string_pad_start = @import("sa_std/string.zig").sa_string_pad_start; pub const sa_string_pad_end = @import("sa_std/string.zig").sa_string_pad_end; pub const sa_string_replace = @import("sa_std/string.zig").sa_string_replace; pub const sa_string_code_point_at = @import("sa_std/string.zig").sa_string_code_point_at; pub const sa_string_from_code_point = @import("sa_std/string.zig").sa_string_from_code_point;
+// --- sa_std/term.zig ---
+pub const sa_term_raw_enter = @import("sa_std/term.zig").sa_term_raw_enter; pub const sa_term_raw_leave = @import("sa_std/term.zig").sa_term_raw_leave; pub const sa_term_winsize = @import("sa_std/term.zig").sa_term_winsize; pub const sa_term_epoll_create = @import("sa_std/term.zig").sa_term_epoll_create; pub const sa_term_epoll_create_linux = @import("sa_std/term.zig").sa_term_epoll_create_linux; pub const sa_term_epoll_ctl = @import("sa_std/term.zig").sa_term_epoll_ctl; pub const sa_term_epoll_ctl_linux = @import("sa_std/term.zig").sa_term_epoll_ctl_linux; pub const sa_term_epoll_wait = @import("sa_std/term.zig").sa_term_epoll_wait;
+pub const sa_term_epoll_wait_linux = @import("sa_std/term.zig").sa_term_epoll_wait_linux; pub const sa_term_epoll_close = @import("sa_std/term.zig").sa_term_epoll_close; pub const sa_term_epoll_close_linux = @import("sa_std/term.zig").sa_term_epoll_close_linux;
+// --- sa_std/test_debug.zig ---
+pub const TestDebugScalar = @import("sa_std/test_debug.zig").TestDebugScalar; pub const cryptoRandomU64 = @import("sa_std/test_debug.zig").cryptoRandomU64; pub const envValueFromCurrentProcess = @import("sa_std/test_debug.zig").envValueFromCurrentProcess; pub const envGetOwned = @import("sa_std/test_debug.zig").envGetOwned; pub const xdgHomeDirAlloc = @import("sa_std/test_debug.zig").xdgHomeDirAlloc; pub const xdgHomeSubdirAlloc = @import("sa_std/test_debug.zig").xdgHomeSubdirAlloc; pub const xdgDirsAlloc = @import("sa_std/test_debug.zig").xdgDirsAlloc; pub const tempRootAlloc = @import("sa_std/test_debug.zig").tempRootAlloc;
+pub const tempPathAlloc = @import("sa_std/test_debug.zig").tempPathAlloc; pub const sa_test_debug_i64 = @import("sa_std/test_debug.zig").sa_test_debug_i64; pub const testTracePanicEnabled = @import("sa_std/test_debug.zig").testTracePanicEnabled; pub const printRecentTestScalars = @import("sa_std/test_debug.zig").printRecentTestScalars; pub const exitAfterAssertPanic = @import("sa_std/test_debug.zig").exitAfterAssertPanic; pub const sa_assert_eq_i64 = @import("sa_std/test_debug.zig").sa_assert_eq_i64; pub const sa_assert_eq_i64_at = @import("sa_std/test_debug.zig").sa_assert_eq_i64_at;
+// --- sa_std/time.zig ---
+pub const sa_time_instant_ns = @import("sa_std/time.zig").sa_time_instant_ns; pub const sa_time_unix_s = @import("sa_std/time.zig").sa_time_unix_s; pub const sa_time_unix_ms = @import("sa_std/time.zig").sa_time_unix_ms; pub const sa_time_iso_from_unix_ms = @import("sa_std/time.zig").sa_time_iso_from_unix_ms; pub const sa_time_parse_iso = @import("sa_std/time.zig").sa_time_parse_iso; pub const sa_time_get_full_year = @import("sa_std/time.zig").sa_time_get_full_year; pub const sa_time_get_month = @import("sa_std/time.zig").sa_time_get_month; pub const sa_time_get_date = @import("sa_std/time.zig").sa_time_get_date;
+pub const sa_time_get_hours = @import("sa_std/time.zig").sa_time_get_hours; pub const sa_time_get_minutes = @import("sa_std/time.zig").sa_time_get_minutes; pub const sa_time_get_seconds = @import("sa_std/time.zig").sa_time_get_seconds; pub const sa_time_get_milliseconds = @import("sa_std/time.zig").sa_time_get_milliseconds; pub const sa_time_get_day = @import("sa_std/time.zig").sa_time_get_day; pub const sa_time_format_utc = @import("sa_std/time.zig").sa_time_format_utc; pub const sa_time_set_field = @import("sa_std/time.zig").sa_time_set_field; pub const sa_time_unix_ns = @import("sa_std/time.zig").sa_time_unix_ns;
+pub const sa_time_utc_now = @import("sa_std/time.zig").sa_time_utc_now; pub const sa_time_sleep_ns = @import("sa_std/time.zig").sa_time_sleep_ns; pub const sa_time_sleep_ms = @import("sa_std/time.zig").sa_time_sleep_ms;
+
 
 /// Runtime permission gate (sala 16_policy): checked at resource
 /// acquisition points only. No context installed -> allowed (the
@@ -69,24 +272,17 @@ pub fn saStdPolicyAllowsFsRead(path: []const u8) bool {
 // door. A policy that is present but unreadable or invalid is a hard
 // startup failure, never a silent fallback to legacy mode.
 
-pub const policy_context_storage = @import("sa_std/policy.zig").policy_context_storage;
 pub var policy_audit_fd: ?std.posix.fd_t = null;
 
-pub const policyBootstrapWriteStderr = @import("sa_std/policy.zig").policyBootstrapWriteStderr;
 
-pub const policyAuditSink = @import("sa_std/policy.zig").policyAuditSink;
 
-pub const policyBootstrapFail = @import("sa_std/policy.zig").policyBootstrapFail;
 
 pub fn policyEnvOwned(allocator: std.mem.Allocator, name: []const u8) ?[]u8 {
     return sio.getEnvVarOwned(allocator, name) catch null;
 }
 
-pub const policyEnvFlag = @import("sa_std/policy.zig").policyEnvFlag;
 
-pub const installPolicyText = @import("sa_std/policy.zig").installPolicyText;
 
-pub const policy_bootstrap_attempted = @import("sa_std/policy.zig").policy_bootstrap_attempted;
 
 // ---------------------------------------------------------------------
 // DEF-R7: SIGPIPE policy (Jev ruling 2026-10-31:
@@ -106,32 +302,26 @@ pub const policy_bootstrap_attempted = @import("sa_std/policy.zig").policy_boots
 // installs the same disposition at its own main (src/main.zig).
 // Only SIGPIPE is touched; no other signal's disposition changes.
 
-pub const sigpipe_ignore_installed = @import("sa_std/policy.zig").sigpipe_ignore_installed;
 
-pub const applySigpipeIgnore = @import("sa_std/policy.zig").applySigpipeIgnore;
 
-pub const installSigpipeIgnore = @import("sa_std/policy.zig").installSigpipeIgnore;
 
-/// DEF-R7 startup entry called by every generated program main
-/// wrapper (LLVM shim + C backend) before user code runs. This is
-/// the coverage backbone: a plain reference from the wrapper extracts
-/// this archive object at link time even for programs that reference
-/// no other sa_std symbol, where the .init_array constructor alone
-/// would never be linked in. Exported on all targets; the install
-/// itself no-ops where SIGPIPE does not exist (wasm/windows).
-pub const sa_install_sigpipe_ignore = @import("sa_std/policy.zig").sa_install_sigpipe_ignore;
+// DEF-R7 startup entry called by every generated program main
+// wrapper (LLVM shim + C backend) before user code runs. This is
+// the coverage backbone: a plain reference from the wrapper extracts
+// this archive object at link time even for programs that reference
+// no other sa_std symbol, where the .init_array constructor alone
+// would never be linked in. Exported on all targets; the install
+// itself no-ops where SIGPIPE does not exist (wasm/windows).
 
-pub const policyBootstrap = @import("sa_std/policy.zig").policyBootstrap;
 
 // align(8) is load-bearing: with a larger section alignment the linker
 // pads .init_array up to the boundary, and glibc's init walk calls that
 // zero padding as a null function pointer before main ever runs.
-pub const policy_bootstrap_init_entry = @import("sa_std/policy.zig").policy_bootstrap_init_entry;
 
 comptime {
     if (!builtin.is_test and builtin.os.tag == .linux and !is_wasm) {
         @export(&policyBootstrap, .{ .name = "sa_policy_bootstrap" });
-        @export(&policy_bootstrap_init_entry, .{ .name = "__sa_policy_bootstrap_init" });
+        @export(&policy.policy_bootstrap_init_entry, .{ .name = "__sa_policy_bootstrap_init" });
     }
 }
 
@@ -154,22 +344,8 @@ const SockAddrIn6T = if (is_wasm) WasiSockAddrIn6 else std.posix.sockaddr.in6;
 pub const SockAddrStorageT = if (is_wasm) WasiSockAddrStorage else std.posix.sockaddr.storage;
 pub const SockAddrT = if (is_wasm) WasiSockAddr else std.posix.sockaddr;
 pub const SockLenT = if (is_wasm) u32 else std.posix.socklen_t;
-pub fn makeSockAddrStorage() SockAddrStorageT {
-    if (comptime is_wasm) return .{ .family = 0 };
-    switch (builtin.os.tag) {
-        .linux, .illumos, .windows, .serenity, .haiku, .wasi, .emscripten => return .{ .family = 0 },
-        else => return .{ .len = @intCast(@sizeOf(SockAddrStorageT)), .family = 0 },
-    }
-}
-const UnixSockAddr = struct { addr: SockAddrUnT, len: SockLenT };
 // wasi has no wait macros/signals (std.posix.W/SIG are void); dummies so
 // status helpers type-check (callers stubbed to UNSUPPORTED on wasm).
-pub const WasiW = @import("sa_std/proc_wait.zig").WasiW;
-pub const WT = @import("sa_std/proc_wait.zig").WT;
-const WasiSIG = struct {
-    pub const KILL: u8 = 9;
-};
-pub const SIGT = if (is_wasm) WasiSIG else std.posix.SIG;
 // wasi-libc has no AF/SOL (void via std.c); Linux-value dummies for compile.
 const WasiAF = struct {
     pub const UNIX: u16 = 1;
@@ -220,9 +396,6 @@ pub const TCP_KEEPINTVL: u32 = if (is_linux) std.os.linux.TCP.KEEPINTVL else std
 pub const TCP_KEEPCNT: u32 = if (is_linux) std.os.linux.TCP.KEEPCNT else std.posix.TCP.KEEPCNT;
 pub const SO_PASSCRED: u32 = if (is_linux) std.os.linux.SO.PASSCRED else 0;
 pub const SO_MARK: u32 = if (is_linux) std.os.linux.SO.MARK else 0;
-const WasiMsghdr = extern struct { name: ?*anyopaque = null, namelen: u32 = 0, iov: ?*anyopaque = null, iovlen: usize = 0, control: ?*anyopaque = null, controllen: usize = 0, flags: u32 = 0 };
-pub const MsghdrT = if (is_wasm) WasiMsghdr else std.posix.msghdr;
-pub const MsghdrConstT = if (is_wasm) WasiMsghdr else std.posix.msghdr_const;
 // Pull the new sa_std protocol runtimes (http2/tls_server/dtls/quic) export
 // functions into the library object. Zig only emits `pub export fn`s of a
 // transitively-imported module when the root source actually retains the
@@ -230,6 +403,7 @@ pub const MsghdrConstT = if (is_wasm) WasiMsghdr else std.posix.msghdr_const;
 // here to be kept and emitted into libsa_std alongside the rest of the sa_std
 // surface. This is purely a link-time union; nothing calls these directly.
 comptime {
+    @setEvalBranchQuota(100000);
     const http2 = @import("sa_http2.zig");
     _ = &http2.sa_std_http2_supported;
     _ = &http2.sa_std_http2_client_request;
@@ -245,298 +419,6 @@ comptime {
     _ = &http2.sa_std_http2_buffer_data;
     _ = &http2.sa_std_http2_buffer_len;
     _ = &http2.sa_std_http2_buffer_free;
-    _ = &@import("sa_tls_server.zig").sa_std_tls_server_supported;
-    _ = &@import("sa_tls_client.zig").sa_std_tls_client_supported;
-    _ = &@import("sa_tls_shaped.zig").sa_std_tls_shaped_supported;
-    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_new;
-    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_free;
-    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_set_server_name;
-    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_add_ca_file;
-    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_add_ca_memory;
-    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_set_insecure_no_verification;
-    _ = &@import("sa_tls_client.zig").sa_std_tls_client_config_set_verify_self_signed;
-    _ = &@import("sa_tls_client.zig").sa_std_tls_client_connect_config;
-    _ = &@import("sa_tls_client.zig").sa_std_tls_client_start_tls;
-    _ = &@import("sa_tls_client.zig").sa_std_tls_client_peer_cert_json;
-    _ = &@import("sa_tls_shaped.zig").sa_std_tls_shaped_start_tls;
-    _ = &@import("sa_tls_shaped.zig").sa_std_tls_shaped_session_blob;
-    _ = &@import("sa_tls_shaped.zig").sa_std_tls_shaped_peer_cert_chain_json;
-    _ = &@import("sa_tls_server.zig").sa_std_tls_server_ctx_create_memory;
-    _ = &@import("sa_tls_server.zig").sa_std_tls_server_ctx_set_alpn;
-    _ = &@import("sa_tls_server.zig").sa_std_tls_server_ctx_require_client_cert;
-    _ = &@import("sa_tls_server.zig").sa_std_tls_server_ctx_set_version_bounds;
-    _ = &@import("sa_tls_server.zig").sa_std_tls_server_session_verify_result;
-    _ = &@import("sa_tls_server.zig").sa_std_tls_server_negotiated_json;
-    _ = &@import("sa_tls_server.zig").sa_std_tls_server_peer_cert_chain_json;
-    _ = &@import("sa_ws_client.zig").sa_std_ws_client_supported;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_supported;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_connect;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_close;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_ping;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_query;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_prepare;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_stmt_bind_null;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_stmt_bind_i64;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_stmt_bind_u64;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_stmt_bind_f64;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_stmt_bind_bytes;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_stmt_param_count;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_stmt_execute;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_stmt_close;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_errno;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_sqlstate;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_error_message;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_server_version;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_connection_id;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_result_free;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_result_has_result_set;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_result_column_count;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_result_column_name;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_result_column_type;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_result_row_count;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_result_next;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_result_value;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_affected_rows;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_last_insert_id;
-    _ = &@import("sa_mysql_client.zig").sa_mysql_result_warnings;
-    _ = &@import("sa_http_server.zig").sa_http_server_accept;
-    _ = &@import("sa_http_server.zig").sa_http_server_accept_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_free;
-    _ = &@import("sa_http_server.zig").sa_http_server_free_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_new;
-    _ = &@import("sa_http_server.zig").sa_http_server_new_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_req_free;
-    _ = &@import("sa_http_server.zig").sa_http_server_req_free_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_req_get_body;
-    _ = &@import("sa_http_server.zig").sa_http_server_req_get_header;
-    _ = &@import("sa_http_server.zig").sa_http_server_req_get_method;
-    _ = &@import("sa_http_server.zig").sa_http_server_req_get_path;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_add_header_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_free;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_free_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_new;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_new_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_req_peer_addr_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_send;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_send_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_send_head_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_set_content_type;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_add_header_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_end;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_end_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_flush;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_flush_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_free;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_free_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_new;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_new_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_write;
-    _ = &@import("sa_http_server.zig").sa_http_server_resp_stream_write_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_serve_threaded;
-    _ = &@import("sa_http_server.zig").sa_http_server_set_max_body_bytes;
-    _ = &@import("sa_http_server.zig").sa_http_server_start;
-    _ = &@import("sa_http_server.zig").sa_http_server_start_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_stop_serving;
-    _ = &@import("sa_http_server.zig").sa_http_server_websocket_close_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_websocket_free;
-    _ = &@import("sa_http_server.zig").sa_http_server_websocket_free_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_websocket_poll_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_websocket_read;
-    _ = &@import("sa_http_server.zig").sa_http_server_websocket_read_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_websocket_upgrade;
-    _ = &@import("sa_http_server.zig").sa_http_server_websocket_upgrade_v2;
-    _ = &@import("sa_http_server.zig").sa_http_server_websocket_write;
-    _ = &@import("sa_http_server.zig").sa_http_server_websocket_write_v2;
-    _ = &@import("sa_dtls.zig").sa_std_dtls_supported;
-    _ = &@import("sa_quic.zig").sa_std_quic_supported;
-    _ = &@import("sa_http_client.zig").sa_http_client_new;
-    _ = &@import("sa_http_client.zig").sa_http_client_new_with_profile;
-    _ = &@import("sa_http_client.zig").sa_http_client_new_with_proxy;
-    _ = &@import("sa_http_client.zig").sa_http_client_new_with_profile_proxy;
-    _ = &@import("sa_compress.zig").sa_std_compress_encode;
-    _ = &@import("sa_multipart.zig").sa_std_multipart_parse;
-    _ = &@import("sa_multipart.zig").sa_std_multipart_builder_new;
-    _ = &@import("sa_toml.zig").sa_toml_parse;
-    _ = &@import("sa_toml.zig").sa_toml_free;
-    _ = &@import("sa_toml.zig").sa_toml_last_error;
-    _ = &@import("sa_toml.zig").sa_toml_kind;
-    _ = &@import("sa_toml.zig").sa_toml_get_string;
-    _ = &@import("sa_toml.zig").sa_toml_get_datetime;
-    _ = &@import("sa_toml.zig").sa_toml_get_i64;
-    _ = &@import("sa_toml.zig").sa_toml_get_f64;
-    _ = &@import("sa_toml.zig").sa_toml_get_bool;
-    _ = &@import("sa_toml.zig").sa_toml_array_len;
-    _ = &@import("sa_toml.zig").sa_toml_table_len;
-    _ = &@import("sa_toml.zig").sa_toml_array_get_string;
-    _ = &@import("sa_toml.zig").sa_toml_array_get_i64;
-    _ = &@import("sa_toml.zig").sa_toml_new;
-    _ = &@import("sa_toml.zig").sa_toml_table_key_at;
-    _ = &@import("sa_toml.zig").sa_toml_set_string;
-    _ = &@import("sa_toml.zig").sa_toml_set_datetime;
-    _ = &@import("sa_toml.zig").sa_toml_set_i64;
-    _ = &@import("sa_toml.zig").sa_toml_set_f64;
-    _ = &@import("sa_toml.zig").sa_toml_set_bool;
-    _ = &@import("sa_toml.zig").sa_toml_set_table;
-    _ = &@import("sa_toml.zig").sa_toml_remove;
-    _ = &@import("sa_toml.zig").sa_toml_array_push_string;
-    _ = &@import("sa_toml.zig").sa_toml_array_push_datetime;
-    _ = &@import("sa_toml.zig").sa_toml_array_push_i64;
-    _ = &@import("sa_toml.zig").sa_toml_array_push_f64;
-    _ = &@import("sa_toml.zig").sa_toml_array_push_bool;
-    _ = &@import("sa_toml.zig").sa_toml_array_push_table;
-    _ = &@import("sa_toml.zig").sa_toml_stringify;
-    _ = &@import("sa_yaml.zig").sa_yaml_parse;
-    _ = &@import("sa_yaml.zig").sa_yaml_parse_at;
-    _ = &@import("sa_yaml.zig").sa_yaml_count_documents;
-    _ = &@import("sa_yaml.zig").sa_yaml_free;
-    _ = &@import("sa_yaml.zig").sa_yaml_last_error;
-    _ = &@import("sa_yaml.zig").sa_yaml_kind;
-    _ = &@import("sa_yaml.zig").sa_yaml_get_string;
-    _ = &@import("sa_yaml.zig").sa_yaml_get_i64;
-    _ = &@import("sa_yaml.zig").sa_yaml_get_f64;
-    _ = &@import("sa_yaml.zig").sa_yaml_get_bool;
-    _ = &@import("sa_yaml.zig").sa_yaml_array_len;
-    _ = &@import("sa_yaml.zig").sa_yaml_table_len;
-    _ = &@import("sa_yaml.zig").sa_yaml_array_get_string;
-    _ = &@import("sa_yaml.zig").sa_yaml_array_get_i64;
-    _ = &@import("sa_yaml.zig").sa_yaml_new;
-    _ = &@import("sa_yaml.zig").sa_yaml_table_key_at;
-    _ = &@import("sa_yaml.zig").sa_yaml_set_string;
-    _ = &@import("sa_yaml.zig").sa_yaml_set_i64;
-    _ = &@import("sa_yaml.zig").sa_yaml_set_f64;
-    _ = &@import("sa_yaml.zig").sa_yaml_set_bool;
-    _ = &@import("sa_yaml.zig").sa_yaml_set_null;
-    _ = &@import("sa_yaml.zig").sa_yaml_set_table;
-    _ = &@import("sa_yaml.zig").sa_yaml_remove;
-    _ = &@import("sa_yaml.zig").sa_yaml_array_push_string;
-    _ = &@import("sa_yaml.zig").sa_yaml_array_push_i64;
-    _ = &@import("sa_yaml.zig").sa_yaml_array_push_f64;
-    _ = &@import("sa_yaml.zig").sa_yaml_array_push_bool;
-    _ = &@import("sa_yaml.zig").sa_yaml_array_push_null;
-    _ = &@import("sa_yaml.zig").sa_yaml_array_push_table;
-    _ = &@import("sa_yaml.zig").sa_yaml_stringify;
-    _ = &@import("sa_yaml.zig").sa_yaml_to_json;
-    _ = &@import("sa_cookie.zig").sa_cookie_parse_set_cookie;
-    _ = &@import("sa_cookie.zig").sa_cookie_last_error;
-    _ = &@import("sa_cookie.zig").sa_cookie_free;
-    _ = &@import("sa_cookie.zig").sa_cookie_new;
-    _ = &@import("sa_cookie.zig").sa_cookie_name;
-    _ = &@import("sa_cookie.zig").sa_cookie_value;
-    _ = &@import("sa_cookie.zig").sa_cookie_domain;
-    _ = &@import("sa_cookie.zig").sa_cookie_path;
-    _ = &@import("sa_cookie.zig").sa_cookie_expires;
-    _ = &@import("sa_cookie.zig").sa_cookie_max_age;
-    _ = &@import("sa_cookie.zig").sa_cookie_flags;
-    _ = &@import("sa_cookie.zig").sa_cookie_same_site;
-    _ = &@import("sa_cookie.zig").sa_cookie_is_host_only;
-    _ = &@import("sa_cookie.zig").sa_cookie_set_domain;
-    _ = &@import("sa_cookie.zig").sa_cookie_set_path;
-    _ = &@import("sa_cookie.zig").sa_cookie_set_expires;
-    _ = &@import("sa_cookie.zig").sa_cookie_set_max_age;
-    _ = &@import("sa_cookie.zig").sa_cookie_clear_expiry;
-    _ = &@import("sa_cookie.zig").sa_cookie_set_secure;
-    _ = &@import("sa_cookie.zig").sa_cookie_set_http_only;
-    _ = &@import("sa_cookie.zig").sa_cookie_set_partitioned;
-    _ = &@import("sa_cookie.zig").sa_cookie_set_same_site;
-    _ = &@import("sa_cookie.zig").sa_cookie_serialize;
-    _ = &@import("sa_cookie.zig").sa_cookie_serialize_pair;
-    _ = &@import("sa_cookie.zig").sa_cookie_is_expired;
-    _ = &@import("sa_cookie.zig").sa_cookie_domain_match;
-    _ = &@import("sa_cookie.zig").sa_cookie_path_match;
-    _ = &@import("sa_cookie.zig").sa_cookie_header_pair_count;
-    _ = &@import("sa_cookie.zig").sa_cookie_header_pair_at;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_new;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_free;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_set_policy;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_policy;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_store;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_header;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_count;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_at;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_clear;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_evict_expired;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_save;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_load;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_request_header;
-    _ = &@import("sa_cookie.zig").sa_cookie_jar_store_response;
-    _ = &@import("sa_crypto.zig").sa_bcrypt_hash;
-    _ = &@import("sa_crypto.zig").sa_bcrypt_verify;
-    _ = &@import("sa_crypto.zig").sa_keyring_available;
-    _ = &@import("sa_crypto.zig").sa_keyring_set;
-    _ = &@import("sa_crypto.zig").sa_keyring_get;
-    _ = &@import("sa_crypto.zig").sa_keyring_remove;
-    _ = &@import("sa_crypto.zig").sa_md5;
-    _ = &@import("sa_crypto.zig").sa_sha1;
-    _ = &@import("sa_crypto.zig").sa_sha256;
-    _ = &@import("sa_crypto.zig").sa_sha384;
-    _ = &@import("sa_crypto.zig").sa_sha512;
-    _ = &@import("sa_crypto.zig").sa_hmac_sha1;
-    _ = &@import("sa_crypto.zig").sa_hmac_sha256;
-    _ = &@import("sa_crypto.zig").sa_hmac_sha512;
-    _ = &@import("sa_crypto.zig").sa_pbkdf2_hmac_sha256;
-    _ = &@import("sa_crypto.zig").sa_hkdf_sha256;
-    _ = &@import("sa_crypto.zig").sa_crypto_timing_safe_equal;
-    _ = &@import("sa_crypto.zig").sa_base64url_encode;
-    _ = &@import("sa_crypto.zig").sa_base64url_decode;
-    _ = &@import("sa_crypto.zig").sa_aes_gcm_encrypt;
-    _ = &@import("sa_crypto.zig").sa_aes_gcm_decrypt;
-    _ = &@import("sa_crypto.zig").sa_ed25519_public_key;
-    _ = &@import("sa_crypto.zig").sa_ed25519_sign;
-    _ = &@import("sa_crypto.zig").sa_ed25519_verify;
-    _ = &@import("sa_crypto.zig").sa_ecdsa_p256_verify;
-    _ = &@import("sa_crypto.zig").sa_ecdsa_p256_verify_prehashed;
-    _ = &@import("sa_crypto.zig").sa_ecdsa_p256_sign;
-    _ = &@import("sa_crypto_asym.zig").sa_ed25519_public_key_from_spki;
-    _ = &@import("sa_crypto_asym.zig").sa_ed25519_seed_from_pkcs8;
-    _ = &@import("sa_crypto_asym.zig").sa_ecdsa_p256_public_key_from_spki;
-    _ = &@import("sa_crypto_asym.zig").sa_ecdsa_signature_der_to_raw;
-    _ = &@import("sa_crypto_asym.zig").sa_ecdsa_signature_raw_to_der;
-    _ = &@import("sa_crypto_asym.zig").sa_rsa_pkcs1_verify;
-    _ = &@import("sa_crypto_asym.zig").sa_rsa_pkcs1_sign;
-    _ = &@import("sa_crypto_asym.zig").sa_rsa_jwk_to_spki;
-    _ = &@import("sa_crypto_asym.zig").sa_rsa_oaep_sha256_decrypt;
-    _ = &@import("sa_crypto_asym.zig").sa_rsa_generate_keypair;
-    _ = &@import("sa_crypto_asym.zig").sa_rsa_spki_to_jwk;
-    _ = &@import("sa_crypto_asym.zig").sa_pem_decode;
-    _ = &@import("sa_crypto_asym.zig").sa_x509_spki;
-    _ = &@import("sa_crypto_asym.zig").sa_x509_subject;
-    _ = &@import("sa_crypto_asym.zig").sa_x509_subject_cn;
-    _ = &@import("sa_crypto_asym.zig").sa_x509_public_key;
-    _ = &@import("sa_crypto_asym.zig").sa_x509_validity;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_available;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_parser_new;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_parser_free;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_parser_set_language;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_parse;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_tree_free;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_tree_root;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_tree_sexp;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_free;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_type;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_text;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_byte_range;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_child_count;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_named_child_count;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_child;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_child_by_field;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_parent;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_is_named;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_is_missing;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_has_error;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_start_point;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_node_end_point;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_query_new;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_query_free;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_query_pattern_count;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_query_capture_count;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_query_capture_name;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_query_cursor_new;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_query_cursor_free;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_query_exec;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_query_next_match;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_query_match_capture;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_tree_edit;
-    _ = &@import("sa_tree_sitter.zig").sa_ts_parse_incremental;
     _ = &sa_globals.sa_global_u64_set;
     _ = &sa_globals.sa_global_u64_get;
     _ = &sa_globals.sa_global_u64_set_once;
@@ -560,657 +442,310 @@ comptime {
     _ = &sa_identity.sa_idset_remove;
     _ = &sa_identity.sa_idset_len;
     _ = &sa_identity.sa_idset_clear;
-    _ = &@import("sa_std/json.zig").sa_json_parse;
-    _ = &@import("sa_std/json.zig").sa_json_kind;
-    _ = &@import("sa_std/json.zig").sa_json_object_get;
-    _ = &@import("sa_std/json.zig").sa_json_array_get;
-    _ = &@import("sa_std/json.zig").sa_json_object_key_at;
-    _ = &@import("sa_std/json.zig").sa_json_object_get_string;
-    _ = &@import("sa_std/json.zig").sa_json_object_get_bool;
-    _ = &@import("sa_std/json.zig").sa_json_object_get_i64;
-    _ = &@import("sa_std/json.zig").sa_json_object_get_f64;
-    _ = &@import("sa_std/json.zig").sa_json_as_f64;
-    _ = &@import("sa_std/json.zig").sa_json_as_i64;
-    _ = &@import("sa_std/json.zig").sa_json_as_bool;
-    _ = &@import("sa_std/json.zig").sa_json_string_ptr;
-    _ = &@import("sa_std/json.zig").sa_json_string_len;
-    _ = &@import("sa_std/json.zig").sa_json_value_count;
-    _ = &@import("sa_std/json.zig").sa_json_free;
-    _ = &@import("sa_std/json.zig").sa_json_stringify;
-    _ = &@import("sa_std/json.zig").sa_json_object_set_string;
-    _ = &@import("sa_std/json.zig").sa_json_object_set_i64;
-    _ = &@import("sa_std/json.zig").sa_json_object_set_f64;
-    _ = &@import("sa_std/json.zig").sa_json_object_set_bool;
-    _ = &@import("sa_std/json.zig").sa_json_object_set_null;
-    _ = &@import("sa_std/json.zig").sa_json_object_set_node;
-    _ = &@import("sa_std/json.zig").sa_json_object_remove;
-    _ = &@import("sa_std/json.zig").sa_json_array_push_string;
-    _ = &@import("sa_std/json.zig").sa_json_array_push_i64;
-    _ = &@import("sa_std/json.zig").sa_json_array_push_f64;
-    _ = &@import("sa_std/json.zig").sa_json_array_push_bool;
-    _ = &@import("sa_std/json.zig").sa_json_array_push_null;
-    _ = &@import("sa_std/json.zig").sa_json_array_push_node;
-    _ = &@import("sa_std/json_io.zig").sa_json_scanner_new;
-    _ = &@import("sa_std/json_io.zig").sa_json_scanner_feed;
-    _ = &@import("sa_std/json_io.zig").sa_json_scanner_end_input;
-    _ = &@import("sa_std/json_io.zig").sa_json_scanner_next;
-    _ = &@import("sa_std/json_io.zig").sa_json_scanner_free;
-    _ = &@import("sa_std/json_io.zig").sa_json_stream_new;
-    _ = &@import("sa_std/json_io.zig").sa_json_stream_next;
-    _ = &@import("sa_std/json_io.zig").sa_json_stream_get_slice_ptr;
-    _ = &@import("sa_std/json_io.zig").sa_json_stream_get_slice_len;
-    _ = &@import("sa_std/json_io.zig").sa_json_stream_free;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_free;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_new;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_begin_object;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_end_object;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_begin_array;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_end_array;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_object_field;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_field_string;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_field_bool;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_field_i64;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_field_f64;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_field_null;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_field_node;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_write_bool;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_write_i64;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_write_f64;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_write_string;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_write_null;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_write_node;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_finish;
-    _ = &@import("sa_std/json_io.zig").sa_json_writer_finish_buffer;
-    _ = &@import("sa_std/json.zig").sa_json_buffer_data;
-    _ = &@import("sa_std/json.zig").sa_json_buffer_len;
-    _ = &@import("sa_std/json.zig").sa_json_buffer_free;
-    _ = &@import("sa_std/fs.zig").sa_fs_file_open;
-    _ = &@import("sa_std/fs.zig").sa_fs_file_create;
-    _ = &@import("sa_std/fs.zig").sa_fs_file_close;
-    _ = &@import("sa_std/fs.zig").sa_fs_file_read;
-    _ = &@import("sa_std/fs.zig").sa_fs_file_read_exact;
-    _ = &@import("sa_std/fs.zig").sa_fs_file_write;
-    _ = &@import("sa_std/fs.zig").sa_fs_file_write_all;
-    _ = &@import("sa_std/fs.zig").sa_fs_file_flush;
-    _ = &@import("sa_std/fs.zig").sa_fs_file_sync_data;
-    _ = &@import("sa_std/fs.zig").sa_fs_file_sync;
-    _ = &@import("sa_std/fs.zig").sa_fs_file_truncate;
-    _ = &@import("sa_std/fs.zig").sa_fs_file_seek;
-    _ = &@import("sa_std/fs.zig").sa_fs_read_file;
-    _ = &@import("sa_std/fs.zig").sa_fs_read_to_string;
-    _ = &@import("sa_std/fs.zig").sa_fs_write_file;
-    _ = &@import("sa_std/fs.zig").sa_fs_read_buffer_data;
-    _ = &@import("sa_std/fs.zig").sa_fs_read_buffer_len;
-    _ = &@import("sa_std/fs.zig").sa_fs_read_buffer_free;
-    _ = &@import("sa_std/fs.zig").sa_fs_read_file_base64;
-    _ = &@import("sa_std/fs.zig").sa_fs_write_file_base64;
-    _ = &@import("sa_std/fs.zig").sa_fs_read_dir_json;
-    _ = &@import("sa_std/fs.zig").sa_fs_dir_buffer_data;
-    _ = &@import("sa_std/fs.zig").sa_fs_dir_buffer_len;
-    _ = &@import("sa_std/fs.zig").sa_fs_dir_buffer_free;
-    _ = &@import("sa_std/fs.zig").sa_fs_read_dir_entries;
-    _ = &@import("sa_std/fs.zig").sa_fs_dir_entries_len;
-    _ = &@import("sa_std/fs.zig").sa_fs_dir_entries_free;
-    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_name_ptr;
-    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_name_len;
-    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_file_name_ptr;
-    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_file_name_len;
-    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_kind;
-    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_ino;
-    _ = &@import("sa_std/fs.zig").sa_fs_dir_entry_free;
-    _ = &@import("sa_std/fs.zig").sa_fs_metadata;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_json;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_file;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_directory;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_symlink;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_block_device;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_char_device;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_fifo;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_is_socket;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_modified_ms;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_created_ms;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_accessed_ms;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_changed_ms;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_len;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_mode;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_uid;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_gid;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_ino;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_dev;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_nlink;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_rdev;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_blksize;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_blocks;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_dev;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_ino;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_mode;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_nlink;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_uid;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_gid;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_rdev;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_size;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_atime;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_atime_nsec;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_mtime;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_mtime_nsec;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_ctime;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_ctime_nsec;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_blksize;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_st_blocks;
-    _ = &@import("sa_std/fs_meta.zig").sa_fs_metadata_free;
-    _ = &@import("sa_std/fs.zig").sa_fs_remove_file;
-    _ = &@import("sa_std/fs.zig").sa_fs_rename;
-    _ = &@import("sa_std/fs.zig").sa_fs_make_dir;
-    _ = &@import("sa_std/fs.zig").sa_fs_make_dir_mode;
-    _ = &@import("sa_std/fs.zig").sa_fs_mkdir_p;
-    _ = &@import("sa_std/fs.zig").sa_fs_create_dir;
-    _ = &@import("sa_std/fs.zig").sa_fs_create_dir_mode;
-    _ = &@import("sa_std/fs.zig").sa_fs_remove_dir;
-    _ = &@import("sa_std/fs.zig").sa_fs_remove_dir_all;
-    _ = &@import("sa_std/fs.zig").sa_fs_remove_path;
-    _ = &@import("sa_std/fs.zig").sa_fs_copy_file;
-    _ = &@import("sa_std/fs.zig").sa_fs_set_permissions;
-    _ = &@import("sa_std/fs.zig").sa_fs_set_times_ms;
-    _ = &@import("sa_std/fs.zig").sa_fs_hard_link;
-    _ = &@import("sa_std/fs.zig").sa_fs_symlink;
-    _ = &@import("sa_std/fs.zig").sa_fs_chown;
-    _ = &@import("sa_std/fs.zig").sa_fs_lchown;
-    _ = &@import("sa_std/fs.zig").sa_fs_fchown;
-    _ = &@import("sa_std/fs.zig").sa_fs_chroot;
-    _ = &@import("sa_std/fs.zig").sa_fs_mkfifo;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_connect;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_read;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_peek;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_write;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_write_all;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_read_exact;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_flush;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_peer_addr;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_shutdown;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_set_read_timeout;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_set_write_timeout;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_set_nonblocking;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_set_nodelay;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_set_ttl;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_stream_close;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_listener_bind;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_listener_accept;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_listener_local_addr;
-    _ = &@import("sa_std/net.zig").sa_net_tcp_listener_close;
-    _ = &@import("sa_std/net.zig").sa_net_udp_set_read_timeout;
-    _ = &@import("sa_std/net.zig").sa_net_udp_set_write_timeout;
-    _ = &@import("sa_std/net.zig").sa_net_udp_set_nonblocking;
-    _ = &@import("sa_std/net.zig").sa_net_udp_set_broadcast;
-    _ = &@import("sa_std/net.zig").sa_net_udp_set_ttl;
-    _ = &@import("sa_std/net.zig").sa_net_udp_set_multicast_loop_v4;
-    _ = &@import("sa_std/net.zig").sa_net_udp_set_multicast_ttl_v4;
-    _ = &@import("sa_std/net.zig").sa_net_udp_join_multicast_v4;
-    _ = &@import("sa_std/net.zig").sa_net_udp_leave_multicast_v4;
-    _ = &@import("sa_std/net.zig").sa_net_udp_join_multicast_v6;
-    _ = &@import("sa_std/net.zig").sa_net_udp_leave_multicast_v6;
-    _ = &@import("sa_std/net.zig").sa_net_udp_bind;
-    _ = &@import("sa_std/net.zig").sa_net_udp_connect;
-    _ = &@import("sa_std/net.zig").sa_net_udp_local_addr;
-    _ = &@import("sa_std/net.zig").sa_net_udp_send;
-    _ = &@import("sa_std/net.zig").sa_net_udp_recv;
-    _ = &@import("sa_std/net.zig").sa_net_udp_peek;
-    _ = &@import("sa_std/net.zig").sa_net_udp_send_to;
-    _ = &@import("sa_std/net.zig").sa_net_udp_recv_from;
-    _ = &@import("sa_std/net.zig").sa_net_udp_peek_from;
-    _ = &@import("sa_std/net.zig").sa_net_udp_close;
-    _ = &@import("sa_std/net.zig").sa_net_addr_host;
-    _ = &@import("sa_std/net.zig").sa_net_addr_host_len;
-    _ = &@import("sa_std/net.zig").sa_net_addr_port;
-    _ = &@import("sa_std/net.zig").sa_net_addr_family;
-    _ = &@import("sa_std/net.zig").sa_net_addr_scope_id;
-    _ = &@import("sa_std/net.zig").sa_net_addr_free;
-    _ = &@import("sa_std/net.zig").sa_net_ipv4_parse_ascii;
-    _ = &@import("sa_std/net.zig").sa_net_socket_addr_v4_parse_ascii;
-    _ = &@import("sa_std/net.zig").sa_net_ipv6_parse_ascii;
-    _ = &@import("sa_std/net.zig").sa_net_socket_addr_v6_parse_ascii;
-    _ = &@import("sa_std/net.zig").sa_net_ipv4_format_ascii;
-    _ = &@import("sa_std/net.zig").sa_net_ipv6_format_ascii;
-    _ = &@import("sa_std/net.zig").sa_net_socket_addr_v4_format_ascii;
-    _ = &@import("sa_std/net.zig").sa_net_socket_addr_v6_format_ascii;
-    _ = &@import("sa_std/net.zig").sa_net_unix_addr_kind;
-    _ = &@import("sa_std/net.zig").sa_net_unix_addr_is_unnamed;
-    _ = &@import("sa_std/net.zig").sa_net_unix_addr_path_ptr;
-    _ = &@import("sa_std/net.zig").sa_net_unix_addr_path_len;
-    _ = &@import("sa_std/net.zig").sa_net_unix_addr_abstract_ptr;
-    _ = &@import("sa_std/net.zig").sa_net_unix_addr_abstract_len;
-    _ = &@import("sa_std/net.zig").sa_net_unix_addr_free;
-    _ = &@import("sa_std/deno.zig").sa_deno_cwd;
-    _ = &@import("sa_std/deno.zig").sa_deno_chdir;
-    _ = &@import("sa_std/deno.zig").sa_deno_env_set;
-    _ = &@import("sa_std/deno.zig").sa_deno_env_delete;
-    _ = &@import("sa_std/deno.zig").sa_deno_random_uuid;
-    _ = &@import("sa_std/deno.zig").sa_deno_make_temp_dir;
-    _ = &@import("sa_std/deno.zig").sa_deno_make_temp_file;
-    _ = &@import("sa_std/deno.zig").sa_deno_args_json;
-    _ = &@import("sa_std/deno.zig").sa_deno_btoa;
-    _ = &@import("sa_std/deno.zig").sa_deno_atob;
-    _ = &@import("sa_std/deno.zig").sa_deno_text_encode;
-    _ = &@import("sa_std/deno.zig").sa_deno_text_decode;
-    _ = &@import("sa_std/deno.zig").sa_deno_chat_sse_to_responses;
-    _ = &@import("sa_std/deno.zig").sa_deno_chat_json_to_responses;
-    _ = &@import("sa_std/deno.zig").sa_deno_responses_sse_normalize;
-    _ = &@import("sa_std/deno.zig").sa_deno_responses_json_normalize;
-    _ = &@import("sa_std/deno.zig").sa_deno_responses_request_normalize;
-    _ = &@import("sa_std/deno.zig").sa_deno_responses_chat_fallback_request;
-    _ = &@import("sa_std/deno.zig").sa_deno_jsonrpc_params_string_literal;
-    _ = &@import("sa_std/deno.zig").sa_deno_version_json;
-    _ = &@import("sa_std/deno.zig").sa_deno_version_deno;
-    _ = &@import("sa_std/deno.zig").sa_deno_build_json;
-    _ = &@import("sa_std/deno.zig").sa_deno_build_os;
-    _ = &@import("sa_std/deno.zig").sa_deno_build_platform_family;
-    _ = &@import("sa_std/deno.zig").sa_deno_date_now_iso;
-    _ = &@import("sa_std/deno.zig").sa_deno_hostname;
-    _ = &@import("sa_std/deno.zig").sa_deno_os_release;
-    _ = &@import("sa_std/deno.zig").sa_deno_os_uptime;
-    _ = &@import("sa_std/deno.zig").sa_deno_loadavg;
-    _ = &@import("sa_std/deno.zig").sa_deno_system_memory_info;
-    _ = &@import("sa_std/deno.zig").sa_deno_network_interfaces;
-    _ = &@import("sa_std/deno.zig").sa_deno_pid;
-    _ = &@import("sa_std/deno.zig").sa_deno_ppid;
-    _ = &@import("sa_std/deno.zig").sa_deno_uid;
-    _ = &@import("sa_std/deno.zig").sa_deno_gid;
-    _ = &@import("sa_std/deno.zig").sa_deno_exec_path;
-    _ = &@import("sa_std/deno.zig").sa_deno_memory_usage;
-    _ = &@import("sa_std/regex.zig").sa_regex_compile;
-    _ = &@import("sa_std/regex.zig").sa_regex_match;
-    _ = &@import("sa_std/regex.zig").sa_regex_group_ptr;
-    _ = &@import("sa_std/regex.zig").sa_regex_group_len;
-    _ = &@import("sa_std/regex.zig").sa_regex_group_start;
-    _ = &@import("sa_std/regex.zig").sa_regex_group_count;
-    _ = &@import("sa_std/regex.zig").sa_regex_free;
-    _ = &@import("sa_std/regex.zig").sa_regex_match_free;
-    _ = &@import("sa_std/regex.zig").sa_regex_match_all;
-    _ = &@import("sa_std/regex.zig").sa_regex_match_list_count;
-    _ = &@import("sa_std/regex.zig").sa_regex_match_list_at;
-    _ = &@import("sa_std/regex.zig").sa_regex_match_list_free;
-    _ = &@import("sa_std/regex.zig").sa_regex_replace;
-    _ = &@import("sa_std/regex.zig").sa_regex_replace_all;
-    _ = &@import("sa_std/regex.zig").sa_regex_buffer_data;
-    _ = &@import("sa_std/regex.zig").sa_regex_buffer_len;
-    _ = &@import("sa_std/regex.zig").sa_regex_buffer_free;
-    _ = &@import("sa_std/regex.zig").sa_regex_split;
-    _ = &@import("sa_std/regex.zig").sa_regex_split_count;
-    _ = &@import("sa_std/regex.zig").sa_regex_split_ptr;
-    _ = &@import("sa_std/regex.zig").sa_regex_split_len;
-    _ = &@import("sa_std/regex.zig").sa_regex_split_free;
-    _ = &@import("sa_std/time.zig").sa_time_instant_ns;
-    _ = &@import("sa_std/time.zig").sa_time_unix_s;
-    _ = &@import("sa_std/time.zig").sa_time_unix_ms;
-    _ = &@import("sa_std/time.zig").sa_time_iso_from_unix_ms;
-    _ = &@import("sa_std/time.zig").sa_time_parse_iso;
-    _ = &@import("sa_std/time.zig").sa_time_get_full_year;
-    _ = &@import("sa_std/time.zig").sa_time_get_month;
-    _ = &@import("sa_std/time.zig").sa_time_get_date;
-    _ = &@import("sa_std/time.zig").sa_time_get_hours;
-    _ = &@import("sa_std/time.zig").sa_time_get_minutes;
-    _ = &@import("sa_std/time.zig").sa_time_get_seconds;
-    _ = &@import("sa_std/time.zig").sa_time_get_milliseconds;
-    _ = &@import("sa_std/time.zig").sa_time_get_day;
-    _ = &@import("sa_std/time.zig").sa_time_format_utc;
-    _ = &@import("sa_std/time.zig").sa_time_set_field;
-    _ = &@import("sa_std/time.zig").sa_time_unix_ns;
-    _ = &@import("sa_std/time.zig").sa_time_utc_now;
-    _ = &@import("sa_std/time.zig").sa_time_sleep_ns;
-    _ = &@import("sa_std/time.zig").sa_time_sleep_ms;
-    _ = &@import("sa_std/string.zig").sa_string_concat;
-    _ = &@import("sa_std/string.zig").sa_string_from_char_code;
-    _ = &@import("sa_std/string.zig").sa_string_index_of;
-    _ = &@import("sa_std/string.zig").sa_string_last_index_of;
-    _ = &@import("sa_std/string.zig").sa_string_starts_with;
-    _ = &@import("sa_std/string.zig").sa_string_ends_with;
-    _ = &@import("sa_std/string.zig").sa_string_to_lower_ascii;
-    _ = &@import("sa_std/string.zig").sa_string_to_upper_ascii;
-    _ = &@import("sa_std/string.zig").sa_string_repeat;
-    _ = &@import("sa_std/string.zig").sa_string_pad_start;
-    _ = &@import("sa_std/string.zig").sa_string_pad_end;
-    _ = &@import("sa_std/string.zig").sa_string_replace;
-    _ = &@import("sa_std/string.zig").sa_string_code_point_at;
-    _ = &@import("sa_std/string.zig").sa_string_from_code_point;
-    _ = &@import("sa_std/env.zig").sa_env_get;
-    _ = &@import("sa_std/env.zig").sa_env_current_dir;
-    _ = &@import("sa_std/env.zig").sa_env_set_current_dir;
-    _ = &@import("sa_std/env.zig").sa_env_temp_dir;
-    _ = &@import("sa_std/env.zig").sa_env_current_exe;
-    _ = &@import("sa_std/env.zig").sa_env_home_dir;
-    _ = &@import("sa_std/env.zig").sa_env_args_json;
-    _ = &@import("sa_std/env.zig").sa_env_vars_json;
-    _ = &@import("sa_std/env.zig").sa_env_split_paths_json;
-    _ = &@import("sa_std/env.zig").sa_env_join_paths_json;
-    _ = &@import("sa_std/env.zig").sa_env_xdg_data_home_dir;
-    _ = &@import("sa_std/env.zig").sa_env_xdg_config_home_dir;
-    _ = &@import("sa_std/env.zig").sa_env_xdg_state_home_dir;
-    _ = &@import("sa_std/env.zig").sa_env_xdg_cache_home_dir;
-    _ = &@import("sa_std/env.zig").sa_env_xdg_data_dirs;
-    _ = &@import("sa_std/env.zig").sa_env_xdg_config_dirs;
-    _ = &@import("sa_std/env.zig").sa_env_has;
-    _ = &@import("sa_std/env.zig").sa_env_set_var;
-    _ = &@import("sa_std/env.zig").sa_env_remove_var;
-    _ = &@import("sa_std/env.zig").sa_env_buffer_data;
-    _ = &@import("sa_std/env.zig").sa_env_buffer_len;
-    _ = &@import("sa_std/env.zig").sa_env_buffer_free;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_i64;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_i64_into;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_u64;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_u64_into;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_f64;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_f64_into;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_bool;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_bool_into;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_bytes;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_bytes_into;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_buffer_data;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_buffer_len;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_buffer_write_to;
-    _ = &@import("sa_std/fmt.zig").sa_fmt_buffer_free;
-    _ = &@import("sa_std/io.zig").sa_io_read_line;
-    _ = &@import("sa_std/io.zig").sa_io_stdin;
-    _ = &@import("sa_std/io.zig").sa_io_stdout;
-    _ = &@import("sa_std/io.zig").sa_io_stderr;
-    _ = &@import("sa_std/io.zig").sa_io_read;
-    _ = &@import("sa_std/io.zig").sa_io_read_exact;
-    _ = &@import("sa_std/io.zig").sa_io_write;
-    _ = &@import("sa_std/io.zig").sa_io_write_all;
-    _ = &@import("sa_std/io.zig").sa_io_flush;
-    _ = &@import("sa_std/io.zig").sa_io_close;
-    _ = &@import("sa_std/io.zig").sa_io_buffer_data;
-    _ = &@import("sa_std/io.zig").sa_io_buffer_len;
-    _ = &@import("sa_std/io.zig").sa_io_buffer_free;
-    _ = &@import("sa_std/str.zig").sa_str_is_ascii;
-    _ = &@import("sa_std/str.zig").sa_str_eq_ignore_ascii_case;
-    _ = &@import("sa_std/str.zig").sa_str_utf8_char_count;
-    _ = &@import("sa_std/str.zig").sa_str_utf8_validate;
-    _ = &@import("sa_std/str.zig").sa_str_utf8_char_at;
-    _ = &@import("sa_std/str.zig").sa_str_utf8_char_at_byte;
-    _ = &@import("sa_std/str.zig").sa_str_utf8_lossy_next;
-    _ = &@import("sa_std/str.zig").sa_str_utf8_char_range_at;
-    _ = &@import("sa_std/str.zig").sa_str_trim_ascii_start_index;
-    _ = &@import("sa_std/str.zig").sa_str_trim_ascii_end_len;
-    _ = &@import("sa_std/term.zig").sa_term_raw_enter;
-    _ = &@import("sa_std/term.zig").sa_term_raw_leave;
-    _ = &@import("sa_std/term.zig").sa_term_winsize;
-    _ = &@import("sa_std/term.zig").sa_term_epoll_create;
-    _ = &@import("sa_std/term.zig").sa_term_epoll_ctl;
-    _ = &@import("sa_std/term.zig").sa_term_epoll_wait;
-    _ = &@import("sa_std/term.zig").sa_term_epoll_close;
-    _ = &@import("sa_std/math.zig").sa_math_floor;
-    _ = &@import("sa_std/math.zig").sa_math_ceil;
-    _ = &@import("sa_std/math.zig").sa_math_sqrt;
-    _ = &@import("sa_std/math.zig").sa_math_sin;
-    _ = &@import("sa_std/math.zig").sa_math_cos;
-    _ = &@import("sa_std/math.zig").sa_math_pow;
-    _ = &@import("sa_std/math.zig").sa_math_random;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_error_code_from_status;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_error_code_from_posix_errno;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_error_code_from_wsa_error;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_error_code_name;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_error_platform;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_error_code_from_native_error;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_hostname;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_interface_addresses_json;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_to_socket_addr_list;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_addr_list_next;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_addr_list_remaining;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_addr_list_reset;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_addr_list_free;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_addr_reverse_lookup;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_to_socket_addr_first;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read_vectored;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write_vectored;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_peek;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_peer_addr;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_local_addr;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_try_clone;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_nonblocking;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_poll_wait;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_nodelay;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_linger;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_linger;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_quickack;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_quickack;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_deferaccept;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_deferaccept;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_keepalive;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_keepalive;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_keepalive_params;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_reuseaddr;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_reuseport;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_read_timeout;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_write_timeout;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_ttl;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read_timeout;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write_timeout;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_nodelay;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_ttl;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_recv_buffer_size;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_recv_buffer_size;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_send_buffer_size;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_send_buffer_size;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_take_error;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_try_clone;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_only_v6;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_only_v6;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_nonblocking;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_ttl;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_ttl;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_take_error;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_try_clone;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_bind;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_raw_socket;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_send_file;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_from_raw_fd;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_local_addr;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_peer_addr;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_connect;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_connect_addr;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_only_v6;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_only_v6;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_nonblocking;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_broadcast;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_ttl;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_read_timeout;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_write_timeout;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_recv_buffer_size;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_buffer_size;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_send_buffer_size;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_buffer_size;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_read_timeout;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_write_timeout;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_broadcast;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_loop_v4;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_ttl_v4;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_loop_v4;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_ttl_v4;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_loop_v6;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_hops_v6;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_loop_v6;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_hops_v6;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_if_v4;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_if_v4;
-    _ = &@import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_if_v6;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_if_v6;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_join_multicast_v4;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_leave_multicast_v4;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_join_multicast_v6;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_leave_multicast_v6;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_ttl;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_take_error;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_send;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_recv;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_peek;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_to;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_from;
-    _ = &@import("sa_std/std_net_udp.zig").sa_std_net_udp_peek_from;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_vectored;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_to_vectored;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_from_vectored;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_socket_setsockopt;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_socket_getsockopt;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_socket_setsockopt_int;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_socket_getsockopt_int;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_msg;
-    _ = &@import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_multi;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_addr_format;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listen;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_accept;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_accept_addr;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_local_addr;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_from_raw_fd;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout_addr;
-    _ = &@import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout_all;
-    _ = &@import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_from_raw_fd;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_listen;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_addr_from_abstract_name;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_addr_from_pathname;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_listen_addr;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_accept;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_accept_addr;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_pair;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_local_addr;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_try_clone;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_from_raw_fd;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_local_addr;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_try_clone;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_from_raw_fd;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_peer_addr;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_set_passcred;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_passcred;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_set_mark;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_peer_cred;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peer_cred;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_unbound;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_bind;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_bind_addr;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_pair;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_connect;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_connect_addr;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_try_clone;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_from_raw_fd;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_local_addr;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peer_addr;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_set_passcred;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_passcred;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_set_mark;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_shutdown;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_send_to;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_send_to_addr;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_recv_from;
-    _ = &@import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peek_from;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_connect;
-    _ = &@import("sa_std/std_net_unix.zig").sa_std_net_unix_connect_addr;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_ja3_hash;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_sha256_hex;
-    _ = &@import("sa_std/std_net.zig").sa_std_net_ja4_hash12;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_run;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_run_cwd;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_spawn;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_cwd;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream_cwd;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_bidi;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_bidi_cwd;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_run_command_ext;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_command_ext;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream_command_ext;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_run_command_ext_pidfd;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_command_ext_pidfd;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream_command_ext_pidfd;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_run_command_ext_uid_gid;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_command_ext_uid_gid;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream_command_ext_uid_gid;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_run_command_ext_groups;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_command_ext_groups;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream_command_ext_groups;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_run_command_ext_chroot;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_command_ext_chroot;
-    _ = &@import("sa_std/std_process_spawn.zig").sa_std_process_spawn_stream_command_ext_chroot;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_exec_command_ext;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_id;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_parent_id;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_user_id;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_group_id;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_abort;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_child_id;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_wait;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_wait_raw;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_try_wait;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_try_wait_raw;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_kill;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_send_signal;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_send_process_group_signal;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_kill_process_group;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_pidfd;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_into_pidfd;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_exit_status_code;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_exit_status_signal;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_exit_status_core_dumped;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_exit_status_stopped_signal;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_exit_status_continued;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_read_stdout;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_read_stderr;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_exec_capture;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_exec_capture_cwd;
-    _ = &@import("sa_std/std_process.zig").sa_std_process_close;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_open_read;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_open_write;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_remove;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_exists;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_try_exists;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_len;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_open_options;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_open_create_excl;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_from_raw_fd;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_read;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_read_at;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_read_exact_at;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_write;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_write_at;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_write_all_at;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_file_seek;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_read_file;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_read_to_string;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_read_file_base64;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_read_dir_json;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_read_dir_entries;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_dir_entries_get;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_metadata;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_metadata_json;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_metadata_free;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_canonicalize;
-    _ = &@import("sa_std/std_fs.zig").sa_std_fs_read_link;
-    if (builtin.os.tag == .linux) {
-        _ = &@import("sa_pty.zig").sa_pty_spawn;
-        _ = &@import("sa_pty.zig").sa_pty_read;
-        _ = &@import("sa_pty.zig").sa_pty_write;
-        _ = &@import("sa_pty.zig").sa_pty_poll;
-        _ = &@import("sa_pty.zig").sa_pty_resize;
-        _ = &@import("sa_pty.zig").sa_pty_winsize;
-        _ = &@import("sa_pty.zig").sa_pty_pid;
-        _ = &@import("sa_pty.zig").sa_pty_kill;
-        _ = &@import("sa_pty.zig").sa_pty_try_wait;
-        _ = &@import("sa_pty.zig").sa_pty_close;
-        _ = &@import("sa_fs_watch.zig").sa_fs_watch_create;
-        _ = &@import("sa_fs_watch.zig").sa_fs_watch_add;
-        _ = &@import("sa_fs_watch.zig").sa_fs_watch_remove;
-        _ = &@import("sa_fs_watch.zig").sa_fs_watch_poll;
-        _ = &@import("sa_fs_watch.zig").sa_fs_watch_next;
-        _ = &@import("sa_fs_watch.zig").sa_fs_watch_close;
-    }
+    _ = &@import("sa_compress.zig").sa_std_compress_encode;
+    _ = &@import("sa_dtls.zig").sa_std_dtls_supported;
+    _ = &@import("sa_multipart.zig").sa_std_multipart_parse;
+    _ = &@import("sa_multipart.zig").sa_std_multipart_builder_new;
     _ = &@import("sa_ssh.zig").sa_std_ssh_client_connect;
     _ = &@import("sa_ssh.zig").sa_std_ssh_server_listen;
-    _ = &@import("sa_http_client.zig").sa_http_client_new_v2;
-    _ = &@import("sa_http_client.zig").sa_http_client_sse_post;
-    _ = &@import("sa_quic.zig").sa_std_quic_client_connect;
-    _ = &@import("sa_quic.zig").sa_std_http3_session_bind;
     _ = &@import("sa_thread_local.zig").sa_thread_local_supported;
+    _ = &@import("sa_ws_client.zig").sa_std_ws_client_supported;
+    // force-emit all fns of sa_cookie.zig (43 fns, loop over decls)
+    {
+        const m = @import("sa_cookie.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_crypto.zig (27 fns, loop over decls)
+    {
+        const m = @import("sa_crypto.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_crypto_asym.zig (17 fns, loop over decls)
+    {
+        const m = @import("sa_crypto_asym.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_fs_watch.zig (6 fns, loop over decls)
+    {
+        const m = @import("sa_fs_watch.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_http_client.zig (6 fns, loop over decls)
+    {
+        const m = @import("sa_http_client.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_http_server.zig (48 fns, loop over decls)
+    {
+        const m = @import("sa_http_server.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_mysql_client.zig (30 fns, loop over decls)
+    {
+        const m = @import("sa_mysql_client.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_pg.zig (4 fns, loop over decls)
+    {
+        const m = @import("sa_pg.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_pty.zig (10 fns, loop over decls)
+    {
+        const m = @import("sa_pty.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_quic.zig (3 fns, loop over decls)
+    {
+        const m = @import("sa_quic.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/deno.zig (37 fns, loop over decls)
+    {
+        const m = @import("sa_std/deno.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/env.zig (22 fns, loop over decls)
+    {
+        const m = @import("sa_std/env.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/fmt.zig (14 fns, loop over decls)
+    {
+        const m = @import("sa_std/fmt.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/fs.zig (55 fns, loop over decls)
+    {
+        const m = @import("sa_std/fs.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/fs_meta.zig (39 fns, loop over decls)
+    {
+        const m = @import("sa_std/fs_meta.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/io.zig (13 fns, loop over decls)
+    {
+        const m = @import("sa_std/io.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/json_io.zig (31 fns, loop over decls)
+    {
+        const m = @import("sa_std/json_io.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/math.zig (7 fns, loop over decls)
+    {
+        const m = @import("sa_std/math.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/net.zig (61 fns, loop over decls)
+    {
+        const m = @import("sa_std/net.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/regex.zig (22 fns, loop over decls)
+    {
+        const m = @import("sa_std/regex.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/std_fs.zig (27 fns, loop over decls)
+    {
+        const m = @import("sa_std/std_fs.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/std_net.zig (25 fns, loop over decls)
+    {
+        const m = @import("sa_std/std_net.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/std_net_tcp.zig (18 fns, loop over decls)
+    {
+        const m = @import("sa_std/std_net_tcp.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/std_net_tcp_stream.zig (33 fns, loop over decls)
+    {
+        const m = @import("sa_std/std_net_tcp_stream.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/std_net_udp.zig (21 fns, loop over decls)
+    {
+        const m = @import("sa_std/std_net_udp.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/std_net_udp_io.zig (15 fns, loop over decls)
+    {
+        const m = @import("sa_std/std_net_udp_io.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/std_net_udp_set.zig (14 fns, loop over decls)
+    {
+        const m = @import("sa_std/std_net_udp_set.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/std_net_unix.zig (20 fns, loop over decls)
+    {
+        const m = @import("sa_std/std_net_unix.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/std_net_unix_dgram.zig (19 fns, loop over decls)
+    {
+        const m = @import("sa_std/std_net_unix_dgram.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/std_process.zig (35 fns, loop over decls)
+    {
+        const m = @import("sa_std/std_process.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/std_process_spawn.zig (15 fns, loop over decls)
+    {
+        const m = @import("sa_std/std_process_spawn.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/str.zig (10 fns, loop over decls)
+    {
+        const m = @import("sa_std/str.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/string.zig (14 fns, loop over decls)
+    {
+        const m = @import("sa_std/string.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/term.zig (7 fns, loop over decls)
+    {
+        const m = @import("sa_std/term.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/time.zig (19 fns, loop over decls)
+    {
+        const m = @import("sa_std/time.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_tls_client.zig (11 fns, loop over decls)
+    {
+        const m = @import("sa_tls_client.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_tls_server.zig (8 fns, loop over decls)
+    {
+        const m = @import("sa_tls_server.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_tls_shaped.zig (4 fns, loop over decls)
+    {
+        const m = @import("sa_tls_shaped.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_toml.zig (29 fns, loop over decls)
+    {
+        const m = @import("sa_toml.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_tree_sitter.zig (34 fns, loop over decls)
+    {
+        const m = @import("sa_tree_sitter.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_yaml.zig (31 fns, loop over decls)
+    {
+        const m = @import("sa_yaml.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_std/b64_simd.zig (loop over decls)
+    {
+        const m = @import("sa_std/b64_simd.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    if (builtin.os.tag == .linux) {
+    }
     _ = &sa_task.sa_task_spawn;
     _ = &sa_task.sa_task_detach;
     _ = &sa_task.sa_chan_make;
@@ -1219,10 +754,13 @@ comptime {
     _ = &sa_task.sa_sync_mutex_new;
     _ = &sa_task.sa_sync_waitgroup_new;
     _ = &sa_task.sa_sync_once_new;
-    _ = &@import("sa_pg.zig").sa_pg_connect;
-    _ = &@import("sa_pg.zig").sa_pg_exec;
-    _ = &@import("sa_pg.zig").sa_pg_prepare;
-    _ = &@import("sa_pg.zig").sa_pg_execute;
+    // force-emit all fns of sa_std/json.zig (loop over decls)
+    {
+        const m = @import("sa_std/json.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
     if (builtin.os.tag == .linux) {
         _ = &@import("sa_net_uring.zig").sa_netx_init;
     }
@@ -1286,24 +824,11 @@ comptime {
     }
 }
 
-pub const SA_STD_ABI_VERSION = @import("sa_std/consts.zig").SA_STD_ABI_VERSION;
 
-pub const SA_STD_OK = @import("sa_std/consts.zig").SA_STD_OK;
-pub const SA_STD_ERR_INVALID_ARGUMENT = @import("sa_std/consts.zig").SA_STD_ERR_INVALID_ARGUMENT;
-pub const SA_STD_ERR_INVALID_HANDLE = @import("sa_std/consts.zig").SA_STD_ERR_INVALID_HANDLE;
-pub const SA_STD_ERR_NOT_FOUND = @import("sa_std/consts.zig").SA_STD_ERR_NOT_FOUND;
-pub const SA_STD_ERR_ACCESS = @import("sa_std/consts.zig").SA_STD_ERR_ACCESS;
-pub const SA_STD_ERR_NO_MEMORY = @import("sa_std/consts.zig").SA_STD_ERR_NO_MEMORY;
-pub const SA_STD_ERR_IO = @import("sa_std/consts.zig").SA_STD_ERR_IO;
-pub const SA_STD_ERR_NET = @import("sa_std/consts.zig").SA_STD_ERR_NET;
-pub const SA_STD_ERR_UNSUPPORTED = @import("sa_std/consts.zig").SA_STD_ERR_UNSUPPORTED;
 
 // --- Cross-platform compat: Linux-first, macOS via conditionals ---
 // waitid/pidfd flags are Linux-only; 0 elsewhere (pidfd path is Linux-only).
-pub const w_exited = @import("sa_std/proc_wait.zig").w_exited;
-pub const w_nohang = @import("sa_std/proc_wait.zig").w_nohang;
 // MSG_PEEK: std.posix.MSG is Linux-only in zig 0.14; Darwin value is 0x2.
-pub const msg_peek: u32 = if (builtin.os.tag == .linux) std.posix.MSG.PEEK else 0x2;
 // TCP_NODELAY == 1 on Linux, macOS and FreeBSD. Spell it out: std.posix.TCP
 // is void on FreeBSD in zig 0.14, and std.os.linux.TCP.* are Linux values.
 pub const tcp_nodelay: u32 = 1;
@@ -1323,42 +848,13 @@ extern fn if_nametoindex(ifname: [*:0]const u8) c_uint;
 // exactly "recvmsg" — macOS dylibs reject undefined symbols, unlike ELF .so.
 extern "c" fn recvmsg(sockfd: std.posix.fd_t, msg: *MsghdrT, flags: c_int) isize;
 extern "c" fn __error() *c_int;
-pub fn portableRecvmsg(fd: std.posix.fd_t, msg: *MsghdrT, flags: u32) !usize {
-    if (builtin.os.tag == .linux) {
-        const rc = std.os.linux.recvmsg(fd, @as(*std.os.linux.msghdr, @ptrCast(msg)), flags);
-        return switch (std.os.linux.errno(rc)) {
-            .SUCCESS => @as(usize, @intCast(rc)),
-            else => |e| std.posix.unexpectedErrno(e),
-        };
-    } else {
-        const rc = recvmsg(fd, msg, @as(c_int, @intCast(flags)));
-        if (rc < 0) {
-            const e = @as(std.posix.E, @fromBackingInt(@intCast(__error().*)));
-            return std.posix.unexpectedErrno(e);
-        }
-        return @as(usize, @intCast(rc));
-    }
-}
-pub const SA_STD_ERR_TRUNCATED = @import("sa_std/consts.zig").SA_STD_ERR_TRUNCATED;
-pub const SA_STD_ERR_PERMISSION_DENIED = @import("sa_std/consts.zig").SA_STD_ERR_PERMISSION_DENIED;
-pub const SA_STD_ERR_ALREADY_EXISTS = @import("sa_std/consts.zig").SA_STD_ERR_ALREADY_EXISTS;
-pub const SA_STD_ERR_UNKNOWN = @import("sa_std/consts.zig").SA_STD_ERR_UNKNOWN;
 
-/// Mirrors C sa_net_iov in sa_std.h. Layout must stay { u8* base; usize len; }.
-pub const sa_net_iov = @import("sa_std/net.zig").sa_net_iov;
+// Mirrors C sa_net_iov in sa_std.h. Layout must stay { u8* base; usize len; }.
 
 /// Cap on iovec entries accepted per vectored call. Matches POSIX IOV_MAX where
 /// available and stays comfortably below common OS hard limits.
-pub const SA_NET_IOV_MAX = @import("sa_std/consts.zig").SA_NET_IOV_MAX;
 
-pub const SA_STD_STDIN = @import("sa_std/consts.zig").SA_STD_STDIN;
-pub const SA_STD_STDOUT = @import("sa_std/consts.zig").SA_STD_STDOUT;
-pub const SA_STD_STDERR = @import("sa_std/consts.zig").SA_STD_STDERR;
 
-pub const SA_FS_FILE_REGULAR = @import("sa_std/consts.zig").SA_FS_FILE_REGULAR;
-pub const SA_FS_FILE_DIR = @import("sa_std/consts.zig").SA_FS_FILE_DIR;
-pub const SA_FS_FILE_SYMLINK = @import("sa_std/consts.zig").SA_FS_FILE_SYMLINK;
-pub const SA_FS_FILE_OTHER = @import("sa_std/consts.zig").SA_FS_FILE_OTHER;
 
 pub const IP_MULTICAST_TTL_OPT: u32 = 33;
 pub const IP_MULTICAST_LOOP_OPT: u32 = 34;
@@ -1373,7 +869,6 @@ pub const IPV6_MULTICAST_IF_OPT: u32 = 17;
 
 pub const SA_PLUGIN_DESCRIPTOR_SYMBOL: [:0]const u8 = "saasm_plugin_descriptor_v1";
 
-pub const TestDebugScalar = @import("sa_std/test_debug.zig").TestDebugScalar;
 
 
 pub const SaPluginDescriptor = extern struct {
@@ -1382,70 +877,12 @@ pub const SaPluginDescriptor = extern struct {
     name: [*:0]const u8,
 };
 
-pub const SA_JSON_KIND_INVALID = @import("sa_std/consts.zig").SA_JSON_KIND_INVALID;
-pub const SA_JSON_KIND_NULL = @import("sa_std/consts.zig").SA_JSON_KIND_NULL;
-pub const SA_JSON_KIND_BOOL = @import("sa_std/consts.zig").SA_JSON_KIND_BOOL;
-pub const SA_JSON_KIND_INTEGER = @import("sa_std/consts.zig").SA_JSON_KIND_INTEGER;
-pub const SA_JSON_KIND_FLOAT = @import("sa_std/consts.zig").SA_JSON_KIND_FLOAT;
-pub const SA_JSON_KIND_NUMBER_STRING = @import("sa_std/consts.zig").SA_JSON_KIND_NUMBER_STRING;
-pub const SA_JSON_KIND_STRING = @import("sa_std/consts.zig").SA_JSON_KIND_STRING;
-pub const SA_JSON_KIND_ARRAY = @import("sa_std/consts.zig").SA_JSON_KIND_ARRAY;
-pub const SA_JSON_KIND_OBJECT = @import("sa_std/consts.zig").SA_JSON_KIND_OBJECT;
 
-pub const SA_JSON_TOKEN_INVALID = @import("sa_std/consts.zig").SA_JSON_TOKEN_INVALID;
-pub const SA_JSON_TOKEN_OBJECT_BEGIN = @import("sa_std/consts.zig").SA_JSON_TOKEN_OBJECT_BEGIN;
-pub const SA_JSON_TOKEN_OBJECT_END = @import("sa_std/consts.zig").SA_JSON_TOKEN_OBJECT_END;
-pub const SA_JSON_TOKEN_ARRAY_BEGIN = @import("sa_std/consts.zig").SA_JSON_TOKEN_ARRAY_BEGIN;
-pub const SA_JSON_TOKEN_ARRAY_END = @import("sa_std/consts.zig").SA_JSON_TOKEN_ARRAY_END;
-pub const SA_JSON_TOKEN_TRUE = @import("sa_std/consts.zig").SA_JSON_TOKEN_TRUE;
-pub const SA_JSON_TOKEN_FALSE = @import("sa_std/consts.zig").SA_JSON_TOKEN_FALSE;
-pub const SA_JSON_TOKEN_NULL = @import("sa_std/consts.zig").SA_JSON_TOKEN_NULL;
-pub const SA_JSON_TOKEN_NUMBER = @import("sa_std/consts.zig").SA_JSON_TOKEN_NUMBER;
-pub const SA_JSON_TOKEN_PARTIAL_NUMBER = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_NUMBER;
-pub const SA_JSON_TOKEN_STRING = @import("sa_std/consts.zig").SA_JSON_TOKEN_STRING;
-pub const SA_JSON_TOKEN_PARTIAL_STRING = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING;
-pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_1 = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_1;
-pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_2 = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_2;
-pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_3 = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_3;
-pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_4 = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_4;
-pub const SA_JSON_TOKEN_END_OF_DOCUMENT = @import("sa_std/consts.zig").SA_JSON_TOKEN_END_OF_DOCUMENT;
-pub const SA_JSON_TOKEN_ALLOCATED_NUMBER = @import("sa_std/consts.zig").SA_JSON_TOKEN_ALLOCATED_NUMBER;
-pub const SA_JSON_TOKEN_ALLOCATED_STRING = @import("sa_std/consts.zig").SA_JSON_TOKEN_ALLOCATED_STRING;
 
-pub const SA_JSON_WHITESPACE_MINIFIED = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_MINIFIED;
-pub const SA_JSON_WHITESPACE_INDENT_1 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_1;
-pub const SA_JSON_WHITESPACE_INDENT_2 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_2;
-pub const SA_JSON_WHITESPACE_INDENT_3 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_3;
-pub const SA_JSON_WHITESPACE_INDENT_4 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_4;
-pub const SA_JSON_WHITESPACE_INDENT_8 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_8;
-pub const SA_JSON_WHITESPACE_INDENT_TAB = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_TAB;
 
-pub const SA_REGEX_EXTENDED = @import("sa_std/consts.zig").SA_REGEX_EXTENDED;
-pub const SA_REGEX_ICASE = @import("sa_std/consts.zig").SA_REGEX_ICASE;
-pub const SA_REGEX_NEWLINE = @import("sa_std/consts.zig").SA_REGEX_NEWLINE;
-pub const SA_REGEX_NOSUB = @import("sa_std/consts.zig").SA_REGEX_NOSUB;
-pub const SA_REGEX_NOTBOL = @import("sa_std/consts.zig").SA_REGEX_NOTBOL;
-pub const SA_REGEX_NOTEOL = @import("sa_std/consts.zig").SA_REGEX_NOTEOL;
 // eflags slot value for regexec: restrict the search to the pmatch[0] range
 // while reporting absolute offsets. glibc assigns it the same numeric value
 // as the SA_REGEX_NEWLINE *cflag*; the two live in different parameters.
-pub const SA_REGEX_STARTEND = @import("sa_std/consts.zig").SA_REGEX_STARTEND;
-pub const SA_REGEX_REG_NOERROR = @import("sa_std/consts.zig").SA_REGEX_REG_NOERROR;
-pub const SA_REGEX_REG_OK = @import("sa_std/consts.zig").SA_REGEX_REG_OK;
-pub const SA_REGEX_REG_NOMATCH = @import("sa_std/consts.zig").SA_REGEX_REG_NOMATCH;
-pub const SA_REGEX_REG_BADPAT = @import("sa_std/consts.zig").SA_REGEX_REG_BADPAT;
-pub const SA_REGEX_REG_ECOLLATE = @import("sa_std/consts.zig").SA_REGEX_REG_ECOLLATE;
-pub const SA_REGEX_REG_ECTYPE = @import("sa_std/consts.zig").SA_REGEX_REG_ECTYPE;
-pub const SA_REGEX_REG_EESCAPE = @import("sa_std/consts.zig").SA_REGEX_REG_EESCAPE;
-pub const SA_REGEX_REG_ESUBREG = @import("sa_std/consts.zig").SA_REGEX_REG_ESUBREG;
-pub const SA_REGEX_REG_EBRACK = @import("sa_std/consts.zig").SA_REGEX_REG_EBRACK;
-pub const SA_REGEX_REG_EPAREN = @import("sa_std/consts.zig").SA_REGEX_REG_EPAREN;
-pub const SA_REGEX_REG_EBRACE = @import("sa_std/consts.zig").SA_REGEX_REG_EBRACE;
-pub const SA_REGEX_REG_BADBR = @import("sa_std/consts.zig").SA_REGEX_REG_BADBR;
-pub const SA_REGEX_REG_ERANGE = @import("sa_std/consts.zig").SA_REGEX_REG_ERANGE;
-pub const SA_REGEX_REG_ESPACE = @import("sa_std/consts.zig").SA_REGEX_REG_ESPACE;
-pub const SA_REGEX_REG_BADRPT = @import("sa_std/consts.zig").SA_REGEX_REG_BADRPT;
-pub const SA_REGEX_REG_ENOSYS = @import("sa_std/consts.zig").SA_REGEX_REG_ENOSYS;
 
 pub const SaJsonToken = extern struct {
     kind: u32,
@@ -1461,7 +898,6 @@ pub const SaJsonStringifyOptions = extern struct {
     emit_nonportable_numbers_as_strings: u8 = 0,
 };
 
-const FIRST_DYNAMIC_HANDLE: u64 = 4;
 const DEFAULT_CAPTURE_LIMIT: usize = 50 * 1024;
 
 const empty_bytes: [0]u8 = .{};
@@ -1477,11 +913,8 @@ const BufferHandle = struct {
     }
 };
 
-pub const MetadataHandle = @import("sa_std/dir_stat.zig").MetadataHandle;
 
-pub const DirEntrySnapshot = @import("sa_std/dir_stat.zig").DirEntrySnapshot;
 
-pub const DirEntriesHandle = @import("sa_std/dir_stat.zig").DirEntriesHandle;
 
 const DirEntryHandle = struct {
     allocator: std.mem.Allocator,
@@ -1526,90 +959,11 @@ const NetAddrListHandle = struct {
         self.next_index = 0;
     }
 };
-pub const SA_NET_UNIX_ADDR_UNNAMED = @import("sa_std/consts.zig").SA_NET_UNIX_ADDR_UNNAMED;
-pub const SA_NET_UNIX_ADDR_PATHNAME = @import("sa_std/consts.zig").SA_NET_UNIX_ADDR_PATHNAME;
-pub const SA_NET_UNIX_ADDR_ABSTRACT = @import("sa_std/consts.zig").SA_NET_UNIX_ADDR_ABSTRACT;
 
-const UnixAddrHandle = struct {
-    allocator: std.mem.Allocator,
-    kind: u32,
-    bytes: []u8,
 
-    pub fn deinit(self: *UnixAddrHandle) void {
-        if (self.bytes.len != 0) self.allocator.free(self.bytes);
-        self.bytes = &.{};
-    }
-};
 
-const unix_sockaddr_path_offset: usize = if (is_wasm) 2 else @offsetOf(SockAddrUnT, "path");
 
-pub fn unixAddrFromSockaddr(allocator: std.mem.Allocator, addr: SockAddrUnT, len_raw: SockLenT) !UnixAddrHandle {
-    var len = @as(usize, @intCast(len_raw));
-    if (len == 0) len = unix_sockaddr_path_offset;
-    if (len <= unix_sockaddr_path_offset) {
-        return .{ .allocator = allocator, .kind = SA_NET_UNIX_ADDR_UNNAMED, .bytes = &.{} };
-    }
-    if (addr.family != AFT.UNIX) return error.InvalidArgument;
 
-    const available = @min(len - unix_sockaddr_path_offset, addr.path.len);
-    if (available == 0) {
-        return .{ .allocator = allocator, .kind = SA_NET_UNIX_ADDR_UNNAMED, .bytes = &.{} };
-    }
-
-    if (addr.path[0] == 0) {
-        if (available <= 1) return .{ .allocator = allocator, .kind = SA_NET_UNIX_ADDR_UNNAMED, .bytes = &.{} };
-        const name = try allocator.dupe(u8, addr.path[1..available]);
-        return .{ .allocator = allocator, .kind = SA_NET_UNIX_ADDR_ABSTRACT, .bytes = name };
-    }
-
-    var path_len = available;
-    if (path_len > 0 and addr.path[path_len - 1] == 0) path_len -= 1;
-    const path = try allocator.dupe(u8, addr.path[0..path_len]);
-    return .{ .allocator = allocator, .kind = SA_NET_UNIX_ADDR_PATHNAME, .bytes = path };
-}
-
-pub fn registerUnixAddrOutLocked(addr: SockAddrUnT, len: SockLenT, out_handle: *u64) i32 {
-    var unix_addr = unixAddrFromSockaddr(std.heap.page_allocator, addr, len) catch |err| return finishErr(err);
-    const handle = registerResourceLocked(.{ .unix_addr = unix_addr }) catch |err| {
-        unix_addr.deinit();
-        return finishErr(err);
-    };
-    out_handle.* = handle;
-    return finish(SA_STD_OK);
-}
-
-pub fn unixSockAddrFromHandle(handle: u64) !UnixSockAddr {
-    // wasm32-wasi has no unix sockets; stub to keep archive compilable.
-    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
-    return switch (resource.*) {
-        .unix_addr => |unix_addr| blk: {
-            var addr: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
-            @memset(&addr.path, 0);
-            switch (unix_addr.kind) {
-                SA_NET_UNIX_ADDR_UNNAMED => break :blk .{ .addr = addr, .len = @as(SockLenT, @intCast(unix_sockaddr_path_offset)) },
-                SA_NET_UNIX_ADDR_PATHNAME => {
-                    if (unix_addr.bytes.len == 0 or unix_addr.bytes.len >= addr.path.len) return error.InvalidArgument;
-                    if (std.mem.indexOfScalar(u8, unix_addr.bytes, 0) != null) return error.InvalidArgument;
-                    @memcpy(addr.path[0..unix_addr.bytes.len], unix_addr.bytes);
-                    break :blk .{ .addr = addr, .len = @as(SockLenT, @intCast(unix_sockaddr_path_offset + unix_addr.bytes.len + 1)) };
-                },
-                SA_NET_UNIX_ADDR_ABSTRACT => {
-                    if (unix_addr.bytes.len + 1 > addr.path.len) return error.InvalidArgument;
-                    addr.path[0] = 0;
-                    if (unix_addr.bytes.len != 0) @memcpy(addr.path[1 .. 1 + unix_addr.bytes.len], unix_addr.bytes);
-                    break :blk .{ .addr = addr, .len = @as(SockLenT, @intCast(unix_sockaddr_path_offset + 1 + unix_addr.bytes.len)) };
-                },
-                else => return error.InvalidArgument,
-            }
-        },
-        else => error.InvalidHandle,
-    };
-}
 
 pub fn registerNetAddrList(host: []const u8, port: u16) !u64 {
     var list = try netGetAddressList(std.heap.page_allocator, host, port);
@@ -1685,7 +1039,6 @@ const FmtHandle = struct {
     }
 };
 
-pub const JsonDocumentHandle = @import("sa_std/json_node.zig").JsonDocumentHandle;
 
 // A JSON node handle addresses a value inside its document tree by PATH
 // (object keys / array indices from the document root). Every acquire
@@ -1694,15 +1047,11 @@ pub const JsonDocumentHandle = @import("sa_std/json_node.zig").JsonDocumentHandl
 // document. Removing the exact key a handle points at (or an ancestor of
 // it) detaches the handle: later operations fail with InvalidHandle
 // instead of reading a stale snapshot.
-pub const JsonPathSegment = @import("sa_std/json_node.zig").JsonPathSegment;
 
-pub const freeJsonPath = @import("sa_std/json_node.zig").freeJsonPath;
 
 // Returns a fully-owned copy of `base` with `segment` appended (key bytes
 // duplicated with `allocator`).
-pub const jsonPathAppend = @import("sa_std/json_node.zig").jsonPathAppend;
 
-pub const JsonNodeHandle = @import("sa_std/json_node.zig").JsonNodeHandle;
 
 pub const JsonBufferHandle = struct {
     allocator: std.mem.Allocator,
@@ -1714,9 +1063,7 @@ pub const JsonBufferHandle = struct {
     }
 };
 
-pub const JsonScannerHandle = @import("sa_std/json_scan.zig").JsonScannerHandle;
 
-pub const JsonStreamHandle = @import("sa_std/json_scan.zig").JsonStreamHandle;
 
 pub const JsonWriterHandle = struct {
     allocator: std.mem.Allocator,
@@ -1792,57 +1139,43 @@ pub const RegexHandle = struct {
     }
 };
 
-pub const RegexMatchHandle = @import("sa_std/regex_core.zig").RegexMatchHandle;
 
-pub const RegexMatchListHandle = @import("sa_std/regex_core.zig").RegexMatchListHandle;
 
-pub const RegexSplitListHandle = @import("sa_std/regex_core.zig").RegexSplitListHandle;
 
-pub const RegexBufferHandle = @import("sa_std/regex_core.zig").RegexBufferHandle;
 
-pub const regexErrorToZig = @import("sa_std/regex_core.zig").regexErrorToZig;
 
-pub const regexGroupCount = @import("sa_std/regex_core.zig").regexGroupCount;
 
-pub const regexMatchHandle = @import("sa_std/regex_core.zig").regexMatchHandle;
 
 // Copies text into an owned NUL-terminated buffer, rejecting embedded NUL
 // bytes exactly like regexMatchHandle does.
-pub const regexOwnedTextZ = @import("sa_std/regex_core.zig").regexOwnedTextZ;
 
 // Runs regexec over the byte range [start, end) of an owned NUL-terminated
 // text using REG_STARTEND, so reported offsets stay absolute and `^` / `$`
 // keep whole-text semantics. Returns the raw regcomp-family status code.
-pub const regexExecRange = @import("sa_std/regex_core.zig").regexExecRange;
 
 // Collects every non-overlapping match in text_z (an owned NUL-terminated
 // copy), in left-to-right order. After an empty match the search advances
 // one byte — the byte-level form of the JS global-exec loop (JS advances
 // one code point; this engine is byte-oriented). Caller owns the returned
 // outer slice and every inner groups slice.
-pub const regexCollectMatches = @import("sa_std/regex_core.zig").regexCollectMatches;
 
-pub const regexAppendGroup = @import("sa_std/regex_core.zig").regexAppendGroup;
 
 // Appends the JS-style substitution of `replacement` for one match:
 // $$ is a literal $, $& the whole match, $` the text before the match,
 // $' the text after it, and $n / $nn capture groups (a group that did not
 // participate expands to nothing; an out-of-range $n stays literal).
 // $<name> passes through literally: POSIX ERE has no named groups.
-pub const regexAppendExpansion = @import("sa_std/regex_core.zig").regexAppendExpansion;
 
 // Builds the replaced text. With `global` false only the first match is
 // replaced (JS String.replace without /g); with true every match from the
 // global iteration is replaced (JS /g and replaceAll). The result is an
 // owned slice; when nothing matches it is a copy of the input text.
-pub const regexBuildReplace = @import("sa_std/regex_core.zig").regexBuildReplace;
 
 // Builds the piece list for JS String.split semantics over text_z. Pieces
 // are (start, end) ranges into text_z; non-participating capture groups
 // keep rm_so < 0. `limit` caps the TOTAL piece count (groups included);
 // limit == 0 means no limit in this API (JS limit 0 returns [] — a
 // deliberate divergence, documented in regex.sai).
-pub const regexSplitHandle = @import("sa_std/regex_core.zig").regexSplitHandle;
 
 pub fn jsonKindOf(value: std.json.Value) u32 {
     return switch (value) {
@@ -1857,7 +1190,6 @@ pub fn jsonKindOf(value: std.json.Value) u32 {
     };
 }
 
-pub const jsonTextSlice = @import("sa_std/json_util.zig").jsonTextSlice;
 
 pub fn jsonValueAsF64(value: std.json.Value) !f64 {
     return switch (value) {
@@ -1899,27 +1231,17 @@ pub fn jsonValueAsBool(value: std.json.Value) !bool {
     };
 }
 
-pub const registerJsonNode = @import("sa_std/json_node.zig").registerJsonNode;
 
-pub const acquireJsonNode = @import("sa_std/json_node.zig").acquireJsonNode;
 
 // Walks `path` from the document root and returns a pointer to the live
 // tree value. The pointer is only valid until the next tree mutation.
-pub const jsonResolvePathPtr = @import("sa_std/json_node.zig").jsonResolvePathPtr;
 
-pub const jsonResolvePath = @import("sa_std/json_node.zig").jsonResolvePath;
 
-pub const jsonDocumentFromSlice = @import("sa_std/json_node.zig").jsonDocumentFromSlice;
 
-pub const jsonObjectGet = @import("sa_std/json_node.zig").jsonObjectGet;
 
-pub const jsonArrayGet = @import("sa_std/json_node.zig").jsonArrayGet;
 
-pub const jsonObjectKeyAt = @import("sa_std/json_node.zig").jsonObjectKeyAt;
 
-pub const jsonStringifyAlloc = @import("sa_std/json_util.zig").jsonStringifyAlloc;
 
-pub const jsonSerializeBuffer = @import("sa_std/json_util.zig").jsonSerializeBuffer;
 
 // Deep-copies a JSON value into `allocator` (the target document's arena),
 // duplicating every string, array and object so the copy shares no storage
@@ -1952,17 +1274,12 @@ pub fn jsonValueClone(allocator: std.mem.Allocator, value: std.json.Value) !std.
     };
 }
 
-pub const JsonMutation = @import("sa_std/json_node.zig").JsonMutation;
 
 // Resolves the handle's slot under the registry lock for an in-place tree
 // mutation. The caller must hold no other registry acquisition.
-pub const jsonMutationTarget = @import("sa_std/json_node.zig").jsonMutationTarget;
 
-pub const jsonObjectSetLocked = @import("sa_std/json_node.zig").jsonObjectSetLocked;
 
-pub const jsonArrayPushLocked = @import("sa_std/json_node.zig").jsonArrayPushLocked;
 
-pub const jsonObjectRemoveLocked = @import("sa_std/json_node.zig").jsonObjectRemoveLocked;
 
 pub fn acquireJsonWriterForWrite(writer: u64) !*JsonWriterHandle {
     const resource = getResourceLocked(writer) orelse return error.InvalidHandle;
@@ -2019,9 +1336,7 @@ pub fn tokenTextSlice(token: std.json.Token) ?[]const u8 {
     };
 }
 
-pub const tokenTextBytes = @import("sa_std/json_scan.zig").tokenTextBytes;
 
-pub const jsonScannerFeed = @import("sa_std/json_scan.zig").jsonScannerFeed;
 
 const EnvHandle = struct {
     allocator: std.mem.Allocator,
@@ -2053,9 +1368,7 @@ const SaNetAddr = extern struct {
     scope_id: u64,
 };
 
-const Timeval = std.posix.timeval;
-const TimevalSec = @TypeOf(@as(Timeval, .{ .sec = 0, .usec = 0 }).sec);
-const TimevalUsec = @TypeOf(@as(Timeval, .{ .sec = 0, .usec = 0 }).usec);
+pub const Timeval = std.posix.timeval;
 const LingerOption = extern struct { onoff: i32, linger: i32 };
 pub const Timespec = std.posix.timespec;
 const TimespecSec = @TypeOf(@as(Timespec, .{ .sec = 0, .nsec = 0 }).sec);
@@ -2096,7 +1409,6 @@ pub const SaTermEpollEvent = extern struct {
     data: u64,
 };
 
-pub const ProcessHandle = @import("sa_std/proc_wait.zig").ProcessHandle;
 
 pub const TcpListener = struct {
     fd: std.posix.fd_t,
@@ -2174,54 +1486,32 @@ pub const Resource = union(enum) {
 };
 
 pub var registry_mutex: std.atomic.Mutex = .unlocked;
-var registry_slots = std.array_list.Managed(?Resource).init(std.heap.page_allocator);
 pub threadlocal var last_error: i32 = SA_STD_OK;
 var compatibility_mmap_page: [4096]u8 = std.mem.zeroes([4096]u8);
-pub const compatibility_dlopen_cookie = @import("sa_std/dlopen.zig").compatibility_dlopen_cookie;
 var compatibility_dlsym_cookie: [1]u8 = .{0};
-pub const compatibility_dl_error = @import("sa_std/dlopen.zig").compatibility_dl_error;
 
-pub const DynamicLibHandle = @import("sa_std/dlopen.zig").DynamicLibHandle;
 
-pub const PthreadEntryFn = @import("sa_std/pthread.zig").PthreadEntryFn;
 
 extern fn sa_host_pthread_create(thread: *std.c.pthread_t, attr: ?*const std.c.pthread_attr_t, start_routine: *const fn (?*anyopaque) callconv(.c) ?*anyopaque, arg: ?*anyopaque) callconv(.c) c_int;
 extern fn sa_host_pthread_join(thread: std.c.pthread_t, retval: ?*?*anyopaque) callconv(.c) c_int;
 extern fn sa_host_pthread_detach(thread: std.c.pthread_t) callconv(.c) c_int;
 
-pub const PthreadTask = @import("sa_std/pthread.zig").PthreadTask;
 
-pub const PthreadHandle = @import("sa_std/pthread.zig").PthreadHandle;
 
-pub const RawPthreadOwner = @import("sa_std/pthread.zig").RawPthreadOwner;
 
-pub const RawPthreadTransfer = @import("sa_std/pthread.zig").RawPthreadTransfer;
 
-pub const pthreadToRaw = @import("sa_std/pthread.zig").pthreadToRaw;
 
-pub const rawToPthread = @import("sa_std/pthread.zig").rawToPthread;
 
-pub const pthreadTaskMain = @import("sa_std/pthread.zig").pthreadTaskMain;
 
-pub const pthreadTaskMainC = @import("sa_std/pthread.zig").pthreadTaskMainC;
 
-pub const mapPthreadCreateError = @import("sa_std/pthread.zig").mapPthreadCreateError;
 
-pub const spawnPthread = @import("sa_std/pthread.zig").spawnPthread;
 
-pub const joinPthreadHandle = @import("sa_std/pthread.zig").joinPthreadHandle;
 
-pub const allocPthreadHandle = @import("sa_std/pthread.zig").allocPthreadHandle;
 
-pub const takePthreadHandle = @import("sa_std/pthread.zig").takePthreadHandle;
 
-pub const freePthreadHandle = @import("sa_std/pthread.zig").freePthreadHandle;
 
-pub const transferPthreadHandleToRaw = @import("sa_std/pthread.zig").transferPthreadHandleToRaw;
 
-pub const findRawPthreadTask = @import("sa_std/pthread.zig").findRawPthreadTask;
 
-pub const removeRawPthreadOwner = @import("sa_std/pthread.zig").removeRawPthreadOwner;
 
 
 pub fn finish(status: i32) i32 {
@@ -2355,12 +1645,6 @@ pub fn constBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
     return p[0..n];
 }
 
-fn constU32s(ptr: ?[*]const u32, len: u64) ![]const u32 {
-    const n = try lenAsUsize(len);
-    if (n == 0) return &.{};
-    const p = ptr orelse return error.InvalidArgument;
-    return p[0..n];
-}
 
 pub fn mutBytes(ptr: ?[*]u8, len: u64) ![]u8 {
     const n = try lenAsUsize(len);
@@ -2376,27 +1660,10 @@ pub fn pathBytes(ptr: ?[*]const u8, len: u64) ![]const u8 {
     return path;
 }
 
-pub const hostBytes = @import("sa_std/ip_parse.zig").hostBytes;
 
 
-pub const portFromU32 = @import("sa_std/ip_parse.zig").portFromU32;
 
-pub fn timevalFromNs(ns: u64) !Timeval {
-    const sec = ns / std.time.ns_per_s;
-    const usec = (ns % std.time.ns_per_s) / std.time.ns_per_us;
-    return .{
-        .sec = std.math.cast(TimevalSec, sec) orelse return error.InvalidArgument,
-        .usec = std.math.cast(TimevalUsec, usec) orelse return error.InvalidArgument,
-    };
-}
 
-pub fn nsFromTimeval(tv: Timeval) !u64 {
-    const sec = std.math.cast(u64, tv.sec) orelse return error.InvalidArgument;
-    const usec = std.math.cast(u64, tv.usec) orelse return error.InvalidArgument;
-    const sec_ns = std.math.mul(u64, sec, std.time.ns_per_s) catch return error.InvalidArgument;
-    const usec_ns = std.math.mul(u64, usec, std.time.ns_per_us) catch return error.InvalidArgument;
-    return std.math.add(u64, sec_ns, usec_ns) catch return error.InvalidArgument;
-}
 
 pub fn setSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled: bool) !void {
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
@@ -2415,10 +1682,6 @@ pub fn setSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32, value: u32)
     try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&mutable));
 }
 
-pub fn setSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32, ns: u64) !void {
-    const tv = try timevalFromNs(ns);
-    try std.posix.setsockopt(fd, level, optname, std.mem.asBytes(&tv));
-}
 
 pub fn setSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32, value: u8) !void {
     var mutable = value;
@@ -2455,19 +1718,6 @@ pub fn getSocketOptLinger(fd: std.posix.fd_t) !LingerOption {
     }
 }
 
-pub fn getSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32) !bool {
-    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
-    var value: i32 = 0;
-    var len: SockLenT = @sizeOf(i32);
-    const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
-    switch (std.os.linux.errno(rc)) {
-        .SUCCESS => {
-            if (len != @sizeOf(i32)) return error.UnexpectedSize;
-            return value != 0;
-        },
-        else => return error.InvalidArgument,
-    }
-}
 
 // DEF-NET-V6-DTLS (D1): raw setsockopt that surfaces kernel refusals as
 // errors. std.posix.setsockopt maps EINVAL/BADF/NOTSOCK to `unreachable`,
@@ -2475,15 +1725,6 @@ pub fn getSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32) !bool {
 // IPV6_V6ONLY on an already-bound socket, which the kernel only accepts
 // before bind. Callers that can honour the option another way need the
 // errno, not a trap.
-pub fn lxSetSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled: bool) !void {
-    if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
-    var value: i32 = if (enabled) 1 else 0;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.setsockopt(fd, level, optname, @as([*]const u8, @ptrCast(&value)), @as(SockLenT, @sizeOf(i32))));
-        return;
-    }
-    try libcErrRc(libc.setsockopt(fd, level, @as(c_int, @intCast(optname)), @as(*const anyopaque, @ptrCast(&value)), @as(libc_socklen_t, @sizeOf(i32))));
-}
 
 // IPV6_V6ONLY is a bind-time option: once a socket is bound the kernel
 // refuses to change it (EINVAL). Every socket behind a registry handle
@@ -2494,121 +1735,14 @@ pub fn lxSetSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled:
 // bind-time option after bind. On a bind failure the pre-change socket
 // shape is restored best-effort so a failed change does not silently
 // destroy a working handle.
-pub fn rebuildTcpListenerV6Only(listener: u64, enabled: bool) !void {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(listener) orelse return error.InvalidHandle;
-    const server = switch (resource.*) {
-        .tcp_listener => |value| value,
-        else => return error.InvalidHandle,
-    };
-    const orig_only_v6 = getSocketOptBool(server.fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY) catch false;
-    const flags = lxFcntl(server.fd, std.posix.F.GETFL, 0) catch 0;
-    const nb_mask = @as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK");
-    const new_fd = try lxSocket(AFT.INET6, SOCKT.STREAM | SOCKT.CLOEXEC, IPPROTOT.TCP);
-    lxSetSocketOptBool(new_fd, SOLT.SOCKET, SOT.REUSEADDR, true) catch |err| {
-        lxClose(new_fd);
-        return err;
-    };
-    lxSetSocketOptBool(new_fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY, enabled) catch |err| {
-        lxClose(new_fd);
-        return err;
-    };
-    if (flags & nb_mask != 0) {
-        _ = lxFcntl(new_fd, std.posix.F.SETFL, nb_mask) catch {};
-    }
-    lxClose(server.fd);
-    lxBind(new_fd, server.addr.sockAddr(), server.addr.getOsSockLen()) catch |err| {
-        lxClose(new_fd);
-        const fallback = lxSocket(AFT.INET6, SOCKT.STREAM | SOCKT.CLOEXEC, IPPROTOT.TCP) catch return err;
-        lxSetSocketOptBool(fallback, SOLT.SOCKET, SOT.REUSEADDR, true) catch {};
-        lxSetSocketOptBool(fallback, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY, orig_only_v6) catch {};
-        if (flags & nb_mask != 0) {
-            _ = lxFcntl(fallback, std.posix.F.SETFL, nb_mask) catch {};
-        }
-        lxBind(fallback, server.addr.sockAddr(), server.addr.getOsSockLen()) catch {
-            lxClose(fallback);
-            return err;
-        };
-        resource.* = .{ .tcp_listener = .{ .fd = fallback, .addr = server.addr } };
-        lxListen(fallback, 128) catch {};
-        return err;
-    };
-    resource.* = .{ .tcp_listener = .{ .fd = new_fd, .addr = server.addr } };
-    try lxListen(new_fd, 128);
-}
 
-pub fn rebuildUdpSocketV6Only(socket: u64, enabled: bool) !void {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(socket) orelse return error.InvalidHandle;
-    const old_fd = switch (resource.*) {
-        .udp_socket => |value| value,
-        else => return error.InvalidHandle,
-    };
-    var addr = NetAddress{};
-    var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
-    try lxGetsockname(old_fd, addr.sockAddrMut(), &addr_len);
-    addr.len = addr_len;
-    const orig_only_v6 = getSocketOptBool(old_fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY) catch false;
-    const broadcast = getSocketOptBool(old_fd, SOLT.SOCKET, SOT.BROADCAST) catch false;
-    const rcv_timeout = getSocketOptTimeval(old_fd, SOLT.SOCKET, SOT.RCVTIMEO) catch 0;
-    const snd_timeout = getSocketOptTimeval(old_fd, SOLT.SOCKET, SOT.SNDTIMEO) catch 0;
-    const flags = lxFcntl(old_fd, std.posix.F.GETFL, 0) catch 0;
-    const nb_mask = @as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK");
-    const prep = struct {
-        fn apply(fd: std.posix.fd_t, only_v6: bool, bcast: bool, rcv_ns: u64, snd_ns: u64, nb: usize) !void {
-            try lxSetSocketOptBool(fd, IPPROTOT.IPV6, std.posix.IPV6.V6ONLY, only_v6);
-            if (bcast) try lxSetSocketOptBool(fd, SOLT.SOCKET, SOT.BROADCAST, true);
-            if (rcv_ns != 0) try setSocketOptTimeval(fd, SOLT.SOCKET, SOT.RCVTIMEO, rcv_ns);
-            if (snd_ns != 0) try setSocketOptTimeval(fd, SOLT.SOCKET, SOT.SNDTIMEO, snd_ns);
-            if (nb != 0) {
-                _ = try lxFcntl(fd, std.posix.F.SETFL, nb);
-            }
-        }
-    };
-    const new_fd = try lxSocket(AFT.INET6, SOCKT.DGRAM | SOCKT.CLOEXEC, IPPROTOT.UDP);
-    prep.apply(new_fd, enabled, broadcast, rcv_timeout, snd_timeout, flags & nb_mask) catch |err| {
-        lxClose(new_fd);
-        return err;
-    };
-    lxClose(old_fd);
-    lxBind(new_fd, addr.sockAddr(), addr.getOsSockLen()) catch |err| {
-        lxClose(new_fd);
-        const fallback = lxSocket(AFT.INET6, SOCKT.DGRAM | SOCKT.CLOEXEC, IPPROTOT.UDP) catch return err;
-        prep.apply(fallback, orig_only_v6, broadcast, rcv_timeout, snd_timeout, flags & nb_mask) catch {};
-        lxBind(fallback, addr.sockAddr(), addr.getOsSockLen()) catch {
-            lxClose(fallback);
-            return err;
-        };
-        resource.* = .{ .udp_socket = fallback };
-        return err;
-    };
-    resource.* = .{ .udp_socket = new_fd };
-}
 
-const LinuxUCred = extern struct {
+pub const LinuxUCred = extern struct {
     pid: i32,
     uid: u32,
     gid: u32,
 };
 
-pub fn getUnixPeerCred(fd: std.posix.fd_t) !LinuxUCred {
-    var value: LinuxUCred = .{ .pid = 0, .uid = 0, .gid = 0 };
-    var len: SockLenT = @sizeOf(LinuxUCred);
-    const rc = std.os.linux.getsockopt(fd, SOLT.SOCKET, std.os.linux.SO.PEERCRED, @as([*]u8, @ptrCast(&value)), &len);
-    switch (std.os.linux.errno(rc)) {
-        .SUCCESS => {
-            if (len != @sizeOf(LinuxUCred)) return error.UnexpectedSize;
-            return value;
-        },
-        else => return error.InvalidArgument,
-    }
-}
 
 // W1-DEF-UNIX-DGRAM-PEERCRED-ZERO: for path-bound unix datagram
 // sockets the kernel answers SO_PEERCRED with the zero sentinel
@@ -2621,42 +1755,9 @@ pub fn getUnixPeerCred(fd: std.posix.fd_t) !LinuxUCred {
 // keyed by (handle, fd) and revalidated against the live registry
 // on lookup, so a recycled handle/fd pair cannot resurrect a
 // stale credential. All access under registry_mutex.
-const PeerCredSlot = struct {
-    handle: u64 = 0,
-    fd: std.posix.fd_t = -1,
-    cred: LinuxUCred = .{ .pid = 0, .uid = 0, .gid = 0 },
-};
 
-var peer_cred_slots: [128]PeerCredSlot = blk: {
-    var slots: [128]PeerCredSlot = undefined;
-    for (&slots) |*slot| slot.* = .{};
-    break :blk slots;
-};
-var peer_cred_cursor: usize = 0;
 
-fn storeHarvestedPeerCredLocked(handle: u64, fd: std.posix.fd_t, cred: LinuxUCred) void {
-    for (&peer_cred_slots) |*slot| {
-        if (slot.handle == handle and slot.fd == fd) {
-            slot.cred = cred;
-            return;
-        }
-    }
-    peer_cred_slots[peer_cred_cursor] = .{ .handle = handle, .fd = fd, .cred = cred };
-    peer_cred_cursor = (peer_cred_cursor + 1) % peer_cred_slots.len;
-}
 
-pub fn harvestedPeerCredLocked(handle: u64, fd: std.posix.fd_t) ?LinuxUCred {
-    const resource = getResourceLocked(handle) orelse return null;
-    const live_fd = switch (resource.*) {
-        .udp_socket => |value| value,
-        else => return null,
-    };
-    if (live_fd != fd) return null;
-    for (&peer_cred_slots) |*slot| {
-        if (slot.handle == handle and slot.fd == fd) return slot.cred;
-    }
-    return null;
-}
 
 /// Unix datagram sockets in this std carry SO_PASSCRED from birth
 /// so the receive path can harvest SCM_CREDENTIALS (see above).
@@ -2670,27 +1771,6 @@ pub fn armPeerCredHarvest(fd: std.posix.fd_t) void {
 
 /// Extract the sender credential from a recvmsg control chain
 /// (SOL_SOCKET / SCM_CREDENTIALS), same walk as udp_recv_msg.
-fn scmCredentials(ctrl: []const u8) ?LinuxUCred {
-    var off: usize = 0;
-    while (off + 16 <= ctrl.len) {
-        const cmsg_len = @as(usize, @intCast(std.mem.readInt(u64, ctrl[off..][0..8], .little)));
-        if (cmsg_len < 16 or off + cmsg_len > ctrl.len) break;
-        const level = std.mem.readInt(i32, ctrl[off + 8 ..][0..4], .little);
-        const ctype = std.mem.readInt(i32, ctrl[off + 12 ..][0..4], .little);
-        const data = ctrl[off + 16 .. off + cmsg_len];
-        if (level == cmsg_level_socket and ctype == 2 and data.len >= @sizeOf(LinuxUCred)) {
-            return .{
-                .pid = std.mem.readInt(i32, data[0..4], .little),
-                .uid = std.mem.readInt(u32, data[4..8], .little),
-                .gid = std.mem.readInt(u32, data[8..12], .little),
-            };
-        }
-        const step = cmsgAlign(cmsg_len);
-        if (step == 0) break;
-        off += step;
-    }
-    return null;
-}
 
 pub fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
@@ -2706,18 +1786,6 @@ pub fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
     }
 }
 
-pub fn getSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32) !u64 {
-    var tv: Timeval = .{ .sec = 0, .usec = 0 };
-    var len: SockLenT = @sizeOf(Timeval);
-    const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&tv)), &len);
-    switch (std.os.linux.errno(rc)) {
-        .SUCCESS => {
-            if (len != @sizeOf(Timeval)) return error.UnexpectedSize;
-            return try nsFromTimeval(tv);
-        },
-        else => return error.InvalidArgument,
-    }
-}
 
 pub fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
     var value: u8 = 0;
@@ -2756,21 +1824,8 @@ pub fn getSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, out: []u8
     }
 }
 
-pub fn socketAddressFamily(fd: std.posix.fd_t) !u16 {
-    var storage: SockAddrStorageT = makeSockAddrStorage();
-    var addr_len: SockLenT = @sizeOf(SockAddrStorageT);
-    try lxGetsockname(fd, @ptrCast(&storage), &addr_len);
-    return storage.family;
-}
 
-pub fn socketIsUnix(fd: std.posix.fd_t) !bool {
-    return (try socketAddressFamily(fd)) == AFT.UNIX;
-}
 
-pub fn socketIsInet(fd: std.posix.fd_t) !bool {
-    const family = try socketAddressFamily(fd);
-    return family == AFT.INET or family == AFT.INET6;
-}
 
 pub fn socketIsStream(fd: std.posix.fd_t) !bool {
     const socket_type = try getSocketOptInt(fd, SOLT.SOCKET, std.os.linux.SO.TYPE);
@@ -2782,9 +1837,6 @@ pub fn socketIsDatagram(fd: std.posix.fd_t) !bool {
     return socket_type == @as(i32, @intCast(SOCKT.DGRAM));
 }
 
-pub fn socketAcceptConn(fd: std.posix.fd_t) !bool {
-    return try getSocketOptBool(fd, SOLT.SOCKET, std.os.linux.SO.ACCEPTCONN);
-}
 
 pub fn getUnixSockAddr(fd: std.posix.fd_t, peer: bool) !struct { addr: SockAddrUnT, len: SockLenT } {
     var addr: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
@@ -2798,29 +1850,22 @@ pub fn getUnixSockAddr(fd: std.posix.fd_t, peer: bool) !struct { addr: SockAddrU
     return .{ .addr = addr, .len = len };
 }
 
-pub const parseIp4Address = @import("sa_std/ip_parse.zig").parseIp4Address;
 
 // Parse one "::"-free half ("1:2:3" or trailing embedded IPv4) into out,
 // returning the group count. Used only on FreeBSD (see parseIpv6Freebsd).
-pub const parseV6HalfFreebsd = @import("sa_std/ip_parse.zig").parseV6HalfFreebsd;
 
 // Numeric IPv6 parser for FreeBSD: the old Ip6Address.resolve/parse and
 // Address.resolveIp all reach if_nametoindex (unimplemented for freebsd in
 // zig 0.14). Handles full, "::"-compressed and embedded-IPv4 forms.
-pub const parseIpv6NumericFreebsd = @import("sa_std/ip_parse.zig").parseIpv6NumericFreebsd;
 
 // "addr" or "addr%zone" (numeric zone, or interface name via libc
 // if_nametoindex which FreeBSD provides). Shared by parseIp6Address and
 // parseIpv6Ascii on FreeBSD.
-pub const parseIp6FreebsdParts = @import("sa_std/ip_parse.zig").parseIp6FreebsdParts;
 
 
 
-pub const parseIp6Address = @import("sa_std/ip_parse.zig").parseIp6Address;
 
-pub const resolveFirstAddressFromParts = @import("sa_std/ip_parse.zig").resolveFirstAddressFromParts;
 
-pub const resolveFirstSocketAddress = @import("sa_std/ip_parse.zig").resolveFirstSocketAddress;
 
 pub fn makeIpv4Membership(multicast_addr: NetAddress, interface_addr: NetAddress) IpMreqC {
     return .{
@@ -2836,45 +1881,25 @@ pub fn makeIpv6Membership(multicast_addr: NetAddress, interface_index: u32) Ipv6
     };
 }
 
-pub const socketFdFromHandle = @import("sa_std/fd_core.zig").socketFdFromHandle;
 
-pub fn ensureSocketHandle(handle: u64) !struct { fd: std.posix.fd_t, kind: enum { tcp_stream, tcp_listener, udp_socket } } {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
-    return switch (resource.*) {
-        .tcp_stream => |stream| .{ .fd = stream, .kind = .tcp_stream },
-        .tcp_listener => |server| .{ .fd = server.fd, .kind = .tcp_listener },
-        .udp_socket => |fd| .{ .fd = fd, .kind = .udp_socket },
-        else => error.InvalidHandle,
-    };
-}
 
-fn dynamicIndex(handle: u64) ?usize {
-    if (handle < FIRST_DYNAMIC_HANDLE) return null;
-    const raw = handle - FIRST_DYNAMIC_HANDLE;
-    if (raw > @as(u64, @intCast(std.math.maxInt(usize)))) return null;
-    return @as(usize, @intCast(raw));
-}
 
 pub fn getResourceLocked(handle: u64) ?*Resource {
     const idx = dynamicIndex(handle) orelse return null;
-    if (idx >= registry_slots.items.len) return null;
-    if (registry_slots.items[idx]) |*resource| return resource;
+    if (idx >= spawn.registry_slots.items.len) return null;
+    if (spawn.registry_slots.items[idx]) |*resource| return resource;
     return null;
 }
 
 pub fn registerResourceLocked(resource: Resource) !u64 {
-    for (registry_slots.items, 0..) |slot, idx| {
+    for (spawn.registry_slots.items, 0..) |slot, idx| {
         if (slot == null) {
-            registry_slots.items[idx] = resource;
+            spawn.registry_slots.items[idx] = resource;
             return FIRST_DYNAMIC_HANDLE + @as(u64, @intCast(idx));
         }
     }
-    const idx = registry_slots.items.len;
-    try registry_slots.append(resource);
+    const idx = spawn.registry_slots.items.len;
+    try spawn.registry_slots.append(resource);
     return FIRST_DYNAMIC_HANDLE + @as(u64, @intCast(idx));
 }
 
@@ -2886,27 +1911,13 @@ pub fn registerResource(resource: Resource) !u64 {
     return try registerResourceLocked(resource);
 }
 
-pub fn takeResourceLocked(handle: u64) ?Resource {
-    const idx = dynamicIndex(handle) orelse return null;
-    if (idx >= registry_slots.items.len) return null;
-    const resource = registry_slots.items[idx] orelse return null;
-    registry_slots.items[idx] = null;
-    return resource;
-}
 
-pub const handleToFd = @import("sa_std/fd_core.zig").handleToFd;
 
-pub const statTimeFieldName = @import("sa_std/dir_stat.zig").statTimeFieldName;
 
-pub const timeSpecMs = @import("sa_std/dir_stat.zig").timeSpecMs;
 
-pub const metadataU64Field = @import("sa_std/dir_stat.zig").metadataU64Field;
 
-pub const metadataI64TimeFieldMs = @import("sa_std/dir_stat.zig").metadataI64TimeFieldMs;
 
-pub const metadataI64TimeFieldSec = @import("sa_std/dir_stat.zig").metadataI64TimeFieldSec;
 
-pub const metadataI64TimeFieldNsec = @import("sa_std/dir_stat.zig").metadataI64TimeFieldNsec;
 
 pub fn applyRawMode(term: *std.posix.termios) void {
     term.iflag.IGNBRK = false;
@@ -2930,55 +1941,7 @@ pub fn applyRawMode(term: *std.posix.termios) void {
     term.cc[@backingInt(std.posix.V.TIME)] = 0;
 }
 
-fn killAndWaitChild(pid: std.posix.pid_t) void {
-    if (comptime is_wasm) return;
-    std.posix.kill(pid, SIGT.KILL) catch |err| {
-        // Child teardown is best-effort; waitpid below still reaps if the child already exited.
-        _ = @errorName(err);
-    };
-    _ = lxWaitpid(pid, 0);
-}
 
-fn readHandleLocked(handle: u64, buffer: []u8) !usize {
-    return switch (handle) {
-        SA_STD_STDIN => try sio.getStdIn().read(buffer),
-        SA_STD_STDOUT, SA_STD_STDERR => error.InvalidHandle,
-        else => {
-            const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
-            return switch (resource.*) {
-                .file => |file| try file.read(buffer),
-                .tcp_stream => |stream| try lxRead(stream, buffer),
-                .owned_fd => |fd| if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported else try std.posix.read(fd.fd, buffer),
-                .terminal_session => |session| if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported else try std.posix.read(session.fd, buffer),
-                .buffer => |*buf| blk: {
-                    const copy_len = @min(buffer.len, buf.bytes.len);
-                    @memcpy(buffer[0..copy_len], buf.bytes[0..copy_len]);
-                    break :blk copy_len;
-                },
-                .process => |*proc| {
-                    if (!proc.capture_output) return error.InvalidHandle;
-                    if (!proc.exited) return error.InvalidHandle;
-                    if (proc.stdout_pos < proc.stdout_buf.len) {
-                        const remaining = proc.stdout_buf.len - proc.stdout_pos;
-                        const copy_len = @min(buffer.len, remaining);
-                        @memcpy(buffer[0..copy_len], proc.stdout_buf[proc.stdout_pos .. proc.stdout_pos + copy_len]);
-                        proc.stdout_pos += copy_len;
-                        return copy_len;
-                    }
-                    if (proc.stderr_pos < proc.stderr_buf.len) {
-                        const remaining = proc.stderr_buf.len - proc.stderr_pos;
-                        const copy_len = @min(buffer.len, remaining);
-                        @memcpy(buffer[0..copy_len], proc.stderr_buf[proc.stderr_pos .. proc.stderr_pos + copy_len]);
-                        proc.stderr_pos += copy_len;
-                        return copy_len;
-                    }
-                    return 0;
-                },
-                else => error.InvalidHandle,
-            };
-        },
-    };
-}
 
 // DEF-R5: the registry mutex guards the handle table only; it
 // must never be held across a syscall that can block. The data
@@ -2994,15 +1957,6 @@ fn readHandleLocked(handle: u64, buffer: []u8) !usize {
 // only the mutex holder was ever serviced, regardless of
 // carrier count (slaredis registration A). In-memory kinds
 // (.buffer/.process) never block and keep the locked path.
-const IoPlan = union(enum) {
-    fd: std.posix.fd_t,
-    file_fd: std.posix.fd_t,
-    std_in,
-    std_out,
-    std_err,
-    locked,
-    invalid,
-};
 
 pub fn lockRegistry() void {
     while (!registry_mutex.tryLock()) {
@@ -3010,40 +1964,6 @@ pub fn lockRegistry() void {
     }
 }
 
-fn ioPlanLocked(handle: u64, is_write: bool) IoPlan {
-    if (is_write) {
-        return switch (handle) {
-            SA_STD_STDOUT => .std_out,
-            SA_STD_STDERR => .std_err,
-            SA_STD_STDIN => .invalid,
-            else => blk: {
-                const resource = getResourceLocked(handle) orelse break :blk .invalid;
-                break :blk switch (resource.*) {
-                    .file => |file| IoPlan{ .file_fd = file.inner.handle },
-                    .tcp_stream => |stream| IoPlan{ .fd = stream },
-                    .owned_fd => |fd| IoPlan{ .fd = fd.fd },
-                    .terminal_session => |session| IoPlan{ .fd = session.fd },
-                    else => .invalid,
-                };
-            },
-        };
-    }
-    return switch (handle) {
-        SA_STD_STDIN => .std_in,
-        SA_STD_STDOUT, SA_STD_STDERR => .invalid,
-        else => blk: {
-            const resource = getResourceLocked(handle) orelse break :blk .invalid;
-            break :blk switch (resource.*) {
-                .file => |file| IoPlan{ .file_fd = file.inner.handle },
-                .tcp_stream => |stream| IoPlan{ .fd = stream },
-                .owned_fd => |fd| IoPlan{ .fd = fd.fd },
-                .terminal_session => |session| IoPlan{ .fd = session.fd },
-                .buffer, .process => .locked,
-                else => .invalid,
-            };
-        },
-    };
-}
 
 /// DEF-R5: snapshot a tcp_stream / udp_socket fd under the
 /// registry lock and drop the lock before any blocking syscall
@@ -3068,70 +1988,15 @@ pub fn udpSocketFd(handle: u64) ?std.posix.fd_t {
     };
 }
 
-/// Read once from a handle without holding the registry mutex
-/// across a blocking syscall (see the IoPlan note above).
-pub fn readHandle(handle: u64, buffer: []u8) !usize {
-    lockRegistry();
-    switch (ioPlanLocked(handle, false)) {
-        .fd, .file_fd => |fd| {
-            registry_mutex.unlock();
-            return lxRead(fd, buffer);
-        },
-        .std_in => {
-            registry_mutex.unlock();
-            return sio.getStdIn().read(buffer);
-        },
-        .locked => {
-            defer registry_mutex.unlock();
-            return readHandleLocked(handle, buffer);
-        },
-        .invalid => {
-            registry_mutex.unlock();
-            return error.InvalidHandle;
-        },
-        .std_out, .std_err => unreachable,
-    }
-}
+// Read once from a handle without holding the registry mutex
+// across a blocking syscall (see the IoPlan note above).
 
 /// Write to a handle without holding the registry mutex across
 /// a blocking syscall. Per-kind semantics preserve the previous
 /// locked implementation: fd writes are a single write(2),
 /// while file writes write all bytes (sio.File.write is
 /// writeAll).
-pub fn writeHandle(handle: u64, data: []const u8) !usize {
-    lockRegistry();
-    switch (ioPlanLocked(handle, true)) {
-        .fd => |fd| {
-            registry_mutex.unlock();
-            return lxWrite(fd, data);
-        },
-        .file_fd => |fd| {
-            registry_mutex.unlock();
-            var off: usize = 0;
-            while (off < data.len) {
-                const n = try lxWrite(fd, data[off..]);
-                if (n == 0) return error.Io;
-                off += n;
-            }
-            return data.len;
-        },
-        .std_out => {
-            registry_mutex.unlock();
-            return sio.getStdOut().write(data);
-        },
-        .std_err => {
-            registry_mutex.unlock();
-            return sio.getStdErr().write(data);
-        },
-        .invalid => {
-            registry_mutex.unlock();
-            return error.InvalidHandle;
-        },
-        .std_in, .locked => unreachable,
-    }
-}
 
-pub const statusName = @import("sa_std/fallible.zig").statusName;
 
 fn statusFromTerm(term: sio.Child.Term) u32 {
     return switch (term) {
@@ -3182,61 +2047,18 @@ pub fn argvFromEntries(allocator: std.mem.Allocator, argv_ptr: ?[*]const SaProce
     return args;
 }
 
-pub fn envpFromCurrentProcess(arena: std.mem.Allocator) ![:null]const ?[*:0]const u8 {
-    var count: usize = 0;
-    while (environ[count] != null) : (count += 1) {}
 
-    const env_block = try arena.alloc(?[*:0]const u8, count + 1);
-    var i: usize = 0;
-    while (i < count) : (i += 1) {
-        env_block[i] = environ[i].?;
-    }
-    env_block[count] = null;
-    return env_block[0..count :null];
-}
 
-pub const capture_fd_to_owned = @import("sa_std/proc_wait.zig").capture_fd_to_owned;
 
-const ProcessSpawnMode = enum {
-    inherit,
-    capture,
-    stream,
-};
 
-const ProcessSpawnConfig = struct {
-    arg0: ?[]const u8 = null,
-    process_group: ?i32 = null,
-    setsid: bool = false,
-    create_pidfd: bool = false,
-    uid: ?u32 = null,
-    gid: ?u32 = null,
-    groups: ?[]const u32 = null,
-    chroot_path: ?[]const u8 = null,
-    stdin: bool = false,
-};
 
-const SpawnResult = struct {
-    process: u64 = 0,
-    stdout: ?u64 = null,
-    stderr: ?u64 = null,
-    stdin: ?u64 = null,
-};
 
-pub const statusFromWaitStatus = @import("sa_std/proc_wait.zig").statusFromWaitStatus;
 
-pub const rawWaitStatus = @import("sa_std/proc_wait.zig").rawWaitStatus;
 
-pub const waitStatusCode = @import("sa_std/proc_wait.zig").waitStatusCode;
 
-pub const waitStatusSignal = @import("sa_std/proc_wait.zig").waitStatusSignal;
 
-pub const waitStatusCoreDumped = @import("sa_std/proc_wait.zig").waitStatusCoreDumped;
 
-pub const waitStatusStoppedSignal = @import("sa_std/proc_wait.zig").waitStatusStoppedSignal;
 
-pub const waitStatusContinued = @import("sa_std/proc_wait.zig").waitStatusContinued;
-
-pub const waitProcessIgnoringMissing = @import("sa_std/proc_wait.zig").waitProcessIgnoringMissing;
 
 pub fn waitStatusFromSiginfo(siginfo: std.posix.siginfo_t) u32 {
     const status = @as(u32, @intCast(siginfo.fields.common.second.sigchld.status));
@@ -3250,27 +2072,8 @@ pub fn waitStatusFromSiginfo(siginfo: std.posix.siginfo_t) u32 {
     };
 }
 
-fn openPidfd(pid: std.posix.pid_t) ?std.posix.fd_t {
-    if (comptime builtin.os.tag != .linux) return null;
-    const fd = std.os.linux.pidfd_open(pid, 0);
-    return switch (std.os.linux.errno(fd)) {
-        .SUCCESS => @as(std.posix.fd_t, @intCast(fd)),
-        else => null,
-    };
-}
 
-pub const waitPidfdStatus = @import("sa_std/proc_wait.zig").waitPidfdStatus;
 
-pub fn sendSignalToPidfd(fd: std.posix.fd_t, signum: u8, flags: u32) !void {
-    const result = std.os.linux.pidfd_send_signal(fd, @fromBackingInt(@intCast(signum)), null, flags);
-    switch (std.os.linux.errno(result)) {
-        .SUCCESS => return,
-        .INVAL => return error.InvalidArgument,
-        .PERM => return error.PermissionDenied,
-        .SRCH => return error.ProcessNotFound,
-        else => return error.Unexpected,
-    }
-}
 
 pub fn sendSignalToProcessGroup(pgid: std.posix.pid_t, signum: u8) !void {
     const target: std.posix.pid_t = -pgid;
@@ -3300,227 +2103,10 @@ fn errnoToSetupError(errno: std.posix.E) anyerror {
     };
 }
 
-pub fn applyProcessCommandExtSetup(cwd: ?[]const u8, config: ProcessSpawnConfig, chroot_path_z: ?[*:0]const u8) !void {
-    // wasm32-wasi has no process spawn; stub (linux errno types mismatch wasi).
-    if (comptime is_wasm) return error.Unsupported;
-    if (config.groups) |groups| try lxSetgroups(groups);
-    if (config.gid) |gid| try lxSetgid(@as(std.posix.gid_t, @intCast(gid)));
-    if (config.uid) |uid| try lxSetuid(@as(std.posix.uid_t, @intCast(uid)));
-    if (chroot_path_z) |path| try lxChroot(path);
-    if (cwd) |dir| try lxChdir(dir);
-    if (config.process_group) |pgroup| try lxSetpgid(0, @as(std.posix.pid_t, @intCast(pgroup)));
-    if (config.setsid) try lxSetsid();
-}
 
-pub const finalizeProcessExit = @import("sa_std/proc_wait.zig").finalizeProcessExit;
 
-pub fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8, config: ProcessSpawnConfig) !SpawnResult {
-    // wasm32-wasi has no fork/exec/pipe2-CLOEXEC; stub.
-    if (comptime is_wasm) return error.Unsupported;
-    if (argv.len == 0) return error.InvalidArgument;
-    if (config.stdin and mode != .stream) return error.InvalidArgument;
-    if (!policyAllows(.{ .run = argv[0] })) return error.PolicyDenied;
-    if (config.arg0) |arg0| {
-        if (std.mem.indexOfScalar(u8, arg0, 0) != null) return error.InvalidArgument;
-    }
 
-    const use_pipes = mode != .inherit;
-    var stdout_pipe: [2]std.posix.fd_t = .{ -1, -1 };
-    var stderr_pipe: [2]std.posix.fd_t = .{ -1, -1 };
-    var stdin_pipe: [2]std.posix.fd_t = .{ -1, -1 };
-    defer {
-        if (stdout_pipe[0] != -1) lxClose(stdout_pipe[0]);
-        if (stdout_pipe[1] != -1) lxClose(stdout_pipe[1]);
-        if (stderr_pipe[0] != -1) lxClose(stderr_pipe[0]);
-        if (stderr_pipe[1] != -1) lxClose(stderr_pipe[1]);
-        if (stdin_pipe[0] != -1) lxClose(stdin_pipe[0]);
-        if (stdin_pipe[1] != -1) lxClose(stdin_pipe[1]);
-    }
-    if (use_pipes) {
-        stdout_pipe = try lxPipe2(.{ .CLOEXEC = true });
-        stderr_pipe = try lxPipe2(.{ .CLOEXEC = true });
-    }
-    if (config.stdin) {
-        stdin_pipe = try lxPipe2(.{ .CLOEXEC = true });
-    }
 
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    errdefer arena.deinit();
-    const exec_path = (try arena.allocator().dupeSentinel(u8, argv[0], 0)).ptr;
-    const child_argv = try arena.allocator().alloc(?[*:0]const u8, argv.len + 1);
-    for (argv, 0..) |arg, i| {
-        const child_arg = if (i == 0 and config.arg0 != null) config.arg0.? else arg;
-        child_argv[i] = (try arena.allocator().dupeSentinel(u8, child_arg, 0)).ptr;
-    }
-    child_argv[argv.len] = null;
-    const envp = try envpFromCurrentProcess(arena.allocator());
-    const chroot_path_z: ?[*:0]const u8 = if (config.chroot_path) |path| (try arena.allocator().dupeSentinel(u8, path, 0)).ptr else null;
-
-    const pid = try lxFork();
-    if (pid == 0) {
-        if (cwd != null and chroot_path_z == null) {
-            const dir = cwd.?;
-            lxChdir(dir) catch lxExit(127);
-        }
-        if (config.process_group) |pgroup| {
-            lxSetpgid(0, @as(std.posix.pid_t, @intCast(pgroup))) catch lxExit(127);
-        }
-        if (config.setsid) {
-            lxSetsid() catch lxExit(127);
-        }
-        if (config.groups) |groups| {
-            lxSetgroups(groups) catch lxExit(127);
-        }
-        if (config.gid) |gid| {
-            lxSetgid(@as(std.posix.gid_t, @intCast(gid))) catch lxExit(127);
-        }
-        if (config.uid) |uid| {
-            lxSetuid(@as(std.posix.uid_t, @intCast(uid))) catch lxExit(127);
-        }
-        if (chroot_path_z) |path| {
-            lxChroot(path) catch lxExit(127);
-            if (cwd) |dir| lxChdir(dir) catch lxExit(127);
-        }
-        if (use_pipes) {
-            lxClose(stdout_pipe[0]);
-            lxClose(stderr_pipe[0]);
-            try lxDup2(stdout_pipe[1], std.posix.STDOUT_FILENO);
-            try lxDup2(stderr_pipe[1], std.posix.STDERR_FILENO);
-        }
-        if (stdin_pipe[0] != -1) {
-            lxClose(stdin_pipe[1]);
-            try lxDup2(stdin_pipe[0], std.posix.STDIN_FILENO);
-            lxClose(stdin_pipe[0]);
-        }
-        if (use_pipes) {
-            lxClose(stdout_pipe[1]);
-            lxClose(stderr_pipe[1]);
-        }
-        const argv_z: [*:null]const ?[*:0]const u8 = @ptrCast(child_argv.ptr);
-        const envp_z: [*:null]const ?[*:0]const u8 = @ptrCast(envp.ptr);
-        const exec_err = lxExecvpeZ(exec_path, argv_z, envp_z);
-        switch (exec_err) {
-            error.AccessDenied,
-            error.SystemResources,
-            error.Unexpected,
-            error.FileNotFound,
-            error.NameTooLong,
-            error.ProcessFdQuotaExceeded,
-            error.SystemFdQuotaExceeded,
-            error.IsDir,
-            error.NotDir,
-            error.FileBusy,
-            error.FileSystem,
-            error.InvalidExe,
-            => lxExit(127),
-            else => lxExit(127),
-        }
-        unreachable;
-    }
-
-    const effective_process_group: ?std.posix.pid_t = if (config.process_group) |pgroup|
-        (if (pgroup == 0) pid else @as(std.posix.pid_t, @intCast(pgroup)))
-    else
-        null;
-    if (effective_process_group) |pgid| {
-        lxSetpgid(pid, pgid) catch |err| switch (err) {
-            error.ProcessAlreadyExec => {},
-            else => {
-                killAndWaitChild(pid);
-                return err;
-            },
-        };
-    }
-
-    var pidfd_fd: ?std.posix.fd_t = if (config.create_pidfd) openPidfd(pid) else null;
-    defer if (pidfd_fd) |fd| lxClose(fd);
-
-    if (use_pipes) {
-        lxClose(stdout_pipe[1]);
-        lxClose(stderr_pipe[1]);
-        stdout_pipe[1] = -1;
-        stderr_pipe[1] = -1;
-    }
-    if (stdin_pipe[0] != -1) {
-        lxClose(stdin_pipe[0]);
-        stdin_pipe[0] = -1;
-    }
-
-    var result: SpawnResult = .{};
-    switch (mode) {
-        .inherit => {
-            result.process = try registerResource(.{ .process = .{
-                .pid = pid,
-                .process_group = effective_process_group,
-                .pidfd = pidfd_fd,
-                .capture_output = false,
-            } });
-            pidfd_fd = null;
-            return result;
-        },
-        .capture => {
-            result.process = registerResource(.{ .process = .{
-                .pid = pid,
-                .process_group = effective_process_group,
-                .pidfd = pidfd_fd,
-                .capture_output = true,
-                .stdout_fd = stdout_pipe[0],
-                .stderr_fd = stderr_pipe[0],
-            } }) catch |err| {
-                killAndWaitChild(pid);
-                return err;
-            };
-            pidfd_fd = null;
-            stdout_pipe[0] = -1;
-            stderr_pipe[0] = -1;
-            return result;
-        },
-        .stream => {
-            result.stdout = registerResource(.{ .owned_fd = .{ .fd = stdout_pipe[0] } }) catch |err| {
-                killAndWaitChild(pid);
-                return err;
-            };
-            stdout_pipe[0] = -1;
-            result.stderr = registerResource(.{ .owned_fd = .{ .fd = stderr_pipe[0] } }) catch |err| {
-                if (result.stdout) |stdout_handle| _ = sa_std_close(stdout_handle);
-                killAndWaitChild(pid);
-                return err;
-            };
-            stderr_pipe[0] = -1;
-            if (stdin_pipe[1] != -1) {
-                result.stdin = registerResource(.{ .owned_fd = .{ .fd = stdin_pipe[1] } }) catch |err| {
-                    if (result.stdout) |stdout_handle| _ = sa_std_close(stdout_handle);
-                    if (result.stderr) |stderr_handle| _ = sa_std_close(stderr_handle);
-                    killAndWaitChild(pid);
-                    return err;
-                };
-                stdin_pipe[1] = -1;
-            }
-            result.process = registerResource(.{ .process = .{
-                .pid = pid,
-                .process_group = effective_process_group,
-                .pidfd = pidfd_fd,
-                .capture_output = false,
-            } }) catch |err| {
-                if (result.stdout) |stdout_handle| _ = sa_std_close(stdout_handle);
-                if (result.stderr) |stderr_handle| _ = sa_std_close(stderr_handle);
-                if (result.stdin) |stdin_handle| _ = sa_std_close(stdin_handle);
-                killAndWaitChild(pid);
-                return err;
-            };
-            pidfd_fd = null;
-            return result;
-        },
-    }
-}
-
-pub fn spawnProcessCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8) !SpawnResult {
-    return spawnProcessConfiguredCwd(allocator, argv, mode, cwd, .{});
-}
-
-pub fn spawnProcess(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode) !SpawnResult {
-    return spawnProcessCwd(allocator, argv, mode, null);
-}
 
 pub fn filePread(f: sio.File, buffer: []u8, offset: u64) !usize {
     return try f.inner.readPositional(sio.io(), &.{buffer}, offset);
@@ -3631,10 +2217,6 @@ pub fn errnoToAny(e: anytype) anyerror {
     return error.Unexpected;
 }
 
-pub fn lxErr(e: std.os.linux.E) anyerror {
-    if (comptime is_wasm) return error.Unsupported;
-    return errnoToAny(e);
-}
 
 pub fn lxCheck(rc: usize) !usize {
     if (comptime is_wasm) return error.Unsupported;
@@ -3644,7 +2226,6 @@ pub fn lxCheck(rc: usize) !usize {
 }
 
 // --- libc fallbacks (macOS/FreeBSD) ---------------------------------------
-const libc_socklen_t = std.c.socklen_t;
 
 pub const libc = struct {
     extern "c" fn socket(domain: c_int, socket_type: c_int, protocol: c_int) c_int;
@@ -3694,13 +2275,12 @@ pub const libc = struct {
     extern "c" fn mknod(path: [*:0]const u8, mode: std.c.mode_t, dev: std.c.dev_t) c_int;
 };
 
-fn libcErrRc(rc: anytype) !void {
+pub fn libcErrRc(rc: anytype) !void {
     if (rc < 0) return errnoToAny(std.posix.errno(rc));
 }
 
-pub const libcFd = @import("sa_std/fd_core.zig").libcFd;
 
-fn libcUsize(rc: isize) !usize {
+pub fn libcUsize(rc: isize) !usize {
     if (rc < 0) return errnoToAny(std.posix.errno(rc));
     return @intCast(rc);
 }
@@ -3721,12 +2301,6 @@ pub fn lxWrite(fd: std.posix.fd_t, bytes: []const u8) !usize {
     return try libcUsize(libc.write(fd, bytes.ptr, bytes.len));
 }
 
-fn lxRead(fd: std.posix.fd_t, buf: []u8) !usize {
-    if (comptime is_wasm) return error.Unsupported;
-    if (buf.len == 0) return 0;
-    if (comptime is_linux) return try lxCheck(std.os.linux.read(fd, buf.ptr, buf.len));
-    return try libcUsize(libc.read(fd, buf.ptr, buf.len));
-}
 
 pub fn lxReadv(fd: std.posix.fd_t, iov: []std.posix.iovec) !usize {
     if (comptime is_wasm) return error.Unsupported;
@@ -3749,34 +2323,9 @@ pub fn lxSocket(domain: u32, sock_type: u32, protocol: u32) !std.posix.fd_t {
     return try libcFd(libc.socket(@intCast(domain), @intCast(sock_type), @intCast(protocol)));
 }
 
-pub fn lxBind(fd: std.posix.fd_t, addr: *const SockAddrT, len: SockLenT) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.bind(fd, addr, len));
-        return;
-    }
-    try libcErrRc(libc.bind(fd, addr, @intCast(len)));
-}
 
-pub fn lxListen(fd: std.posix.fd_t, backlog: u32) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.listen(fd, backlog));
-        return;
-    }
-    try libcErrRc(libc.listen(fd, @intCast(backlog)));
-}
 
-pub const lxAccept = @import("sa_std/fd_core.zig").lxAccept;
 
-pub fn lxConnect(fd: std.posix.fd_t, addr: *const SockAddrT, len: SockLenT) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.connect(fd, @ptrCast(addr), len));
-        return;
-    }
-    try libcErrRc(libc.connect(fd, addr, @intCast(len)));
-}
 
 pub fn lxShutdown(fd: std.posix.fd_t, how: i32) !void {
     if (comptime is_wasm) return error.Unsupported;
@@ -3815,123 +2364,19 @@ pub fn lxRecvfrom(fd: std.posix.fd_t, buf: []u8, flags: u32, addr: ?*SockAddrT, 
     return try libcUsize(libc.recvfrom(fd, buf.ptr, buf.len, @intCast(flags), addr, @ptrCast(len)));
 }
 
-pub fn lxSendmsg(fd: std.posix.fd_t, msg: *const MsghdrConstT, flags: u32) !usize {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) return try lxCheck(std.os.linux.sendmsg(fd, msg, flags));
-    return try libcUsize(libc.sendmsg(fd, msg, @intCast(flags)));
-}
 
-pub const lxDup = @import("sa_std/fd_core.zig").lxDup;
 
-fn lxDup2(old: std.posix.fd_t, new: std.posix.fd_t) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.dup2(old, new));
-        return;
-    }
-    try libcErrRc(libc.dup2(old, new));
-}
 
-fn lxFork() !std.posix.pid_t {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        const rc = try lxCheck(std.os.linux.fork());
-        return @as(std.posix.pid_t, @bitCast(@as(u32, @truncate(rc))));
-    }
-    try libcErrRc(libc.fork());
-    return 0;
-}
 
-fn lxPipe2(flags: std.posix.O) ![2]std.posix.fd_t {
-    if (comptime is_wasm) return error.Unsupported;
-    var fds: [2]std.posix.fd_t = undefined;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.pipe2(&fds, flags));
-        return fds;
-    }
-    var cfds: [2]c_int = undefined;
-    try libcErrRc(libc.pipe(&cfds));
-    fds = .{ cfds[0], cfds[1] };
-    _ = libc.fcntl(fds[0], std.c.F.SETFD, @as(c_int, 1));
-    _ = libc.fcntl(fds[1], std.c.F.SETFD, @as(c_int, 1));
-    return fds;
-}
 
-fn lxChdir(path: []const u8) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    const z = try std.posix.toPosixPath(path);
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.chdir(&z));
-        return;
-    }
-    try libcErrRc(libc.chdir(&z));
-}
 
-pub fn lxChroot(path: [*:0]const u8) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.chroot(path));
-        return;
-    }
-    try libcErrRc(libc.chroot(path));
-}
 
-fn lxSetgroups(groups: []const std.posix.gid_t) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        const groups_ptr: [*]const std.os.linux.gid_t = @ptrCast(groups.ptr);
-        _ = try lxCheck(std.os.linux.setgroups(groups.len, groups_ptr));
-        return;
-    }
-    const groups_ptr: [*]const std.c.gid_t = @ptrCast(groups.ptr);
-    try libcErrRc(libc.setgroups(@intCast(groups.len), groups_ptr));
-}
 
-fn lxSetsid() !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.setsid());
-        return;
-    }
-    try libcErrRc(libc.setsid());
-}
 
-fn lxSetgid(gid: std.posix.gid_t) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.setgid(gid));
-        return;
-    }
-    try libcErrRc(libc.setgid(@intCast(gid)));
-}
 
-fn lxSetuid(uid: std.posix.uid_t) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.setuid(uid));
-        return;
-    }
-    try libcErrRc(libc.setuid(@intCast(uid)));
-}
 
-fn lxSetpgid(pid: std.posix.pid_t, pgid: std.posix.pid_t) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.setpgid(pid, pgid));
-        return;
-    }
-    try libcErrRc(libc.setpgid(@intCast(pid), @intCast(pgid)));
-}
 
-pub fn lxFcntl(fd: std.posix.fd_t, cmd: i32, arg: usize) !usize {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) return try lxCheck(std.os.linux.fcntl(fd, cmd, arg));
-    const rc = libc.fcntl(fd, @intCast(cmd), @as(c_int, @intCast(arg)));
-    if (rc < 0) return errnoToAny(std.posix.errno(rc));
-    return @intCast(rc);
-}
 
-pub const lxIsatty = @import("sa_std/fd_core.zig").lxIsatty;
 
 pub fn lxUnlink(path: []const u8) !void {
     if (comptime is_wasm) return error.Unsupported;
@@ -3992,14 +2437,6 @@ pub fn lxKill(pid: std.posix.pid_t, sig: u8) !void {
     try libcErrRc(libc.kill(@intCast(pid), @intCast(sig)));
 }
 
-pub fn lxGetsockname(fd: std.posix.fd_t, addr: *SockAddrT, len: *SockLenT) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.getsockname(fd, addr, len));
-        return;
-    }
-    try libcErrRc(libc.getsockname(fd, addr, @ptrCast(len)));
-}
 
 pub fn lxGetpeername(fd: std.posix.fd_t, addr: *SockAddrT, len: *SockLenT) !void {
     if (comptime is_wasm) return error.Unsupported;
@@ -4010,20 +2447,6 @@ pub fn lxGetpeername(fd: std.posix.fd_t, addr: *SockAddrT, len: *SockLenT) !void
     try libcErrRc(libc.getpeername(fd, addr, @ptrCast(len)));
 }
 
-pub fn lxGetsockoptError(fd: std.posix.fd_t) !void {
-    if (comptime is_wasm) return error.Unsupported;
-    var value: i32 = 0;
-    var len: SockLenT = @sizeOf(i32);
-    if (comptime is_linux) {
-        _ = try lxCheck(std.os.linux.getsockopt(fd, SOLT.SOCKET, SOT.ERROR, @ptrCast(&value), &len));
-    } else {
-        try libcErrRc(libc.getsockopt(fd, @intCast(SOLT.SOCKET), @intCast(SOT.ERROR), @ptrCast(&value), @ptrCast(&len)));
-    }
-    if (value != 0) {
-        const e: std.posix.E = @fromBackingInt(@intCast(value));
-        return errnoToAny(e);
-    }
-}
 
 pub fn lxEpollCreate1(flags: u32) !std.posix.fd_t {
     if (comptime !is_linux) return error.Unsupported;
@@ -4046,73 +2469,10 @@ pub fn lxEpollWait(epfd: std.posix.fd_t, events: []std.os.linux.epoll_event, tim
     return rc;
 }
 
-const LxWaitResult = struct {
-    pid: std.posix.pid_t,
-    status: u32,
-};
 
-pub fn lxWaitpid(pid: std.posix.pid_t, flags: u32) LxWaitResult {
-    if (comptime is_wasm) return .{ .pid = 0, .status = 0 };
-    var status: i32 = 0;
-    if (comptime is_linux) {
-        while (true) {
-            const rc = std.os.linux.waitpid(pid, &status, flags);
-            const e = std.os.linux.errno(rc);
-            if (e == .SUCCESS) return .{ .pid = @as(std.posix.pid_t, @bitCast(@as(u32, @truncate(rc)))), .status = @bitCast(status) };
-            if (e == .INTR) continue;
-            return .{ .pid = 0, .status = 0 };
-        }
-    }
-    while (true) {
-        const rc = libc.waitpid(@intCast(pid), &status, @intCast(flags));
-        const e = std.posix.errno(rc);
-        if (e == .SUCCESS) return .{ .pid = @intCast(rc), .status = @bitCast(status) };
-        if (e == .INTR) continue;
-        return .{ .pid = 0, .status = 0 };
-    }
-}
 
-/// Old std.posix.execvpeZ: exec with PATH search. Reimplemented on execve.
-pub fn lxExecvpeZ(file: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) anyerror {
-    if (comptime is_wasm) return error.Unsupported;
-    const do_exec = struct {
-        fn run(path: [*:0]const u8, av: [*:null]const ?[*:0]const u8, ev: [*:null]const ?[*:0]const u8) anyerror {
-            if (comptime is_linux) {
-                const rc = std.os.linux.execve(path, av, ev);
-                return lxErr(std.os.linux.errno(rc));
-            }
-            const rc = libc.execve(path, av, ev);
-            return errnoToAny(std.posix.errno(rc));
-        }
-    }.run;
-    if (std.mem.indexOfScalar(u8, std.mem.span(file), '/') != null) {
-        return do_exec(file, argv, envp);
-    }
-    var last: anyerror = error.FileNotFound;
-    var idx: usize = 0;
-    while (environ[idx] != null) : (idx += 1) {
-        const entry = std.mem.span(environ[idx].?);
-        if (!std.mem.startsWith(u8, entry, "PATH=")) continue;
-        var it = std.mem.splitScalar(u8, entry["PATH=".len..], ':');
-        while (it.next()) |dir| {
-            const dir_use = if (dir.len == 0) "." else dir;
-            var path_buf: [std.posix.PATH_MAX]u8 = undefined;
-            const full = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ dir_use, std.mem.span(file) }) catch continue;
-            var zbuf: [std.posix.PATH_MAX:0]u8 = undefined;
-            if (full.len >= zbuf.len) continue;
-            @memcpy(zbuf[0..full.len], full);
-            zbuf[full.len] = 0;
-            last = do_exec(zbuf[0..full.len :0], argv, envp);
-        }
-        return last;
-    }
-    return last;
-}
+// Old std.posix.execvpeZ: exec with PATH search. Reimplemented on execve.
 
-fn lxExit(code: u8) noreturn {
-    if (comptime is_linux) std.os.linux.exit(code);
-    libc._exit(@intCast(code));
-}
 
 // ---------------------------------------------------------------------------
 // 0.17 compat: socket addresses (old net Address type removed).
@@ -4275,23 +2635,14 @@ pub fn netGetAddressList(allocator: std.mem.Allocator, host: []const u8, port: u
 // 0.17 compat: portable file metadata. Linux keeps statx; other targets use
 // the Io vtable stat (which maps to lstat/stat internally).
 // ---------------------------------------------------------------------------
-pub const RawStat = @import("sa_std/dir_stat.zig").RawStat;
 
-pub const timestampToRawTs = @import("sa_std/dir_stat.zig").timestampToRawTs;
 
-pub const kindModeBits = @import("sa_std/dir_stat.zig").kindModeBits;
 
-pub const rawStatFromIo = @import("sa_std/dir_stat.zig").rawStatFromIo;
 
-pub const lxStatxNoFollow = @import("sa_std/dir_stat.zig").lxStatxNoFollow;
 
-pub const statFromRaw = @import("sa_std/dir_stat.zig").statFromRaw;
 
-pub const statxDevId = @import("sa_std/dir_stat.zig").statxDevId;
 
-pub const tsToMs = @import("sa_std/dir_stat.zig").tsToMs;
 
-pub const cryptoRandomU64 = @import("sa_std/test_debug.zig").cryptoRandomU64;
 
 pub fn formatInteger(value: anytype, base: u32) ![]u8 {
     const actual_base: u8 = switch (base) {
@@ -4336,7 +2687,6 @@ pub fn stringConcat(left: []const u8, right: []const u8) ![]u8 {
     return bytes;
 }
 
-pub const longestSuffixPrefix = @import("sa_std/chat_norm.zig").longestSuffixPrefix;
 
 pub fn openOwnedBuffer(bytes: []u8) !u64 {
     return registerResource(.{ .fmt = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
@@ -4359,105 +2709,55 @@ pub fn openOwnedEnvBuffer(bytes: []u8) !u64 {
     };
 }
 
-pub const ThoughtStreamSplitter = @import("sa_std/chat_norm.zig").ThoughtStreamSplitter;
 
-pub const ListWriter = @import("sa_std/json_util.zig").ListWriter;
 
-pub const listWriter = @import("sa_std/json_util.zig").listWriter;
 
-pub const stringifyToList = @import("sa_std/json_util.zig").stringifyToList;
 
-pub const appendJsonString = @import("sa_std/json_util.zig").appendJsonString;
 
-pub const jsonStringLiteralAlloc = @import("sa_std/json_util.zig").jsonStringLiteralAlloc;
 
-pub const jsonRpcParamLookupKey = @import("sa_std/json_util.zig").jsonRpcParamLookupKey;
 
-pub const jsonRpcParamsStringLiteralAlloc = @import("sa_std/json_util.zig").jsonRpcParamsStringLiteralAlloc;
 
-pub const jsonU64Value = @import("sa_std/chat_norm.zig").jsonU64Value;
 
-pub const appendResponseCreated = @import("sa_std/chat_norm.zig").appendResponseCreated;
 
-pub const appendReasoningDelta = @import("sa_std/chat_norm.zig").appendReasoningDelta;
 
-pub const appendReasoningDone = @import("sa_std/chat_norm.zig").appendReasoningDone;
 
-pub const appendMessageDelta = @import("sa_std/chat_norm.zig").appendMessageDelta;
 
-pub const appendMessageDone = @import("sa_std/chat_norm.zig").appendMessageDone;
 
-pub const requestAllowsContinuation = @import("sa_std/chat_norm.zig").requestAllowsContinuation;
 
-pub const isProgressOnlyText = @import("sa_std/chat_norm.zig").isProgressOnlyText;
 
-pub const appendContinuationTool = @import("sa_std/chat_norm.zig").appendContinuationTool;
 
-pub const appendContinuationToolJson = @import("sa_std/chat_norm.zig").appendContinuationToolJson;
 
-pub const ChatToolCallState = @import("sa_std/chat_norm.zig").ChatToolCallState;
 
-pub const shellQuote = @import("sa_std/chat_norm.zig").shellQuote;
 
-pub const isSensitiveEnvPath = @import("sa_std/chat_norm.zig").isSensitiveEnvPath;
 
-pub const appendCommandArguments = @import("sa_std/chat_norm.zig").appendCommandArguments;
 
-pub const appendReadCommand = @import("sa_std/chat_norm.zig").appendReadCommand;
 
-pub const splitMcpNamespace = @import("sa_std/chat_norm.zig").splitMcpNamespace;
 
-pub const denormalizeMcpServerNameAlloc = @import("sa_std/chat_norm.zig").denormalizeMcpServerNameAlloc;
 
-pub const normalizeMcpServerNameAlloc = @import("sa_std/normalize.zig").normalizeMcpServerNameAlloc;
 
-pub const requestMentionsTool = @import("sa_std/chat_norm.zig").requestMentionsTool;
 
-pub const normalizeChatToolArguments = @import("sa_std/chat_norm.zig").normalizeChatToolArguments;
 
-pub const appendNormalizedToolCall = @import("sa_std/chat_norm.zig").appendNormalizedToolCall;
 
-pub const appendNormalizedToolCallJson = @import("sa_std/chat_norm.zig").appendNormalizedToolCallJson;
 
-pub const findToolCallState = @import("sa_std/chat_norm.zig").findToolCallState;
 
-pub const parseToolCallIndex = @import("sa_std/chat_norm.zig").parseToolCallIndex;
 
-pub const appendResponseDone = @import("sa_std/chat_norm.zig").appendResponseDone;
 
-pub const appendChatUsageJson = @import("sa_std/chat_norm.zig").appendChatUsageJson;
 
-pub const appendChatJsonReasoningItem = @import("sa_std/chat_norm.zig").appendChatJsonReasoningItem;
 
-pub const appendChatJsonMessageItem = @import("sa_std/chat_norm.zig").appendChatJsonMessageItem;
 
-pub const appendOutputComma = @import("sa_std/chat_norm.zig").appendOutputComma;
 
-pub const denoChatJsonToResponses = @import("sa_std/chat_norm.zig").denoChatJsonToResponses;
 
-pub const ThoughtSplit = @import("sa_std/chat_norm.zig").ThoughtSplit;
 
-pub const splitThoughtTextAlloc = @import("sa_std/chat_norm.zig").splitThoughtTextAlloc;
 
-pub const appendMergedReasoningText = @import("sa_std/chat_norm.zig").appendMergedReasoningText;
 
-pub const appendReasoningFields = @import("sa_std/chat_norm.zig").appendReasoningFields;
 
-pub const isNativeReasoningType = @import("sa_std/chat_norm.zig").isNativeReasoningType;
 
-pub const appendNativeReasoningItem = @import("sa_std/chat_norm.zig").appendNativeReasoningItem;
 
-pub const appendNativeMessageItem = @import("sa_std/chat_norm.zig").appendNativeMessageItem;
 
-pub const appendNativeNormalizedOutput = @import("sa_std/chat_norm.zig").appendNativeNormalizedOutput;
 
-pub const nativeResponsesJsonNeedsNormalize = @import("sa_std/chat_norm.zig").nativeResponsesJsonNeedsNormalize;
 
-pub const denoResponsesJsonNormalize = @import("sa_std/chat_norm.zig").denoResponsesJsonNormalize;
 
-pub const jsonObjectGetValue = @import("sa_std/json_util.zig").jsonObjectGetValue;
 
-pub const jsonArrayFirst = @import("sa_std/chat_norm.zig").jsonArrayFirst;
 
 pub fn jsonStringValue(value: ?std.json.Value) []const u8 {
     const actual = value orelse return "";
@@ -4467,61 +2767,33 @@ pub fn jsonStringValue(value: ?std.json.Value) []const u8 {
     };
 }
 
-pub const jsonBoolValue = @import("sa_std/chat_fallback.zig").jsonBoolValue;
 
-pub const appendJsonFieldName = @import("sa_std/chat_fallback.zig").appendJsonFieldName;
 
-pub const appendSystemText = @import("sa_std/chat_fallback.zig").appendSystemText;
 
-pub const responseContentTextOnlyAlloc = @import("sa_std/chat_fallback.zig").responseContentTextOnlyAlloc;
 
-pub const appendMappedResponseContentPart = @import("sa_std/chat_fallback.zig").appendMappedResponseContentPart;
 
-pub const appendResponseContentAsChat = @import("sa_std/chat_fallback.zig").appendResponseContentAsChat;
 
-pub const isResponsesToolCallType = @import("sa_std/chat_fallback.zig").isResponsesToolCallType;
 
-pub const isResponsesToolOutputType = @import("sa_std/chat_fallback.zig").isResponsesToolOutputType;
 
-pub const responseToolCallNameForChat = @import("sa_std/chat_fallback.zig").responseToolCallNameForChat;
 
-pub const collectResponseToolCallNames = @import("sa_std/chat_fallback.zig").collectResponseToolCallNames;
 
-pub const appendChatMessagePrefix = @import("sa_std/chat_fallback.zig").appendChatMessagePrefix;
 
-pub const appendResponseMessageAsChat = @import("sa_std/chat_fallback.zig").appendResponseMessageAsChat;
 
-pub const appendResponseToolCallAsChat = @import("sa_std/chat_fallback.zig").appendResponseToolCallAsChat;
 
-pub const appendResponseToolOutputAsChat = @import("sa_std/chat_fallback.zig").appendResponseToolOutputAsChat;
 
-pub const appendNormalizedChatTool = @import("sa_std/chat_fallback.zig").appendNormalizedChatTool;
 
-pub const appendNormalizedChatToolsField = @import("sa_std/chat_fallback.zig").appendNormalizedChatToolsField;
 
-pub const appendResponseFormatFromText = @import("sa_std/chat_fallback.zig").appendResponseFormatFromText;
 
-pub const shouldSkipResponsesFallbackField = @import("sa_std/chat_fallback.zig").shouldSkipResponsesFallbackField;
 
-pub const denoResponsesChatFallbackRequest = @import("sa_std/chat_fallback.zig").denoResponsesChatFallbackRequest;
 
-pub const normalizeResponsesArgumentsString = @import("sa_std/chat_norm.zig").normalizeResponsesArgumentsString;
 
-pub const normalizeResponsesRequestArgumentsString = @import("sa_std/normalize.zig").normalizeResponsesRequestArgumentsString;
 
-pub const normalizeResponsesRequestValue = @import("sa_std/normalize.zig").normalizeResponsesRequestValue;
 
-pub const denoResponsesRequestNormalize = @import("sa_std/normalize.zig").denoResponsesRequestNormalize;
 
-pub const normalizeResponsesEventData = @import("sa_std/chat_norm.zig").normalizeResponsesEventData;
 
-pub const appendNormalizedResponsesSseBlock = @import("sa_std/chat_norm.zig").appendNormalizedResponsesSseBlock;
 
-pub const denoResponsesSseNormalize = @import("sa_std/chat_norm.zig").denoResponsesSseNormalize;
 
-pub const appendChatSseDataChunk = @import("sa_std/chat_norm.zig").appendChatSseDataChunk;
 
-pub const denoChatSseToResponses = @import("sa_std/chat_norm.zig").denoChatSseToResponses;
 
 pub fn envKeyBytes(key_ptr: ?[*]const u8, key_len: u64) ![]const u8 {
     const key = try constBytes(key_ptr, key_len);
@@ -4531,9 +2803,7 @@ pub fn envKeyBytes(key_ptr: ?[*]const u8, key_len: u64) ![]const u8 {
     return key;
 }
 
-pub const envValueFromCurrentProcess = @import("sa_std/test_debug.zig").envValueFromCurrentProcess;
 
-pub const envGetOwned = @import("sa_std/test_debug.zig").envGetOwned;
 
 const EnvVarJson = struct {
     key: []const u8,
@@ -4610,17 +2880,11 @@ pub fn envJoinPathsJsonAlloc(allocator: std.mem.Allocator, paths_json: []const u
     return std.mem.join(allocator, ":", parsed.value);
 }
 
-pub const xdgHomeDirAlloc = @import("sa_std/test_debug.zig").xdgHomeDirAlloc;
 
-pub const xdgHomeSubdirAlloc = @import("sa_std/test_debug.zig").xdgHomeSubdirAlloc;
 
-pub const xdgDirsAlloc = @import("sa_std/test_debug.zig").xdgDirsAlloc;
 
-pub const Fallible = @import("sa_std/fallible.zig").Fallible;
 
-pub const ok = @import("sa_std/fallible.zig").ok;
 
-pub const fail = @import("sa_std/fallible.zig").fail;
 
 // NOTE: sa_http_client_* used to be provided by the http-client plugin
 // and deliberately left undefined here (a stub once shadowed it). Since
@@ -4667,23 +2931,14 @@ pub export fn sa_std_last_error() i32 {
     return last_error;
 }
 
-pub const sa_std_net_error_code_from_status = @import("sa_std/std_net.zig").sa_std_net_error_code_from_status;
 
-pub const sa_std_net_error_code_from_posix_errno = @import("sa_std/std_net.zig").sa_std_net_error_code_from_posix_errno;
 
-pub const sa_std_net_error_code_from_wsa_error = @import("sa_std/std_net.zig").sa_std_net_error_code_from_wsa_error;
 
-pub const netErrorCodeName = @import("sa_std/fallible.zig").netErrorCodeName;
 
-pub const sa_std_net_error_code_name = @import("sa_std/std_net.zig").sa_std_net_error_code_name;
 
-pub const sa_std_net_error_platform = @import("sa_std/std_net.zig").sa_std_net_error_platform;
 
-pub const sa_std_net_error_code_from_native_error = @import("sa_std/std_net.zig").sa_std_net_error_code_from_native_error;
 
-pub const sa_std_net_hostname = @import("sa_std/std_net.zig").sa_std_net_hostname;
 
-pub const sa_std_error_name = @import("sa_std/fallible.zig").sa_std_error_name;
 
 pub export fn sa_std_stdin() u64 {
     return SA_STD_STDIN;
@@ -4703,31 +2958,18 @@ pub export fn sa_std_print(data: ?[*]const u8, len: u64) i32 {
     return finish(SA_STD_OK);
 }
 
-pub const sa_std_println = @import("sa_std/fallible.zig").sa_std_println;
 
-pub const sa_deno_cwd = @import("sa_std/deno.zig").sa_deno_cwd;
 
-pub const sa_deno_chdir = @import("sa_std/deno.zig").sa_deno_chdir;
 
-pub const sa_deno_env_set = @import("sa_std/deno.zig").sa_deno_env_set;
 
-pub const sa_deno_env_delete = @import("sa_std/deno.zig").sa_deno_env_delete;
 
-pub const sa_deno_random_uuid = @import("sa_std/deno.zig").sa_deno_random_uuid;
 
-pub const tempRootAlloc = @import("sa_std/test_debug.zig").tempRootAlloc;
 
-pub const tempPathAlloc = @import("sa_std/test_debug.zig").tempPathAlloc;
 
-pub const sa_deno_make_temp_dir = @import("sa_std/deno.zig").sa_deno_make_temp_dir;
 
-pub const sa_deno_make_temp_file = @import("sa_std/deno.zig").sa_deno_make_temp_file;
 
-pub const sa_deno_args_json = @import("sa_std/deno.zig").sa_deno_args_json;
 
-pub const sa_deno_btoa = @import("sa_std/deno.zig").sa_deno_btoa;
 
-pub const sa_deno_atob = @import("sa_std/deno.zig").sa_deno_atob;
 
 // SIMD hex decoder: native bulk-decode fast path (mirrors the sa_hexdec
 // JS host-codec shim contract). Decodes ASCII hex pairs into bytes at
@@ -4796,12 +3038,10 @@ pub export fn sa_hexdec_simd(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8)
 // scalar tail. Stops at the first non-alphabet char (including '=')
 // and returns the bytes written so far; clean input of n chars with
 // n % 4 == 0 yields exactly n/4*3. Caller must provide that many bytes.
-pub const b64SimdSextetVal = @import("sa_std/b64_simd.zig").b64SimdSextetVal;
 
 extern fn sa_cpu_has_avx2() c_int;
 extern fn sa_b64dec_avx2(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8) u64;
 
-pub const sa_b64dec_simd = @import("sa_std/b64_simd.zig").sa_b64dec_simd;
 
 
 
@@ -4822,33 +3062,19 @@ pub export fn sa_mfind_u8(hay_ptr: ?[*]const u8, hay_len: u64, ndl_ptr: ?[*]cons
 }
 
 
-pub const sa_deno_text_encode = @import("sa_std/deno.zig").sa_deno_text_encode;
 
-pub const sa_deno_text_decode = @import("sa_std/deno.zig").sa_deno_text_decode;
 
-pub const sa_deno_chat_sse_to_responses = @import("sa_std/deno.zig").sa_deno_chat_sse_to_responses;
 
-pub const sa_deno_chat_json_to_responses = @import("sa_std/deno.zig").sa_deno_chat_json_to_responses;
 
-pub const sa_deno_responses_sse_normalize = @import("sa_std/deno.zig").sa_deno_responses_sse_normalize;
 
-pub const sa_deno_responses_json_normalize = @import("sa_std/deno.zig").sa_deno_responses_json_normalize;
 
-pub const sa_deno_responses_request_normalize = @import("sa_std/deno.zig").sa_deno_responses_request_normalize;
 
-pub const sa_deno_responses_chat_fallback_request = @import("sa_std/deno.zig").sa_deno_responses_chat_fallback_request;
 
-pub const sa_deno_jsonrpc_params_string_literal = @import("sa_std/deno.zig").sa_deno_jsonrpc_params_string_literal;
 
-pub const sa_deno_version_json = @import("sa_std/deno.zig").sa_deno_version_json;
 
-pub const sa_deno_version_deno = @import("sa_std/deno.zig").sa_deno_version_deno;
 
-pub const sa_deno_build_json = @import("sa_std/deno.zig").sa_deno_build_json;
 
-pub const sa_deno_build_os = @import("sa_std/deno.zig").sa_deno_build_os;
 
-pub const sa_deno_build_platform_family = @import("sa_std/deno.zig").sa_deno_build_platform_family;
 
 /// Zero-padded decimal append. (std.fmt `{d:04}` on 0.14 misplaces the
 /// sign, emitting `+` for positives, so ISO dates pad manually instead.)
@@ -4884,25 +3110,16 @@ pub fn appendIsoUtc(out: *std.array_list.Managed(u8), year: i64, month: i64, day
     try out.append('Z');
 }
 
-pub const sa_deno_date_now_iso = @import("sa_std/deno.zig").sa_deno_date_now_iso;
 
-pub const struct_sockaddr = @import("sa_std/iface_json.zig").struct_sockaddr;
-pub const struct_ifaddrs = @import("sa_std/iface_json.zig").struct_ifaddrs;
 extern fn getifaddrs(ifap: *?*struct_ifaddrs) c_int;
 extern fn freeifaddrs(ifa: ?*struct_ifaddrs) void;
 extern fn inet_ntop(af: c_int, src: ?*const anyopaque, dst: [*]u8, size: c_uint) ?[*:0]const u8;
 
-pub const sa_deno_hostname = @import("sa_std/deno.zig").sa_deno_hostname;
 
-pub const sa_deno_os_release = @import("sa_std/deno.zig").sa_deno_os_release;
 
-pub const sa_deno_os_uptime = @import("sa_std/deno.zig").sa_deno_os_uptime;
 
-pub const sa_deno_loadavg = @import("sa_std/deno.zig").sa_deno_loadavg;
 
-pub const sa_deno_system_memory_info = @import("sa_std/deno.zig").sa_deno_system_memory_info;
 
-pub const sa_deno_network_interfaces = @import("sa_std/deno.zig").sa_deno_network_interfaces;
 
 pub extern fn getpid() c_int;
 extern fn getppid() c_int;
@@ -4930,197 +3147,104 @@ extern fn getpagesize() c_int;
 // unchanged. Linux only for now; the Windows runtime mirror does
 // not implement the symbol yet.
 
-pub const appendJsonEscapedString = @import("sa_std/iface_json.zig").appendJsonEscapedString;
 
-pub const buildInterfaceAddressesJson = @import("sa_std/iface_json.zig").buildInterfaceAddressesJson;
 
 
-pub const sa_std_net_interface_addresses_json = @import("sa_std/std_net.zig").sa_std_net_interface_addresses_json;
 
 
-pub const sa_deno_pid = @import("sa_std/deno.zig").sa_deno_pid;
 
-pub const sa_deno_ppid = @import("sa_std/deno.zig").sa_deno_ppid;
 
-pub const sa_deno_uid = @import("sa_std/deno.zig").sa_deno_uid;
 
-pub const sa_deno_gid = @import("sa_std/deno.zig").sa_deno_gid;
 
-pub const sa_deno_exec_path = @import("sa_std/deno.zig").sa_deno_exec_path;
 
-pub const sa_deno_memory_usage = @import("sa_std/deno.zig").sa_deno_memory_usage;
 
-pub const sa_json_parse = @import("sa_std/json.zig").sa_json_parse;
 
-pub const sa_json_kind = @import("sa_std/json.zig").sa_json_kind;
 
-pub const sa_json_object_get = @import("sa_std/json.zig").sa_json_object_get;
 
-pub const sa_json_array_get = @import("sa_std/json.zig").sa_json_array_get;
 
-pub const sa_json_object_key_at = @import("sa_std/json.zig").sa_json_object_key_at;
 
-pub const sa_json_object_get_string = @import("sa_std/json.zig").sa_json_object_get_string;
 
-pub const sa_json_object_get_bool = @import("sa_std/json.zig").sa_json_object_get_bool;
 
-pub const sa_json_object_get_i64 = @import("sa_std/json.zig").sa_json_object_get_i64;
 
-pub const sa_json_object_get_f64 = @import("sa_std/json.zig").sa_json_object_get_f64;
 
-pub const sa_json_as_f64 = @import("sa_std/json.zig").sa_json_as_f64;
 
-pub const sa_json_as_i64 = @import("sa_std/json.zig").sa_json_as_i64;
 
-pub const sa_json_as_bool = @import("sa_std/json.zig").sa_json_as_bool;
 
-pub const sa_json_string_ptr = @import("sa_std/json.zig").sa_json_string_ptr;
 
-pub const sa_json_string_len = @import("sa_std/json.zig").sa_json_string_len;
 
-pub const sa_json_value_count = @import("sa_std/json.zig").sa_json_value_count;
 
-pub const sa_json_free = @import("sa_std/json.zig").sa_json_free;
 
-pub const sa_json_stringify = @import("sa_std/json.zig").sa_json_stringify;
 
-pub const sa_json_object_set_string = @import("sa_std/json.zig").sa_json_object_set_string;
 
-pub const sa_json_object_set_i64 = @import("sa_std/json.zig").sa_json_object_set_i64;
 
-pub const sa_json_object_set_f64 = @import("sa_std/json.zig").sa_json_object_set_f64;
 
-pub const sa_json_object_set_bool = @import("sa_std/json.zig").sa_json_object_set_bool;
 
-pub const sa_json_object_set_null = @import("sa_std/json.zig").sa_json_object_set_null;
 
-pub const sa_json_object_set_node = @import("sa_std/json.zig").sa_json_object_set_node;
 
-pub const sa_json_object_remove = @import("sa_std/json.zig").sa_json_object_remove;
 
-pub const sa_json_array_push_string = @import("sa_std/json.zig").sa_json_array_push_string;
 
-pub const sa_json_array_push_i64 = @import("sa_std/json.zig").sa_json_array_push_i64;
 
-pub const sa_json_array_push_f64 = @import("sa_std/json.zig").sa_json_array_push_f64;
 
-pub const sa_json_array_push_bool = @import("sa_std/json.zig").sa_json_array_push_bool;
 
-pub const sa_json_array_push_null = @import("sa_std/json.zig").sa_json_array_push_null;
 
-pub const sa_json_array_push_node = @import("sa_std/json.zig").sa_json_array_push_node;
 
 
 
 
 
 
-pub const sa_json_scanner_new = @import("sa_std/json.zig").sa_json_scanner_new;
 
-pub const sa_json_scanner_feed = @import("sa_std/json.zig").sa_json_scanner_feed;
 
-pub const sa_json_scanner_end_input = @import("sa_std/json.zig").sa_json_scanner_end_input;
 
-pub const sa_json_scanner_next = @import("sa_std/json.zig").sa_json_scanner_next;
 
-pub const sa_json_scanner_free = @import("sa_std/json.zig").sa_json_scanner_free;
 
-pub const sa_json_stream_new = @import("sa_std/json.zig").sa_json_stream_new;
 
-pub const sa_json_stream_next = @import("sa_std/json.zig").sa_json_stream_next;
 
-pub const sa_json_stream_get_slice_ptr = @import("sa_std/json.zig").sa_json_stream_get_slice_ptr;
 
-pub const sa_json_stream_get_slice_len = @import("sa_std/json.zig").sa_json_stream_get_slice_len;
 
-pub const sa_json_stream_free = @import("sa_std/json.zig").sa_json_stream_free;
 
-pub const sa_json_writer_free = @import("sa_std/json.zig").sa_json_writer_free;
 
-pub const sa_json_writer_new = @import("sa_std/json.zig").sa_json_writer_new;
 
-pub const sa_json_writer_begin_object = @import("sa_std/json.zig").sa_json_writer_begin_object;
 
-pub const sa_json_writer_end_object = @import("sa_std/json.zig").sa_json_writer_end_object;
 
-pub const sa_json_writer_begin_array = @import("sa_std/json.zig").sa_json_writer_begin_array;
 
-pub const sa_json_writer_end_array = @import("sa_std/json.zig").sa_json_writer_end_array;
 
-pub const sa_json_writer_object_field = @import("sa_std/json.zig").sa_json_writer_object_field;
 
-pub const sa_json_writer_field_string = @import("sa_std/json.zig").sa_json_writer_field_string;
 
-pub const sa_json_writer_field_bool = @import("sa_std/json.zig").sa_json_writer_field_bool;
 
-pub const sa_json_writer_field_i64 = @import("sa_std/json.zig").sa_json_writer_field_i64;
 
-pub const sa_json_writer_field_f64 = @import("sa_std/json.zig").sa_json_writer_field_f64;
 
-pub const sa_json_writer_field_null = @import("sa_std/json.zig").sa_json_writer_field_null;
 
-pub const sa_json_writer_field_node = @import("sa_std/json.zig").sa_json_writer_field_node;
 
-pub const sa_json_writer_write_bool = @import("sa_std/json.zig").sa_json_writer_write_bool;
 
-pub const sa_json_writer_write_i64 = @import("sa_std/json.zig").sa_json_writer_write_i64;
 
-pub const sa_json_writer_write_f64 = @import("sa_std/json.zig").sa_json_writer_write_f64;
 
-pub const sa_json_writer_write_string = @import("sa_std/json.zig").sa_json_writer_write_string;
 
-pub const sa_json_writer_write_null = @import("sa_std/json.zig").sa_json_writer_write_null;
 
-pub const sa_json_writer_write_node = @import("sa_std/json.zig").sa_json_writer_write_node;
 
-pub const sa_json_writer_finish = @import("sa_std/json.zig").sa_json_writer_finish;
 
-pub const sa_json_writer_finish_buffer = @import("sa_std/json.zig").sa_json_writer_finish_buffer;
 
-pub const sa_regex_compile = @import("sa_std/regex.zig").sa_regex_compile;
 
-pub const sa_regex_match = @import("sa_std/regex.zig").sa_regex_match;
 
-pub const sa_regex_group_ptr = @import("sa_std/regex.zig").sa_regex_group_ptr;
 
-pub const sa_regex_group_len = @import("sa_std/regex.zig").sa_regex_group_len;
 
-pub const sa_regex_group_start = @import("sa_std/regex.zig").sa_regex_group_start;
 
-pub const sa_regex_group_count = @import("sa_std/regex.zig").sa_regex_group_count;
 
-pub const sa_regex_free = @import("sa_std/regex.zig").sa_regex_free;
 
-pub const sa_regex_match_free = @import("sa_std/regex.zig").sa_regex_match_free;
-pub const sa_regex_match_all = @import("sa_std/regex.zig").sa_regex_match_all;
 
-pub const sa_regex_match_list_count = @import("sa_std/regex.zig").sa_regex_match_list_count;
 
-pub const sa_regex_match_list_at = @import("sa_std/regex.zig").sa_regex_match_list_at;
 
-pub const sa_regex_match_list_free = @import("sa_std/regex.zig").sa_regex_match_list_free;
 
-pub const regexReplaceBuffer = @import("sa_std/regex_core.zig").regexReplaceBuffer;
 
-pub const sa_regex_replace = @import("sa_std/regex.zig").sa_regex_replace;
 
-pub const sa_regex_replace_all = @import("sa_std/regex.zig").sa_regex_replace_all;
 
-pub const sa_regex_buffer_data = @import("sa_std/regex.zig").sa_regex_buffer_data;
 
-pub const sa_regex_buffer_len = @import("sa_std/regex.zig").sa_regex_buffer_len;
 
-pub const sa_regex_buffer_free = @import("sa_std/regex.zig").sa_regex_buffer_free;
 
-pub const sa_regex_split = @import("sa_std/regex.zig").sa_regex_split;
 
-pub const sa_regex_split_count = @import("sa_std/regex.zig").sa_regex_split_count;
 
-pub const sa_regex_split_ptr = @import("sa_std/regex.zig").sa_regex_split_ptr;
 
-pub const sa_regex_split_len = @import("sa_std/regex.zig").sa_regex_split_len;
 
-pub const sa_regex_split_free = @import("sa_std/regex.zig").sa_regex_split_free;
 
 // ---------------------------------------------------------------------------
 // Unicode normalization (ICU unorm2) for tsgosa String.prototype.normalize.
@@ -5242,17 +3366,11 @@ pub export fn sa_host_is_bun() i32 {
 
 
 
-pub const sa_json_buffer_data = @import("sa_std/json.zig").sa_json_buffer_data;
 
-pub const sa_json_buffer_len = @import("sa_std/json.zig").sa_json_buffer_len;
 
-pub const sa_json_buffer_free = @import("sa_std/json.zig").sa_json_buffer_free;
 
-pub const sa_time_instant_ns = @import("sa_std/time.zig").sa_time_instant_ns;
 
-pub const sa_time_unix_s = @import("sa_std/time.zig").sa_time_unix_s;
 
-pub const sa_time_unix_ms = @import("sa_std/time.zig").sa_time_unix_ms;
 
 /// Shared civil split: i64 unix millis to (days since epoch, millis
 /// within day, Hinnant y/m/d, h/mi/s/ms). Negative inputs fold via
@@ -5296,38 +3414,28 @@ pub fn civilParts(ms: i64) CivilParts {
     };
 }
 
-/// JS `Date.toISOString` shape for an i64 unix-millis value: UTC
-/// `YYYY-MM-DDTHH:MM:SS.sssZ` (millis precision, zero-padded; years
-/// 0..9999 exact, larger years print unpadded-past-4 like the denoise
-/// path). Negative inputs (pre-1970) fold correctly via floored
-/// division (Howard Hinnant civil_from_days). Fresh buffer handle read
-/// back via `sa_fmt_buffer_data`/`sa_fmt_buffer_len` like concat.
-pub const sa_time_iso_from_unix_ms = @import("sa_std/time.zig").sa_time_iso_from_unix_ms;
+// JS `Date.toISOString` shape for an i64 unix-millis value: UTC
+// `YYYY-MM-DDTHH:MM:SS.sssZ` (millis precision, zero-padded; years
+// 0..9999 exact, larger years print unpadded-past-4 like the denoise
+// path). Negative inputs (pre-1970) fold correctly via floored
+// division (Howard Hinnant civil_from_days). Fresh buffer handle read
+// back via `sa_fmt_buffer_data`/`sa_fmt_buffer_len` like concat.
 
-/// Strict-ISO `Date.parse`: `YYYY-MM-DD[THH:MM:SS[.sss]][Z|±HH:MM]`
-/// to unix millis. Plain i32 status (0 ok, 2 invalid); range-checked
-/// (leap days, h<24, m/s<60); date-only means UTC midnight per JS.
-/// Inverse Hinnant days_from_civil; years 0..9999 keep i64 arithmetic
-/// exact (bounded well inside range, no checked ops needed).
-pub const sa_time_parse_iso = @import("sa_std/time.zig").sa_time_parse_iso;
+// Strict-ISO `Date.parse`: `YYYY-MM-DD[THH:MM:SS[.sss]][Z|±HH:MM]`
+// to unix millis. Plain i32 status (0 ok, 2 invalid); range-checked
+// (leap days, h<24, m/s<60); date-only means UTC midnight per JS.
+// Inverse Hinnant days_from_civil; years 0..9999 keep i64 arithmetic
+// exact (bounded well inside range, no checked ops needed).
 
 /// JS Date getters over i64 unix millis (UTC; month 0-based like JS,
 /// day 0=Sunday like JS: 1970-01-01 was a Thursday).
-pub const sa_time_get_full_year = @import("sa_std/time.zig").sa_time_get_full_year;
 
-pub const sa_time_get_month = @import("sa_std/time.zig").sa_time_get_month;
 
-pub const sa_time_get_date = @import("sa_std/time.zig").sa_time_get_date;
 
-pub const sa_time_get_hours = @import("sa_std/time.zig").sa_time_get_hours;
 
-pub const sa_time_get_minutes = @import("sa_std/time.zig").sa_time_get_minutes;
 
-pub const sa_time_get_seconds = @import("sa_std/time.zig").sa_time_get_seconds;
 
-pub const sa_time_get_milliseconds = @import("sa_std/time.zig").sa_time_get_milliseconds;
 
-pub const sa_time_get_day = @import("sa_std/time.zig").sa_time_get_day;
 
 pub const weekdayNames = [_][]const u8{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
 pub const monthNames = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
@@ -5351,7 +3459,6 @@ pub fn appendFour(out: *std.array_list.Managed(u8), val: i64) !void {
 /// Fixed UTC string forms for Date toString/toDateString/toTimeString/
 /// toUTCString (fmt 0..3), byte-exact with Node under UTC. Years use the
 /// same 4-digit zero pad as the ISO path (documented bound 0..9999).
-pub const sa_time_format_utc = @import("sa_std/time.zig").sa_time_format_utc;
 
 pub fn daysFromCivil(y_in: i64, m_in: i64, d: i64) i64 {
     const y: i64 = if (m_in <= 2) y_in - 1 else y_in;
@@ -5363,52 +3470,19 @@ pub fn daysFromCivil(y_in: i64, m_in: i64, d: i64) i64 {
     return era * 146097 + doe - 719468;
 }
 
-/// JS Date setters over i64 unix millis (field 0..6). Components apply
-/// then normalize with floored divmod, so out-of-range values roll over
-/// exactly like JS (setMonth(13), setDate(0), setHours(25), negatives).
-/// Unknown field ids return the input unchanged (frontends only ever
-/// send 0..6 via fixed table extras).
-pub const sa_time_set_field = @import("sa_std/time.zig").sa_time_set_field;
+// JS Date setters over i64 unix millis (field 0..6). Components apply
+// then normalize with floored divmod, so out-of-range values roll over
+// exactly like JS (setMonth(13), setDate(0), setHours(25), negatives).
+// Unknown field ids return the input unchanged (frontends only ever
+// send 0..6 via fixed table extras).
 
-pub const sa_time_unix_ns = @import("sa_std/time.zig").sa_time_unix_ns;
 
-pub const sa_time_utc_now = @import("sa_std/time.zig").sa_time_utc_now;
 
-pub const sa_time_sleep_ns = @import("sa_std/time.zig").sa_time_sleep_ns;
 
-pub const sa_time_sleep_ms = @import("sa_std/time.zig").sa_time_sleep_ms;
 
-pub export fn sa_std_write(handle: u64, data: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
-    if (out_written) |ptr| ptr.* = 0;
-    const bytes = constBytes(data, len) catch |err| return finishErr(err);
-    const written = writeHandle(handle, bytes) catch |err| return finishErr(err);
-    if (out_written) |ptr| ptr.* = @as(u64, @intCast(written));
-    return finish(SA_STD_OK);
-}
 
-pub export fn sa_std_read(handle: u64, out: ?[*]u8, out_cap: u64, out_read: ?*u64) i32 {
-    if (out_read) |ptr| ptr.* = 0;
-    const buffer = mutBytes(out, out_cap) catch |err| return finishErr(err);
-    const read = readHandle(handle, buffer) catch |err| return finishErr(err);
-    if (out_read) |ptr| ptr.* = @as(u64, @intCast(read));
-    return finish(SA_STD_OK);
-}
 
-pub export fn sa_std_close(handle: u64) i32 {
-    if (handle == SA_STD_STDIN or handle == SA_STD_STDOUT or handle == SA_STD_STDERR) return finish(SA_STD_ERR_INVALID_HANDLE);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    var resource = takeResourceLocked(handle) orelse {
-        registry_mutex.unlock();
-        return finish(SA_STD_ERR_INVALID_HANDLE);
-    };
-    registry_mutex.unlock();
-    resource.close() catch |err| return finishErr(err);
-    return finish(SA_STD_OK);
-}
 
-pub const sa_io_read_line = @import("sa_std/io.zig").sa_io_read_line;
 
 // Compatibility shims for the rosetta demos that model host APIs directly.
 pub fn fd_open(path_ptr: ?[*]const u8) callconv(.c) i32 {
@@ -5449,21 +3523,13 @@ pub fn signal(sig: i32, handler: ?[*]const u8) callconv(.c) i32 {
     return sig;
 }
 
-pub const pthread_spawn = @import("sa_std/pthread.zig").pthread_spawn;
 
-pub const pthread_spawn_detached = @import("sa_std/pthread.zig").pthread_spawn_detached;
 
-pub const pthread_join = @import("sa_std/pthread.zig").pthread_join;
 
-pub const sa_thread_as_pthread_t = @import("sa_std/pthread.zig").sa_thread_as_pthread_t;
 
-pub const sa_thread_into_pthread_t = @import("sa_std/pthread.zig").sa_thread_into_pthread_t;
 
-pub const sa_thread_raw_pthread_join = @import("sa_std/pthread.zig").sa_thread_raw_pthread_join;
 
-pub const pthread_drop = @import("sa_std/pthread.zig").pthread_drop;
 
-pub const dlopen = @import("sa_std/dlopen.zig").dlopen;
 
 pub fn dlsym(handle: ?[*]u8, symbol_ptr: ?[*]const u8) callconv(.c) ?[*]u8 {
     _ = handle;
@@ -5478,15 +3544,9 @@ pub fn dlclose(handle: ?[*]u8) callconv(.c) i32 {
     return SA_STD_ERR_UNSUPPORTED;
 }
 
-pub const sa_dl_open = @import("sa_std/dlopen.zig").sa_dl_open;
 
-pub const sa_dl_sym = @import("sa_std/dlopen.zig").sa_dl_sym;
 
-pub export fn sa_dl_close(handle: u64) i32 {
-    return sa_std_close(handle);
-}
 
-pub const sa_dl_error = @import("sa_std/dlopen.zig").sa_dl_error;
 
 pub fn sqlite3_prepare(sqlite: ?[*]u8, sql: ?[*]const u8, len: i32, stmt_out: ?[*]u8) callconv(.c) i32 {
     _ = sqlite;
@@ -5573,173 +3633,64 @@ comptime {
     }
 }
 
-pub const sa_std_fs_open_read = @import("sa_std/std_fs.zig").sa_std_fs_open_read;
-
-pub const sa_std_fs_open_write = @import("sa_std/std_fs.zig").sa_std_fs_open_write;
-
-pub const sa_std_fs_remove = @import("sa_std/std_fs.zig").sa_std_fs_remove;
-
-pub const sa_std_fs_exists = @import("sa_std/std_fs.zig").sa_std_fs_exists;
-
-pub const sa_std_fs_try_exists = @import("sa_std/std_fs.zig").sa_std_fs_try_exists;
-
-pub const sa_std_fs_len = @import("sa_std/std_fs.zig").sa_std_fs_len;
-
-pub const sa_std_process_run = @import("sa_std/std_process.zig").sa_std_process_run;
-
-pub const sa_std_process_run_cwd = @import("sa_std/std_process.zig").sa_std_process_run_cwd;
-
-pub const sa_std_process_spawn = @import("sa_std/std_process.zig").sa_std_process_spawn;
-
-pub const sa_std_process_spawn_cwd = @import("sa_std/std_process.zig").sa_std_process_spawn_cwd;
-
-pub const sa_std_process_spawn_stream = @import("sa_std/std_process.zig").sa_std_process_spawn_stream;
-
-pub const sa_std_process_spawn_stream_cwd = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_cwd;
 
 
-pub const sa_std_process_spawn_bidi = @import("sa_std/std_process.zig").sa_std_process_spawn_bidi;
 
-pub const sa_std_process_spawn_bidi_cwd = @import("sa_std/std_process.zig").sa_std_process_spawn_bidi_cwd;
 
-pub fn processCommandExtConfig(arg0_ptr: ?[*]const u8, arg0_len: u64, has_arg0: u32, process_group: i32, has_process_group: u32, setsid: u32, create_pidfd: u32, uid: u32, has_uid: u32, gid: u32, has_gid: u32, groups_ptr: ?[*]const u32, groups_len: u64, has_groups: u32, chroot_ptr: ?[*]const u8, chroot_len: u64, has_chroot: u32) !ProcessSpawnConfig {
-    if (has_process_group != 0 and process_group < 0) return error.InvalidArgument;
-    return .{
-        .arg0 = if (has_arg0 != 0) try constBytes(arg0_ptr, arg0_len) else null,
-        .process_group = if (has_process_group != 0) process_group else null,
-        .setsid = setsid != 0,
-        .create_pidfd = create_pidfd != 0,
-        .uid = if (has_uid != 0) uid else null,
-        .gid = if (has_gid != 0) gid else null,
-        .groups = if (has_groups != 0) try constU32s(groups_ptr, groups_len) else null,
-        .chroot_path = if (has_chroot != 0) try pathBytes(chroot_ptr, chroot_len) else null,
-    };
-}
 
-pub const sa_std_process_run_command_ext = @import("sa_std/std_process.zig").sa_std_process_run_command_ext;
 
-pub const sa_std_process_spawn_command_ext = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext;
 
-pub const sa_std_process_spawn_stream_command_ext = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext;
 
-pub const sa_std_process_run_command_ext_pidfd = @import("sa_std/std_process.zig").sa_std_process_run_command_ext_pidfd;
 
-pub const sa_std_process_spawn_command_ext_pidfd = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext_pidfd;
 
-pub const sa_std_process_spawn_stream_command_ext_pidfd = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext_pidfd;
 
-pub const sa_std_process_run_command_ext_uid_gid = @import("sa_std/std_process.zig").sa_std_process_run_command_ext_uid_gid;
 
-pub const sa_std_process_spawn_command_ext_uid_gid = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext_uid_gid;
 
-pub const sa_std_process_spawn_stream_command_ext_uid_gid = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext_uid_gid;
 
-pub const sa_std_process_run_command_ext_groups = @import("sa_std/std_process.zig").sa_std_process_run_command_ext_groups;
 
-pub const sa_std_process_spawn_command_ext_groups = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext_groups;
 
-pub const sa_std_process_spawn_stream_command_ext_groups = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext_groups;
 
-pub const sa_std_process_run_command_ext_chroot = @import("sa_std/std_process.zig").sa_std_process_run_command_ext_chroot;
 
-pub const sa_std_process_spawn_command_ext_chroot = @import("sa_std/std_process.zig").sa_std_process_spawn_command_ext_chroot;
 
-pub const sa_std_process_spawn_stream_command_ext_chroot = @import("sa_std/std_process.zig").sa_std_process_spawn_stream_command_ext_chroot;
 
-pub const sa_std_process_exec_command_ext = @import("sa_std/std_process.zig").sa_std_process_exec_command_ext;
 
-pub const sa_std_process_id = @import("sa_std/std_process.zig").sa_std_process_id;
 
-pub const sa_std_process_parent_id = @import("sa_std/std_process.zig").sa_std_process_parent_id;
 
-pub const sa_std_process_user_id = @import("sa_std/std_process.zig").sa_std_process_user_id;
 
-pub const sa_std_process_group_id = @import("sa_std/std_process.zig").sa_std_process_group_id;
 
-pub const sa_std_process_abort = @import("sa_std/std_process.zig").sa_std_process_abort;
 
-pub const sa_std_process_child_id = @import("sa_std/std_process.zig").sa_std_process_child_id;
 
-pub const sa_std_process_wait = @import("sa_std/std_process.zig").sa_std_process_wait;
 
-pub const sa_std_process_wait_raw = @import("sa_std/std_process.zig").sa_std_process_wait_raw;
 
-pub const sa_std_process_try_wait = @import("sa_std/std_process.zig").sa_std_process_try_wait;
 
-pub const sa_std_process_try_wait_raw = @import("sa_std/std_process.zig").sa_std_process_try_wait_raw;
 
-pub const sa_std_process_kill = @import("sa_std/std_process.zig").sa_std_process_kill;
 
-pub const sa_std_process_send_signal = @import("sa_std/std_process.zig").sa_std_process_send_signal;
 
-pub const sa_std_process_send_process_group_signal = @import("sa_std/std_process.zig").sa_std_process_send_process_group_signal;
 
-pub const sa_std_process_kill_process_group = @import("sa_std/std_process.zig").sa_std_process_kill_process_group;
 
-pub const sa_std_process_pidfd = @import("sa_std/std_process.zig").sa_std_process_pidfd;
 
-pub const sa_std_process_into_pidfd = @import("sa_std/std_process.zig").sa_std_process_into_pidfd;
 
-pub export fn sa_std_pidfd_kill(handle: u64) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .owned_fd => |fd| {
-            sendSignalToPidfd(fd.fd, @backingInt(SIGT.KILL), 0) catch |err| switch (err) {
-                error.InvalidArgument => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-                error.PermissionDenied => return finish(SA_STD_ERR_ACCESS),
-                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                else => return finishErr(err),
-            };
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
 
-pub export fn sa_std_pidfd_send_signal(handle: u64, signum: i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    if (signum < 0 or signum > std.math.maxInt(u8)) return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .owned_fd => |fd| {
-            sendSignalToPidfd(fd.fd, @as(u8, @intCast(signum)), 0) catch |err| switch (err) {
-                error.InvalidArgument => return finish(SA_STD_ERR_INVALID_ARGUMENT),
-                error.PermissionDenied => return finish(SA_STD_ERR_ACCESS),
-                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                else => return finishErr(err),
-            };
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
 
-pub const sa_std_pidfd_wait_raw = @import("sa_std/proc_wait.zig").sa_std_pidfd_wait_raw;
 
-pub const sa_std_pidfd_wait = @import("sa_std/proc_wait.zig").sa_std_pidfd_wait;
 
-pub const sa_std_pidfd_try_wait_raw = @import("sa_std/proc_wait.zig").sa_std_pidfd_try_wait_raw;
 
-pub const sa_std_pidfd_try_wait = @import("sa_std/proc_wait.zig").sa_std_pidfd_try_wait;
 
-pub const sa_std_process_exit_status_code = @import("sa_std/std_process.zig").sa_std_process_exit_status_code;
 
-pub const sa_std_process_exit_status_signal = @import("sa_std/std_process.zig").sa_std_process_exit_status_signal;
 
-pub const sa_std_process_exit_status_core_dumped = @import("sa_std/std_process.zig").sa_std_process_exit_status_core_dumped;
 
-pub const sa_std_process_exit_status_stopped_signal = @import("sa_std/std_process.zig").sa_std_process_exit_status_stopped_signal;
 
-pub const sa_std_process_exit_status_continued = @import("sa_std/std_process.zig").sa_std_process_exit_status_continued;
+
+
+
+
+
+
+
+
+
+
+
 
 const ProcessOutputStream = enum { stdout, stderr };
 
@@ -5774,21 +3725,13 @@ pub fn readProcessOutput(handle: u64, stream: ProcessOutputStream, out: ?[*]u8, 
     };
 }
 
-pub const sa_std_process_read_stdout = @import("sa_std/std_process.zig").sa_std_process_read_stdout;
 
-pub const sa_std_process_read_stderr = @import("sa_std/std_process.zig").sa_std_process_read_stderr;
 
-pub const sa_std_process_exec_capture = @import("sa_std/std_process.zig").sa_std_process_exec_capture;
 
-pub const sa_std_process_exec_capture_cwd = @import("sa_std/std_process.zig").sa_std_process_exec_capture_cwd;
 
-pub const sa_std_process_close = @import("sa_std/std_process.zig").sa_std_process_close;
 
-pub const sa_std_fd_as_raw = @import("sa_std/fd_core.zig").sa_std_fd_as_raw;
 
-pub const sa_std_fd_dup = @import("sa_std/fd_core.zig").sa_std_fd_dup;
 
-pub const sa_std_fd_dup_raw = @import("sa_std/fd_core.zig").sa_std_fd_dup_raw;
 
 pub export fn sa_std_fd_from_raw(fd: i32, out_handle: ?*u64) i32 {
     const handle_ptr = out_handle orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -5803,31 +3746,6 @@ pub export fn sa_std_fd_from_raw(fd: i32, out_handle: ?*u64) i32 {
     return finish(SA_STD_OK);
 }
 
-pub export fn sa_std_fd_into_raw(handle: u64, out_fd: ?*i32) i32 {
-    const fd_ptr = out_fd orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    fd_ptr.* = -1;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    switch (resource.*) {
-        .file, .tcp_stream, .tcp_listener, .udp_socket, .owned_fd => {},
-        else => return finish(SA_STD_ERR_INVALID_HANDLE),
-    }
-
-    const taken = takeResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    fd_ptr.* = switch (taken) {
-        .file => |file| @as(i32, @intCast(file.inner.handle)),
-        .tcp_stream => |stream| @as(i32, @intCast(stream)),
-        .tcp_listener => |server| @as(i32, @intCast(server.fd)),
-        .udp_socket => |fd_value| @as(i32, @intCast(fd_value)),
-        .owned_fd => |fd_handle| @as(i32, @intCast(fd_handle.fd)),
-        else => unreachable,
-    };
-    return finish(SA_STD_OK);
-}
 
 pub export fn sa_std_fd_close_raw(fd: i32) i32 {
     if (fd < 0) return finish(SA_STD_ERR_INVALID_ARGUMENT);
@@ -5835,7 +3753,6 @@ pub export fn sa_std_fd_close_raw(fd: i32) i32 {
     return finish(SA_STD_OK);
 }
 
-pub const sa_std_fd_is_terminal = @import("sa_std/fd_core.zig").sa_std_fd_is_terminal;
 
 pub export fn sa_thread_current_id() u64 {
     return @as(u64, @intCast(std.Thread.getCurrentId()));
@@ -5846,45 +3763,25 @@ pub export fn sa_thread_yield_now() i32 {
     return finish(SA_STD_OK);
 }
 
-pub const sa_term_raw_enter = @import("sa_std/term.zig").sa_term_raw_enter;
 
-pub const sa_term_raw_leave = @import("sa_std/term.zig").sa_term_raw_leave;
 
-pub const sa_term_winsize = @import("sa_std/term.zig").sa_term_winsize;
 
-pub const sa_term_epoll_create = @import("sa_std/term.zig").sa_term_epoll_create;
 
-pub const sa_term_epoll_create_linux = @import("sa_std/term.zig").sa_term_epoll_create_linux;
 
-pub const sa_term_epoll_ctl = @import("sa_std/term.zig").sa_term_epoll_ctl;
 
-pub const sa_term_epoll_ctl_linux = @import("sa_std/term.zig").sa_term_epoll_ctl_linux;
 
-pub const sa_term_epoll_wait = @import("sa_std/term.zig").sa_term_epoll_wait;
 
-pub const sa_term_epoll_wait_linux = @import("sa_std/term.zig").sa_term_epoll_wait_linux;
 
-pub const sa_term_epoll_close = @import("sa_std/term.zig").sa_term_epoll_close;
 
-pub const sa_term_epoll_close_linux = @import("sa_std/term.zig").sa_term_epoll_close_linux;
 
-pub const sa_io_stdin = @import("sa_std/io.zig").sa_io_stdin;
 
-pub const sa_io_stdout = @import("sa_std/io.zig").sa_io_stdout;
 
-pub const sa_io_stderr = @import("sa_std/io.zig").sa_io_stderr;
 
-pub const sa_io_read = @import("sa_std/io.zig").sa_io_read;
 
-pub const sa_io_read_exact = @import("sa_std/io.zig").sa_io_read_exact;
 
-pub const sa_io_write = @import("sa_std/io.zig").sa_io_write;
 
-pub const sa_io_write_all = @import("sa_std/io.zig").sa_io_write_all;
 
-pub const sa_io_flush = @import("sa_std/io.zig").sa_io_flush;
 
-pub const sa_io_close = @import("sa_std/io.zig").sa_io_close;
 
 // W1-DEF-IO-BUFFER-API: io buffers are registry handles, the same
 // BufferHandle resources sa_io_read_line registers and the
@@ -5893,97 +3790,51 @@ pub const sa_io_close = @import("sa_std/io.zig").sa_io_close;
 // surface ever hands out (read_line returns a handle), and free
 // ignored its argument entirely. All three now resolve the handle
 // through the registry, sharing the fs family's implementation.
-pub const sa_io_buffer_data = @import("sa_std/io.zig").sa_io_buffer_data;
 
-pub const sa_io_buffer_len = @import("sa_std/io.zig").sa_io_buffer_len;
 
-pub const sa_io_buffer_free = @import("sa_std/io.zig").sa_io_buffer_free;
 
-pub const saFsOpenFile = @import("sa_std/fs.zig").saFsOpenFile;
-pub const sa_fs_open_accmode_mask = @import("sa_std/fs.zig").sa_fs_open_accmode_mask;
 
-pub const sa_fs_file_open = @import("sa_std/fs.zig").sa_fs_file_open;
 
-pub const sa_fs_file_create = @import("sa_std/fs.zig").sa_fs_file_create;
 
-pub const sa_fs_file_close = @import("sa_std/fs.zig").sa_fs_file_close;
 
-pub const sa_std_fs_open_options = @import("sa_std/std_fs.zig").sa_std_fs_open_options;
 
 /// Atomic create-exclusive open (2026-10-26): read|write|create with
 /// O_EXCL merged through custom flags. An existing path fails with
 /// SA_STD_ERR_ALREADY_EXISTS (via error.PathAlreadyExists in mapError),
 /// which lock-file protocols need to tell "lost the race" apart from a
 /// generic IO failure.
-pub const sa_std_fs_open_create_excl = @import("sa_std/std_fs.zig").sa_std_fs_open_create_excl;
 
-pub const sa_std_fs_file_from_raw_fd = @import("sa_std/std_fs.zig").sa_std_fs_file_from_raw_fd;
 
-pub const sa_std_fs_file_read = @import("sa_std/std_fs.zig").sa_std_fs_file_read;
-pub const sa_fs_file_read = @import("sa_std/fs.zig").sa_fs_file_read;
 
-pub const sa_std_fs_file_read_at = @import("sa_std/std_fs.zig").sa_std_fs_file_read_at;
 
-pub const sa_std_fs_file_read_exact_at = @import("sa_std/std_fs.zig").sa_std_fs_file_read_exact_at;
 
-pub const sa_fs_file_read_exact = @import("sa_std/fs.zig").sa_fs_file_read_exact;
-pub const sa_std_fs_file_write = @import("sa_std/std_fs.zig").sa_std_fs_file_write;
 
-pub const sa_std_fs_file_write_at = @import("sa_std/std_fs.zig").sa_std_fs_file_write_at;
 
-pub const sa_std_fs_file_write_all_at = @import("sa_std/std_fs.zig").sa_std_fs_file_write_all_at;
 
-pub const sa_fs_file_write = @import("sa_std/fs.zig").sa_fs_file_write;
-pub const sa_fs_file_write_all = @import("sa_std/fs.zig").sa_fs_file_write_all;
-pub const sa_fs_file_flush = @import("sa_std/fs.zig").sa_fs_file_flush;
 
-pub const sa_fs_file_sync_data = @import("sa_std/fs.zig").sa_fs_file_sync_data;
 
-pub const sa_fs_file_sync = @import("sa_std/fs.zig").sa_fs_file_sync;
 
-pub const sa_fs_file_truncate = @import("sa_std/fs.zig").sa_fs_file_truncate;
 
-pub const sa_fs_file_seek = @import("sa_std/fs.zig").sa_fs_file_seek;
 
-pub const sa_std_fs_file_seek = @import("sa_std/std_fs.zig").sa_std_fs_file_seek;
 
-pub const sa_fs_read_file = @import("sa_std/fs.zig").sa_fs_read_file;
 
-pub const sa_std_fs_read_file = @import("sa_std/std_fs.zig").sa_std_fs_read_file;
 
-pub const sa_fs_read_to_string = @import("sa_std/fs.zig").sa_fs_read_to_string;
 
-pub const sa_std_fs_read_to_string = @import("sa_std/std_fs.zig").sa_std_fs_read_to_string;
 
-pub const sa_fs_write_file = @import("sa_std/fs.zig").sa_fs_write_file;
 
-pub const sa_fs_read_buffer_data = @import("sa_std/fs.zig").sa_fs_read_buffer_data;
 
-pub const sa_fs_read_buffer_len = @import("sa_std/fs.zig").sa_fs_read_buffer_len;
 
-pub const sa_fs_read_buffer_free = @import("sa_std/fs.zig").sa_fs_read_buffer_free;
 
-pub const sa_fs_read_file_base64 = @import("sa_std/fs.zig").sa_fs_read_file_base64;
 
-pub const sa_std_fs_read_file_base64 = @import("sa_std/std_fs.zig").sa_std_fs_read_file_base64;
 
-pub const sa_fs_write_file_base64 = @import("sa_std/fs.zig").sa_fs_write_file_base64;
 
-pub const writeJsonBoolField = @import("sa_std/dir_stat.zig").writeJsonBoolField;
 
-pub const nsToMs = @import("sa_std/dir_stat.zig").nsToMs;
 
-pub const writeJsonIntField = @import("sa_std/dir_stat.zig").writeJsonIntField;
 
-pub const writeMetadataJson = @import("sa_std/dir_stat.zig").writeMetadataJson;
 
-pub const writeMetadataJsonExt = @import("sa_std/dir_stat.zig").writeMetadataJsonExt;
 
-pub const dirEntryKindFromLinuxType = @import("sa_std/dir_stat.zig").dirEntryKindFromLinuxType;
 
-pub const dirEntryKindFromIo = @import("sa_std/dir_stat.zig").dirEntryKindFromIo;
 
-pub const readDirEntriesLinux = @import("sa_std/dir_stat.zig").readDirEntriesLinux;
 
 pub fn metadataModeMatches(handle: u64, mode_bits: u64) u8 {
     while (!registry_mutex.tryLock()) {
@@ -6025,135 +3876,70 @@ pub fn mkdirPathWithMode(path: []const u8, mode: std.posix.mode_t) !void {
     }
 }
 
-pub const sa_fs_read_dir_json = @import("sa_std/fs.zig").sa_fs_read_dir_json;
 
-pub const sa_std_fs_read_dir_json = @import("sa_std/std_fs.zig").sa_std_fs_read_dir_json;
 
-pub const sa_fs_dir_buffer_data = @import("sa_std/fs.zig").sa_fs_dir_buffer_data;
 
-pub const sa_fs_dir_buffer_len = @import("sa_std/fs.zig").sa_fs_dir_buffer_len;
 
-pub const sa_fs_dir_buffer_free = @import("sa_std/fs.zig").sa_fs_dir_buffer_free;
 
-pub const sa_fs_read_dir_entries = @import("sa_std/fs.zig").sa_fs_read_dir_entries;
 
-pub const sa_std_fs_read_dir_entries = @import("sa_std/std_fs.zig").sa_std_fs_read_dir_entries;
 
-pub const sa_fs_dir_entries_len = @import("sa_std/fs.zig").sa_fs_dir_entries_len;
 
-pub const sa_std_fs_dir_entries_get = @import("sa_std/std_fs.zig").sa_std_fs_dir_entries_get;
 
-pub const sa_fs_dir_entries_free = @import("sa_std/fs.zig").sa_fs_dir_entries_free;
 
-pub const sa_fs_dir_entry_name_ptr = @import("sa_std/fs.zig").sa_fs_dir_entry_name_ptr;
 
-pub const sa_fs_dir_entry_name_len = @import("sa_std/fs.zig").sa_fs_dir_entry_name_len;
 
-pub const sa_fs_dir_entry_file_name_ptr = @import("sa_std/fs.zig").sa_fs_dir_entry_file_name_ptr;
 
-pub const sa_fs_dir_entry_file_name_len = @import("sa_std/fs.zig").sa_fs_dir_entry_file_name_len;
 
-pub const sa_fs_dir_entry_kind = @import("sa_std/fs.zig").sa_fs_dir_entry_kind;
 
-pub const sa_fs_dir_entry_ino = @import("sa_std/fs.zig").sa_fs_dir_entry_ino;
 
-pub const sa_fs_dir_entry_free = @import("sa_std/fs.zig").sa_fs_dir_entry_free;
 
-pub const sa_fs_metadata = @import("sa_std/fs.zig").sa_fs_metadata;
 
-pub const sa_std_fs_metadata = @import("sa_std/std_fs.zig").sa_std_fs_metadata;
 
-pub const sa_fs_metadata_json = @import("sa_std/fs.zig").sa_fs_metadata_json;
 
-pub const sa_std_fs_metadata_json = @import("sa_std/std_fs.zig").sa_std_fs_metadata_json;
 
-pub const sa_fs_metadata_is_file = @import("sa_std/fs.zig").sa_fs_metadata_is_file;
 
-pub const sa_fs_metadata_is_directory = @import("sa_std/fs.zig").sa_fs_metadata_is_directory;
 
-pub const sa_fs_metadata_is_symlink = @import("sa_std/fs.zig").sa_fs_metadata_is_symlink;
 
-pub const sa_fs_metadata_is_block_device = @import("sa_std/fs.zig").sa_fs_metadata_is_block_device;
 
-pub const sa_fs_metadata_is_char_device = @import("sa_std/fs.zig").sa_fs_metadata_is_char_device;
 
-pub const sa_fs_metadata_is_fifo = @import("sa_std/fs.zig").sa_fs_metadata_is_fifo;
 
-pub const sa_fs_metadata_is_socket = @import("sa_std/fs.zig").sa_fs_metadata_is_socket;
 
-pub const sa_fs_metadata_modified_ms = @import("sa_std/fs.zig").sa_fs_metadata_modified_ms;
 
-pub const sa_fs_metadata_created_ms = @import("sa_std/fs.zig").sa_fs_metadata_created_ms;
 
-pub const sa_fs_metadata_accessed_ms = @import("sa_std/fs.zig").sa_fs_metadata_accessed_ms;
 
-pub const sa_fs_metadata_changed_ms = @import("sa_std/fs.zig").sa_fs_metadata_changed_ms;
 
-pub const sa_fs_metadata_len = @import("sa_std/fs.zig").sa_fs_metadata_len;
 
-pub const sa_fs_metadata_mode = @import("sa_std/fs.zig").sa_fs_metadata_mode;
 
-pub const sa_fs_metadata_uid = @import("sa_std/fs.zig").sa_fs_metadata_uid;
 
-pub const sa_fs_metadata_gid = @import("sa_std/fs.zig").sa_fs_metadata_gid;
 
-pub const sa_fs_metadata_ino = @import("sa_std/fs.zig").sa_fs_metadata_ino;
 
-pub const sa_fs_metadata_dev = @import("sa_std/fs.zig").sa_fs_metadata_dev;
 
-pub const sa_fs_metadata_nlink = @import("sa_std/fs.zig").sa_fs_metadata_nlink;
 
-pub const sa_fs_metadata_rdev = @import("sa_std/fs.zig").sa_fs_metadata_rdev;
 
-pub const sa_fs_metadata_blksize = @import("sa_std/fs.zig").sa_fs_metadata_blksize;
 
-pub const sa_fs_metadata_blocks = @import("sa_std/fs.zig").sa_fs_metadata_blocks;
 
-pub const sa_fs_metadata_st_dev = @import("sa_std/fs.zig").sa_fs_metadata_st_dev;
 
-pub const sa_fs_metadata_st_ino = @import("sa_std/fs.zig").sa_fs_metadata_st_ino;
 
-pub const sa_fs_metadata_st_mode = @import("sa_std/fs.zig").sa_fs_metadata_st_mode;
 
-pub const sa_fs_metadata_st_nlink = @import("sa_std/fs.zig").sa_fs_metadata_st_nlink;
 
-pub const sa_fs_metadata_st_uid = @import("sa_std/fs.zig").sa_fs_metadata_st_uid;
 
-pub const sa_fs_metadata_st_gid = @import("sa_std/fs.zig").sa_fs_metadata_st_gid;
 
-pub const sa_fs_metadata_st_rdev = @import("sa_std/fs.zig").sa_fs_metadata_st_rdev;
 
-pub const sa_fs_metadata_st_size = @import("sa_std/fs.zig").sa_fs_metadata_st_size;
 
-pub const sa_fs_metadata_st_atime = @import("sa_std/fs.zig").sa_fs_metadata_st_atime;
 
-pub const sa_fs_metadata_st_atime_nsec = @import("sa_std/fs.zig").sa_fs_metadata_st_atime_nsec;
 
-pub const sa_fs_metadata_st_mtime = @import("sa_std/fs.zig").sa_fs_metadata_st_mtime;
 
-pub const sa_fs_metadata_st_mtime_nsec = @import("sa_std/fs.zig").sa_fs_metadata_st_mtime_nsec;
 
-pub const sa_fs_metadata_st_ctime = @import("sa_std/fs.zig").sa_fs_metadata_st_ctime;
 
-pub const sa_fs_metadata_st_ctime_nsec = @import("sa_std/fs.zig").sa_fs_metadata_st_ctime_nsec;
 
-pub const sa_fs_metadata_st_blksize = @import("sa_std/fs.zig").sa_fs_metadata_st_blksize;
 
-pub const sa_fs_metadata_st_blocks = @import("sa_std/fs.zig").sa_fs_metadata_st_blocks;
 
-pub const sa_fs_metadata_free = @import("sa_std/fs.zig").sa_fs_metadata_free;
 
-pub const sa_std_fs_metadata_free = @import("sa_std/std_fs.zig").sa_std_fs_metadata_free;
 
-pub const sa_std_fs_canonicalize = @import("sa_std/std_fs.zig").sa_std_fs_canonicalize;
 
-pub const sa_fs_remove_file = @import("sa_std/fs.zig").sa_fs_remove_file;
 
-pub const sa_fs_rename = @import("sa_std/fs.zig").sa_fs_rename;
 
-pub const sa_fs_make_dir = @import("sa_std/fs.zig").sa_fs_make_dir;
 
-pub const sa_fs_make_dir_mode = @import("sa_std/fs.zig").sa_fs_make_dir_mode;
 
 /// One mkdir -p segment: create the directory, or accept an existing
 /// one only when it really is a directory. An existing non-directory
@@ -6188,23 +3974,15 @@ pub fn mkdirP(path: []const u8) !void {
 /// mkdir -p (2026-10-26): create every missing directory along the
 /// path. Existing directories along the way (including the final
 /// segment) are success; the TS mkdirSync(recursive) counterpart.
-pub const sa_fs_mkdir_p = @import("sa_std/fs.zig").sa_fs_mkdir_p;
 
 
 
-pub const sa_fs_create_dir = @import("sa_std/fs.zig").sa_fs_create_dir;
 
-pub const sa_fs_create_dir_mode = @import("sa_std/fs.zig").sa_fs_create_dir_mode;
 
-pub const sa_fs_remove_dir = @import("sa_std/fs.zig").sa_fs_remove_dir;
 
-pub const sa_fs_remove_dir_all = @import("sa_std/fs.zig").sa_fs_remove_dir_all;
 
-pub const sa_fs_remove_path = @import("sa_std/fs.zig").sa_fs_remove_path;
 
-pub const sa_fs_copy_file = @import("sa_std/fs.zig").sa_fs_copy_file;
 
-pub const sa_fs_set_permissions = @import("sa_std/fs.zig").sa_fs_set_permissions;
 
 pub fn timespecFromUnixMs(unix_ms: i64) !Timespec {
     const sec = @divFloor(unix_ms, 1000);
@@ -6214,11 +3992,8 @@ pub fn timespecFromUnixMs(unix_ms: i64) !Timespec {
     return .{ .sec = sec_value, .nsec = nsec_value };
 }
 
-pub const sa_fs_set_times_ms = @import("sa_std/fs.zig").sa_fs_set_times_ms;
 
-pub const sa_fs_hard_link = @import("sa_std/fs.zig").sa_fs_hard_link;
 
-pub const sa_fs_symlink = @import("sa_std/fs.zig").sa_fs_symlink;
 
 pub fn chownId(value: u32, enabled: u32) std.c.uid_t {
     return if (enabled != 0) @as(std.c.uid_t, @intCast(value)) else ~@as(std.c.uid_t, 0);
@@ -6271,172 +4046,93 @@ pub fn chownPath(path_ptr: ?[*]const u8, path_len: u64, uid: u32, gid: u32, has_
     return finishErrnoAny(std.posix.errno(rc));
 }
 
-pub const sa_fs_chown = @import("sa_std/fs.zig").sa_fs_chown;
 
-pub const sa_fs_lchown = @import("sa_std/fs.zig").sa_fs_lchown;
 
-pub const sa_fs_fchown = @import("sa_std/fs.zig").sa_fs_fchown;
 
-pub const sa_fs_chroot = @import("sa_std/fs.zig").sa_fs_chroot;
 
-pub const sa_fs_mkfifo = @import("sa_std/fs.zig").sa_fs_mkfifo;
 
-pub const sa_std_fs_read_link = @import("sa_std/std_fs.zig").sa_std_fs_read_link;
 
-pub const sa_net_tcp_connect = @import("sa_std/net.zig").sa_net_tcp_connect;
 
-pub const sa_std_net_to_socket_addr_list = @import("sa_std/std_net.zig").sa_std_net_to_socket_addr_list;
 
-pub const sa_std_net_addr_list_next = @import("sa_std/std_net.zig").sa_std_net_addr_list_next;
 
-pub const sa_std_net_addr_list_remaining = @import("sa_std/std_net.zig").sa_std_net_addr_list_remaining;
 
-pub const sa_std_net_addr_list_reset = @import("sa_std/std_net.zig").sa_std_net_addr_list_reset;
 
-pub const sa_std_net_addr_list_free = @import("sa_std/std_net.zig").sa_std_net_addr_list_free;
 
-/// Reverse DNS lookup (getnameinfo, NI_NAMEREQD) for a resolved address
-/// handle produced by sa_std_net_to_socket_addr_list/_first or a stream's
-/// peer/local addr. Output semantics mirror sa_std_net_hostname: call with
-/// (null, 0, &len) to size the buffer; SA_STD_ERR_TRUNCATED when it does
-/// not fit. SA_STD_ERR_IO when the address has no name (NXDOMAIN / no PTR).
-pub const sa_std_net_addr_reverse_lookup = @import("sa_std/std_net.zig").sa_std_net_addr_reverse_lookup;
-pub const sa_std_net_to_socket_addr_first = @import("sa_std/std_net.zig").sa_std_net_to_socket_addr_first;
+// Reverse DNS lookup (getnameinfo, NI_NAMEREQD) for a resolved address
+// handle produced by sa_std_net_to_socket_addr_list/_first or a stream's
+// peer/local addr. Output semantics mirror sa_std_net_hostname: call with
+// (null, 0, &len) to size the buffer; SA_STD_ERR_TRUNCATED when it does
+// not fit. SA_STD_ERR_IO when the address has no name (NXDOMAIN / no PTR).
 
-pub const sa_std_net_tcp_stream_read = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read;
 
-pub const sa_std_net_tcp_stream_read_vectored = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read_vectored;
 
-pub const sa_std_net_tcp_stream_write_vectored = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write_vectored;
-pub const sa_net_tcp_stream_read = @import("sa_std/net.zig").sa_net_tcp_stream_read;
-pub const sa_std_net_tcp_stream_peek = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_peek;
-pub const sa_net_tcp_stream_peek = @import("sa_std/net.zig").sa_net_tcp_stream_peek;
-pub const sa_std_net_tcp_stream_write = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write;
-pub const sa_net_tcp_stream_write = @import("sa_std/net.zig").sa_net_tcp_stream_write;
-pub const sa_net_tcp_stream_write_all = @import("sa_std/net.zig").sa_net_tcp_stream_write_all;
-pub const sa_net_tcp_stream_read_exact = @import("sa_std/net.zig").sa_net_tcp_stream_read_exact;
-pub const sa_net_tcp_stream_flush = @import("sa_std/net.zig").sa_net_tcp_stream_flush;
-pub const sa_std_net_tcp_stream_peer_addr = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_peer_addr;
 
-pub const sa_std_net_tcp_stream_local_addr = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_local_addr;
-pub const sa_net_tcp_stream_peer_addr = @import("sa_std/net.zig").sa_net_tcp_stream_peer_addr;
-pub const sa_net_tcp_stream_shutdown = @import("sa_std/net.zig").sa_net_tcp_stream_shutdown;
-pub const sa_net_tcp_stream_set_read_timeout = @import("sa_std/net.zig").sa_net_tcp_stream_set_read_timeout;
 
-pub const sa_net_tcp_stream_set_write_timeout = @import("sa_std/net.zig").sa_net_tcp_stream_set_write_timeout;
 
-pub const sa_net_tcp_stream_set_nonblocking = @import("sa_std/net.zig").sa_net_tcp_stream_set_nonblocking;
 
-pub const sa_net_tcp_stream_set_nodelay = @import("sa_std/net.zig").sa_net_tcp_stream_set_nodelay;
 
-pub const sa_net_tcp_stream_set_ttl = @import("sa_std/net.zig").sa_net_tcp_stream_set_ttl;
-pub const sa_net_tcp_stream_close = @import("sa_std/net.zig").sa_net_tcp_stream_close;
-pub const sa_net_tcp_listener_bind = @import("sa_std/net.zig").sa_net_tcp_listener_bind;
-pub const sa_net_tcp_listener_accept = @import("sa_std/net.zig").sa_net_tcp_listener_accept;
-pub const sa_net_tcp_listener_local_addr = @import("sa_std/net.zig").sa_net_tcp_listener_local_addr;
-pub const sa_net_tcp_listener_close = @import("sa_std/net.zig").sa_net_tcp_listener_close;
 
-pub const sa_std_net_tcp_stream_try_clone = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_try_clone;
-pub const sa_std_net_tcp_stream_set_nonblocking = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_nonblocking;
 
-/// Interest/readiness bits for sa_std_net_poll_wait. The interest
-/// mask (input) and the readiness mask (output) share the read and
-/// write bits; the error bit is readiness-only.
-pub const SA_STD_NET_POLL_READ = @import("sa_std/consts.zig").SA_STD_NET_POLL_READ;
-pub const SA_STD_NET_POLL_WRITE = @import("sa_std/consts.zig").SA_STD_NET_POLL_WRITE;
-pub const SA_STD_NET_POLL_ERROR = @import("sa_std/consts.zig").SA_STD_NET_POLL_ERROR;
+// Interest/readiness bits for sa_std_net_poll_wait. The interest
+// mask (input) and the readiness mask (output) share the read and
+// write bits; the error bit is readiness-only.
 
 /// Largest readiness set accepted by one sa_std_net_poll_wait call.
 /// Larger connection sets are served by waiting on slices of the
 /// set in rotation; the cap is loud (invalid argument), never a
 /// silent truncation.
-pub const SA_STD_NET_POLL_MAX_HANDLES = @import("sa_std/consts.zig").SA_STD_NET_POLL_MAX_HANDLES;
 pub const poll_wait_stack_handles: usize = 256;
 
-/// Block until at least one of the given socket handles (TCP
-/// streams, TCP listeners, UDP sockets) is ready for the requested
-/// operations, or timeout_ms elapses (0 = return immediately,
-/// negative = wait indefinitely). ready[i] receives the readiness
-/// mask for handles[i] (0 = not ready) and out_ready_count the
-/// number of ready entries. A hangup reports READ|ERROR so an
-/// event loop attempts the read and observes EOF. Level-triggered
-/// only: readiness is re-evaluated on every call, which is what
-/// lets an event loop replace sleep-polling AND the per-round
-/// scan of every connection with a single wait over exactly the
-/// ready set. Handles must outlive the call. Native only; WASM
-/// returns SA_STD_ERR_UNSUPPORTED.
-pub const sa_std_net_poll_wait = @import("sa_std/std_net.zig").sa_std_net_poll_wait;
+// Block until at least one of the given socket handles (TCP
+// streams, TCP listeners, UDP sockets) is ready for the requested
+// operations, or timeout_ms elapses (0 = return immediately,
+// negative = wait indefinitely). ready[i] receives the readiness
+// mask for handles[i] (0 = not ready) and out_ready_count the
+// number of ready entries. A hangup reports READ|ERROR so an
+// event loop attempts the read and observes EOF. Level-triggered
+// only: readiness is re-evaluated on every call, which is what
+// lets an event loop replace sleep-polling AND the per-round
+// scan of every connection with a single wait over exactly the
+// ready set. Handles must outlive the call. Native only; WASM
+// returns SA_STD_ERR_UNSUPPORTED.
 
-pub const sa_std_net_tcp_stream_set_nodelay = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_nodelay;
 
-pub const sa_std_net_tcp_stream_set_linger = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_linger;
 
-pub const sa_std_net_tcp_stream_linger = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_linger;
 
-pub const sa_std_net_tcp_stream_set_quickack = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_quickack;
 
-pub const sa_std_net_tcp_stream_quickack = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_quickack;
 
-pub const sa_std_net_tcp_stream_set_deferaccept = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_deferaccept;
 
-pub const sa_std_net_tcp_stream_deferaccept = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_deferaccept;
 
 // SO_KEEPALIVE on a connected TCP stream. Codex's socket2 users enable this to
 // keep idle upstream connections alive; exposed here so SA callers match parity.
-pub const sa_std_net_tcp_stream_set_keepalive = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_keepalive;
 
-pub const sa_std_net_tcp_stream_keepalive = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_keepalive;
 
 // Tune the Linux TCP keepalive timers (idle before first probe, interval
 // between probes, probe count before dropping). All three are in whole units
 // (seconds for idle/interval, count for cnt) matching the kernel option ABI.
-pub const sa_std_net_tcp_stream_set_keepalive_params = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_keepalive_params;
 
 // SO_REUSEADDR on a TCP listener handle (or UDS listener, which shares the
 // tcp_listener resource kind). Allows rebinding a TIME_WAIT address.
-pub const sa_std_net_tcp_listener_set_reuseaddr = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_reuseaddr;
 
 // SO_REUSEPORT on a TCP listener handle for load-balanced multi-acceptor setups.
-pub const sa_std_net_tcp_listener_set_reuseport = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_reuseport;
 
-pub const sa_std_net_tcp_stream_set_read_timeout = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_read_timeout;
 
-pub const sa_std_net_tcp_stream_set_write_timeout = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_write_timeout;
 
-pub const sa_std_net_tcp_stream_set_ttl = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_ttl;
 
-pub const sa_std_net_tcp_stream_read_timeout = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_read_timeout;
 
-pub const sa_std_net_tcp_stream_write_timeout = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_write_timeout;
 
-pub const sa_std_net_tcp_stream_nodelay = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_nodelay;
 
-pub const sa_std_net_tcp_stream_ttl = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_ttl;
 
-pub const sa_std_net_tcp_stream_set_recv_buffer_size = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_recv_buffer_size;
 
-pub const sa_std_net_tcp_stream_recv_buffer_size = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_recv_buffer_size;
 
-pub const sa_std_net_tcp_stream_set_send_buffer_size = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_set_send_buffer_size;
 
-pub const sa_std_net_tcp_stream_send_buffer_size = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_send_buffer_size;
 
-pub const sa_std_net_tcp_stream_take_error = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_take_error;
 
-pub const sa_std_net_tcp_listener_try_clone = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_try_clone;
-pub const sa_std_net_tcp_listener_set_only_v6 = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_only_v6;
 
-pub const sa_std_net_tcp_listener_only_v6 = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_only_v6;
-pub const sa_std_net_tcp_listener_set_nonblocking = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_nonblocking;
 
-pub const sa_std_net_tcp_listener_set_ttl = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_set_ttl;
 
-pub const sa_std_net_tcp_listener_ttl = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_ttl;
 
-pub const sa_std_net_tcp_listener_take_error = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_take_error;
 
-pub const sa_std_net_udp_try_clone = @import("sa_std/std_net_udp.zig").sa_std_net_udp_try_clone;
-pub const sa_std_net_udp_bind = @import("sa_std/std_net_udp.zig").sa_std_net_udp_bind;
 
 // Raw-socket creation (wave-3 fill; the missing primitive BE
 // registered for the ICMP transport half). domain / sock_type /
@@ -6455,7 +4151,6 @@ pub const sa_std_net_udp_bind = @import("sa_std/std_net_udp.zig").sa_std_net_udp
 // Linux + libc platforms; WASI returns SA_STD_ERR_UNSUPPORTED and
 // the Windows root does not implement it (see
 // docs/runtime_abi_windows_unsupported.txt).
-pub const sa_std_net_raw_socket = @import("sa_std/std_net.zig").sa_std_net_raw_socket;
 
 pub fn lxSendfile(out_fd: std.posix.fd_t, in_fd: std.posix.fd_t, offset: *u64, count: usize) !usize {
     if (comptime is_wasm) return error.Unsupported;
@@ -6482,114 +4177,56 @@ pub fn lxSendfile(out_fd: std.posix.fd_t, in_fd: std.posix.fd_t, offset: *u64, c
 // blocking stream blocks as the kernel dictates. Linux only:
 // other platforms return SA_STD_ERR_UNSUPPORTED (the Windows root
 // does not implement it; see the ABI unsupported manifest).
-pub const sa_std_net_tcp_stream_send_file = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_send_file;
 
-pub const sa_std_net_udp_from_raw_fd = @import("sa_std/std_net_udp.zig").sa_std_net_udp_from_raw_fd;
 
-pub const sa_std_net_udp_local_addr = @import("sa_std/std_net_udp.zig").sa_std_net_udp_local_addr;
-pub const sa_std_net_udp_peer_addr = @import("sa_std/std_net_udp.zig").sa_std_net_udp_peer_addr;
-pub const sa_std_net_udp_connect = @import("sa_std/std_net_udp.zig").sa_std_net_udp_connect;
-pub const sa_net_udp_set_read_timeout = @import("sa_std/net.zig").sa_net_udp_set_read_timeout;
 
-pub const sa_net_udp_set_write_timeout = @import("sa_std/net.zig").sa_net_udp_set_write_timeout;
 
-pub const sa_net_udp_set_nonblocking = @import("sa_std/net.zig").sa_net_udp_set_nonblocking;
 
-pub const sa_net_udp_set_broadcast = @import("sa_std/net.zig").sa_net_udp_set_broadcast;
 
-pub const sa_net_udp_set_ttl = @import("sa_std/net.zig").sa_net_udp_set_ttl;
 
-pub const sa_net_udp_set_multicast_loop_v4 = @import("sa_std/net.zig").sa_net_udp_set_multicast_loop_v4;
 
-pub const sa_net_udp_set_multicast_ttl_v4 = @import("sa_std/net.zig").sa_net_udp_set_multicast_ttl_v4;
 
-pub const sa_net_udp_join_multicast_v4 = @import("sa_std/net.zig").sa_net_udp_join_multicast_v4;
 
-pub const sa_net_udp_leave_multicast_v4 = @import("sa_std/net.zig").sa_net_udp_leave_multicast_v4;
 
-pub const sa_net_udp_join_multicast_v6 = @import("sa_std/net.zig").sa_net_udp_join_multicast_v6;
 
-pub const sa_net_udp_leave_multicast_v6 = @import("sa_std/net.zig").sa_net_udp_leave_multicast_v6;
 
-pub const sa_std_net_udp_connect_addr = @import("sa_std/std_net_udp.zig").sa_std_net_udp_connect_addr;
 
-pub const sa_std_net_udp_set_only_v6 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_only_v6;
 
-pub const sa_std_net_udp_only_v6 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_only_v6;
-pub const sa_std_net_udp_set_nonblocking = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_nonblocking;
 
-pub const sa_std_net_udp_set_broadcast = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_broadcast;
 
-pub const sa_std_net_udp_set_ttl = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_ttl;
 
-pub const sa_std_net_udp_set_read_timeout = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_read_timeout;
 
-pub const sa_std_net_udp_set_write_timeout = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_write_timeout;
 
-pub const sa_std_net_udp_set_recv_buffer_size = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_recv_buffer_size;
 
-pub const sa_std_net_udp_recv_buffer_size = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_buffer_size;
 
-pub const sa_std_net_udp_set_send_buffer_size = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_send_buffer_size;
 
-pub const sa_std_net_udp_send_buffer_size = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_buffer_size;
 
-pub const sa_std_net_udp_read_timeout = @import("sa_std/std_net_udp.zig").sa_std_net_udp_read_timeout;
 
-pub const sa_std_net_udp_write_timeout = @import("sa_std/std_net_udp.zig").sa_std_net_udp_write_timeout;
 
-pub const sa_std_net_udp_broadcast = @import("sa_std/std_net_udp.zig").sa_std_net_udp_broadcast;
 
-pub const sa_std_net_udp_set_multicast_loop_v4 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_loop_v4;
 
-pub const sa_std_net_udp_set_multicast_ttl_v4 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_ttl_v4;
 
-pub const sa_std_net_udp_multicast_loop_v4 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_loop_v4;
 
-pub const sa_std_net_udp_multicast_ttl_v4 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_ttl_v4;
 
-pub const sa_std_net_udp_set_multicast_loop_v6 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_loop_v6;
 
-pub const sa_std_net_udp_set_multicast_hops_v6 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_hops_v6;
 
-pub const sa_std_net_udp_multicast_loop_v6 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_loop_v6;
 
-pub const sa_std_net_udp_multicast_hops_v6 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_hops_v6;
-pub const sa_std_net_udp_set_multicast_if_v4 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_if_v4;
 
-pub const sa_std_net_udp_multicast_if_v4 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_if_v4;
 
-pub const sa_std_net_udp_set_multicast_if_v6 = @import("sa_std/std_net_udp_set.zig").sa_std_net_udp_set_multicast_if_v6;
 
-pub const sa_std_net_udp_multicast_if_v6 = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_multicast_if_v6;
 
-pub const sa_std_net_udp_join_multicast_v4 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_join_multicast_v4;
 
-pub const sa_std_net_udp_leave_multicast_v4 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_leave_multicast_v4;
 
-pub const sa_std_net_udp_join_multicast_v6 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_join_multicast_v6;
 
-pub const sa_std_net_udp_leave_multicast_v6 = @import("sa_std/std_net_udp.zig").sa_std_net_udp_leave_multicast_v6;
 
-pub const sa_std_net_udp_ttl = @import("sa_std/std_net_udp.zig").sa_std_net_udp_ttl;
 
-pub const sa_std_net_udp_take_error = @import("sa_std/std_net_udp.zig").sa_std_net_udp_take_error;
 
-pub const sa_std_net_udp_send = @import("sa_std/std_net_udp.zig").sa_std_net_udp_send;
-pub const sa_std_net_udp_recv = @import("sa_std/std_net_udp.zig").sa_std_net_udp_recv;
 
-pub const sa_std_net_udp_peek = @import("sa_std/std_net_udp.zig").sa_std_net_udp_peek;
 
-pub const sa_std_net_udp_send_to = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_to;
-pub const sa_std_net_udp_recv_from = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_from;
 
-pub const sa_std_net_udp_peek_from = @import("sa_std/std_net_udp.zig").sa_std_net_udp_peek_from;
 
-pub const sa_std_net_udp_send_vectored = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_vectored;
 
-pub const sa_std_net_udp_send_to_vectored = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_send_to_vectored;
 
-pub const sa_std_net_udp_recv_from_vectored = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_from_vectored;
 
 // ---------------------------------------------------------------------------
 // Generic socket-option passthrough + datagram receive enhancements
@@ -6602,13 +4239,9 @@ pub const sa_std_net_udp_recv_from_vectored = @import("sa_std/std_net_udp_io.zig
 // sa_std_net_unix_stream_peer_cred, already exists below).
 // ---------------------------------------------------------------------------
 
-pub const sa_std_net_socket_setsockopt = @import("sa_std/std_net.zig").sa_std_net_socket_setsockopt;
 
-pub const sa_std_net_socket_getsockopt = @import("sa_std/std_net.zig").sa_std_net_socket_getsockopt;
 
-pub const sa_std_net_socket_setsockopt_int = @import("sa_std/std_net.zig").sa_std_net_socket_setsockopt_int;
 
-pub const sa_std_net_socket_getsockopt_int = @import("sa_std/std_net.zig").sa_std_net_socket_getsockopt_int;
 
 // out_flags bits of sa_std_net_udp_recv_msg; mirrored as
 // SA_NET_RECV_MSG_* in sa_std/net.sla.
@@ -6622,44 +4255,19 @@ pub const recv_msg_flag_trunc: u32 = 8;
 // does not name SO_TIMESTAMP, so the literal is spelled out here.
 pub const cmsg_level_ip: i32 = 0; // IPPROTO_IP
 pub const cmsg_level_ipv6: i32 = 41; // IPPROTO_IPV6
-pub const cmsg_level_socket: i32 = 1; // SOL_SOCKET
 pub const cmsg_type_ip_pktinfo: i32 = 8; // IP_PKTINFO
 pub const cmsg_type_ipv6_pktinfo: i32 = 50; // IPV6_PKTINFO
 pub const cmsg_type_timestamp: i32 = 29; // SO_TIMESTAMP
 
-pub fn cmsgAlign(len: usize) usize {
-    const mask: usize = @sizeOf(usize) - 1;
-    return (len + mask) & ~mask;
-}
 
-pub const sa_std_net_udp_recv_msg = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_msg;
 
 pub const recv_multi_max_msgs: usize = 64;
 
-pub const sa_std_net_udp_recv_multi = @import("sa_std/std_net_udp_io.zig").sa_std_net_udp_recv_multi;
 
-pub const sa_net_udp_bind = @import("sa_std/net.zig").sa_net_udp_bind;
-pub const sa_net_udp_connect = @import("sa_std/net.zig").sa_net_udp_connect;
-pub const sa_net_udp_local_addr = @import("sa_std/net.zig").sa_net_udp_local_addr;
-pub const sa_net_udp_send = @import("sa_std/net.zig").sa_net_udp_send;
-pub const sa_net_udp_recv = @import("sa_std/net.zig").sa_net_udp_recv;
-pub const sa_net_udp_peek = @import("sa_std/net.zig").sa_net_udp_peek;
-pub const sa_net_udp_send_to = @import("sa_std/net.zig").sa_net_udp_send_to;
-pub const sa_net_udp_recv_from = @import("sa_std/net.zig").sa_net_udp_recv_from;
-pub const sa_net_udp_peek_from = @import("sa_std/net.zig").sa_net_udp_peek_from;
-pub const sa_net_udp_close = @import("sa_std/net.zig").sa_net_udp_close;
-pub const sa_net_addr_host = @import("sa_std/net.zig").sa_net_addr_host;
-pub const sa_net_addr_host_len = @import("sa_std/net.zig").sa_net_addr_host_len;
-pub const sa_net_addr_port = @import("sa_std/net.zig").sa_net_addr_port;
-pub const sa_net_addr_family = @import("sa_std/net.zig").sa_net_addr_family;
 
-pub const sa_net_addr_scope_id = @import("sa_std/net.zig").sa_net_addr_scope_id;
 
-pub const sa_std_net_addr_format = @import("sa_std/std_net.zig").sa_std_net_addr_format;
 
-pub const sa_net_addr_free = @import("sa_std/net.zig").sa_net_addr_free;
 
-pub const parseIpv4Ascii = @import("sa_std/ip_parse.zig").parseIpv4Ascii;
 
 pub fn parsePortAscii(text: []const u8) ?u16 {
     if (text.len == 0) return null;
@@ -6672,9 +4280,7 @@ pub fn parsePortAscii(text: []const u8) ?u16 {
     return @as(u16, @intCast(value));
 }
 
-pub const sa_net_ipv4_parse_ascii = @import("sa_std/net.zig").sa_net_ipv4_parse_ascii;
 
-pub const sa_net_socket_addr_v4_parse_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v4_parse_ascii;
 
 pub fn writeIpv6SegmentsNative(out: []u8, octets: *const [16]u8) void {
     var index: usize = 0;
@@ -6713,9 +4319,7 @@ pub fn parseSocketAddrV6Ascii(text: []const u8) ?struct { octets: [16]u8, port: 
     };
 }
 
-pub const sa_net_ipv6_parse_ascii = @import("sa_std/net.zig").sa_net_ipv6_parse_ascii;
 
-pub const sa_net_socket_addr_v6_parse_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v6_parse_ascii;
 
 pub fn readIpv6SegmentsNative(raw: *const [16]u8) [8]u16 {
     var segments: [8]u16 = undefined;
@@ -6768,146 +4372,88 @@ pub fn formatIpv6Segments(buffer: []u8, segments: *const [8]u16) ![]u8 {
 }
 
 // sa_net_format_ascii_batch_v1
-pub const sa_net_ipv4_format_ascii = @import("sa_std/net.zig").sa_net_ipv4_format_ascii;
 
-pub const sa_net_ipv6_format_ascii = @import("sa_std/net.zig").sa_net_ipv6_format_ascii;
 
-pub const sa_net_socket_addr_v4_format_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v4_format_ascii;
 
-pub const sa_net_socket_addr_v6_format_ascii = @import("sa_std/net.zig").sa_net_socket_addr_v6_format_ascii;
 
-pub const sa_fmt_i64 = @import("sa_std/fmt.zig").sa_fmt_i64;
 
-pub const sa_fmt_i64_into = @import("sa_std/fmt.zig").sa_fmt_i64_into;
 
-pub const sa_test_debug_i64 = @import("sa_std/test_debug.zig").sa_test_debug_i64;
 
-pub const sa_test_fallible_i32_value = @import("sa_std/fallible.zig").sa_test_fallible_i32_value;
 
-pub const testTracePanicEnabled = @import("sa_std/test_debug.zig").testTracePanicEnabled;
 
-pub const printRecentTestScalars = @import("sa_std/test_debug.zig").printRecentTestScalars;
 
-pub const exitAfterAssertPanic = @import("sa_std/test_debug.zig").exitAfterAssertPanic;
 
-pub const sa_assert_eq_i64 = @import("sa_std/test_debug.zig").sa_assert_eq_i64;
 
-pub const sa_assert_eq_i64_at = @import("sa_std/test_debug.zig").sa_assert_eq_i64_at;
 
-pub const sa_fmt_u64 = @import("sa_std/fmt.zig").sa_fmt_u64;
 
-pub const sa_fmt_u64_into = @import("sa_std/fmt.zig").sa_fmt_u64_into;
 
-/// Float math for frontends (v0.24a; Haxe Math.* surface).
-/// Pure f64 functions; random yields [0, 1) from 53 crypto bits.
-pub const sa_math_floor = @import("sa_std/math.zig").sa_math_floor;
+// Float math for frontends (v0.24a; Haxe Math.* surface).
+// Pure f64 functions; random yields [0, 1) from 53 crypto bits.
 
-pub const sa_math_ceil = @import("sa_std/math.zig").sa_math_ceil;
 
-pub const sa_math_sqrt = @import("sa_std/math.zig").sa_math_sqrt;
 
-pub const sa_math_sin = @import("sa_std/math.zig").sa_math_sin;
 
-pub const sa_math_cos = @import("sa_std/math.zig").sa_math_cos;
 
-pub const sa_math_pow = @import("sa_std/math.zig").sa_math_pow;
 
-pub const sa_math_random = @import("sa_std/math.zig").sa_math_random;
 
-pub const sa_fmt_f64 = @import("sa_std/fmt.zig").sa_fmt_f64;
 
-pub const sa_fmt_f64_into = @import("sa_std/fmt.zig").sa_fmt_f64_into;
 
-pub const sa_fmt_bool = @import("sa_std/fmt.zig").sa_fmt_bool;
 
-pub const sa_fmt_bool_into = @import("sa_std/fmt.zig").sa_fmt_bool_into;
 
-pub const sa_fmt_bytes = @import("sa_std/fmt.zig").sa_fmt_bytes;
 
-pub const sa_fmt_bytes_into = @import("sa_std/fmt.zig").sa_fmt_bytes_into;
 
-pub const sa_env_get = @import("sa_std/env.zig").sa_env_get;
 
-pub const sa_env_current_dir = @import("sa_std/env.zig").sa_env_current_dir;
 
-pub const sa_env_set_current_dir = @import("sa_std/env.zig").sa_env_set_current_dir;
 
-pub const sa_env_temp_dir = @import("sa_std/env.zig").sa_env_temp_dir;
 
-pub const sa_env_current_exe = @import("sa_std/env.zig").sa_env_current_exe;
 
-pub const sa_env_home_dir = @import("sa_std/env.zig").sa_env_home_dir;
 
-pub const sa_env_args_json = @import("sa_std/env.zig").sa_env_args_json;
 
-pub const sa_env_vars_json = @import("sa_std/env.zig").sa_env_vars_json;
 
-pub const sa_env_split_paths_json = @import("sa_std/env.zig").sa_env_split_paths_json;
 
-pub const sa_env_join_paths_json = @import("sa_std/env.zig").sa_env_join_paths_json;
 
-pub const sa_env_xdg_data_home_dir = @import("sa_std/env.zig").sa_env_xdg_data_home_dir;
 
-pub const sa_env_xdg_config_home_dir = @import("sa_std/env.zig").sa_env_xdg_config_home_dir;
 
-pub const sa_env_xdg_state_home_dir = @import("sa_std/env.zig").sa_env_xdg_state_home_dir;
 
-pub const sa_env_xdg_cache_home_dir = @import("sa_std/env.zig").sa_env_xdg_cache_home_dir;
 
-pub const sa_env_xdg_data_dirs = @import("sa_std/env.zig").sa_env_xdg_data_dirs;
 
-pub const sa_env_xdg_config_dirs = @import("sa_std/env.zig").sa_env_xdg_config_dirs;
 
-pub const sa_env_has = @import("sa_std/env.zig").sa_env_has;
 
-pub const sa_env_set_var = @import("sa_std/env.zig").sa_env_set_var;
 
-pub const sa_env_remove_var = @import("sa_std/env.zig").sa_env_remove_var;
 
-pub const sa_env_buffer_data = @import("sa_std/env.zig").sa_env_buffer_data;
 
-pub const sa_env_buffer_len = @import("sa_std/env.zig").sa_env_buffer_len;
 
-pub const sa_env_buffer_free = @import("sa_std/env.zig").sa_env_buffer_free;
 
-pub const sa_string_concat = @import("sa_std/string.zig").sa_string_concat;
 
-/// Single-byte string from a char code (JS `String.fromCharCode` over the
-/// subset's byte-oriented strings; exact inverse of byte `charCodeAt`).
-/// Only the low byte is stored (documented); returns a buffer handle read
-/// back via `sa_fmt_buffer_data`/`sa_fmt_buffer_len` like concat.
-pub const sa_string_from_char_code = @import("sa_std/string.zig").sa_string_from_char_code;
+// Single-byte string from a char code (JS `String.fromCharCode` over the
+// subset's byte-oriented strings; exact inverse of byte `charCodeAt`).
+// Only the low byte is stored (documented); returns a buffer handle read
+// back via `sa_fmt_buffer_data`/`sa_fmt_buffer_len` like concat.
 
-/// JS `String.prototype.indexOf` over byte-oriented strings: first needle
-/// index at/after `from`, or -1. Empty needle yields min(from, hay.len).
-/// `from` arrives as u64 (frontends convert via asU64Arg); clamped defensively.
-pub const sa_string_index_of = @import("sa_std/string.zig").sa_string_index_of;
+// JS `String.prototype.indexOf` over byte-oriented strings: first needle
+// index at/after `from`, or -1. Empty needle yields min(from, hay.len).
+// `from` arrives as u64 (frontends convert via asU64Arg); clamped defensively.
 
-/// JS `String.prototype.lastIndexOf`: last needle index at/before `from`
-/// (`from` clamped to hay.len), or -1. Empty needle yields the clamped `from`.
-pub const sa_string_last_index_of = @import("sa_std/string.zig").sa_string_last_index_of;
+// JS `String.prototype.lastIndexOf`: last needle index at/before `from`
+// (`from` clamped to hay.len), or -1. Empty needle yields the clamped `from`.
 
-/// JS `String.prototype.startsWith` (no position arg in the subset): 1/0.
-pub const sa_string_starts_with = @import("sa_std/string.zig").sa_string_starts_with;
+// JS `String.prototype.startsWith` (no position arg in the subset): 1/0.
 
-/// JS `String.prototype.endsWith`: 1/0.
-pub const sa_string_ends_with = @import("sa_std/string.zig").sa_string_ends_with;
+// JS `String.prototype.endsWith`: 1/0.
 
-/// JS `String.prototype.toLowerCase` over the subset's byte-oriented
-/// strings: ASCII A-Z folds to a-z, all other bytes pass through
-/// (documented; full Unicode lower is refused at the frontend).
-/// Returns a fresh buffer handle read back via `sa_fmt_buffer_data/len`.
-pub const sa_string_to_lower_ascii = @import("sa_std/string.zig").sa_string_to_lower_ascii;
+// JS `String.prototype.toLowerCase` over the subset's byte-oriented
+// strings: ASCII A-Z folds to a-z, all other bytes pass through
+// (documented; full Unicode lower is refused at the frontend).
+// Returns a fresh buffer handle read back via `sa_fmt_buffer_data/len`.
 
-/// JS `String.prototype.toUpperCase`: ASCII a-z folds to A-Z, rest passes
-/// through. Fresh buffer handle, same read-back protocol as lower.
-pub const sa_string_to_upper_ascii = @import("sa_std/string.zig").sa_string_to_upper_ascii;
+// JS `String.prototype.toUpperCase`: ASCII a-z folds to A-Z, rest passes
+// through. Fresh buffer handle, same read-back protocol as lower.
 
-/// JS `parseFloat` (also serves `Number(s)` float paths and the global
-/// `parseFloat`): leading ASCII whitespace skipped, optional sign,
-/// `Infinity`/`NaN` (sign applies to Infinity only), decimal with optional
-/// fraction/exponent; trailing garbage ignored; no digits at all yields
-/// quiet NaN; overflow yields signed infinity.
+// JS `parseFloat` (also serves `Number(s)` float paths and the global
+// `parseFloat`): leading ASCII whitespace skipped, optional sign,
+// `Infinity`/`NaN` (sign applies to Infinity only), decimal with optional
+// fraction/exponent; trailing garbage ignored; no digits at all yields
+// quiet NaN; overflow yields signed infinity.
 pub export fn sa_parse_float(ptr: ?[*]const u8, len: u64) f64 {
     const bytes = constBytes(ptr, len) catch return std.math.nan(f64);
     var i: usize = 0;
@@ -6949,10 +4495,9 @@ pub export fn sa_parse_float(ptr: ?[*]const u8, len: u64) f64 {
     return if (negative) -num else num;
 }
 
-/// JS `String.prototype.repeat`: `bytes` concatenated `count` times.
-/// `count == 0` yields an empty handle; size overflow yields 0
-/// (OOM-equivalent). Fresh buffer handle, concat read-back protocol.
-pub const sa_string_repeat = @import("sa_std/string.zig").sa_string_repeat;
+// JS `String.prototype.repeat`: `bytes` concatenated `count` times.
+// `count == 0` yields an empty handle; size overflow yields 0
+// (OOM-equivalent). Fresh buffer handle, concat read-back protocol.
 
 /// Shared pad filler: `pad` bytes tiled/truncated to exactly `fill` bytes.
 pub fn tilePad(owned: []u8, pad: []const u8) void {
@@ -6964,37 +4509,30 @@ pub fn tilePad(owned: []u8, pad: []const u8) void {
     }
 }
 
-/// JS `String.prototype.padStart`: left-pad with tiled `pad` to
-/// `target_len` bytes. Shorter-or-equal input and empty `pad` return an
-/// unchanged copy (JS no-op shape). Fresh buffer handle.
-pub const sa_string_pad_start = @import("sa_std/string.zig").sa_string_pad_start;
+// JS `String.prototype.padStart`: left-pad with tiled `pad` to
+// `target_len` bytes. Shorter-or-equal input and empty `pad` return an
+// unchanged copy (JS no-op shape). Fresh buffer handle.
 
-/// JS `String.prototype.padEnd`: mirror of padStart on the right.
-pub const sa_string_pad_end = @import("sa_std/string.zig").sa_string_pad_end;
+// JS `String.prototype.padEnd`: mirror of padStart on the right.
 
-/// JS `String.prototype.replace` / `replaceAll` with a string pattern
-/// (regex forms are refused at the frontend): `all == 0` swaps the first
-/// occurrence, nonzero swaps all non-overlapping occurrences. Empty needle
-/// inserts at 0 (first) or interleaves (all), per JS. Needle absent (or
-/// longer than hay) returns an unchanged copy. Fresh buffer handle.
-pub const sa_string_replace = @import("sa_std/string.zig").sa_string_replace;
+// JS `String.prototype.replace` / `replaceAll` with a string pattern
+// (regex forms are refused at the frontend): `all == 0` swaps the first
+// occurrence, nonzero swaps all non-overlapping occurrences. Empty needle
+// inserts at 0 (first) or interleaves (all), per JS. Needle absent (or
+// longer than hay) returns an unchanged copy. Fresh buffer handle.
 
-/// JS `String.prototype.charCodeAt` over the subset's byte-oriented
-/// strings: the byte at `idx` (0-255). Out of bounds yields -1: JS NaN is
-/// unrepresentable in i32, and -1 is the subset's OOB sentinel (cf.
-/// indexOf). The reference frontend's primary path is an inline unchecked
-/// byte load; this checked primitive is the shared out-of-line shape.
-pub const sa_string_code_point_at = @import("sa_std/string.zig").sa_string_code_point_at;
+// JS `String.prototype.charCodeAt` over the subset's byte-oriented
+// strings: the byte at `idx` (0-255). Out of bounds yields -1: JS NaN is
+// unrepresentable in i32, and -1 is the subset's OOB sentinel (cf.
+// indexOf). The reference frontend's primary path is an inline unchecked
+// byte load; this checked primitive is the shared out-of-line shape.
 
 /// JS `String.fromCodePoint`: UTF-8 encoding of one scalar value.
 /// Out-of-range codes (negative, > 0x10FFFF, surrogate halves) yield the
 /// U+FFFD replacement bytes: the subset has no exceptions, and a specified
 /// replacement beats a silent wrong encoding. Fresh buffer handle.
-pub const sa_string_from_code_point = @import("sa_std/string.zig").sa_string_from_code_point;
 
-pub const sa_str_is_ascii = @import("sa_std/str.zig").sa_str_is_ascii;
 
-pub const sa_str_eq_ignore_ascii_case = @import("sa_std/str.zig").sa_str_eq_ignore_ascii_case;
 
 pub fn utf8ScalarAt(bytes: []const u8, index: usize) !struct { scalar: u32, width: usize } {
     if (index >= bytes.len) return error.FileNotFound;
@@ -7046,17 +4584,11 @@ pub fn utf8CharRangeAt(bytes: []const u8, char_index: u64) !struct { start: usiz
     return error.FileNotFound;
 }
 
-pub const sa_str_utf8_char_count = @import("sa_std/str.zig").sa_str_utf8_char_count;
 
-pub const sa_str_utf8_validate = @import("sa_std/str.zig").sa_str_utf8_validate;
 
-pub const sa_str_utf8_char_at = @import("sa_std/str.zig").sa_str_utf8_char_at;
 
-pub const sa_str_utf8_char_at_byte = @import("sa_std/str.zig").sa_str_utf8_char_at_byte;
 
-pub const sa_str_utf8_lossy_next = @import("sa_std/str.zig").sa_str_utf8_lossy_next;
 
-pub const sa_str_utf8_char_range_at = @import("sa_std/str.zig").sa_str_utf8_char_range_at;
 
 pub fn isAsciiWhitespace(byte: u8) bool {
     return switch (byte) {
@@ -7065,22 +4597,16 @@ pub fn isAsciiWhitespace(byte: u8) bool {
     };
 }
 
-pub const sa_str_trim_ascii_start_index = @import("sa_std/str.zig").sa_str_trim_ascii_start_index;
 
-pub const sa_str_trim_ascii_end_len = @import("sa_std/str.zig").sa_str_trim_ascii_end_len;
 
-pub const sa_fmt_buffer_data = @import("sa_std/fmt.zig").sa_fmt_buffer_data;
 
-pub const sa_fmt_buffer_len = @import("sa_std/fmt.zig").sa_fmt_buffer_len;
 
-pub const sa_fmt_buffer_write_to = @import("sa_std/fmt.zig").sa_fmt_buffer_write_to;
 
-pub const sa_fmt_buffer_free = @import("sa_std/fmt.zig").sa_fmt_buffer_free;
 
-/// Raw free for SA `alloc` blocks (the native emitter lowers `alloc` to
-/// libc malloc). SA-level code that must release a heap block through a
-/// real call -- e.g. sa_vec_free, whose `!` releases the emitter may
-/// lower to bookkeeping only -- goes through this export instead.
+// Raw free for SA `alloc` blocks (the native emitter lowers `alloc` to
+// libc malloc). SA-level code that must release a heap block through a
+// real call -- e.g. sa_vec_free, whose `!` releases the emitter may
+// lower to bookkeeping only -- goes through this export instead.
 pub export fn sa_mem_free(ptr: ?*anyopaque) void {
     if (comptime is_wasm) return;
     if (ptr) |p| std.c.free(p);
@@ -7090,44 +4616,13 @@ pub export fn sa_print_bytes(msg: ?[*]const u8, len: u64) void {
     _ = sa_std_print(msg, len);
 }
 
-pub const sa_std_net_tcp_listen = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listen;
 
-pub const sa_std_net_tcp_accept = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_accept;
 
-pub const sa_std_net_tcp_accept_addr = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_accept_addr;
 
-pub const sa_std_net_tcp_listener_local_addr = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_local_addr;
 
-pub const sa_std_net_tcp_listener_from_raw_fd = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_listener_from_raw_fd;
 
-pub const sa_std_net_tcp_connect = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect;
 
-pub fn tcpConnectToHostFd(host: []const u8, port: u16) !std.posix.fd_t {
-    var list = try netGetAddressList(std.heap.page_allocator, host, port);
-    defer list.deinit();
-    var last: anyerror = error.HostLacksNetworkAddresses;
-    for (list.addrs) |addr| {
-        const fd = lxSocket(addr.storage.family, SOCKT.STREAM | SOCKT.CLOEXEC, IPPROTOT.TCP) catch |err| {
-            last = err;
-            continue;
-        };
-        errdefer lxClose(fd);
-        lxConnect(fd, addr.sockAddr(), addr.getOsSockLen()) catch |err| {
-            last = err;
-            continue;
-        };
-        return fd;
-    }
-    return last;
-}
 
-pub fn connectUnixSocketFd(path: []const u8) !std.posix.fd_t {
-    const addr = try NetAddress.initUnix(path);
-    const fd = try lxSocket(AFT.UNIX, SOCKT.STREAM | SOCKT.CLOEXEC, 0);
-    errdefer lxClose(fd);
-    try lxConnect(fd, addr.sockAddr(), addr.getOsSockLen());
-    return fd;
-}
 
 pub fn tcpConnectTimeoutMs(timeout_ns: u64) !i32 {
     if (timeout_ns == 0) return error.InvalidArgument;
@@ -7136,174 +4631,59 @@ pub fn tcpConnectTimeoutMs(timeout_ns: u64) !i32 {
     return std.math.cast(i32, rounded_ms) orelse error.InvalidArgument;
 }
 
-pub const sa_std_net_tcp_connect_timeout = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout;
 
-pub const sa_std_net_tcp_connect_timeout_addr = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout_addr;
-pub fn tcpConnectAddressTimeout(address: NetAddress, timeout_ms: i32) !std.posix.fd_t {
-    if (comptime is_wasm) return error.Unsupported;
-    const fd = try lxSocket(address.storage.family, SOCKT.STREAM | SOCKT.NONBLOCK | SOCKT.CLOEXEC, IPPROTOT.TCP);
-    errdefer lxClose(fd);
-    lxConnect(fd, address.sockAddr(), address.getOsSockLen()) catch |err| switch (err) {
-        error.WouldBlock, error.ConnectionPending => {
-            var poll_fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.OUT, .revents = 0 }};
-            const ready = try std.posix.poll(&poll_fds, timeout_ms);
-            if (ready == 0) return error.ConnectionTimedOut;
-            try lxGetsockoptError(fd);
-        },
-        else => return err,
-    };
-    const flags = try lxFcntl(fd, std.posix.F.GETFL, 0);
-    const blocking_flags = flags & ~(@as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK"));
-    _ = try lxFcntl(fd, std.posix.F.SETFL, blocking_flags);
-    return fd;
-}
 
-pub const sa_std_net_tcp_connect_timeout_all = @import("sa_std/std_net_tcp.zig").sa_std_net_tcp_connect_timeout_all;
 
-pub const sa_std_net_tcp_stream_from_raw_fd = @import("sa_std/std_net_tcp_stream.zig").sa_std_net_tcp_stream_from_raw_fd;
 
 // Unix domain socket support. Streams and listeners reuse the existing
 // tcp_stream / tcp_listener resource kinds so read/write/peek/shutdown/close
 // and accept all flow through the same sa_std_net_tcp_* paths.
-pub const sa_std_net_unix_listen = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listen;
 
-pub const sa_std_net_unix_addr_from_abstract_name = @import("sa_std/std_net_unix.zig").sa_std_net_unix_addr_from_abstract_name;
 
-pub const sa_std_net_unix_addr_from_pathname = @import("sa_std/std_net_unix.zig").sa_std_net_unix_addr_from_pathname;
 
-pub const sa_std_net_unix_listen_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listen_addr;
 
-pub const sa_std_net_unix_accept = @import("sa_std/std_net_unix.zig").sa_std_net_unix_accept;
 
-pub const sa_std_net_unix_accept_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_accept_addr;
 
-pub const sa_std_net_unix_pair = @import("sa_std/std_net_unix.zig").sa_std_net_unix_pair;
 
-pub const sa_std_net_unix_listener_local_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_local_addr;
 
-pub const sa_std_net_unix_listener_try_clone = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_try_clone;
 
-pub const sa_std_net_unix_listener_from_raw_fd = @import("sa_std/std_net_unix.zig").sa_std_net_unix_listener_from_raw_fd;
 
-pub const sa_std_net_unix_stream_local_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_local_addr;
 
-pub const sa_std_net_unix_stream_try_clone = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_try_clone;
 
-pub const sa_std_net_unix_stream_from_raw_fd = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_from_raw_fd;
 
-pub const sa_std_net_unix_stream_peer_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_peer_addr;
 
-pub const sa_std_net_unix_stream_set_passcred = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_set_passcred;
 
-pub const sa_std_net_unix_stream_passcred = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_passcred;
 
-pub const sa_std_net_unix_stream_set_mark = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_set_mark;
 
-pub const sa_std_net_unix_stream_peer_cred = @import("sa_std/std_net_unix.zig").sa_std_net_unix_stream_peer_cred;
 
-pub const sa_std_net_unix_datagram_peer_cred = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peer_cred;
 
-pub const sa_std_net_unix_datagram_unbound = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_unbound;
 
-pub const sa_std_net_unix_datagram_bind = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_bind;
 
-pub const sa_std_net_unix_datagram_bind_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_bind_addr;
 
-pub const sa_std_net_unix_datagram_pair = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_pair;
 
-pub const sa_std_net_unix_datagram_connect = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_connect;
 
-pub const sa_std_net_unix_datagram_connect_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_connect_addr;
 
-pub const sa_std_net_unix_datagram_try_clone = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_try_clone;
 
-pub const sa_std_net_unix_datagram_from_raw_fd = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_from_raw_fd;
 
-pub const sa_std_net_unix_datagram_local_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_local_addr;
 
-pub const sa_std_net_unix_datagram_peer_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peer_addr;
 
-pub const sa_std_net_unix_datagram_set_passcred = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_set_passcred;
 
-pub const sa_std_net_unix_datagram_passcred = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_passcred;
 
-pub const sa_std_net_unix_datagram_set_mark = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_set_mark;
 
-pub const sa_std_net_unix_datagram_shutdown = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_shutdown;
 
-pub const sa_std_net_unix_datagram_send_to = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_send_to;
 
-pub const sa_std_net_unix_datagram_send_to_addr = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_send_to_addr;
 
-pub fn unixDatagramRecvFrom(socket: u64, out: ?[*]u8, cap: u64, flags: u32, out_read: ?*u64, out_addr: ?*u64) i32 {
-    const read_ptr = out_read orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const addr_ptr = out_addr orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    read_ptr.* = 0;
-    addr_ptr.* = 0;
-    const buffer = mutBytes(out, cap) catch |err| return finishErr(err);
-    const handle = ensureSocketHandle(socket) catch |err| return finishErr(err);
-    if (handle.kind != .udp_socket) return finish(SA_STD_ERR_INVALID_HANDLE);
-    if (!(socketIsUnix(handle.fd) catch |err| return finishErr(err))) return finish(SA_STD_ERR_INVALID_HANDLE);
-    var addr: SockAddrUnT = .{ .family = AFT.UNIX, .path = undefined };
-    @memset(&addr.path, 0);
-    // recvmsg (not recvfrom) so SCM_CREDENTIALS ancillary data can
-    // be harvested for sa_std_net_unix_datagram_peer_cred; see the
-    // note at getUnixPeerCred. Peek receives do not harvest.
-    var control: [128]u8 align(8) = undefined;
-    var ziovec = std.posix.iovec{ .base = buffer.ptr, .len = buffer.len };
-    var msg: MsghdrT = std.mem.zeroes(MsghdrT);
-    msg.name = @as(*SockAddrT, @ptrCast(&addr));
-    msg.namelen = @as(SockLenT, @intCast(@sizeOf(SockAddrUnT)));
-    msg.iov = @ptrCast(&ziovec);
-    msg.iovlen = 1;
-    msg.control = @ptrCast(&control);
-    msg.controllen = control.len;
-    const read = portableRecvmsg(handle.fd, &msg, flags) catch |err| return finishErr(err);
-    read_ptr.* = @as(u64, @intCast(read));
-    const addr_len: SockLenT = msg.namelen;
-    if ((flags & msg_peek) == 0) {
-        const ctrl = control[0..@as(usize, @intCast(msg.controllen))];
-        if (scmCredentials(ctrl)) |cred| {
-            lockRegistry();
-            storeHarvestedPeerCredLocked(socket, handle.fd, cred);
-            registry_mutex.unlock();
-        }
-    }
 
-    var unix_addr = unixAddrFromSockaddr(std.heap.page_allocator, addr, addr_len) catch |err| return finishErr(err);
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const addr_handle = registerResourceLocked(.{ .unix_addr = unix_addr }) catch |err| {
-        unix_addr.deinit();
-        return finishErr(err);
-    };
-    addr_ptr.* = addr_handle;
-    return finish(SA_STD_OK);
-}
 
-pub const sa_std_net_unix_datagram_recv_from = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_recv_from;
 
-pub const sa_std_net_unix_datagram_peek_from = @import("sa_std/std_net_unix_dgram.zig").sa_std_net_unix_datagram_peek_from;
 
-pub const sa_std_net_unix_connect = @import("sa_std/std_net_unix.zig").sa_std_net_unix_connect;
 
-pub const sa_std_net_unix_connect_addr = @import("sa_std/std_net_unix.zig").sa_std_net_unix_connect_addr;
 
-pub const sa_net_unix_addr_kind = @import("sa_std/net.zig").sa_net_unix_addr_kind;
 
-pub const sa_net_unix_addr_is_unnamed = @import("sa_std/net.zig").sa_net_unix_addr_is_unnamed;
 
-pub const sa_net_unix_addr_path_ptr = @import("sa_std/net.zig").sa_net_unix_addr_path_ptr;
 
-pub const sa_net_unix_addr_path_len = @import("sa_std/net.zig").sa_net_unix_addr_path_len;
 
-pub const sa_net_unix_addr_abstract_ptr = @import("sa_std/net.zig").sa_net_unix_addr_abstract_ptr;
 
-pub const sa_net_unix_addr_abstract_len = @import("sa_std/net.zig").sa_net_unix_addr_abstract_len;
-
-pub const sa_net_unix_addr_free = @import("sa_std/net.zig").sa_net_unix_addr_free;
 
 // ---- TLS/network fingerprint primitives (JA3 / JA4) ----
 //
@@ -7325,17 +4705,14 @@ pub fn writeHexLower(dst: []u8, bytes: []const u8) void {
 
 // md5 of the input, written as 32 lowercase hex chars into out (cap must be >= 32).
 // This is exactly the JA3 hash given a pre-built JA3 string.
-pub const sa_std_net_ja3_hash = @import("sa_std/std_net.zig").sa_std_net_ja3_hash;
 
 // sha256 of the input, written as 64 lowercase hex chars into out (cap must be >= 64).
-pub const sa_std_net_sha256_hex = @import("sa_std/std_net.zig").sa_std_net_sha256_hex;
 
 // JA4 truncated hash: first 12 lowercase hex chars of sha256(input). JA4's `b`
 // (cipher) and `c` (extension+sigalg) segments are defined as sha256 truncated
 // to 12 hex chars. An all-zero / empty input segment conventionally maps to the
 // literal "000000000000", which the caller can special-case; this returns the
 // real truncated digest.
-pub const sa_std_net_ja4_hash12 = @import("sa_std/std_net.zig").sa_std_net_ja4_hash12;
 
 // HMAC-SHA-256 (RFC 2104, vectors in RFC 4231) of msg under key, written
 // as 64 lowercase hex chars into out (cap must be >= 64). Same status

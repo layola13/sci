@@ -674,3 +674,4 @@ pub export fn sa_json_buffer_free(buffer: u64) Fallible(i32) {
     if (status != SA_STD_OK) return fail(i32, status);
     return ok(i32, 0);
 }
+
