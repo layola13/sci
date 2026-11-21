@@ -8,6 +8,7 @@ const DceMode = @import("../emit_options.zig").DceMode;
 const trap = @import("../common/trap.zig");
 const test_meta = @import("../test_meta.zig");
 const driver = @import("../driver/zigcc.zig");
+const plugins = @import("../plugins.zig");
 /// Shared types for the CLI (moved out of cli.zig).
 
 pub const Command = enum {
@@ -537,3 +538,56 @@ pub fn newCompileOptions(exec_options: ExecuteOptions, diagnostic_writer: *std.I
 pub fn configureCompileDiagnostics(options: *CompileOptions, json_mode: bool) void {
     options.mem_report_live = options.mem_report and !json_mode;
 }
+
+pub const OwnedPluginRuntimeAuthorization = struct {
+    input: plugins.RuntimeAuthorizationInput = .{},
+    env: []const []const u8 = &.{},
+    read: []const []const u8 = &.{},
+    write: []const []const u8 = &.{},
+    net: []const []const u8 = &.{},
+    run: []const []const u8 = &.{},
+    project_root: ?[]u8 = null,
+
+    pub     fn deinit(self: *OwnedPluginRuntimeAuthorization, allocator: std.mem.Allocator) void {
+        for (self.env) |entry| allocator.free(entry);
+        allocator.free(self.env);
+        for (self.read) |entry| allocator.free(entry);
+        allocator.free(self.read);
+        for (self.write) |entry| allocator.free(entry);
+        allocator.free(self.write);
+        for (self.net) |entry| allocator.free(entry);
+        allocator.free(self.net);
+        for (self.run) |entry| allocator.free(entry);
+        allocator.free(self.run);
+        if (self.project_root) |root| allocator.free(root);
+        self.* = undefined;
+    }
+};
+
+pub const StdinLineReader = struct {
+    inner: *std.Io.Reader,
+
+    pub fn readUntilDelimiterOrEof(self: StdinLineReader, buf: []u8, delimiter: u8) !?[]u8 {
+        var i: usize = 0;
+        var eof = false;
+        while (true) {
+            const b = self.inner.takeByte() catch |err| switch (err) {
+                error.EndOfStream => {
+                    eof = true;
+                    break;
+                },
+                else => return err,
+            };
+            if (b == delimiter) break;
+            if (i >= buf.len) return error.StreamTooLong;
+            buf[i] = b;
+            i += 1;
+        }
+        if (i == 0 and eof) return null;
+        return buf[0..i];
+    }
+
+    pub fn takeDelimiterExclusive(self: StdinLineReader, delimiter: u8) ![]u8 {
+        return try self.inner.takeDelimiterExclusive(delimiter);
+    }
+};

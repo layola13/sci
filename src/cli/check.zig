@@ -10,6 +10,30 @@ const compileSource = @import("compile.zig").compileSource;
 const consumeCompileOption = @import("options.zig").consumeCompileOption;
 const loadSource = @import("compile.zig").loadSource;
 const configureCompileDiagnostics = @import("types.zig").configureCompileDiagnostics;
+const elapsedNs = @import("compile.zig").elapsedNs;
+const pkg_workspace = @import("../pkg/workspace.zig");
+const printTrapReport = @import("errors.zig").printTrapReport;
+const resolveProjectFromSourcePath = @import("compile.zig").resolveProjectFromSourcePath;
+const plugin_bridge = @import("../plugin_bridge.zig");
+const stdRootFromEnv = @import("cache.zig").stdRootFromEnv;
+const writeMetricsJson = @import("errors.zig").writeMetricsJson;
+const pkg_resolver = @import("../pkg/resolver.zig");
+const freeOwnedStringSlice = @import("compile.zig").freeOwnedStringSlice;
+const defaultStableImportRoots = @import("compile.zig").defaultStableImportRoots;
+const verifyProjectPackageState = @import("package.zig").verifyProjectPackageState;
+const trapFromPackagePreflightError = @import("trap_errors.zig").trapFromPackagePreflightError;
+const manifestDependencies = @import("compile.zig").manifestDependencies;
+const manifestPluginImportRoots = @import("compile.zig").manifestPluginImportRoots;
+const manifest = @import("../pkg/manifest.zig");
+const flattener = @import("../flattener.zig");
+const reportPluginImportDiagnostic = @import("compile.zig").reportPluginImportDiagnostic;
+const trapFromFlattenError = @import("trap_errors.zig").trapFromFlattenError;
+const incr_verify = @import("../incr_verify.zig");
+const verifyModeByte = @import("compile.zig").verifyModeByte;
+const trustedSabVerifyOk = @import("compile.zig").trustedSabVerifyOk;
+const computeCompileMetrics = @import("compile.zig").computeCompileMetrics;
+const referee = @import("../referee.zig");
+const setFile = @import("trap_errors.zig").setFile;
 
 /// Check-oriented compile: flatten + verify, with verdict-cache short circuit.
 pub fn compileSourceForCheck(allocator: std.mem.Allocator, source_path: []const u8, options: CompileOptions) !CompileResult {

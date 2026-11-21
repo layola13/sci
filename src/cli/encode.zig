@@ -6,6 +6,19 @@ const ExecuteOptions = @import("types.zig").ExecuteOptions;
 const newCompileOptions = @import("types.zig").newCompileOptions;
 const consumeCompileOption = @import("options.zig").consumeCompileOption;
 const loadSource = @import("compile.zig").loadSource;
+const sab_fragment = @import("../sab_fragment.zig");
+const writeJsonString = @import("json.zig").writeJsonString;
+const pkg_workspace = @import("../pkg/workspace.zig");
+const resolveProjectFromSourcePath = @import("compile.zig").resolveProjectFromSourcePath;
+const stdRootFromEnv = @import("cache.zig").stdRootFromEnv;
+const defaultStableImportRoots = @import("compile.zig").defaultStableImportRoots;
+const freeOwnedStringSlice = @import("compile.zig").freeOwnedStringSlice;
+const flattener = @import("../flattener.zig");
+const reportPluginImportDiagnostic = @import("compile.zig").reportPluginImportDiagnostic;
+const trapFromFlattenError = @import("trap_errors.zig").trapFromFlattenError;
+const printTrapReport = @import("errors.zig").printTrapReport;
+const sab = @import("../sab.zig");
+const writeJsonStringArray = @import("json.zig").writeJsonStringArray;
 
 /// `sa encode-fragment`: validate a surface fragment's contract
 /// header against its flattened wrapper body, encode the payload with
@@ -159,4 +172,25 @@ pub fn executeEncodeFragment(
         try stdout.print("  caller: {s}; function: {s}; reads: {d}; owns: {d}; returns: {d}\n", .{ parsed.contract.caller, parsed.contract.function_name, parsed.contract.reads.len, parsed.contract.owns.len, parsed.contract.returns.len });
     }
     return 0;
+}
+
+pub fn fragmentParseMessage(err: sab_fragment.ParseError) []const u8 {
+    return switch (err) {
+        error.FragmentMissingHeader => "source does not start with a `#fragment <major>` header line",
+        error.FragmentVersionMismatch => "fragment format version does not match this host (expected major 1, minor 0)",
+        error.FragmentMissingField => "fragment header is missing a required field (#fragment-function, #fragment-reads, #fragment-owns, or #fragment-caller)",
+        error.FragmentUnknownDirective => "unknown #fragment-* directive in the header",
+        error.FragmentDuplicateDirective => "duplicate directive in the fragment header",
+        error.FragmentDuplicateRegister => "duplicate register name in a fragment header list",
+        error.FragmentBadHeaderLine => "malformed fragment header line",
+        error.FragmentHeaderAfterCode => "a #fragment header line appears after code; the header must precede all code",
+        error.OutOfMemory => "out of memory",
+    };
+}
+
+pub fn deriveFragmentOutputPath(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
+    if (std.mem.endsWith(u8, source_path, ".sa")) {
+        return try std.fmt.allocPrint(allocator, "{s}safrag", .{source_path[0 .. source_path.len - 2]});
+    }
+    return try std.fmt.allocPrint(allocator, "{s}.safrag", .{source_path});
 }

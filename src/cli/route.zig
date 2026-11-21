@@ -6,6 +6,14 @@ const Command = @import("types.zig").Command;
 const LanguageRoute = @import("types.zig").LanguageRoute;
 const isHelpFlag = @import("help.zig").isHelpFlag;
 const buildPluginRuntimeAuthorization = @import("plugin_cmd.zig").buildPluginRuntimeAuthorization;
+const pkg_workspace = @import("../pkg/workspace.zig");
+const plugins = @import("../plugins.zig");
+const pathJoinAlloc = @import("compile.zig").pathJoinAlloc;
+const hasJsonFlag = @import("help.zig").hasJsonFlag;
+const projectPathExists = @import("cache.zig").projectPathExists;
+const commandName = @import("help.zig").commandName;
+const stageTimingEnabled = @import("compile.zig").stageTimingEnabled;
+const elapsedNs = @import("compile.zig").elapsedNs;
 
 /// Project-verb routing (toolchain phase 1, form A): a lifecycle verb
 /// invoked without a source file inside a project dispatches to the
@@ -328,4 +336,16 @@ pub fn routeLanguageFrontend(
 pub fn freeRewrittenArgs(allocator: std.mem.Allocator, args: [][]const u8) void {
     for (args) |arg| allocator.free(arg);
     allocator.free(args);
+}
+
+/// True when a require_plugin identity names the given language
+/// frontend: the identity itself, its basename, or the conventional
+/// `sa_plugin_<name>` source-directory basename.
+pub fn pluginRequireNamesFrontend(identity: []const u8, frontend_name: []const u8) bool {
+    if (std.mem.eql(u8, identity, frontend_name)) return true;
+    const base = std.fs.path.basename(identity);
+    if (std.mem.eql(u8, base, frontend_name)) return true;
+    const prefix = "sa_plugin_";
+    if (std.mem.startsWith(u8, base, prefix) and std.mem.eql(u8, base[prefix.len..], frontend_name)) return true;
+    return false;
 }

@@ -691,3 +691,10 @@ pub fn writeExplainEntryText(writer: anytype, entry: ExplainEntry) !void {
         try writer.print("fix: {s}\n", .{hint});
     }
 }
+
+pub fn hasJsonFlag(argv: []const []const u8) bool {
+    for (argv) |arg| {
+        if (std.mem.eql(u8, arg, "--json")) return true;
+    }
+    return false;
+}

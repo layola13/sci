@@ -1,6 +1,9 @@
 const std = @import("std");
 const sio = @import("sio");
 const plugins = @import("../plugins.zig");
+const OwnedPluginRuntimeAuthorization = @import("types.zig").OwnedPluginRuntimeAuthorization;
+const projectRootFromCurrentDir = @import("package.zig").projectRootFromCurrentDir;
+const manifest = @import("../pkg/manifest.zig");
 
 pub fn executePluginCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
     if (args.len == 0) {
@@ -201,4 +204,45 @@ pub fn buildPluginRuntimeAuthorization(allocator: std.mem.Allocator, args: []con
         .allow_run = owned.run,
     };
     return owned;
+}
+
+pub fn parseAllowListFragment(allocator: std.mem.Allocator, list: *std.array_list.Managed([]const u8), value_text: []const u8) !void {
+    var it = std.mem.splitScalar(u8, value_text, ',');
+    while (it.next()) |raw_item| {
+        const item = std.mem.trim(u8, raw_item, " \t\r\n");
+        if (item.len == 0) return error.InvalidArgument;
+        try list.append(try allocator.dupe(u8, item));
+    }
+}
+
+pub fn readProjectManifest(allocator: std.mem.Allocator, project_root: []const u8) !?manifest.Manifest {
+    const manifest_path = try std.fs.path.join(allocator, &.{ project_root, "sa.mod" });
+    defer allocator.free(manifest_path);
+
+    const file = sio.cwd().openFile(manifest_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
+    };
+    defer file.close();
+
+    const source = try file.readToEndAlloc(allocator, manifest.max_manifest_bytes);
+    defer allocator.free(source);
+    return try manifest.parseManifestWithFile(allocator, source, manifest_path);
+}
+
+pub fn findPermissionSet(project_manifest: manifest.Manifest, name: []const u8) ?*const manifest.PermissionSet {
+    for (project_manifest.permission_sets) |*set| {
+        if (std.mem.eql(u8, set.name, name)) return set;
+    }
+    return null;
+}
+
+pub fn appendPermissionSetStrings(allocator: std.mem.Allocator, list: *std.array_list.Managed([]const u8), entries: []const []const u8) !void {
+    for (entries) |entry| try list.append(try allocator.dupe(u8, entry));
+}
+
+pub fn validateRunAllowList(entries: []const []const u8) !void {
+    for (entries) |entry| {
+        if (!std.fs.path.isAbsolute(entry)) return error.InvalidArgument;
+    }
 }
