@@ -28,6 +28,8 @@ const saStdArchivePathForTarget = @import("compile.zig").saStdArchivePathForTarg
 const sizeBitsForTriple = @import("compile.zig").sizeBitsForTriple;
 const emitOptLevel = @import("build_exe.zig").emitOptLevel;
 const printLlvmcEmitError = @import("errors.zig").printLlvmcEmitError;
+const dynlib_compat = @import("../dynlib_compat.zig");
+const writeSuccessDiagnostics = @import("errors.zig").writeSuccessDiagnostics;
 
 pub fn parseLibContract(arena: std.mem.Allocator, contract_path: []const u8, source: []const u8, stderr: anytype) !?LibContract {
     const stem_raw = std.fs.path.stem(contract_path);
@@ -554,4 +556,31 @@ pub fn generateLibVersionScript(arena: std.mem.Allocator, contract: LibContract)
     }
     try writer.print("    {s}_get_api;\n    {s}_abi_version;\n  local:\n    *;\n}};\n", .{ contract.stem, contract.stem });
     return try aw.toOwnedSlice();
+}
+
+pub fn generateLibExportedSymbolsList(arena: std.mem.Allocator, contract: LibContract) ![]u8 {
+    var aw: std.Io.Writer.Allocating = .init(arena);
+    const writer = &aw.writer;
+    for (contract.entries) |entry| {
+        try writer.print("_{s}\n", .{entry.name});
+    }
+    try writer.print("_{s}_get_api\n_{s}_abi_version\n", .{ contract.stem, contract.stem });
+    return try aw.toOwnedSlice();
+}
+
+pub fn generateLibDefFile(arena: std.mem.Allocator, contract: LibContract) ![]u8 {
+    var aw: std.Io.Writer.Allocating = .init(arena);
+    const writer = &aw.writer;
+    try writer.print("LIBRARY {s}\nEXPORTS\n", .{contract.stem});
+    for (contract.entries) |entry| {
+        try writer.print("    {s}\n", .{entry.name});
+    }
+    try writer.print("    {s}_get_api\n    {s}_abi_version\n", .{ contract.stem, contract.stem });
+    return try aw.toOwnedSlice();
+}
+
+pub fn libDupeZ(allocator: std.mem.Allocator, bytes: []const u8) ![:0]u8 {
+    const out = try allocator.allocSentinel(u8, bytes.len, 0);
+    @memcpy(out, bytes);
+    return out;
 }

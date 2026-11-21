@@ -716,11 +716,7 @@ fn hashDirFileHex(dir: sio.Dir, name: []const u8) ![64]u8 {
 
 const hashOpenFileHex = @import("cli/cache.zig").hashOpenFileHex;
 
-fn sourceStem(path: []const u8) []const u8 {
-    const basename = std.fs.path.basename(path);
-    const dot = std.mem.lastIndexOfScalar(u8, basename, '.') orelse return basename;
-    return basename[0..dot];
-}
+const sourceStem = @import("cli/test_cmd.zig").sourceStem;
 
 fn projectTargetKey(allocator: std.mem.Allocator, target_name: []const u8, source_suffix: []const u8) ![]u8 {
     return try std.fmt.allocPrint(allocator, "{s}:{s}", .{ target_name, source_suffix });
@@ -819,40 +815,7 @@ const printUsage = @import("cli/help.zig").printUsage;
 const printVersion = @import("cli/help.zig").printVersion;
 
     // NOTE (DEF-SCI-TMPWORKDIR-BASE64-SLASH): temp-dir names use url_safe base64. Standard base64 can emit slash, which turns the name into an absolute path and fails makePath with AccessDenied.
-const TmpWorkDir = struct {
-    dir: sio.Dir,
-    parent_dir: sio.Dir,
-    sub_path: [std.base64.url_safe.Encoder.calcSize(12)]u8,
-
-    fn init() !TmpWorkDir {
-        var random_bytes: [12]u8 = undefined;
-        sio.io().random(&random_bytes);
-
-        var sub_path: [std.base64.url_safe.Encoder.calcSize(12)]u8 = undefined;
-        _ = std.base64.url_safe.Encoder.encode(&sub_path, &random_bytes);
-
-        const cwd = sio.cwd();
-        try cwd.makePath(".zig-cache");
-        var cache_dir = try cwd.openDir(".zig-cache", .{});
-        defer cache_dir.close();
-        try cache_dir.makePath("tmp");
-        var parent_dir = try cache_dir.openDir("tmp", .{});
-        errdefer parent_dir.close();
-        try parent_dir.makePath(&sub_path);
-        const dir = try parent_dir.openDir(&sub_path, .{});
-        return .{ .dir = dir, .parent_dir = parent_dir, .sub_path = sub_path };
-    }
-
-    fn cleanup(self: *TmpWorkDir) void {
-        self.dir.close();
-        self.parent_dir.deleteTree(&self.sub_path) catch |err| {
-            // Temporary build directories are best-effort cleanup after the caller has finished using them.
-            _ = @errorName(err);
-        };
-        self.parent_dir.close();
-        self.* = undefined;
-    }
-};
+const TmpWorkDir = @import("cli/types.zig").TmpWorkDir;
 
 const writeFile = @import("cli/build_lib.zig").writeFile;
 
@@ -935,58 +898,11 @@ const writeMemoryStageSample = @import("cli/compile.zig").writeMemoryStageSample
 
 const writeMemoryStageSampleForOptions = @import("cli/compile.zig").writeMemoryStageSampleForOptions;
 
-const MemoryStageReporterContext = struct {
-    writer: *std.Io.Writer,
-    memory: ?*CompileMemoryMetrics = null,
-    previous_rss_bytes: ?u64 = null,
-    peak_rss_bytes: ?u64 = null,
-    live: bool = false,
-    // Verify sub-stage timing probe (SA_STAGE_TIMING=1): elapsed ms since
-    // verify start, printed per VerifyStageReporter event.
-    timing_live: bool = false,
-    timing_start: ?std.Io.Timestamp = null,
-    timing_prev_ns: u64 = 0,
-};
+const MemoryStageReporterContext = @import("cli/types.zig").MemoryStageReporterContext;
 
-fn writeVerifierMemoryStage(context: *MemoryStageReporterContext, stage: []const u8, completed: usize, total: usize) !void {
-    const rss = currentRssBytes();
-    if (context.memory) |memory| memory.recordVerifierStage(stage, rss);
-    if (rss) |value| {
-        if (context.peak_rss_bytes == null or value > context.peak_rss_bytes.?) {
-            context.peak_rss_bytes = value;
-        }
-    }
+const writeVerifierMemoryStage = @import("cli/compile.zig").writeVerifierMemoryStage;
 
-    if (context.timing_live) {
-        if (context.timing_start) |start| {
-            const elapsed_ns = elapsedNs(start);
-            const delta_ns = elapsed_ns -| context.timing_prev_ns;
-            context.timing_prev_ns = elapsed_ns;
-            context.writer.print("[verify-stage] {s} {d:.3}ms (+{d:.3}ms)\n", .{ stage, @as(f64, @floatFromInt(elapsed_ns)) / 1_000_000.0, @as(f64, @floatFromInt(delta_ns)) / 1_000_000.0 }) catch {};
-        }
-    }
-
-    if (!context.live) {
-        context.previous_rss_bytes = rss;
-        return;
-    }
-
-    try context.writer.writeAll("memory stage verifier.");
-    try context.writer.writeAll(stage);
-    if (total != 0) {
-        try context.writer.print(" {d}/{d}", .{ completed, total });
-    }
-    try context.writer.writeByte(' ');
-    try writeMemoryAmount(context.writer, rss);
-    try writeMemoryDelta(context.writer, context.previous_rss_bytes, rss);
-    try context.writer.writeByte('\n');
-    context.previous_rss_bytes = rss;
-}
-
-fn reportVerifierMemoryStage(context: *anyopaque, stage: []const u8, completed: usize, total: usize) void {
-    const typed = @as(*MemoryStageReporterContext, @ptrCast(@alignCast(context)));
-    writeVerifierMemoryStage(typed, stage, completed, total) catch {};
-}
+const reportVerifierMemoryStage = @import("cli/compile.zig").reportVerifierMemoryStage;
 
 const memoryEndPrevious = @import("cli/types.zig").memoryEndPrevious;
 
@@ -2275,18 +2191,7 @@ const loadSource = @import("cli/compile.zig").loadSource;
 
 const loadSabFlat = @import("cli/compile.zig").loadSabFlat;
 
-fn collectSabTestListFast(allocator: std.mem.Allocator, source_path: []const u8) !test_meta.TestList {
-    const bytes = try loadSource(allocator, source_path);
-    defer allocator.free(bytes);
-
-    const function_sigs = try sab.decodeTestFunctionSigsOnly(allocator, bytes);
-    defer {
-        for (function_sigs) |*function_sig| function_sig.deinit(allocator);
-        allocator.free(function_sigs);
-    }
-
-    return try test_meta.collect(allocator, function_sigs);
-}
+const collectSabTestListFast = @import("cli/test_cmd.zig").collectSabTestListFast;
 
 fn hasExplicitTestSelection(selection: test_meta.TestSelection) bool {
     return selection.include_filters.len != 0 or
@@ -2340,122 +2245,6 @@ const freeFlatLocEntry = @import("cli/cache.zig").freeFlatLocEntry;
 const pruneSabVtableConsts = @import("cli/cache.zig").pruneSabVtableConsts;
 
 const collectSabSelectedReachability = @import("cli/cache.zig").collectSabSelectedReachability;
-
-fn pruneSabFlatToSelectedTests(allocator: std.mem.Allocator, flat: *flattener.FlattenResult, selected_test_names: []const []const u8) !void {
-    if (selected_test_names.len == 0 or flat.function_sigs.len == 0 or flat.instructions.len == 0) return;
-    const original_function_count = flat.function_sigs.len;
-    const original_test_count = flat.test_sigs.len;
-    const original_instruction_count = flat.instructions.len;
-    const original_const_count = flat.const_decls.len;
-
-    const ranges = try buildSabFunctionRanges(allocator, flat.instructions);
-    defer allocator.free(ranges);
-    if (ranges.len == 0) return;
-
-    var sig_index_by_name = try buildSabFunctionSigIndex(allocator, flat.function_sigs);
-    defer sig_index_by_name.deinit();
-
-    var const_index_by_name = try buildSabConstIndex(allocator, flat.const_decls);
-    defer const_index_by_name.deinit();
-
-    var reachable_vtable_consts = std.AutoHashMap(usize, void).init(allocator);
-    defer reachable_vtable_consts.deinit();
-
-    var reachable = try collectSabSelectedReachability(allocator, flat, ranges, &sig_index_by_name, &const_index_by_name, selected_test_names, &reachable_vtable_consts);
-    defer reachable.deinit();
-    if (reachable.count() == 0) return;
-
-    var kept_sigs = std.array_list.Managed(flattener.FunctionSig).init(allocator);
-    errdefer kept_sigs.deinit();
-    var kept_test_sigs = std.array_list.Managed(flattener.FunctionSig).init(allocator);
-    errdefer kept_test_sigs.deinit();
-    var kept_instructions = std.array_list.Managed(flattener.Instruction).init(allocator);
-    errdefer kept_instructions.deinit();
-    var kept_loc_table = std.array_list.Managed(?common_upstream.UpstreamLoc).init(allocator);
-    errdefer kept_loc_table.deinit();
-
-    var keep_ranges = try allocator.alloc(bool, ranges.len);
-    defer allocator.free(keep_ranges);
-    @memset(keep_ranges, false);
-    for (ranges, 0..) |range, range_idx| {
-        if (range.sig_index >= flat.function_sigs.len) continue;
-        if (!reachable.contains(range.sig_index)) continue;
-        keep_ranges[range_idx] = true;
-
-        const function_sig = flat.function_sigs[range.sig_index];
-        try kept_sigs.append(function_sig);
-        if (function_sig.kind == .test_func) try kept_test_sigs.append(function_sig);
-        try kept_instructions.appendSlice(flat.instructions[range.start..range.end]);
-        try kept_loc_table.appendSlice(flat.loc_table[range.start..range.end]);
-    }
-    if (kept_sigs.items.len == 0) return;
-
-    const new_function_sigs = try kept_sigs.toOwnedSlice();
-    errdefer allocator.free(new_function_sigs);
-    const new_test_sigs = try kept_test_sigs.toOwnedSlice();
-    errdefer allocator.free(new_test_sigs);
-    const new_instructions = try kept_instructions.toOwnedSlice();
-    errdefer allocator.free(new_instructions);
-    const new_loc_table = try kept_loc_table.toOwnedSlice();
-    errdefer allocator.free(new_loc_table);
-
-    try pruneSabVtableConsts(allocator, flat, &reachable_vtable_consts);
-
-    var range_index: usize = 0;
-    var instruction_index: usize = 0;
-    while (instruction_index < flat.instructions.len) {
-        if (range_index < ranges.len and instruction_index == ranges[range_index].start) {
-            const range = ranges[range_index];
-            if (!keep_ranges[range_index]) {
-                for (flat.instructions[range.start..range.end]) |item| freeFlatInstructionMetadata(allocator, item);
-                for (flat.loc_table[range.start..range.end]) |entry| freeFlatLocEntry(allocator, entry);
-            }
-            instruction_index = range.end;
-            range_index += 1;
-            continue;
-        }
-        freeFlatInstructionMetadata(allocator, flat.instructions[instruction_index]);
-        freeFlatLocEntry(allocator, flat.loc_table[instruction_index]);
-        instruction_index += 1;
-    }
-
-    var sig_keep = try allocator.alloc(bool, flat.function_sigs.len);
-    defer allocator.free(sig_keep);
-    @memset(sig_keep, false);
-    for (ranges, 0..) |range, range_idx| {
-        if (range.sig_index < sig_keep.len and keep_ranges[range_idx]) sig_keep[range.sig_index] = true;
-    }
-    for (flat.function_sigs, 0..) |*function_sig, sig_index| {
-        if (!sig_keep[sig_index]) function_sig.deinit(allocator);
-    }
-
-    allocator.free(flat.function_sigs);
-    allocator.free(flat.test_sigs);
-    allocator.free(flat.instructions);
-    allocator.free(flat.loc_table);
-
-    flat.function_sigs = new_function_sigs;
-    flat.test_sigs = new_test_sigs;
-    flat.instructions = new_instructions;
-    flat.loc_table = new_loc_table;
-
-    if (sabPruneDebugEnabled(allocator)) {
-        std.debug.print(
-            "sab prune: funcs {d}->{d}, tests {d}->{d}, inst {d}->{d}, consts {d}->{d}, vtables_kept {d}\n",
-            .{
-                original_function_count,
-                flat.function_sigs.len,
-                original_test_count,
-                flat.test_sigs.len,
-                original_instruction_count,
-                flat.instructions.len,
-                original_const_count,
-                flat.const_decls.len,
-                reachable_vtable_consts.count(),
-            },
-        );
-    }
-}
 
 fn cloneSabFunctionSig(allocator: std.mem.Allocator, source: flattener.FunctionSig) !flattener.FunctionSig {
     const name = try allocator.dupe(u8, source.name);
@@ -2732,47 +2521,9 @@ const manifestPluginImportRoots = @import("cli/compile.zig").manifestPluginImpor
 const compileSource = @import("cli/compile.zig").compileSource;
 const test_source_tree_load_count = @import("cli/compile.zig").test_source_tree_load_count;
 
-fn collectExternalSymbolNames(allocator: std.mem.Allocator, verified: *const referee.VerifyOk) ![]const []const u8 {
-    var names = std.array_list.Managed([]const u8).init(allocator);
-    errdefer names.deinit();
-    for (verified.function_sigs) |fsig| {
-        if (fsig.kind == .external) try names.append(fsig.name);
-    }
-    return try names.toOwnedSlice();
-}
+const collectExternalSymbolNames = @import("cli/build_exe.zig").collectExternalSymbolNames;
 
-/// Collects native link inputs for a program's extern symbols:
-/// plugin libraries matched by symbol probing, plus the real
-/// libraries those plugins declare via permissions.native_link
-/// (ZOZI-4). Returns false when a native_link declaration is denied
-/// (unconfirmed declaration or missing declared library); the denial
-/// is printed to stderr and the caller fails the build.
-fn appendNativePluginLinkInputs(
-    allocator: std.mem.Allocator,
-    link_inputs: *std.array_list.Managed([]const u8),
-    owned_link_inputs: *std.array_list.Managed([]const u8),
-    verified: *const referee.VerifyOk,
-    stderr: anytype,
-) !bool {
-    const extern_names = try collectExternalSymbolNames(allocator, verified);
-    defer allocator.free(extern_names);
-    if (extern_names.len == 0) return true;
-
-    // Native linking only needs plugin metadata and exported symbols. Do not
-    // apply runtime sandbox gating here, or privileged plugins such as HTTP
-    // client/server are silently skipped and their externs fail at link time.
-    var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, .{
-        .dev_mode = true,
-    });
-    defer plugin_runtime.deinit();
-
-    if (try plugin_runtime.appendNativeLinkInputsForExterns(link_inputs, owned_link_inputs, extern_names)) |denial| {
-        defer allocator.free(denial);
-        try stderr.print("error: {s}\n", .{denial});
-        return false;
-    }
-    return true;
-}
+const appendNativePluginLinkInputs = @import("cli/build_exe.zig").appendNativePluginLinkInputs;
 
 fn deriveOutputPath(allocator: std.mem.Allocator, source_path: []const u8, suffix: []const u8) ![]const u8 {
     const dir = std.fs.path.dirname(source_path);
@@ -2831,30 +2582,7 @@ const cacheBool = @import("cli/cache.zig").cacheBool;
 
 const cacheKeyNormalizedPath = @import("cli/cache.zig").cacheKeyNormalizedPath;
 
-/// The spelling of one source-tree file as fed into the source tree hash:
-/// project files and std files are named by their root-relative layout
-/// ("proj/..." / "std/..."), so the same import closure hashes identically
-/// in every checkout. Files under neither root keep their real path.
-fn cacheKeyTreePath(
-    allocator: std.mem.Allocator,
-    real_path: []const u8,
-    project_root_real: []const u8,
-    std_root_real: []const u8,
-) ![]u8 {
-    if (real_path.len > project_root_real.len and
-        std.mem.startsWith(u8, real_path, project_root_real) and
-        real_path[project_root_real.len] == std.fs.path.sep)
-    {
-        return std.fmt.allocPrint(allocator, "proj/{s}", .{real_path[project_root_real.len + 1 ..]});
-    }
-    if (real_path.len > std_root_real.len and
-        std.mem.startsWith(u8, real_path, std_root_real) and
-        real_path[std_root_real.len] == std.fs.path.sep)
-    {
-        return std.fmt.allocPrint(allocator, "std/{s}", .{real_path[std_root_real.len + 1 ..]});
-    }
-    return allocator.dupe(u8, real_path);
-}
+const cacheKeyTreePath = @import("cli/source_tree.zig").cacheKeyTreePath;
 
 // --- std tree semantic digest -------------------------------------------
 // The cache key identifies the linked sa_std runtime by a content digest
@@ -2866,465 +2594,67 @@ fn cacheKeyTreePath(
 // built archive itself (a product of the tree that hermetic layouts
 // place inside it) are not std semantics and are skipped.
 
-const StdTreeDigestEntry = struct {
-    digest: [32]u8,
-    files: []SourceTreeFileStat,
-};
+const StdTreeDigestEntry = @import("cli/source_tree.zig").StdTreeDigestEntry;
 
-var std_tree_digest_mutex: std.atomic.Mutex = .unlocked;
-var std_tree_digest_cache: ?std.StringHashMap(StdTreeDigestEntry) = null;
+const std_tree_digest_mutex = @import("cli/source_tree.zig").std_tree_digest_mutex;
+const std_tree_digest_cache = @import("cli/source_tree.zig").std_tree_digest_cache;
 
-fn stdTreeDigestCacheMap() *std.StringHashMap(StdTreeDigestEntry) {
-    if (std_tree_digest_cache == null) {
-        std_tree_digest_cache = std.StringHashMap(StdTreeDigestEntry).init(std.heap.page_allocator);
-    }
-    return &std_tree_digest_cache.?;
-}
+const stdTreeDigestCacheMap = @import("cli/source_tree.zig").stdTreeDigestCacheMap;
 
-fn lockStdTreeDigestCache() void {
-    while (!std_tree_digest_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-}
+const lockStdTreeDigestCache = @import("cli/source_tree.zig").lockStdTreeDigestCache;
 
-fn freeStdTreeDigestEntry(entry: StdTreeDigestEntry) void {
-    for (entry.files) |file| std.heap.page_allocator.free(file.path);
-    std.heap.page_allocator.free(entry.files);
-}
+const freeStdTreeDigestEntry = @import("cli/source_tree.zig").freeStdTreeDigestEntry;
 
-fn stdTreeScratchDir(name: []const u8) bool {
-    return std.mem.eql(u8, name, ".sla-cache") or
-        std.mem.eql(u8, name, ".sa_cache") or
-        std.mem.eql(u8, name, ".zig-cache") or
-        std.mem.eql(u8, name, "zig-out") or
-        std.mem.eql(u8, name, ".git");
-}
+const stdTreeScratchDir = @import("cli/source_tree.zig").stdTreeScratchDir;
 
-/// The built runtime archive is a product of the tree, not a source in
-/// it. Hermetic std-root layouts place the archive inside the tree; its
-/// bytes must still not enter the digest (they are not reproducible
-/// across checkouts, and the tree is the archive's identity, not the
-/// other way round).
-fn stdTreeArchiveName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "libsa_std.a") or std.mem.eql(u8, name, "sa_std.lib");
-}
+const stdTreeArchiveName = @import("cli/source_tree.zig").stdTreeArchiveName;
 
-/// Stream a file's contents into the hasher (no whole-file allocation,
-/// no size cap).
-fn hashFileContentsInto(hasher: *std.crypto.hash.sha2.Sha256, path: []const u8) !void {
-    var file = try sio.cwd().openFile(path, .{});
-    defer file.close();
-    var buf: [64 * 1024]u8 = undefined;
-    while (true) {
-        const n = try file.read(&buf);
-        if (n == 0) break;
-        hasher.update(buf[0..n]);
-    }
-}
+const hashFileContentsInto = @import("cli/source_tree.zig").hashFileContentsInto;
 
-/// Collect (relative path, stat) for every regular file under dir,
-/// recursively. Symlinks to files count by their target's stat; symlinks
-/// to directories are not followed (cycle risk beats the exotic layout).
-fn collectStdTreeFiles(
-    allocator: std.mem.Allocator,
-    dir: sio.Dir,
-    prefix: []const u8,
-    out: *std.array_list.Managed(SourceTreeFileStat),
-) !void {
-    var iter = dir.iterate();
-    while (try iter.next()) |entry| {
-        if (entry.kind == .directory) {
-            if (stdTreeScratchDir(entry.name)) continue;
-            var sub = try dir.openDir(entry.name, .{ .iterate = true });
-            defer sub.close();
-            const sub_prefix = if (prefix.len == 0)
-                try allocator.dupe(u8, entry.name)
-            else
-                try std.fs.path.join(allocator, &.{ prefix, entry.name });
-            defer allocator.free(sub_prefix);
-            try collectStdTreeFiles(allocator, sub, sub_prefix, out);
-        } else if (entry.kind == .file or entry.kind == .sym_link) {
-            if (stdTreeArchiveName(entry.name)) continue;
-            const stat = dir.statFile(entry.name) catch continue;
-            if (stat.kind != .file) continue;
-            const rel = if (prefix.len == 0)
-                try allocator.dupe(u8, entry.name)
-            else
-                try std.fs.path.join(allocator, &.{ prefix, entry.name });
-            errdefer allocator.free(rel);
-            try out.append(.{ .path = rel, .mtime = stat.mtime, .size = stat.size });
-        }
-    }
-}
+const collectStdTreeFiles = @import("cli/source_tree.zig").collectStdTreeFiles;
 
-fn stdTreeStatLessThan(_: void, a: SourceTreeFileStat, b: SourceTreeFileStat) bool {
-    return std.mem.order(u8, a.path, b.path) == .lt;
-}
+const stdTreeStatLessThan = @import("cli/source_tree.zig").stdTreeStatLessThan;
 
-/// Content digest of the std source tree at std_root, or null when the
-/// tree is absent/empty (callers then feed nothing, mirroring the old
-/// missing-archive behavior). Memoized per process: a memo entry is
-/// reused only when a fresh stat walk reproduces its exact file list
-/// (path + mtime + size), so edits, additions and removals all recompute.
-pub fn stdTreeDigest(allocator: std.mem.Allocator, std_root: []const u8) !?[32]u8 {
-    const root_real = sio.cwd().realpathAlloc(allocator, std_root) catch |err| switch (err) {
-        error.FileNotFound, error.AccessDenied, error.NotDir => return null,
-        else => return err,
-    };
-    defer allocator.free(root_real);
+const stdTreeDigest = @import("cli/source_tree.zig").stdTreeDigest;
 
-    var root_dir = sio.cwd().openDir(root_real, .{ .iterate = true }) catch |err| switch (err) {
-        error.FileNotFound, error.AccessDenied, error.NotDir => return null,
-        else => return err,
-    };
-    defer root_dir.close();
-
-    // Fresh stat walk (relative paths) — the shape the memo validates
-    // against and the digest is computed over.
-    var files = std.array_list.Managed(SourceTreeFileStat).init(allocator);
-    defer {
-        for (files.items) |file| allocator.free(file.path);
-        files.deinit();
-    }
-    try collectStdTreeFiles(allocator, root_dir, "", &files);
-    if (files.items.len == 0) return null;
-    std.mem.sort(SourceTreeFileStat, files.items, {}, stdTreeStatLessThan);
-
-    {
-        lockStdTreeDigestCache();
-        defer std_tree_digest_mutex.unlock();
-        const cache = stdTreeDigestCacheMap();
-        if (cache.get(root_real)) |entry| {
-            if (stdTreeFileListsEqual(entry.files, files.items, root_real)) return entry.digest;
-        }
-    }
-
-    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    for (files.items) |file| {
-        const full_path = try std.fs.path.join(allocator, &.{ root_real, file.path });
-        defer allocator.free(full_path);
-        cacheBytes(&hasher, file.path);
-        try hashFileContentsInto(&hasher, full_path);
-        hasher.update(&[_]u8{0});
-    }
-    var digest: [32]u8 = undefined;
-    hasher.final(&digest);
-
-    {
-        lockStdTreeDigestCache();
-        defer std_tree_digest_mutex.unlock();
-        const cache = stdTreeDigestCacheMap();
-        const memo_files = try std.heap.page_allocator.alloc(SourceTreeFileStat, files.items.len);
-        var filled: usize = 0;
-        errdefer {
-            for (memo_files[0..filled]) |file| std.heap.page_allocator.free(file.path);
-            std.heap.page_allocator.free(memo_files);
-        }
-        for (files.items) |file| {
-            memo_files[filled] = .{
-                .path = try std.heap.page_allocator.dupe(u8, file.path),
-                .mtime = file.mtime,
-                .size = file.size,
-            };
-            filled += 1;
-        }
-        const memo_key = try std.heap.page_allocator.dupe(u8, root_real);
-        errdefer std.heap.page_allocator.free(memo_key);
-        const gop = try cache.getOrPut(memo_key);
-        if (gop.found_existing) {
-            std.heap.page_allocator.free(memo_key);
-            freeStdTreeDigestEntry(gop.value_ptr.*);
-        }
-        gop.value_ptr.* = .{ .digest = digest, .files = memo_files };
-    }
-    return digest;
-}
-
-/// A memo entry's stored file list holds root-relative paths; the fresh
-/// walk's list must match it exactly (same files, same stats) for the
-/// stored digest to still describe the tree. root_real is unused today —
-/// both lists are relative — but keeps the comparison anchored to one
-/// canonical root spelling if absolute forms are ever stored.
-fn stdTreeFileListsEqual(stored: []SourceTreeFileStat, fresh: []SourceTreeFileStat, root_real: []const u8) bool {
-    _ = root_real;
-    if (stored.len != fresh.len) return false;
-    for (stored, fresh) |a, b| {
-        if (!std.mem.eql(u8, a.path, b.path)) return false;
-        if (a.size != b.size) return false;
-        if (a.mtime.toNanoseconds() != b.mtime.toNanoseconds()) return false;
-    }
-    return true;
-}
+const stdTreeFileListsEqual = @import("cli/source_tree.zig").stdTreeFileListsEqual;
 
 const cacheCompilerVersion = @import("cli/cache.zig").cacheCompilerVersion;
 
-fn projectFileMaybeHash(hasher: *std.crypto.hash.sha2.Sha256, allocator: std.mem.Allocator, path: []const u8) !void {
-    if (!projectPathExists(path)) return;
-    const bytes = try readTextFileAlloc(allocator, path);
-    defer allocator.free(bytes);
-    cacheBytes(hasher, bytes);
-}
+const projectFileMaybeHash = @import("cli/cache.zig").projectFileMaybeHash;
 
-const SourceTreeFileStat = struct {
-    path: []u8,
-    mtime: std.Io.Timestamp,
-    size: u64,
-};
+const SourceTreeFileStat = @import("cli/source_tree.zig").SourceTreeFileStat;
 
-const SourceTreeHashCacheEntry = struct {
-    digest: [32]u8,
-    files: []SourceTreeFileStat,
-    last_used_tick: u64,
-};
+const SourceTreeHashCacheEntry = @import("cli/source_tree.zig").SourceTreeHashCacheEntry;
 
-var source_tree_hash_cache_mutex: std.atomic.Mutex = .unlocked;
-var source_tree_hash_cache: ?std.StringHashMap(SourceTreeHashCacheEntry) = null;
-var source_tree_hash_cache_tick: u64 = 0;
-var test_source_tree_hash_cache_max_entries: ?usize = null;
+const source_tree_hash_cache_mutex = @import("cli/source_tree.zig").source_tree_hash_cache_mutex;
+const source_tree_hash_cache = @import("cli/source_tree.zig").source_tree_hash_cache;
+const source_tree_hash_cache_tick = @import("cli/source_tree.zig").source_tree_hash_cache_tick;
+const test_source_tree_hash_cache_max_entries = @import("cli/source_tree.zig").test_source_tree_hash_cache_max_entries;
 
-fn sourceTreeHashCacheMap() *std.StringHashMap(SourceTreeHashCacheEntry) {
-    if (source_tree_hash_cache == null) {
-        source_tree_hash_cache = std.StringHashMap(SourceTreeHashCacheEntry).init(std.heap.page_allocator);
-    }
-    return &source_tree_hash_cache.?;
-}
+const sourceTreeHashCacheMap = @import("cli/source_tree.zig").sourceTreeHashCacheMap;
 
-fn freeSourceTreeHashCacheEntry(entry: SourceTreeHashCacheEntry) void {
-    for (entry.files) |file| std.heap.page_allocator.free(file.path);
-    std.heap.page_allocator.free(entry.files);
-}
+const freeSourceTreeHashCacheEntry = @import("cli/source_tree.zig").freeSourceTreeHashCacheEntry;
 
-fn sourceTreeHashCacheMaxEntries() ?usize {
-    if (builtin.is_test) {
-        if (test_source_tree_hash_cache_max_entries) |value| return value;
-    }
-    const value = sio.getEnvVarOwned(std.heap.page_allocator, "SA_SOURCE_TREE_HASH_CACHE_MAX_ENTRIES") catch return null;
-    defer std.heap.page_allocator.free(value);
-    const parsed = std.fmt.parseUnsigned(usize, value, 10) catch return null;
-    return if (parsed == 0) null else parsed;
-}
+const sourceTreeHashCacheMaxEntries = @import("cli/source_tree.zig").sourceTreeHashCacheMaxEntries;
 
-fn nextSourceTreeHashCacheTickLocked() u64 {
-    source_tree_hash_cache_tick +%= 1;
-    return source_tree_hash_cache_tick;
-}
+const nextSourceTreeHashCacheTickLocked = @import("cli/source_tree.zig").nextSourceTreeHashCacheTickLocked;
 
-fn buildSourceTreeHashCacheKey(
-    allocator: std.mem.Allocator,
-    dependencies: []pkg_resolver.Dependency,
-    plugin_import_roots: []const []const u8,
-    project_root: []const u8,
-    std_root: []const u8,
-    offline: bool,
-    real_source_path: []const u8,
-) ![]u8 {
-    var out = std.array_list.Managed(u8).init(allocator);
-    errdefer out.deinit();
-    try appendCacheKeyBytes(&out, cacheCompilerVersion());
-    try appendCacheKeyBytes(&out, project_root);
-    try appendCacheKeyBytes(&out, std_root);
-    try appendCacheKeyBytes(&out, real_source_path);
-    var offline_buf: [8]u8 = undefined;
-    const offline_text = try std.fmt.bufPrint(&offline_buf, "{}\x00", .{offline});
-    try out.appendSlice(offline_text);
-    for (plugin_import_roots) |root| try appendCacheKeyBytes(&out, root);
-    try out.append(0);
-    for (dependencies) |dep| {
-        try appendCacheKeyBytes(&out, dep.url);
-        try appendCacheKeyBytes(&out, dep.ref);
-    }
-    return try out.toOwnedSlice();
-}
+const buildSourceTreeHashCacheKey = @import("cli/source_tree.zig").buildSourceTreeHashCacheKey;
 
-fn appendCacheKeyBytes(out: *std.array_list.Managed(u8), bytes: []const u8) !void {
-    try out.appendSlice(bytes);
-    try out.append(0);
-}
+const appendCacheKeyBytes = @import("cli/source_tree.zig").appendCacheKeyBytes;
 
-fn sourceTreeHashCacheHit(cache_key: []const u8) ?[32]u8 {
-    while (!source_tree_hash_cache_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer source_tree_hash_cache_mutex.unlock();
-    const cache = sourceTreeHashCacheMap();
-    const entry = cache.getPtr(cache_key) orelse return null;
-    for (entry.files) |file| {
-        const stat = sio.cwd().statFile(file.path) catch return null;
-        if (stat.mtime.toNanoseconds() != file.mtime.toNanoseconds() or stat.size != file.size) return null;
-    }
-    entry.last_used_tick = nextSourceTreeHashCacheTickLocked();
-    return entry.digest;
-}
+const sourceTreeHashCacheHit = @import("cli/source_tree.zig").sourceTreeHashCacheHit;
 
-fn storeSourceTreeHashCacheEntry(cache_key: []const u8, digest: [32]u8, files: []const SourceTreeFileStat) !void {
-    const cache_allocator = std.heap.page_allocator;
-    const owned_key = try cache_allocator.dupe(u8, cache_key);
-    errdefer cache_allocator.free(owned_key);
-    const owned_files = try cache_allocator.alloc(SourceTreeFileStat, files.len);
-    errdefer cache_allocator.free(owned_files);
-    var copied: usize = 0;
-    errdefer {
-        for (owned_files[0..copied]) |file| cache_allocator.free(file.path);
-    }
-    for (files, 0..) |file, idx| {
-        owned_files[idx] = .{
-            .path = try cache_allocator.dupe(u8, file.path),
-            .mtime = file.mtime,
-            .size = file.size,
-        };
-        copied += 1;
-    }
+const storeSourceTreeHashCacheEntry = @import("cli/source_tree.zig").storeSourceTreeHashCacheEntry;
 
-    while (!source_tree_hash_cache_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer source_tree_hash_cache_mutex.unlock();
-    var cache = sourceTreeHashCacheMap();
-    if (cache.getPtr(cache_key)) |old| {
-        freeSourceTreeHashCacheEntry(old.*);
-        old.* = .{ .digest = digest, .files = owned_files, .last_used_tick = nextSourceTreeHashCacheTickLocked() };
-        cache_allocator.free(owned_key);
-        evictSourceTreeHashCacheIfNeeded(cache, sourceTreeHashCacheMaxEntries());
-        return;
-    }
-    try cache.put(owned_key, .{ .digest = digest, .files = owned_files, .last_used_tick = nextSourceTreeHashCacheTickLocked() });
-    evictSourceTreeHashCacheIfNeeded(cache, sourceTreeHashCacheMaxEntries());
-}
+const evictSourceTreeHashCacheIfNeeded = @import("cli/source_tree.zig").evictSourceTreeHashCacheIfNeeded;
 
-fn evictSourceTreeHashCacheIfNeeded(cache: *std.StringHashMap(SourceTreeHashCacheEntry), max_entries: ?usize) void {
-    const limit = max_entries orelse return;
-    while (cache.count() > limit) {
-        var oldest_key: ?[]const u8 = null;
-        var oldest_tick: u64 = std.math.maxInt(u64);
-        var it = cache.iterator();
-        while (it.next()) |entry| {
-            if (entry.value_ptr.last_used_tick <= oldest_tick) {
-                oldest_key = entry.key_ptr.*;
-                oldest_tick = entry.value_ptr.last_used_tick;
-            }
-        }
-        const key = oldest_key orelse return;
-        if (cache.fetchRemove(key)) |removed| {
-            std.heap.page_allocator.free(removed.key);
-            freeSourceTreeHashCacheEntry(removed.value);
-        } else {
-            return;
-        }
-    }
-}
+const addSourceTreeDigestToHasher = @import("cli/source_tree.zig").addSourceTreeDigestToHasher;
 
-fn addSourceTreeDigestToHasher(hasher: *std.crypto.hash.sha2.Sha256, digest: [32]u8) void {
-    // v2: file identities inside the digest are root-relative layout
-    // names, not absolute real paths (see cacheKeyTreePath).
-    cacheBytes(hasher, "source-tree-digest-v2");
-    hasher.update(&digest);
-}
+const hashResolvedSourceTreeUncached = @import("cli/source_tree.zig").hashResolvedSourceTreeUncached;
 
-fn hashResolvedSourceTreeUncached(
-    allocator: std.mem.Allocator,
-    hasher: *std.crypto.hash.sha2.Sha256,
-    dependencies: []pkg_resolver.Dependency,
-    plugin_import_roots: []const []const u8,
-    project_root: []const u8,
-    std_root: []const u8,
-    offline: bool,
-    source_path: []const u8,
-    visited: *std.StringHashMap(void),
-    files: *std.array_list.Managed(SourceTreeFileStat),
-    resolved_source: ?[]const u8,
-    project_root_real: []const u8,
-    std_root_real: []const u8,
-) !void {
-    const real_source_path = try sio.cwd().realpathAlloc(allocator, source_path);
-    var owned_by_files = false;
-    errdefer if (!owned_by_files) allocator.free(real_source_path);
-    if (visited.contains(real_source_path)) {
-        allocator.free(real_source_path);
-        return;
-    }
-    const visited_key = try allocator.dupe(u8, real_source_path);
-    var visited_key_inserted = false;
-    errdefer if (!visited_key_inserted) allocator.free(visited_key);
-    try visited.put(visited_key, {});
-    visited_key_inserted = true;
-
-    const stat = try sio.cwd().statFile(real_source_path);
-    try files.append(.{ .path = real_source_path, .mtime = stat.mtime, .size = stat.size });
-    owned_by_files = true;
-
-    // Feed the file's layout identity, not its address on this machine:
-    // the same closure checked out at a different path must hash the
-    // same. `visited` above keeps using the real path — deduplication
-    // within one walk is a within-machine concern and stays exact.
-    const key_tree_path = try cacheKeyTreePath(allocator, real_source_path, project_root_real, std_root_real);
-    defer allocator.free(key_tree_path);
-    cacheBytes(hasher, key_tree_path);
-    const owned_source = if (resolved_source == null) try loadSource(allocator, source_path) else null;
-    defer if (owned_source) |source| allocator.free(source);
-    const source = resolved_source orelse owned_source.?;
-    cacheBytes(hasher, source);
-
-    var iter = std.mem.splitScalar(u8, source, '\n');
-    while (iter.next()) |line| {
-        const classified = line_classifier.classifyLine(line);
-        if (classified.kind != .import_decl) continue;
-        const import_path = classified.parts[0];
-        const resolve_ctx = flattener.ResolveContext{ .dependencies = dependencies, .options = .{
-            .project_root = project_root,
-            .std_root = std_root,
-            .offline = offline,
-            .plugin_import_roots = plugin_import_roots,
-        } };
-        var imported = try flattener.readImportSourceFile(allocator, std.fs.path.dirname(source_path) orelse ".", import_path, resolve_ctx);
-        defer imported.deinit(allocator);
-        try hashResolvedSourceTreeUncached(allocator, hasher, dependencies, plugin_import_roots, project_root, std_root, offline, imported.entry_path, visited, files, imported.source, project_root_real, std_root_real);
-    }
-}
-
-fn hashResolvedSourceTree(
-    allocator: std.mem.Allocator,
-    hasher: *std.crypto.hash.sha2.Sha256,
-    dependencies: []pkg_resolver.Dependency,
-    plugin_import_roots: []const []const u8,
-    project_root: []const u8,
-    std_root: []const u8,
-    offline: bool,
-    source_path: []const u8,
-) !void {
-    const real_source_path = try sio.cwd().realpathAlloc(allocator, source_path);
-    defer allocator.free(real_source_path);
-    const cache_key = try buildSourceTreeHashCacheKey(allocator, dependencies, plugin_import_roots, project_root, std_root, offline, real_source_path);
-    defer allocator.free(cache_key);
-    if (sourceTreeHashCacheHit(cache_key)) |digest| {
-        addSourceTreeDigestToHasher(hasher, digest);
-        return;
-    }
-
-    // Canonical roots for the layout-relative file identities fed into
-    // the digest. Resolution itself keeps using the caller's spellings.
-    const project_root_real = sio.cwd().realpathAlloc(allocator, project_root) catch try allocator.dupe(u8, project_root);
-    defer allocator.free(project_root_real);
-    const std_root_real = sio.cwd().realpathAlloc(allocator, std_root) catch try allocator.dupe(u8, std_root);
-    defer allocator.free(std_root_real);
-
-    var tree_hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    var visited = std.StringHashMap(void).init(allocator);
-    defer {
-        var it = visited.iterator();
-        while (it.next()) |entry| allocator.free(entry.key_ptr.*);
-        visited.deinit();
-    }
-    var files = std.array_list.Managed(SourceTreeFileStat).init(allocator);
-    defer {
-        for (files.items) |file| allocator.free(file.path);
-        files.deinit();
-    }
-    try hashResolvedSourceTreeUncached(allocator, &tree_hasher, dependencies, plugin_import_roots, project_root, std_root, offline, source_path, &visited, &files, null, project_root_real, std_root_real);
-    var digest: [32]u8 = undefined;
-    tree_hasher.final(&digest);
-    try storeSourceTreeHashCacheEntry(cache_key, digest, files.items);
-    addSourceTreeDigestToHasher(hasher, digest);
-}
+const hashResolvedSourceTree = @import("cli/source_tree.zig").hashResolvedSourceTree;
 
 const cacheBuildSemanticFlags = @import("cli/cache.zig").cacheBuildSemanticFlags;
 
@@ -3435,42 +2765,9 @@ const projectCacheTouchEntry = @import("cli/cache.zig").projectCacheTouchEntry;
 
 const projectCacheBudgetBytes = @import("cli/cache.zig").projectCacheBudgetBytes;
 
-fn cacheDirTreeSize(dir: sio.Dir, depth: usize) u64 {
-    if (depth > 16) return 0;
-    var total: u64 = 0;
-    var iter = dir.iterate();
-    while (iter.next() catch null) |entry| {
-        switch (entry.kind) {
-            .file, .sym_link => {
-                const stat = dir.statFile(entry.name) catch continue;
-                if (stat.kind == .file) total += stat.size;
-            },
-            .directory => {
-                var sub = dir.openDir(entry.name, .{ .iterate = true }) catch continue;
-                const sub_total = cacheDirTreeSize(sub, depth + 1);
-                sub.close();
-                total += sub_total;
-            },
-            else => {},
-        }
-    }
-    return total;
-}
+const cacheDirTreeSize = @import("cli/cache.zig").cacheDirTreeSize;
 
-fn cacheEntryLastUsedNs(allocator: std.mem.Allocator, entry_dir_path: []const u8) i128 {
-    var latest: i128 = 0;
-    if (sio.cwd().statFile(entry_dir_path)) |stat| {
-        latest = @max(latest, stat.mtime.toNanoseconds());
-    } else |_| {}
-    for ([_][]const u8{ "manifest.json", "last-used" }) |name| {
-        const path = std.fs.path.join(allocator, &.{ entry_dir_path, name }) catch continue;
-        defer allocator.free(path);
-        if (sio.cwd().statFile(path)) |stat| {
-            latest = @max(latest, stat.mtime.toNanoseconds());
-        } else |_| {}
-    }
-    return latest;
-}
+const cacheEntryLastUsedNs = @import("cli/cache.zig").cacheEntryLastUsedNs;
 
 const CacheEvictionCandidate = @import("cli/cache.zig").CacheEvictionCandidate;
 
@@ -3557,16 +2854,7 @@ fn projectCacheReadTestMetadata(
     return .{ .tests = try tests.toOwnedSlice(), .order = .Unsorted };
 }
 
-fn isHexCacheKey(name: []const u8) bool {
-    if (name.len != 64) return false;
-    for (name) |c| {
-        switch (c) {
-            '0'...'9', 'a'...'f' => {},
-            else => return false,
-        }
-    }
-    return true;
-}
+const isHexCacheKey = @import("cli/cache.zig").isHexCacheKey;
 
 fn cacheEntryExpired(stat: sio.Stat, max_age_days: u64) bool {
     if (max_age_days == 0) return false;
@@ -3751,9 +3039,7 @@ fn executeCacheCommand(allocator: std.mem.Allocator, args: []const []const u8, s
 
 const projectFunctionCachePath = @import("cli/cache.zig").projectFunctionCachePath;
 
-fn projectFunctionCacheManifestPath(allocator: std.mem.Allocator, project_root: []const u8, key: ProjectCacheKey) ![]u8 {
-    return try pathJoinAlloc(allocator, &.{ project_root, ".sa_cache", BuildCacheKind.build_obj_incremental.dirName(), key.slice(), "manifest.json" });
-}
+const projectFunctionCacheManifestPath = @import("cli/cache.zig").projectFunctionCacheManifestPath;
 
 const cacheFunctionSig = @import("cli/cache.zig").cacheFunctionSig;
 
@@ -4141,13 +3427,7 @@ fn executePkgList(allocator: std.mem.Allocator, args: []const []const u8, stdout
     return 0;
 }
 
-/// Resolver diagnostics sink for plugin import resolution: the
-/// resolver reports non-fatal findings (an ambiguous bare plugin
-/// import that several plugins provide) through this callback; the
-/// CLI surfaces them on stderr.
-fn reportPluginImportDiagnostic(_: ?*anyopaque, message: []const u8) void {
-    std.debug.print("{s}\n", .{message});
-}
+const reportPluginImportDiagnostic = @import("cli/compile.zig").reportPluginImportDiagnostic;
 
 fn executePluginCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
     if (args.len == 0) {
@@ -4350,26 +3630,9 @@ const generateLibRootSla = @import("cli/build_lib.zig").generateLibRootSla;
 
 const generateLibVersionScript = @import("cli/build_lib.zig").generateLibVersionScript;
 
-fn generateLibDefFile(arena: std.mem.Allocator, contract: LibContract) ![]u8 {
-    var aw: std.Io.Writer.Allocating = .init(arena);
-    const writer = &aw.writer;
-    try writer.print("LIBRARY {s}\nEXPORTS\n", .{contract.stem});
-    for (contract.entries) |entry| {
-        try writer.print("    {s}\n", .{entry.name});
-    }
-    try writer.print("    {s}_get_api\n    {s}_abi_version\n", .{ contract.stem, contract.stem });
-    return try aw.toOwnedSlice();
-}
+const generateLibDefFile = @import("cli/build_lib.zig").generateLibDefFile;
 
-fn generateLibExportedSymbolsList(arena: std.mem.Allocator, contract: LibContract) ![]u8 {
-    var aw: std.Io.Writer.Allocating = .init(arena);
-    const writer = &aw.writer;
-    for (contract.entries) |entry| {
-        try writer.print("_{s}\n", .{entry.name});
-    }
-    try writer.print("_{s}_get_api\n_{s}_abi_version\n", .{ contract.stem, contract.stem });
-    return try aw.toOwnedSlice();
-}
+const generateLibExportedSymbolsList = @import("cli/build_lib.zig").generateLibExportedSymbolsList;
 
 const libTargetFamily = @import("cli/build_lib.zig").libTargetFamily;
 
@@ -4388,11 +3651,7 @@ fn libStaticSuffix(family: LibTargetFamily) []const u8 {
     };
 }
 
-fn libDupeZ(allocator: std.mem.Allocator, bytes: []const u8) ![:0]u8 {
-    const out = try allocator.allocSentinel(u8, bytes.len, 0);
-    @memcpy(out, bytes);
-    return out;
-}
+const libDupeZ = @import("cli/build_lib.zig").libDupeZ;
 
 const lowerSlaUnitViaFrontend = @import("cli/build_lib.zig").lowerSlaUnitViaFrontend;
 
@@ -5002,487 +4261,19 @@ fn parseOptimizationFlag(arg: []const u8) ?driver.Optimization {
 
 const emitOptLevel = @import("cli/build_exe.zig").emitOptLevel;
 
-fn executeTest(
-    allocator: std.mem.Allocator,
-    source_path: []const u8,
-    compile_options: CompileOptions,
-    test_options: TestCommandOptions,
-    stdout: anytype,
-    stderr: anytype,
-    diagnostics_mode: DiagnosticsMode,
-) !u8 {
-    if (!test_options.affected) return executeTestInner(allocator, source_path, compile_options, test_options, stdout, stderr, diagnostics_mode);
+const executeTest = @import("cli/test_cmd.zig").executeTest;
 
-    // Level-1 whole-source pass cache (fast path for identical inputs).
-    const src = sio.cwd().readFileAlloc(allocator, source_path, 1 << 24) catch {
-        return executeTestInner(allocator, source_path, compile_options, test_options, stdout, stderr, diagnostics_mode);
-    };
-    defer allocator.free(src);
-    const filt: ?[]const u8 = if (test_options.selection.include_filters.len > 0)
-        test_options.selection.include_filters[0]
-    else
-        null;
-    const digest = affected_tests.hashInput(src, filt);
-    if (affected_tests.isCachedPass(digest)) {
-        if (diagnostics_mode == .json) {
-            try stdout.writeAll("{\"status\":\"ok\",\"affected\":{\"skipped\":true,\"reason\":\"source-pass-cache\"}}\n");
-        } else {
-            try stdout.writeAll("affected: unchanged since last pass; skipped\n");
-        }
-        return 0;
-    }
+const FunctionBodyHashMap = @import("cli/test_cmd.zig").FunctionBodyHashMap;
 
-    // Level-2: call-graph selective execution. Compile once to inspect functions,
-    // compute changed set vs baseline, restrict selection.include_filters to
-    // impacted tests, then run. On first baseline, run all selected tests.
-    const compiled = try compileSource(allocator, source_path, compile_options);
-    switch (compiled) {
-        .trap => |report| {
-            try printTrapReport(stderr, report, diagnostics_mode);
-            return 1;
-        },
-        .ok => |ok| {
-            var owned = ok;
-            defer owned.deinit(allocator);
+const collectFunctionBodyHashes = @import("cli/test_cmd.zig").collectFunctionBodyHashes;
 
-            var function_bodies = try collectFunctionBodyHashes(allocator, &owned.verified);
-            defer freeFunctionBodyHashes(allocator, &function_bodies);
+const freeFunctionBodyHashes = @import("cli/test_cmd.zig").freeFunctionBodyHashes;
 
-            var changed = std.array_list.Managed([]const u8).init(allocator);
-            defer changed.deinit();
-            const had_baseline = affected_tests.hasFunctionBaseline();
-            var it = function_bodies.iterator();
-            while (it.next()) |entry| {
-                if (!had_baseline or affected_tests.functionChanged(entry.key_ptr.*, entry.value_ptr.*)) {
-                    try changed.append(entry.key_ptr.*);
-                }
-            }
+const normalizeFnName = @import("cli/test_cmd.zig").normalizeFnName;
 
-            // Build call edges from annotated stream.
-            var callers = std.array_list.Managed([]const u8).init(allocator);
-            defer callers.deinit();
-            var callees = std.array_list.Managed([]const u8).init(allocator);
-            defer {
-                for (callees.items) |c| allocator.free(c);
-                callees.deinit();
-            }
-            try collectCallEdges(allocator, &owned.verified, &callers, &callees);
+const collectCallEdges = @import("cli/test_cmd.zig").collectCallEdges;
 
-            var rev = try affected_tests.buildReverseCallMap(allocator, callers.items, callees.items);
-            defer {
-                var rit = rev.iterator();
-                while (rit.next()) |e| e.value_ptr.deinit();
-                rev.deinit();
-            }
-
-            // Normalize changed names for reverse-graph lookup.
-            var changed_norm = std.array_list.Managed([]const u8).init(allocator);
-            defer changed_norm.deinit();
-            for (changed.items) |c| try changed_norm.append(normalizeFnName(c));
-            var impacted = try affected_tests.impactedFunctions(allocator, changed_norm.items, &rev);
-            defer impacted.deinit();
-
-            // Identify tests by function_sigs kind == test_func.
-            var selected_names = std.array_list.Managed([]const u8).init(allocator);
-            defer {
-                for (selected_names.items) |n| allocator.free(n);
-                selected_names.deinit();
-            }
-            var total_tests: usize = 0;
-            for (owned.verified.function_sigs) |fs| {
-                if (fs.kind != .test_func) continue;
-                total_tests += 1;
-                const display = common_signature.displayName(fs.kind, fs.name);
-                const norm = normalizeFnName(fs.name);
-                const keep = if (!had_baseline)
-                    true
-                else
-                    impacted.contains(norm) or impacted.contains(display);
-                if (keep) try selected_names.append(try allocator.dupe(u8, display));
-            }
-
-            if (diagnostics_mode == .json) {
-                try stdout.writeAll("{\"status\":\"ok\",\"affected\":{");
-                try stdout.print("\"had_baseline\":{s},\"changed_functions\":{d},\"selected_tests\":{d},\"total_tests\":{d}", .{
-                    if (had_baseline) "true" else "false",
-                    changed.items.len,
-                    selected_names.items.len,
-                    total_tests,
-                });
-                try stdout.writeAll("}}\n");
-            } else {
-                try stdout.print(
-                    "affected: baseline={s} changed_fns={d} selected_tests={d}/{d}\n",
-                    .{ if (had_baseline) "yes" else "no", changed.items.len, selected_names.items.len, total_tests },
-                );
-            }
-
-            // Update baselines after analysis (whether or not tests pass, body hashes are current).
-            var bit = function_bodies.iterator();
-            while (bit.next()) |entry| {
-                affected_tests.recordFunctionHash(entry.key_ptr.*, entry.value_ptr.*);
-            }
-
-            if (had_baseline and selected_names.items.len == 0) {
-                affected_tests.recordPass(digest);
-                if (diagnostics_mode != .json) try stdout.writeAll("affected: no impacted tests; skipped\n");
-                return 0;
-            }
-
-            // Restrict filters to selected test names when we have a baseline.
-            var effective = test_options;
-            var owned_filters: []const []const u8 = &.{};
-            defer if (owned_filters.len != 0) {
-                for (owned_filters) |f| allocator.free(f);
-                allocator.free(owned_filters);
-            };
-            if (had_baseline and selected_names.items.len > 0) {
-                var filters = try allocator.alloc([]const u8, selected_names.items.len);
-                for (selected_names.items, 0..) |n, idx| filters[idx] = try allocator.dupe(u8, n);
-                owned_filters = filters;
-                effective.selection.include_filters = owned_filters;
-                effective.selection.exact = true;
-            }
-
-            const code = try executeTestInner(allocator, source_path, compile_options, effective, stdout, stderr, diagnostics_mode);
-            if (code == 0) affected_tests.recordPass(digest);
-            return code;
-        },
-    }
-}
-
-const FunctionBodyHashMap = std.StringHashMap([32]u8);
-
-fn collectFunctionBodyHashes(allocator: std.mem.Allocator, verified: *const referee.VerifyOk) !FunctionBodyHashMap {
-    var map = FunctionBodyHashMap.init(allocator);
-    errdefer freeFunctionBodyHashes(allocator, &map);
-    var sig_index: usize = 0;
-    var idx: usize = 0;
-    while (idx < verified.annotated.len) : (idx += 1) {
-        const item = verified.annotated[idx].base;
-        switch (item.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
-                if (sig_index >= verified.function_sigs.len) break;
-                const fs = verified.function_sigs[sig_index];
-                sig_index += 1;
-                var end = idx + 1;
-                while (end < verified.annotated.len and switch (verified.annotated[end].base.kind) {
-                    .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => false,
-                    else => true,
-                }) : (end += 1) {}
-                var lines = std.array_list.Managed([]const u8).init(allocator);
-                defer lines.deinit();
-                var j = idx;
-                while (j < end) : (j += 1) try lines.append(verified.annotated[j].base.raw_text);
-                const digest = affected_tests.hashFunctionBody(fs.name, lines.items);
-                const key = try allocator.dupe(u8, fs.name);
-                try map.put(key, digest);
-                idx = end - 1;
-            },
-            else => {},
-        }
-    }
-    return map;
-}
-
-fn freeFunctionBodyHashes(allocator: std.mem.Allocator, map: *FunctionBodyHashMap) void {
-    var it = map.keyIterator();
-    while (it.next()) |k| allocator.free(k.*);
-    map.deinit();
-}
-
-fn normalizeFnName(name: []const u8) []const u8 {
-    var s = name;
-    if (s.len > 0 and s[0] == '@') s = s[1..];
-    // Strip signature tail: `@foo() -> i32:` / `foo():` -> foo / display text
-    if (std.mem.indexOfScalar(u8, s, '(')) |paren| s = s[0..paren];
-    if (std.mem.indexOfScalar(u8, s, '"')) |q1| {
-        if (std.mem.indexOfScalar(u8, s[q1 + 1 ..], '"')) |q2| {
-            return s[q1 + 1 .. q1 + 1 + q2];
-        }
-    }
-    return s;
-}
-
-fn collectCallEdges(
-    allocator: std.mem.Allocator,
-    verified: *const referee.VerifyOk,
-    callers: *std.array_list.Managed([]const u8),
-    callees: *std.array_list.Managed([]const u8),
-) !void {
-    var current_fn: ?[]const u8 = null;
-    var sig_index: usize = 0;
-    for (verified.annotated) |item| {
-        switch (item.base.kind) {
-            .func_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .test_decl, .gpu_decl => {
-                if (sig_index >= verified.function_sigs.len) break;
-                current_fn = verified.function_sigs[sig_index].name;
-                sig_index += 1;
-            },
-            .call, .call_indirect => {
-                const caller = current_fn orelse continue;
-                var parsed = referee_call.parseCall(allocator, item.base.raw_text) catch continue;
-                defer parsed.deinit(allocator);
-                try callers.append(normalizeFnName(caller));
-                const callee_owned = try allocator.dupe(u8, normalizeFnName(parsed.callee));
-                try callees.append(callee_owned);
-            },
-            else => {},
-        }
-    }
-}
-
-fn executeTestInner(
-    allocator: std.mem.Allocator,
-    source_path: []const u8,
-    compile_options: CompileOptions,
-    test_options: TestCommandOptions,
-    stdout: anytype,
-    stderr: anytype,
-    diagnostics_mode: DiagnosticsMode,
-) !u8 {
-    if (test_options.list and std.mem.endsWith(u8, source_path, ".sab")) {
-        var test_list = try collectSabTestListFast(allocator, source_path);
-        defer test_list.deinit(allocator);
-        try test_formatter.writeList(stdout, test_list.tests, test_options.selection);
-        return 0;
-    }
-
-    const std_archive_path = try saStdArchivePath(allocator);
-    defer allocator.free(std_archive_path);
-
-    var tmp = try TmpWorkDir.init();
-    defer tmp.cleanup();
-
-    const source_stem = sourceStem(source_path);
-    const artifact_name = try std.fmt.allocPrint(allocator, "{s}.test.sa.bc", .{source_stem});
-    defer allocator.free(artifact_name);
-    const exe_name = try std.fmt.allocPrint(allocator, "{s}.test", .{source_stem});
-    defer allocator.free(exe_name);
-
-    const artifact_dir = try tmp.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(artifact_dir);
-
-    const artifact_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, artifact_name });
-    defer allocator.free(artifact_full_path);
-    const exe_full_path = try std.fs.path.join(allocator, &.{ artifact_dir, exe_name });
-    defer allocator.free(exe_full_path);
-
-    const project_root_owned = compile_options.project_root == null;
-    const project_root = compile_options.project_root orelse try projectRootFromSourcePath(allocator, source_path);
-    defer if (project_root_owned) allocator.free(project_root);
-    var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
-    defer project_context.deinit(allocator);
-    const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
-    else
-        null;
-
-    if (cache_key) |key| cached: {
-        var cached_test_list = projectCacheReadTestMetadata(allocator, project_root, key) catch |err| {
-            _ = @errorName(err);
-            break :cached;
-        };
-        const hit = projectCacheHit(allocator, project_root, .test_cache, key, artifact_full_path, exe_full_path) catch |err| {
-            cached_test_list.deinit(allocator);
-            return err;
-        };
-        if (hit) {
-            makeExecutable(exe_full_path) catch |err| {
-                cached_test_list.deinit(allocator);
-                return err;
-            };
-            if (test_options.list) {
-                defer cached_test_list.deinit(allocator);
-                try test_formatter.writeList(stdout, cached_test_list.tests, test_options.selection);
-                return 0;
-            }
-            if (test_options.compile_only) {
-                defer cached_test_list.deinit(allocator);
-                try stdout.print(
-                    "compiled {d} selected tests ({d} discovered)\n",
-                    .{
-                        test_options.selection.countSelected(cached_test_list.tests),
-                        cached_test_list.tests.len,
-                    },
-                );
-                return 0;
-            }
-            var run_out_fw = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
-            defer run_out_fw.writer().flush() catch {};
-            var run_err_fw = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-            defer run_err_fw.writer().flush() catch {};
-            return try test_runner.run(
-                allocator,
-                exe_full_path,
-                tmp.dir,
-                &cached_test_list,
-                test_options.selection,
-                test_options.trace_panic,
-                compile_options.jobs,
-                run_out_fw.writer(),
-                run_err_fw.writer(),
-            );
-        }
-        cached_test_list.deinit(allocator);
-    }
-
-    const test_total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    var effective_compile_options = compile_options;
-    var sab_selected_test_list: ?test_meta.TestList = null;
-    defer if (sab_selected_test_list) |*list| list.deinit(allocator);
-    var selected_test_names: []const []const u8 = &.{};
-    defer if (selected_test_names.len != 0) allocator.free(selected_test_names);
-
-    if (std.mem.endsWith(u8, source_path, ".sab") and hasExplicitTestSelection(test_options.selection)) {
-        sab_selected_test_list = try collectSabTestListFast(allocator, source_path);
-        selected_test_names = try selectedTestNamesFromList(allocator, sab_selected_test_list.?, test_options.selection);
-        effective_compile_options.sab_selected_test_names = selected_test_names;
-        effective_compile_options.sab_skip_verify = test_options.compile_only;
-    }
-
-    const compile_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    const compiled = try compileSource(allocator, source_path, effective_compile_options);
-    const compile_ns = if (compile_start) |start| elapsedNs(start) else null;
-    switch (compiled) {
-        .trap => |report| {
-            try printTrapReport(stderr, report, diagnostics_mode);
-            return 1;
-        },
-        .ok => |ok| {
-            var owned = ok;
-            defer owned.deinit(allocator);
-
-            rejectNpmBindsUnlessJs("sa test", &owned.flat, stderr) catch return 1;
-            var compiled_test_list: ?test_meta.TestList = null;
-            defer if (compiled_test_list) |*list| list.deinit(allocator);
-            if (sab_selected_test_list == null) {
-                compiled_test_list = try test_meta.collect(allocator, owned.verified.function_sigs);
-            }
-            const test_list = if (sab_selected_test_list) |*list| list else &compiled_test_list.?;
-            if (test_options.list) {
-                try test_formatter.writeList(stdout, test_list.tests, test_options.selection);
-                return 0;
-            }
-
-            const has_explicit_test_selection = hasExplicitTestSelection(test_options.selection);
-            if (selected_test_names.len == 0 and has_explicit_test_selection) {
-                selected_test_names = try selectedTestNamesFromList(allocator, test_list.*, test_options.selection);
-            }
-
-            var link_inputs = std.array_list.Managed([]const u8).init(allocator);
-            defer link_inputs.deinit();
-            var owned_link_inputs = std.array_list.Managed([]const u8).init(allocator);
-            defer {
-                for (owned_link_inputs.items) |arg| allocator.free(arg);
-                owned_link_inputs.deinit();
-            }
-            if (!try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified, stderr)) return 1;
-
-            const emit_std_root = try stdRootFromEnv(allocator);
-            defer allocator.free(emit_std_root);
-            const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-            emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, nativeSizeBits(), .{ .jobs = compile_options.jobs, .test_mode = true, .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .selected_test_names = selected_test_names }, artifact_full_path) catch |err| {
-                try printLlvmcEmitError(stderr, err, diagnostics_mode);
-                return 1;
-            };
-            const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
-
-            const fast_sab_compile_only = test_options.compile_only and std.mem.endsWith(u8, source_path, ".sab") and has_explicit_test_selection;
-            if (fast_sab_compile_only) {
-                if (compile_options.profile) {
-                    try stderr.print(
-                        "profile test compile={d:.3}ms emit={d:.3}ms link=0.000ms total={d:.3}ms\n",
-                        .{
-                            @as(f64, @floatFromInt(compile_ns orelse 0)) / 1_000_000.0,
-                            @as(f64, @floatFromInt(emit_ns orelse 0)) / 1_000_000.0,
-                            @as(f64, @floatFromInt(if (test_total_start) |start| elapsedNs(start) else 0)) / 1_000_000.0,
-                        },
-                    );
-                }
-                try stdout.print(
-                    "compiled {d} selected tests ({d} discovered)\n",
-                    .{
-                        test_options.selection.countSelected(test_list.tests),
-                        test_list.tests.len,
-                    },
-                );
-                return 0;
-            }
-
-            const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-            driver.compileExe(allocator, artifact_full_path, exe_full_path, test_options.optimization, std_archive_path, link_inputs.items, false, stderr, null) catch |err| switch (err) {
-                error.ChildProcessFailed => return 1,
-                else => return err,
-            };
-            const link_ns = if (link_start) |start| elapsedNs(start) else null;
-            if (compile_options.profile) {
-                try stderr.print(
-                    "profile test compile={d:.3}ms emit={d:.3}ms link={d:.3}ms total={d:.3}ms\n",
-                    .{
-                        @as(f64, @floatFromInt(compile_ns orelse 0)) / 1_000_000.0,
-                        @as(f64, @floatFromInt(emit_ns orelse 0)) / 1_000_000.0,
-                        @as(f64, @floatFromInt(link_ns orelse 0)) / 1_000_000.0,
-                        @as(f64, @floatFromInt(if (test_total_start) |start| elapsedNs(start) else 0)) / 1_000_000.0,
-                    },
-                );
-            }
-
-            if (cache_key) |key| {
-                if (!has_explicit_test_selection and link_inputs.items.len == 0) try projectCacheStoreTest(allocator, project_root, key, artifact_full_path, exe_full_path, test_list.*);
-            }
-
-            if (test_options.compile_only) {
-                try stdout.print(
-                    "compiled {d} selected tests ({d} discovered)\n",
-                    .{
-                        test_options.selection.countSelected(test_list.tests),
-                        test_list.tests.len,
-                    },
-                );
-                return 0;
-            }
-
-            if (sab_selected_test_list) |list| {
-                var run_list = list;
-                sab_selected_test_list = null;
-                var run_out_fw = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
-                defer run_out_fw.writer().flush() catch {};
-                var run_err_fw = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-                defer run_err_fw.writer().flush() catch {};
-                return try test_runner.run(
-                    allocator,
-                    exe_full_path,
-                    tmp.dir,
-                    &run_list,
-                    test_options.selection,
-                    test_options.trace_panic,
-                    compile_options.jobs,
-                    run_out_fw.writer(),
-                    run_err_fw.writer(),
-                );
-            } else {
-                var run_list = compiled_test_list.?;
-                compiled_test_list = null;
-                var run_out_fw = sio.ForwardWriter(@TypeOf(stdout)).init(stdout);
-                defer run_out_fw.writer().flush() catch {};
-                var run_err_fw = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-                defer run_err_fw.writer().flush() catch {};
-                return try test_runner.run(
-                    allocator,
-                    exe_full_path,
-                    tmp.dir,
-                    &run_list,
-                    test_options.selection,
-                    test_options.trace_panic,
-                    compile_options.jobs,
-                    run_out_fw.writer(),
-                    run_err_fw.writer(),
-                );
-            }
-        },
-    }
-}
+const executeTestInner = @import("cli/test_cmd.zig").executeTestInner;
 
 pub fn executeWithWritersAndOptions(
     allocator: std.mem.Allocator,

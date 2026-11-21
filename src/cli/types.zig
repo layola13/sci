@@ -151,7 +151,7 @@ pub const CompileOk = struct {
     /// flat.deinit's (then empty) per-item loop.
     flat_instructions_released: bool = false,
 
-    fn deinit(self: *CompileOk, allocator: std.mem.Allocator) void {
+    pub     fn deinit(self: *CompileOk, allocator: std.mem.Allocator) void {
         if (self.flat_instructions_released) {
             // Mirrors FlattenResult.deinit's per-item frees, minus
             // package_identity (already freed at the seam). The annotated
@@ -175,7 +175,7 @@ pub const CompileOk = struct {
     /// Per-item allocations shared with annotated[].base
     /// (upstream_loc.file, native_reg_names) deliberately stay alive for
     /// emit; deinit releases them (see above).
-    fn releaseFlatInstructions(self: *CompileOk, allocator: std.mem.Allocator) void {
+    pub     fn releaseFlatInstructions(self: *CompileOk, allocator: std.mem.Allocator) void {
         for (self.flat.instructions) |ins| {
             if (ins.package_identity) |identity| allocator.free(identity);
         }
@@ -207,62 +207,62 @@ pub const CompileMemoryMetrics = struct {
     peak_rss_bytes: ?u64 = null,
     verifier: VerifierMemoryMetrics = .{},
 
-    fn updatePeak(self: *CompileMemoryMetrics, rss: ?u64) void {
+    pub     fn updatePeak(self: *CompileMemoryMetrics, rss: ?u64) void {
         const value = rss orelse return;
         if (self.peak_rss_bytes == null or value > self.peak_rss_bytes.?) {
             self.peak_rss_bytes = value;
         }
     }
 
-    fn recordStart(self: *CompileMemoryMetrics) void {
+    pub     fn recordStart(self: *CompileMemoryMetrics) void {
         const rss = currentRssBytes();
         self.start_rss_bytes = rss;
         self.updatePeak(rss);
     }
 
-    fn recordAfterLoad(self: *CompileMemoryMetrics) void {
+    pub     fn recordAfterLoad(self: *CompileMemoryMetrics) void {
         const rss = currentRssBytes();
         self.after_load_rss_bytes = rss;
         self.updatePeak(rss);
     }
 
-    fn recordAfterSetup(self: *CompileMemoryMetrics) void {
+    pub     fn recordAfterSetup(self: *CompileMemoryMetrics) void {
         const rss = currentRssBytes();
         self.after_setup_rss_bytes = rss;
         self.updatePeak(rss);
     }
 
-    fn recordAfterFlatten(self: *CompileMemoryMetrics) void {
+    pub     fn recordAfterFlatten(self: *CompileMemoryMetrics) void {
         const rss = currentRssBytes();
         self.after_flatten_rss_bytes = rss;
         self.updatePeak(rss);
     }
 
-    fn recordAfterVerify(self: *CompileMemoryMetrics) void {
+    pub     fn recordAfterVerify(self: *CompileMemoryMetrics) void {
         const rss = currentRssBytes();
         self.after_verify_rss_bytes = rss;
         self.updatePeak(rss);
     }
 
-    fn recordAfterEmit(self: *CompileMemoryMetrics) void {
+    pub     fn recordAfterEmit(self: *CompileMemoryMetrics) void {
         const rss = currentRssBytes();
         self.after_emit_rss_bytes = rss;
         self.updatePeak(rss);
     }
 
-    fn recordAfterLink(self: *CompileMemoryMetrics) void {
+    pub     fn recordAfterLink(self: *CompileMemoryMetrics) void {
         const rss = currentRssBytes();
         self.after_link_rss_bytes = rss;
         self.updatePeak(rss);
     }
 
-    fn recordEnd(self: *CompileMemoryMetrics) void {
+    pub     fn recordEnd(self: *CompileMemoryMetrics) void {
         const rss = currentRssBytes();
         self.end_rss_bytes = rss;
         self.updatePeak(rss);
     }
 
-    fn recordVerifierStage(self: *CompileMemoryMetrics, stage: []const u8, rss: ?u64) void {
+    pub     fn recordVerifierStage(self: *CompileMemoryMetrics, stage: []const u8, rss: ?u64) void {
         if (std.mem.eql(u8, stage, "start")) {
             self.verifier.start_rss_bytes = rss;
         } else if (std.mem.eql(u8, stage, "after_classify")) {
@@ -330,7 +330,7 @@ pub const ProjectContext = struct {
     lock_file: ?manifest.LockFile,
     sum_file: ?manifest.SumFile,
 
-    fn deinit(self: *ProjectContext, allocator: std.mem.Allocator) void {
+    pub     fn deinit(self: *ProjectContext, allocator: std.mem.Allocator) void {
         if (self.manifest) |*m| m.deinit(allocator);
         if (self.workspace_manifest) |*m| m.deinit(allocator);
         if (self.member_manifest) |*m| m.deinit(allocator);
@@ -353,7 +353,7 @@ pub const LibTargetFamily = enum {
 pub const ProjectCacheKey = struct {
     hex: [64]u8,
 
-    fn slice(self: *const ProjectCacheKey) []const u8 {
+    pub     fn slice(self: *const ProjectCacheKey) []const u8 {
         return self.hex[0..];
     }
 };
@@ -400,7 +400,7 @@ pub const BuildCacheKind = enum {
     build_obj_incremental,
     test_cache,
 
-    fn dirName(self: BuildCacheKind) []const u8 {
+    pub     fn dirName(self: BuildCacheKind) []const u8 {
         return switch (self) {
             .build_exe => "build-exe",
             .build_obj => "build-obj",
@@ -450,3 +450,51 @@ pub fn printStageTiming(writer: anytype, metrics: *const CompileMetrics) void {
         },
     ) catch {};
 }
+
+pub const MemoryStageReporterContext = struct {
+    writer: *std.Io.Writer,
+    memory: ?*CompileMemoryMetrics = null,
+    previous_rss_bytes: ?u64 = null,
+    peak_rss_bytes: ?u64 = null,
+    live: bool = false,
+    // Verify sub-stage timing probe (SA_STAGE_TIMING=1): elapsed ms since
+    // verify start, printed per VerifyStageReporter event.
+    timing_live: bool = false,
+    timing_start: ?std.Io.Timestamp = null,
+    timing_prev_ns: u64 = 0,
+};
+
+pub const TmpWorkDir = struct {
+    dir: sio.Dir,
+    parent_dir: sio.Dir,
+    sub_path: [std.base64.url_safe.Encoder.calcSize(12)]u8,
+
+    pub     fn init() !TmpWorkDir {
+        var random_bytes: [12]u8 = undefined;
+        sio.io().random(&random_bytes);
+
+        var sub_path: [std.base64.url_safe.Encoder.calcSize(12)]u8 = undefined;
+        _ = std.base64.url_safe.Encoder.encode(&sub_path, &random_bytes);
+
+        const cwd = sio.cwd();
+        try cwd.makePath(".zig-cache");
+        var cache_dir = try cwd.openDir(".zig-cache", .{});
+        defer cache_dir.close();
+        try cache_dir.makePath("tmp");
+        var parent_dir = try cache_dir.openDir("tmp", .{});
+        errdefer parent_dir.close();
+        try parent_dir.makePath(&sub_path);
+        const dir = try parent_dir.openDir(&sub_path, .{});
+        return .{ .dir = dir, .parent_dir = parent_dir, .sub_path = sub_path };
+    }
+
+    pub     fn cleanup(self: *TmpWorkDir) void {
+        self.dir.close();
+        self.parent_dir.deleteTree(&self.sub_path) catch |err| {
+            // Temporary build directories are best-effort cleanup after the caller has finished using them.
+            _ = @errorName(err);
+        };
+        self.parent_dir.close();
+        self.* = undefined;
+    }
+};

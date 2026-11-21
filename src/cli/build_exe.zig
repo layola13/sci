@@ -51,6 +51,11 @@ const computeFunctionObjectKey = @import("cache.zig").computeFunctionObjectKey;
 const cgu_seq_fn_threshold = @import("compile.zig").cgu_seq_fn_threshold;
 const DceMode = @import("../emit_options.zig").DceMode;
 const projectFunctionCachePath = @import("cache.zig").projectFunctionCachePath;
+const projectPathExists = @import("cache.zig").projectPathExists;
+const referee = @import("../referee.zig");
+const nativeSizeBits = @import("compile.zig").nativeSizeBits;
+const projectFunctionCacheManifestPath = @import("cache.zig").projectFunctionCacheManifestPath;
+const writeJsonString = @import("json.zig").writeJsonString;
 
 pub fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options_in: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
     var compile_options = compile_options_in;
@@ -726,4 +731,46 @@ pub fn buildIncrementalObject(
     }
     try writer.writeAll("]}\n");
     try mfw.interface.flush();
+}
+
+pub fn collectExternalSymbolNames(allocator: std.mem.Allocator, verified: *const referee.VerifyOk) ![]const []const u8 {
+    var names = std.array_list.Managed([]const u8).init(allocator);
+    errdefer names.deinit();
+    for (verified.function_sigs) |fsig| {
+        if (fsig.kind == .external) try names.append(fsig.name);
+    }
+    return try names.toOwnedSlice();
+}
+
+/// Collects native link inputs for a program's extern symbols:
+/// plugin libraries matched by symbol probing, plus the real
+/// libraries those plugins declare via permissions.native_link
+/// (ZOZI-4). Returns false when a native_link declaration is denied
+/// (unconfirmed declaration or missing declared library); the denial
+/// is printed to stderr and the caller fails the build.
+pub fn appendNativePluginLinkInputs(
+    allocator: std.mem.Allocator,
+    link_inputs: *std.array_list.Managed([]const u8),
+    owned_link_inputs: *std.array_list.Managed([]const u8),
+    verified: *const referee.VerifyOk,
+    stderr: anytype,
+) !bool {
+    const extern_names = try collectExternalSymbolNames(allocator, verified);
+    defer allocator.free(extern_names);
+    if (extern_names.len == 0) return true;
+
+    // Native linking only needs plugin metadata and exported symbols. Do not
+    // apply runtime sandbox gating here, or privileged plugins such as HTTP
+    // client/server are silently skipped and their externs fail at link time.
+    var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, .{
+        .dev_mode = true,
+    });
+    defer plugin_runtime.deinit();
+
+    if (try plugin_runtime.appendNativeLinkInputsForExterns(link_inputs, owned_link_inputs, extern_names)) |denial| {
+        defer allocator.free(denial);
+        try stderr.print("error: {s}\n", .{denial});
+        return false;
+    }
+    return true;
 }
