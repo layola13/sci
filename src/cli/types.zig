@@ -1,3 +1,4 @@
+const sio = @import("sio");
 const manifest = @import("../pkg/manifest.zig");
 const builtin = @import("builtin");
 const referee = @import("../referee.zig");
@@ -386,3 +387,66 @@ pub const BackendIrMetrics = struct {
     loads: u64 = 0,
     stores: u64 = 0,
 };
+
+pub const BuildCacheMetrics = struct {
+    kind: []const u8,
+    hit: bool,
+};
+
+pub const BuildCacheKind = enum {
+    build_exe,
+    build_obj,
+    build_wasm,
+    build_obj_incremental,
+    test_cache,
+
+    fn dirName(self: BuildCacheKind) []const u8 {
+        return switch (self) {
+            .build_exe => "build-exe",
+            .build_obj => "build-obj",
+            .build_wasm => "build-wasm",
+            .build_obj_incremental => "build-obj-incremental",
+            .test_cache => "test",
+        };
+    }
+};
+
+pub const SabFunctionRange = struct {
+    sig_index: usize,
+    start: usize,
+    end: usize,
+};
+
+pub fn memoryEndPrevious(memory: CompileMemoryMetrics) ?u64 {
+    return memory.after_link_rss_bytes orelse memory.after_emit_rss_bytes orelse memory.after_verify_rss_bytes;
+}
+
+pub fn finishProfileMetrics(metrics: *CompileMetrics, emit_ns: ?u64, link_ns: ?u64, total_ns: ?u64) void {
+    if (metrics.phases) |phases| {
+        metrics.phases = .{
+            .load_ns = phases.load_ns,
+            .setup_ns = phases.setup_ns,
+            .flatten_ns = phases.flatten_ns,
+            .verify_ns = phases.verify_ns,
+            .emit_ns = emit_ns,
+            .link_ns = link_ns,
+            .total_ns = total_ns,
+        };
+    }
+}
+
+pub fn printStageTiming(writer: anytype, metrics: *const CompileMetrics) void {
+    const phases = metrics.phases orelse return;
+    writer.print(
+        "[stage-timing] load: {d:.3}ms setup: {d:.3}ms flatten: {d:.3}ms verify: {d:.3}ms emit: {d:.3}ms link: {d:.3}ms total: {d:.3}ms\n",
+        .{
+            @as(f64, @floatFromInt(phases.load_ns)) / 1_000_000.0,
+            @as(f64, @floatFromInt(phases.setup_ns)) / 1_000_000.0,
+            @as(f64, @floatFromInt(phases.flatten_ns)) / 1_000_000.0,
+            @as(f64, @floatFromInt(phases.verify_ns)) / 1_000_000.0,
+            @as(f64, @floatFromInt(phases.emit_ns orelse 0)) / 1_000_000.0,
+            @as(f64, @floatFromInt(phases.link_ns orelse 0)) / 1_000_000.0,
+            @as(f64, @floatFromInt(phases.total_ns orelse 0)) / 1_000_000.0,
+        },
+    ) catch {};
+}

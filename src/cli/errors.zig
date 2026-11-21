@@ -8,6 +8,11 @@ const trap = @import("../common/trap.zig");
 const DiagnosticsMode = @import("types.zig").DiagnosticsMode;
 const CliErrorInfo = @import("types.zig").CliErrorInfo;
 const writeJsonString = @import("json.zig").writeJsonString;
+const CompileMetrics = @import("types.zig").CompileMetrics;
+const CompileMemoryMetrics = @import("types.zig").CompileMemoryMetrics;
+const memoryEndPrevious = @import("types.zig").memoryEndPrevious;
+const writeMemoryAmount = @import("compile.zig").writeMemoryAmount;
+const writeMemoryDelta = @import("compile.zig").writeMemoryDelta;
 
 pub fn printTrapReport(writer: anytype, report: trap.TrapReport, mode: DiagnosticsMode) !void {
     switch (mode) {
@@ -290,4 +295,164 @@ pub fn reportText(report: *const trap.TrapReport) []const u8 {
     if (source_fallback.len != 0) return source_fallback;
     if (report.original_text) |text| return text;
     return bufText(report.original_text_buf[0..]);
+}
+
+pub fn writeSuccessJson(writer: anytype, metrics: CompileMetrics) !void {
+    try writer.writeAll("{\"status\":\"ok\",\"metrics\":");
+    try writeMetricsJson(writer, metrics);
+    try writer.writeAll("}\n");
+}
+
+pub fn writeMemoryStageLine(writer: anytype, label: []const u8, value: ?u64, previous: ?u64) !void {
+    try writer.print("  {s}", .{label});
+    try writeMemoryAmount(writer, value);
+    try writeMemoryDelta(writer, previous, value);
+    try writer.writeByte('\n');
+}
+
+pub fn writeMemoryReportText(writer: anytype, metrics: CompileMetrics) !void {
+    const memory = metrics.memory orelse return;
+    try writer.writeAll("memory report (RSS)\n");
+    try writeMemoryStageLine(writer, "start          ", memory.start_rss_bytes, null);
+    try writeMemoryStageLine(writer, "after_load     ", memory.after_load_rss_bytes, memory.start_rss_bytes);
+    try writeMemoryStageLine(writer, "after_setup    ", memory.after_setup_rss_bytes, memory.after_load_rss_bytes);
+    try writeMemoryStageLine(writer, "after_flatten  ", memory.after_flatten_rss_bytes, memory.after_setup_rss_bytes);
+    try writeMemoryStageLine(writer, "after_verify   ", memory.after_verify_rss_bytes, memory.after_flatten_rss_bytes);
+    try writeMemoryStageLine(writer, "after_emit     ", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
+    try writeMemoryStageLine(writer, "after_link     ", memory.after_link_rss_bytes, memory.after_emit_rss_bytes);
+    try writeMemoryStageLine(writer, "end            ", memory.end_rss_bytes, memoryEndPrevious(memory));
+    try writer.writeAll("  peak           ");
+    try writeMemoryAmount(writer, memory.peak_rss_bytes);
+    try writer.writeByte('\n');
+}
+
+pub fn writeSuccessDiagnostics(writer: anytype, metrics: CompileMetrics, mode: DiagnosticsMode) !void {
+    switch (mode) {
+        .json => try writeSuccessJson(writer, metrics),
+        .human => try writeMemoryReportText(writer, metrics),
+    }
+}
+
+pub fn writeMetricsJson(writer: anytype, metrics: CompileMetrics) !void {
+    try writer.writeByte('{');
+    try writer.writeAll("\"compile_tokens\":");
+    try writer.print("{d}", .{metrics.compile_tokens});
+    try writer.writeAll(",\"instruction_count\":");
+    try writer.print("{d}", .{metrics.instruction_count});
+    if (metrics.phases) |phases| {
+        try writer.writeAll(",\"phases_ns\":{");
+        try writer.writeAll("\"load\":");
+        try writer.print("{d}", .{phases.load_ns});
+        try writer.writeAll(",\"setup\":");
+        try writer.print("{d}", .{phases.setup_ns});
+        try writer.writeAll(",\"flatten\":");
+        try writer.print("{d}", .{phases.flatten_ns});
+        try writer.writeAll(",\"verify\":");
+        try writer.print("{d}", .{phases.verify_ns});
+        if (phases.emit_ns) |ns| {
+            try writer.writeAll(",\"emit\":");
+            try writer.print("{d}", .{ns});
+        }
+        if (phases.link_ns) |ns| {
+            try writer.writeAll(",\"link\":");
+            try writer.print("{d}", .{ns});
+        }
+        if (phases.total_ns) |ns| {
+            try writer.writeAll(",\"total\":");
+            try writer.print("{d}", .{ns});
+        }
+        try writer.writeByte('}');
+        try writer.writeAll(",\"phases_ms\":{");
+        try writer.writeAll("\"load\":");
+        try writer.print("{d}", .{phases.load_ns / 1_000_000});
+        try writer.writeAll(",\"setup\":");
+        try writer.print("{d}", .{phases.setup_ns / 1_000_000});
+        try writer.writeAll(",\"flatten\":");
+        try writer.print("{d}", .{phases.flatten_ns / 1_000_000});
+        try writer.writeAll(",\"verify\":");
+        try writer.print("{d}", .{phases.verify_ns / 1_000_000});
+        if (phases.emit_ns) |ns| {
+            try writer.writeAll(",\"emit\":");
+            try writer.print("{d}", .{ns / 1_000_000});
+        }
+        if (phases.link_ns) |ns| {
+            try writer.writeAll(",\"link\":");
+            try writer.print("{d}", .{ns / 1_000_000});
+        }
+        if (phases.total_ns) |ns| {
+            try writer.writeAll(",\"total\":");
+            try writer.print("{d}", .{ns / 1_000_000});
+        }
+        try writer.writeByte('}');
+    }
+    if (metrics.memory) |memory| {
+        try writer.writeAll(",\"memory\":{");
+        try writer.writeAll("\"rss_bytes\":{");
+        try writeOptionalJsonU64Field(writer, "start", memory.start_rss_bytes, true);
+        try writeOptionalJsonU64Field(writer, "after_load", memory.after_load_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_setup", memory.after_setup_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_flatten", memory.after_flatten_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_verify", memory.after_verify_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_emit", memory.after_emit_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_link", memory.after_link_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "end", memory.end_rss_bytes, false);
+        try writer.writeByte('}');
+        try writer.writeAll(",\"verifier_rss_bytes\":{");
+        try writeOptionalJsonU64Field(writer, "start", memory.verifier.start_rss_bytes, true);
+        try writeOptionalJsonU64Field(writer, "after_classify", memory.verifier.after_classify_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_metadata", memory.verifier.after_metadata_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_chunks", memory.verifier.after_chunks_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "parallel_start", memory.verifier.parallel_start_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "parallel_after_worker_allocators", memory.verifier.parallel_after_worker_allocators_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "parallel_after_body", memory.verifier.parallel_after_body_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "parallel_merge", memory.verifier.parallel_merge_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_body", memory.verifier.after_body_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "after_finalize", memory.verifier.after_finalize_rss_bytes, false);
+        try writeOptionalJsonU64Field(writer, "empty", memory.verifier.empty_rss_bytes, false);
+        try writer.writeByte('}');
+        try writer.writeAll(",\"peak_rss_bytes\":");
+        try writeOptionalJsonU64(writer, memory.peak_rss_bytes);
+        try writer.writeByte('}');
+    }
+    if (metrics.backend_ir) |ir| {
+        try writer.writeAll(",\"backend\":{\"ir\":{");
+        try writer.writeAll("\"functions\":");
+        try writer.print("{d}", .{ir.functions});
+        try writer.writeAll(",\"blocks\":");
+        try writer.print("{d}", .{ir.blocks});
+        try writer.writeAll(",\"instructions\":");
+        try writer.print("{d}", .{ir.instructions});
+        try writer.writeAll(",\"alloca_slots\":");
+        try writer.print("{d}", .{ir.alloca_slots});
+        try writer.writeAll(",\"loads\":");
+        try writer.print("{d}", .{ir.loads});
+        try writer.writeAll(",\"stores\":");
+        try writer.print("{d}", .{ir.stores});
+        try writer.writeAll("}}");
+    }
+    if (metrics.cache) |cache| {
+        try writer.writeAll(",\"cache\":{");
+        try writer.writeAll("\"kind\":");
+        try writeJsonString(writer, cache.kind);
+        try writer.writeAll(",\"hit\":");
+        try writer.writeAll(if (cache.hit) "true" else "false");
+        try writer.writeByte('}');
+    }
+    try writer.writeByte('}');
+}
+
+pub fn writeOptionalJsonU64(writer: anytype, value: ?u64) !void {
+    if (value) |v| {
+        try writer.print("{d}", .{v});
+    } else {
+        try writer.writeAll("null");
+    }
+}
+
+pub fn writeOptionalJsonU64Field(writer: anytype, name: []const u8, value: ?u64, first: bool) !void {
+    if (!first) try writer.writeByte(',');
+    try writer.writeByte('"');
+    try writer.writeAll(name);
+    try writer.writeAll("\":");
+    try writeOptionalJsonU64(writer, value);
 }

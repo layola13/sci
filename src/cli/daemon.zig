@@ -6,6 +6,8 @@ const sio = @import("sio");
 const commandFromName = @import("help.zig").commandFromName;
 const daemon_cancel = @import("../daemon_cancel.zig");
 const daemon_client = @import("../daemon_client.zig");
+const executeWithWritersAndOptions = @import("../cli.zig").executeWithWritersAndOptions;
+const elapsedNs = @import("compile.zig").elapsedNs;
 
 var daemon_cwd_lock: std.Io.RwLock = .init;
 var daemon_shutdown_flag = std.atomic.Value(bool).init(false);
