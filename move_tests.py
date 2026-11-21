@@ -10,11 +10,41 @@ import re, sys
 src_path, dst_path = sys.argv[1], sys.argv[2]
 lines = open(src_path).read().split("\n")
 
+def strip_code(line):
+    """Remove // comment, string literals and char literals from a line."""
+    out = []
+    i = 0
+    n = len(line)
+    while i < n:
+        c = line[i]
+        if c == "/" and i + 1 < n and line[i + 1] == "/":
+            break
+        if c == '"':
+            i += 1
+            while i < n and line[i] != '"':
+                if line[i] == "\\":
+                    i += 1
+                i += 1
+            i += 1
+            continue
+        if c == "'":
+            i += 1
+            while i < n and line[i] != "'":
+                if line[i] == "\\":
+                    i += 1
+                i += 1
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def find_end(s, ls):
     depth = 0
     started = False
     for j in range(s, len(ls)):
-        code = ls[j].split("//")[0]
+        code = strip_code(ls[j])
         for ch in code:
             if ch == "{":
                 depth += 1

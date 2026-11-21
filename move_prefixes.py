@@ -9,19 +9,53 @@ rel_dst = os.path.relpath(dst_path, os.path.dirname(src_path))
 
 decl_re = re.compile(r"^(?:pub\s+)?(?:export\s+)?(?:const|fn|var)\s+([A-Za-z0-9_]+)")
 
+def strip_code(line):
+    """Remove // comment, string literals and char literals from a line."""
+    out = []
+    i = 0
+    n = len(line)
+    while i < n:
+        c = line[i]
+        if c == "/" and i + 1 < n and line[i + 1] == "/":
+            break
+        if c == '"':
+            i += 1
+            while i < n and line[i] != '"':
+                if line[i] == "\\":
+                    i += 1
+                i += 1
+            i += 1
+            continue
+        if c == "'":
+            i += 1
+            while i < n and line[i] != "'":
+                if line[i] == "\\":
+                    i += 1
+                i += 1
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def find_end(s, ls):
+    # single-line decl (ends with ; and has no brace): the decl is one line
+    first = strip_code(ls[s])
+    if "{" not in first and first.rstrip().endswith(";"):
+        return s
     depth = 0
     started = False
     for j in range(s, len(ls)):
-        code = ls[j].split("//")[0]
+        code = strip_code(ls[j])
         for ch in code:
             if ch == "{":
                 depth += 1
                 started = True
             elif ch == "}":
                 depth -= 1
-                if started and depth == 0:
-                    return j
+        # END-OF-LINE depth check: a `}` mid-line (e.g. closing an anonymous
+        # struct in a fn return type) must not end the decl.
         if started and depth == 0:
             return j
     return len(ls) - 1

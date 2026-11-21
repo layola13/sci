@@ -1,4 +1,4 @@
-pub const std = @import("std");
+const std = @import("std");
 test "sa_std_tests" { std.testing.refAllDecls(@import("sa_std/sa_std_tests.zig")); }
 pub const builtin = @import("builtin");
 pub const sio = @import("sio");
@@ -288,29 +288,8 @@ pub fn makeSockAddrStorage() SockAddrStorageT {
 const UnixSockAddr = struct { addr: SockAddrUnT, len: SockLenT };
 // wasi has no wait macros/signals (std.posix.W/SIG are void); dummies so
 // status helpers type-check (callers stubbed to UNSUPPORTED on wasm).
-const WasiW = struct {
-    pub const EXITED: u32 = 0;
-    pub const NOHANG: u32 = 0;
-    pub fn IFEXITED(_: u32) bool {
-        return false;
-    }
-    pub fn EXITSTATUS(_: u32) u8 {
-        return 0;
-    }
-    pub fn IFSIGNALED(_: u32) bool {
-        return false;
-    }
-    pub fn TERMSIG(_: u32) u8 {
-        return 0;
-    }
-    pub fn IFSTOPPED(_: u32) bool {
-        return false;
-    }
-    pub fn STOPSIG(_: u32) u8 {
-        return 0;
-    }
-};
-pub const WT = if (is_wasm) WasiW else std.posix.W;
+pub const WasiW = @import("sa_std/proc_wait.zig").WasiW;
+pub const WT = @import("sa_std/proc_wait.zig").WT;
 const WasiSIG = struct {
     pub const KILL: u8 = 9;
 };
@@ -1373,7 +1352,7 @@ comptime {
     }
 }
 
-const RegexC = if (is_wasm) extern struct {
+pub const RegexC = if (is_wasm) extern struct {
     re_nsub: usize,
     __opaque: ?*anyopaque,
     __padding: [4]?*anyopaque,
@@ -1390,7 +1369,7 @@ const RegexC = if (is_wasm) extern struct {
     flags: u32,
 };
 
-const RegexMatchC = extern struct {
+pub const RegexMatchC = extern struct {
     rm_so: c_int,
     rm_eo: c_int,
 };
@@ -1431,22 +1410,22 @@ comptime {
     }
 }
 
-pub const SA_STD_ABI_VERSION: u32 = 1;
+pub const SA_STD_ABI_VERSION = @import("sa_std/consts.zig").SA_STD_ABI_VERSION;
 
-pub const SA_STD_OK: i32 = 0;
-pub const SA_STD_ERR_INVALID_ARGUMENT: i32 = 1;
-pub const SA_STD_ERR_INVALID_HANDLE: i32 = 2;
-pub const SA_STD_ERR_NOT_FOUND: i32 = 3;
-pub const SA_STD_ERR_ACCESS: i32 = 4;
-pub const SA_STD_ERR_NO_MEMORY: i32 = 5;
-pub const SA_STD_ERR_IO: i32 = 6;
-pub const SA_STD_ERR_NET: i32 = 7;
-pub const SA_STD_ERR_UNSUPPORTED: i32 = 8;
+pub const SA_STD_OK = @import("sa_std/consts.zig").SA_STD_OK;
+pub const SA_STD_ERR_INVALID_ARGUMENT = @import("sa_std/consts.zig").SA_STD_ERR_INVALID_ARGUMENT;
+pub const SA_STD_ERR_INVALID_HANDLE = @import("sa_std/consts.zig").SA_STD_ERR_INVALID_HANDLE;
+pub const SA_STD_ERR_NOT_FOUND = @import("sa_std/consts.zig").SA_STD_ERR_NOT_FOUND;
+pub const SA_STD_ERR_ACCESS = @import("sa_std/consts.zig").SA_STD_ERR_ACCESS;
+pub const SA_STD_ERR_NO_MEMORY = @import("sa_std/consts.zig").SA_STD_ERR_NO_MEMORY;
+pub const SA_STD_ERR_IO = @import("sa_std/consts.zig").SA_STD_ERR_IO;
+pub const SA_STD_ERR_NET = @import("sa_std/consts.zig").SA_STD_ERR_NET;
+pub const SA_STD_ERR_UNSUPPORTED = @import("sa_std/consts.zig").SA_STD_ERR_UNSUPPORTED;
 
 // --- Cross-platform compat: Linux-first, macOS via conditionals ---
 // waitid/pidfd flags are Linux-only; 0 elsewhere (pidfd path is Linux-only).
-pub const w_exited: u32 = if (builtin.os.tag == .linux) WT.EXITED else 0;
-pub const w_nohang: u32 = if (builtin.os.tag == .linux) WT.NOHANG else 0;
+pub const w_exited = @import("sa_std/proc_wait.zig").w_exited;
+pub const w_nohang = @import("sa_std/proc_wait.zig").w_nohang;
 // MSG_PEEK: std.posix.MSG is Linux-only in zig 0.14; Darwin value is 0x2.
 pub const msg_peek: u32 = if (builtin.os.tag == .linux) std.posix.MSG.PEEK else 0x2;
 // TCP_NODELAY == 1 on Linux, macOS and FreeBSD. Spell it out: std.posix.TCP
@@ -1484,26 +1463,26 @@ pub fn portableRecvmsg(fd: std.posix.fd_t, msg: *MsghdrT, flags: u32) !usize {
         return @as(usize, @intCast(rc));
     }
 }
-pub const SA_STD_ERR_TRUNCATED: i32 = 9;
-pub const SA_STD_ERR_PERMISSION_DENIED: i32 = 10;
-pub const SA_STD_ERR_ALREADY_EXISTS: i32 = 11;
-pub const SA_STD_ERR_UNKNOWN: i32 = 127;
+pub const SA_STD_ERR_TRUNCATED = @import("sa_std/consts.zig").SA_STD_ERR_TRUNCATED;
+pub const SA_STD_ERR_PERMISSION_DENIED = @import("sa_std/consts.zig").SA_STD_ERR_PERMISSION_DENIED;
+pub const SA_STD_ERR_ALREADY_EXISTS = @import("sa_std/consts.zig").SA_STD_ERR_ALREADY_EXISTS;
+pub const SA_STD_ERR_UNKNOWN = @import("sa_std/consts.zig").SA_STD_ERR_UNKNOWN;
 
 /// Mirrors C sa_net_iov in sa_std.h. Layout must stay { u8* base; usize len; }.
 pub const sa_net_iov = @import("sa_std/net.zig").sa_net_iov;
 
 /// Cap on iovec entries accepted per vectored call. Matches POSIX IOV_MAX where
 /// available and stays comfortably below common OS hard limits.
-pub const SA_NET_IOV_MAX: usize = 1024;
+pub const SA_NET_IOV_MAX = @import("sa_std/consts.zig").SA_NET_IOV_MAX;
 
-pub const SA_STD_STDIN: u64 = 1;
-pub const SA_STD_STDOUT: u64 = 2;
-pub const SA_STD_STDERR: u64 = 3;
+pub const SA_STD_STDIN = @import("sa_std/consts.zig").SA_STD_STDIN;
+pub const SA_STD_STDOUT = @import("sa_std/consts.zig").SA_STD_STDOUT;
+pub const SA_STD_STDERR = @import("sa_std/consts.zig").SA_STD_STDERR;
 
-pub const SA_FS_FILE_REGULAR: u32 = 1;
-pub const SA_FS_FILE_DIR: u32 = 2;
-pub const SA_FS_FILE_SYMLINK: u32 = 3;
-pub const SA_FS_FILE_OTHER: u32 = 255;
+pub const SA_FS_FILE_REGULAR = @import("sa_std/consts.zig").SA_FS_FILE_REGULAR;
+pub const SA_FS_FILE_DIR = @import("sa_std/consts.zig").SA_FS_FILE_DIR;
+pub const SA_FS_FILE_SYMLINK = @import("sa_std/consts.zig").SA_FS_FILE_SYMLINK;
+pub const SA_FS_FILE_OTHER = @import("sa_std/consts.zig").SA_FS_FILE_OTHER;
 
 pub const IP_MULTICAST_TTL_OPT: u32 = 33;
 pub const IP_MULTICAST_LOOP_OPT: u32 = 34;
@@ -1518,16 +1497,12 @@ pub const IPV6_MULTICAST_IF_OPT: u32 = 17;
 
 pub const SA_PLUGIN_DESCRIPTOR_SYMBOL: [:0]const u8 = "saasm_plugin_descriptor_v1";
 
-const TestDebugScalar = struct {
-    name: [64]u8 = std.mem.zeroes([64]u8),
-    name_len: usize = 0,
-    value: i64 = 0,
-};
+pub const TestDebugScalar = @import("sa_std/test_debug.zig").TestDebugScalar;
 
-var test_debug_scalars: [16]TestDebugScalar = std.mem.zeroes([16]TestDebugScalar);
-var test_debug_next: usize = 0;
-var test_debug_count: usize = 0;
-var test_debug_mutex: std.atomic.Mutex = .unlocked;
+pub const test_debug_scalars = @import("sa_std/test_debug.zig").test_debug_scalars;
+pub const test_debug_next = @import("sa_std/test_debug.zig").test_debug_next;
+pub const test_debug_count = @import("sa_std/test_debug.zig").test_debug_count;
+pub const test_debug_mutex = @import("sa_std/test_debug.zig").test_debug_mutex;
 
 pub const SaPluginDescriptor = extern struct {
     abi_version: u32,
@@ -1535,70 +1510,70 @@ pub const SaPluginDescriptor = extern struct {
     name: [*:0]const u8,
 };
 
-pub const SA_JSON_KIND_INVALID: u32 = std.math.maxInt(u32);
-pub const SA_JSON_KIND_NULL: u32 = 0;
-pub const SA_JSON_KIND_BOOL: u32 = 1;
-pub const SA_JSON_KIND_INTEGER: u32 = 2;
-pub const SA_JSON_KIND_FLOAT: u32 = 3;
-pub const SA_JSON_KIND_NUMBER_STRING: u32 = 4;
-pub const SA_JSON_KIND_STRING: u32 = 5;
-pub const SA_JSON_KIND_ARRAY: u32 = 6;
-pub const SA_JSON_KIND_OBJECT: u32 = 7;
+pub const SA_JSON_KIND_INVALID = @import("sa_std/consts.zig").SA_JSON_KIND_INVALID;
+pub const SA_JSON_KIND_NULL = @import("sa_std/consts.zig").SA_JSON_KIND_NULL;
+pub const SA_JSON_KIND_BOOL = @import("sa_std/consts.zig").SA_JSON_KIND_BOOL;
+pub const SA_JSON_KIND_INTEGER = @import("sa_std/consts.zig").SA_JSON_KIND_INTEGER;
+pub const SA_JSON_KIND_FLOAT = @import("sa_std/consts.zig").SA_JSON_KIND_FLOAT;
+pub const SA_JSON_KIND_NUMBER_STRING = @import("sa_std/consts.zig").SA_JSON_KIND_NUMBER_STRING;
+pub const SA_JSON_KIND_STRING = @import("sa_std/consts.zig").SA_JSON_KIND_STRING;
+pub const SA_JSON_KIND_ARRAY = @import("sa_std/consts.zig").SA_JSON_KIND_ARRAY;
+pub const SA_JSON_KIND_OBJECT = @import("sa_std/consts.zig").SA_JSON_KIND_OBJECT;
 
-pub const SA_JSON_TOKEN_INVALID: u32 = std.math.maxInt(u32);
-pub const SA_JSON_TOKEN_OBJECT_BEGIN: u32 = 0;
-pub const SA_JSON_TOKEN_OBJECT_END: u32 = 1;
-pub const SA_JSON_TOKEN_ARRAY_BEGIN: u32 = 2;
-pub const SA_JSON_TOKEN_ARRAY_END: u32 = 3;
-pub const SA_JSON_TOKEN_TRUE: u32 = 4;
-pub const SA_JSON_TOKEN_FALSE: u32 = 5;
-pub const SA_JSON_TOKEN_NULL: u32 = 6;
-pub const SA_JSON_TOKEN_NUMBER: u32 = 7;
-pub const SA_JSON_TOKEN_PARTIAL_NUMBER: u32 = 8;
-pub const SA_JSON_TOKEN_STRING: u32 = 9;
-pub const SA_JSON_TOKEN_PARTIAL_STRING: u32 = 10;
-pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_1: u32 = 11;
-pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_2: u32 = 12;
-pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_3: u32 = 13;
-pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_4: u32 = 14;
-pub const SA_JSON_TOKEN_END_OF_DOCUMENT: u32 = 15;
-pub const SA_JSON_TOKEN_ALLOCATED_NUMBER: u32 = 16;
-pub const SA_JSON_TOKEN_ALLOCATED_STRING: u32 = 17;
+pub const SA_JSON_TOKEN_INVALID = @import("sa_std/consts.zig").SA_JSON_TOKEN_INVALID;
+pub const SA_JSON_TOKEN_OBJECT_BEGIN = @import("sa_std/consts.zig").SA_JSON_TOKEN_OBJECT_BEGIN;
+pub const SA_JSON_TOKEN_OBJECT_END = @import("sa_std/consts.zig").SA_JSON_TOKEN_OBJECT_END;
+pub const SA_JSON_TOKEN_ARRAY_BEGIN = @import("sa_std/consts.zig").SA_JSON_TOKEN_ARRAY_BEGIN;
+pub const SA_JSON_TOKEN_ARRAY_END = @import("sa_std/consts.zig").SA_JSON_TOKEN_ARRAY_END;
+pub const SA_JSON_TOKEN_TRUE = @import("sa_std/consts.zig").SA_JSON_TOKEN_TRUE;
+pub const SA_JSON_TOKEN_FALSE = @import("sa_std/consts.zig").SA_JSON_TOKEN_FALSE;
+pub const SA_JSON_TOKEN_NULL = @import("sa_std/consts.zig").SA_JSON_TOKEN_NULL;
+pub const SA_JSON_TOKEN_NUMBER = @import("sa_std/consts.zig").SA_JSON_TOKEN_NUMBER;
+pub const SA_JSON_TOKEN_PARTIAL_NUMBER = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_NUMBER;
+pub const SA_JSON_TOKEN_STRING = @import("sa_std/consts.zig").SA_JSON_TOKEN_STRING;
+pub const SA_JSON_TOKEN_PARTIAL_STRING = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING;
+pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_1 = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_1;
+pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_2 = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_2;
+pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_3 = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_3;
+pub const SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_4 = @import("sa_std/consts.zig").SA_JSON_TOKEN_PARTIAL_STRING_ESCAPED_4;
+pub const SA_JSON_TOKEN_END_OF_DOCUMENT = @import("sa_std/consts.zig").SA_JSON_TOKEN_END_OF_DOCUMENT;
+pub const SA_JSON_TOKEN_ALLOCATED_NUMBER = @import("sa_std/consts.zig").SA_JSON_TOKEN_ALLOCATED_NUMBER;
+pub const SA_JSON_TOKEN_ALLOCATED_STRING = @import("sa_std/consts.zig").SA_JSON_TOKEN_ALLOCATED_STRING;
 
-pub const SA_JSON_WHITESPACE_MINIFIED: u32 = 0;
-pub const SA_JSON_WHITESPACE_INDENT_1: u32 = 1;
-pub const SA_JSON_WHITESPACE_INDENT_2: u32 = 2;
-pub const SA_JSON_WHITESPACE_INDENT_3: u32 = 3;
-pub const SA_JSON_WHITESPACE_INDENT_4: u32 = 4;
-pub const SA_JSON_WHITESPACE_INDENT_8: u32 = 5;
-pub const SA_JSON_WHITESPACE_INDENT_TAB: u32 = 6;
+pub const SA_JSON_WHITESPACE_MINIFIED = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_MINIFIED;
+pub const SA_JSON_WHITESPACE_INDENT_1 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_1;
+pub const SA_JSON_WHITESPACE_INDENT_2 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_2;
+pub const SA_JSON_WHITESPACE_INDENT_3 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_3;
+pub const SA_JSON_WHITESPACE_INDENT_4 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_4;
+pub const SA_JSON_WHITESPACE_INDENT_8 = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_8;
+pub const SA_JSON_WHITESPACE_INDENT_TAB = @import("sa_std/consts.zig").SA_JSON_WHITESPACE_INDENT_TAB;
 
-pub const SA_REGEX_EXTENDED: c_int = 1;
-pub const SA_REGEX_ICASE: c_int = 2;
-pub const SA_REGEX_NEWLINE: c_int = 4;
-pub const SA_REGEX_NOSUB: c_int = 8;
-pub const SA_REGEX_NOTBOL: c_int = 1;
-pub const SA_REGEX_NOTEOL: c_int = 2;
+pub const SA_REGEX_EXTENDED = @import("sa_std/consts.zig").SA_REGEX_EXTENDED;
+pub const SA_REGEX_ICASE = @import("sa_std/consts.zig").SA_REGEX_ICASE;
+pub const SA_REGEX_NEWLINE = @import("sa_std/consts.zig").SA_REGEX_NEWLINE;
+pub const SA_REGEX_NOSUB = @import("sa_std/consts.zig").SA_REGEX_NOSUB;
+pub const SA_REGEX_NOTBOL = @import("sa_std/consts.zig").SA_REGEX_NOTBOL;
+pub const SA_REGEX_NOTEOL = @import("sa_std/consts.zig").SA_REGEX_NOTEOL;
 // eflags slot value for regexec: restrict the search to the pmatch[0] range
 // while reporting absolute offsets. glibc assigns it the same numeric value
 // as the SA_REGEX_NEWLINE *cflag*; the two live in different parameters.
-pub const SA_REGEX_STARTEND: c_int = 4;
-pub const SA_REGEX_REG_NOERROR: c_int = 0;
-pub const SA_REGEX_REG_OK: c_int = 0;
-pub const SA_REGEX_REG_NOMATCH: c_int = 1;
-pub const SA_REGEX_REG_BADPAT: c_int = 2;
-pub const SA_REGEX_REG_ECOLLATE: c_int = 3;
-pub const SA_REGEX_REG_ECTYPE: c_int = 4;
-pub const SA_REGEX_REG_EESCAPE: c_int = 5;
-pub const SA_REGEX_REG_ESUBREG: c_int = 6;
-pub const SA_REGEX_REG_EBRACK: c_int = 7;
-pub const SA_REGEX_REG_EPAREN: c_int = 8;
-pub const SA_REGEX_REG_EBRACE: c_int = 9;
-pub const SA_REGEX_REG_BADBR: c_int = 10;
-pub const SA_REGEX_REG_ERANGE: c_int = 11;
-pub const SA_REGEX_REG_ESPACE: c_int = 12;
-pub const SA_REGEX_REG_BADRPT: c_int = 13;
-pub const SA_REGEX_REG_ENOSYS: c_int = -1;
+pub const SA_REGEX_STARTEND = @import("sa_std/consts.zig").SA_REGEX_STARTEND;
+pub const SA_REGEX_REG_NOERROR = @import("sa_std/consts.zig").SA_REGEX_REG_NOERROR;
+pub const SA_REGEX_REG_OK = @import("sa_std/consts.zig").SA_REGEX_REG_OK;
+pub const SA_REGEX_REG_NOMATCH = @import("sa_std/consts.zig").SA_REGEX_REG_NOMATCH;
+pub const SA_REGEX_REG_BADPAT = @import("sa_std/consts.zig").SA_REGEX_REG_BADPAT;
+pub const SA_REGEX_REG_ECOLLATE = @import("sa_std/consts.zig").SA_REGEX_REG_ECOLLATE;
+pub const SA_REGEX_REG_ECTYPE = @import("sa_std/consts.zig").SA_REGEX_REG_ECTYPE;
+pub const SA_REGEX_REG_EESCAPE = @import("sa_std/consts.zig").SA_REGEX_REG_EESCAPE;
+pub const SA_REGEX_REG_ESUBREG = @import("sa_std/consts.zig").SA_REGEX_REG_ESUBREG;
+pub const SA_REGEX_REG_EBRACK = @import("sa_std/consts.zig").SA_REGEX_REG_EBRACK;
+pub const SA_REGEX_REG_EPAREN = @import("sa_std/consts.zig").SA_REGEX_REG_EPAREN;
+pub const SA_REGEX_REG_EBRACE = @import("sa_std/consts.zig").SA_REGEX_REG_EBRACE;
+pub const SA_REGEX_REG_BADBR = @import("sa_std/consts.zig").SA_REGEX_REG_BADBR;
+pub const SA_REGEX_REG_ERANGE = @import("sa_std/consts.zig").SA_REGEX_REG_ERANGE;
+pub const SA_REGEX_REG_ESPACE = @import("sa_std/consts.zig").SA_REGEX_REG_ESPACE;
+pub const SA_REGEX_REG_BADRPT = @import("sa_std/consts.zig").SA_REGEX_REG_BADRPT;
+pub const SA_REGEX_REG_ENOSYS = @import("sa_std/consts.zig").SA_REGEX_REG_ENOSYS;
 
 pub const SaJsonToken = extern struct {
     kind: u32,
@@ -1630,34 +1605,11 @@ const BufferHandle = struct {
     }
 };
 
-const MetadataHandle = struct {
-    allocator: std.mem.Allocator,
-    stat: sio.Stat,
-    raw: RawStat,
+pub const MetadataHandle = @import("sa_std/dir_stat.zig").MetadataHandle;
 
-    pub fn deinit(self: *MetadataHandle) void {
-        _ = self;
-    }
-};
+pub const DirEntrySnapshot = @import("sa_std/dir_stat.zig").DirEntrySnapshot;
 
-const DirEntrySnapshot = struct {
-    name: []u8,
-    kind: u32,
-    ino: u64,
-};
-
-const DirEntriesHandle = struct {
-    allocator: std.mem.Allocator,
-    entries: []DirEntrySnapshot,
-
-    pub fn deinit(self: *DirEntriesHandle) void {
-        for (self.entries) |entry| {
-            if (entry.name.len != 0) self.allocator.free(entry.name);
-        }
-        if (self.entries.len != 0) self.allocator.free(self.entries);
-        self.entries = &.{};
-    }
-};
+pub const DirEntriesHandle = @import("sa_std/dir_stat.zig").DirEntriesHandle;
 
 const DirEntryHandle = struct {
     allocator: std.mem.Allocator,
@@ -1702,9 +1654,9 @@ const NetAddrListHandle = struct {
         self.next_index = 0;
     }
 };
-pub const SA_NET_UNIX_ADDR_UNNAMED: u32 = 0;
-pub const SA_NET_UNIX_ADDR_PATHNAME: u32 = 1;
-pub const SA_NET_UNIX_ADDR_ABSTRACT: u32 = 2;
+pub const SA_NET_UNIX_ADDR_UNNAMED = @import("sa_std/consts.zig").SA_NET_UNIX_ADDR_UNNAMED;
+pub const SA_NET_UNIX_ADDR_PATHNAME = @import("sa_std/consts.zig").SA_NET_UNIX_ADDR_PATHNAME;
+pub const SA_NET_UNIX_ADDR_ABSTRACT = @import("sa_std/consts.zig").SA_NET_UNIX_ADDR_ABSTRACT;
 
 const UnixAddrHandle = struct {
     allocator: std.mem.Allocator,
@@ -1861,28 +1813,7 @@ const FmtHandle = struct {
     }
 };
 
-pub const JsonDocumentHandle = struct {
-    allocator: std.mem.Allocator,
-    parsed: std.json.Parsed(std.json.Value),
-    ref_count: std.atomic.Value(usize) = std.atomic.Value(usize).init(1),
-
-    pub fn retain(self: *JsonDocumentHandle) void {
-        _ = self.ref_count.fetchAdd(1, .monotonic);
-    }
-
-    pub fn release(self: *JsonDocumentHandle) void {
-        const previous = self.ref_count.fetchSub(1, .release);
-        if (previous == 0) {
-            _ = self.ref_count.fetchAdd(1, .monotonic);
-            return;
-        }
-        if (previous == 1) {
-            _ = self.ref_count.load(.acquire);
-            self.parsed.deinit();
-            self.allocator.destroy(self);
-        }
-    }
-};
+pub const JsonDocumentHandle = @import("sa_std/json_node.zig").JsonDocumentHandle;
 
 // A JSON node handle addresses a value inside its document tree by PATH
 // (object keys / array indices from the document root). Every acquire
@@ -1891,59 +1822,15 @@ pub const JsonDocumentHandle = struct {
 // document. Removing the exact key a handle points at (or an ancestor of
 // it) detaches the handle: later operations fail with InvalidHandle
 // instead of reading a stale snapshot.
-const JsonPathSegment = union(enum) {
-    key: []const u8,
-    index: usize,
-};
+pub const JsonPathSegment = @import("sa_std/json_node.zig").JsonPathSegment;
 
-fn freeJsonPath(allocator: std.mem.Allocator, path: []const JsonPathSegment) void {
-    if (path.len == 0) return;
-    for (path) |segment| {
-        switch (segment) {
-            .key => |key| allocator.free(key),
-            .index => {},
-        }
-    }
-    allocator.free(path);
-}
+pub const freeJsonPath = @import("sa_std/json_node.zig").freeJsonPath;
 
 // Returns a fully-owned copy of `base` with `segment` appended (key bytes
 // duplicated with `allocator`).
-fn jsonPathAppend(allocator: std.mem.Allocator, base: []const JsonPathSegment, segment: JsonPathSegment) ![]JsonPathSegment {
-    const path = try allocator.alloc(JsonPathSegment, base.len + 1);
-    errdefer allocator.free(path);
-    for (base, 0..) |seg, i| {
-        path[i] = switch (seg) {
-            .key => |key| .{ .key = try allocator.dupe(u8, key) },
-            .index => |idx| .{ .index = idx },
-        };
-    }
-    path[base.len] = switch (segment) {
-        .key => |key| .{ .key = try allocator.dupe(u8, key) },
-        .index => |idx| .{ .index = idx },
-    };
-    return path;
-}
+pub const jsonPathAppend = @import("sa_std/json_node.zig").jsonPathAppend;
 
-pub const JsonNodeHandle = struct {
-    document: *JsonDocumentHandle,
-    // Resolved snapshot of the tree value at acquire time. The copy stored
-    // in a registry slot is a placeholder; acquires always re-resolve.
-    value: std.json.Value,
-    path: []const JsonPathSegment = &.{},
-    // Only the handle stored in a registry slot (and the transient child
-    // handle handed to registerJsonNode) owns its path allocation.
-    path_owned: bool = false,
-
-    pub fn deinit(self: *JsonNodeHandle) void {
-        if (self.path_owned) {
-            freeJsonPath(self.document.allocator, self.path);
-            self.path = &.{};
-            self.path_owned = false;
-        }
-        self.document.release();
-    }
-};
+pub const JsonNodeHandle = @import("sa_std/json_node.zig").JsonNodeHandle;
 
 pub const JsonBufferHandle = struct {
     allocator: std.mem.Allocator,
@@ -1955,88 +1842,9 @@ pub const JsonBufferHandle = struct {
     }
 };
 
-pub const JsonScannerHandle = struct {
-    allocator: std.mem.Allocator,
-    scanner: std.json.Scanner,
-    pending_input: []const u8 = &.{},
-    pending_input_owned: bool = false,
-    pending_text: std.array_list.Managed(u8),
-    current_text: ?[]const u8 = null,
-    current_token: u32 = SA_JSON_TOKEN_INVALID,
+pub const JsonScannerHandle = @import("sa_std/json_scan.zig").JsonScannerHandle;
 
-    pub fn init(allocator: std.mem.Allocator) !*JsonScannerHandle {
-        const handle = try allocator.create(JsonScannerHandle);
-        handle.* = .{
-            .allocator = allocator,
-            .scanner = std.json.Scanner.initStreaming(allocator),
-            .pending_input = &.{},
-            .pending_input_owned = false,
-            .pending_text = std.array_list.Managed(u8).init(allocator),
-            .current_text = null,
-            .current_token = SA_JSON_TOKEN_INVALID,
-        };
-        return handle;
-    }
-
-    pub fn initCompleteInput(allocator: std.mem.Allocator, input: []const u8) !*JsonScannerHandle {
-        const handle = try allocator.create(JsonScannerHandle);
-        handle.* = .{
-            .allocator = allocator,
-            .scanner = std.json.Scanner.initCompleteInput(allocator, input),
-            .pending_input = input,
-            .pending_input_owned = false,
-            .pending_text = std.array_list.Managed(u8).init(allocator),
-            .current_text = null,
-            .current_token = SA_JSON_TOKEN_INVALID,
-        };
-        return handle;
-    }
-
-    pub fn deinit(self: *JsonScannerHandle) void {
-        self.pending_text.deinit();
-        self.scanner.deinit();
-        if (self.pending_input_owned and self.pending_input.len != 0) self.allocator.free(self.pending_input);
-        self.pending_input = &.{};
-        self.pending_input_owned = false;
-        self.current_text = null;
-        self.current_token = SA_JSON_TOKEN_INVALID;
-    }
-
-    pub fn destroy(self: *JsonScannerHandle) void {
-        self.deinit();
-        self.allocator.destroy(self);
-    }
-};
-
-pub const JsonStreamHandle = struct {
-    allocator: std.mem.Allocator,
-    owned_input: []u8,
-    scanner: *JsonScannerHandle,
-    last_token: u32 = SA_JSON_TOKEN_INVALID,
-
-    pub fn init(allocator: std.mem.Allocator, input: []const u8) !*JsonStreamHandle {
-        const owned_input = try allocator.alloc(u8, input.len);
-        errdefer allocator.free(owned_input);
-        @memcpy(owned_input, input);
-        const scanner = try JsonScannerHandle.initCompleteInput(allocator, owned_input);
-        errdefer scanner.destroy();
-        const handle = try allocator.create(JsonStreamHandle);
-        handle.* = .{
-            .allocator = allocator,
-            .owned_input = owned_input,
-            .scanner = scanner,
-            .last_token = SA_JSON_TOKEN_INVALID,
-        };
-        return handle;
-    }
-
-    pub fn deinit(self: *JsonStreamHandle) void {
-        self.scanner.destroy();
-        if (self.owned_input.len != 0) self.allocator.free(self.owned_input);
-        self.owned_input = &.{};
-        self.allocator.destroy(self);
-    }
-};
+pub const JsonStreamHandle = @import("sa_std/json_scan.zig").JsonStreamHandle;
 
 pub const JsonWriterHandle = struct {
     allocator: std.mem.Allocator,
@@ -2112,358 +1920,57 @@ pub const RegexHandle = struct {
     }
 };
 
-pub const RegexMatchHandle = struct {
-    allocator: std.mem.Allocator,
-    text_z: []u8,
-    matches: []RegexMatchC,
+pub const RegexMatchHandle = @import("sa_std/regex_core.zig").RegexMatchHandle;
 
-    pub fn init(allocator: std.mem.Allocator, text: []const u8, group_count: usize) !*RegexMatchHandle {
-        const owned_text = try allocator.alloc(u8, text.len + 1);
-        errdefer allocator.free(owned_text);
-        @memcpy(owned_text[0..text.len], text);
-        owned_text[text.len] = 0;
-        const matches = try allocator.alloc(RegexMatchC, group_count);
-        errdefer allocator.free(matches);
-        const handle = try allocator.create(RegexMatchHandle);
-        errdefer allocator.destroy(handle);
-        handle.* = .{
-            .allocator = allocator,
-            .text_z = owned_text,
-            .matches = matches,
-        };
-        return handle;
-    }
+pub const RegexMatchListHandle = @import("sa_std/regex_core.zig").RegexMatchListHandle;
 
-    pub fn deinit(self: *RegexMatchHandle) void {
-        if (self.matches.len != 0) self.allocator.free(self.matches);
-        if (self.text_z.len != 0) self.allocator.free(self.text_z);
-        self.matches = &.{};
-        self.text_z = &.{};
-    }
+pub const RegexSplitListHandle = @import("sa_std/regex_core.zig").RegexSplitListHandle;
 
-    pub fn destroy(self: *RegexMatchHandle) void {
-        self.deinit();
-        self.allocator.destroy(self);
-    }
-};
+pub const RegexBufferHandle = @import("sa_std/regex_core.zig").RegexBufferHandle;
 
-pub const RegexMatchListHandle = struct {
-    allocator: std.mem.Allocator,
-    text_z: []u8,
-    // One group-offset array per match; every inner slice has
-    // regexGroupCount(regex) entries (group 0 = the whole match).
-    matches: [][]RegexMatchC,
+pub const regexErrorToZig = @import("sa_std/regex_core.zig").regexErrorToZig;
 
-    pub fn destroy(self: *RegexMatchListHandle) void {
-        for (self.matches) |groups| {
-            if (groups.len != 0) self.allocator.free(groups);
-        }
-        if (self.matches.len != 0) self.allocator.free(self.matches);
-        if (self.text_z.len != 0) self.allocator.free(self.text_z);
-        self.allocator.destroy(self);
-    }
-};
+pub const regexGroupCount = @import("sa_std/regex_core.zig").regexGroupCount;
 
-const RegexSplitListHandle = struct {
-    allocator: std.mem.Allocator,
-    text_z: []u8,
-    // Pieces are (start, end) byte ranges into text_z; rm_so < 0 marks a
-    // capture group that did not participate (JS `undefined`, surfaced as
-    // an empty piece by the accessors).
-    pieces: []RegexMatchC,
-
-    pub fn destroy(self: *RegexSplitListHandle) void {
-        if (self.pieces.len != 0) self.allocator.free(self.pieces);
-        if (self.text_z.len != 0) self.allocator.free(self.text_z);
-        self.allocator.destroy(self);
-    }
-};
-
-const RegexBufferHandle = struct {
-    allocator: std.mem.Allocator,
-    bytes: []u8,
-
-    fn destroy(self: *RegexBufferHandle) void {
-        if (self.bytes.len != 0) self.allocator.free(self.bytes);
-        self.allocator.destroy(self);
-    }
-};
-
-fn regexErrorToZig(rc: c_int) anyerror {
-    return switch (rc) {
-        SA_REGEX_REG_NOMATCH => error.FileNotFound,
-        SA_REGEX_REG_BADPAT => error.SyntaxError,
-        SA_REGEX_REG_ESPACE => error.OutOfMemory,
-        SA_REGEX_REG_ENOSYS => error.Unsupported,
-        else => error.InvalidArgument,
-    };
-}
-
-pub fn regexGroupCount(regex_handle: *RegexHandle) usize {
-    return @as(usize, @intCast(regex_handle.compiled.re_nsub)) + 1;
-}
-
-pub fn regexMatchHandle(regex_handle: *RegexHandle, text: []const u8) !*RegexMatchHandle {
-    if (std.mem.indexOfScalar(u8, text, 0) != null) return error.InvalidArgument;
-    const allocator = regex_handle.allocator;
-    const owned_text = try allocator.alloc(u8, text.len + 1);
-    errdefer allocator.free(owned_text);
-    @memcpy(owned_text[0..text.len], text);
-    owned_text[text.len] = 0;
-
-    const groups = try allocator.alloc(RegexMatchC, regexGroupCount(regex_handle));
-    errdefer allocator.free(groups);
-
-    const rc = regexec(&regex_handle.compiled, @ptrCast(owned_text.ptr), groups.len, groups.ptr, 0);
-    // NOTE: no explicit frees here: the errdefers above own cleanup on every
-    // error return. Explicit frees + errdefer double-free (freelist corruption
-    // on wasm32 dlmalloc: later allocs overlap live objects).
-    if (rc == SA_REGEX_REG_NOMATCH) {
-        return error.FileNotFound;
-    }
-    if (rc != SA_REGEX_REG_NOERROR) {
-        return regexErrorToZig(rc);
-    }
-
-    const handle = try allocator.create(RegexMatchHandle);
-    handle.* = .{
-        .allocator = allocator,
-        .text_z = owned_text,
-        .matches = groups,
-    };
-    return handle;
-}
+pub const regexMatchHandle = @import("sa_std/regex_core.zig").regexMatchHandle;
 
 // Copies text into an owned NUL-terminated buffer, rejecting embedded NUL
 // bytes exactly like regexMatchHandle does.
-pub fn regexOwnedTextZ(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
-    if (std.mem.indexOfScalar(u8, text, 0) != null) return error.InvalidArgument;
-    const owned = try allocator.alloc(u8, text.len + 1);
-    @memcpy(owned[0..text.len], text);
-    owned[text.len] = 0;
-    return owned;
-}
+pub const regexOwnedTextZ = @import("sa_std/regex_core.zig").regexOwnedTextZ;
 
 // Runs regexec over the byte range [start, end) of an owned NUL-terminated
 // text using REG_STARTEND, so reported offsets stay absolute and `^` / `$`
 // keep whole-text semantics. Returns the raw regcomp-family status code.
-fn regexExecRange(regex_handle: *RegexHandle, text_z: []const u8, start: usize, end: usize, groups: []RegexMatchC) c_int {
-    groups[0].rm_so = @intCast(start);
-    groups[0].rm_eo = @intCast(end);
-    return regexec(&regex_handle.compiled, @ptrCast(text_z.ptr), groups.len, groups.ptr, SA_REGEX_STARTEND);
-}
+pub const regexExecRange = @import("sa_std/regex_core.zig").regexExecRange;
 
 // Collects every non-overlapping match in text_z (an owned NUL-terminated
 // copy), in left-to-right order. After an empty match the search advances
 // one byte — the byte-level form of the JS global-exec loop (JS advances
 // one code point; this engine is byte-oriented). Caller owns the returned
 // outer slice and every inner groups slice.
-pub fn regexCollectMatches(allocator: std.mem.Allocator, regex_handle: *RegexHandle, text_z: []const u8) ![][]RegexMatchC {
-    const text_len = text_z.len - 1;
-    const group_count = regexGroupCount(regex_handle);
-    var list = std.array_list.Managed([]RegexMatchC).init(allocator);
-    errdefer {
-        for (list.items) |groups| allocator.free(groups);
-        list.deinit();
-    }
-    var pos: usize = 0;
-    while (pos <= text_len) {
-        const groups = try allocator.alloc(RegexMatchC, group_count);
-        const rc = regexExecRange(regex_handle, text_z, pos, text_len, groups);
-        if (rc == SA_REGEX_REG_NOMATCH) {
-            allocator.free(groups);
-            break;
-        }
-        if (rc != SA_REGEX_REG_NOERROR) {
-            allocator.free(groups);
-            return regexErrorToZig(rc);
-        }
-        list.append(groups) catch |err| {
-            allocator.free(groups);
-            return err;
-        };
-        const match_start: usize = @intCast(groups[0].rm_so);
-        const match_end: usize = @intCast(groups[0].rm_eo);
-        pos = if (match_end == match_start) match_end + 1 else match_end;
-    }
-    return list.toOwnedSlice();
-}
+pub const regexCollectMatches = @import("sa_std/regex_core.zig").regexCollectMatches;
 
-fn regexAppendGroup(out: *std.array_list.Managed(u8), text: []const u8, groups: []RegexMatchC, idx: usize) !void {
-    if (idx >= groups.len) return;
-    const reg = groups[idx];
-    if (reg.rm_so < 0 or reg.rm_eo < 0) return;
-    const start: usize = @intCast(reg.rm_so);
-    const end: usize = @intCast(reg.rm_eo);
-    try out.appendSlice(text[start..end]);
-}
+pub const regexAppendGroup = @import("sa_std/regex_core.zig").regexAppendGroup;
 
 // Appends the JS-style substitution of `replacement` for one match:
 // $$ is a literal $, $& the whole match, $` the text before the match,
 // $' the text after it, and $n / $nn capture groups (a group that did not
 // participate expands to nothing; an out-of-range $n stays literal).
 // $<name> passes through literally: POSIX ERE has no named groups.
-fn regexAppendExpansion(out: *std.array_list.Managed(u8), text: []const u8, groups: []RegexMatchC, replacement: []const u8) !void {
-    const group_total = groups.len - 1;
-    var i: usize = 0;
-    while (i < replacement.len) {
-        const c = replacement[i];
-        if (c != '$' or i + 1 >= replacement.len) {
-            try out.append(c);
-            i += 1;
-            continue;
-        }
-        const next = replacement[i + 1];
-        if (next == '$') {
-            try out.append('$');
-            i += 2;
-        } else if (next == '&') {
-            try regexAppendGroup(out, text, groups, 0);
-            i += 2;
-        } else if (next == '`') {
-            const start: usize = @intCast(groups[0].rm_so);
-            try out.appendSlice(text[0..start]);
-            i += 2;
-        } else if (next == '\'') {
-            const end: usize = @intCast(groups[0].rm_eo);
-            try out.appendSlice(text[end..]);
-            i += 2;
-        } else if (next >= '1' and next <= '9') {
-            const d1: usize = @intCast(next - '0');
-            var consumed: usize = 0;
-            if (i + 2 < replacement.len and replacement[i + 2] >= '0' and replacement[i + 2] <= '9') {
-                const nn = d1 * 10 + @as(usize, @intCast(replacement[i + 2] - '0'));
-                if (nn >= 1 and nn <= group_total) {
-                    try regexAppendGroup(out, text, groups, nn);
-                    consumed = 3;
-                }
-            }
-            if (consumed == 0 and d1 <= group_total) {
-                try regexAppendGroup(out, text, groups, d1);
-                consumed = 2;
-            }
-            if (consumed == 0) {
-                try out.append('$');
-                i += 1;
-            } else {
-                i += consumed;
-            }
-        } else {
-            try out.append('$');
-            i += 1;
-        }
-    }
-}
+pub const regexAppendExpansion = @import("sa_std/regex_core.zig").regexAppendExpansion;
 
 // Builds the replaced text. With `global` false only the first match is
 // replaced (JS String.replace without /g); with true every match from the
 // global iteration is replaced (JS /g and replaceAll). The result is an
 // owned slice; when nothing matches it is a copy of the input text.
-fn regexBuildReplace(allocator: std.mem.Allocator, regex_handle: *RegexHandle, text_z: []const u8, replacement: []const u8, global: bool) ![]u8 {
-    const text = text_z[0 .. text_z.len - 1];
-    var out = std.array_list.Managed(u8).init(allocator);
-    errdefer out.deinit();
-    if (!global) {
-        const group_count = regexGroupCount(regex_handle);
-        const groups = try allocator.alloc(RegexMatchC, group_count);
-        defer allocator.free(groups);
-        const rc = regexExecRange(regex_handle, text_z, 0, text.len, groups);
-        if (rc == SA_REGEX_REG_NOMATCH) {
-            try out.appendSlice(text);
-            return out.toOwnedSlice();
-        }
-        if (rc != SA_REGEX_REG_NOERROR) return regexErrorToZig(rc);
-        const start: usize = @intCast(groups[0].rm_so);
-        const end: usize = @intCast(groups[0].rm_eo);
-        try out.appendSlice(text[0..start]);
-        try regexAppendExpansion(&out, text, groups, replacement);
-        try out.appendSlice(text[end..]);
-        return out.toOwnedSlice();
-    }
-    const matches = try regexCollectMatches(allocator, regex_handle, text_z);
-    defer {
-        for (matches) |groups| allocator.free(groups);
-        allocator.free(matches);
-    }
-    var last: usize = 0;
-    for (matches) |groups| {
-        const start: usize = @intCast(groups[0].rm_so);
-        const end: usize = @intCast(groups[0].rm_eo);
-        try out.appendSlice(text[last..start]);
-        try regexAppendExpansion(&out, text, groups, replacement);
-        last = end;
-    }
-    try out.appendSlice(text[last..]);
-    return out.toOwnedSlice();
-}
+pub const regexBuildReplace = @import("sa_std/regex_core.zig").regexBuildReplace;
 
 // Builds the piece list for JS String.split semantics over text_z. Pieces
 // are (start, end) ranges into text_z; non-participating capture groups
 // keep rm_so < 0. `limit` caps the TOTAL piece count (groups included);
 // limit == 0 means no limit in this API (JS limit 0 returns [] — a
 // deliberate divergence, documented in regex.sai).
-pub fn regexSplitHandle(allocator: std.mem.Allocator, regex_handle: *RegexHandle, text_z: []u8, limit: u64) !*RegexSplitListHandle {
-    const text_len = text_z.len - 1;
-    errdefer allocator.free(text_z);
-    const group_count = regexGroupCount(regex_handle);
-    const limit_n: usize = if (limit == 0) std.math.maxInt(usize) else @intCast(limit);
-    var pieces = std.array_list.Managed(RegexMatchC).init(allocator);
-    errdefer pieces.deinit();
-    const groups = try allocator.alloc(RegexMatchC, group_count);
-    defer allocator.free(groups);
-    if (text_len == 0) {
-        // JS: empty input yields [] when the pattern matches at 0,
-        // otherwise a single empty piece.
-        const rc = regexExecRange(regex_handle, text_z, 0, 0, groups);
-        if (rc != SA_REGEX_REG_NOMATCH and rc != SA_REGEX_REG_NOERROR) return regexErrorToZig(rc);
-        if (rc == SA_REGEX_REG_NOMATCH) {
-            try pieces.append(.{ .rm_so = 0, .rm_eo = 0 });
-        }
-    } else {
-        var p: usize = 0;
-        var q: usize = 0;
-        var done = false;
-        while (!done and q <= text_len) {
-            const rc = regexExecRange(regex_handle, text_z, q, text_len, groups);
-            if (rc == SA_REGEX_REG_NOMATCH) break;
-            if (rc != SA_REGEX_REG_NOERROR) return regexErrorToZig(rc);
-            const m_start: usize = @intCast(groups[0].rm_so);
-            const m_end: usize = @intCast(groups[0].rm_eo);
-            if (m_end == p) {
-                // Empty match exactly at the previous match end: JS split
-                // skips it and retries one byte later.
-                q = m_end + 1;
-                continue;
-            }
-            try pieces.append(.{ .rm_so = @intCast(p), .rm_eo = @intCast(m_start) });
-            if (pieces.items.len >= limit_n) {
-                done = true;
-                break;
-            }
-            for (groups[1..]) |g| {
-                try pieces.append(g);
-                if (pieces.items.len >= limit_n) {
-                    done = true;
-                    break;
-                }
-            }
-            if (done) break;
-            p = m_end;
-            q = p;
-        }
-        if (!done) {
-            try pieces.append(.{ .rm_so = @intCast(p), .rm_eo = @intCast(text_len) });
-        }
-    }
-    const handle = try allocator.create(RegexSplitListHandle);
-    errdefer allocator.destroy(handle);
-    handle.* = .{
-        .allocator = allocator,
-        .text_z = text_z,
-        .pieces = try pieces.toOwnedSlice(),
-    };
-    return handle;
-}
+pub const regexSplitHandle = @import("sa_std/regex_core.zig").regexSplitHandle;
 
 pub fn jsonKindOf(value: std.json.Value) u32 {
     return switch (value) {
@@ -2526,133 +2033,23 @@ pub fn jsonValueAsBool(value: std.json.Value) !bool {
     };
 }
 
-pub fn registerJsonNode(document: *JsonDocumentHandle, path: []const JsonPathSegment, retain_document: bool) !u64 {
-    if (retain_document) document.retain();
-    return registerResource(.{ .json_node = .{ .document = document, .value = .null, .path = path, .path_owned = true } }) catch |err| {
-        freeJsonPath(document.allocator, path);
-        document.release();
-        return err;
-    };
-}
+pub const registerJsonNode = @import("sa_std/json_node.zig").registerJsonNode;
 
-pub fn acquireJsonNode(handle: u64) !JsonNodeHandle {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
-    return switch (resource.*) {
-        .json_node => |slot| blk: {
-            slot.document.retain();
-            const resolved = jsonResolvePath(slot.document, slot.path) catch |err| {
-                slot.document.release();
-                return err;
-            };
-            break :blk .{
-                .document = slot.document,
-                .value = resolved,
-                .path = slot.path,
-                .path_owned = false,
-            };
-        },
-        else => error.InvalidHandle,
-    };
-}
+pub const acquireJsonNode = @import("sa_std/json_node.zig").acquireJsonNode;
 
 // Walks `path` from the document root and returns a pointer to the live
 // tree value. The pointer is only valid until the next tree mutation.
-fn jsonResolvePathPtr(document: *JsonDocumentHandle, path: []const JsonPathSegment) !*std.json.Value {
-    var current: *std.json.Value = &document.parsed.value;
-    for (path) |segment| {
-        switch (segment) {
-            .key => |key| {
-                switch (current.*) {
-                    .object => |*map| {
-                        const idx = map.getIndex(key) orelse return error.InvalidHandle;
-                        current = &map.values()[idx];
-                    },
-                    else => return error.InvalidHandle,
-                }
-            },
-            .index => |idx| {
-                switch (current.*) {
-                    .array => |*array| {
-                        if (idx >= array.items.len) return error.InvalidHandle;
-                        current = &array.items[idx];
-                    },
-                    else => return error.InvalidHandle,
-                }
-            },
-        }
-    }
-    return current;
-}
+pub const jsonResolvePathPtr = @import("sa_std/json_node.zig").jsonResolvePathPtr;
 
-fn jsonResolvePath(document: *JsonDocumentHandle, path: []const JsonPathSegment) !std.json.Value {
-    const target = try jsonResolvePathPtr(document, path);
-    return target.*;
-}
+pub const jsonResolvePath = @import("sa_std/json_node.zig").jsonResolvePath;
 
-pub fn jsonDocumentFromSlice(allocator: std.mem.Allocator, input: []const u8) !*JsonDocumentHandle {
-    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, input, .{});
-    errdefer parsed.deinit();
-    const document = try allocator.create(JsonDocumentHandle);
-    document.* = .{
-        .allocator = allocator,
-        .parsed = parsed,
-        .ref_count = std.atomic.Value(usize).init(1),
-    };
-    return document;
-}
+pub const jsonDocumentFromSlice = @import("sa_std/json_node.zig").jsonDocumentFromSlice;
 
-pub fn jsonObjectGet(node: JsonNodeHandle, key: []const u8) !JsonNodeHandle {
-    return switch (node.value) {
-        .object => |object| {
-            const child = object.get(key) orelse return error.FileNotFound;
-            const path = try jsonPathAppend(node.document.allocator, node.path, .{ .key = key });
-            return .{
-                .document = node.document,
-                .value = child,
-                .path = path,
-                .path_owned = true,
-            };
-        },
-        else => error.InvalidHandle,
-    };
-}
+pub const jsonObjectGet = @import("sa_std/json_node.zig").jsonObjectGet;
 
-pub fn jsonArrayGet(node: JsonNodeHandle, index: u64) !JsonNodeHandle {
-    return switch (node.value) {
-        .array => |array| {
-            const idx: usize = @intCast(index);
-            if (idx >= array.items.len) return error.FileNotFound;
-            const path = try jsonPathAppend(node.document.allocator, node.path, .{ .index = idx });
-            return .{
-                .document = node.document,
-                .value = array.items[idx],
-                .path = path,
-                .path_owned = true,
-            };
-        },
-        else => error.InvalidHandle,
-    };
-}
+pub const jsonArrayGet = @import("sa_std/json_node.zig").jsonArrayGet;
 
-pub fn jsonObjectKeyAt(node: JsonNodeHandle, index: u64) ![]const u8 {
-    return switch (node.value) {
-        .object => |object| {
-            const idx: usize = @intCast(index);
-            if (idx >= object.count()) return error.FileNotFound;
-            var it = object.iterator();
-            var current: usize = 0;
-            while (it.next()) |entry| : (current += 1) {
-                if (current == idx) return entry.key_ptr.*;
-            }
-            return error.FileNotFound;
-        },
-        else => error.InvalidHandle,
-    };
-}
+pub const jsonObjectKeyAt = @import("sa_std/json_node.zig").jsonObjectKeyAt;
 
 fn jsonStringifyAlloc(allocator: std.mem.Allocator, value: std.json.Value) ![]u8 {
     var list = std.array_list.Managed(u8).init(allocator);
@@ -2700,71 +2097,17 @@ pub fn jsonValueClone(allocator: std.mem.Allocator, value: std.json.Value) !std.
     };
 }
 
-const JsonMutation = struct {
-    document: *JsonDocumentHandle,
-    target: *std.json.Value,
-};
+pub const JsonMutation = @import("sa_std/json_node.zig").JsonMutation;
 
 // Resolves the handle's slot under the registry lock for an in-place tree
 // mutation. The caller must hold no other registry acquisition.
-fn jsonMutationTarget(handle: u64) !JsonMutation {
-    const resource = getResourceLocked(handle) orelse return error.InvalidHandle;
-    const slot = switch (resource.*) {
-        .json_node => |*node| node,
-        else => return error.InvalidHandle,
-    };
-    return .{
-        .document = slot.document,
-        .target = try jsonResolvePathPtr(slot.document, slot.path),
-    };
-}
+pub const jsonMutationTarget = @import("sa_std/json_node.zig").jsonMutationTarget;
 
-pub fn jsonObjectSetLocked(handle: u64, key: []const u8, value: std.json.Value) !void {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const mutation = try jsonMutationTarget(handle);
-    switch (mutation.target.*) {
-        .object => |*map| {
-            const arena = mutation.document.parsed.arena.allocator();
-            // put() keeps the stored key slice for an existing key, so the
-            // caller's key only needs an arena copy when it is inserted.
-            if (map.getIndex(key) != null) {
-                try map.put(arena, key, value);
-            } else {
-                try map.put(arena, try arena.dupe(u8, key), value);
-            }
-        },
-        else => return error.InvalidHandle,
-    }
-}
+pub const jsonObjectSetLocked = @import("sa_std/json_node.zig").jsonObjectSetLocked;
 
-pub fn jsonArrayPushLocked(handle: u64, value: std.json.Value) !void {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const mutation = try jsonMutationTarget(handle);
-    switch (mutation.target.*) {
-        .array => |*array| try array.append(value),
-        else => return error.InvalidHandle,
-    }
-}
+pub const jsonArrayPushLocked = @import("sa_std/json_node.zig").jsonArrayPushLocked;
 
-pub fn jsonObjectRemoveLocked(handle: u64, key: []const u8) !void {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const mutation = try jsonMutationTarget(handle);
-    switch (mutation.target.*) {
-        .object => |*map| {
-            if (!map.orderedRemove(key)) return error.FileNotFound;
-        },
-        else => return error.InvalidHandle,
-    }
-}
+pub const jsonObjectRemoveLocked = @import("sa_std/json_node.zig").jsonObjectRemoveLocked;
 
 pub fn acquireJsonWriterForWrite(writer: u64) !*JsonWriterHandle {
     const resource = getResourceLocked(writer) orelse return error.InvalidHandle;
@@ -2821,45 +2164,9 @@ pub fn tokenTextSlice(token: std.json.Token) ?[]const u8 {
     };
 }
 
-pub fn tokenTextBytes(scanner_handle: *JsonScannerHandle, token: std.json.Token) ![]const u8 {
-    scanner_handle.pending_text.clearRetainingCapacity();
-    switch (token) {
-        .number => |slice| try scanner_handle.pending_text.appendSlice(slice),
-        .partial_number => |slice| try scanner_handle.pending_text.appendSlice(slice),
-        .allocated_number => |slice| {
-            errdefer scanner_handle.allocator.free(slice);
-            try scanner_handle.pending_text.appendSlice(slice);
-            scanner_handle.allocator.free(slice);
-        },
-        .string => |slice| try scanner_handle.pending_text.appendSlice(slice),
-        .partial_string => |slice| try scanner_handle.pending_text.appendSlice(slice),
-        .partial_string_escaped_1 => |slice| try scanner_handle.pending_text.appendSlice(slice[0..]),
-        .partial_string_escaped_2 => |slice| try scanner_handle.pending_text.appendSlice(slice[0..]),
-        .partial_string_escaped_3 => |slice| try scanner_handle.pending_text.appendSlice(slice[0..]),
-        .partial_string_escaped_4 => |slice| try scanner_handle.pending_text.appendSlice(slice[0..]),
-        .allocated_string => |slice| {
-            errdefer scanner_handle.allocator.free(slice);
-            try scanner_handle.pending_text.appendSlice(slice);
-            scanner_handle.allocator.free(slice);
-        },
-        else => return error.InvalidArgument,
-    }
-    return scanner_handle.pending_text.items;
-}
+pub const tokenTextBytes = @import("sa_std/json_scan.zig").tokenTextBytes;
 
-pub fn jsonScannerFeed(scanner_handle: *JsonScannerHandle, input: []const u8, end_input: bool) !void {
-    if (scanner_handle.pending_input.len != 0) {
-        if (scanner_handle.scanner.cursor != scanner_handle.scanner.input.len) return error.InvalidArgument;
-        if (scanner_handle.pending_input_owned) scanner_handle.allocator.free(scanner_handle.pending_input);
-        scanner_handle.pending_input = &.{};
-        scanner_handle.pending_input_owned = false;
-    }
-    const owned = try scanner_handle.allocator.dupe(u8, input);
-    scanner_handle.pending_input = owned;
-    scanner_handle.pending_input_owned = true;
-    scanner_handle.scanner.feedInput(owned);
-    if (end_input) scanner_handle.scanner.endInput();
-}
+pub const jsonScannerFeed = @import("sa_std/json_scan.zig").jsonScannerFeed;
 
 const EnvHandle = struct {
     allocator: std.mem.Allocator,
@@ -2934,39 +2241,7 @@ pub const SaTermEpollEvent = extern struct {
     data: u64,
 };
 
-const ProcessHandle = struct {
-    pid: std.posix.pid_t,
-    process_group: ?std.posix.pid_t = null,
-    pidfd: ?std.posix.fd_t = null,
-    capture_output: bool = false,
-    stdout_fd: ?std.posix.fd_t = null,
-    stderr_fd: ?std.posix.fd_t = null,
-    stdout_buf: []u8 = &.{},
-    stderr_buf: []u8 = &.{},
-    stdout_pos: usize = 0,
-    stderr_pos: usize = 0,
-    exited: bool = false,
-    code: u32 = 0,
-    raw_status: u32 = 0,
-
-    fn deinit(self: *ProcessHandle) void {
-        if (!self.exited) {
-            _ = waitProcessIgnoringMissing(self.pid);
-            self.exited = true;
-        }
-        if (self.pidfd) |fd| lxClose(fd);
-        if (self.stdout_fd) |fd| lxClose(fd);
-        if (self.stderr_fd) |fd| lxClose(fd);
-        if (self.stdout_buf.len != 0) std.heap.page_allocator.free(self.stdout_buf);
-        if (self.stderr_buf.len != 0) std.heap.page_allocator.free(self.stderr_buf);
-        self.stdout_buf = &.{};
-        self.stderr_buf = &.{};
-        self.stdout_pos = 0;
-        self.stderr_pos = 0;
-        self.stdout_fd = null;
-        self.stderr_fd = null;
-    }
-};
+pub const ProcessHandle = @import("sa_std/proc_wait.zig").ProcessHandle;
 
 pub const TcpListener = struct {
     fd: std.posix.fd_t,
@@ -3045,11 +2320,11 @@ pub const Resource = union(enum) {
 
 pub var registry_mutex: std.atomic.Mutex = .unlocked;
 var registry_slots = std.array_list.Managed(?Resource).init(std.heap.page_allocator);
-pub var pthread_registry_mutex: std.atomic.Mutex = .unlocked;
-pub var pthread_slots = std.array_list.Managed(?*PthreadHandle).init(std.heap.page_allocator);
-pub var pthread_free_slots = std.array_list.Managed(usize).init(std.heap.page_allocator);
-pub var raw_pthread_owners = std.array_list.Managed(RawPthreadOwner).init(std.heap.page_allocator);
-threadlocal var last_error: i32 = SA_STD_OK;
+pub const pthread_registry_mutex = @import("sa_std/pthread.zig").pthread_registry_mutex;
+pub const pthread_slots = @import("sa_std/pthread.zig").pthread_slots;
+pub const pthread_free_slots = @import("sa_std/pthread.zig").pthread_free_slots;
+pub const raw_pthread_owners = @import("sa_std/pthread.zig").raw_pthread_owners;
+pub threadlocal var last_error: i32 = SA_STD_OK;
 var compatibility_mmap_page: [4096]u8 = std.mem.zeroes([4096]u8);
 var compatibility_dlopen_cookie: [1]u8 = .{0};
 var compatibility_dlsym_cookie: [1]u8 = .{0};
@@ -3067,173 +2342,45 @@ const DynamicLibHandle = struct {
     }
 };
 
-const PthreadEntryFn = *const fn (?[*]u8) callconv(.c) i32;
+pub const PthreadEntryFn = @import("sa_std/pthread.zig").PthreadEntryFn;
 
 extern fn sa_host_pthread_create(thread: *std.c.pthread_t, attr: ?*const std.c.pthread_attr_t, start_routine: *const fn (?*anyopaque) callconv(.c) ?*anyopaque, arg: ?*anyopaque) callconv(.c) c_int;
 extern fn sa_host_pthread_join(thread: std.c.pthread_t, retval: ?*?*anyopaque) callconv(.c) c_int;
 extern fn sa_host_pthread_detach(thread: std.c.pthread_t) callconv(.c) c_int;
 
-const PthreadTask = struct {
-    entry: PthreadEntryFn,
-    arg: ?[*]u8,
-    result: i32 = SA_STD_OK,
-    destroy_on_finish: bool = false,
-};
+pub const PthreadTask = @import("sa_std/pthread.zig").PthreadTask;
 
-pub const PthreadHandle = struct {
-    thread: std.c.pthread_t,
-    task: *PthreadTask,
-    joined: bool = false,
-};
+pub const PthreadHandle = @import("sa_std/pthread.zig").PthreadHandle;
 
-const RawPthreadOwner = struct {
-    raw: u64,
-    task: *PthreadTask,
-};
+pub const RawPthreadOwner = @import("sa_std/pthread.zig").RawPthreadOwner;
 
-const RawPthreadTransfer = struct {
-    raw: u64,
-    handle: *PthreadHandle,
-};
+pub const RawPthreadTransfer = @import("sa_std/pthread.zig").RawPthreadTransfer;
 
-fn pthreadToRaw(thread: std.c.pthread_t) u64 {
-    return switch (@typeInfo(std.c.pthread_t)) {
-        .int => @as(u64, @intCast(thread)),
-        .pointer => @as(u64, @intFromPtr(thread)),
-        else => @compileError("unsupported pthread_t representation"),
-    };
-}
+pub const pthreadToRaw = @import("sa_std/pthread.zig").pthreadToRaw;
 
-fn rawToPthread(raw: u64) std.c.pthread_t {
-    return switch (@typeInfo(std.c.pthread_t)) {
-        .int => @as(std.c.pthread_t, @intCast(raw)),
-        // wasm32-wasi: usize is 32-bit, raw handle is u64 ABI (zero-extended).
-        .pointer => @as(std.c.pthread_t, @ptrFromInt(@as(usize, @intCast(raw)))),
-        else => @compileError("unsupported pthread_t representation"),
-    };
-}
+pub const rawToPthread = @import("sa_std/pthread.zig").rawToPthread;
 
-fn pthreadTaskMain(task: *PthreadTask) void {
-    task.result = task.entry(task.arg);
-    if (task.destroy_on_finish) {
-        std.heap.page_allocator.destroy(task);
-    }
-}
+pub const pthreadTaskMain = @import("sa_std/pthread.zig").pthreadTaskMain;
 
-fn pthreadTaskMainC(arg: ?*anyopaque) callconv(.c) ?*anyopaque {
-    const task: *PthreadTask = @ptrCast(@alignCast(arg orelse return null));
-    pthreadTaskMain(task);
-    return null;
-}
+pub const pthreadTaskMainC = @import("sa_std/pthread.zig").pthreadTaskMainC;
 
-fn mapPthreadCreateError(err: std.c.E) anyerror {
-    return switch (err) {
-        .AGAIN => error.SystemResources,
-        .INVAL, .PERM => error.InvalidArgument,
-        else => error.Io,
-    };
-}
+pub const mapPthreadCreateError = @import("sa_std/pthread.zig").mapPthreadCreateError;
 
-fn spawnPthread(task: *PthreadTask) !std.c.pthread_t {
-    var attr: std.c.pthread_attr_t = undefined;
-    if (std.c.pthread_attr_init(&attr) != .SUCCESS) return error.SystemResources;
-    defer _ = std.c.pthread_attr_destroy(&attr);
-    if (std.c.pthread_attr_setstacksize(&attr, 2 * 1024 * 1024) != .SUCCESS) return error.InvalidArgument;
-    if (std.c.pthread_attr_setguardsize(&attr, std.heap.pageSize()) != .SUCCESS) return error.InvalidArgument;
+pub const spawnPthread = @import("sa_std/pthread.zig").spawnPthread;
 
-    var thread: std.c.pthread_t = undefined;
-    const rc = sa_host_pthread_create(&thread, &attr, pthreadTaskMainC, @ptrCast(task));
-    if (rc == 0) return thread;
-    return mapPthreadCreateError(@fromBackingInt(@intCast(rc)));
-}
+pub const joinPthreadHandle = @import("sa_std/pthread.zig").joinPthreadHandle;
 
-fn joinPthreadHandle(thread: std.c.pthread_t) !void {
-    return switch (@as(std.c.E, @fromBackingInt(@intCast(sa_host_pthread_join(thread, null))))) {
-        .SUCCESS => {},
-        .INVAL, .SRCH, .DEADLK => error.InvalidHandle,
-        else => error.Io,
-    };
-}
+pub const allocPthreadHandle = @import("sa_std/pthread.zig").allocPthreadHandle;
 
-pub fn allocPthreadHandle(handle: *PthreadHandle) !i32 {
-    while (!pthread_registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer pthread_registry_mutex.unlock();
-    while (pthread_free_slots.items.len != 0) {
-        const idx = pthread_free_slots.pop().?;
-        if (idx >= pthread_slots.items.len or pthread_slots.items[idx] != null) continue;
-        pthread_slots.items[idx] = handle;
-        return @intCast(idx + 1);
-    }
-    try pthread_slots.append(handle);
-    return @intCast(pthread_slots.items.len);
-}
+pub const takePthreadHandle = @import("sa_std/pthread.zig").takePthreadHandle;
 
-fn takePthreadHandle(handle: i32) !*PthreadHandle {
-    if (handle <= 0) return error.InvalidHandle;
-    const idx: usize = @intCast(handle - 1);
-    while (!pthread_registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer pthread_registry_mutex.unlock();
-    if (idx >= pthread_slots.items.len) return error.InvalidHandle;
-    return pthread_slots.items[idx] orelse return error.InvalidHandle;
-}
+pub const freePthreadHandle = @import("sa_std/pthread.zig").freePthreadHandle;
 
-pub fn freePthreadHandle(handle: i32) !*PthreadHandle {
-    if (handle <= 0) return error.InvalidHandle;
-    const idx: usize = @intCast(handle - 1);
-    while (!pthread_registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer pthread_registry_mutex.unlock();
-    if (idx >= pthread_slots.items.len) return error.InvalidHandle;
-    const slot = pthread_slots.items[idx] orelse return error.InvalidHandle;
-    try pthread_free_slots.append(idx);
-    pthread_slots.items[idx] = null;
-    return slot;
-}
+pub const transferPthreadHandleToRaw = @import("sa_std/pthread.zig").transferPthreadHandleToRaw;
 
-fn transferPthreadHandleToRaw(handle: i32) !RawPthreadTransfer {
-    if (handle <= 0) return error.InvalidHandle;
-    const idx: usize = @intCast(handle - 1);
-    while (!pthread_registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer pthread_registry_mutex.unlock();
-    if (idx >= pthread_slots.items.len) return error.InvalidHandle;
-    const slot = pthread_slots.items[idx] orelse return error.InvalidHandle;
-    try pthread_free_slots.ensureUnusedCapacity(1);
-    try raw_pthread_owners.ensureUnusedCapacity(1);
-    const owner = RawPthreadOwner{ .raw = pthreadToRaw(slot.thread), .task = slot.task };
-    pthread_free_slots.appendAssumeCapacity(idx);
-    pthread_slots.items[idx] = null;
-    raw_pthread_owners.appendAssumeCapacity(owner);
-    return .{ .raw = owner.raw, .handle = slot };
-}
+pub const findRawPthreadTask = @import("sa_std/pthread.zig").findRawPthreadTask;
 
-fn findRawPthreadTask(raw: u64) ?*PthreadTask {
-    while (!pthread_registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer pthread_registry_mutex.unlock();
-    for (raw_pthread_owners.items) |owner| {
-        if (owner.raw == raw) return owner.task;
-    }
-    return null;
-}
-
-fn removeRawPthreadOwner(raw: u64) ?*PthreadTask {
-    while (!pthread_registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer pthread_registry_mutex.unlock();
-    for (raw_pthread_owners.items, 0..) |owner, i| {
-        if (owner.raw == raw) return raw_pthread_owners.swapRemove(i).task;
-    }
-    return null;
-}
+pub const removeRawPthreadOwner = @import("sa_std/pthread.zig").removeRawPthreadOwner;
 
 
 pub fn finish(status: i32) i32 {
@@ -4048,83 +3195,17 @@ pub fn handleToFd(handle: u64) !std.posix.fd_t {
     };
 }
 
-fn statTimeFieldName(comptime field: []const u8) []const u8 {
-    // statx names fields atime/mtime/ctime/btime.
-    if (std.mem.eql(u8, field, "atim")) return "atime";
-    if (std.mem.eql(u8, field, "mtim")) return "mtime";
-    if (std.mem.eql(u8, field, "ctim")) return "ctime";
-    return field;
-}
+pub const statTimeFieldName = @import("sa_std/dir_stat.zig").statTimeFieldName;
 
-fn timeSpecMs(ts: anytype) i64 {
-    const sec = @as(i128, @intCast(ts.sec));
-    const nsec = @as(i128, @intCast(ts.nsec));
-    return nsToMs(sec * std.time.ns_per_s + nsec);
-}
+pub const timeSpecMs = @import("sa_std/dir_stat.zig").timeSpecMs;
 
-pub fn metadataU64Field(handle: u64, comptime field: []const u8) u64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .metadata => |*metadata| blk: {
-            const Which = enum { mode, uid, gid, ino, nlink, size, blocks, blksize, dev, rdev };
-            const which: Which = comptime std.meta.stringToEnum(Which, field) orelse @compileError("unknown metadata u64 field: " ++ field);
-            const raw = &metadata.raw;
-            break :blk switch (which) {
-                .mode => @as(u64, raw.mode),
-                .uid => @as(u64, raw.uid),
-                .gid => @as(u64, raw.gid),
-                .ino => @as(u64, raw.ino),
-                .nlink => @as(u64, raw.nlink),
-                .size => @as(u64, raw.size),
-                .blocks => @as(u64, raw.blocks),
-                .blksize => @as(u64, raw.blksize),
-                .dev => statxDevId(raw.dev_major, raw.dev_minor),
-                .rdev => statxDevId(raw.rdev_major, raw.rdev_minor),
-            };
-        },
-        else => 0,
-    };
-}
+pub const metadataU64Field = @import("sa_std/dir_stat.zig").metadataU64Field;
 
-pub fn metadataI64TimeFieldMs(handle: u64, comptime field: []const u8) i64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .metadata => |*metadata| timeSpecMs(@field(metadata.raw, statTimeFieldName(field))),
-        else => 0,
-    };
-}
+pub const metadataI64TimeFieldMs = @import("sa_std/dir_stat.zig").metadataI64TimeFieldMs;
 
-pub fn metadataI64TimeFieldSec(handle: u64, comptime field: []const u8) i64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .metadata => |*metadata| @as(i64, @intCast(@field(metadata.raw, statTimeFieldName(field)).sec)),
-        else => 0,
-    };
-}
+pub const metadataI64TimeFieldSec = @import("sa_std/dir_stat.zig").metadataI64TimeFieldSec;
 
-pub fn metadataI64TimeFieldNsec(handle: u64, comptime field: []const u8) i64 {
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return 0;
-    return switch (resource.*) {
-        .metadata => |*metadata| @as(i64, @intCast(@field(metadata.raw, statTimeFieldName(field)).nsec)),
-        else => 0,
-    };
-}
+pub const metadataI64TimeFieldNsec = @import("sa_std/dir_stat.zig").metadataI64TimeFieldNsec;
 
 pub fn applyRawMode(term: *std.posix.termios) void {
     term.iflag.IGNBRK = false;
@@ -4429,20 +3510,7 @@ pub fn envpFromCurrentProcess(arena: std.mem.Allocator) ![:null]const ?[*:0]cons
     return env_block[0..count :null];
 }
 
-fn capture_fd_to_owned(allocator: std.mem.Allocator, fd: std.posix.fd_t) ![]u8 {
-    var list = std.array_list.Managed(u8).init(allocator);
-    defer list.deinit();
-    var buf: [4096]u8 = undefined;
-    while (true) {
-        const n = std.posix.read(fd, &buf) catch |err| switch (err) {
-            error.WouldBlock => break,
-            else => return err,
-        };
-        if (n == 0) break;
-        try list.appendSlice(buf[0..n]);
-    }
-    return try list.toOwnedSlice();
-}
+pub const capture_fd_to_owned = @import("sa_std/proc_wait.zig").capture_fd_to_owned;
 
 const ProcessSpawnMode = enum {
     inherit,
@@ -4469,58 +3537,23 @@ const SpawnResult = struct {
     stdin: ?u64 = null,
 };
 
-fn statusFromWaitStatus(status: u32) u32 {
-    if (WT.IFEXITED(status)) return @as(u32, @intCast(WT.EXITSTATUS(status)));
-    if (WT.IFSIGNALED(status)) return 128 + @as(u32, @backingInt(WT.TERMSIG(status)));
-    if (WT.IFSTOPPED(status)) return 130;
-    return 127;
-}
+pub const statusFromWaitStatus = @import("sa_std/proc_wait.zig").statusFromWaitStatus;
 
-fn rawWaitStatus(status: i32) u32 {
-    return @bitCast(status);
-}
+pub const rawWaitStatus = @import("sa_std/proc_wait.zig").rawWaitStatus;
 
-pub fn waitStatusCode(raw: i32) u32 {
-    return statusFromWaitStatus(rawWaitStatus(raw));
-}
+pub const waitStatusCode = @import("sa_std/proc_wait.zig").waitStatusCode;
 
-pub fn waitStatusSignal(raw: i32) i32 {
-    const status = rawWaitStatus(raw);
-    if (!WT.IFSIGNALED(status)) return -1;
-    return @as(i32, @bitCast(@backingInt(WT.TERMSIG(status))));
-}
+pub const waitStatusSignal = @import("sa_std/proc_wait.zig").waitStatusSignal;
 
-pub fn waitStatusCoreDumped(raw: i32) u8 {
-    const status = rawWaitStatus(raw);
-    if (!WT.IFSIGNALED(status)) return 0;
-    return if ((status & 0x80) != 0) 1 else 0;
-}
+pub const waitStatusCoreDumped = @import("sa_std/proc_wait.zig").waitStatusCoreDumped;
 
-pub fn waitStatusStoppedSignal(raw: i32) i32 {
-    const status = rawWaitStatus(raw);
-    if (!WT.IFSTOPPED(status)) return -1;
-    return @as(i32, @bitCast(@backingInt(WT.STOPSIG(status))));
-}
+pub const waitStatusStoppedSignal = @import("sa_std/proc_wait.zig").waitStatusStoppedSignal;
 
-pub fn waitStatusContinued(raw: i32) u8 {
-    return if (rawWaitStatus(raw) == 0xffff) 1 else 0;
-}
+pub const waitStatusContinued = @import("sa_std/proc_wait.zig").waitStatusContinued;
 
-fn waitProcessIgnoringMissing(pid: std.posix.pid_t) ?u32 {
-    if (comptime builtin.cpu.arch.isWasm()) return null;
-    var status: i32 = 0;
-    while (true) {
-        const result = std.os.linux.wait4(pid, &status, 0, null);
-        switch (std.os.linux.errno(result)) {
-            .SUCCESS => return @bitCast(status),
-            .INTR => continue,
-            .CHILD => return null,
-            else => return null,
-        }
-    }
-}
+pub const waitProcessIgnoringMissing = @import("sa_std/proc_wait.zig").waitProcessIgnoringMissing;
 
-fn waitStatusFromSiginfo(siginfo: std.posix.siginfo_t) u32 {
+pub fn waitStatusFromSiginfo(siginfo: std.posix.siginfo_t) u32 {
     const status = @as(u32, @intCast(siginfo.fields.common.second.sigchld.status));
     return switch (siginfo.code) {
         1 => (status & 0xff) << 8, // CLD_EXITED
@@ -4541,23 +3574,7 @@ fn openPidfd(pid: std.posix.pid_t) ?std.posix.fd_t {
     };
 }
 
-pub fn waitPidfdStatus(fd: std.posix.fd_t, options: u32) error{ ProcessNotFound, InvalidArgument, PermissionDenied, Unexpected }!?u32 {
-    if (comptime builtin.os.tag != .linux) return null;
-    var siginfo: std.posix.siginfo_t = undefined;
-    while (true) {
-        const result = std.os.linux.waitid(.PIDFD, fd, &siginfo, options, null);
-        switch (std.os.linux.errno(result)) {
-            .SUCCESS => break,
-            .INTR => continue,
-            .CHILD => return error.ProcessNotFound,
-            .INVAL => return error.InvalidArgument,
-            .PERM => return error.PermissionDenied,
-            else => return error.Unexpected,
-        }
-    }
-    if (siginfo.fields.common.first.piduid.pid == 0) return null;
-    return waitStatusFromSiginfo(siginfo);
-}
+pub const waitPidfdStatus = @import("sa_std/proc_wait.zig").waitPidfdStatus;
 
 pub fn sendSignalToPidfd(fd: std.posix.fd_t, signum: u8, flags: u32) !void {
     const result = std.os.linux.pidfd_send_signal(fd, @fromBackingInt(@intCast(signum)), null, flags);
@@ -4610,27 +3627,7 @@ pub fn applyProcessCommandExtSetup(cwd: ?[]const u8, config: ProcessSpawnConfig,
     if (config.setsid) try lxSetsid();
 }
 
-pub fn finalizeProcessExit(proc: *ProcessHandle, status: u32) !void {
-    proc.code = statusFromWaitStatus(status);
-    proc.raw_status = status;
-    proc.exited = true;
-    if (proc.capture_output) {
-        if (proc.stdout_fd) |fd| {
-            const captured = try capture_fd_to_owned(std.heap.page_allocator, fd);
-            proc.stdout_buf = captured;
-            lxClose(fd);
-            proc.stdout_fd = null;
-        }
-        if (proc.stderr_fd) |fd| {
-            const captured = try capture_fd_to_owned(std.heap.page_allocator, fd);
-            proc.stderr_buf = captured;
-            lxClose(fd);
-            proc.stderr_fd = null;
-        }
-    }
-    proc.stdout_pos = 0;
-    proc.stderr_pos = 0;
-}
+pub const finalizeProcessExit = @import("sa_std/proc_wait.zig").finalizeProcessExit;
 
 pub fn spawnProcessConfiguredCwd(allocator: std.mem.Allocator, argv: []const []const u8, mode: ProcessSpawnMode, cwd: ?[]const u8, config: ProcessSpawnConfig) !SpawnResult {
     // wasm32-wasi has no fork/exec/pipe2-CLOEXEC; stub.
@@ -4954,7 +3951,7 @@ pub fn lxErr(e: std.os.linux.E) anyerror {
     return errnoToAny(e);
 }
 
-fn lxCheck(rc: usize) !usize {
+pub fn lxCheck(rc: usize) !usize {
     if (comptime is_wasm) return error.Unsupported;
     const e = std.os.linux.errno(rc);
     if (e != .SUCCESS) return lxErr(e);
@@ -5619,133 +4616,23 @@ pub fn netGetAddressList(allocator: std.mem.Allocator, host: []const u8, port: u
 // 0.17 compat: portable file metadata. Linux keeps statx; other targets use
 // the Io vtable stat (which maps to lstat/stat internally).
 // ---------------------------------------------------------------------------
-const RawStat = struct {
-    ino: u64,
-    nlink: u64,
-    size: u64,
-    mode: u16,
-    uid: u32,
-    gid: u32,
-    dev_major: u32,
-    dev_minor: u32,
-    rdev_major: u32,
-    rdev_minor: u32,
-    blksize: u32,
-    blocks: u64,
-    atime: RawTs,
-    mtime: RawTs,
-    ctime: RawTs,
+pub const RawStat = @import("sa_std/dir_stat.zig").RawStat;
 
-    const RawTs = struct { sec: i64, nsec: u32 };
-};
+pub const timestampToRawTs = @import("sa_std/dir_stat.zig").timestampToRawTs;
 
-fn timestampToRawTs(ts: std.Io.Timestamp) RawStat.RawTs {
-    const total = @as(i128, ts.toNanoseconds());
-    const sec = @divFloor(total, std.time.ns_per_s);
-    const nsec = total - sec * std.time.ns_per_s;
-    return .{ .sec = @intCast(sec), .nsec = @intCast(nsec) };
-}
+pub const kindModeBits = @import("sa_std/dir_stat.zig").kindModeBits;
 
-fn kindModeBits(kind: std.Io.File.Kind) u32 {
-    return switch (kind) {
-        .directory => std.posix.S.IFDIR,
-        .file => std.posix.S.IFREG,
-        .sym_link => std.posix.S.IFLNK,
-        .named_pipe => std.posix.S.IFIFO,
-        .character_device => std.posix.S.IFCHR,
-        .block_device => std.posix.S.IFBLK,
-        .unix_domain_socket => std.posix.S.IFSOCK,
-        else => 0,
-    };
-}
+pub const rawStatFromIo = @import("sa_std/dir_stat.zig").rawStatFromIo;
 
-fn rawStatFromIo(st: sio.Stat) RawStat {
-    const perm = @as(u32, @intCast(@backingInt(st.permissions)));
-    const epoch: RawStat.RawTs = .{ .sec = 0, .nsec = 0 };
-    return .{
-        .ino = @intCast(st.inode),
-        .nlink = @intCast(st.nlink),
-        .size = st.size,
-        .mode = @intCast(perm | kindModeBits(st.kind)),
-        .uid = 0,
-        .gid = 0,
-        .dev_major = 0,
-        .dev_minor = 0,
-        .rdev_major = 0,
-        .rdev_minor = 0,
-        .blksize = @intCast(st.block_size),
-        .blocks = (st.size + 511) / 512,
-        .atime = if (st.atime) |t| timestampToRawTs(t) else epoch,
-        .mtime = timestampToRawTs(st.mtime),
-        .ctime = timestampToRawTs(st.ctime),
-    };
-}
+pub const lxStatxNoFollow = @import("sa_std/dir_stat.zig").lxStatxNoFollow;
 
-pub fn lxStatxNoFollow(path: []const u8) !RawStat {
-    if (comptime is_wasm) return error.Unsupported;
-    if (comptime is_linux) {
-        const z = try std.posix.toPosixPath(path);
-        var stx: std.os.linux.Statx = undefined;
-        _ = try lxCheck(std.os.linux.statx(std.posix.AT.FDCWD, &z, 0x100, std.os.linux.STATX.BASIC_STATS, &stx));
-        return .{
-            .ino = stx.ino,
-            .nlink = stx.nlink,
-            .size = stx.size,
-            .mode = stx.mode,
-            .uid = stx.uid,
-            .gid = stx.gid,
-            .dev_major = stx.dev_major,
-            .dev_minor = stx.dev_minor,
-            .rdev_major = stx.rdev_major,
-            .rdev_minor = stx.rdev_minor,
-            .blksize = stx.blksize,
-            .blocks = stx.blocks,
-            .atime = .{ .sec = @intCast(stx.atime.sec), .nsec = stx.atime.nsec },
-            .mtime = .{ .sec = @intCast(stx.mtime.sec), .nsec = stx.mtime.nsec },
-            .ctime = .{ .sec = @intCast(stx.ctime.sec), .nsec = stx.ctime.nsec },
-        };
-    }
-    const st = try sio.cwd().inner.statFile(sio.io(), path, .{ .follow_symlinks = false });
-    return rawStatFromIo(st);
-}
+pub const statFromRaw = @import("sa_std/dir_stat.zig").statFromRaw;
 
-pub fn statFromRaw(raw: RawStat) sio.Stat {
-    const kind: std.Io.File.Kind = switch (raw.mode & std.posix.S.IFMT) {
-        std.posix.S.IFDIR => .directory,
-        std.posix.S.IFREG => .file,
-        std.posix.S.IFLNK => .sym_link,
-        std.posix.S.IFIFO => .named_pipe,
-        std.posix.S.IFCHR => .character_device,
-        std.posix.S.IFBLK => .block_device,
-        std.posix.S.IFSOCK => .unix_domain_socket,
-        else => .unknown,
-    };
-    return .{
-        .inode = raw.ino,
-        .nlink = @intCast(raw.nlink),
-        .size = raw.size,
-        .permissions = @fromBackingInt(@intCast(@as(std.posix.mode_t, @intCast(raw.mode)))),
-        .kind = kind,
-        .atime = .{ .nanoseconds = @as(i96, raw.atime.sec) * std.time.ns_per_s + @as(i96, raw.atime.nsec) },
-        .mtime = .{ .nanoseconds = @as(i96, raw.mtime.sec) * std.time.ns_per_s + @as(i96, raw.mtime.nsec) },
-        .ctime = .{ .nanoseconds = @as(i96, raw.ctime.sec) * std.time.ns_per_s + @as(i96, raw.ctime.nsec) },
-        .block_size = raw.blksize,
-    };
-}
+pub const statxDevId = @import("sa_std/dir_stat.zig").statxDevId;
 
-fn statxDevId(major: u32, minor: u32) u64 {
-    return (@as(u64, major) << 32) | @as(u64, minor);
-}
+pub const tsToMs = @import("sa_std/dir_stat.zig").tsToMs;
 
-pub fn tsToMs(ts: std.Io.Timestamp) i64 {
-    return nsToMs(@as(i128, ts.toNanoseconds()));
-}
-
-pub fn cryptoRandomU64() u64 {
-    var rb: [8]u8 = undefined;
-    sio.io().random(&rb);
-    return std.mem.readInt(u64, &rb, .little);
-}
+pub const cryptoRandomU64 = @import("sa_std/test_debug.zig").cryptoRandomU64;
 
 pub fn formatInteger(value: anytype, base: u32) ![]u8 {
     const actual_base: u8 = switch (base) {
@@ -5790,15 +4677,7 @@ pub fn stringConcat(left: []const u8, right: []const u8) ![]u8 {
     return bytes;
 }
 
-fn longestSuffixPrefix(text: []const u8, prefix: []const u8) usize {
-    if (text.len == 0 or prefix.len == 0) return 0;
-    const max_len = @min(text.len, prefix.len - 1);
-    var len = max_len;
-    while (len > 0) : (len -= 1) {
-        if (std.mem.eql(u8, text[text.len - len ..], prefix[0..len])) return len;
-    }
-    return 0;
-}
+pub const longestSuffixPrefix = @import("sa_std/chat_norm.zig").longestSuffixPrefix;
 
 pub fn openOwnedBuffer(bytes: []u8) !u64 {
     return registerResource(.{ .fmt = .{ .allocator = std.heap.page_allocator, .bytes = bytes } }) catch |err| {
@@ -5821,71 +4700,7 @@ pub fn openOwnedEnvBuffer(bytes: []u8) !u64 {
     };
 }
 
-const ThoughtStreamSplitter = struct {
-    allocator: std.mem.Allocator,
-    pending: std.array_list.Managed(u8),
-    in_thought: bool = false,
-
-    fn init(allocator: std.mem.Allocator) ThoughtStreamSplitter {
-        return .{
-            .allocator = allocator,
-            .pending = std.array_list.Managed(u8).init(allocator),
-            .in_thought = false,
-        };
-    }
-
-    fn deinit(self: *ThoughtStreamSplitter) void {
-        self.pending.deinit();
-    }
-
-    fn consume(self: *ThoughtStreamSplitter, chunk: []const u8, visible: *std.array_list.Managed(u8), reasoning: *std.array_list.Managed(u8)) !void {
-        const open_tag = "<thought>";
-        const close_tag = "</thought>";
-        try self.pending.appendSlice(chunk);
-
-        while (self.pending.items.len != 0) {
-            if (!self.in_thought) {
-                if (std.mem.indexOf(u8, self.pending.items, open_tag)) |open_index| {
-                    if (open_index > 0) try visible.appendSlice(self.pending.items[0..open_index]);
-                    try self.pending.replaceRange(0, open_index + open_tag.len, &.{});
-                    self.in_thought = true;
-                    continue;
-                }
-
-                const keep = longestSuffixPrefix(self.pending.items, open_tag);
-                const emit_len = self.pending.items.len - keep;
-                if (emit_len > 0) try visible.appendSlice(self.pending.items[0..emit_len]);
-                try self.pending.replaceRange(0, emit_len, &.{});
-                break;
-            }
-
-            if (std.mem.indexOf(u8, self.pending.items, close_tag)) |close_index| {
-                if (close_index > 0) try reasoning.appendSlice(self.pending.items[0..close_index]);
-                try self.pending.replaceRange(0, close_index + close_tag.len, &.{});
-                self.in_thought = false;
-                continue;
-            }
-
-            const keep = longestSuffixPrefix(self.pending.items, close_tag);
-            const emit_len = self.pending.items.len - keep;
-            if (emit_len > 0) try reasoning.appendSlice(self.pending.items[0..emit_len]);
-            try self.pending.replaceRange(0, emit_len, &.{});
-            break;
-        }
-    }
-
-    fn flush(self: *ThoughtStreamSplitter, visible: *std.array_list.Managed(u8), reasoning: *std.array_list.Managed(u8)) !void {
-        if (self.pending.items.len != 0) {
-            if (self.in_thought) {
-                try reasoning.appendSlice(self.pending.items);
-            } else {
-                try visible.appendSlice(self.pending.items);
-            }
-            self.pending.clearRetainingCapacity();
-        }
-        self.in_thought = false;
-    }
-};
+pub const ThoughtStreamSplitter = @import("sa_std/chat_norm.zig").ThoughtStreamSplitter;
 
 const ListWriter = struct {
     list: *std.array_list.Managed(u8),
@@ -5914,7 +4729,7 @@ pub fn stringifyToList(list: *std.array_list.Managed(u8), value: anytype) !void 
     try list.appendSlice(aw.written());
 }
 
-fn appendJsonString(writer: ListWriter, text: []const u8) !void {
+pub fn appendJsonString(writer: ListWriter, text: []const u8) !void {
     try stringifyToList(writer.list, text);
 }
 
@@ -5954,912 +4769,96 @@ pub fn jsonRpcParamsStringLiteralAlloc(body: []const u8, key: []const u8, fallba
     return try jsonStringLiteralAlloc(std.heap.page_allocator, fallback);
 }
 
-fn jsonU64Value(value: ?std.json.Value) u64 {
-    const actual = value orelse return 0;
-    return switch (actual) {
-        .integer => |inner| if (inner >= 0) @as(u64, @intCast(inner)) else 0,
-        .float => |inner| if (inner >= 0 and inner <= @as(f64, @floatFromInt(std.math.maxInt(u64)))) @as(u64, @intFromFloat(inner)) else 0,
-        else => 0,
-    };
-}
+pub const jsonU64Value = @import("sa_std/chat_norm.zig").jsonU64Value;
 
-fn appendResponseCreated(out: *std.array_list.Managed(u8)) !void {
-    try out.appendSlice("event: response.created\n");
-    try out.appendSlice("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_chat_fb\"}}\n\n");
-}
+pub const appendResponseCreated = @import("sa_std/chat_norm.zig").appendResponseCreated;
 
-fn appendReasoningDelta(
-    out: *std.array_list.Managed(u8),
-    reasoning_started: *bool,
-    reasoning_done: *bool,
-    reasoning_output_index: *u64,
-    next_output_index: *u64,
-    text: []const u8,
-) !void {
-    if (text.len == 0) return;
-    const writer = listWriter(out);
-    if (reasoning_done.*) {
-        reasoning_started.* = false;
-        reasoning_done.* = false;
-    }
-    if (!reasoning_started.*) {
-        reasoning_output_index.* = next_output_index.*;
-        next_output_index.* += 1;
-        try out.appendSlice("event: response.output_item.added\n");
-        try out.appendSlice("data: {\"type\":\"response.output_item.added\",\"output_index\":");
-        try writer.print("{}", .{reasoning_output_index.*});
-        try out.appendSlice(",\"item\":{\"id\":\"think_chat_fb\",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"\"}]}}\n\n");
-        try out.appendSlice("event: response.reasoning_summary_part.added\n");
-        try out.appendSlice("data: {\"type\":\"response.reasoning_summary_part.added\",\"item_id\":\"think_chat_fb\",\"output_index\":");
-        try writer.print("{}", .{reasoning_output_index.*});
-        try out.appendSlice(",\"summary_index\":0}\n\n");
-        reasoning_started.* = true;
-    }
-    try out.appendSlice("event: response.reasoning_summary_text.delta\n");
-    try out.appendSlice("data: {\"type\":\"response.reasoning_summary_text.delta\",\"item_id\":\"think_chat_fb\",\"output_index\":");
-    try writer.print("{}", .{reasoning_output_index.*});
-    try out.appendSlice(",\"summary_index\":0,\"delta\":");
-    try appendJsonString(writer, text);
-    try out.appendSlice("}\n\n");
-}
+pub const appendReasoningDelta = @import("sa_std/chat_norm.zig").appendReasoningDelta;
 
-fn appendReasoningDone(
-    out: *std.array_list.Managed(u8),
-    reasoning_started: bool,
-    reasoning_done: *bool,
-    reasoning_output_index: u64,
-    reasoning_text: []const u8,
-) !void {
-    if (!reasoning_started) return;
-    if (reasoning_done.*) return;
-    const writer = listWriter(out);
-    try out.appendSlice("event: response.output_item.done\n");
-    try out.appendSlice("data: {\"type\":\"response.output_item.done\",\"output_index\":");
-    try writer.print("{}", .{reasoning_output_index});
-    try out.appendSlice(",\"item\":{\"id\":\"think_chat_fb\",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":");
-    try appendJsonString(writer, reasoning_text);
-    try out.appendSlice("}],\"encrypted_content\":null,\"content\":[{\"type\":\"reasoning_text\",\"text\":");
-    try appendJsonString(writer, reasoning_text);
-    try out.appendSlice("}]}}\n\n");
-    reasoning_done.* = true;
-}
+pub const appendReasoningDone = @import("sa_std/chat_norm.zig").appendReasoningDone;
 
-fn appendMessageDelta(
-    out: *std.array_list.Managed(u8),
-    message_started: *bool,
-    message_output_index: *u64,
-    next_output_index: *u64,
-    message_text: *std.array_list.Managed(u8),
-    text: []const u8,
-) !void {
-    if (text.len == 0) return;
-    const writer = listWriter(out);
-    if (!message_started.*) {
-        message_output_index.* = next_output_index.*;
-        next_output_index.* += 1;
-        try out.appendSlice("event: response.output_item.added\n");
-        try out.appendSlice("data: {\"type\":\"response.output_item.added\",\"output_index\":");
-        try writer.print("{}", .{message_output_index.*});
-        try out.appendSlice(",\"item\":{\"id\":\"msg_chat_fb\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"\"}]}}\n\n");
-        message_started.* = true;
-    }
-    try message_text.appendSlice(text);
-    try out.appendSlice("event: response.output_text.delta\n");
-    try out.appendSlice("data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_chat_fb\",\"output_index\":");
-    try writer.print("{}", .{message_output_index.*});
-    try out.appendSlice(",\"content_index\":0,\"delta\":");
-    try appendJsonString(writer, text);
-    try out.appendSlice("}\n\n");
-}
+pub const appendMessageDelta = @import("sa_std/chat_norm.zig").appendMessageDelta;
 
-fn appendMessageDone(out: *std.array_list.Managed(u8), message_started: bool, message_output_index: u64, message_text: []const u8) !void {
-    if (!message_started) return;
-    const writer = listWriter(out);
-    try out.appendSlice("event: response.output_item.done\n");
-    try out.appendSlice("data: {\"type\":\"response.output_item.done\",\"output_index\":");
-    try writer.print("{}", .{message_output_index});
-    try out.appendSlice(",\"item\":{\"id\":\"msg_chat_fb\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":");
-    try appendJsonString(writer, message_text);
-    try out.appendSlice("}]}}\n\n");
-}
+pub const appendMessageDone = @import("sa_std/chat_norm.zig").appendMessageDone;
 
-fn requestAllowsContinuation(req_body: []const u8) bool {
-    if (std.mem.indexOf(u8, req_body, "\"name\":\"exec_command\"") == null) return false;
-    if (std.mem.indexOf(u8, req_body, "<goal_context>") != null) return true;
-    if (std.mem.indexOf(u8, req_body, "\"mode\":\"goal\"") != null) return true;
-    if (std.mem.indexOf(u8, req_body, "\"kind\":\"goal\"") != null) return true;
-    if (std.mem.indexOf(u8, req_body, "\"collaborationModeKind\":\"goal\"") != null) return true;
-    if (std.mem.indexOf(u8, req_body, "\"mode\":\"code\"") != null) return true;
-    if (std.mem.indexOf(u8, req_body, "\"kind\":\"code\"") != null) return true;
-    if (std.mem.indexOf(u8, req_body, "\"collaborationModeKind\":\"code\"") != null) return true;
-    if (std.mem.indexOf(u8, req_body, "# Collaboration Mode: Default") != null) return true;
-    return false;
-}
+pub const requestAllowsContinuation = @import("sa_std/chat_norm.zig").requestAllowsContinuation;
 
-fn isProgressOnlyText(text: []const u8) bool {
-    const trimmed = std.mem.trim(u8, text, " \t\r\n");
-    if (trimmed.len == 0) return false;
-    if (std.mem.indexOf(u8, trimmed, "<proposed_plan>") != null or
-        std.mem.indexOf(u8, trimmed, "</proposed_plan>") != null or
-        std.mem.indexOf(u8, trimmed, "我已完成") != null or
-        std.mem.indexOf(u8, trimmed, "结论") != null or
-        std.mem.indexOf(u8, trimmed, "总结") != null or
-        std.mem.indexOf(u8, trimmed, "summary") != null or
-        std.mem.indexOf(u8, trimmed, "conclusion") != null or
-        std.mem.indexOf(u8, trimmed, "completed") != null)
-    {
-        return false;
-    }
-    if (std.mem.indexOf(u8, trimmed, "Let me ") != null or
-        std.mem.indexOf(u8, trimmed, "let me ") != null or
-        std.mem.indexOf(u8, trimmed, "I'll ") != null or
-        std.mem.indexOf(u8, trimmed, "I will ") != null or
-        std.mem.indexOf(u8, trimmed, "我先") != null or
-        std.mem.indexOf(u8, trimmed, "我会") != null or
-        std.mem.indexOf(u8, trimmed, "接下来") != null)
-    {
-        return std.mem.indexOf(u8, trimmed, "check") != null or
-            std.mem.indexOf(u8, trimmed, "inspect") != null or
-            std.mem.indexOf(u8, trimmed, "read") != null or
-            std.mem.indexOf(u8, trimmed, "run") != null or
-            std.mem.indexOf(u8, trimmed, "verify") != null or
-            std.mem.indexOf(u8, trimmed, "review") != null or
-            std.mem.indexOf(u8, trimmed, "analyze") != null or
-            std.mem.indexOf(u8, trimmed, "analyse") != null or
-            std.mem.indexOf(u8, trimmed, "查看") != null or
-            std.mem.indexOf(u8, trimmed, "检查") != null or
-            std.mem.indexOf(u8, trimmed, "读取") != null or
-            std.mem.indexOf(u8, trimmed, "运行") != null or
-            std.mem.indexOf(u8, trimmed, "执行") != null or
-            std.mem.indexOf(u8, trimmed, "评估") != null or
-            std.mem.indexOf(u8, trimmed, "分析") != null;
-    }
-    return false;
-}
+pub const isProgressOnlyText = @import("sa_std/chat_norm.zig").isProgressOnlyText;
 
-fn appendContinuationTool(out: *std.array_list.Managed(u8)) !void {
-    try out.appendSlice("event: response.output_item.done\n");
-    try out.appendSlice("data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"tc_chat_continue\",\"type\":\"function_call\",\"call_id\":\"call_chat_continue\",\"name\":\"exec_command\",\"arguments\":\"{\\\"cmd\\\":\\\"printf '%s\\\\n' 'Progress-only message received in chat fallback. Continue now: call a read-only tool if more evidence is needed, otherwise provide the final answer.'\\\"}\"}}\n\n");
-}
+pub const appendContinuationTool = @import("sa_std/chat_norm.zig").appendContinuationTool;
 
-fn appendContinuationToolJson(out: *std.array_list.Managed(u8)) !void {
-    try out.appendSlice("{\"type\":\"function_call\",\"id\":\"tc_chat_continue\",\"call_id\":\"call_chat_continue\",\"name\":\"exec_command\",\"arguments\":\"{\\\"cmd\\\":\\\"printf '%s\\\\n' 'Progress-only message received in chat fallback. Continue now: call a read-only tool if more evidence is needed, otherwise provide the final answer.'\\\"}\"}");
-}
+pub const appendContinuationToolJson = @import("sa_std/chat_norm.zig").appendContinuationToolJson;
 
-const ChatToolCallState = struct {
-    allocator: std.mem.Allocator,
-    index: usize,
-    call_id: std.array_list.Managed(u8),
-    name: std.array_list.Managed(u8),
-    arguments: std.array_list.Managed(u8),
+pub const ChatToolCallState = @import("sa_std/chat_norm.zig").ChatToolCallState;
 
-    fn init(allocator: std.mem.Allocator, index: usize) ChatToolCallState {
-        return .{
-            .allocator = allocator,
-            .index = index,
-            .call_id = std.array_list.Managed(u8).init(allocator),
-            .name = std.array_list.Managed(u8).init(allocator),
-            .arguments = std.array_list.Managed(u8).init(allocator),
-        };
-    }
+pub const shellQuote = @import("sa_std/chat_norm.zig").shellQuote;
 
-    fn deinit(self: *ChatToolCallState) void {
-        self.call_id.deinit();
-        self.name.deinit();
-        self.arguments.deinit();
-    }
-};
+pub const isSensitiveEnvPath = @import("sa_std/chat_norm.zig").isSensitiveEnvPath;
 
-fn shellQuote(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
-    var out = std.array_list.Managed(u8).init(allocator);
-    errdefer out.deinit();
-    try out.append('\'');
-    for (value) |ch| {
-        if (ch == '\'') {
-            try out.appendSlice("'\\''");
-        } else {
-            try out.append(ch);
-        }
-    }
-    try out.append('\'');
-    return try out.toOwnedSlice();
-}
+pub const appendCommandArguments = @import("sa_std/chat_norm.zig").appendCommandArguments;
 
-fn isSensitiveEnvPath(path: []const u8) bool {
-    const slash = std.mem.lastIndexOfScalar(u8, path, '/') orelse std.math.maxInt(usize);
-    const base = if (slash == std.math.maxInt(usize)) path else path[slash + 1 ..];
-    if (base.len < 4) return false;
-    if (!std.ascii.eqlIgnoreCase(base[0..4], ".env")) return false;
-    return base.len == 4 or base[4] == '.';
-}
+pub const appendReadCommand = @import("sa_std/chat_norm.zig").appendReadCommand;
 
-fn appendCommandArguments(out_arguments: *std.array_list.Managed(u8), command: []const u8) !void {
-    try out_arguments.appendSlice("{\"cmd\":");
-    try appendJsonString(listWriter(out_arguments), command);
-    try out_arguments.append('}');
-}
+pub const splitMcpNamespace = @import("sa_std/chat_norm.zig").splitMcpNamespace;
 
-fn appendReadCommand(allocator: std.mem.Allocator, path: []const u8, out_arguments: *std.array_list.Managed(u8)) !void {
-    const quoted = try shellQuote(allocator, path);
-    defer allocator.free(quoted);
-    var command = std.array_list.Managed(u8).init(allocator);
-    defer command.deinit();
-    if (isSensitiveEnvPath(path)) {
-        try command.appendSlice("sed -E 's/(OPENAI_API_KEY|AUTH|TOKEN|KEY|SECRET)=.*/\\\\1=<redacted>/I' ");
-    } else {
-        try command.appendSlice("cat ");
-    }
-    try command.appendSlice(quoted);
-    try appendCommandArguments(out_arguments, command.items);
-}
+pub const denormalizeMcpServerNameAlloc = @import("sa_std/chat_norm.zig").denormalizeMcpServerNameAlloc;
 
-fn splitMcpNamespace(name: []const u8) ?struct { namespace: []const u8, tool: []const u8 } {
-    if (!std.mem.startsWith(u8, name, "mcp__")) return null;
-    const rest_start: usize = 5;
-    const rel_end = std.mem.indexOf(u8, name[rest_start..], "__") orelse return null;
-    const ns_len = rest_start + rel_end + 2;
-    if (name.len <= ns_len) return null;
-    const tool_start = if (name[ns_len] == '.') ns_len + 1 else ns_len;
-    if (tool_start >= name.len) return null;
-    return .{ .namespace = name[0..ns_len], .tool = name[tool_start..] };
-}
+pub const normalizeMcpServerNameAlloc = @import("sa_std/normalize.zig").normalizeMcpServerNameAlloc;
 
-fn denormalizeMcpServerNameAlloc(allocator: std.mem.Allocator, server: []const u8) ![]u8 {
-    var source = server;
-    if (std.mem.startsWith(u8, source, "mcp__") and std.mem.endsWith(u8, source, "__") and source.len > 7) {
-        source = source[5 .. source.len - 2];
-    }
-    var out = try allocator.alloc(u8, source.len);
-    for (source, 0..) |ch, idx| {
-        out[idx] = switch (ch) {
-            '_', ' ' => '-',
-            else => std.ascii.toLower(ch),
-        };
-    }
-    return out;
-}
+pub const requestMentionsTool = @import("sa_std/chat_norm.zig").requestMentionsTool;
 
-fn normalizeMcpServerNameAlloc(allocator: std.mem.Allocator, server: []const u8) ![]u8 {
-    if (std.mem.eql(u8, server, "Code Index") or
-        std.mem.eql(u8, server, "code-index") or
-        std.mem.eql(u8, server, "code_index"))
-    {
-        return allocator.dupe(u8, "mcp__code_index__");
-    }
-    if (std.mem.eql(u8, server, "Mimir") or std.mem.eql(u8, server, "mimir")) {
-        return allocator.dupe(u8, "mcp__mimir__");
-    }
-    if (std.mem.startsWith(u8, server, "mcp__mcp_") and std.mem.endsWith(u8, server, "___") and server.len > 11) {
-        const inner = server[9 .. server.len - 3];
-        var out = std.array_list.Managed(u8).init(allocator);
-        errdefer out.deinit();
-        try out.appendSlice("mcp__");
-        try out.appendSlice(inner);
-        try out.appendSlice("__");
-        return try out.toOwnedSlice();
-    }
-    if (std.mem.startsWith(u8, server, "mcp__") and std.mem.endsWith(u8, server, "__") and server.len > 7) {
-        return allocator.dupe(u8, server);
-    }
+pub const normalizeChatToolArguments = @import("sa_std/chat_norm.zig").normalizeChatToolArguments;
 
-    var out = std.array_list.Managed(u8).init(allocator);
-    errdefer out.deinit();
-    try out.appendSlice("mcp__");
-    var last_sep = false;
-    for (server) |ch| {
-        if (std.ascii.isAlphanumeric(ch)) {
-            try out.append(std.ascii.toLower(ch));
-            last_sep = false;
-        } else if (!last_sep) {
-            try out.append('_');
-            last_sep = true;
-        }
-    }
-    while (out.items.len > 5 and out.items[out.items.len - 1] == '_') _ = out.pop();
-    try out.appendSlice("__");
-    return try out.toOwnedSlice();
-}
+pub const appendNormalizedToolCall = @import("sa_std/chat_norm.zig").appendNormalizedToolCall;
 
-fn requestMentionsTool(req_body: []const u8, name: []const u8) bool {
-    return name.len != 0 and std.mem.indexOf(u8, req_body, name) != null;
-}
+pub const appendNormalizedToolCallJson = @import("sa_std/chat_norm.zig").appendNormalizedToolCallJson;
 
-fn normalizeChatToolArguments(
-    allocator: std.mem.Allocator,
-    req_body: []const u8,
-    name: []const u8,
-    arguments: []const u8,
-    out_namespace: *std.array_list.Managed(u8),
-    out_name: *std.array_list.Managed(u8),
-    out_arguments: *std.array_list.Managed(u8),
-) !bool {
-    if (std.mem.eql(u8, name, "exec_command")) {
-        if (!requestMentionsTool(req_body, "exec_command")) return false;
-        try out_name.appendSlice("exec_command");
-        var parsed = std.json.parseFromSlice(std.json.Value, allocator, arguments, .{}) catch {
-            try out_arguments.appendSlice(arguments);
-            return true;
-        };
-        defer parsed.deinit();
-        const command = jsonStringValue(jsonObjectGetValue(parsed.value, "command"));
-        if (command.len != 0) {
-            try appendCommandArguments(out_arguments, command);
-            return true;
-        }
-        try out_arguments.appendSlice(arguments);
-        return true;
-    }
+pub const findToolCallState = @import("sa_std/chat_norm.zig").findToolCallState;
 
-    if (std.mem.eql(u8, name, "read")) {
-        if (!requestMentionsTool(req_body, "exec_command")) return false;
-        var parsed = std.json.parseFromSlice(std.json.Value, allocator, arguments, .{}) catch return false;
-        defer parsed.deinit();
-        var path = jsonStringValue(jsonObjectGetValue(parsed.value, "filePath"));
-        if (path.len == 0) path = jsonStringValue(jsonObjectGetValue(parsed.value, "path"));
-        if (path.len == 0) return false;
-        try out_name.appendSlice("exec_command");
-        try appendReadCommand(allocator, path, out_arguments);
-        return true;
-    }
+pub const parseToolCallIndex = @import("sa_std/chat_norm.zig").parseToolCallIndex;
 
-    if (splitMcpNamespace(name)) |split| {
-        if (!requestMentionsTool(req_body, split.namespace)) return false;
-        try out_namespace.appendSlice(split.namespace);
-        try out_name.appendSlice(split.tool);
-        try out_arguments.appendSlice(arguments);
-        return true;
-    }
+pub const appendResponseDone = @import("sa_std/chat_norm.zig").appendResponseDone;
 
-    if (!requestMentionsTool(req_body, name)) {
-        if (!requestMentionsTool(req_body, "exec_command")) return false;
-        try out_name.appendSlice("exec_command");
-        var message = std.array_list.Managed(u8).init(allocator);
-        defer message.deinit();
-        try message.appendSlice("Tool ");
-        if (name.len != 0) {
-            try message.appendSlice(name);
-        } else {
-            try message.appendSlice("unknown");
-        }
-        try message.appendSlice(" is unavailable in chat fallback; continue with exec_command/MCP tools or provide the final answer.");
-        const quoted = try shellQuote(allocator, message.items);
-        defer allocator.free(quoted);
-        var command = std.array_list.Managed(u8).init(allocator);
-        defer command.deinit();
-        try command.appendSlice("printf '%s\\n' ");
-        try command.appendSlice(quoted);
-        try appendCommandArguments(out_arguments, command.items);
-        return true;
-    }
+pub const appendChatUsageJson = @import("sa_std/chat_norm.zig").appendChatUsageJson;
 
-    try out_name.appendSlice(name);
-    try out_arguments.appendSlice(arguments);
-    return name.len != 0;
-}
+pub const appendChatJsonReasoningItem = @import("sa_std/chat_norm.zig").appendChatJsonReasoningItem;
 
-fn appendNormalizedToolCall(out: *std.array_list.Managed(u8), req_body: []const u8, call: *const ChatToolCallState) !void {
-    var normalized_namespace = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer normalized_namespace.deinit();
-    var normalized_name = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer normalized_name.deinit();
-    var normalized_args = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer normalized_args.deinit();
-    const ok_norm = try normalizeChatToolArguments(
-        std.heap.page_allocator,
-        req_body,
-        call.name.items,
-        call.arguments.items,
-        &normalized_namespace,
-        &normalized_name,
-        &normalized_args,
-    );
-    if (!ok_norm) return;
+pub const appendChatJsonMessageItem = @import("sa_std/chat_norm.zig").appendChatJsonMessageItem;
 
-    const writer = listWriter(out);
-    try out.appendSlice("event: response.output_item.done\n");
-    try out.appendSlice("data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"tc_chat_fb_");
-    try writer.print("{}", .{call.index});
-    try out.appendSlice("\",\"type\":\"function_call\",\"call_id\":");
-    if (call.call_id.items.len != 0) {
-        try appendJsonString(writer, call.call_id.items);
-    } else {
-        try appendJsonString(writer, normalized_name.items);
-    }
-    try out.appendSlice(",\"name\":");
-    try appendJsonString(writer, normalized_name.items);
-    try out.appendSlice(",\"arguments\":");
-    try appendJsonString(writer, normalized_args.items);
-    if (normalized_namespace.items.len != 0) {
-        try out.appendSlice(",\"namespace\":");
-        try appendJsonString(writer, normalized_namespace.items);
-        try out.appendSlice(",\"output_kind\":\"function_call_output\"");
-    }
-    try out.appendSlice("}}\n\n");
-}
+pub const appendOutputComma = @import("sa_std/chat_norm.zig").appendOutputComma;
 
-fn appendNormalizedToolCallJson(out: *std.array_list.Managed(u8), req_body: []const u8, call: *const ChatToolCallState) !bool {
-    var normalized_namespace = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer normalized_namespace.deinit();
-    var normalized_name = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer normalized_name.deinit();
-    var normalized_args = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer normalized_args.deinit();
-    const ok_norm = try normalizeChatToolArguments(
-        std.heap.page_allocator,
-        req_body,
-        call.name.items,
-        call.arguments.items,
-        &normalized_namespace,
-        &normalized_name,
-        &normalized_args,
-    );
-    if (!ok_norm) return false;
+pub const denoChatJsonToResponses = @import("sa_std/chat_norm.zig").denoChatJsonToResponses;
 
-    const writer = listWriter(out);
-    try out.appendSlice("{\"id\":\"tc_chat_fb_");
-    try writer.print("{}", .{call.index});
-    try out.appendSlice("\",\"type\":\"function_call\",\"call_id\":");
-    if (call.call_id.items.len != 0) {
-        try appendJsonString(writer, call.call_id.items);
-    } else {
-        try appendJsonString(writer, normalized_name.items);
-    }
-    try out.appendSlice(",\"name\":");
-    try appendJsonString(writer, normalized_name.items);
-    try out.appendSlice(",\"arguments\":");
-    try appendJsonString(writer, normalized_args.items);
-    if (normalized_namespace.items.len != 0) {
-        try out.appendSlice(",\"namespace\":");
-        try appendJsonString(writer, normalized_namespace.items);
-        try out.appendSlice(",\"output_kind\":\"function_call_output\"");
-    }
-    try out.append('}');
-    return true;
-}
+pub const ThoughtSplit = @import("sa_std/chat_norm.zig").ThoughtSplit;
 
-fn findToolCallState(calls: *std.array_list.Managed(ChatToolCallState), index: usize) !*ChatToolCallState {
-    for (calls.items) |*call| {
-        if (call.index == index) return call;
-    }
-    try calls.append(ChatToolCallState.init(std.heap.page_allocator, index));
-    return &calls.items[calls.items.len - 1];
-}
+pub const splitThoughtTextAlloc = @import("sa_std/chat_norm.zig").splitThoughtTextAlloc;
 
-fn parseToolCallIndex(value: std.json.Value) usize {
-    return switch (value) {
-        .integer => |inner| if (inner >= 0) @as(usize, @intCast(inner)) else 0,
-        .float => |inner| if (inner >= 0 and inner <= @as(f64, @floatFromInt(std.math.maxInt(usize)))) @as(usize, @intFromFloat(inner)) else 0,
-        else => 0,
-    };
-}
+pub const appendMergedReasoningText = @import("sa_std/chat_norm.zig").appendMergedReasoningText;
 
-fn appendResponseDone(out: *std.array_list.Managed(u8)) !void {
-    try out.appendSlice("event: response.done\n");
-    try out.appendSlice("data: {\"type\":\"response.done\",\"response\":{\"id\":\"resp_chat_fb\",\"status\":\"completed\"}}\n\n");
-    try out.appendSlice("event: response.completed\n");
-    try out.appendSlice("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_chat_fb\",\"status\":\"completed\"}}\n\n");
-}
+pub const appendReasoningFields = @import("sa_std/chat_norm.zig").appendReasoningFields;
 
-fn appendChatUsageJson(out: *std.array_list.Managed(u8), usage: ?std.json.Value) !void {
-    const prompt_tokens = if (usage) |u| blk: {
-        const prompt = jsonU64Value(jsonObjectGetValue(u, "prompt_tokens"));
-        break :blk if (prompt != 0) prompt else jsonU64Value(jsonObjectGetValue(u, "input_tokens"));
-    } else 0;
-    const completion_tokens = if (usage) |u| blk: {
-        const completion = jsonU64Value(jsonObjectGetValue(u, "completion_tokens"));
-        break :blk if (completion != 0) completion else jsonU64Value(jsonObjectGetValue(u, "output_tokens"));
-    } else 0;
-    const total_tokens = if (usage) |u| blk: {
-        const total = jsonU64Value(jsonObjectGetValue(u, "total_tokens"));
-        break :blk if (total != 0) total else prompt_tokens + completion_tokens;
-    } else prompt_tokens + completion_tokens;
-    const cached_tokens = if (usage) |u| jsonU64Value(jsonObjectGetValue(jsonObjectGetValue(u, "prompt_tokens_details") orelse .null, "cached_tokens")) else 0;
-    const reasoning_tokens = if (usage) |u| jsonU64Value(jsonObjectGetValue(jsonObjectGetValue(u, "completion_tokens_details") orelse .null, "reasoning_tokens")) else 0;
-    try listWriter(out).print(
-        "\"usage\":{{\"input_tokens\":{},\"input_tokens_details\":{{\"cached_tokens\":{}}},\"output_tokens\":{},\"output_tokens_details\":{{\"reasoning_tokens\":{}}},\"total_tokens\":{}}}",
-        .{ prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, total_tokens },
-    );
-}
+pub const isNativeReasoningType = @import("sa_std/chat_norm.zig").isNativeReasoningType;
 
-fn appendChatJsonReasoningItem(out: *std.array_list.Managed(u8), text: []const u8) !void {
-    const writer = listWriter(out);
-    try out.appendSlice("{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":");
-    try appendJsonString(writer, text);
-    try out.appendSlice("}],\"encrypted_content\":null,\"content\":[{\"type\":\"reasoning_text\",\"text\":");
-    try appendJsonString(writer, text);
-    try out.appendSlice("}]}");
-}
+pub const appendNativeReasoningItem = @import("sa_std/chat_norm.zig").appendNativeReasoningItem;
 
-fn appendChatJsonMessageItem(out: *std.array_list.Managed(u8), text: []const u8) !void {
-    const writer = listWriter(out);
-    try out.appendSlice("{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":");
-    try appendJsonString(writer, text);
-    try out.appendSlice("}]}");
-}
+pub const appendNativeMessageItem = @import("sa_std/chat_norm.zig").appendNativeMessageItem;
 
-fn appendOutputComma(out: *std.array_list.Managed(u8), count: *usize) !void {
-    if (count.* != 0) try out.append(',');
-    count.* += 1;
-}
+pub const appendNativeNormalizedOutput = @import("sa_std/chat_norm.zig").appendNativeNormalizedOutput;
 
-pub fn denoChatJsonToResponses(chat_body: []const u8, req_body: []const u8) ![]u8 {
-    var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, chat_body, .{}) catch {
-        return std.heap.page_allocator.dupe(u8, chat_body);
-    };
-    defer parsed.deinit();
+pub const nativeResponsesJsonNeedsNormalize = @import("sa_std/chat_norm.zig").nativeResponsesJsonNeedsNormalize;
 
-    const first_choice = jsonArrayFirst(jsonObjectGetValue(parsed.value, "choices") orelse .null);
-    const message = if (first_choice) |choice| jsonObjectGetValue(choice, "message") else null;
-    const content = if (message) |msg| jsonStringValue(jsonObjectGetValue(msg, "content")) else "";
-    const message_reasoning = if (message) |msg| jsonStringValue(jsonObjectGetValue(msg, "reasoning_content")) else "";
+pub const denoResponsesJsonNormalize = @import("sa_std/chat_norm.zig").denoResponsesJsonNormalize;
 
-    var splitter = ThoughtStreamSplitter.init(std.heap.page_allocator);
-    defer splitter.deinit();
-    var visible = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer visible.deinit();
-    var thought = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer thought.deinit();
-    try splitter.consume(content, &visible, &thought);
-    try splitter.flush(&visible, &thought);
-
-    const trimmed_message_reasoning = std.mem.trim(u8, message_reasoning, " \t\r\n");
-    const trimmed_thought = std.mem.trim(u8, thought.items, " \t\r\n");
-    const trimmed_visible = std.mem.trim(u8, visible.items, " \t\r\n");
-
-    var reasoning = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer reasoning.deinit();
-    if (trimmed_message_reasoning.len != 0) try reasoning.appendSlice(trimmed_message_reasoning);
-    if (trimmed_thought.len != 0 and !std.mem.eql(u8, trimmed_thought, trimmed_message_reasoning)) {
-        if (reasoning.items.len != 0) try reasoning.append('\n');
-        try reasoning.appendSlice(trimmed_thought);
-    }
-
-    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    errdefer out.deinit();
-    const writer = listWriter(&out);
-    try out.appendSlice("{\"id\":\"resp_chat_fb\",\"object\":\"response\",\"output\":[");
-    var output_count: usize = 0;
-    if (reasoning.items.len != 0) {
-        try appendOutputComma(&out, &output_count);
-        try appendChatJsonReasoningItem(&out, reasoning.items);
-    }
-    if (trimmed_visible.len != 0) {
-        try appendOutputComma(&out, &output_count);
-        try appendChatJsonMessageItem(&out, trimmed_visible);
-    }
-
-    var tool_count: usize = 0;
-    if (message) |msg| {
-        if (jsonObjectGetValue(msg, "tool_calls")) |tool_calls_value| {
-            switch (tool_calls_value) {
-                .array => |array| {
-                    for (array.items, 0..) |entry, idx| {
-                        const fn_value = jsonObjectGetValue(entry, "function") orelse .null;
-                        const call_id = jsonStringValue(jsonObjectGetValue(entry, "id"));
-                        const name = jsonStringValue(jsonObjectGetValue(fn_value, "name"));
-                        const args = jsonStringValue(jsonObjectGetValue(fn_value, "arguments"));
-                        var call = ChatToolCallState.init(std.heap.page_allocator, idx);
-                        defer call.deinit();
-                        try call.call_id.appendSlice(call_id);
-                        try call.name.appendSlice(name);
-                        try call.arguments.appendSlice(args);
-                        var item = std.array_list.Managed(u8).init(std.heap.page_allocator);
-                        defer item.deinit();
-                        if (try appendNormalizedToolCallJson(&item, req_body, &call)) {
-                            try appendOutputComma(&out, &output_count);
-                            try out.appendSlice(item.items);
-                            tool_count += 1;
-                        }
-                    }
-                },
-                else => {},
-            }
-        }
-    }
-
-    if (tool_count == 0 and trimmed_visible.len != 0 and requestAllowsContinuation(req_body) and isProgressOnlyText(trimmed_visible)) {
-        try appendOutputComma(&out, &output_count);
-        try appendContinuationToolJson(&out);
-    }
-
-    try out.appendSlice("],\"output_text\":");
-    try appendJsonString(writer, trimmed_visible);
-    try out.append(',');
-    try appendChatUsageJson(&out, if (jsonObjectGetValue(parsed.value, "usage")) |usage| usage else null);
-    try out.appendSlice(",\"status\":\"completed\"}");
-    return try out.toOwnedSlice();
-}
-
-const ThoughtSplit = struct {
-    visible: []u8,
-    reasoning: []u8,
-};
-
-fn splitThoughtTextAlloc(allocator: std.mem.Allocator, text: []const u8) !ThoughtSplit {
-    var splitter = ThoughtStreamSplitter.init(allocator);
-    defer splitter.deinit();
-    var visible = std.array_list.Managed(u8).init(allocator);
-    errdefer visible.deinit();
-    var reasoning = std.array_list.Managed(u8).init(allocator);
-    errdefer reasoning.deinit();
-    try splitter.consume(text, &visible, &reasoning);
-    try splitter.flush(&visible, &reasoning);
-    const trimmed_visible = std.mem.trim(u8, visible.items, " \t\r\n");
-    const trimmed_reasoning = std.mem.trim(u8, reasoning.items, " \t\r\n");
-    const owned_visible = try allocator.dupe(u8, trimmed_visible);
-    const owned_reasoning = try allocator.dupe(u8, trimmed_reasoning);
-    visible.deinit();
-    reasoning.deinit();
-    return .{ .visible = owned_visible, .reasoning = owned_reasoning };
-}
-
-fn appendMergedReasoningText(out: *std.array_list.Managed(u8), text: []const u8) !void {
-    const trimmed = std.mem.trim(u8, text, " \t\r\n");
-    if (trimmed.len == 0) return;
-    if (std.mem.indexOf(u8, out.items, trimmed) != null) return;
-    if (out.items.len != 0) try out.append('\n');
-    try out.appendSlice(trimmed);
-}
-
-fn appendReasoningFields(value: std.json.Value, out: *std.array_list.Managed(u8)) !void {
-    const fields = [_][]const u8{ "reasoning", "reasoning_content", "thinking", "thought", "reason", "text" };
-    inline for (fields) |field| {
-        try appendMergedReasoningText(out, jsonStringValue(jsonObjectGetValue(value, field)));
-    }
-    if (jsonObjectGetValue(value, "summary")) |summary| {
-        switch (summary) {
-            .string => |text| try appendMergedReasoningText(out, text),
-            .array => |array| {
-                for (array.items) |part| {
-                    switch (part) {
-                        .string => |text| try appendMergedReasoningText(out, text),
-                        .object => try appendMergedReasoningText(out, jsonStringValue(jsonObjectGetValue(part, "text"))),
-                        else => {},
-                    }
-                }
-            },
-            else => {},
-        }
-    }
-    if (jsonObjectGetValue(value, "content")) |content| {
-        switch (content) {
-            .array => |array| {
-                for (array.items) |part| {
-                    const part_type = jsonStringValue(jsonObjectGetValue(part, "type"));
-                    if (std.mem.eql(u8, part_type, "reasoning_text") or std.mem.eql(u8, part_type, "summary_text")) {
-                        try appendMergedReasoningText(out, jsonStringValue(jsonObjectGetValue(part, "text")));
-                    }
-                }
-            },
-            else => {},
-        }
-    }
-}
-
-fn isNativeReasoningType(item_type: []const u8) bool {
-    return std.mem.eql(u8, item_type, "reasoning") or
-        std.mem.eql(u8, item_type, "thinking") or
-        std.mem.eql(u8, item_type, "thought") or
-        std.mem.eql(u8, item_type, "reason");
-}
-
-fn appendNativeReasoningItem(out: *std.array_list.Managed(u8), id: []const u8, text: []const u8) !void {
-    const writer = listWriter(out);
-    try out.appendSlice("{\"id\":");
-    if (id.len != 0) {
-        try appendJsonString(writer, id);
-    } else {
-        try appendJsonString(writer, "rs_native_json");
-    }
-    try out.appendSlice(",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":");
-    try appendJsonString(writer, text);
-    try out.appendSlice("}],\"encrypted_content\":null,\"content\":[{\"type\":\"reasoning_text\",\"text\":");
-    try appendJsonString(writer, text);
-    try out.appendSlice("}]}");
-}
-
-fn appendNativeMessageItem(
-    allocator: std.mem.Allocator,
-    out: *std.array_list.Managed(u8),
-    item: std.json.Value,
-    output_count: *usize,
-    has_reasoning: *bool,
-) !void {
-    var item_reasoning = std.array_list.Managed(u8).init(allocator);
-    defer item_reasoning.deinit();
-    const reason_fields = [_][]const u8{ "reasoning", "reasoning_content", "thinking", "thought", "reason" };
-    inline for (reason_fields) |field| {
-        try appendMergedReasoningText(&item_reasoning, jsonStringValue(jsonObjectGetValue(item, field)));
-    }
-
-    var visible_content = std.array_list.Managed(u8).init(allocator);
-    defer visible_content.deinit();
-    var content_count: usize = 0;
-    if (jsonObjectGetValue(item, "content")) |content| {
-        switch (content) {
-            .array => |array| {
-                for (array.items) |part| {
-                    const part_type = jsonStringValue(jsonObjectGetValue(part, "type"));
-                    const text = jsonStringValue(jsonObjectGetValue(part, "text"));
-                    if ((std.mem.eql(u8, part_type, "output_text") or std.mem.eql(u8, part_type, "text")) and text.len != 0) {
-                        const split = try splitThoughtTextAlloc(allocator, text);
-                        defer allocator.free(split.visible);
-                        defer allocator.free(split.reasoning);
-                        try appendMergedReasoningText(&item_reasoning, split.reasoning);
-                        if (split.visible.len != 0) {
-                            if (content_count != 0) try visible_content.append(',');
-                            try visible_content.appendSlice("{\"type\":\"output_text\",\"text\":");
-                            try appendJsonString(listWriter(&visible_content), split.visible);
-                            try visible_content.append('}');
-                            content_count += 1;
-                        }
-                    } else {
-                        if (content_count != 0) try visible_content.append(',');
-                        try stringifyToList(&visible_content, part);
-                        content_count += 1;
-                    }
-                }
-            },
-            else => {},
-        }
-    }
-
-    if (item_reasoning.items.len != 0) {
-        try appendOutputComma(out, output_count);
-        try appendNativeReasoningItem(out, "", item_reasoning.items);
-        has_reasoning.* = true;
-    }
-
-    try appendOutputComma(out, output_count);
-    const writer = listWriter(out);
-    try out.appendSlice("{\"type\":\"message\",\"role\":");
-    const role = jsonStringValue(jsonObjectGetValue(item, "role"));
-    try appendJsonString(writer, if (role.len != 0) role else "assistant");
-    if (jsonStringValue(jsonObjectGetValue(item, "id")).len != 0) {
-        try out.appendSlice(",\"id\":");
-        try appendJsonString(writer, jsonStringValue(jsonObjectGetValue(item, "id")));
-    }
-    try out.appendSlice(",\"content\":[");
-    try out.appendSlice(visible_content.items);
-    try out.appendSlice("]}");
-}
-
-fn appendNativeNormalizedOutput(
-    allocator: std.mem.Allocator,
-    out: *std.array_list.Managed(u8),
-    output: ?std.json.Value,
-    output_text_reasoning: []const u8,
-) !void {
-    try out.appendSlice("\"output\":[");
-    var output_count: usize = 0;
-    var has_reasoning = false;
-    if (output) |output_value| {
-        switch (output_value) {
-            .array => |array| {
-                for (array.items) |item| {
-                    const item_type = jsonStringValue(jsonObjectGetValue(item, "type"));
-                    if (isNativeReasoningType(item_type)) {
-                        var text = std.array_list.Managed(u8).init(allocator);
-                        defer text.deinit();
-                        try appendReasoningFields(item, &text);
-                        if (text.items.len != 0) {
-                            try appendOutputComma(out, &output_count);
-                            try appendNativeReasoningItem(out, jsonStringValue(jsonObjectGetValue(item, "id")), text.items);
-                            has_reasoning = true;
-                        }
-                        continue;
-                    }
-                    if (std.mem.eql(u8, item_type, "message")) {
-                        try appendNativeMessageItem(allocator, out, item, &output_count, &has_reasoning);
-                        continue;
-                    }
-                    try appendOutputComma(out, &output_count);
-                    try stringifyToList(out, item);
-                }
-            },
-            else => {},
-        }
-    }
-    if (!has_reasoning and output_text_reasoning.len != 0) {
-        try appendOutputComma(out, &output_count);
-        try appendNativeReasoningItem(out, "", output_text_reasoning);
-    }
-    try out.append(']');
-}
-
-fn nativeResponsesJsonNeedsNormalize(root: std.json.ObjectMap, output_text_reasoning: []const u8) bool {
-    if (output_text_reasoning.len != 0) return true;
-    const output = root.get("output") orelse return false;
-    return switch (output) {
-        .array => |array| {
-            for (array.items) |item| {
-                const item_type = jsonStringValue(jsonObjectGetValue(item, "type"));
-                if (isNativeReasoningType(item_type)) return true;
-                if (std.mem.eql(u8, item_type, "message")) {
-                    const reason_fields = [_][]const u8{ "reasoning", "reasoning_content", "thinking", "thought", "reason" };
-                    inline for (reason_fields) |field| {
-                        if (std.mem.trim(u8, jsonStringValue(jsonObjectGetValue(item, field)), " \t\r\n").len != 0) return true;
-                    }
-                    if (jsonObjectGetValue(item, "content")) |content| {
-                        switch (content) {
-                            .array => |content_array| {
-                                for (content_array.items) |part| {
-                                    const part_type = jsonStringValue(jsonObjectGetValue(part, "type"));
-                                    const text = jsonStringValue(jsonObjectGetValue(part, "text"));
-                                    if (std.mem.eql(u8, part_type, "text")) return true;
-                                    if (std.mem.eql(u8, part_type, "output_text") and
-                                        (std.mem.indexOf(u8, text, "<thought>") != null or
-                                            std.mem.indexOf(u8, text, "</thought>") != null))
-                                    {
-                                        return true;
-                                    }
-                                }
-                            },
-                            else => {},
-                        }
-                    }
-                }
-            }
-            return false;
-        },
-        else => false,
-    };
-}
-
-pub fn denoResponsesJsonNormalize(body: []const u8) ![]u8 {
-    var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, body, .{}) catch {
-        return std.heap.page_allocator.dupe(u8, body);
-    };
-    defer parsed.deinit();
-    const root = switch (parsed.value) {
-        .object => |object| object,
-        else => return std.heap.page_allocator.dupe(u8, body),
-    };
-
-    const output_text = jsonStringValue(root.get("output_text"));
-    const output_text_split = try splitThoughtTextAlloc(std.heap.page_allocator, output_text);
-    defer std.heap.page_allocator.free(output_text_split.visible);
-    defer std.heap.page_allocator.free(output_text_split.reasoning);
-    if (!nativeResponsesJsonNeedsNormalize(root, output_text_split.reasoning)) {
-        return std.heap.page_allocator.dupe(u8, body);
-    }
-
-    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    errdefer out.deinit();
-    try out.append('{');
-    var field_count: usize = 0;
-    var it = root.iterator();
-    while (it.next()) |entry| {
-        if (std.mem.eql(u8, entry.key_ptr.*, "output") or std.mem.eql(u8, entry.key_ptr.*, "output_text")) continue;
-        if (field_count != 0) try out.append(',');
-        try appendJsonString(listWriter(&out), entry.key_ptr.*);
-        try out.append(':');
-        try stringifyToList(&out, entry.value_ptr.*);
-        field_count += 1;
-    }
-    if (field_count != 0) try out.append(',');
-    try appendNativeNormalizedOutput(std.heap.page_allocator, &out, root.get("output"), output_text_split.reasoning);
-    try out.appendSlice(",\"output_text\":");
-    try appendJsonString(listWriter(&out), output_text_split.visible);
-    try out.append('}');
-    return try out.toOwnedSlice();
-}
-
-fn jsonObjectGetValue(value: std.json.Value, key: []const u8) ?std.json.Value {
+pub fn jsonObjectGetValue(value: std.json.Value, key: []const u8) ?std.json.Value {
     return switch (value) {
         .object => |object| object.get(key),
         else => null,
     };
 }
 
-fn jsonArrayFirst(value: std.json.Value) ?std.json.Value {
-    return switch (value) {
-        .array => |array| if (array.items.len > 0) array.items[0] else null,
-        else => null,
-    };
-}
+pub const jsonArrayFirst = @import("sa_std/chat_norm.zig").jsonArrayFirst;
 
-fn jsonStringValue(value: ?std.json.Value) []const u8 {
+pub fn jsonStringValue(value: ?std.json.Value) []const u8 {
     const actual = value orelse return "";
     return switch (actual) {
         .string => |text| text,
@@ -6867,901 +4866,61 @@ fn jsonStringValue(value: ?std.json.Value) []const u8 {
     };
 }
 
-fn jsonBoolValue(value: ?std.json.Value, default_value: bool) bool {
-    const actual = value orelse return default_value;
-    return switch (actual) {
-        .bool => |inner| inner,
-        else => default_value,
-    };
-}
+pub const jsonBoolValue = @import("sa_std/chat_fallback.zig").jsonBoolValue;
 
-fn appendJsonFieldName(out: *std.array_list.Managed(u8), field_count: *usize, name: []const u8) !void {
-    if (field_count.* != 0) try out.append(',');
-    try appendJsonString(listWriter(out), name);
-    try out.append(':');
-    field_count.* += 1;
-}
+pub const appendJsonFieldName = @import("sa_std/chat_fallback.zig").appendJsonFieldName;
 
-fn appendSystemText(system_texts: *std.array_list.Managed(u8), text: []const u8) !void {
-    const trimmed = std.mem.trim(u8, text, " \t\r\n");
-    if (trimmed.len == 0) return;
-    if (system_texts.items.len != 0) try system_texts.appendSlice("\n\n");
-    try system_texts.appendSlice(trimmed);
-}
+pub const appendSystemText = @import("sa_std/chat_fallback.zig").appendSystemText;
 
-fn responseContentTextOnlyAlloc(allocator: std.mem.Allocator, content: std.json.Value) !?[]u8 {
-    switch (content) {
-        .string => |text| return try allocator.dupe(u8, text),
-        .array => |array| {
-            var has_non_text = false;
-            for (array.items) |part| {
-                const part_type = jsonStringValue(jsonObjectGetValue(part, "type"));
-                if (!std.mem.eql(u8, part_type, "input_text") and
-                    !std.mem.eql(u8, part_type, "text") and
-                    !std.mem.eql(u8, part_type, "output_text"))
-                {
-                    has_non_text = true;
-                    break;
-                }
-            }
-            if (has_non_text) return null;
-            var out = std.array_list.Managed(u8).init(allocator);
-            errdefer out.deinit();
-            for (array.items) |part| {
-                try out.appendSlice(jsonStringValue(jsonObjectGetValue(part, "text")));
-            }
-            return try out.toOwnedSlice();
-        },
-        else => return null,
-    }
-}
+pub const responseContentTextOnlyAlloc = @import("sa_std/chat_fallback.zig").responseContentTextOnlyAlloc;
 
-fn appendMappedResponseContentPart(out: *std.array_list.Managed(u8), part: std.json.Value) !void {
-    const writer = listWriter(out);
-    const part_type = jsonStringValue(jsonObjectGetValue(part, "type"));
-    if (std.mem.eql(u8, part_type, "input_text") or
-        std.mem.eql(u8, part_type, "text") or
-        std.mem.eql(u8, part_type, "output_text"))
-    {
-        try out.appendSlice("{\"type\":\"text\",\"text\":");
-        try appendJsonString(writer, jsonStringValue(jsonObjectGetValue(part, "text")));
-        try out.append('}');
-        return;
-    }
-    if (std.mem.eql(u8, part_type, "input_image")) {
-        try out.appendSlice("{\"type\":\"image_url\",\"image_url\":{\"url\":");
-        try appendJsonString(writer, jsonStringValue(jsonObjectGetValue(part, "image_url")));
-        try out.appendSlice("}}");
-        return;
-    }
-    if (std.mem.eql(u8, part_type, "image_url")) {
-        try out.appendSlice("{\"type\":\"image_url\",\"image_url\":");
-        const image_url = jsonObjectGetValue(part, "image_url") orelse .null;
-        switch (image_url) {
-            .object => try stringifyToList(writer.list, image_url),
-            .string => |url| {
-                try out.appendSlice("{\"url\":");
-                try appendJsonString(writer, url);
-                try out.append('}');
-            },
-            else => try out.appendSlice("{\"url\":\"\"}"),
-        }
-        try out.append('}');
-        return;
-    }
-    try stringifyToList(writer.list, part);
-}
+pub const appendMappedResponseContentPart = @import("sa_std/chat_fallback.zig").appendMappedResponseContentPart;
 
-fn appendResponseContentAsChat(
-    allocator: std.mem.Allocator,
-    out: *std.array_list.Managed(u8),
-    content: std.json.Value,
-) !bool {
-    if (try responseContentTextOnlyAlloc(allocator, content)) |text| {
-        try appendJsonString(listWriter(out), text);
-        return text.len != 0;
-    }
+pub const appendResponseContentAsChat = @import("sa_std/chat_fallback.zig").appendResponseContentAsChat;
 
-    const array = switch (content) {
-        .array => |items| items,
-        else => return false,
-    };
-    if (array.items.len == 0) return false;
-    try out.append('[');
-    var count: usize = 0;
-    for (array.items) |part| {
-        switch (part) {
-            .object => {},
-            else => continue,
-        }
-        if (count != 0) try out.append(',');
-        try appendMappedResponseContentPart(out, part);
-        count += 1;
-    }
-    try out.append(']');
-    return count != 0;
-}
+pub const isResponsesToolCallType = @import("sa_std/chat_fallback.zig").isResponsesToolCallType;
 
-fn isResponsesToolCallType(item_type: []const u8) bool {
-    return std.mem.eql(u8, item_type, "function_call") or
-        std.mem.eql(u8, item_type, "custom_tool_call") or
-        std.mem.eql(u8, item_type, "tool_search_call") or
-        std.mem.eql(u8, item_type, "mcp_tool_call");
-}
+pub const isResponsesToolOutputType = @import("sa_std/chat_fallback.zig").isResponsesToolOutputType;
 
-fn isResponsesToolOutputType(item_type: []const u8) bool {
-    return std.mem.eql(u8, item_type, "function_call_output") or
-        std.mem.eql(u8, item_type, "custom_tool_call_output") or
-        std.mem.eql(u8, item_type, "tool_search_output") or
-        std.mem.eql(u8, item_type, "mcp_tool_call_output");
-}
+pub const responseToolCallNameForChat = @import("sa_std/chat_fallback.zig").responseToolCallNameForChat;
 
-fn responseToolCallNameForChat(allocator: std.mem.Allocator, item: std.json.Value) ![]const u8 {
-    const raw_name = std.mem.trim(u8, jsonStringValue(jsonObjectGetValue(item, "name")), " \t\r\n");
-    const item_type = jsonStringValue(jsonObjectGetValue(item, "type"));
-    if (std.mem.eql(u8, item_type, "mcp_tool_call")) {
-        const server = jsonStringValue(jsonObjectGetValue(item, "server"));
-        if (server.len != 0 and !std.mem.startsWith(u8, raw_name, server)) {
-            var out = std.array_list.Managed(u8).init(allocator);
-            errdefer out.deinit();
-            try out.appendSlice(server);
-            try out.appendSlice(raw_name);
-            return try out.toOwnedSlice();
-        }
-    }
-    return raw_name;
-}
+pub const collectResponseToolCallNames = @import("sa_std/chat_fallback.zig").collectResponseToolCallNames;
 
-fn collectResponseToolCallNames(
-    allocator: std.mem.Allocator,
-    input_items: []const std.json.Value,
-) !std.StringHashMap([]const u8) {
-    var call_names = std.StringHashMap([]const u8).init(allocator);
-    errdefer call_names.deinit();
-    for (input_items) |item| {
-        const item_type = jsonStringValue(jsonObjectGetValue(item, "type"));
-        if (!isResponsesToolCallType(item_type)) continue;
-        const call_id = jsonStringValue(jsonObjectGetValue(item, "call_id"));
-        if (call_id.len == 0) continue;
-        const name = try responseToolCallNameForChat(allocator, item);
-        if (name.len == 0) continue;
-        try call_names.put(call_id, name);
-    }
-    return call_names;
-}
+pub const appendChatMessagePrefix = @import("sa_std/chat_fallback.zig").appendChatMessagePrefix;
 
-fn appendChatMessagePrefix(out: *std.array_list.Managed(u8), message_count: *usize, role: []const u8) !void {
-    if (message_count.* != 0) try out.append(',');
-    try out.appendSlice("{\"role\":");
-    try appendJsonString(listWriter(out), role);
-    try out.appendSlice(",\"content\":");
-    message_count.* += 1;
-}
+pub const appendResponseMessageAsChat = @import("sa_std/chat_fallback.zig").appendResponseMessageAsChat;
 
-fn appendResponseMessageAsChat(
-    allocator: std.mem.Allocator,
-    messages: *std.array_list.Managed(u8),
-    message_count: *usize,
-    system_texts: *std.array_list.Managed(u8),
-    item: std.json.Value,
-) !void {
-    const item_type = jsonStringValue(jsonObjectGetValue(item, "type"));
-    if (!std.mem.eql(u8, item_type, "message") and !std.mem.eql(u8, item_type, "assistant_message")) return;
-    const raw_role = blk: {
-        const role = jsonStringValue(jsonObjectGetValue(item, "role"));
-        if (role.len != 0) break :blk role;
-        break :blk if (std.mem.eql(u8, item_type, "message")) "user" else "assistant";
-    };
-    const role = if (std.mem.eql(u8, raw_role, "developer")) "system" else raw_role;
-    const content = jsonObjectGetValue(item, "content") orelse .null;
-    if (std.mem.eql(u8, role, "system")) {
-        if (try responseContentTextOnlyAlloc(allocator, content)) |text| try appendSystemText(system_texts, text);
-        return;
-    }
+pub const appendResponseToolCallAsChat = @import("sa_std/chat_fallback.zig").appendResponseToolCallAsChat;
 
-    var content_buf = std.array_list.Managed(u8).init(allocator);
-    errdefer content_buf.deinit();
-    if (!try appendResponseContentAsChat(allocator, &content_buf, content)) {
-        content_buf.deinit();
-        return;
-    }
-    try appendChatMessagePrefix(messages, message_count, role);
-    try messages.appendSlice(content_buf.items);
-    try messages.append('}');
-}
+pub const appendResponseToolOutputAsChat = @import("sa_std/chat_fallback.zig").appendResponseToolOutputAsChat;
 
-fn appendResponseToolCallAsChat(
-    allocator: std.mem.Allocator,
-    input_items: []const std.json.Value,
-    index: *usize,
-    messages: *std.array_list.Managed(u8),
-    message_count: *usize,
-) !void {
-    const start_len = messages.items.len;
-    if (message_count.* != 0) try messages.append(',');
-    try messages.appendSlice("{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[");
-    var call_count: usize = 0;
-    while (index.* < input_items.len) : (index.* += 1) {
-        const item = input_items[index.*];
-        const item_type = jsonStringValue(jsonObjectGetValue(item, "type"));
-        if (!isResponsesToolCallType(item_type)) break;
-        const call_id = jsonStringValue(jsonObjectGetValue(item, "call_id"));
-        const arguments = jsonStringValue(jsonObjectGetValue(item, "arguments"));
-        const chat_name = try responseToolCallNameForChat(allocator, item);
-        if (chat_name.len == 0) continue;
-        if (call_count != 0) try messages.append(',');
-        try messages.appendSlice("{\"id\":");
-        if (call_id.len != 0) {
-            try appendJsonString(listWriter(messages), call_id);
-        } else {
-            try listWriter(messages).print("\"call_{}\"", .{index.*});
-        }
-        try messages.appendSlice(",\"type\":\"function\",\"function\":{\"name\":");
-        try appendJsonString(listWriter(messages), chat_name);
-        try messages.appendSlice(",\"arguments\":");
-        try appendJsonString(listWriter(messages), if (arguments.len != 0) arguments else "{}");
-        try messages.appendSlice("}}");
-        call_count += 1;
-    }
-    try messages.appendSlice("]}");
-    if (call_count == 0) {
-        messages.shrinkRetainingCapacity(start_len);
-        if (index.* != 0) index.* -= 1;
-        return;
-    }
-    message_count.* += 1;
-    if (index.* != 0) index.* -= 1;
-}
+pub const appendNormalizedChatTool = @import("sa_std/chat_fallback.zig").appendNormalizedChatTool;
 
-fn appendResponseToolOutputAsChat(
-    allocator: std.mem.Allocator,
-    messages: *std.array_list.Managed(u8),
-    message_count: *usize,
-    call_names: *const std.StringHashMap([]const u8),
-    item: std.json.Value,
-) !void {
-    const item_type = jsonStringValue(jsonObjectGetValue(item, "type"));
-    if (!isResponsesToolOutputType(item_type)) return;
-    var output_text = jsonStringValue(jsonObjectGetValue(item, "output"));
-    if (output_text.len == 0) {
-        if (jsonObjectGetValue(item, "output")) |output| {
-            const owned_output = try std.json.Stringify.valueAlloc(allocator, output, .{});
-            output_text = owned_output;
-        } else {
-            output_text = jsonStringValue(jsonObjectGetValue(item, "content"));
-        }
-    }
-    if (output_text.len == 0) return;
-    try appendChatMessagePrefix(messages, message_count, "tool");
-    try appendJsonString(listWriter(messages), output_text);
-    const call_id = jsonStringValue(jsonObjectGetValue(item, "call_id"));
-    if (call_id.len != 0) {
-        try messages.appendSlice(",\"tool_call_id\":");
-        try appendJsonString(listWriter(messages), call_id);
-    }
-    const explicit_name = std.mem.trim(u8, jsonStringValue(jsonObjectGetValue(item, "name")), " \t\r\n");
-    const name = if (explicit_name.len != 0) explicit_name else blk: {
-        if (call_id.len == 0) break :blk "";
-        break :blk call_names.get(call_id) orelse "";
-    };
-    if (name.len != 0) {
-        try messages.appendSlice(",\"name\":");
-        try appendJsonString(listWriter(messages), name);
-    }
-    try messages.append('}');
-}
+pub const appendNormalizedChatToolsField = @import("sa_std/chat_fallback.zig").appendNormalizedChatToolsField;
 
-fn appendNormalizedChatTool(
-    out: *std.array_list.Managed(u8),
-    tool: std.json.Value,
-    namespace_prefix: []const u8,
-    tool_count: *usize,
-) !void {
-    const tool_type = jsonStringValue(jsonObjectGetValue(tool, "type"));
-    if (std.mem.eql(u8, tool_type, "namespace")) {
-        const nested_prefix = jsonStringValue(jsonObjectGetValue(tool, "name"));
-        const nested_tools = jsonObjectGetValue(tool, "tools") orelse .null;
-        switch (nested_tools) {
-            .array => |array| {
-                for (array.items) |nested| try appendNormalizedChatTool(out, nested, nested_prefix, tool_count);
-            },
-            else => {},
-        }
-        return;
-    }
-    if (tool_type.len != 0 and !std.mem.eql(u8, tool_type, "function")) return;
+pub const appendResponseFormatFromText = @import("sa_std/chat_fallback.zig").appendResponseFormatFromText;
 
-    const fn_value = jsonObjectGetValue(tool, "function") orelse .null;
-    const source = switch (fn_value) {
-        .object => fn_value,
-        else => tool,
-    };
-    const raw_name = blk: {
-        const fn_name = jsonStringValue(jsonObjectGetValue(source, "name"));
-        if (fn_name.len != 0) break :blk fn_name;
-        break :blk jsonStringValue(jsonObjectGetValue(tool, "name"));
-    };
-    if (raw_name.len == 0) return;
-    if (tool_count.* != 0) try out.append(',');
-    try out.appendSlice("{\"type\":\"function\",\"function\":{\"name\":");
-    if (namespace_prefix.len != 0 and !std.mem.startsWith(u8, raw_name, namespace_prefix)) {
-        var prefixed = std.array_list.Managed(u8).init(std.heap.page_allocator);
-        defer prefixed.deinit();
-        try prefixed.appendSlice(namespace_prefix);
-        try prefixed.appendSlice(raw_name);
-        try appendJsonString(listWriter(out), prefixed.items);
-    } else {
-        try appendJsonString(listWriter(out), raw_name);
-    }
+pub const shouldSkipResponsesFallbackField = @import("sa_std/chat_fallback.zig").shouldSkipResponsesFallbackField;
 
-    const description = blk: {
-        const fn_desc = jsonStringValue(jsonObjectGetValue(source, "description"));
-        if (fn_desc.len != 0) break :blk fn_desc;
-        break :blk jsonStringValue(jsonObjectGetValue(tool, "description"));
-    };
-    if (description.len != 0) {
-        try out.appendSlice(",\"description\":");
-        try appendJsonString(listWriter(out), description);
-    }
-    if (jsonObjectGetValue(source, "parameters")) |parameters| {
-        try out.appendSlice(",\"parameters\":");
-        try stringifyToList(out, parameters);
-    } else if (jsonObjectGetValue(tool, "parameters")) |parameters| {
-        try out.appendSlice(",\"parameters\":");
-        try stringifyToList(out, parameters);
-    }
-    const has_strict = jsonObjectGetValue(source, "strict") != null or jsonObjectGetValue(tool, "strict") != null;
-    if (has_strict) {
-        try out.appendSlice(",\"strict\":");
-        try out.appendSlice(if (jsonBoolValue(jsonObjectGetValue(source, "strict"), jsonBoolValue(jsonObjectGetValue(tool, "strict"), false))) "true" else "false");
-    }
-    try out.appendSlice("}}");
-    tool_count.* += 1;
-}
+pub const denoResponsesChatFallbackRequest = @import("sa_std/chat_fallback.zig").denoResponsesChatFallbackRequest;
 
-fn appendNormalizedChatToolsField(out: *std.array_list.Managed(u8), field_count: *usize, tools: std.json.Value) !void {
-    const array = switch (tools) {
-        .array => |items| items,
-        else => return,
-    };
-    var tools_json = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer tools_json.deinit();
-    var tool_count: usize = 0;
-    for (array.items) |tool| try appendNormalizedChatTool(&tools_json, tool, "", &tool_count);
-    if (tool_count == 0) return;
-    try appendJsonFieldName(out, field_count, "tools");
-    try out.append('[');
-    try out.appendSlice(tools_json.items);
-    try out.append(']');
-}
+pub const normalizeResponsesArgumentsString = @import("sa_std/chat_norm.zig").normalizeResponsesArgumentsString;
 
-fn appendResponseFormatFromText(out: *std.array_list.Managed(u8), field_count: *usize, text_value: ?std.json.Value) !void {
-    const text = text_value orelse return;
-    const format = jsonObjectGetValue(text, "format") orelse return;
-    const format_type = jsonStringValue(jsonObjectGetValue(format, "type"));
-    if (format_type.len == 0) return;
-    try appendJsonFieldName(out, field_count, "response_format");
-    if (std.mem.eql(u8, format_type, "json_schema")) {
-        try out.appendSlice("{\"type\":\"json_schema\",\"json_schema\":{\"name\":");
-        const name = jsonStringValue(jsonObjectGetValue(format, "name"));
-        try appendJsonString(listWriter(out), if (name.len != 0) name else "codex_output_schema");
-        if (jsonObjectGetValue(format, "schema")) |schema| {
-            try out.appendSlice(",\"schema\":");
-            try stringifyToList(out, schema);
-        }
-        try out.appendSlice(",\"strict\":");
-        try out.appendSlice(if (jsonBoolValue(jsonObjectGetValue(format, "strict"), false)) "true" else "false");
-        try out.appendSlice("}}");
-        return;
-    }
-    try stringifyToList(out, format);
-}
+pub const normalizeResponsesRequestArgumentsString = @import("sa_std/normalize.zig").normalizeResponsesRequestArgumentsString;
 
-fn shouldSkipResponsesFallbackField(key: []const u8) bool {
-    return std.mem.eql(u8, key, "input") or
-        std.mem.eql(u8, key, "instructions") or
-        std.mem.eql(u8, key, "reasoning") or
-        std.mem.eql(u8, key, "stream") or
-        std.mem.eql(u8, key, "tools") or
-        std.mem.eql(u8, key, "content") or
-        std.mem.eql(u8, key, "text") or
-        std.mem.eql(u8, key, "store") or
-        std.mem.eql(u8, key, "prompt_cache_key") or
-        std.mem.eql(u8, key, "include") or
-        std.mem.eql(u8, key, "model") or
-        std.mem.eql(u8, key, "messages") or
-        std.mem.eql(u8, key, "response_format");
-}
+pub const normalizeResponsesRequestValue = @import("sa_std/normalize.zig").normalizeResponsesRequestValue;
 
-pub fn denoResponsesChatFallbackRequest(body: []const u8, default_model: []const u8, plan_mode_like: bool) !?[]u8 {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    const parsed = std.json.parseFromSliceLeaky(std.json.Value, allocator, body, .{}) catch return null;
-    const root = switch (parsed) {
-        .object => |object| object,
-        else => return null,
-    };
-    const model = blk: {
-        const body_model = jsonStringValue(root.get("model"));
-        break :blk if (body_model.len != 0) body_model else default_model;
-    };
+pub const denoResponsesRequestNormalize = @import("sa_std/normalize.zig").denoResponsesRequestNormalize;
 
-    var system_texts = std.array_list.Managed(u8).init(allocator);
-    var messages = std.array_list.Managed(u8).init(allocator);
-    var message_count: usize = 0;
-    if (plan_mode_like) {
-        try appendSystemText(&system_texts, "Compatibility note: you are using Chat Completions as a Responses API fallback. Do not stop after only a progress update or plan. If you say you will inspect or run something, call an available tool in the same response; otherwise provide the final answer.");
-    }
-    try appendSystemText(&system_texts, jsonStringValue(root.get("instructions")));
+pub const normalizeResponsesEventData = @import("sa_std/chat_norm.zig").normalizeResponsesEventData;
 
-    const input = root.get("input") orelse .null;
-    switch (input) {
-        .array => |input_array| {
-            var call_names = try collectResponseToolCallNames(allocator, input_array.items);
-            defer call_names.deinit();
-            var index: usize = 0;
-            while (index < input_array.items.len) : (index += 1) {
-                const item = input_array.items[index];
-                const item_type = jsonStringValue(jsonObjectGetValue(item, "type"));
-                if (isResponsesToolCallType(item_type)) {
-                    try appendResponseToolCallAsChat(allocator, input_array.items, &index, &messages, &message_count);
-                    continue;
-                }
-                if (std.mem.eql(u8, item_type, "message") or std.mem.eql(u8, item_type, "assistant_message")) {
-                    try appendResponseMessageAsChat(allocator, &messages, &message_count, &system_texts, item);
-                    continue;
-                }
-                if (std.mem.eql(u8, item_type, "reasoning")) continue;
-                if (isResponsesToolOutputType(item_type)) {
-                    try appendResponseToolOutputAsChat(allocator, &messages, &message_count, &call_names, item);
-                }
-            }
-        },
-        else => {},
-    }
-    if (message_count == 0) {
-        const top_text = blk: {
-            const input_text = jsonStringValue(root.get("input"));
-            if (input_text.len != 0) break :blk input_text;
-            const content_text = jsonStringValue(root.get("content"));
-            if (content_text.len != 0) break :blk content_text;
-            break :blk jsonStringValue(root.get("text"));
-        };
-        if (top_text.len != 0) {
-            try appendChatMessagePrefix(&messages, &message_count, "user");
-            try appendJsonString(listWriter(&messages), top_text);
-            try messages.append('}');
-        }
-    }
-    if (system_texts.items.len != 0) {
-        var with_system = std.array_list.Managed(u8).init(allocator);
-        var system_count: usize = 0;
-        try appendChatMessagePrefix(&with_system, &system_count, "system");
-        try appendJsonString(listWriter(&with_system), system_texts.items);
-        try with_system.append('}');
-        if (messages.items.len != 0) try with_system.append(',');
-        try with_system.appendSlice(messages.items);
-        messages = with_system;
-        message_count += 1;
-    }
-    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    errdefer out.deinit();
-    try out.append('{');
-    var field_count: usize = 0;
-    var it = root.iterator();
-    while (it.next()) |entry| {
-        if (shouldSkipResponsesFallbackField(entry.key_ptr.*)) continue;
-        try appendJsonFieldName(&out, &field_count, entry.key_ptr.*);
-        try stringifyToList(&out, entry.value_ptr.*);
-    }
-    try appendResponseFormatFromText(&out, &field_count, root.get("text"));
-    try appendJsonFieldName(&out, &field_count, "model");
-    try appendJsonString(listWriter(&out), model);
-    try appendJsonFieldName(&out, &field_count, "messages");
-    try out.append('[');
-    try out.appendSlice(messages.items);
-    try out.append(']');
-    if (root.get("tools")) |tools| try appendNormalizedChatToolsField(&out, &field_count, tools);
-    const stream = jsonBoolValue(root.get("stream"), true);
-    try appendJsonFieldName(&out, &field_count, "stream");
-    try out.appendSlice(if (stream) "true" else "false");
-    if (stream) {
-        try appendJsonFieldName(&out, &field_count, "stream_options");
-        try out.appendSlice("{\"include_usage\":true}");
-    }
-    try out.append('}');
-    return try out.toOwnedSlice();
-}
+pub const appendNormalizedResponsesSseBlock = @import("sa_std/chat_norm.zig").appendNormalizedResponsesSseBlock;
 
-fn normalizeResponsesArgumentsString(allocator: std.mem.Allocator, arguments: []const u8) !?[]u8 {
-    var args_value = std.json.parseFromSliceLeaky(std.json.Value, allocator, arguments, .{}) catch return null;
-    const args_object = switch (args_value) {
-        .object => |*object| object,
-        else => return null,
-    };
-    const server_ptr = args_object.getPtr("server") orelse return null;
-    const server = jsonStringValue(server_ptr.*);
-    if (server.len == 0) return null;
-    const denormalized = try denormalizeMcpServerNameAlloc(allocator, server);
-    server_ptr.* = .{ .string = denormalized };
-    return try std.json.Stringify.valueAlloc(allocator, args_value, .{});
-}
+pub const denoResponsesSseNormalize = @import("sa_std/chat_norm.zig").denoResponsesSseNormalize;
 
-fn normalizeResponsesRequestArgumentsString(allocator: std.mem.Allocator, arguments: []const u8) !?[]u8 {
-    var args_value = std.json.parseFromSliceLeaky(std.json.Value, allocator, arguments, .{}) catch return null;
-    const args_object = switch (args_value) {
-        .object => |*object| object,
-        else => return null,
-    };
-    const server_ptr = args_object.getPtr("server") orelse return null;
-    const server = jsonStringValue(server_ptr.*);
-    if (server.len == 0) return null;
-    const normalized = try normalizeMcpServerNameAlloc(allocator, server);
-    if (std.mem.eql(u8, normalized, server)) return null;
-    server_ptr.* = .{ .string = normalized };
-    return try std.json.Stringify.valueAlloc(allocator, args_value, .{});
-}
+pub const appendChatSseDataChunk = @import("sa_std/chat_norm.zig").appendChatSseDataChunk;
 
-fn normalizeResponsesRequestValue(allocator: std.mem.Allocator, value: *std.json.Value) !bool {
-    switch (value.*) {
-        .object => |*object| {
-            var changed = false;
-            const item_type = jsonStringValue(object.get("type"));
-            if (std.mem.eql(u8, item_type, "function_call")) {
-                if (object.getPtr("arguments")) |arguments_ptr| {
-                    const arguments = jsonStringValue(arguments_ptr.*);
-                    if (arguments.len != 0) {
-                        if (try normalizeResponsesRequestArgumentsString(allocator, arguments)) |normalized_arguments| {
-                            arguments_ptr.* = .{ .string = normalized_arguments };
-                            changed = true;
-                        }
-                    }
-                }
-            }
-            var it = object.iterator();
-            while (it.next()) |entry| {
-                if (try normalizeResponsesRequestValue(allocator, entry.value_ptr)) changed = true;
-            }
-            return changed;
-        },
-        .array => |*array| {
-            var changed = false;
-            for (array.items) |*item| {
-                if (try normalizeResponsesRequestValue(allocator, item)) changed = true;
-            }
-            return changed;
-        },
-        else => return false,
-    }
-}
-
-pub fn denoResponsesRequestNormalize(body: []const u8) ![]u8 {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    var value = std.json.parseFromSliceLeaky(std.json.Value, arena.allocator(), body, .{}) catch {
-        return std.heap.page_allocator.dupe(u8, body);
-    };
-    const changed = try normalizeResponsesRequestValue(arena.allocator(), &value);
-    if (!changed) return std.heap.page_allocator.dupe(u8, body);
-    return try std.json.Stringify.valueAlloc(std.heap.page_allocator, value, .{});
-}
-
-fn normalizeResponsesEventData(allocator: std.mem.Allocator, data: []const u8) !?[]u8 {
-    var value = std.json.parseFromSliceLeaky(std.json.Value, allocator, data, .{}) catch return null;
-    const root = switch (value) {
-        .object => |*object| object,
-        else => return null,
-    };
-    const item_ptr = root.getPtr("item") orelse return null;
-    const item = switch (item_ptr.*) {
-        .object => |*object| object,
-        else => return null,
-    };
-
-    var changed = false;
-    const item_type = jsonStringValue(item.get("type"));
-    if (isNativeReasoningType(item_type)) {
-        var text = std.array_list.Managed(u8).init(allocator);
-        defer text.deinit();
-        try appendReasoningFields(item_ptr.*, &text);
-        if (text.items.len != 0) {
-            var out = std.array_list.Managed(u8).init(allocator);
-            errdefer out.deinit();
-            const writer = listWriter(&out);
-            try out.appendSlice("{\"type\":");
-            try appendJsonString(writer, jsonStringValue(root.get("type")));
-            try out.appendSlice(",\"item\":");
-            try appendNativeReasoningItem(&out, jsonStringValue(item.get("id")), text.items);
-            try out.append('}');
-            return try out.toOwnedSlice();
-        }
-    }
-
-    if (!std.mem.eql(u8, item_type, "function_call")) return null;
-
-    const name = jsonStringValue(item.get("name"));
-    if (splitMcpNamespace(name)) |split| {
-        try item.put(allocator, "name", .{ .string = try allocator.dupe(u8, split.tool) });
-        try item.put(allocator, "namespace", .{ .string = try allocator.dupe(u8, split.namespace) });
-        try item.put(allocator, "output_kind", .{ .string = "function_call_output" });
-        changed = true;
-    }
-
-    if (item.getPtr("arguments")) |arguments_ptr| {
-        const arguments = jsonStringValue(arguments_ptr.*);
-        if (arguments.len != 0) {
-            if (try normalizeResponsesArgumentsString(allocator, arguments)) |normalized_arguments| {
-                arguments_ptr.* = .{ .string = normalized_arguments };
-                changed = true;
-            }
-        }
-    }
-
-    if (!changed) return null;
-    return try std.json.Stringify.valueAlloc(allocator, value, .{});
-}
-
-fn appendNormalizedResponsesSseBlock(out: *std.array_list.Managed(u8), event_line: ?[]const u8, data: []const u8) !void {
-    if (event_line) |line| {
-        try out.appendSlice(line);
-        try out.append('\n');
-    }
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const normalized = try normalizeResponsesEventData(arena.allocator(), data) orelse data;
-    try out.appendSlice("data: ");
-    try out.appendSlice(normalized);
-    try out.appendSlice("\n\n");
-}
-
-pub fn denoResponsesSseNormalize(sse_body: []const u8) ![]u8 {
-    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    errdefer out.deinit();
-    var data_buffer = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer data_buffer.deinit();
-    var event_line: ?[]const u8 = null;
-
-    var line_it = std.mem.splitScalar(u8, sse_body, '\n');
-    while (line_it.next()) |raw_line| {
-        const line = std.mem.trimEnd(u8, raw_line, "\r");
-        if (std.mem.startsWith(u8, line, "event:")) {
-            if (data_buffer.items.len != 0) {
-                try appendNormalizedResponsesSseBlock(&out, event_line, data_buffer.items);
-                data_buffer.clearRetainingCapacity();
-            } else if (event_line) |pending_event| {
-                try out.appendSlice(pending_event);
-                try out.append('\n');
-            }
-            event_line = line;
-            continue;
-        }
-        if (std.mem.startsWith(u8, line, "data:")) {
-            const data = std.mem.trimStart(u8, line[5..], " \t");
-            try data_buffer.appendSlice(data);
-            continue;
-        }
-        if (std.mem.trim(u8, line, " \t\r").len == 0) {
-            if (data_buffer.items.len != 0) {
-                try appendNormalizedResponsesSseBlock(&out, event_line, data_buffer.items);
-                data_buffer.clearRetainingCapacity();
-                event_line = null;
-            } else if (event_line) |pending_event| {
-                try out.appendSlice(pending_event);
-                try out.appendSlice("\n\n");
-                event_line = null;
-            } else {
-                try out.append('\n');
-            }
-            continue;
-        }
-        if (event_line) |pending_event| {
-            try out.appendSlice(pending_event);
-            try out.append('\n');
-            event_line = null;
-        }
-        try out.appendSlice(line);
-        try out.append('\n');
-    }
-    if (data_buffer.items.len != 0) {
-        try appendNormalizedResponsesSseBlock(&out, event_line, data_buffer.items);
-    } else if (event_line) |pending_event| {
-        try out.appendSlice(pending_event);
-        try out.append('\n');
-    }
-    return try out.toOwnedSlice();
-}
-
-fn appendChatSseDataChunk(
-    out: *std.array_list.Managed(u8),
-    data: []const u8,
-    splitter: *ThoughtStreamSplitter,
-    reasoning_started: *bool,
-    reasoning_done: *bool,
-    reasoning_output_index: *u64,
-    reasoning_text: *std.array_list.Managed(u8),
-    message_started: *bool,
-    message_output_index: *u64,
-    next_output_index: *u64,
-    message_text: *std.array_list.Managed(u8),
-    tool_calls: *std.array_list.Managed(ChatToolCallState),
-    saw_stop_without_tool: *bool,
-    req_body: []const u8,
-) !void {
-    var parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, data, .{}) catch return;
-    defer parsed.deinit();
-    const first_choice = jsonArrayFirst(jsonObjectGetValue(parsed.value, "choices") orelse return) orelse return;
-    const delta = jsonObjectGetValue(first_choice, "delta");
-    if (delta) |delta_value| {
-        const reason = jsonStringValue(jsonObjectGetValue(delta_value, "reasoning_content"));
-        if (reason.len != 0) {
-            if (!message_started.*) {
-                try appendReasoningDelta(out, reasoning_started, reasoning_done, reasoning_output_index, next_output_index, reason);
-            }
-            try reasoning_text.appendSlice(reason);
-        }
-        const thinking = jsonStringValue(jsonObjectGetValue(delta_value, "thinking"));
-        if (thinking.len != 0) {
-            if (!message_started.*) {
-                try appendReasoningDelta(out, reasoning_started, reasoning_done, reasoning_output_index, next_output_index, thinking);
-            }
-            try reasoning_text.appendSlice(thinking);
-        }
-        const content = jsonStringValue(jsonObjectGetValue(delta_value, "content"));
-        if (content.len != 0) {
-            var visible = std.array_list.Managed(u8).init(std.heap.page_allocator);
-            defer visible.deinit();
-            var thought = std.array_list.Managed(u8).init(std.heap.page_allocator);
-            defer thought.deinit();
-            try splitter.consume(content, &visible, &thought);
-            if (thought.items.len != 0) {
-                if (!message_started.*) {
-                    try appendReasoningDelta(out, reasoning_started, reasoning_done, reasoning_output_index, next_output_index, thought.items);
-                }
-                try reasoning_text.appendSlice(thought.items);
-            }
-            if (visible.items.len != 0) {
-                if (!message_started.*) {
-                    try appendReasoningDone(out, reasoning_started.*, reasoning_done, reasoning_output_index.*, reasoning_text.items);
-                }
-                try appendMessageDelta(out, message_started, message_output_index, next_output_index, message_text, visible.items);
-            }
-        }
-        if (jsonObjectGetValue(delta_value, "tool_calls")) |tool_calls_value| {
-            switch (tool_calls_value) {
-                .array => |array| {
-                    for (array.items) |entry| {
-                        const index = if (jsonObjectGetValue(entry, "index")) |idx_value| parseToolCallIndex(idx_value) else 0;
-                        const state = try findToolCallState(tool_calls, index);
-                        const call_id = jsonStringValue(jsonObjectGetValue(entry, "id"));
-                        if (call_id.len != 0) {
-                            state.call_id.clearRetainingCapacity();
-                            try state.call_id.appendSlice(call_id);
-                        }
-                        if (jsonObjectGetValue(entry, "function")) |fn_value| {
-                            const name = jsonStringValue(jsonObjectGetValue(fn_value, "name"));
-                            if (name.len != 0) {
-                                state.name.clearRetainingCapacity();
-                                try state.name.appendSlice(name);
-                            }
-                            const args_part = jsonStringValue(jsonObjectGetValue(fn_value, "arguments"));
-                            if (args_part.len != 0) try state.arguments.appendSlice(args_part);
-                        }
-                    }
-                },
-                else => {},
-            }
-        }
-    }
-    const finish_reason = jsonStringValue(jsonObjectGetValue(first_choice, "finish_reason"));
-    if (std.mem.eql(u8, finish_reason, "stop")) saw_stop_without_tool.* = tool_calls.items.len == 0;
-    if (std.mem.eql(u8, finish_reason, "tool_calls") or std.mem.eql(u8, finish_reason, "stop")) {
-        std.mem.sort(ChatToolCallState, tool_calls.items, {}, struct {
-            fn lessThan(_: void, lhs: ChatToolCallState, rhs: ChatToolCallState) bool {
-                return lhs.index < rhs.index;
-            }
-        }.lessThan);
-        for (tool_calls.items) |*call| try appendNormalizedToolCall(out, req_body, call);
-        for (tool_calls.items) |*call| call.deinit();
-        tool_calls.clearRetainingCapacity();
-    }
-}
-
-pub fn denoChatSseToResponses(chat_body: []const u8, req_body: []const u8) ![]u8 {
-    var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    errdefer out.deinit();
-    var splitter = ThoughtStreamSplitter.init(std.heap.page_allocator);
-    defer splitter.deinit();
-    var reasoning_text = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer reasoning_text.deinit();
-    var message_text = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer message_text.deinit();
-    var reasoning_started = false;
-    var reasoning_done = false;
-    var reasoning_output_index: u64 = 0;
-    var message_started = false;
-    var message_output_index: u64 = 0;
-    var next_output_index: u64 = 0;
-    var saw_stop_without_tool = false;
-    var tool_calls = std.array_list.Managed(ChatToolCallState).init(std.heap.page_allocator);
-    defer {
-        for (tool_calls.items) |*call| call.deinit();
-        tool_calls.deinit();
-    }
-    var data_buffer = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer data_buffer.deinit();
-
-    try appendResponseCreated(&out);
-
-    var line_it = std.mem.splitScalar(u8, chat_body, '\n');
-    while (line_it.next()) |raw_line| {
-        const line = std.mem.trimEnd(u8, raw_line, "\r");
-        if (std.mem.startsWith(u8, line, "data:")) {
-            const data = std.mem.trimStart(u8, line[5..], " \t");
-            if (!std.mem.eql(u8, data, "[DONE]")) {
-                try data_buffer.appendSlice(data);
-            }
-            continue;
-        }
-        if (std.mem.trim(u8, line, " \t\r").len != 0 or data_buffer.items.len == 0) continue;
-        try appendChatSseDataChunk(
-            &out,
-            data_buffer.items,
-            &splitter,
-            &reasoning_started,
-            &reasoning_done,
-            &reasoning_output_index,
-            &reasoning_text,
-            &message_started,
-            &message_output_index,
-            &next_output_index,
-            &message_text,
-            &tool_calls,
-            &saw_stop_without_tool,
-            req_body,
-        );
-        data_buffer.clearRetainingCapacity();
-    }
-    if (data_buffer.items.len != 0) {
-        try appendChatSseDataChunk(
-            &out,
-            data_buffer.items,
-            &splitter,
-            &reasoning_started,
-            &reasoning_done,
-            &reasoning_output_index,
-            &reasoning_text,
-            &message_started,
-            &message_output_index,
-            &next_output_index,
-            &message_text,
-            &tool_calls,
-            &saw_stop_without_tool,
-            req_body,
-        );
-    }
-
-    var tail_visible = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer tail_visible.deinit();
-    var tail_reasoning = std.array_list.Managed(u8).init(std.heap.page_allocator);
-    defer tail_reasoning.deinit();
-    try splitter.flush(&tail_visible, &tail_reasoning);
-    if (tail_reasoning.items.len != 0) {
-        try appendReasoningDelta(&out, &reasoning_started, &reasoning_done, &reasoning_output_index, &next_output_index, tail_reasoning.items);
-        try reasoning_text.appendSlice(tail_reasoning.items);
-    }
-    if (tail_visible.items.len != 0) {
-        try appendReasoningDone(&out, reasoning_started, &reasoning_done, reasoning_output_index, reasoning_text.items);
-        try appendMessageDelta(&out, &message_started, &message_output_index, &next_output_index, &message_text, tail_visible.items);
-    }
-    try appendReasoningDone(&out, reasoning_started, &reasoning_done, reasoning_output_index, reasoning_text.items);
-    try appendMessageDone(&out, message_started, message_output_index, message_text.items);
-    if (saw_stop_without_tool and requestAllowsContinuation(req_body) and isProgressOnlyText(message_text.items)) {
-        try appendContinuationTool(&out);
-    }
-    try appendResponseDone(&out);
-    return try out.toOwnedSlice();
-}
+pub const denoChatSseToResponses = @import("sa_std/chat_norm.zig").denoChatSseToResponses;
 
 pub fn envKeyBytes(key_ptr: ?[*]const u8, key_len: u64) ![]const u8 {
     const key = try constBytes(key_ptr, key_len);
@@ -7771,19 +4930,9 @@ pub fn envKeyBytes(key_ptr: ?[*]const u8, key_len: u64) ![]const u8 {
     return key;
 }
 
-pub fn envValueFromCurrentProcess(key: []const u8) ?[]const u8 {
-    const key_z = std.heap.page_allocator.dupeSentinel(u8, key, 0) catch return null;
-    defer std.heap.page_allocator.free(key_z);
+pub const envValueFromCurrentProcess = @import("sa_std/test_debug.zig").envValueFromCurrentProcess;
 
-    const getenv = @extern(*const fn ([*:0]const u8) callconv(.c) ?[*:0]u8, .{ .name = "getenv" });
-    const value = getenv(key_z.ptr) orelse return null;
-    return std.mem.span(value);
-}
-
-pub fn envGetOwned(key: []const u8) ![]u8 {
-    const value = envValueFromCurrentProcess(key) orelse return error.FileNotFound;
-    return std.heap.page_allocator.dupe(u8, value);
-}
+pub const envGetOwned = @import("sa_std/test_debug.zig").envGetOwned;
 
 const EnvVarJson = struct {
     key: []const u8,
@@ -7860,27 +5009,11 @@ pub fn envJoinPathsJsonAlloc(allocator: std.mem.Allocator, paths_json: []const u
     return std.mem.join(allocator, ":", parsed.value);
 }
 
-fn xdgHomeDirAlloc(allocator: std.mem.Allocator) ![]u8 {
-    const home = envValueFromCurrentProcess("HOME") orelse return error.FileNotFound;
-    if (home.len == 0) return allocator.dupe(u8, "/");
-    return allocator.dupe(u8, home);
-}
+pub const xdgHomeDirAlloc = @import("sa_std/test_debug.zig").xdgHomeDirAlloc;
 
-pub fn xdgHomeSubdirAlloc(allocator: std.mem.Allocator, env_key: []const u8, fallback_home_subdir: []const u8) ![]u8 {
-    if (envValueFromCurrentProcess(env_key)) |value| {
-        if (value.len != 0) return allocator.dupe(u8, value);
-    }
-    const home = try xdgHomeDirAlloc(allocator);
-    defer allocator.free(home);
-    return std.fs.path.join(allocator, &.{ home, fallback_home_subdir });
-}
+pub const xdgHomeSubdirAlloc = @import("sa_std/test_debug.zig").xdgHomeSubdirAlloc;
 
-pub fn xdgDirsAlloc(allocator: std.mem.Allocator, env_key: []const u8, default_value: []const u8) ![]u8 {
-    if (envValueFromCurrentProcess(env_key)) |value| {
-        if (value.len != 0) return allocator.dupe(u8, value);
-    }
-    return allocator.dupe(u8, default_value);
-}
+pub const xdgDirsAlloc = @import("sa_std/test_debug.zig").xdgDirsAlloc;
 
 pub fn Fallible(comptime T: type) type {
     return extern struct {
@@ -8042,33 +5175,9 @@ pub const sa_deno_env_delete = @import("sa_std/deno.zig").sa_deno_env_delete;
 
 pub const sa_deno_random_uuid = @import("sa_std/deno.zig").sa_deno_random_uuid;
 
-pub fn tempRootAlloc(allocator: std.mem.Allocator) ![]u8 {
-    if (envValueFromCurrentProcess("TMPDIR")) |value| {
-        if (value.len != 0) return allocator.dupe(u8, value);
-    }
-    if (envValueFromCurrentProcess("TMP")) |value| {
-        if (value.len != 0) return allocator.dupe(u8, value);
-    }
-    if (envValueFromCurrentProcess("TEMP")) |value| {
-        if (value.len != 0) return allocator.dupe(u8, value);
-    }
-    return allocator.dupe(u8, "/tmp");
-}
+pub const tempRootAlloc = @import("sa_std/test_debug.zig").tempRootAlloc;
 
-pub fn tempPathAlloc(
-    allocator: std.mem.Allocator,
-    prefix: []const u8,
-    suffix: []const u8,
-) ![]u8 {
-    const root = try tempRootAlloc(allocator);
-    defer allocator.free(root);
-    const normalized_prefix = if (prefix.len == 0) "sa-deno-" else prefix;
-    const a = cryptoRandomU64();
-    const b = cryptoRandomU64();
-    const name = try std.fmt.allocPrint(allocator, "{s}{x:0>16}{x:0>16}{s}", .{ normalized_prefix, a, b, suffix });
-    defer allocator.free(name);
-    return std.fs.path.join(allocator, &.{ root, name });
-}
+pub const tempPathAlloc = @import("sa_std/test_debug.zig").tempPathAlloc;
 
 pub const sa_deno_make_temp_dir = @import("sa_std/deno.zig").sa_deno_make_temp_dir;
 
@@ -8147,95 +5256,12 @@ pub export fn sa_hexdec_simd(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8)
 // scalar tail. Stops at the first non-alphabet char (including '=')
 // and returns the bytes written so far; clean input of n chars with
 // n % 4 == 0 yields exactly n/4*3. Caller must provide that many bytes.
-fn b64SimdSextetVal(c: u8) ?u8 {
-    if (c >= 'A' and c <= 'Z') return c - 'A';
-    if (c >= 'a' and c <= 'z') return c - 'a' + 26;
-    if (c >= '0' and c <= '9') return c - '0' + 52;
-    if (c == '+') return 62;
-    if (c == '/') return 63;
-    return null;
-}
+pub const b64SimdSextetVal = @import("sa_std/b64_simd.zig").b64SimdSextetVal;
 
 extern fn sa_cpu_has_avx2() c_int;
 extern fn sa_b64dec_avx2(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8) u64;
 
-pub export fn sa_b64dec_simd(in_ptr: ?[*]const u8, in_len: u64, out_ptr: ?[*]u8) u64 {
-    // AVX2 swizzle kernel (src/runtime/sa_b64_swizzle.c, Apache-2.0
-    // attribution in-file) when the CPU supports it; otherwise the
-    // portable Mula path below. Non-x86_64 builds stub the C side out.
-    if (comptime builtin.cpu.arch == .x86_64) {
-        if (sa_cpu_has_avx2() != 0) return sa_b64dec_avx2(in_ptr, in_len, out_ptr);
-    }
-    const input = constBytes(in_ptr, in_len) catch return 0;
-    const n = input.len;
-    if (n == 0) return 0;
-    const out_p = out_ptr orelse return 0;
-    const out = out_p[0 .. n / 4 * 3];
-    const V32 = @Vector(32, u8);
-    const zA: V32 = @splat(@as(u8, 'A'));
-    const zZ: V32 = @splat(@as(u8, 'Z'));
-    const zza: V32 = @splat(@as(u8, 'a'));
-    const zzz: V32 = @splat(@as(u8, 'z'));
-    const z0: V32 = @splat(@as(u8, '0'));
-    const z9: V32 = @splat(@as(u8, '9'));
-    const plus: V32 = @splat(@as(u8, '+'));
-    const slash: V32 = @splat(@as(u8, '/'));
-    const one: V32 = @splat(@as(u8, 1));
-    const zero: V32 = @splat(@as(u8, 0));
-    const o0_idx: [8]i32 = .{ 0, 4, 8, 12, 16, 20, 24, 28 };
-    const o1_idx: [8]i32 = .{ 1, 5, 9, 13, 17, 21, 25, 29 };
-    const o2_idx: [8]i32 = .{ 2, 6, 10, 14, 18, 22, 26, 30 };
-    const o3_idx: [8]i32 = .{ 3, 7, 11, 15, 19, 23, 27, 31 };
-    // NOTE: single-source shuffles only — this toolchain miscompiles
-    // negative-mask cross-vector shuffles at -OReleaseFast
-    // ("Assigned value does not match type of forward declaration").
-    const m01_idx: [16]i32 = .{ 0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15 };
-    const fin_idx: [24]i32 = .{ 0, 1, 16, 2, 3, 17, 4, 5, 18, 6, 7, 19, 8, 9, 20, 10, 11, 21, 12, 13, 22, 14, 15, 23 };
-    var i: usize = 0;
-    var w: usize = 0;
-    while (i + 32 <= n) {
-        const chunk: V32 = input[i..][0..32].*;
-        const inAZ = @select(u8, chunk >= zA, @select(u8, chunk <= zZ, one, zero), zero);
-        const inaz = @select(u8, chunk >= zza, @select(u8, chunk <= zzz, one, zero), zero);
-        const in09 = @select(u8, chunk >= z0, @select(u8, chunk <= z9, one, zero), zero);
-        const isPlus = @select(u8, chunk == plus, one, zero);
-        const isSlash = @select(u8, chunk == slash, one, zero);
-        const valid = inAZ | inaz | in09 | isPlus | isSlash;
-        if (@reduce(.Min, valid) == 0) break;
-        const sext = inAZ * (chunk -% zA) + inaz * (chunk -% (zza -% @as(V32, @splat(@as(u8, 26))))) + in09 * (chunk +% @as(V32, @splat(@as(u8, 4)))) + isPlus * @as(V32, @splat(@as(u8, 62))) + isSlash * @as(V32, @splat(@as(u8, 63)));
-        const U = sext << @as(V32, @splat(@as(u8, 2)));
-        const W = sext >> @as(V32, @splat(@as(u8, 4)));
-        const X = (sext & @as(V32, @splat(@as(u8, 15)))) << @as(V32, @splat(@as(u8, 4)));
-        const Y = sext >> @as(V32, @splat(@as(u8, 2)));
-        const Z = (sext & @as(V32, @splat(@as(u8, 3)))) << @as(V32, @splat(@as(u8, 6)));
-        const o0 = @shuffle(u8, U, @as(V32, undefined), o0_idx) | @shuffle(u8, W, @as(V32, undefined), o1_idx);
-        const o1 = @shuffle(u8, X, @as(V32, undefined), o1_idx) | @shuffle(u8, Y, @as(V32, undefined), o2_idx);
-        const o2 = @shuffle(u8, Z, @as(V32, undefined), o2_idx) | @shuffle(u8, sext, @as(V32, undefined), o3_idx);
-        const o0a: [8]u8 = o0;
-        const o1a: [8]u8 = o1;
-        const o2a: [8]u8 = o2;
-        const m01v: @Vector(16, u8) = o0a ++ o1a;
-        const m01 = @shuffle(u8, m01v, @as(@Vector(16, u8), undefined), m01_idx);
-        const m01a: [16]u8 = m01;
-        const finv: @Vector(24, u8) = m01a ++ o2a;
-        const out24 = @shuffle(u8, finv, @as(@Vector(24, u8), undefined), fin_idx);
-        out[w..][0..24].* = out24;
-        i += 32;
-        w += 24;
-    }
-    while (i + 4 <= n) {
-        const a = b64SimdSextetVal(input[i]) orelse break;
-        const b = b64SimdSextetVal(input[i + 1]) orelse break;
-        const c = b64SimdSextetVal(input[i + 2]) orelse break;
-        const d = b64SimdSextetVal(input[i + 3]) orelse break;
-        out[w] = (a << 2) | (b >> 4);
-        out[w + 1] = ((b & 15) << 4) | (c >> 2);
-        out[w + 2] = ((c & 3) << 6) | d;
-        i += 4;
-        w += 3;
-    }
-    return @intCast(w);
-}
+pub const sa_b64dec_simd = @import("sa_std/b64_simd.zig").sa_b64dec_simd;
 
 
 
@@ -8320,22 +5346,8 @@ pub fn appendIsoUtc(out: *std.array_list.Managed(u8), year: i64, month: i64, day
 
 pub const sa_deno_date_now_iso = @import("sa_std/deno.zig").sa_deno_date_now_iso;
 
-const struct_sockaddr = extern struct {
-    sa_family: u16,
-    sa_data: [14]u8,
-};
-pub const struct_ifaddrs = extern struct {
-    ifa_next: ?*struct_ifaddrs,
-    ifa_name: [*:0]const u8,
-    ifa_flags: c_uint,
-    ifa_addr: ?*struct_sockaddr,
-    ifa_netmask: ?*struct_sockaddr,
-    ifa_ifu: extern union {
-        ifu_broadaddr: ?*struct_sockaddr,
-        ifu_dstaddr: ?*struct_sockaddr,
-    },
-    ifa_data: ?*anyopaque,
-};
+pub const struct_sockaddr = @import("sa_std/iface_json.zig").struct_sockaddr;
+pub const struct_ifaddrs = @import("sa_std/iface_json.zig").struct_ifaddrs;
 extern fn getifaddrs(ifap: *?*struct_ifaddrs) c_int;
 extern fn freeifaddrs(ifa: ?*struct_ifaddrs) void;
 extern fn inet_ntop(af: c_int, src: ?*const anyopaque, dst: [*]u8, size: c_uint) ?[*:0]const u8;
@@ -8378,168 +5390,10 @@ extern fn getpagesize() c_int;
 // unchanged. Linux only for now; the Windows runtime mirror does
 // not implement the symbol yet.
 
-fn appendJsonEscapedString(list: *std.array_list.Managed(u8), text: []const u8) !void {
-    try list.append('"');
-    for (text) |c| {
-        switch (c) {
-            '"' => try list.appendSlice("\\\""),
-            '\\' => try list.appendSlice("\\\\"),
-            else => {
-                if (c < 0x20) {
-                    var esc: [6]u8 = undefined;
-                    const esc_text = std.fmt.bufPrint(&esc, "\\u{x:0>4}", .{c}) catch unreachable;
-                    try list.appendSlice(esc_text);
-                } else {
-                    try list.append(c);
-                }
-            },
-        }
-    }
-    try list.append('"');
-}
+pub const appendJsonEscapedString = @import("sa_std/iface_json.zig").appendJsonEscapedString;
 
-pub fn buildInterfaceAddressesJson(allocator: std.mem.Allocator) ![]u8 {
-    var ifap: ?*struct_ifaddrs = null;
-    if (getifaddrs(&ifap) != 0) return error.GetifaddrsFailed;
-    defer {
-        if (ifap) |ptr| freeifaddrs(ptr);
-    }
+pub const buildInterfaceAddressesJson = @import("sa_std/iface_json.zig").buildInterfaceAddressesJson;
 
-    var list = std.array_list.Managed(u8).init(allocator);
-    errdefer list.deinit();
-    try list.append('[');
-
-    var first = true;
-    var current = ifap;
-    while (current) |ifa| : (current = ifa.ifa_next) {
-        const addr_ptr = ifa.ifa_addr orelse continue;
-        const family = addr_ptr.sa_family;
-        if (family != 2 and family != 10) continue;
-        const af: c_int = if (family == 2) 2 else 10;
-
-        const addr_src = if (family == 2)
-            @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
-                sa_family: u16,
-                sin_port: u16,
-                sin_addr: [4]u8,
-            }, @ptrCast(addr_ptr)).sin_addr))
-        else
-            @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
-                sa_family: u16,
-                sin6_port: u16,
-                sin6_flowinfo: u32,
-                sin6_addr: [16]u8,
-                sin6_scope_id: u32,
-            }, @ptrCast(addr_ptr)).sin6_addr));
-
-        var addr_buf: [46]u8 = undefined;
-        const addr_z = inet_ntop(af, addr_src, &addr_buf, addr_buf.len) orelse continue;
-        const addr_text = std.mem.sliceTo(addr_z, 0);
-
-        var mask_text: []const u8 = "";
-        var prefix_len: u32 = 0;
-        if (ifa.ifa_netmask) |mask_ptr| {
-            const mask_src = if (family == 2)
-                @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
-                    sa_family: u16,
-                    sin_port: u16,
-                    sin_addr: [4]u8,
-                }, @ptrCast(mask_ptr)).sin_addr))
-            else
-                @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
-                    sa_family: u16,
-                    sin6_port: u16,
-                    sin6_flowinfo: u32,
-                    sin6_addr: [16]u8,
-                    sin6_scope_id: u32,
-                }, @ptrCast(mask_ptr)).sin6_addr));
-            var mask_buf: [46]u8 = undefined;
-            if (inet_ntop(af, mask_src, &mask_buf, mask_buf.len)) |mask_z| {
-                mask_text = std.mem.sliceTo(mask_z, 0);
-            }
-            if (family == 2) {
-                const mask_bytes = @as(*align(1) const extern struct {
-                    sa_family: u16,
-                    sin_port: u16,
-                    sin_addr: [4]u8,
-                }, @ptrCast(mask_ptr)).sin_addr;
-                for (mask_bytes) |b| prefix_len += @popCount(b);
-            } else {
-                const mask_bytes = @as(*align(1) const extern struct {
-                    sa_family: u16,
-                    sin6_port: u16,
-                    sin6_flowinfo: u32,
-                    sin6_addr: [16]u8,
-                    sin6_scope_id: u32,
-                }, @ptrCast(mask_ptr)).sin6_addr;
-                for (mask_bytes) |b| prefix_len += @popCount(b);
-            }
-        }
-
-        var broadcast_text: ?[]const u8 = null;
-        var broadcast_buf: [46]u8 = undefined;
-        // IFF_BROADCAST (0x2): ifa_ifu holds the broadcast address.
-        // For point-to-point links it holds the peer address, which
-        // this snapshot deliberately does not expose.
-        if (ifa.ifa_flags & 0x2 != 0) {
-            if (ifa.ifa_ifu.ifu_broadaddr) |dst_ptr| {
-                const dst_src = if (family == 2)
-                    @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
-                        sa_family: u16,
-                        sin_port: u16,
-                        sin_addr: [4]u8,
-                    }, @ptrCast(dst_ptr)).sin_addr))
-                else
-                    @as(?*const anyopaque, @ptrCast(&@as(*align(1) const extern struct {
-                        sa_family: u16,
-                        sin6_port: u16,
-                        sin6_flowinfo: u32,
-                        sin6_addr: [16]u8,
-                        sin6_scope_id: u32,
-                    }, @ptrCast(dst_ptr)).sin6_addr));
-                if (inet_ntop(af, dst_src, &broadcast_buf, broadcast_buf.len)) |dst_z| {
-                    broadcast_text = std.mem.sliceTo(dst_z, 0);
-                }
-            }
-        }
-
-        var scope_id: u32 = 0;
-        if (family == 10) {
-            scope_id = @as(*align(1) const extern struct {
-                sa_family: u16,
-                sin6_port: u16,
-                sin6_flowinfo: u32,
-                sin6_addr: [16]u8,
-                sin6_scope_id: u32,
-            }, @ptrCast(addr_ptr)).sin6_scope_id;
-        }
-
-        if (!first) try list.append(',');
-        first = false;
-        try list.appendSlice("{\"name\":");
-        try appendJsonEscapedString(&list, std.mem.sliceTo(ifa.ifa_name, 0));
-        var head_buf: [96]u8 = undefined;
-        const head = std.fmt.bufPrint(&head_buf, ",\"family\":{d},\"address\":", .{family}) catch unreachable;
-        try list.appendSlice(head);
-        try appendJsonEscapedString(&list, addr_text);
-        try list.appendSlice(",\"netmask\":");
-        try appendJsonEscapedString(&list, mask_text);
-        var tail_buf: [96]u8 = undefined;
-        const tail = std.fmt.bufPrint(&tail_buf, ",\"prefix_len\":{d},\"broadcast\":", .{prefix_len}) catch unreachable;
-        try list.appendSlice(tail);
-        if (broadcast_text) |btext| {
-            try appendJsonEscapedString(&list, btext);
-        } else {
-            try list.appendSlice("null");
-        }
-        var scope_buf: [48]u8 = undefined;
-        const scope_text = std.fmt.bufPrint(&scope_buf, ",\"scope_id\":{d}}}", .{scope_id}) catch unreachable;
-        try list.appendSlice(scope_text);
-    }
-
-    try list.append(']');
-    return list.toOwnedSlice();
-}
 
 pub const sa_std_net_interface_addresses_json = @import("sa_std/std_net.zig").sa_std_net_interface_addresses_json;
 
@@ -8706,33 +5560,7 @@ pub const sa_regex_match_list_at = @import("sa_std/regex.zig").sa_regex_match_li
 
 pub const sa_regex_match_list_free = @import("sa_std/regex.zig").sa_regex_match_list_free;
 
-pub fn regexReplaceBuffer(regex: u64, text: ?[*]const u8, text_len: u64, replacement: ?[*]const u8, replacement_len: u64, global: bool) u64 {
-    const input = constBytes(text, text_len) catch return 0;
-    const repl = constBytes(replacement, replacement_len) catch return 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(regex) orelse return 0;
-    const regex_handle = switch (resource.*) {
-        .regex => |handle| handle,
-        else => return 0,
-    };
-    const allocator = regex_handle.allocator;
-    const text_z = regexOwnedTextZ(allocator, input) catch return 0;
-    defer allocator.free(text_z);
-    const bytes = regexBuildReplace(allocator, regex_handle, text_z, repl, global) catch return 0;
-    const handle = allocator.create(RegexBufferHandle) catch {
-        allocator.free(bytes);
-        return 0;
-    };
-    handle.* = .{ .allocator = allocator, .bytes = bytes };
-    return registerResourceLocked(.{ .regex_buffer = handle }) catch |err| {
-        handle.destroy();
-        _ = finishErr(err);
-        return 0;
-    };
-}
+pub const regexReplaceBuffer = @import("sa_std/regex_core.zig").regexReplaceBuffer;
 
 pub const sa_regex_replace = @import("sa_std/regex.zig").sa_regex_replace;
 
@@ -9081,120 +5909,19 @@ pub fn signal(sig: i32, handler: ?[*]const u8) callconv(.c) i32 {
     return sig;
 }
 
-pub fn pthread_spawn(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.c) i32 {
-    const entry_fn: PthreadEntryFn = @ptrCast(@alignCast(entry orelse return finish(SA_STD_ERR_INVALID_ARGUMENT)));
-    const task = std.heap.page_allocator.create(PthreadTask) catch return finish(SA_STD_ERR_NO_MEMORY);
-    task.* = .{ .entry = entry_fn, .arg = @ptrCast(@constCast(arg)) };
-    const thread = spawnPthread(task) catch |err| {
-        std.heap.page_allocator.destroy(task);
-        return finish(mapError(err));
-    };
-    const handle = std.heap.page_allocator.create(PthreadHandle) catch |err| {
-        joinPthreadHandle(thread) catch {};
-        std.heap.page_allocator.destroy(task);
-        return finish(mapError(err));
-    };
-    handle.* = .{ .thread = thread, .task = task };
-    const id = allocPthreadHandle(handle) catch |err| {
-        joinPthreadHandle(thread) catch {};
-        std.heap.page_allocator.destroy(task);
-        std.heap.page_allocator.destroy(handle);
-        return finish(mapError(err));
-    };
-    last_error = SA_STD_OK;
-    return id;
-}
+pub const pthread_spawn = @import("sa_std/pthread.zig").pthread_spawn;
 
-pub fn pthread_spawn_detached(entry: ?[*]const u8, arg: ?[*]const u8) callconv(.c) i32 {
-    const entry_fn: PthreadEntryFn = @ptrCast(@alignCast(entry orelse return finish(SA_STD_ERR_INVALID_ARGUMENT)));
-    const task = std.heap.page_allocator.create(PthreadTask) catch return finish(SA_STD_ERR_NO_MEMORY);
-    task.* = .{
-        .entry = entry_fn,
-        .arg = @ptrCast(@constCast(arg)),
-        .destroy_on_finish = true,
-    };
-    const thread = spawnPthread(task) catch |err| {
-        std.heap.page_allocator.destroy(task);
-        return finish(mapError(err));
-    };
-    _ = sa_host_pthread_detach(thread);
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
-}
+pub const pthread_spawn_detached = @import("sa_std/pthread.zig").pthread_spawn_detached;
 
-pub fn pthread_join(handle: i32, out: ?[*]u8) callconv(.c) i32 {
-    const handle_ptr = freePthreadHandle(handle) catch |err| return finish(mapError(err));
-    const out_ptr = out orelse return SA_STD_ERR_INVALID_ARGUMENT;
-    joinPthreadHandle(handle_ptr.thread) catch |err| {
-        std.heap.page_allocator.destroy(handle_ptr.task);
-        std.heap.page_allocator.destroy(handle_ptr);
-        return finishErr(err);
-    };
-    std.mem.copyForwards(u8, out_ptr[0..4], std.mem.asBytes(&handle_ptr.task.result));
-    std.heap.page_allocator.destroy(handle_ptr.task);
-    std.heap.page_allocator.destroy(handle_ptr);
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
-}
+pub const pthread_join = @import("sa_std/pthread.zig").pthread_join;
 
-pub fn sa_thread_as_pthread_t(handle: i32, out_raw: ?*u64) callconv(.c) i32 {
-    const out = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const handle_ptr = takePthreadHandle(handle) catch |err| return finish(mapError(err));
-    out.* = pthreadToRaw(handle_ptr.thread);
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
-}
+pub const sa_thread_as_pthread_t = @import("sa_std/pthread.zig").sa_thread_as_pthread_t;
 
-pub fn sa_thread_into_pthread_t(handle: i32, out_raw: ?*u64) callconv(.c) i32 {
-    const out = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    out.* = 0;
-    const transfer = transferPthreadHandleToRaw(handle) catch |err| return finish(mapError(err));
-    out.* = transfer.raw;
-    std.heap.page_allocator.destroy(transfer.handle);
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
-}
+pub const sa_thread_into_pthread_t = @import("sa_std/pthread.zig").sa_thread_into_pthread_t;
 
-pub fn sa_thread_raw_pthread_join(raw: u64, out: ?[*]u8) callconv(.c) i32 {
-    const out_ptr = out orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    std.mem.writeInt(u32, out_ptr[0..4], 0, .little);
-    const task = findRawPthreadTask(raw) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    joinPthreadHandle(rawToPthread(raw)) catch |err| return finishErr(err);
-    const removed_task = removeRawPthreadOwner(raw) orelse task;
-    std.mem.copyForwards(u8, out_ptr[0..4], std.mem.asBytes(&removed_task.result));
-    std.heap.page_allocator.destroy(removed_task);
-    last_error = SA_STD_OK;
-    return SA_STD_OK;
-}
+pub const sa_thread_raw_pthread_join = @import("sa_std/pthread.zig").sa_thread_raw_pthread_join;
 
-pub fn pthread_drop(handle: i32) callconv(.c) void {
-    if (handle <= 0) {
-        last_error = SA_STD_ERR_INVALID_HANDLE;
-        return;
-    }
-    const idx: usize = @intCast(handle - 1);
-    var handle_ptr: ?*PthreadHandle = null;
-    while (!pthread_registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    if (idx >= pthread_slots.items.len) {
-        pthread_registry_mutex.unlock();
-        last_error = SA_STD_ERR_INVALID_HANDLE;
-        return;
-    }
-    if (pthread_slots.items[idx]) |slot| {
-        pthread_slots.items[idx] = null;
-        handle_ptr = slot;
-    }
-    pthread_registry_mutex.unlock();
-    if (handle_ptr) |slot| {
-        joinPthreadHandle(slot.thread) catch {};
-        std.heap.page_allocator.destroy(slot.task);
-        std.heap.page_allocator.destroy(slot);
-    }
-    last_error = SA_STD_OK;
-}
+pub const pthread_drop = @import("sa_std/pthread.zig").pthread_drop;
 
 pub fn dlopen(path_ptr: ?[*]const u8, flags: i32) callconv(.c) ?[*]u8 {
     _ = path_ptr;
@@ -9522,101 +6249,13 @@ pub export fn sa_std_pidfd_send_signal(handle: u64, signum: i32) i32 {
     };
 }
 
-pub export fn sa_std_pidfd_wait_raw(handle: u64, out_raw: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    raw_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .owned_fd => |fd| {
-            const raw_status = waitPidfdStatus(fd.fd, w_exited) catch |err| switch (err) {
-                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                else => return finishErr(err),
-            };
-            raw_ptr.* = @bitCast(raw_status orelse return finish(SA_STD_OK));
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_pidfd_wait_raw = @import("sa_std/proc_wait.zig").sa_std_pidfd_wait_raw;
 
-pub export fn sa_std_pidfd_wait(handle: u64, out_code: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    code_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .owned_fd => |fd| {
-            const raw_status = waitPidfdStatus(fd.fd, w_exited) catch |err| switch (err) {
-                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                else => return finishErr(err),
-            };
-            code_ptr.* = statusFromWaitStatus(raw_status orelse return finish(SA_STD_OK));
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_pidfd_wait = @import("sa_std/proc_wait.zig").sa_std_pidfd_wait;
 
-pub export fn sa_std_pidfd_try_wait_raw(handle: u64, out_ready: ?*i32, out_raw: ?*i32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const raw_ptr = out_raw orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    ready_ptr.* = 0;
-    raw_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .owned_fd => |fd| {
-            const raw_status = waitPidfdStatus(fd.fd, w_exited | w_nohang) catch |err| switch (err) {
-                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                else => return finishErr(err),
-            };
-            if (raw_status == null) return finish(SA_STD_OK);
-            ready_ptr.* = 1;
-            raw_ptr.* = @bitCast(raw_status.?);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_pidfd_try_wait_raw = @import("sa_std/proc_wait.zig").sa_std_pidfd_try_wait_raw;
 
-pub export fn sa_std_pidfd_try_wait(handle: u64, out_ready: ?*i32, out_code: ?*u32) i32 {
-    if (comptime is_wasm) return finish(SA_STD_ERR_UNSUPPORTED);
-    const ready_ptr = out_ready orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    const code_ptr = out_code orelse return finish(SA_STD_ERR_INVALID_ARGUMENT);
-    ready_ptr.* = 0;
-    code_ptr.* = 0;
-    while (!registry_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer registry_mutex.unlock();
-    const resource = getResourceLocked(handle) orelse return finish(SA_STD_ERR_INVALID_HANDLE);
-    return switch (resource.*) {
-        .owned_fd => |fd| {
-            const raw_status = waitPidfdStatus(fd.fd, w_exited | w_nohang) catch |err| switch (err) {
-                error.ProcessNotFound => return finish(SA_STD_ERR_INVALID_HANDLE),
-                else => return finishErr(err),
-            };
-            if (raw_status == null) return finish(SA_STD_OK);
-            ready_ptr.* = 1;
-            code_ptr.* = statusFromWaitStatus(raw_status.?);
-            return finish(SA_STD_OK);
-        },
-        else => finish(SA_STD_ERR_INVALID_HANDLE),
-    };
-}
+pub const sa_std_pidfd_try_wait = @import("sa_std/proc_wait.zig").sa_std_pidfd_try_wait;
 
 pub const sa_std_process_exit_status_code = @import("sa_std/std_process.zig").sa_std_process_exit_status_code;
 
@@ -9908,185 +6547,21 @@ pub const sa_std_fs_read_file_base64 = @import("sa_std/std_fs.zig").sa_std_fs_re
 
 pub const sa_fs_write_file_base64 = @import("sa_std/fs.zig").sa_fs_write_file_base64;
 
-pub fn writeJsonBoolField(writer: anytype, name: []const u8, value: bool) !void {
-    try writer.writeAll("\"");
-    try writer.writeAll(name);
-    try writer.writeAll("\":");
-    try writer.writeAll(if (value) "true" else "false");
-}
+pub const writeJsonBoolField = @import("sa_std/dir_stat.zig").writeJsonBoolField;
 
-fn nsToMs(ns: i128) i64 {
-    const ms = @divTrunc(ns, std.time.ns_per_ms);
-    if (ms > std.math.maxInt(i64)) return std.math.maxInt(i64);
-    if (ms < std.math.minInt(i64)) return std.math.minInt(i64);
-    return @intCast(ms);
-}
+pub const nsToMs = @import("sa_std/dir_stat.zig").nsToMs;
 
-fn writeJsonIntField(writer: anytype, name: []const u8, value: anytype) !void {
-    try writer.writeAll("\"");
-    try writer.writeAll(name);
-    try writer.writeAll("\":");
-    try writer.print("{}", .{value});
-}
+pub const writeJsonIntField = @import("sa_std/dir_stat.zig").writeJsonIntField;
 
-fn writeMetadataJson(writer: anytype, stat: sio.Stat) !void {
-    try writer.writeAll("{");
-    try writeJsonIntField(writer, "createdAtMs", tsToMs(stat.ctime));
-    try writer.writeAll(",");
-    try writeJsonBoolField(writer, "isDirectory", stat.kind == .directory);
-    try writer.writeAll(",");
-    try writeJsonBoolField(writer, "isFile", stat.kind == .file);
-    try writer.writeAll(",");
-    try writeJsonBoolField(writer, "isSymlink", stat.kind == .sym_link);
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "modifiedAtMs", tsToMs(stat.mtime));
-    try writer.writeAll("}");
-}
+pub const writeMetadataJson = @import("sa_std/dir_stat.zig").writeMetadataJson;
 
-pub fn writeMetadataJsonExt(writer: anytype, stat: sio.Stat, raw: RawStat) !void {
-    try writer.writeAll("{");
-    try writeJsonIntField(writer, "createdAtMs", tsToMs(stat.ctime));
-    try writer.writeAll(",");
-    try writeJsonBoolField(writer, "isDirectory", stat.kind == .directory);
-    try writer.writeAll(",");
-    try writeJsonBoolField(writer, "isFile", stat.kind == .file);
-    try writer.writeAll(",");
-    try writeJsonBoolField(writer, "isSymlink", stat.kind == .sym_link);
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "modifiedAtMs", tsToMs(stat.mtime));
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "accessedAtMs", timeSpecMs(raw.atime));
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "changedAtMs", timeSpecMs(raw.ctime));
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "size", raw.size);
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "mode", raw.mode);
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "uid", raw.uid);
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "gid", raw.gid);
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "dev", statxDevId(raw.dev_major, raw.dev_minor));
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "ino", raw.ino);
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "nlink", raw.nlink);
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "rdev", statxDevId(raw.rdev_major, raw.rdev_minor));
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "blksize", raw.blksize);
-    try writer.writeAll(",");
-    try writeJsonIntField(writer, "blocks", raw.blocks);
-    try writer.writeAll("}");
-}
+pub const writeMetadataJsonExt = @import("sa_std/dir_stat.zig").writeMetadataJsonExt;
 
-fn dirEntryKindFromLinuxType(kind: u8) u32 {
-    return switch (kind) {
-        std.posix.DT.REG => SA_FS_FILE_REGULAR,
-        std.posix.DT.DIR => SA_FS_FILE_DIR,
-        std.posix.DT.LNK => SA_FS_FILE_SYMLINK,
-        else => SA_FS_FILE_OTHER,
-    };
-}
+pub const dirEntryKindFromLinuxType = @import("sa_std/dir_stat.zig").dirEntryKindFromLinuxType;
 
-fn dirEntryKindFromIo(kind: std.Io.File.Kind) u32 {
-    return switch (kind) {
-        .file => SA_FS_FILE_REGULAR,
-        .directory => SA_FS_FILE_DIR,
-        .sym_link => SA_FS_FILE_SYMLINK,
-        else => SA_FS_FILE_OTHER,
-    };
-}
+pub const dirEntryKindFromIo = @import("sa_std/dir_stat.zig").dirEntryKindFromIo;
 
-pub fn readDirEntriesLinux(path: []const u8, max_entries: usize) !DirEntriesHandle {
-    if (comptime is_wasm) return error.Unsupported;
-
-    var out = std.array_list.Managed(DirEntrySnapshot).init(std.heap.page_allocator);
-    errdefer {
-        for (out.items) |entry| if (entry.name.len != 0) std.heap.page_allocator.free(entry.name);
-        out.deinit();
-    }
-
-    if (comptime is_linux) {
-        const flags: std.posix.O = .{ .ACCMODE = .RDONLY, .DIRECTORY = true, .CLOEXEC = true };
-        const fd = try std.posix.openat(std.posix.AT.FDCWD, path, flags, 0);
-        defer lxClose(fd);
-
-        var buf: [4096]u8 = undefined;
-        while (out.items.len < max_entries) {
-            const rc = std.os.linux.getdents64(fd, &buf, buf.len);
-            switch (std.os.linux.errno(rc)) {
-                .SUCCESS => {},
-                .BADF => unreachable,
-                .FAULT => unreachable,
-                .NOTDIR => unreachable,
-                .NOENT => return error.FileNotFound,
-                .INVAL => return error.Unexpected,
-                .ACCES => return error.AccessDenied,
-                else => |err| return std.posix.unexpectedErrno(err),
-            }
-            if (rc == 0) break;
-
-            var index: usize = 0;
-            while (index < rc and out.items.len < max_entries) {
-                const linux_entry = @as(*align(1) std.os.linux.dirent64, @ptrCast(&buf[index]));
-                index += linux_entry.reclen;
-
-                const name = std.mem.sliceTo(@as([*:0]u8, @ptrCast(&linux_entry.name)), 0);
-                if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
-
-                const owned_name = try std.heap.page_allocator.dupe(u8, name);
-                errdefer std.heap.page_allocator.free(owned_name);
-                // getdents d_ino is not canonical on all filesystems:
-                // on overlayfs a directory entry's d_ino differs from
-                // the inode statx reports for the same path, while
-                // FS_METADATA_INO reports the statx inode. Resolve
-                // through statx so FS_DIR_ENTRY_INO agrees with
-                // FS_METADATA_INO; fall back to d_ino when the entry
-                // cannot be statted (it vanished mid-read, or the
-                // joined path is too long).
-                var entry_ino: u64 = linux_entry.ino;
-                {
-                    var full_buf: [std.posix.PATH_MAX]u8 = undefined;
-                    const full_path = std.fmt.bufPrint(
-                        &full_buf,
-                        "{s}/{s}",
-                        .{ std.mem.trimEnd(u8, path, "/"), name },
-                    ) catch null;
-                    if (full_path) |fp| {
-                        if (lxStatxNoFollow(fp)) |stx| {
-                            entry_ino = stx.ino;
-                        } else |_| {}
-                    }
-                }
-                try out.append(.{
-                    .name = owned_name,
-                    .kind = dirEntryKindFromLinuxType(linux_entry.type),
-                    .ino = entry_ino,
-                });
-            }
-        }
-    } else {
-        var dir = try sio.cwd().openDir(path, .{ .iterate = true });
-        defer dir.close();
-        var it = dir.iterate();
-        while (out.items.len < max_entries) {
-            const next = try it.next();
-            const entry = next orelse break;
-            if (std.mem.eql(u8, entry.name, ".") or std.mem.eql(u8, entry.name, "..")) continue;
-            const owned_name = try std.heap.page_allocator.dupe(u8, entry.name);
-            errdefer std.heap.page_allocator.free(owned_name);
-            try out.append(.{
-                .name = owned_name,
-                .kind = dirEntryKindFromIo(entry.kind),
-                .ino = @intCast(entry.inode),
-            });
-        }
-    }
-
-    return .{ .allocator = std.heap.page_allocator, .entries = try out.toOwnedSlice() };
-}
+pub const readDirEntriesLinux = @import("sa_std/dir_stat.zig").readDirEntriesLinux;
 
 pub fn metadataModeMatches(handle: u64, mode_bits: u64) u8 {
     while (!registry_mutex.tryLock()) {
@@ -10445,15 +6920,15 @@ pub const sa_std_net_tcp_stream_set_nonblocking = @import("sa_std/std_net_tcp_st
 /// Interest/readiness bits for sa_std_net_poll_wait. The interest
 /// mask (input) and the readiness mask (output) share the read and
 /// write bits; the error bit is readiness-only.
-pub const SA_STD_NET_POLL_READ: u32 = 1;
-pub const SA_STD_NET_POLL_WRITE: u32 = 2;
-pub const SA_STD_NET_POLL_ERROR: u32 = 4;
+pub const SA_STD_NET_POLL_READ = @import("sa_std/consts.zig").SA_STD_NET_POLL_READ;
+pub const SA_STD_NET_POLL_WRITE = @import("sa_std/consts.zig").SA_STD_NET_POLL_WRITE;
+pub const SA_STD_NET_POLL_ERROR = @import("sa_std/consts.zig").SA_STD_NET_POLL_ERROR;
 
 /// Largest readiness set accepted by one sa_std_net_poll_wait call.
 /// Larger connection sets are served by waiting on slices of the
 /// set in rotation; the cap is loud (invalid argument), never a
 /// silent truncation.
-pub const SA_STD_NET_POLL_MAX_HANDLES: u64 = 4096;
+pub const SA_STD_NET_POLL_MAX_HANDLES = @import("sa_std/consts.zig").SA_STD_NET_POLL_MAX_HANDLES;
 pub const poll_wait_stack_handles: usize = 256;
 
 /// Block until at least one of the given socket handles (TCP
@@ -10908,74 +7383,21 @@ pub const sa_fmt_i64 = @import("sa_std/fmt.zig").sa_fmt_i64;
 
 pub const sa_fmt_i64_into = @import("sa_std/fmt.zig").sa_fmt_i64_into;
 
-pub export fn sa_test_debug_i64(name: ?[*]const u8, name_len: u64, value: i64) void {
-    const raw_name = name orelse return;
-    while (!test_debug_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer test_debug_mutex.unlock();
-    const slot_index = test_debug_next % test_debug_scalars.len;
-    var slot = &test_debug_scalars[slot_index];
-    const requested_len = std.math.cast(usize, name_len) orelse slot.name.len;
-    const copy_len = @min(requested_len, slot.name.len);
-    @memset(slot.name[0..], 0);
-    if (copy_len != 0) @memcpy(slot.name[0..copy_len], raw_name[0..copy_len]);
-    slot.name_len = copy_len;
-    slot.value = value;
-    test_debug_next = (test_debug_next + 1) % test_debug_scalars.len;
-    if (test_debug_count < test_debug_scalars.len) test_debug_count += 1;
-}
+pub const sa_test_debug_i64 = @import("sa_std/test_debug.zig").sa_test_debug_i64;
 
 pub export fn sa_test_fallible_i32_value(value: i32) Fallible(i32) {
     return ok(i32, value);
 }
 
-fn testTracePanicEnabled() bool {
-    const value = envValueFromCurrentProcess("SA_TEST_TRACE_PANIC") orelse return false;
-    return value.len != 0 and !std.mem.eql(u8, value, "0");
-}
+pub const testTracePanicEnabled = @import("sa_std/test_debug.zig").testTracePanicEnabled;
 
-fn printRecentTestScalars() void {
-    while (!test_debug_mutex.tryLock()) {
-        std.Thread.yield() catch {};
-    }
-    defer test_debug_mutex.unlock();
-    if (test_debug_count == 0) return;
-    std.debug.print("recent scalars:\n", .{});
-    var index: usize = test_debug_next + test_debug_scalars.len - test_debug_count;
-    var remaining = test_debug_count;
-    while (remaining > 0) : (remaining -= 1) {
-        const slot = test_debug_scalars[index % test_debug_scalars.len];
-        if (slot.name_len != 0) {
-            std.debug.print("  {s}={d}\n", .{ slot.name[0..slot.name_len], slot.value });
-        }
-        index += 1;
-    }
-}
+pub const printRecentTestScalars = @import("sa_std/test_debug.zig").printRecentTestScalars;
 
-fn exitAfterAssertPanic(code: i32) noreturn {
-    if (testTracePanicEnabled()) printRecentTestScalars();
-    const raw_code: u32 = @bitCast(code);
-    const exit_code: u8 = @as(u8, @truncate((raw_code & 0x7f) + 128));
-    std.process.exit(exit_code);
-}
+pub const exitAfterAssertPanic = @import("sa_std/test_debug.zig").exitAfterAssertPanic;
 
-pub export fn sa_assert_eq_i64(actual: i64, expected: i64, code: i32) void {
-    if (actual == expected) return;
-    std.debug.print("PANIC[{d}]: expected={d} actual={d}\n", .{ code, expected, actual });
-    exitAfterAssertPanic(code);
-}
+pub const sa_assert_eq_i64 = @import("sa_std/test_debug.zig").sa_assert_eq_i64;
 
-pub export fn sa_assert_eq_i64_at(actual: i64, expected: i64, code: i32, file: ?[*]const u8, file_len: u64, line: u32, col: u32) void {
-    if (actual == expected) return;
-    const file_slice = if (file) |ptr| ptr[0..@as(usize, @intCast(file_len))] else "";
-    if (file_slice.len != 0 and line != 0) {
-        std.debug.print("PANIC[{d}]: {s}:{d}:{d}: expected={d} actual={d}\n", .{ code, file_slice, line, col, expected, actual });
-    } else {
-        std.debug.print("PANIC[{d}]: expected={d} actual={d}\n", .{ code, expected, actual });
-    }
-    exitAfterAssertPanic(code);
-}
+pub const sa_assert_eq_i64_at = @import("sa_std/test_debug.zig").sa_assert_eq_i64_at;
 
 pub const sa_fmt_u64 = @import("sa_std/fmt.zig").sa_fmt_u64;
 
