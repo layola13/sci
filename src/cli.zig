@@ -151,17 +151,7 @@ const Command = @import("cli/types.zig").Command;
 
 pub const hasJsonFlag = @import("cli/help.zig").hasJsonFlag;
 
-fn stripJsonFlag(allocator: std.mem.Allocator, argv: []const []const u8) ![]const []const u8 {
-    var items = std.array_list.Managed([]const u8).init(allocator);
-    errdefer items.deinit();
-
-    for (argv) |arg| {
-        if (std.mem.eql(u8, arg, "--json")) continue;
-        try items.append(arg);
-    }
-
-    return try items.toOwnedSlice();
-}
+const stripJsonFlag = @import("cli/dispatch.zig").stripJsonFlag;
 
 const ProjectTargetKind = enum {
     native,
@@ -286,9 +276,7 @@ const sizeBitsForTriple = @import("cli/compile.zig").sizeBitsForTriple;
 
 const tripleIsWindows = @import("cli/compile.zig").tripleIsWindows;
 
-fn executableSuffixForTriple(triple: ?[]const u8) []const u8 {
-    return if (tripleIsWindows(triple)) ".exe" else "";
-}
+const executableSuffixForTriple = @import("cli/dispatch.zig").executableSuffixForTriple;
 
 const boolEnv = @import("cli/compile.zig").boolEnv;
 
@@ -326,15 +314,9 @@ const projectPathExists = @import("cli/cache.zig").projectPathExists;
 
 const readTextFileAlloc = @import("cli/cache.zig").readTextFileAlloc;
 
-fn readManifestTextFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    var file = try sio.cwd().openFile(path, .{});
-    defer file.close();
-    return try file.readToEndAlloc(allocator, manifest.max_manifest_bytes);
-}
+const readManifestTextFileAlloc = @import("cli/package.zig").readManifestTextFileAlloc;
 
-fn projectManifestPath(allocator: std.mem.Allocator, root_path: []const u8) ![]u8 {
-    return try pathJoinAlloc(allocator, &.{ root_path, "sa.mod" });
-}
+const projectManifestPath = @import("cli/package.zig").projectManifestPath;
 
 const projectLockPath = @import("cli/compile.zig").projectLockPath;
 
@@ -342,11 +324,7 @@ const projectSumPath = @import("cli/compile.zig").projectSumPath;
 
 const projectSourcePath = @import("cli/misc_cmd.zig").projectSourcePath;
 
-fn readManifestFile(allocator: std.mem.Allocator, path: []const u8) !manifest.Manifest {
-    const source = try readManifestTextFileAlloc(allocator, path);
-    defer allocator.free(source);
-    return try manifest.parseManifestWithFile(allocator, source, path);
-}
+const readManifestFile = @import("cli/package.zig").readManifestFile;
 
 const readLockFile = @import("cli/compile.zig").readLockFile;
 
@@ -385,32 +363,7 @@ fn targetTripleName(target: builtin.Target) ![]u8 {
     return try target.zigTriple(std.heap.page_allocator);
 }
 
-fn emitSumFromManifest(allocator: std.mem.Allocator, manifest_file: *const manifest.Manifest) !manifest.SumFile {
-    var entries = std.array_list.Managed(manifest.SumEntry).init(allocator);
-    errdefer {
-        for (entries.items) |*entry| entry.deinit(allocator);
-        entries.deinit();
-    }
-
-    for (manifest_file.requires) |entry| {
-        try entries.append(.{
-            .url = try allocator.dupe(u8, entry.url),
-            .ref = try allocator.dupe(u8, entry.ref),
-            .source_sha256 = entry.source_sha256,
-            .depth = 0,
-        });
-    }
-
-    std.sort.insertion(manifest.SumEntry, entries.items, {}, struct {
-        fn lessThan(_: void, lhs: manifest.SumEntry, rhs: manifest.SumEntry) bool {
-            const order = std.mem.order(u8, lhs.url, rhs.url);
-            if (order != .eq) return order == .lt;
-            return std.mem.order(u8, lhs.ref, rhs.ref) == .lt;
-        }
-    }.lessThan);
-
-    return .{ .entries = try entries.toOwnedSlice() };
-}
+const emitSumFromManifest = @import("cli/package.zig").emitSumFromManifest;
 
 fn targetHashKeyForName(allocator: std.mem.Allocator, name: []const u8, source_suffix: []const u8) ![]const u8 {
     return try projectTargetKey(allocator, name, source_suffix);
@@ -653,18 +606,7 @@ const freeDaemonArgv = @import("cli/daemon.zig").freeDaemonArgv;
 
 const restrictDaemonSocket = @import("cli/daemon.zig").restrictDaemonSocket;
 
-fn daemonCommand(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
-    // The persistent daemon relies on Unix-domain sockets, which are not
-    // available on Windows targets (Zig 0.14.1 std.net also fails to compile
-    // initUnix/connectUnixSocket for windows-gnu). Comptime branch keeps the
-    // unix-only body out of Windows semantic analysis.
-    if (comptime builtin.os.tag == .windows) {
-        try stderr.print("daemon: not supported on Windows\n", .{});
-        return 1;
-    } else {
-        return try daemonCommandUnix(allocator, args, stdout, stderr);
-    }
-}
+const daemonCommand = @import("cli/dispatch.zig").daemonCommand;
 
 const daemonCommandUnix = @import("cli/daemon.zig").daemonCommandUnix;
 
@@ -865,14 +807,7 @@ const collectExternalSymbolNames = @import("cli/build_exe.zig").collectExternalS
 
 const appendNativePluginLinkInputs = @import("cli/build_exe.zig").appendNativePluginLinkInputs;
 
-fn deriveOutputPath(allocator: std.mem.Allocator, source_path: []const u8, suffix: []const u8) ![]const u8 {
-    const dir = std.fs.path.dirname(source_path);
-    const stem = sourceStem(source_path);
-    if (dir) |parent| {
-        return try std.fmt.allocPrint(allocator, "{s}/{s}{s}", .{ parent, stem, suffix });
-    }
-    return try std.fmt.allocPrint(allocator, "{s}{s}", .{ stem, suffix });
-}
+const deriveOutputPath = @import("cli/dispatch.zig").deriveOutputPath;
 
 pub fn defaultExecutableSuffix() []const u8 {
     return if (builtin.os.tag == .windows) ".exe" else "";
@@ -1093,291 +1028,27 @@ const executeInit = @import("cli/misc_cmd.zig").executeInit;
 
 const InstallArgs = @import("cli/types.zig").InstallArgs;
 
-fn fetchManifestRequires(allocator: std.mem.Allocator, manifest_file: *const manifest.Manifest, fetch_options: pkg_fetch.FetchOptions, stdout: anytype) !void {
-    for (manifest_file.requires) |entry| {
-        var entry_fetch_options = fetch_options;
-        entry_fetch_options.expected_source_sha256 = entry.source_sha256;
-        var result = try pkg_fetch.fetchPackage(allocator, entry.url, entry.ref, entry_fetch_options);
-        defer result.deinit(allocator);
-        if (!hashesEqual(result.source_sha256, entry.source_sha256)) return error.UpstreamShaMismatch;
-        try stdout.print("{s}\n", .{result.root});
-    }
-}
+const fetchManifestRequires = @import("cli/package.zig").fetchManifestRequires;
 
-fn installManifestPlugins(allocator: std.mem.Allocator, manifest_file: *const manifest.Manifest, stdout: anytype) !u8 {
-    for (manifest_file.plugin_requires) |entry| {
-        _ = entry.abi;
-        _ = entry.ref;
-        const code = try plugins.installFromPath(allocator, entry.identity, stdout, .{});
-        if (code != 0) return code;
-    }
-    return 0;
-}
+const installManifestPlugins = @import("cli/package.zig").installManifestPlugins;
 
 const parseInstallArgs = @import("cli/misc_cmd.zig").parseInstallArgs;
 
-fn installManifestDependencies(allocator: std.mem.Allocator, options: pkg_fetch.FetchOptions, package_name: ?[]const u8, stdout: anytype) !u8 {
-    var resolution = try pkg_workspace.resolveFromCurrentDir(allocator, .{ .request = package_name });
-    defer resolution.deinit(allocator);
+const installManifestDependencies = @import("cli/package.zig").installManifestDependencies;
 
-    const project_root = resolution.workspace_root;
-    const project_manifest = resolution.effective_manifest orelse return 0;
+const executeInstall = @import("cli/package.zig").executeInstall;
 
-    const current_dir = try sio.cwd().realpathAlloc(allocator, ".");
-    defer allocator.free(current_dir);
+const executePkgCommandFallback = @import("cli/package.zig").executePkgCommandFallback;
 
-    if (package_name == null and
-        resolution.workspace_manifest != null and
-        resolution.workspace_manifest.?.workspace != null and
-        std.mem.eql(u8, current_dir, resolution.workspace_root))
-    {
-        const members = try pkg_workspace.listWorkspaceMembers(allocator, resolution.workspace_root, &resolution.workspace_manifest.?);
-        defer pkg_workspace.freeWorkspaceMembers(allocator, members);
-
-        var member_manifests = std.array_list.Managed(manifest.Manifest).init(allocator);
-        defer {
-            for (member_manifests.items) |*member_manifest| member_manifest.deinit(allocator);
-            member_manifests.deinit();
-        }
-
-        var member_manifest_ptrs = std.array_list.Managed(*const manifest.Manifest).init(allocator);
-        defer member_manifest_ptrs.deinit();
-
-        for (members) |member| {
-            const member_manifest_path = try projectManifestPath(allocator, member.member_root);
-            defer allocator.free(member_manifest_path);
-            const member_manifest = try readManifestFile(allocator, member_manifest_path);
-            try member_manifests.append(member_manifest);
-        }
-
-        for (member_manifests.items) |*member_manifest| {
-            try member_manifest_ptrs.append(member_manifest);
-        }
-
-        var aggregate_manifest = try manifest.mergeWorkspaceMemberSet(
-            allocator,
-            &resolution.workspace_manifest.?,
-            member_manifest_ptrs.items,
-        );
-        defer aggregate_manifest.deinit(allocator);
-
-        var mirror_rules = try pkg_mirror.loadProjectRules(allocator, project_root, aggregate_manifest.mirrors);
-        defer mirror_rules.deinit(allocator);
-
-        var fetch_options = options;
-        fetch_options.mirror_rules = mirror_rules.rules;
-
-        try fetchManifestRequires(allocator, &aggregate_manifest, fetch_options, stdout);
-        const plugin_code = try installManifestPlugins(allocator, &aggregate_manifest, stdout);
-        if (plugin_code != 0) return plugin_code;
-
-        var update = try pkg_sum.updateProjectSum(allocator, project_root, aggregate_manifest);
-        defer update.deinit(allocator);
-        return 0;
-    }
-
-    var mirror_rules = try pkg_mirror.loadProjectRules(allocator, project_root, project_manifest.mirrors);
-    defer mirror_rules.deinit(allocator);
-
-    var fetch_options = options;
-    fetch_options.mirror_rules = mirror_rules.rules;
-
-    try fetchManifestRequires(allocator, &project_manifest, fetch_options, stdout);
-    const plugin_code = try installManifestPlugins(allocator, &project_manifest, stdout);
-    if (plugin_code != 0) return plugin_code;
-
-    var update = try pkg_sum.updateProjectSum(allocator, project_root, project_manifest);
-    defer update.deinit(allocator);
-
-    return 0;
-}
-
-fn executeInstall(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype) !u8 {
-    const parsed = try parseInstallArgs(args);
-    if (parsed.identity) |identity| {
-        var result = try pkg_fetch.fetchPackage(allocator, identity, parsed.ref, parsed.options);
-        defer result.deinit(allocator);
-        try stdout.print("{s}\n", .{result.root});
-        return 0;
-    }
-    return try installManifestDependencies(allocator, parsed.options, parsed.package_name, stdout);
-}
-
-fn executePkgCommandFallback(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !?u8 {
-    if (args.len < 3) return null;
-    const sub = args[2];
-    if (std.mem.eql(u8, sub, "install")) {
-        return try executeInstall(allocator, args[3..], stdout);
-    }
-    if (std.mem.eql(u8, sub, "add")) {
-        return try executePkgAdd(allocator, args[3..], stdout, stderr);
-    }
-    if (std.mem.eql(u8, sub, "list")) {
-        return try executePkgList(allocator, args[3..], stdout, stderr);
-    }
-    return null;
-}
-
-/// Render one canonical `require` line for sa.mod (the same shape
-/// manifest.writeManifest emits, grants clause included when present).
-fn renderRequireLine(allocator: std.mem.Allocator, url: []const u8, ref: []const u8, source_sha256: [32]u8, grants: []const manifest.Capability) ![]u8 {
-    var aw: std.Io.Writer.Allocating = .init(allocator);
-    errdefer aw.deinit();
-    const writer = &aw.writer;
-    try writer.print("require {s} @{s} sha256:{s}", .{ url, ref, std.fmt.bytesToHex(source_sha256, .lower) });
-    if (grants.len != 0) {
-        try writer.writeAll(" grants [");
-        for (grants, 0..) |cap, idx| {
-            if (idx != 0) try writer.writeAll(", ");
-            try writer.writeAll(manifest.capabilityName(cap));
-        }
-        try writer.writeByte(']');
-    }
-    return aw.toOwnedSlice();
-}
+const renderRequireLine = @import("cli/package.zig").renderRequireLine;
 
 /// Return the byte range [start, end) of the manifest line whose first
 /// two whitespace-separated tokens are `require` and `url`, or null.
-fn findRequireLineRange(text: []const u8, url: []const u8) ?struct { start: usize, end: usize } {
-    var start: usize = 0;
-    while (start < text.len) {
-        var end = std.mem.indexOfScalarPos(u8, text, start, '\n') orelse text.len;
-        var line = text[start..end];
-        if (line.len != 0 and line[line.len - 1] == '\r') line = line[0 .. line.len - 1];
-        const trimmed = std.mem.trim(u8, line, " \t");
-        var tokens = std.mem.tokenizeAny(u8, trimmed, " \t");
-        const first = tokens.next() orelse "";
-        const second = tokens.next() orelse "";
-        if (std.mem.eql(u8, first, "require") and std.mem.eql(u8, second, url)) {
-            if (end < text.len) end += 1; // consume the newline with the line
-            return .{ .start = start, .end = end };
-        }
-        start = end + 1;
-    }
-    return null;
-}
+const findRequireLineRange = @import("cli/package.zig").findRequireLineRange;
 
-fn executePkgAdd(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
-    const parsed = try parseInstallArgs(args);
-    const identity = parsed.identity orelse {
-        try stderr.writeAll("usage: sa pkg add [options] <identity>\n");
-        return 1;
-    };
+const executePkgAdd = @import("cli/package.zig").executePkgAdd;
 
-    var resolution = pkg_workspace.resolveFromCurrentDir(allocator, .{}) catch |err| {
-        try stderr.print("pkg add: no sa.mod project found from the current directory; run `sa init` or `sa sla init` first ({s})\n", .{@errorName(err)});
-        return 1;
-    };
-    defer resolution.deinit(allocator);
-
-    // The dependency belongs to the manifest that governs the current
-    // directory: the workspace member's sa.mod when one is selected,
-    // otherwise the workspace/project root sa.mod.
-    const target_path: []const u8 = if (resolution.member_manifest != null)
-        resolution.member_manifest_path
-    else if (resolution.workspace_manifest != null)
-        resolution.workspace_manifest_path
-    else {
-        try stderr.writeAll("pkg add: no sa.mod project found from the current directory; run `sa init` or `sa sla init` first\n");
-        return 1;
-    };
-    const effective = resolution.effective_manifest orelse {
-        try stderr.writeAll("pkg add: no sa.mod project found from the current directory; run `sa init` or `sa sla init` first\n");
-        return 1;
-    };
-
-    var mirror_rules = try pkg_mirror.loadProjectRules(allocator, resolution.workspace_root, effective.mirrors);
-    defer mirror_rules.deinit(allocator);
-
-    var fetch_options = parsed.options;
-    fetch_options.mirror_rules = mirror_rules.rules;
-    var result = try pkg_fetch.fetchPackage(allocator, identity, parsed.ref, fetch_options);
-    defer result.deinit(allocator);
-
-    // Edit the manifest textually so hand-written content (comments,
-    // ordering, unrelated sections) survives untouched: replace the
-    // existing require line for this identity, or append a new one.
-    const original_text = try readManifestTextFileAlloc(allocator, target_path);
-    defer allocator.free(original_text);
-    var existing_manifest = try manifest.parseManifestWithFile(allocator, original_text, target_path);
-    defer existing_manifest.deinit(allocator);
-
-    var kept_grants: []const manifest.Capability = &.{};
-    for (existing_manifest.requires) |entry| {
-        if (std.mem.eql(u8, entry.url, identity)) {
-            kept_grants = entry.grants;
-            break;
-        }
-    }
-    const new_line = try renderRequireLine(allocator, identity, parsed.ref, result.source_sha256, kept_grants);
-    defer allocator.free(new_line);
-
-    var new_text = std.array_list.Managed(u8).init(allocator);
-    defer new_text.deinit();
-    if (findRequireLineRange(original_text, identity)) |range| {
-        try new_text.appendSlice(original_text[0..range.start]);
-        try new_text.appendSlice(new_line);
-        try new_text.append('\n');
-        try new_text.appendSlice(original_text[range.end..]);
-    } else {
-        try new_text.appendSlice(original_text);
-        if (new_text.items.len != 0 and new_text.items[new_text.items.len - 1] != '\n') try new_text.append('\n');
-        try new_text.appendSlice(new_line);
-        try new_text.append('\n');
-    }
-
-    // Never write a manifest the parser would reject, and never write
-    // one that lost the entry just added.
-    var check_manifest = try manifest.parseManifestWithFile(allocator, new_text.items, target_path);
-    defer check_manifest.deinit(allocator);
-    var recorded = false;
-    for (check_manifest.requires) |entry| {
-        if (std.mem.eql(u8, entry.url, identity) and std.mem.eql(u8, entry.ref, parsed.ref) and hashesEqual(entry.source_sha256, result.source_sha256)) recorded = true;
-    }
-    if (!recorded) return error.InvalidManifestAfterAdd;
-
-    var file = try sio.createFileAbsolute(target_path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(new_text.items);
-
-    // Refresh the project sum from a fresh resolution so the recorded
-    // lock state matches the edited manifests (same tail as install).
-    var next_resolution = try pkg_workspace.resolveFromCurrentDir(allocator, .{});
-    defer next_resolution.deinit(allocator);
-    if (next_resolution.effective_manifest) |*next_manifest| {
-        var update = try pkg_sum.updateProjectSum(allocator, next_resolution.workspace_root, next_manifest.*);
-        defer update.deinit(allocator);
-    }
-
-    try stdout.print("pkg add: {s} @{s} sha256:{s}\n", .{ identity, parsed.ref, std.fmt.bytesToHex(result.source_sha256, .lower) });
-    try stdout.print("recorded in {s}\n", .{target_path});
-    try stdout.print("{s}\n", .{result.root});
-    return 0;
-}
-
-fn executePkgList(allocator: std.mem.Allocator, args: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
-    for (args) |arg| {
-        if (!isHelpFlag(arg)) return error.UnexpectedArgument;
-    }
-    var resolution = pkg_workspace.resolveFromCurrentDir(allocator, .{}) catch {
-        try stderr.writeAll("pkg list: no sa.mod project found from the current directory\n");
-        return 1;
-    };
-    defer resolution.deinit(allocator);
-    const effective = resolution.effective_manifest orelse {
-        try stderr.writeAll("pkg list: no sa.mod project found from the current directory\n");
-        return 1;
-    };
-    for (effective.requires) |entry| {
-        const line = try renderRequireLine(allocator, entry.url, entry.ref, entry.source_sha256, entry.grants);
-        defer allocator.free(line);
-        try stdout.print("{s}\n", .{line});
-    }
-    for (effective.plugin_requires) |entry| {
-        try stdout.print("require_plugin {s} @{s} abi {d}\n", .{ entry.identity, entry.ref, entry.abi });
-    }
-    return 0;
-}
+const executePkgList = @import("cli/package.zig").executePkgList;
 
 const reportPluginImportDiagnostic = @import("cli/compile.zig").reportPluginImportDiagnostic;
 
@@ -1399,39 +1070,7 @@ const executeBuildObj = @import("cli/build_exe.zig").executeBuildObj;
 
 const executeBuildWasm = @import("cli/build_exe.zig").executeBuildWasm;
 
-fn executeBuildJs(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, js_format: emit_js.JsFormat, debug: bool, emit_dts: bool, compile_options: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
-    const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-    const compiled = try compileSource(allocator, source_path, compile_options);
-    switch (compiled) {
-        .trap => |report| {
-            try printTrapReport(stderr, report, diagnostics_mode);
-            return 1;
-        },
-        .ok => |ok| {
-            var owned = ok;
-            defer owned.deinit(allocator);
-            try ensureParentDir(out_path);
-            const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
-            const size_bits = sizeBitsForTriple(compile_options.target_triple);
-            emit_js.emitJsToFile(allocator, owned.verified, source_path, size_bits, .{ .format = js_format, .debug_comments = debug, .dce = compile_options.dce, .emit_dts = emit_dts }, &owned.flat.def_dict.npm_binds, out_path) catch |err| {
-                try stderr.print("error: JS backend emit failed: {s}", .{@errorName(err)});
-                if (emit_js_types.last_js_func.len != 0) try stderr.print(" in {s}", .{emit_js_types.last_js_func});
-                if (emit_js_types.last_js_inst.len != 0) try stderr.print(": {s}", .{std.mem.trim(u8, emit_js_types.last_js_inst, " \t\r\n")});
-                try stderr.writeAll("\n");
-                return 1;
-            };
-            const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
-            recordMetricMemoryAfterEmit(&owned.metrics);
-            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
-            recordMetricMemoryEnd(&owned.metrics);
-            if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
-            finishProfileMetrics(&owned.metrics, emit_ns, null, if (total_start) |start| elapsedNs(start) else null);
-            attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
-            try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
-            return 0;
-        },
-    }
-}
+const executeBuildJs = @import("cli/dispatch.zig").executeBuildJs;
 
 const executeBuildC = @import("cli/build_exe.zig").executeBuildC;
 
@@ -1496,13 +1135,7 @@ const generateLibExportedSymbolsList = @import("cli/build_lib.zig").generateLibE
 
 const libTargetFamily = @import("cli/build_lib.zig").libTargetFamily;
 
-fn libSharedSuffix(family: LibTargetFamily) []const u8 {
-    return switch (family) {
-        .elf => ".so",
-        .pe => ".dll",
-        .mach_o => ".dylib",
-    };
-}
+const libSharedSuffix = @import("cli/dispatch.zig").libSharedSuffix;
 
 fn libStaticSuffix(family: LibTargetFamily) []const u8 {
     return switch (family) {
@@ -1539,11 +1172,7 @@ fn parseTarget(text: []const u8) !WasmTarget {
     return error.InvalidTarget;
 }
 
-fn parseOptimizationFlag(arg: []const u8) ?driver.Optimization {
-    if (std.mem.eql(u8, arg, "--release-fast")) return .release_fast;
-    if (std.mem.eql(u8, arg, "--release-small")) return .release_small;
-    return null;
-}
+const parseOptimizationFlag = @import("cli/dispatch.zig").parseOptimizationFlag;
 
 const emitOptLevel = @import("cli/build_exe.zig").emitOptLevel;
 
@@ -1610,631 +1239,7 @@ const freeRewrittenArgs = @import("cli/route.zig").freeRewrittenArgs;
 
 const routeLanguageFrontend = @import("cli/route.zig").routeLanguageFrontend;
 
-fn executeWithWritersAndOptionsImpl(
-    allocator: std.mem.Allocator,
-    argv: []const []const u8,
-    stdout: anytype,
-    stderr: anytype,
-    exec_options: ExecuteOptions,
-) !u8 {
-    const normalized_args = try stripJsonFlag(allocator, argv);
-    defer allocator.free(normalized_args);
-
-    const args = normalized_args;
-    const json_mode = hasJsonFlag(argv);
-
-    // Global flags: --help / -h / --version (checked before command dispatch)
-    if (args.len >= 2) {
-        if (isHelpFlag(args[1])) {
-            try printUsage(stdout);
-            return 0;
-        }
-        if (std.mem.eql(u8, args[1], "--version")) {
-            try printVersion(stdout);
-            return 0;
-        }
-    }
-
-    if (args.len < 2) {
-        try printUsage(stderr);
-        return 1;
-    }
-
-    const cmd: Command = if (commandFromName(args[1])) |known| known else {
-        var plugin_auth = try buildPluginRuntimeAuthorization(allocator, args);
-        defer plugin_auth.deinit(allocator);
-        var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, plugin_auth.input);
-        defer plugin_runtime.deinit();
-        if (try plugin_runtime.dispatchCommand(args, stdout, stderr, json_mode)) |code| return code;
-        for (plugin_runtime.diagnostics.items) |diagnostic| {
-            try stderr.print("note: plugin load skipped: {s}: {s}\n", .{ diagnostic.path, diagnostic.reason });
-        }
-        return error.UnknownCommand;
-    };
-
-    if (commandHelpRequested(cmd, args)) {
-        try printCommandHelp(stdout, cmd, args[2..]);
-        return 0;
-    }
-
-    switch (cmd) {
-        .help => {
-            return try printHelpTopic(stdout, args[2..]);
-        },
-        .version => {
-            try printVersion(stdout);
-            return 0;
-        },
-        .layout => {
-            return try executeLayout(allocator, args[2..], stdout, stderr);
-        },
-        .graph => {
-            return try executeGraph(allocator, args[2..], stdout, stderr, json_mode, exec_options);
-        },
-        .pkg => {
-            if (try executePkgCommandFallback(allocator, args, stdout, stderr)) |code| return code;
-            var plugin_auth = try buildPluginRuntimeAuthorization(allocator, args);
-            defer plugin_auth.deinit(allocator);
-            var plugin_runtime = try plugins.Runtime.initFromEnvWithAuthorization(allocator, plugin_auth.input);
-            defer plugin_runtime.deinit();
-            if (try plugin_runtime.dispatchCommand(args, stdout, stderr, json_mode)) |code| return code;
-            return error.UnknownCommand;
-        },
-        .cache => return try executeCacheCommand(allocator, args[2..], stdout),
-        .audit => return error.UnknownCommand,
-        .check => {
-            return try executeCheck(allocator, args[2..], stdout, stderr, json_mode, exec_options);
-        },
-        .encode_fragment => {
-            return try executeEncodeFragment(allocator, args[2..], stdout, stderr, json_mode, exec_options);
-        },
-        .explain => return try explainCommand(stdout, args, json_mode),
-        .fix => return try fixCommand(stdout, args, json_mode),
-        .skills => return try skillsCommand(allocator, stdout, json_mode),
-        .daemon => return try daemonCommand(allocator, args[2..], stdout, stderr),
-        .init => return try executeInit(allocator, args[2..], stdout),
-        .install => return try executeInstall(allocator, args[2..], stdout),
-        .plugin => return try executePluginCommand(allocator, args[2..], stdout, stderr),
-        .build => {
-            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-            defer diag_forward.writer().flush() catch {};
-            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
-            var source_path: ?[]const u8 = null;
-            var out_path: ?[]const u8 = null;
-            var debug = false;
-            var optimization: driver.Optimization = .none;
-            var i: usize = 2;
-            while (i < args.len) : (i += 1) {
-                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
-                if (source_path == null) {
-                    source_path = args[i];
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-o")) {
-                    if (i + 1 >= args.len) return error.MissingOutputPath;
-                    out_path = args[i + 1];
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-g")) {
-                    debug = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--no-debug")) {
-                    debug = false;
-                    continue;
-                }
-                if (parseOptimizationFlag(args[i])) |mode| {
-                    optimization = mode;
-                    continue;
-                }
-                return error.UnexpectedArgument;
-            }
-            const project_root = try projectRootDir(allocator);
-            defer allocator.free(project_root);
-            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
-            defer if (owned_source_path) |path| allocator.free(path);
-            const final_source_path = source_path orelse owned_source_path.?;
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, executableSuffixForTriple(compile_options.target_triple));
-            defer if (out_path == null) allocator.free(owned_out);
-            configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
-        },
-        .build_workspace => {
-            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-            defer diag_forward.writer().flush() catch {};
-            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
-            var out_path: ?[]const u8 = null;
-            var debug = false;
-            var optimization: driver.Optimization = .none;
-            var i: usize = 2;
-            while (i < args.len) : (i += 1) {
-                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
-                if (std.mem.eql(u8, args[i], "-o")) {
-                    if (i + 1 >= args.len) return error.MissingOutputPath;
-                    out_path = args[i + 1];
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-g")) {
-                    debug = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--no-debug")) {
-                    debug = false;
-                    continue;
-                }
-                if (parseOptimizationFlag(args[i])) |mode| {
-                    optimization = mode;
-                    continue;
-                }
-                return error.UnexpectedArgument;
-            }
-            const project_root = try projectRootDir(allocator);
-            defer allocator.free(project_root);
-            const final_source_path = try projectSourcePath(allocator, project_root, compile_options.package_name);
-            defer allocator.free(final_source_path);
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, executableSuffixForTriple(compile_options.target_triple));
-            defer if (out_path == null) allocator.free(owned_out);
-            configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
-        },
-        .fetch => {
-            if (args.len < 3) return error.MissingSourcePath;
-            var result = try pkg_fetch.fetchPackage(allocator, args[2], "HEAD", .{});
-            defer result.deinit(allocator);
-            try stdout.print("{s}\n", .{result.root});
-            return 0;
-        },
-        .size => {
-            return try executeSize(allocator, args[2..], stdout, stderr, json_mode, exec_options);
-        },
-        .run => {
-            if (args.len < 3) return error.MissingSourcePath;
-            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-            defer diag_forward.writer().flush() catch {};
-            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
-            var source_path: ?[]const u8 = null;
-            var runtime_args = std.array_list.Managed([]const u8).init(allocator);
-            defer runtime_args.deinit();
-
-            var i: usize = 2;
-            while (i < args.len) : (i += 1) {
-                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
-                if (source_path == null) {
-                    source_path = args[i];
-                    continue;
-                }
-                try runtime_args.append(args[i]);
-            }
-            const source = source_path orelse return error.MissingSourcePath;
-            configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeRun(allocator, source, compile_options, runtime_args.items, stdout, stderr, if (json_mode) .json else .human);
-        },
-        .build_exe => {
-            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-            defer diag_forward.writer().flush() catch {};
-            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
-            var source_path: ?[]const u8 = null;
-            var out_path: ?[]const u8 = null;
-            var debug = false;
-            var optimization: driver.Optimization = .none;
-            var i: usize = 2;
-            while (i < args.len) : (i += 1) {
-                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
-                if (source_path == null) {
-                    source_path = args[i];
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-o")) {
-                    if (i + 1 >= args.len) return error.MissingOutputPath;
-                    out_path = args[i + 1];
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-g")) {
-                    debug = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--no-debug")) {
-                    debug = false;
-                    continue;
-                }
-                if (parseOptimizationFlag(args[i])) |mode| {
-                    optimization = mode;
-                    continue;
-                }
-                return error.UnexpectedArgument;
-            }
-            const project_root = try projectRootDir(allocator);
-            defer allocator.free(project_root);
-            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
-            defer if (owned_source_path) |path| allocator.free(path);
-            const final_source_path = source_path orelse owned_source_path.?;
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, executableSuffixForTriple(compile_options.target_triple));
-            defer if (out_path == null) allocator.free(owned_out);
-            configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
-        },
-        .build_obj => {
-            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-            defer diag_forward.writer().flush() catch {};
-            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
-            var source_path: ?[]const u8 = null;
-            var out_path: ?[]const u8 = null;
-            var debug = false;
-            var optimization: driver.Optimization = .none;
-            var incremental = false;
-            var i: usize = 2;
-            while (i < args.len) : (i += 1) {
-                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
-                if (source_path == null) {
-                    source_path = args[i];
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-o")) {
-                    if (i + 1 >= args.len) return error.MissingOutputPath;
-                    out_path = args[i + 1];
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-g")) {
-                    debug = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--no-debug")) {
-                    debug = false;
-                    continue;
-                }
-                if (parseOptimizationFlag(args[i])) |mode| {
-                    optimization = mode;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--incremental")) {
-                    incremental = true;
-                    continue;
-                }
-                return error.UnexpectedArgument;
-            }
-            const project_root = try projectRootDir(allocator);
-            defer allocator.free(project_root);
-            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
-            defer if (owned_source_path) |path| allocator.free(path);
-            const final_source_path = source_path orelse owned_source_path.?;
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, ".o");
-            defer if (out_path == null) allocator.free(owned_out);
-            configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildObj(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, incremental, compile_options, stderr, if (json_mode) .json else .human);
-        },
-        .build_lib => {
-            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-            defer diag_forward.writer().flush() catch {};
-            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
-            var source_path: ?[]const u8 = null;
-            var out_path: ?[]const u8 = null;
-            var contract_path: ?[]const u8 = null;
-            var kind: LibKind = .shared;
-            var debug = false;
-            var optimization: driver.Optimization = .none;
-            var i: usize = 2;
-            while (i < args.len) : (i += 1) {
-                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
-                if (source_path == null) {
-                    source_path = args[i];
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-o")) {
-                    if (i + 1 >= args.len) return error.MissingOutputPath;
-                    out_path = args[i + 1];
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--contract")) {
-                    if (i + 1 >= args.len) {
-                        try stderr.print("error: --contract requires a file path\n", .{});
-                        return 1;
-                    }
-                    contract_path = args[i + 1];
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--kind")) {
-                    if (i + 1 >= args.len) {
-                        try stderr.print("error: --kind requires 'shared' or 'static'\n", .{});
-                        return 1;
-                    }
-                    if (std.mem.eql(u8, args[i + 1], "shared")) {
-                        kind = .shared;
-                    } else if (std.mem.eql(u8, args[i + 1], "static")) {
-                        kind = .static;
-                    } else {
-                        try stderr.print("error: --kind expects 'shared' or 'static', got '{s}'\n", .{args[i + 1]});
-                        return 1;
-                    }
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-g")) {
-                    debug = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--no-debug")) {
-                    debug = false;
-                    continue;
-                }
-                if (parseOptimizationFlag(args[i])) |mode| {
-                    optimization = mode;
-                    continue;
-                }
-                return error.UnexpectedArgument;
-            }
-            if (contract_path == null) {
-                try stderr.print("error: sa build-lib requires --contract <file> (the export contract)\n", .{});
-                return 1;
-            }
-            const project_root = try projectRootDir(allocator);
-            defer allocator.free(project_root);
-            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
-            defer if (owned_source_path) |path| allocator.free(path);
-            const final_source_path = source_path orelse owned_source_path.?;
-            const lib_family = libTargetFamily(compile_options);
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, switch (kind) {
-                .shared => libSharedSuffix(lib_family),
-                .static => libStaticSuffix(lib_family),
-            });
-            defer if (out_path == null) allocator.free(owned_out);
-            configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildLib(allocator, final_source_path, if (out_path) |p| p else owned_out, kind, contract_path.?, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
-        },
-        .build_wasm => {
-            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-            defer diag_forward.writer().flush() catch {};
-            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
-            var source_path: ?[]const u8 = null;
-            var out_path: ?[]const u8 = null;
-            var target: WasmTarget = .{ .triple = "wasm32-wasi", .no_entry = false, .size_bits = 32 };
-            var debug = false;
-            var optimization: driver.Optimization = .none;
-            var i: usize = 2;
-            while (i < args.len) : (i += 1) {
-                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
-                if (source_path == null) {
-                    source_path = args[i];
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-o")) {
-                    if (i + 1 >= args.len) return error.MissingOutputPath;
-                    out_path = args[i + 1];
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-g")) {
-                    debug = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--no-debug")) {
-                    debug = false;
-                    continue;
-                }
-                if (parseOptimizationFlag(args[i])) |mode| {
-                    optimization = mode;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--target")) {
-                    if (i + 1 >= args.len) return error.MissingTarget;
-                    target = try parseTarget(args[i + 1]);
-                    i += 1;
-                    continue;
-                }
-                return error.UnexpectedArgument;
-            }
-            const project_root = try projectRootDir(allocator);
-            defer allocator.free(project_root);
-            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
-            defer if (owned_source_path) |path| allocator.free(path);
-            const final_source_path = source_path orelse owned_source_path.?;
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, ".wasm");
-            defer if (out_path == null) allocator.free(owned_out);
-            configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildWasm(allocator, final_source_path, if (out_path) |p| p else owned_out, target, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
-        },
-        .build_js => {
-            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-            defer diag_forward.writer().flush() catch {};
-            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
-            var source_path: ?[]const u8 = null;
-            var out_path: ?[]const u8 = null;
-            var js_format: emit_js.JsFormat = .esm;
-            var emit_dts = false;
-            var debug = false;
-            var i: usize = 2;
-            while (i < args.len) : (i += 1) {
-                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
-                if (source_path == null) {
-                    source_path = args[i];
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-o")) {
-                    if (i + 1 >= args.len) return error.MissingOutputPath;
-                    out_path = args[i + 1];
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-g")) {
-                    debug = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--no-debug")) {
-                    debug = false;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--emit-dts")) {
-                    emit_dts = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--format")) {
-                    if (i + 1 >= args.len) return error.MissingOutputPath;
-                    js_format = emit_js.JsFormat.parse(args[i + 1]) orelse return error.UnexpectedArgument;
-                    i += 1;
-                    continue;
-                }
-                return error.UnexpectedArgument;
-            }
-            const project_root = try projectRootDir(allocator);
-            defer allocator.free(project_root);
-            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
-            defer if (owned_source_path) |path| allocator.free(path);
-            const final_source_path = source_path orelse owned_source_path.?;
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, ".js");
-            defer if (out_path == null) allocator.free(owned_out);
-            configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildJs(allocator, final_source_path, if (out_path) |p| p else owned_out, js_format, debug, emit_dts, compile_options, stderr, if (json_mode) .json else .human);
-        },
-        .build_c => {
-            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-            defer diag_forward.writer().flush() catch {};
-            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
-            var source_path: ?[]const u8 = null;
-            var out_path: ?[]const u8 = null;
-            var debug = false;
-            var i: usize = 2;
-            while (i < args.len) : (i += 1) {
-                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
-                if (source_path == null) {
-                    source_path = args[i];
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-o")) {
-                    if (i + 1 >= args.len) return error.MissingOutputPath;
-                    out_path = args[i + 1];
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "-g")) {
-                    debug = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--no-debug")) {
-                    debug = false;
-                    continue;
-                }
-                return error.UnexpectedArgument;
-            }
-            const project_root = try projectRootDir(allocator);
-            defer allocator.free(project_root);
-            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
-            defer if (owned_source_path) |path| allocator.free(path);
-            const final_source_path = source_path orelse owned_source_path.?;
-            const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, ".c");
-            defer if (out_path == null) allocator.free(owned_out);
-            configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildC(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, compile_options, stderr, if (json_mode) .json else .human);
-        },
-        .bc2sa => {
-            if (args.len < 3) return error.MissingSourcePath;
-            if (args.len > 3) return error.UnexpectedArgument;
-            const source_path = args[2];
-            const translated = bc2sa.translateBitcodeFile(allocator, source_path) catch |err| {
-                try printCliError(stderr, err, if (json_mode) .json else .human);
-                return 1;
-            };
-            defer allocator.free(translated);
-            try stdout.writeAll(translated);
-            if (translated.len == 0 or translated[translated.len - 1] != '\n') try stdout.writeByte('\n');
-            return 0;
-        },
-        .test_cmd => {
-            var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
-            defer diag_forward.writer().flush() catch {};
-            var compile_options = newCompileOptions(exec_options, diag_forward.writer());
-            var source_path: ?[]const u8 = null;
-            var include_filters = std.array_list.Managed([]const u8).init(allocator);
-            defer include_filters.deinit();
-            var skip_filters = std.array_list.Managed([]const u8).init(allocator);
-            defer skip_filters.deinit();
-            var exact = false;
-            var run_ignored = test_meta.RunIgnored.normal;
-            var list_tests = false;
-            var compile_only = false;
-            var trace_panic = false;
-            var affected_flag = false;
-            var test_optimization: driver.Optimization = .none;
-            var i: usize = 2;
-            while (i < args.len) : (i += 1) {
-                if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
-                if (source_path == null) {
-                    source_path = args[i];
-                    continue;
-                }
-                if (parseOptimizationFlag(args[i])) |mode| {
-                    test_optimization = mode;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--list")) {
-                    list_tests = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--compile-only")) {
-                    compile_only = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--trace-panic") or std.mem.eql(u8, args[i], "--test-debug")) {
-                    trace_panic = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--affected")) {
-                    affected_flag = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--filter")) {
-                    if (i + 1 >= args.len) return error.MissingFilterValue;
-                    try include_filters.append(args[i + 1]);
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--skip")) {
-                    if (i + 1 >= args.len) return error.MissingFilterValue;
-                    try skip_filters.append(args[i + 1]);
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--exact")) {
-                    exact = true;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--ignored")) {
-                    run_ignored = .only;
-                    continue;
-                }
-                if (std.mem.eql(u8, args[i], "--include-ignored")) {
-                    run_ignored = .include;
-                    continue;
-                }
-                return error.UnexpectedArgument;
-            }
-            const selection = test_meta.TestSelection{
-                .include_filters = include_filters.items,
-                .skip_filters = skip_filters.items,
-                .exact = exact,
-                .ignored = run_ignored,
-            };
-            const project_root = try projectRootDir(allocator);
-            defer allocator.free(project_root);
-            const owned_source_path = if (source_path) |_| null else try projectSourcePath(allocator, project_root, compile_options.package_name);
-            defer if (owned_source_path) |path| allocator.free(path);
-            const final_source_path = source_path orelse owned_source_path.?;
-            configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeTest(allocator, final_source_path, compile_options, .{
-                .selection = selection,
-                .list = list_tests,
-                .compile_only = compile_only,
-                .trace_panic = trace_panic,
-                .affected = affected_flag,
-                .optimization = test_optimization,
-            }, stdout, stderr, if (json_mode) .json else .human);
-        },
-    }
-}
+const executeWithWritersAndOptionsImpl = @import("cli/dispatch.zig").executeWithWritersAndOptionsImpl;
 
 pub fn executeWithWriters(allocator: std.mem.Allocator, argv: []const []const u8, stdout: anytype, stderr: anytype) !u8 {
     return executeWithWritersAndOptions(allocator, argv, stdout, stderr, .{});
