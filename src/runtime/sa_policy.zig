@@ -219,133 +219,33 @@ pub fn decide(policy: *const Policy, resource: Resource) Decision {
 /// Canonical identity of a resource, used for one-time token binding
 /// and as the audit event's resource field. Metadata only: for env this
 /// is the key NAME, never the value.
-pub fn resourceKey(allocator: std.mem.Allocator, resource: Resource) ![]u8 {
-    return switch (resource) {
-        .net => |net| try std.fmt.allocPrint(allocator, "{s}:{d}", .{ net.host, net.port }),
-        .fs => |fsr| try std.fmt.allocPrint(allocator, "{s}:{s}", .{ if (fsr.write) "write" else "read", fsr.path }),
-        .env => |key| try allocator.dupe(u8, key),
-        .run => |program| try allocator.dupe(u8, program),
-        .time => try allocator.dupe(u8, "time"),
-        .random => try allocator.dupe(u8, "random"),
-    };
-}
+pub const resourceKey = @import("sa_policy_decide.zig").resourceKey;
 
 // ---------------------------------------------------------------------
 // Matchers
 
-fn stringListHas(list: []const []const u8, value: []const u8) bool {
-    for (list) |entry| {
-        if (std.mem.eql(u8, entry, value)) return true;
-    }
-    return false;
-}
+pub const stringListHas = @import("sa_policy_decide.zig").stringListHas;
 
-fn fsListAllows(list: []const []const u8, path: []const u8) bool {
-    for (list) |entry| {
-        const prefix = std.mem.trimEnd(u8, entry, "/");
-        if (std.mem.eql(u8, path, prefix)) return true;
-        if (std.mem.startsWith(u8, path, prefix) and path.len > prefix.len and path[prefix.len] == '/') return true;
-    }
-    return false;
-}
+pub const fsListAllows = @import("sa_policy_decide.zig").fsListAllows;
 
-fn parseIpv4(text: []const u8) ?u32 {
-    var parts = std.mem.splitScalar(u8, text, '.');
-    var value: u32 = 0;
-    var count: usize = 0;
-    while (parts.next()) |part| {
-        if (part.len == 0 or part.len > 3) return null;
-        const octet = std.fmt.parseInt(u32, part, 10) catch return null;
-        if (octet > 255) return null;
-        value = (value << 8) | octet;
-        count += 1;
-    }
-    if (count != 4) return null;
-    if (parts.next() != null) return null;
-    return value;
-}
+pub const parseIpv4 = @import("sa_policy_decide.zig").parseIpv4;
 
-fn netEntryMatches(entry: []const u8, resource: NetResource) bool {
-    const colon = std.mem.lastIndexOfScalar(u8, entry, ':') orelse return false;
-    const entry_host = entry[0..colon];
-    const entry_port = entry[colon + 1 ..];
-    if (!std.mem.eql(u8, entry_port, "*")) {
-        const port = std.fmt.parseInt(u32, entry_port, 10) catch return false;
-        if (port != resource.port) return false;
-    }
-    if (std.mem.indexOfScalar(u8, entry_host, '/')) |slash| {
-        // CIDR entry: only matches IPv4-literal resource hosts.
-        const prefix_len = std.fmt.parseInt(u32, entry_host[slash + 1 ..], 10) catch return false;
-        if (prefix_len > 32) return false;
-        const network = parseIpv4(entry_host[0..slash]) orelse return false;
-        const host_ip = parseIpv4(resource.host) orelse return false;
-        if (prefix_len == 0) return true;
-        const shift: u5 = @intCast(32 - prefix_len);
-        return (network >> shift) == (host_ip >> shift);
-    }
-    return std.ascii.eqlIgnoreCase(entry_host, resource.host);
-}
+pub const netEntryMatches = @import("sa_policy_decide.zig").netEntryMatches;
 
-fn netListAllows(list: []const []const u8, resource: NetResource) bool {
-    for (list) |entry| {
-        if (netEntryMatches(entry, resource)) return true;
-    }
-    return false;
-}
+pub const netListAllows = @import("sa_policy_decide.zig").netListAllows;
 
 // ---------------------------------------------------------------------
 // Narrowing (context derivation may only tighten)
 
-fn modeNarrowsTo(child: Mode, parent: Mode) bool {
-    if (child == .deny) return true;
-    return switch (child) {
-        .deny => unreachable,
-        .allow_list => parent == .allow_list or parent == .audit or parent == .allow,
-        .audit => parent == .audit or parent == .allow,
-        .ask => parent == .ask,
-        .allow => parent == .allow,
-    };
-}
+pub const modeNarrowsTo = @import("sa_policy_decide.zig").modeNarrowsTo;
 
-fn listSubset(child: []const []const u8, parent: []const []const u8) bool {
-    for (child) |entry| {
-        if (!stringListHas(parent, entry)) return false;
-    }
-    return true;
-}
+pub const listSubset = @import("sa_policy_decide.zig").listSubset;
 
-fn fsEntriesSubset(child: []const []const u8, parent: []const []const u8) bool {
-    // A child fs prefix narrows a parent prefix when it equals it or
-    // lives strictly underneath it.
-    for (child) |entry| {
-        var covered = false;
-        for (parent) |parent_entry| {
-            const prefix = std.mem.trimEnd(u8, parent_entry, "/");
-            if (std.mem.eql(u8, entry, prefix)) covered = true;
-            if (std.mem.startsWith(u8, entry, prefix) and entry.len > prefix.len and entry[prefix.len] == '/') covered = true;
-        }
-        if (!covered) return false;
-    }
-    return true;
-}
+pub const fsEntriesSubset = @import("sa_policy_decide.zig").fsEntriesSubset;
 
-pub fn categoryNarrowsTo(child: *const CategoryPolicy, parent: *const CategoryPolicy, category: Category) bool {
-    if (!modeNarrowsTo(child.mode, parent.mode)) return false;
-    if (child.mode == .allow_list and parent.mode == .allow_list) {
-        if (category == .fs) {
-            return fsEntriesSubset(child.read, parent.read) and fsEntriesSubset(child.write, parent.write);
-        }
-        return listSubset(child.allow, parent.allow);
-    }
-    return true;
-}
+pub const categoryNarrowsTo = @import("sa_policy_decide.zig").categoryNarrowsTo;
 
-pub fn policyNarrowsTo(child: *const Policy, parent: *const Policy) bool {
-    inline for ([_]Category{ .net, .fs, .env, .run, .time, .random }) |category| {
-        if (!categoryNarrowsTo(child.categoryPolicyConst(category), parent.categoryPolicyConst(category), category)) return false;
-    }
-    return true;
-}
+pub const policyNarrowsTo = @import("sa_policy_decide.zig").policyNarrowsTo;
 
 // ---------------------------------------------------------------------
 // Contexts and one-time tokens
@@ -525,216 +425,40 @@ pub const AuditEvent = struct {
     }
 };
 
-fn escapeJson(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
-    var out = std.array_list.Managed(u8).init(allocator);
-    errdefer out.deinit();
-    for (text) |byte| {
-        switch (byte) {
-            '"' => try out.appendSlice("\\\""),
-            '\\' => try out.appendSlice("\\\\"),
-            '\n' => try out.appendSlice("\\n"),
-            '\r' => try out.appendSlice("\\r"),
-            '\t' => try out.appendSlice("\\t"),
-            0x00...0x08, 0x0b, 0x0c, 0x0e...0x1f => {
-                const hex = try std.fmt.allocPrint(allocator, "\\u{x:0>4}", .{byte});
-                defer allocator.free(hex);
-                try out.appendSlice(hex);
-            },
-            else => try out.append(byte),
-        }
-    }
-    return try out.toOwnedSlice();
-}
+pub const escapeJson = @import("sa_policy_json.zig").escapeJson;
 
 // ---------------------------------------------------------------------
 // JSON configuration parsing (strict: unknown keys are errors, a typo
 // in a security policy must never silently change its meaning)
 
-fn jsonString(value: std.json.Value) ![]const u8 {
-    return switch (value) {
-        .string => |text| text,
-        else => error.InvalidPolicy,
-    };
-}
+pub const jsonString = @import("sa_policy_json.zig").jsonString;
 
-fn jsonObject(value: std.json.Value) !std.json.ObjectMap {
-    return switch (value) {
-        .object => |object| object,
-        else => error.InvalidPolicy,
-    };
-}
+pub const jsonObject = @import("sa_policy_json.zig").jsonObject;
 
-fn collectJsonStrings(allocator: std.mem.Allocator, value: ?std.json.Value) ![][]u8 {
-    const array = switch (value orelse return error.InvalidPolicy) {
-        .array => |items| items,
-        else => return error.InvalidPolicy,
-    };
-    var out = std.array_list.Managed([]u8).init(allocator);
-    errdefer {
-        for (out.items) |item| allocator.free(item);
-        out.deinit();
-    }
-    for (array.items) |item| {
-        try out.append(try allocator.dupe(u8, try jsonString(item)));
-    }
-    return try out.toOwnedSlice();
-}
+pub const collectJsonStrings = @import("sa_policy_json.zig").collectJsonStrings;
 
-fn parseMode(text: []const u8) !Mode {
-    if (std.mem.eql(u8, text, "allow")) return .allow;
-    if (std.mem.eql(u8, text, "deny")) return .deny;
-    if (std.mem.eql(u8, text, "allow-list")) return .allow_list;
-    if (std.mem.eql(u8, text, "audit")) return .audit;
-    if (std.mem.eql(u8, text, "ask")) return .ask;
-    return error.InvalidPolicy;
-}
+pub const parseMode = @import("sa_policy_json.zig").parseMode;
 
-fn parseCategoryPolicy(allocator: std.mem.Allocator, value: std.json.Value, category: Category) !CategoryPolicy {
-    const object = try jsonObject(value);
-    var result = CategoryPolicy{};
-    errdefer result.deinit(allocator);
-    var has_lists = false;
-    var it = object.iterator();
-    while (it.next()) |entry| {
-        const key = entry.key_ptr.*;
-        if (std.mem.eql(u8, key, "mode")) {
-            result.mode = try parseMode(try jsonString(entry.value_ptr.*));
-        } else if (std.mem.eql(u8, key, "allow")) {
-            if (category == .fs or category == .time or category == .random) return error.InvalidPolicy;
-            result.allow = try collectJsonStrings(allocator, entry.value_ptr.*);
-            has_lists = true;
-        } else if (std.mem.eql(u8, key, "read")) {
-            if (category != .fs) return error.InvalidPolicy;
-            result.read = try collectJsonStrings(allocator, entry.value_ptr.*);
-            has_lists = true;
-        } else if (std.mem.eql(u8, key, "write")) {
-            if (category != .fs) return error.InvalidPolicy;
-            result.write = try collectJsonStrings(allocator, entry.value_ptr.*);
-            has_lists = true;
-        } else {
-            return error.InvalidPolicy;
-        }
-    }
-    // A category that lists resources but names no mode is an
-    // allow-list; an explicit mode always wins.
-    if (has_lists and object.get("mode") == null) result.mode = .allow_list;
-    return result;
-}
+pub const parseCategoryPolicy = @import("sa_policy_json.zig").parseCategoryPolicy;
 
-pub fn parsePolicyJson(allocator: std.mem.Allocator, text: []const u8) !Policy {
-    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, text, .{});
-    defer parsed.deinit();
-    const root = try jsonObject(parsed.value);
-    var policy = Policy{};
-    errdefer policy.deinit(allocator);
-    var it = root.iterator();
-    while (it.next()) |entry| {
-        const key = entry.key_ptr.*;
-        if (std.mem.eql(u8, key, "permissions")) {
-            const permissions = try jsonObject(entry.value_ptr.*);
-            var pit = permissions.iterator();
-            while (pit.next()) |category_entry| {
-                const name = category_entry.key_ptr.*;
-                const category = categoryFromName(name) orelse return error.InvalidPolicy;
-                const parsed_policy = try parseCategoryPolicy(allocator, category_entry.value_ptr.*, category);
-                var slot = policy.categoryPolicy(category);
-                slot.deinit(allocator);
-                slot.* = parsed_policy;
-            }
-        } else if (std.mem.eql(u8, key, "audit")) {
-            const audit = try jsonObject(entry.value_ptr.*);
-            var ait = audit.iterator();
-            while (ait.next()) |audit_entry| {
-                if (std.mem.eql(u8, audit_entry.key_ptr.*, "sink")) {
-                    policy.audit_sink = try allocator.dupe(u8, try jsonString(audit_entry.value_ptr.*));
-                } else if (std.mem.eql(u8, audit_entry.key_ptr.*, "events")) {
-                    policy.audit_events = try collectJsonStrings(allocator, audit_entry.value_ptr.*);
-                } else {
-                    return error.InvalidPolicy;
-                }
-            }
-        } else {
-            return error.InvalidPolicy;
-        }
-    }
-    return policy;
-}
+pub const parsePolicyJson = @import("sa_policy_json.zig").parsePolicyJson;
 
-pub const TokenSpec = struct {
-    category: Category,
-    key: []const u8,
-    ttl_ns: i64 = default_token_ttl_ns,
-};
+pub const TokenSpec = @import("sa_policy_json.zig").TokenSpec;
 
 /// Strict parser for the SA_POLICY_TOKENS_JSON surface:
 /// [{"category":"fs","key":"read:/abs/path","ttl_s":120}, ...]
 /// ttl_s is optional (1..3600); anything unknown is InvalidPolicy.
-pub fn parseTokenSpecsJson(allocator: std.mem.Allocator, text: []const u8) ![]TokenSpec {
-    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, text, .{});
-    defer parsed.deinit();
-    if (parsed.value != .array) return error.InvalidPolicy;
-    var specs = std.array_list.Managed(TokenSpec).init(allocator);
-    errdefer {
-        for (specs.items) |spec| allocator.free(spec.key);
-        specs.deinit();
-    }
-    for (parsed.value.array.items) |item| {
-        const object = try jsonObject(item);
-        var category: ?Category = null;
-        var key: ?[]const u8 = null;
-        var ttl_ns: i64 = default_token_ttl_ns;
-        var it = object.iterator();
-        while (it.next()) |entry| {
-            if (std.mem.eql(u8, entry.key_ptr.*, "category")) {
-                category = categoryFromName(try jsonString(entry.value_ptr.*)) orelse return error.InvalidPolicy;
-            } else if (std.mem.eql(u8, entry.key_ptr.*, "key")) {
-                key = try jsonString(entry.value_ptr.*);
-            } else if (std.mem.eql(u8, entry.key_ptr.*, "ttl_s")) {
-                if (entry.value_ptr.* != .integer) return error.InvalidPolicy;
-                const seconds = entry.value_ptr.integer;
-                if (seconds < 1 or seconds > 3600) return error.InvalidPolicy;
-                ttl_ns = seconds * std.time.ns_per_s;
-            } else {
-                return error.InvalidPolicy;
-            }
-        }
-        const cat = category orelse return error.InvalidPolicy;
-        const k = key orelse return error.InvalidPolicy;
-        if (k.len == 0 or k.len > 4096) return error.InvalidPolicy;
-        try specs.append(.{ .category = cat, .key = try allocator.dupe(u8, k), .ttl_ns = ttl_ns });
-    }
-    return try specs.toOwnedSlice();
-}
+pub const parseTokenSpecsJson = @import("sa_policy_json.zig").parseTokenSpecsJson;
 
-pub fn freeTokenSpecs(allocator: std.mem.Allocator, specs: []TokenSpec) void {
-    for (specs) |spec| allocator.free(spec.key);
-    allocator.free(specs);
-}
+pub const freeTokenSpecs = @import("sa_policy_json.zig").freeTokenSpecs;
 
 /// Mints every spec into the context (the host-side approval already
 /// happened wherever the specs came from; this is the delivery step).
-pub fn mintTokenSpecs(context: *PolicyContext, allocator: std.mem.Allocator, specs: []const TokenSpec, now_ns: i64) !void {
-    for (specs) |spec| {
-        try context.mintToken(allocator, spec.category, spec.key, now_ns, spec.ttl_ns);
-    }
-}
+pub const mintTokenSpecs = @import("sa_policy_json.zig").mintTokenSpecs;
 
-fn categoryFromName(name: []const u8) ?Category {
-    inline for ([_]Category{ .net, .fs, .env, .run, .time, .random }) |category| {
-        if (std.mem.eql(u8, name, @tagName(category))) return category;
-    }
-    return null;
-}
+pub const categoryFromName = @import("sa_policy_json.zig").categoryFromName;
 
-fn dupeStrings(allocator: std.mem.Allocator, items: []const []const u8) ![][]u8 {
-    var out = std.array_list.Managed([]u8).init(allocator);
-    errdefer {
-        for (out.items) |item| allocator.free(item);
-        out.deinit();
-    }
-    for (items) |item| try out.append(try allocator.dupe(u8, item));
-    return try out.toOwnedSlice();
-}
+pub const dupeStrings = @import("sa_policy_json.zig").dupeStrings;
 
 // ---------------------------------------------------------------------
 // Tests

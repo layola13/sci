@@ -473,6 +473,20 @@ comptime {
             _ = &@field(m, decl_name);
         }
     }
+    // force-emit all fns of sa_tree_sitter_node.zig (loop over decls)
+    {
+        const m = @import("sa_tree_sitter_node.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_tree_sitter_query.zig (loop over decls)
+    {
+        const m = @import("sa_tree_sitter_query.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
     if (builtin.os.tag == .linux) {
     }
     _ = &sa_task.sa_task_spawn;

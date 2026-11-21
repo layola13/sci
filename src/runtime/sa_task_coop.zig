@@ -42,10 +42,10 @@ const sio = @import("sio");
 
 pub const SA_TASK_OK: i32 = 0;
 pub const SA_TASK_TRAPPED: i32 = 100;
-const ERR_INVALID: i32 = 1;
-const ERR_INVALID_HANDLE: i32 = 2;
+pub const ERR_INVALID: i32 = 1;
+pub const ERR_INVALID_HANDLE: i32 = 2;
 const ERR_NOT_FOUND: i32 = 3;
-const ERR_NOMEM: i32 = 5;
+pub const ERR_NOMEM: i32 = 5;
 const ERR_UNSUPPORTED: i32 = 8;
 const ERR_UNKNOWN: i32 = 127;
 
@@ -62,13 +62,13 @@ pub const TrapSinkFn = *const fn (handle: u64, code: i32, msg_ptr: [*]const u8, 
 /// identical to sa_task.zig's Slot.
 pub const Slot = extern struct { a: u64 = 0, b: u64 = 0 };
 
-const alloc = std.heap.page_allocator;
+pub const alloc = std.heap.page_allocator;
 
-fn coopTrap(comptime msg: []const u8) noreturn {
+pub fn coopTrap(comptime msg: []const u8) noreturn {
     @panic("sa_coop: " ++ msg);
 }
 
-fn nowNs() i64 {
+pub fn nowNs() i64 {
     return @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
 }
 
@@ -80,7 +80,7 @@ fn hostSleepNs(ns: u64) void {
 // ---------------------------------------------------------------------
 // Tasks and the driver
 
-const Task = struct {
+pub const Task = struct {
     gen: u32,
     entry: EntryFn,
     arg: ?*anyopaque,
@@ -109,14 +109,14 @@ const Timer = struct {
 
 var tasks: std.ArrayList(?*Task) = .empty;
 var task_gens: std.ArrayList(u32) = .empty;
-var current: ?*Task = null;
+pub var current: ?*Task = null;
 var root_task: ?*Task = null;
 var driver_active: bool = false;
 /// Set while the driver synchronously runs a sa_sync_once_do
 /// entry: blocking is impossible there (the entry is a plain call
 /// frame), so a block attempt traps loudly instead of corrupting
 /// the once.
-var suspend_forbidden: u32 = 0;
+pub var suspend_forbidden: u32 = 0;
 
 var ready_head: ?*ReadyNode = null;
 var ready_tail: ?*ReadyNode = null;
@@ -127,7 +127,7 @@ const ReadyNode = struct {
 
 var timers_head: ?*Timer = null;
 
-fn makeHandle(slot: usize, gen: u32) u64 {
+pub fn makeHandle(slot: usize, gen: u32) u64 {
     return (@as(u64, gen) << 32) | @as(u64, @intCast(slot + 1));
 }
 
@@ -198,14 +198,14 @@ fn makeReady(t: *Task) void {
 /// Deliver a final status to a blocked task and make it runnable.
 /// The data outputs of its blocked call were already written
 /// through the captured pointers by the waker.
-fn wakeWith(t: *Task, status: i32) void {
+pub fn wakeWith(t: *Task, status: i32) void {
     t.pending = status;
     makeReady(t);
 }
 
 /// Suspend the current task: the caller (a blocking extern) has
 /// already registered it on a wait queue or timer.
-fn blockCurrent() i32 {
+pub fn blockCurrent() i32 {
     const me = current orelse return ERR_INVALID;
     if (suspend_forbidden > 0) coopTrap("blocking call inside a once_do entry or host context that cannot suspend");
     me.state = .blocked;
@@ -225,7 +225,7 @@ fn reapIfReady(t: *Task) void {
     }
 }
 
-fn addTimer(deadline: i64, task: ?*Task, sel: ?*SelectReg) error{OutOfMemory}!*Timer {
+pub fn addTimer(deadline: i64, task: ?*Task, sel: ?*SelectReg) error{OutOfMemory}!*Timer {
     const timer = try alloc.create(Timer);
     timer.* = .{ .deadline = deadline, .task = task, .sel = sel, .next = null };
     // Keep the list sorted by deadline (FIFO among equals):
@@ -298,365 +298,75 @@ fn anyBlocked() bool {
 // ---------------------------------------------------------------------
 // Channels
 
-const Chan = struct {
-    gen: u32,
-    cap: u32,
-    buf: []Slot,
-    head: usize = 0,
-    count: usize = 0,
-    closed: bool = false,
-    destroyed: bool = false,
-    recv_q: ?*ChanWaiter = null,
-    recv_tail: ?*ChanWaiter = null,
-    send_q: ?*ChanWaiter = null,
-    send_tail: ?*ChanWaiter = null,
-};
+pub const Chan = @import("sa_task_coop_chan.zig").Chan;
 
-const ChanWaiter = struct {
-    task: *Task,
-    // recv waiter delivery targets (point into the waiter's frame)
-    out_value: ?*Slot = null,
-    out_closed: ?*u32 = null,
-    // send waiter payload source (points into the sender's frame)
-    value_ptr: ?*const Slot = null,
-    // select registration, when this waiter is one arm of a select
-    sel: ?*SelectReg = null,
-    sel_index: u32 = 0,
-    next: ?*ChanWaiter = null,
-};
+pub const ChanWaiter = @import("sa_task_coop_chan.zig").ChanWaiter;
 
-const SelectReg = struct {
-    task: *Task,
-    out_index: *i64,
-    out_closed: *u32,
-    fired: bool = false,
-};
+pub const SelectReg = @import("sa_task_coop_chan.zig").SelectReg;
 
-var chans: std.ArrayList(?*Chan) = .empty;
-var chan_gens: std.ArrayList(u32) = .empty;
 
-fn chanFromHandle(handle: u64) ?*Chan {
-    if (handle == 0) return null;
-    const slot_plus = handle & 0xFFFF_FFFF;
-    if (slot_plus == 0) return null;
-    const slot: usize = @intCast(slot_plus - 1);
-    if (slot >= chans.items.len) return null;
-    const ch = chans.items[slot] orelse return null;
-    if (ch.gen != @as(u32, @truncate(handle >> 32))) return null;
-    if (ch.destroyed) return null;
-    return ch;
-}
+pub const chanFromHandle = @import("sa_task_coop_chan.zig").chanFromHandle;
 
-fn chanHandle(ch: *Chan) u64 {
-    for (chans.items, 0..) |slot_chan, i| {
-        if (slot_chan == ch) return makeHandle(i, ch.gen);
-    }
-    return 0;
-}
+pub const chanHandle = @import("sa_task_coop_chan.zig").chanHandle;
 
-fn waiterLive(w: *ChanWaiter) bool {
-    if (w.sel) |sel| return !sel.fired;
-    return true;
-}
+pub const waiterLive = @import("sa_task_coop_chan.zig").waiterLive;
 
-fn queuePush(head: *?*ChanWaiter, tail: *?*ChanWaiter, w: *ChanWaiter) void {
-    w.next = null;
-    if (tail.*) |t| {
-        t.next = w;
-        tail.* = w;
-    } else {
-        head.* = w;
-        tail.* = w;
-    }
-}
+pub const queuePush = @import("sa_task_coop_chan.zig").queuePush;
 
 /// Pop the first live waiter, discarding stale select arms.
-fn queuePopLive(head: *?*ChanWaiter, tail: *?*ChanWaiter) ?*ChanWaiter {
-    while (head.*) |w| {
-        head.* = w.next;
-        if (head.* == null) tail.* = null;
-        if (waiterLive(w)) return w;
-        alloc.destroy(w);
-    }
-    return null;
-}
+pub const queuePopLive = @import("sa_task_coop_chan.zig").queuePopLive;
 
-fn queueHasLive(head: ?*ChanWaiter) bool {
-    var it = head;
-    while (it) |w| {
-        if (waiterLive(w)) return true;
-        it = w.next;
-    }
-    return false;
-}
+pub const queueHasLive = @import("sa_task_coop_chan.zig").queueHasLive;
 
 /// Complete a send waiter whose payload has been consumed: plain
 /// waiters wake with OK; a select arm fires its registration.
-fn completeSendWaiter(w: *ChanWaiter) void {
-    if (w.sel) |sel| {
-        fireSelect(sel, @intCast(w.sel_index), 0);
-    } else {
-        wakeWith(w.task, SA_TASK_OK);
-    }
-    alloc.destroy(w);
-}
+pub const completeSendWaiter = @import("sa_task_coop_chan.zig").completeSendWaiter;
 
 /// Deliver a payload to a recv waiter (plain or select arm).
-fn completeRecvWaiter(w: *ChanWaiter, value: Slot, closed_flag: u32) void {
-    if (w.sel) |sel| {
-        // The arm's slot is the waiter's out_value for select arms.
-        if (w.out_value) |ov| ov.* = value;
-        fireSelect(sel, @intCast(w.sel_index), closed_flag);
-    } else {
-        if (w.out_value) |ov| ov.* = value;
-        if (w.out_closed) |oc| oc.* = closed_flag;
-        wakeWith(w.task, SA_TASK_OK);
-    }
-    alloc.destroy(w);
-}
+pub const completeRecvWaiter = @import("sa_task_coop_chan.zig").completeRecvWaiter;
 
 /// Fire a select registration exactly once: write the chosen
 /// index/closed flag through the waiter's frame pointers and
 /// deliver OK. The data movement of the chosen arm has already
 /// happened (or, for a recv arm, completeRecvWaiter wrote the
 /// slot before calling here).
-fn fireSelect(sel: *SelectReg, index: i64, closed_flag: u32) void {
-    if (sel.fired) return;
-    sel.fired = true;
-    sel.out_index.* = index;
-    sel.out_closed.* = closed_flag;
-    wakeWith(sel.task, SA_TASK_OK);
-}
+pub const fireSelect = @import("sa_task_coop_chan.zig").fireSelect;
 
-fn bufPush(ch: *Chan, value: Slot) void {
-    ch.buf[(ch.head + ch.count) % ch.buf.len] = value;
-    ch.count += 1;
-}
+pub const bufPush = @import("sa_task_coop_chan.zig").bufPush;
 
-fn bufPop(ch: *Chan) Slot {
-    const v = ch.buf[ch.head];
-    ch.head = (ch.head + 1) % ch.buf.len;
-    ch.count -= 1;
-    return v;
-}
+pub const bufPop = @import("sa_task_coop_chan.zig").bufPop;
 
 /// A receive can complete now if the buffer is non-empty, a sender
 /// is waiting (rendezvous), or the channel is closed.
-fn recvReady(ch: *Chan) bool {
-    return ch.count > 0 or queueHasLive(ch.send_q) or ch.closed;
-}
+pub const recvReady = @import("sa_task_coop_chan.zig").recvReady;
 
 /// A send can complete now if a receiver is waiting, the buffer
 /// has room, or the channel is closed (send-on-closed traps).
-fn sendReady(ch: *Chan) bool {
-    return queueHasLive(ch.recv_q) or ch.count < ch.cap or ch.closed;
-}
+pub const sendReady = @import("sa_task_coop_chan.zig").sendReady;
 
 /// Perform a receive that is known ready. Delivery goes to
 /// out_value/out_closed. Returns false only when not ready.
-fn doRecv(ch: *Chan, out_value: *Slot, out_closed: *u32) bool {
-    if (ch.count > 0) {
-        const v = bufPop(ch);
-        // Refill from a blocked sender (buffer was full).
-        if (queuePopLive(&ch.send_q, &ch.send_tail)) |w| {
-            bufPush(ch, w.value_ptr.?.*);
-            completeSendWaiter(w);
-        }
-        out_value.* = v;
-        out_closed.* = 0;
-        return true;
-    }
-    if (queuePopLive(&ch.send_q, &ch.send_tail)) |w| {
-        const v = w.value_ptr.?.*;
-        completeSendWaiter(w);
-        out_value.* = v;
-        out_closed.* = 0;
-        return true;
-    }
-    if (ch.closed) {
-        out_value.* = .{};
-        out_closed.* = 1;
-        return true;
-    }
-    return false;
-}
+pub const doRecv = @import("sa_task_coop_chan.zig").doRecv;
 
 /// Perform a send that is known ready. Returns false only when
 /// not ready.
-fn doSend(ch: *Chan, value: Slot) bool {
-    if (ch.closed) coopTrap("send on closed channel");
-    if (queuePopLive(&ch.recv_q, &ch.recv_tail)) |w| {
-        completeRecvWaiter(w, value, 0);
-        return true;
-    }
-    if (ch.count < ch.cap) {
-        bufPush(ch, value);
-        return true;
-    }
-    return false;
-}
+pub const doSend = @import("sa_task_coop_chan.zig").doSend;
 
-pub export fn sa_chan_make(capacity: u32, out_handle: ?*u64) i32 {
-    const out = out_handle orelse return ERR_INVALID;
-    out.* = 0;
-    const ch = alloc.create(Chan) catch return ERR_NOMEM;
-    const buf = alloc.alloc(Slot, capacity) catch {
-        alloc.destroy(ch);
-        return ERR_NOMEM;
-    };
-    // Reuse a destroyed slot when one exists.
-    for (chans.items, 0..) |slot_chan, i| {
-        if (slot_chan == null) {
-            chan_gens.items[i] += 1;
-            ch.* = .{ .gen = chan_gens.items[i], .cap = capacity, .buf = buf };
-            chans.items[i] = ch;
-            out.* = makeHandle(i, ch.gen);
-            return SA_TASK_OK;
-        }
-    }
-    ch.* = .{ .gen = 1, .cap = capacity, .buf = buf };
-    chans.append(alloc, ch) catch {
-        alloc.free(buf);
-        alloc.destroy(ch);
-        return ERR_NOMEM;
-    };
-    chan_gens.append(alloc, 1) catch return ERR_NOMEM;
-    out.* = makeHandle(chans.items.len - 1, 1);
-    return SA_TASK_OK;
-}
+pub const sa_chan_make = @import("sa_task_coop_chan.zig").sa_chan_make;
 
-pub export fn sa_chan_destroy(handle: u64) i32 {
-    const ch = chanFromHandle(handle) orelse return ERR_INVALID_HANDLE;
-    ch.destroyed = true;
-    for (chans.items, 0..) |slot_chan, i| {
-        if (slot_chan == ch) {
-            chans.items[i] = null;
-            break;
-        }
-    }
-    alloc.free(ch.buf);
-    alloc.destroy(ch);
-    return SA_TASK_OK;
-}
+pub const sa_chan_destroy = @import("sa_task_coop_chan.zig").sa_chan_destroy;
 
-pub export fn sa_chan_close(handle: u64) i32 {
-    const ch = chanFromHandle(handle) orelse return ERR_INVALID_HANDLE;
-    if (ch.closed) return SA_TASK_OK;
-    ch.closed = true;
-    // Blocked receivers drain: each wakes with the closed flag.
-    while (queuePopLive(&ch.recv_q, &ch.recv_tail)) |w| {
-        completeRecvWaiter(w, .{}, 1);
-    }
-    // A blocked sender can never complete now: that is a send on
-    // a closed channel, which traps on the native track too.
-    if (queueHasLive(ch.send_q)) coopTrap("send on closed channel");
-    return SA_TASK_OK;
-}
+pub const sa_chan_close = @import("sa_task_coop_chan.zig").sa_chan_close;
 
-pub export fn sa_chan_send(handle: u64, value_ptr: ?*const Slot) i32 {
-    const ch = chanFromHandle(handle) orelse return ERR_INVALID_HANDLE;
-    const vp = value_ptr orelse return ERR_INVALID;
-    if (ch.closed) coopTrap("send on closed channel");
-    if (doSend(ch, vp.*)) return SA_TASK_OK;
-    const me = current orelse return ERR_INVALID;
-    const w = alloc.create(ChanWaiter) catch return ERR_NOMEM;
-    w.* = .{ .task = me, .value_ptr = vp };
-    queuePush(&ch.send_q, &ch.send_tail, w);
-    return blockCurrent();
-}
+pub const sa_chan_send = @import("sa_task_coop_chan.zig").sa_chan_send;
 
-pub export fn sa_chan_recv(handle: u64, out_value: ?*Slot, out_closed: ?*u32) i32 {
-    const ch = chanFromHandle(handle) orelse return ERR_INVALID_HANDLE;
-    const ov = out_value orelse return ERR_INVALID;
-    const oc = out_closed orelse return ERR_INVALID;
-    oc.* = 0;
-    if (doRecv(ch, ov, oc)) return SA_TASK_OK;
-    const me = current orelse return ERR_INVALID;
-    const w = alloc.create(ChanWaiter) catch return ERR_NOMEM;
-    w.* = .{ .task = me, .out_value = ov, .out_closed = oc };
-    queuePush(&ch.recv_q, &ch.recv_tail, w);
-    return blockCurrent();
-}
+pub const sa_chan_recv = @import("sa_task_coop_chan.zig").sa_chan_recv;
 
-pub export fn sa_chan_len(handle: u64, out_len: ?*u64) i32 {
-    const ch = chanFromHandle(handle) orelse return ERR_INVALID_HANDLE;
-    const out = out_len orelse return ERR_INVALID;
-    out.* = ch.count;
-    return SA_TASK_OK;
-}
+pub const sa_chan_len = @import("sa_task_coop_chan.zig").sa_chan_len;
 
-pub export fn sa_chan_cap(handle: u64, out_cap: ?*u64) i32 {
-    const ch = chanFromHandle(handle) orelse return ERR_INVALID_HANDLE;
-    const out = out_cap orelse return ERR_INVALID;
-    out.* = ch.cap;
-    return SA_TASK_OK;
-}
+pub const sa_chan_cap = @import("sa_task_coop_chan.zig").sa_chan_cap;
 
-pub export fn sa_chan_select(cases: ?[*]const u64, ops: ?[*]const u32, slots: ?[*]Slot, count: u64, has_default: u32, timeout_ns: i64, out_index: ?*i64, out_closed: ?*u32) i32 {
-    const oi = out_index orelse return ERR_INVALID;
-    const oc = out_closed orelse return ERR_INVALID;
-    oc.* = 0;
-    oi.* = -3;
-    if (count > 0 and (cases == null or ops == null or slots == null)) return ERR_INVALID;
-    const n: usize = @intCast(count);
-    // Resolve handles up front: an invalid arm fails the whole
-    // select before any arm is performed.
-    const case_chans = alloc.alloc(?*Chan, n) catch return ERR_NOMEM;
-    defer alloc.free(case_chans);
-    for (0..n) |i| {
-        case_chans[i] = chanFromHandle(cases.?[i]);
-        if (case_chans[i] == null) return ERR_INVALID_HANDLE;
-    }
-    // Phase 1: first ready arm in declaration order completes.
-    for (0..n) |i| {
-        const ch = case_chans[i].?;
-        if (ops.?[i] == 0) {
-            if (recvReady(ch)) {
-                var v: Slot = undefined;
-                var cl: u32 = 0;
-                _ = doRecv(ch, &v, &cl);
-                slots.?[i] = v;
-                oi.* = @intCast(i);
-                oc.* = cl;
-                return SA_TASK_OK;
-            }
-        } else {
-            if (sendReady(ch)) {
-                if (ch.closed) coopTrap("send on closed channel");
-                _ = doSend(ch, slots.?[i]);
-                oi.* = @intCast(i);
-                return SA_TASK_OK;
-            }
-        }
-    }
-    if (has_default != 0) {
-        oi.* = -1;
-        return SA_TASK_OK;
-    }
-    if (timeout_ns == 0) {
-        oi.* = -2;
-        return SA_TASK_OK;
-    }
-    // Phase 2: register on every arm and suspend.
-    const me = current orelse return ERR_INVALID;
-    const sel = alloc.create(SelectReg) catch return ERR_NOMEM;
-    sel.* = .{ .task = me, .out_index = oi, .out_closed = oc };
-    for (0..n) |i| {
-        const ch = case_chans[i].?;
-        const w = alloc.create(ChanWaiter) catch return ERR_NOMEM;
-        if (ops.?[i] == 0) {
-            w.* = .{ .task = me, .out_value = &slots.?[i], .sel = sel, .sel_index = @intCast(i) };
-            queuePush(&ch.recv_q, &ch.recv_tail, w);
-        } else {
-            w.* = .{ .task = me, .value_ptr = &slots.?[i], .sel = sel, .sel_index = @intCast(i) };
-            queuePush(&ch.send_q, &ch.send_tail, w);
-        }
-    }
-    if (timeout_ns > 0) {
-        _ = addTimer(nowNs() + timeout_ns, null, sel) catch return ERR_NOMEM;
-    }
-    return blockCurrent();
-}
+pub const sa_chan_select = @import("sa_task_coop_chan.zig").sa_chan_select;
 
 // ---------------------------------------------------------------------
 // Task lifecycle
@@ -797,274 +507,50 @@ pub export fn sa_task_net_wait(handle: u64, interest: u32, timeout_ns: i64, read
 // ---------------------------------------------------------------------
 // Sync family (mutex / rwlock / waitgroup / once)
 
-const SyncKind = enum { mutex, rwlock, waitgroup, once };
+pub const SyncKind = @import("sa_task_coop_sync.zig").SyncKind;
 
-const SyncObj = struct {
-    gen: u32,
-    kind: SyncKind,
-    destroyed: bool = false,
-    // mutex
-    m_owner: ?*Task = null,
-    m_queue: TaskQueue = .{},
-    // rwlock
-    rw_readers: u32 = 0,
-    rw_writer: ?*Task = null,
-    rw_rqueue: TaskQueue = .{},
-    rw_wqueue: TaskQueue = .{},
-    // waitgroup
-    wg_count: i64 = 0,
-    wg_queue: TaskQueue = .{},
-    // once
-    once_done: bool = false,
-    once_running: bool = false,
-    once_queue: TaskQueue = .{},
-};
+pub const SyncObj = @import("sa_task_coop_sync.zig").SyncObj;
 
-const WaitNode = struct {
-    task: *Task,
-    next: ?*WaitNode = null,
-};
+pub const WaitNode = @import("sa_task_coop_sync.zig").WaitNode;
 
-const TaskQueue = struct {
-    head: ?*WaitNode = null,
-    tail: ?*WaitNode = null,
+pub const TaskQueue = @import("sa_task_coop_sync.zig").TaskQueue;
 
-    fn push(q: *TaskQueue, t: *Task) error{OutOfMemory}!void {
-        const node = try alloc.create(WaitNode);
-        node.* = .{ .task = t };
-        if (q.tail) |tail| {
-            tail.next = node;
-            q.tail = node;
-        } else {
-            q.head = node;
-            q.tail = node;
-        }
-    }
 
-    fn pop(q: *TaskQueue) ?*Task {
-        const node = q.head orelse return null;
-        q.head = node.next;
-        if (q.head == null) q.tail = null;
-        const t = node.task;
-        alloc.destroy(node);
-        return t;
-    }
+pub const syncFromHandle = @import("sa_task_coop_sync.zig").syncFromHandle;
 
-    fn wakeAll(q: *TaskQueue, status: i32) void {
-        while (q.pop()) |t| wakeWith(t, status);
-    }
-};
+pub const syncNew = @import("sa_task_coop_sync.zig").syncNew;
 
-var syncs: std.ArrayList(?*SyncObj) = .empty;
-var sync_gens: std.ArrayList(u32) = .empty;
+pub const sa_sync_mutex_new = @import("sa_task_coop_sync.zig").sa_sync_mutex_new;
 
-fn syncFromHandle(handle: u64, kind: ?SyncKind) ?*SyncObj {
-    if (handle == 0) return null;
-    const slot_plus = handle & 0xFFFF_FFFF;
-    if (slot_plus == 0) return null;
-    const slot: usize = @intCast(slot_plus - 1);
-    if (slot >= syncs.items.len) return null;
-    const o = syncs.items[slot] orelse return null;
-    if (o.gen != @as(u32, @truncate(handle >> 32))) return null;
-    if (o.destroyed) return null;
-    if (kind) |k| {
-        if (o.kind != k) return null;
-    }
-    return o;
-}
+pub const sa_sync_rwlock_new = @import("sa_task_coop_sync.zig").sa_sync_rwlock_new;
 
-fn syncNew(kind: SyncKind, out_handle: ?*u64) i32 {
-    const out = out_handle orelse return ERR_INVALID;
-    out.* = 0;
-    const o = alloc.create(SyncObj) catch return ERR_NOMEM;
-    for (syncs.items, 0..) |slot_obj, i| {
-        if (slot_obj == null) {
-            sync_gens.items[i] += 1;
-            o.* = .{ .gen = sync_gens.items[i], .kind = kind };
-            syncs.items[i] = o;
-            out.* = makeHandle(i, o.gen);
-            return SA_TASK_OK;
-        }
-    }
-    o.* = .{ .gen = 1, .kind = kind };
-    syncs.append(alloc, o) catch {
-        alloc.destroy(o);
-        return ERR_NOMEM;
-    };
-    sync_gens.append(alloc, 1) catch return ERR_NOMEM;
-    out.* = makeHandle(syncs.items.len - 1, 1);
-    return SA_TASK_OK;
-}
+pub const sa_sync_waitgroup_new = @import("sa_task_coop_sync.zig").sa_sync_waitgroup_new;
 
-pub export fn sa_sync_mutex_new(out_handle: ?*u64) i32 {
-    return syncNew(.mutex, out_handle);
-}
+pub const sa_sync_once_new = @import("sa_task_coop_sync.zig").sa_sync_once_new;
 
-pub export fn sa_sync_rwlock_new(out_handle: ?*u64) i32 {
-    return syncNew(.rwlock, out_handle);
-}
+pub const sa_sync_destroy = @import("sa_task_coop_sync.zig").sa_sync_destroy;
 
-pub export fn sa_sync_waitgroup_new(out_handle: ?*u64) i32 {
-    return syncNew(.waitgroup, out_handle);
-}
+pub const sa_sync_mutex_lock = @import("sa_task_coop_sync.zig").sa_sync_mutex_lock;
 
-pub export fn sa_sync_once_new(out_handle: ?*u64) i32 {
-    return syncNew(.once, out_handle);
-}
+pub const sa_sync_mutex_try_lock = @import("sa_task_coop_sync.zig").sa_sync_mutex_try_lock;
 
-pub export fn sa_sync_destroy(handle: u64) i32 {
-    const o = syncFromHandle(handle, null) orelse return ERR_INVALID_HANDLE;
-    o.destroyed = true;
-    for (syncs.items, 0..) |slot_obj, i| {
-        if (slot_obj == o) {
-            syncs.items[i] = null;
-            break;
-        }
-    }
-    alloc.destroy(o);
-    return SA_TASK_OK;
-}
+pub const sa_sync_mutex_unlock = @import("sa_task_coop_sync.zig").sa_sync_mutex_unlock;
 
-pub export fn sa_sync_mutex_lock(handle: u64) i32 {
-    const o = syncFromHandle(handle, .mutex) orelse return ERR_INVALID_HANDLE;
-    const me = current orelse return ERR_INVALID;
-    if (o.m_owner == null) {
-        o.m_owner = me;
-        return SA_TASK_OK;
-    }
-    if (o.m_owner == me) {
-        // Non-reentrant: blocking on oneself deadlocks, which the
-        // driver's always-on detection reports loudly.
-        o.m_queue.push(me) catch return ERR_NOMEM;
-        return blockCurrent();
-    }
-    o.m_queue.push(me) catch return ERR_NOMEM;
-    return blockCurrent();
-}
+pub const sa_sync_rwlock_rlock = @import("sa_task_coop_sync.zig").sa_sync_rwlock_rlock;
 
-pub export fn sa_sync_mutex_try_lock(handle: u64, out_acquired: ?*u32) i32 {
-    const o = syncFromHandle(handle, .mutex) orelse return ERR_INVALID_HANDLE;
-    const out = out_acquired orelse return ERR_INVALID;
-    const me = current orelse return ERR_INVALID;
-    if (o.m_owner == null) {
-        o.m_owner = me;
-        out.* = 1;
-    } else {
-        out.* = 0;
-    }
-    return SA_TASK_OK;
-}
+pub const sa_sync_rwlock_runlock = @import("sa_task_coop_sync.zig").sa_sync_rwlock_runlock;
 
-pub export fn sa_sync_mutex_unlock(handle: u64) i32 {
-    const o = syncFromHandle(handle, .mutex) orelse return ERR_INVALID_HANDLE;
-    const me = current orelse return ERR_INVALID;
-    if (o.m_owner == null or o.m_owner != me) return ERR_INVALID;
-    // Direct handoff: the head waiter becomes the owner before it
-    // wakes, so the lock is never unowned in between (mirrors the
-    // native runtime).
-    if (o.m_queue.pop()) |next| {
-        o.m_owner = next;
-        wakeWith(next, SA_TASK_OK);
-    } else {
-        o.m_owner = null;
-    }
-    return SA_TASK_OK;
-}
+pub const sa_sync_rwlock_lock = @import("sa_task_coop_sync.zig").sa_sync_rwlock_lock;
 
-pub export fn sa_sync_rwlock_rlock(handle: u64) i32 {
-    const o = syncFromHandle(handle, .rwlock) orelse return ERR_INVALID_HANDLE;
-    const me = current orelse return ERR_INVALID;
-    if (o.rw_writer == null and o.rw_wqueue.head == null) {
-        o.rw_readers += 1;
-        return SA_TASK_OK;
-    }
-    o.rw_rqueue.push(me) catch return ERR_NOMEM;
-    return blockCurrent();
-}
+pub const sa_sync_rwlock_unlock = @import("sa_task_coop_sync.zig").sa_sync_rwlock_unlock;
 
-pub export fn sa_sync_rwlock_runlock(handle: u64) i32 {
-    const o = syncFromHandle(handle, .rwlock) orelse return ERR_INVALID_HANDLE;
-    if (o.rw_readers == 0) return ERR_INVALID;
-    o.rw_readers -= 1;
-    if (o.rw_readers == 0) {
-        if (o.rw_wqueue.pop()) |w| {
-            o.rw_writer = w;
-            wakeWith(w, SA_TASK_OK);
-        }
-    }
-    return SA_TASK_OK;
-}
+pub const sa_sync_waitgroup_add = @import("sa_task_coop_sync.zig").sa_sync_waitgroup_add;
 
-pub export fn sa_sync_rwlock_lock(handle: u64) i32 {
-    const o = syncFromHandle(handle, .rwlock) orelse return ERR_INVALID_HANDLE;
-    const me = current orelse return ERR_INVALID;
-    if (o.rw_writer == null and o.rw_readers == 0 and o.rw_wqueue.head == null) {
-        o.rw_writer = me;
-        return SA_TASK_OK;
-    }
-    o.rw_wqueue.push(me) catch return ERR_NOMEM;
-    return blockCurrent();
-}
+pub const sa_sync_waitgroup_done = @import("sa_task_coop_sync.zig").sa_sync_waitgroup_done;
 
-pub export fn sa_sync_rwlock_unlock(handle: u64) i32 {
-    const o = syncFromHandle(handle, .rwlock) orelse return ERR_INVALID_HANDLE;
-    const me = current orelse return ERR_INVALID;
-    if (o.rw_writer == null or o.rw_writer != me) return ERR_INVALID;
-    o.rw_writer = null;
-    if (o.rw_wqueue.pop()) |w| {
-        o.rw_writer = w;
-        wakeWith(w, SA_TASK_OK);
-    } else {
-        // Admit every queued reader at once.
-        var admitted: u32 = 0;
-        while (o.rw_rqueue.pop()) |r| {
-            admitted += 1;
-            wakeWith(r, SA_TASK_OK);
-        }
-        o.rw_readers += admitted;
-    }
-    return SA_TASK_OK;
-}
+pub const sa_sync_waitgroup_wait = @import("sa_task_coop_sync.zig").sa_sync_waitgroup_wait;
 
-pub export fn sa_sync_waitgroup_add(handle: u64, delta: i64) i32 {
-    const o = syncFromHandle(handle, .waitgroup) orelse return ERR_INVALID_HANDLE;
-    o.wg_count += delta;
-    if (o.wg_count < 0) coopTrap("waitgroup counter went negative");
-    if (o.wg_count == 0) o.wg_queue.wakeAll(SA_TASK_OK);
-    return SA_TASK_OK;
-}
-
-pub export fn sa_sync_waitgroup_done(handle: u64) i32 {
-    return sa_sync_waitgroup_add(handle, -1);
-}
-
-pub export fn sa_sync_waitgroup_wait(handle: u64) i32 {
-    const o = syncFromHandle(handle, .waitgroup) orelse return ERR_INVALID_HANDLE;
-    if (o.wg_count == 0) return SA_TASK_OK;
-    const me = current orelse return ERR_INVALID;
-    o.wg_queue.push(me) catch return ERR_NOMEM;
-    return blockCurrent();
-}
-
-pub export fn sa_sync_once_do(handle: u64, entry: ?*const anyopaque, arg: ?*anyopaque) i32 {
-    const o = syncFromHandle(handle, .once) orelse return ERR_INVALID_HANDLE;
-    if (o.once_done) return SA_TASK_OK;
-    const me = current orelse return ERR_INVALID;
-    if (o.once_running) {
-        o.once_queue.push(me) catch return ERR_NOMEM;
-        return blockCurrent();
-    }
-    const e = entry orelse return ERR_INVALID;
-    const entry_fn: EntryFn = @ptrCast(@alignCast(e));
-    o.once_running = true;
-    suspend_forbidden += 1;
-    entry_fn(arg);
-    suspend_forbidden -= 1;
-    o.once_running = false;
-    o.once_done = true;
-    o.once_queue.wakeAll(SA_TASK_OK);
-    return SA_TASK_OK;
-}
+pub const sa_sync_once_do = @import("sa_task_coop_sync.zig").sa_sync_once_do;
 
 // ---------------------------------------------------------------------
 // Coop protocol surface (declared in sa_std/task.sai's coop

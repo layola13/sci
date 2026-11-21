@@ -1,6 +1,7 @@
 const std = @import("std");
+test "resolver_tests" { std.testing.refAllDecls(@import("resolver_test.zig")); }
 const builtin = @import("builtin");
-const sio = @import("sio");
+pub const sio = @import("sio");
 const build_options = if (builtin.is_test) struct {
     pub const repo_root: []const u8 = ".";
 } else @import("build_options");
@@ -57,7 +58,7 @@ fn normalizedPath(path: []const u8) []u8 {
     return std.mem.replaceOwned(u8, std.heap.page_allocator, path, std.fs.path.sep_str, "/") catch unreachable;
 }
 
-fn pathEndsWithPortable(path: []const u8, suffix: []const u8) bool {
+pub fn pathEndsWithPortable(path: []const u8, suffix: []const u8) bool {
     if (suffix.len > path.len) return false;
     const tail = path[path.len - suffix.len ..];
     for (tail, suffix) |actual, expected| {
@@ -73,7 +74,7 @@ fn appendPathComponent(writer: anytype, path: []const u8) !void {
     }
 }
 
-fn packageTreeHash(allocator: std.mem.Allocator, root_dir: []const u8) ResolveError![32]u8 {
+pub fn packageTreeHash(allocator: std.mem.Allocator, root_dir: []const u8) ResolveError![32]u8 {
     var entries = std.array_list.Managed([]u8).init(allocator);
     defer {
         for (entries.items) |entry| allocator.free(entry);
@@ -234,7 +235,7 @@ fn isPackageIdentity(import_path: []const u8) bool {
         !std.mem.endsWith(u8, trimmed, ".sal");
 }
 
-fn isPluginInterfaceImportPath(import_path: []const u8) bool {
+pub fn isPluginInterfaceImportPath(import_path: []const u8) bool {
     const trimmed = trim(import_path);
     if (trimmed.len == 0) return false;
     if (std.fs.path.isAbsolute(trimmed)) return false;
@@ -251,7 +252,7 @@ fn isPluginInterfaceImportPath(import_path: []const u8) bool {
     return true;
 }
 
-fn pathWithinRoot(root_dir: []const u8, entry_path: []const u8) bool {
+pub fn pathWithinRoot(root_dir: []const u8, entry_path: []const u8) bool {
     if (std.mem.eql(u8, root_dir, entry_path)) return true;
     if (!std.mem.startsWith(u8, entry_path, root_dir)) return false;
     if (entry_path.len <= root_dir.len) return false;
@@ -277,11 +278,11 @@ fn homeDirPath(allocator: std.mem.Allocator, options: ResolveOptions) ResolveErr
     };
 }
 
-fn pathJoin(allocator: std.mem.Allocator, parts: []const []const u8) ResolveError![]u8 {
+pub fn pathJoin(allocator: std.mem.Allocator, parts: []const []const u8) ResolveError![]u8 {
     return try std.fs.path.join(allocator, parts);
 }
 
-fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: usize) ResolveError![]u8 {
+pub fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: usize) ResolveError![]u8 {
     var file = sio.cwd().openFile(path, .{}) catch return error.PackageNotResolved;
     defer file.close();
 
@@ -323,7 +324,7 @@ fn mapFileReadOnly(path: []const u8, max_bytes: usize) ResolveError!struct { map
     return .{ .mapped = mapped, .source = mapped };
 }
 
-fn computeResolvedSourceHash(
+pub fn computeResolvedSourceHash(
     allocator: std.mem.Allocator,
     entry_path: []const u8,
     root_dir: ?[]const u8,
@@ -452,149 +453,28 @@ fn resolveFromPackageRoot(
     return null;
 }
 
-fn resolveFromPluginImportRoot(
-    allocator: std.mem.Allocator,
-    root_dir: []const u8,
-    import_path: []const u8,
-    max_bytes: usize,
-) ResolveError!?ResolvedImport {
-    const canonical_root = sio.cwd().realpathAlloc(allocator, root_dir) catch return null;
-    errdefer allocator.free(canonical_root);
-
-    const candidate = try pathJoin(allocator, &.{ canonical_root, import_path });
-    defer allocator.free(candidate);
-
-    const canonical_entry = sio.cwd().realpathAlloc(allocator, candidate) catch {
-        allocator.free(canonical_root);
-        return null;
-    };
-    errdefer allocator.free(canonical_entry);
-    if (!pathWithinRoot(canonical_root, canonical_entry)) return error.InvalidImportPath;
-
-    const source = try readFileAlloc(allocator, canonical_entry, max_bytes);
-    errdefer allocator.free(source);
-    const source_hash = try computeResolvedSourceHash(allocator, canonical_entry, canonical_root, source);
-
-    return .{
-        .entry_path = canonical_entry,
-        .root_dir = canonical_root,
-        .source = source,
-        .owned_source = source,
-        .source_sha256 = source_hash,
-        .is_global = true,
-    };
-}
+pub const resolveFromPluginImportRoot = @import("resolver_plugin.zig").resolveFromPluginImportRoot;
 
 /// The plugin name an import root belongs to. Roots are built as
 /// <home>/installed/<name>/current/sa (the workspace staging mirrors
 /// that layout), so the name is the segment between "installed" and
 /// "current". Roots of any other shape are not addressable by a
 /// qualified plugin import.
-fn pluginNameForImportRoot(root_dir: []const u8) ?[]const u8 {
-    var parts = std.mem.tokenizeAny(u8, root_dir, "/\\");
-    var prev: ?[]const u8 = null;
-    var prev2: ?[]const u8 = null;
-    while (parts.next()) |part| {
-        if (std.mem.eql(u8, part, "sa")) {
-            if (prev) |p1| {
-                if (std.mem.eql(u8, p1, "current")) {
-                    if (prev2) |name| {
-                        if (name.len != 0) return name;
-                    }
-                }
-            }
-        }
-        prev2 = prev;
-        prev = part;
-    }
-    return null;
-}
+pub const pluginNameForImportRoot = @import("resolver_plugin.zig").pluginNameForImportRoot;
 
 /// Existence-only counterpart of resolveFromPluginImportRoot: same
 /// canonicalization and root-containment rules, without reading the
 /// file. Used to detect that a later root also provides an import a
 /// bare-name search already resolved in an earlier root.
-fn pluginImportRootHasImport(
-    allocator: std.mem.Allocator,
-    root_dir: []const u8,
-    import_path: []const u8,
-) bool {
-    const canonical_root = sio.cwd().realpathAlloc(allocator, root_dir) catch return false;
-    defer allocator.free(canonical_root);
-    const candidate = pathJoin(allocator, &.{ canonical_root, import_path }) catch return false;
-    defer allocator.free(candidate);
-    const canonical_entry = sio.cwd().realpathAlloc(allocator, candidate) catch return false;
-    defer allocator.free(canonical_entry);
-    return pathWithinRoot(canonical_root, canonical_entry);
-}
+pub const pluginImportRootHasImport = @import("resolver_plugin.zig").pluginImportRootHasImport;
 
 /// Reports an ambiguous bare plugin import through the diagnostics
 /// sink: the first root still wins (legacy behavior), but the choice
 /// is no longer silent. Diagnostics never fail the resolution itself,
 /// so every allocation here is best-effort.
-fn noteAmbiguousPluginImport(
-    allocator: std.mem.Allocator,
-    import_path: []const u8,
-    options: ResolveOptions,
-    winner_root: []const u8,
-    later_roots: []const []const u8,
-) void {
-    const callback = options.diagnostics orelse return;
-    var names = std.array_list.Managed([]const u8).init(allocator);
-    defer names.deinit();
-    for (later_roots) |root_dir| {
-        if (pluginImportRootHasImport(allocator, root_dir, import_path)) {
-            names.append(pluginNameForImportRoot(root_dir) orelse root_dir) catch return;
-        }
-    }
-    if (names.items.len == 0) return;
-    const joined = std.mem.join(allocator, ", ", names.items) catch return;
-    defer allocator.free(joined);
-    const winner = pluginNameForImportRoot(winner_root) orelse winner_root;
-    const message = std.fmt.allocPrint(
-        allocator,
-        "ambiguous plugin import '{s}': provided by multiple plugins; using {s}, shadowed: {s}. Qualify the import as plugin/<plugin-name>/{s} to choose the provider explicitly.",
-        .{ import_path, winner, joined, import_path },
-    ) catch return;
-    defer allocator.free(message);
-    callback(options.diagnostics_ctx, message);
-}
+pub const noteAmbiguousPluginImport = @import("resolver_plugin.zig").noteAmbiguousPluginImport;
 
-fn resolveFromPluginImportRoots(
-    allocator: std.mem.Allocator,
-    import_path: []const u8,
-    options: ResolveOptions,
-) ResolveError!?ResolvedImport {
-    if (!isPluginInterfaceImportPath(import_path)) return null;
-    // Qualified plugin import: plugin/<name>/<relative interface path>
-    // resolves inside that one plugin's import root only. A qualified
-    // import never falls through to another plugin or to the bare-name
-    // search: when the named plugin is absent or does not ship the
-    // file, the import is explicitly unresolved.
-    if (std.mem.startsWith(u8, import_path, "plugin/")) {
-        const rest = import_path["plugin/".len..];
-        const slash = std.mem.indexOfScalar(u8, rest, '/') orelse return error.PackageNotResolved;
-        const wanted = rest[0..slash];
-        const rel = rest[slash + 1 ..];
-        if (wanted.len == 0 or !isPluginInterfaceImportPath(rel)) return error.PackageNotResolved;
-        for (options.plugin_import_roots) |root_dir| {
-            const name = pluginNameForImportRoot(root_dir) orelse continue;
-            if (!std.mem.eql(u8, name, wanted)) continue;
-            if (try resolveFromPluginImportRoot(allocator, root_dir, rel, options.max_local_file_bytes)) |resolved| {
-                return resolved;
-            }
-            return error.PackageNotResolved;
-        }
-        return error.PackageNotResolved;
-    }
-    for (options.plugin_import_roots, 0..) |root_dir, index| {
-        if (try resolveFromPluginImportRoot(allocator, root_dir, import_path, options.max_local_file_bytes)) |resolved| {
-            noteAmbiguousPluginImport(allocator, import_path, options, root_dir, options.plugin_import_roots[index + 1 ..]);
-            return resolved;
-        }
-    }
-    return null;
-}
+pub const resolveFromPluginImportRoots = @import("resolver_plugin.zig").resolveFromPluginImportRoots;
 
 fn localVendorRoot(allocator: std.mem.Allocator, project_root: []const u8, identity: []const u8) ResolveError![]u8 {
     return pathJoin(allocator, &.{ project_root, "sa_vendor", identity });
@@ -753,441 +633,13 @@ pub fn resolveImport(
     return error.PackageNotResolved;
 }
 
-test "resolveImport prefers a relative source file" {
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
 
-    try tmp.dir.createDirPath(std.testing.io, "src");
-    var source_file = try tmp.dir.createFile(std.testing.io, "src/module.sa", .{ .truncate = true });
-    defer source_file.close(sio.io());
-    {
-        var wbuf: [8192]u8 = undefined;
-        var wfb = source_file.writer(sio.io(), &wbuf);
-        try wfb.interface.writeAll("@main() -> i32:\n    return 0\n");
-        try wfb.interface.flush();
-    }
 
-    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(root);
 
-    const resolved = try resolveImport(
-        std.testing.allocator,
-        &.{},
-        root,
-        "src/module.sa",
-        .{},
-    );
-    defer {
-        var owned = resolved;
-        owned.deinit(std.testing.allocator);
-    }
 
-    try std.testing.expect(pathEndsWithPortable(resolved.entry_path, "src/module.sa"));
-    try std.testing.expectEqualStrings("@main() -> i32:\n    return 0\n", resolved.source);
-    try std.testing.expect(resolved.root_dir == null);
-}
 
-test "resolveImport falls back to local vendor package roots" {
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
 
-    try tmp.dir.createDirPath(std.testing.io, "sa_vendor/github.com/example/pkg");
-    var index = try tmp.dir.createFile(std.testing.io, "sa_vendor/github.com/example/pkg/index.sa", .{ .truncate = true });
-    defer index.close(sio.io());
-    {
-        var wbuf: [8192]u8 = undefined;
-        var wfb = index.writer(sio.io(), &wbuf);
-        try wfb.interface.writeAll("@pkg() -> i32:\n    return 123\n");
-        try wfb.interface.flush();
-    }
 
-    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(root);
 
-    const resolved = try resolveImport(
-        std.testing.allocator,
-        &.{},
-        root,
-        "github.com/example/pkg",
-        .{ .project_root = root },
-    );
-    defer {
-        var owned = resolved;
-        owned.deinit(std.testing.allocator);
-    }
 
-    try std.testing.expect(resolved.root_dir != null);
-    try std.testing.expect(pathEndsWithPortable(resolved.entry_path, "sa_vendor/github.com/example/pkg/index.sa"));
-    try std.testing.expectEqualStrings("@pkg() -> i32:\n    return 123\n", resolved.source);
-    try std.testing.expect(!resolved.is_global);
-}
 
-test "resolveImport maps global cache entries read-only" {
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    try tmp.dir.createDirPath(std.testing.io, ".sa/pkg/github.com/example/pkg@v1");
-    var index = try tmp.dir.createFile(std.testing.io, ".sa/pkg/github.com/example/pkg@v1/index.sa", .{ .truncate = true });
-    defer index.close(sio.io());
-    {
-        var wbuf: [8192]u8 = undefined;
-        var wfb = index.writer(sio.io(), &wbuf);
-        try wfb.interface.writeAll("@global() -> i32:\n    return 7\n");
-        try wfb.interface.flush();
-    }
-
-    const home = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(home);
-
-    const dependency = Dependency{
-        .url = "github.com/example/pkg",
-        .ref = "v1",
-    };
-
-    const resolved = try resolveImport(
-        std.testing.allocator,
-        &.{dependency},
-        home,
-        "github.com/example/pkg",
-        .{ .project_root = home, .home_dir = home },
-    );
-    defer {
-        var owned = resolved;
-        owned.deinit(std.testing.allocator);
-    }
-
-    try std.testing.expect(resolved.is_global);
-    try std.testing.expect(resolved.mapped != null);
-    try std.testing.expect(pathEndsWithPortable(resolved.entry_path, ".sa/pkg/github.com/example/pkg@v1/index.sa"));
-    try std.testing.expectEqualStrings("@global() -> i32:\n    return 7\n", resolved.source);
-}
-
-test "resolveImport rejects package source when pinned sha mismatches" {
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    try tmp.dir.createDirPath(std.testing.io, ".sa/pkg/github.com/example/pkg@v1");
-    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = ".sa/pkg/github.com/example/pkg@v1/index.sa", .data = "@global() -> i32:\n    return 7\n" });
-
-    const home = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(home);
-    const pkg_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".sa/pkg/github.com/example/pkg@v1", std.testing.allocator);
-    defer std.testing.allocator.free(pkg_root);
-
-    var pinned_hash = try packageTreeHash(std.testing.allocator, pkg_root);
-    pinned_hash[0] ^= 0xff;
-    const dependency = Dependency{
-        .url = "github.com/example/pkg",
-        .ref = "v1",
-        .source_sha256 = pinned_hash,
-    };
-
-    try std.testing.expectError(
-        error.UpstreamShaMismatch,
-        resolveImport(
-            std.testing.allocator,
-            &.{dependency},
-            home,
-            "github.com/example/pkg",
-            .{ .project_root = home, .home_dir = home },
-        ),
-    );
-}
-
-test "resolveImport accepts package source matching pinned sha" {
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    try tmp.dir.createDirPath(std.testing.io, ".sa/pkg/github.com/example/pkg@v1");
-    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = ".sa/pkg/github.com/example/pkg@v1/index.sa", .data = "@global() -> i32:\n    return 7\n" });
-
-    const home = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(home);
-    const pkg_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".sa/pkg/github.com/example/pkg@v1", std.testing.allocator);
-    defer std.testing.allocator.free(pkg_root);
-
-    const dependency = Dependency{
-        .url = "github.com/example/pkg",
-        .ref = "v1",
-        .source_sha256 = try packageTreeHash(std.testing.allocator, pkg_root),
-    };
-
-    const resolved = try resolveImport(
-        std.testing.allocator,
-        &.{dependency},
-        home,
-        "github.com/example/pkg",
-        .{ .project_root = home, .home_dir = home },
-    );
-    defer {
-        var owned = resolved;
-        owned.deinit(std.testing.allocator);
-    }
-
-    try std.testing.expect(resolved.is_global);
-}
-
-test "resolveImport rejects package entry symlinks escaping the package root" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    try tmp.dir.createDirPath(std.testing.io, ".sa/pkg/github.com/example/pkg@v1");
-    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "outside.sa", .data = "@outside() -> i32:\n    return 9\n" });
-    const outside_abs = try tmp.dir.realPathFileAlloc(std.testing.io, "outside.sa", std.testing.allocator);
-    defer std.testing.allocator.free(outside_abs);
-    try tmp.dir.symLink(std.testing.io, outside_abs, ".sa/pkg/github.com/example/pkg@v1/index.sa", .{});
-
-    const home = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(home);
-    const dependency = Dependency{
-        .url = "github.com/example/pkg",
-        .ref = "v1",
-    };
-
-    try std.testing.expectError(
-        error.InvalidImportPath,
-        resolveImport(
-            std.testing.allocator,
-            &.{dependency},
-            home,
-            "github.com/example/pkg",
-            .{ .project_root = home, .home_dir = home },
-        ),
-    );
-}
-
-test "resolveImport returns PackageNotResolved when cache misses" {
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(root);
-
-    try std.testing.expectError(
-        error.PackageNotResolved,
-        resolveImport(
-            std.testing.allocator,
-            &.{},
-            root,
-            "github.com/example/missing",
-            .{ .project_root = root, .offline = true },
-        ),
-    );
-}
-
-test "resolveImport falls back to declared plugin interface roots" {
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    try tmp.dir.createDirPath(std.testing.io, "plugins/installed/deno/current/sa");
-    var layout = try tmp.dir.createFile(std.testing.io, "plugins/installed/deno/current/sa/deno.sal", .{ .truncate = true });
-    defer layout.close(sio.io());
-    {
-        var wbuf: [8192]u8 = undefined;
-        var wfb = layout.writer(sio.io(), &wbuf);
-        try wfb.interface.writeAll("@const DENO_OK: u64 = 1\n");
-        try wfb.interface.flush();
-    }
-
-    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(root);
-    const plugin_root = try tmp.dir.realPathFileAlloc(std.testing.io, "plugins/installed/deno/current/sa", std.testing.allocator);
-    defer std.testing.allocator.free(plugin_root);
-
-    const resolved = try resolveImport(
-        std.testing.allocator,
-        &.{},
-        root,
-        "deno.sal",
-        .{ .project_root = root, .plugin_import_roots = &.{plugin_root} },
-    );
-    defer {
-        var owned = resolved;
-        owned.deinit(std.testing.allocator);
-    }
-
-    try std.testing.expect(resolved.is_global);
-    try std.testing.expect(pathEndsWithPortable(resolved.entry_path, "plugins/installed/deno/current/sa/deno.sal"));
-    try std.testing.expectEqualStrings("@const DENO_OK: u64 = 1\n", resolved.source);
-}
-
-test "resolveImport bounds globally mapped source size" {
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    try tmp.dir.createDirPath(std.testing.io, ".sa/pkg/github.com/example/large@v1");
-    try tmp.dir.writeFile(std.testing.io, .{
-        .sub_path = ".sa/pkg/github.com/example/large@v1/index.sa",
-        .data = "@large() -> i32:\n    return 123456789\n",
-    });
-
-    const home = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(home);
-    const dependency = Dependency{ .url = "github.com/example/large", .ref = "v1" };
-
-    try std.testing.expectError(
-        error.PackageNotResolved,
-        resolveImport(
-            std.testing.allocator,
-            &.{dependency},
-            home,
-            "github.com/example/large",
-            .{ .project_root = home, .home_dir = home, .max_local_file_bytes = 8 },
-        ),
-    );
-}
-
-test "resolveImport resolves qualified plugin imports inside the named plugin only" {
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    try tmp.dir.createDirPath(std.testing.io, "plugins/installed/deno/current/sa");
-    try tmp.dir.createDirPath(std.testing.io, "plugins/installed/node/current/sa");
-    try tmp.dir.writeFile(std.testing.io, .{
-        .sub_path = "plugins/installed/deno/current/sa/shared.sal",
-        .data = "@const ORIGIN: u64 = 1\n",
-    });
-    try tmp.dir.writeFile(std.testing.io, .{
-        .sub_path = "plugins/installed/node/current/sa/shared.sal",
-        .data = "@const ORIGIN: u64 = 2\n",
-    });
-
-    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(root);
-    const deno_root = try tmp.dir.realPathFileAlloc(std.testing.io, "plugins/installed/deno/current/sa", std.testing.allocator);
-    defer std.testing.allocator.free(deno_root);
-    const node_root = try tmp.dir.realPathFileAlloc(std.testing.io, "plugins/installed/node/current/sa", std.testing.allocator);
-    defer std.testing.allocator.free(node_root);
-    const roots = [_][]const u8{ deno_root, node_root };
-
-    // Bare imports keep the legacy first-root-wins behavior.
-    {
-        const resolved = try resolveImport(std.testing.allocator, &.{}, root, "shared.sal", .{ .project_root = root, .plugin_import_roots = &roots });
-        defer {
-            var owned = resolved;
-            owned.deinit(std.testing.allocator);
-        }
-        try std.testing.expectEqualStrings("@const ORIGIN: u64 = 1\n", resolved.source);
-    }
-    // A qualified import names its plugin and resolves there even
-    // when an earlier root ships the same relative path.
-    {
-        const resolved = try resolveImport(std.testing.allocator, &.{}, root, "plugin/node/shared.sal", .{ .project_root = root, .plugin_import_roots = &roots });
-        defer {
-            var owned = resolved;
-            owned.deinit(std.testing.allocator);
-        }
-        try std.testing.expectEqualStrings("@const ORIGIN: u64 = 2\n", resolved.source);
-        try std.testing.expect(pathEndsWithPortable(resolved.entry_path, "plugins/installed/node/current/sa/shared.sal"));
-    }
-    {
-        const resolved = try resolveImport(std.testing.allocator, &.{}, root, "plugin/deno/shared.sal", .{ .project_root = root, .plugin_import_roots = &roots });
-        defer {
-            var owned = resolved;
-            owned.deinit(std.testing.allocator);
-        }
-        try std.testing.expectEqualStrings("@const ORIGIN: u64 = 1\n", resolved.source);
-    }
-    // Qualified imports never fall through: unknown plugin names and
-    // files the named plugin does not ship are explicit failures.
-    try std.testing.expectError(error.PackageNotResolved, resolveImport(std.testing.allocator, &.{}, root, "plugin/missing/shared.sal", .{ .project_root = root, .plugin_import_roots = &roots }));
-    try std.testing.expectError(error.PackageNotResolved, resolveImport(std.testing.allocator, &.{}, root, "plugin/deno/absent.sal", .{ .project_root = root, .plugin_import_roots = &roots }));
-}
-
-test "resolveImport reports ambiguous bare plugin imports through the diagnostics sink" {
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    try tmp.dir.createDirPath(std.testing.io, "plugins/installed/deno/current/sa");
-    try tmp.dir.createDirPath(std.testing.io, "plugins/installed/node/current/sa");
-    try tmp.dir.writeFile(std.testing.io, .{
-        .sub_path = "plugins/installed/deno/current/sa/shared.sal",
-        .data = "@const ORIGIN: u64 = 1\n",
-    });
-    try tmp.dir.writeFile(std.testing.io, .{
-        .sub_path = "plugins/installed/node/current/sa/shared.sal",
-        .data = "@const ORIGIN: u64 = 2\n",
-    });
-    try tmp.dir.writeFile(std.testing.io, .{
-        .sub_path = "plugins/installed/deno/current/sa/only_deno.sal",
-        .data = "@const ORIGIN: u64 = 3\n",
-    });
-
-    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(root);
-    const deno_root = try tmp.dir.realPathFileAlloc(std.testing.io, "plugins/installed/deno/current/sa", std.testing.allocator);
-    defer std.testing.allocator.free(deno_root);
-    const node_root = try tmp.dir.realPathFileAlloc(std.testing.io, "plugins/installed/node/current/sa", std.testing.allocator);
-    defer std.testing.allocator.free(node_root);
-    const roots = [_][]const u8{ deno_root, node_root };
-
-    const Capture = struct {
-        messages: std.array_list.Managed([]u8),
-
-        fn onDiagnostic(ctx: ?*anyopaque, message: []const u8) void {
-            const self: *@This() = @ptrCast(@alignCast(ctx.?));
-            const copy = std.testing.allocator.dupe(u8, message) catch return;
-            self.messages.append(copy) catch std.testing.allocator.free(copy);
-        }
-    };
-    var capture = Capture{ .messages = std.array_list.Managed([]u8).init(std.testing.allocator) };
-    defer {
-        for (capture.messages.items) |message| std.testing.allocator.free(message);
-        capture.messages.deinit();
-    }
-
-    // Bare import provided by both roots: first root still wins, and
-    // exactly one diagnostic names the winner and the shadowed plugin.
-    {
-        const resolved = try resolveImport(std.testing.allocator, &.{}, root, "shared.sal", .{
-            .project_root = root,
-            .plugin_import_roots = &roots,
-            .diagnostics = &Capture.onDiagnostic,
-            .diagnostics_ctx = &capture,
-        });
-        defer {
-            var owned = resolved;
-            owned.deinit(std.testing.allocator);
-        }
-        try std.testing.expectEqualStrings("@const ORIGIN: u64 = 1\n", resolved.source);
-    }
-    try std.testing.expectEqual(@as(usize, 1), capture.messages.items.len);
-    const message = capture.messages.items[0];
-    try std.testing.expect(std.mem.indexOf(u8, message, "ambiguous plugin import 'shared.sal'") != null);
-    try std.testing.expect(std.mem.indexOf(u8, message, "using deno") != null);
-    try std.testing.expect(std.mem.indexOf(u8, message, "shadowed: node") != null);
-
-    // A bare import only one root provides stays quiet.
-    {
-        const resolved = try resolveImport(std.testing.allocator, &.{}, root, "only_deno.sal", .{
-            .project_root = root,
-            .plugin_import_roots = &roots,
-            .diagnostics = &Capture.onDiagnostic,
-            .diagnostics_ctx = &capture,
-        });
-        defer {
-            var owned = resolved;
-            owned.deinit(std.testing.allocator);
-        }
-        try std.testing.expectEqualStrings("@const ORIGIN: u64 = 3\n", resolved.source);
-    }
-    try std.testing.expectEqual(@as(usize, 1), capture.messages.items.len);
-
-    // A qualified import is explicit by construction: no diagnostic.
-    {
-        const resolved = try resolveImport(std.testing.allocator, &.{}, root, "plugin/node/shared.sal", .{
-            .project_root = root,
-            .plugin_import_roots = &roots,
-            .diagnostics = &Capture.onDiagnostic,
-            .diagnostics_ctx = &capture,
-        });
-        defer {
-            var owned = resolved;
-            owned.deinit(std.testing.allocator);
-        }
-        try std.testing.expectEqualStrings("@const ORIGIN: u64 = 2\n", resolved.source);
-    }
-    try std.testing.expectEqual(@as(usize, 1), capture.messages.items.len);
-}
