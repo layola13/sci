@@ -444,7 +444,7 @@ comptime {
     { const m = @import("sa_tls_server.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_tls_shaped.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_toml.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
-    { const m = @import("sa_tree_sitter.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
+    { const m = @import("sa_tree_sitter.zig"); for (std.meta.declarations(m)) |n| { if (!std.mem.eql(u8, n, "setTsDir")) _ = &@field(m, n); } }
     { const m = @import("sa_yaml.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_std/b64_simd.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_std/core_export.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
@@ -483,6 +483,55 @@ comptime {
     // force-emit all fns of sa_tree_sitter_query.zig (loop over decls)
     {
         const m = @import("sa_tree_sitter_query.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_tls_client_config.zig (loop over decls)
+    {
+        const m = @import("sa_tls_client_config.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_tls_client_handshake.zig (loop over decls)
+    {
+        const m = @import("sa_tls_client_handshake.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_http2_buffer.zig (loop over decls)
+    {
+        const m = @import("sa_http2_buffer.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_pg_bind.zig (loop over decls)
+    {
+        const m = @import("sa_pg_bind.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_pg_result.zig (loop over decls)
+    {
+        const m = @import("sa_pg_result.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_crypto_asym_keygen.zig (loop over decls)
+    {
+        const m = @import("sa_crypto_asym_keygen.zig");
+        for (std.meta.declarations(m)) |decl_name| {
+            _ = &@field(m, decl_name);
+        }
+    }
+    // force-emit all fns of sa_crypto_asym_x509.zig (loop over decls)
+    {
+        const m = @import("sa_crypto_asym_x509.zig");
         for (std.meta.declarations(m)) |decl_name| {
             _ = &@field(m, decl_name);
         }
