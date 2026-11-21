@@ -585,3 +585,90 @@ pub fn isAllocatorShim(name: []const u8) bool {
         std.mem.eql(u8, name, "dlopen") or
         std.mem.eql(u8, name, "dlsym");
 }
+
+/// Extern shims whose emitted bodies call the __sa_policy_* helpers.
+/// The policy runtime chunk is emitted only for programs declaring one
+/// of these (same declaration gate as the net/handle chunks below);
+/// every other program used to pay ~10 KB for a runtime it never calls.
+pub fn isJsPolicyShim(name: []const u8) bool {
+    if (std.mem.eql(u8, name, "sa_time_unix_ms")) return true;
+    if (std.mem.eql(u8, name, "sa_time_instant_ns")) return true;
+    if (std.mem.eql(u8, name, "sa_math_random")) return true;
+    if (std.mem.eql(u8, name, "sa_node_plugin_crypto_random_bytes")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_read_text_file")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_write_text_file")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_mkdir")) return true;
+    if (std.mem.eql(u8, name, "sa_deno_plugin_remove")) return true;
+    return false;
+}
+
+/// Extern shims backed by the __sa_task goroutine runtime chunk
+/// (task/chan/select/sync/coop surface from sa_std/task.sai). The
+/// chunk is emitted only for programs declaring one of these
+/// (same declaration gate as the net/policy/handle chunks).
+pub fn isJsTaskShim(name: []const u8) bool {
+    if (std.mem.eql(u8, name, "sa_task_spawn")) return true;
+    if (std.mem.eql(u8, name, "sa_task_spawn_supervised")) return true;
+    if (std.mem.eql(u8, name, "sa_task_trap_info")) return true;
+    if (std.mem.eql(u8, name, "sa_task_monitor")) return true;
+    if (std.mem.eql(u8, name, "sa_task_yield")) return true;
+    if (std.mem.eql(u8, name, "sa_task_sleep_ns")) return true;
+    if (std.mem.eql(u8, name, "sa_task_sleep_ms")) return true;
+    if (std.mem.eql(u8, name, "sa_task_join")) return true;
+    if (std.mem.eql(u8, name, "sa_task_detach")) return true;
+    if (std.mem.eql(u8, name, "sa_task_current")) return true;
+    if (std.mem.eql(u8, name, "sa_task_live_count")) return true;
+    if (std.mem.eql(u8, name, "sa_task_deadlock_guard_arm")) return true;
+    if (std.mem.eql(u8, name, "sa_task_net_wait")) return true;
+    if (std.mem.eql(u8, name, "sa_chan_make")) return true;
+    if (std.mem.eql(u8, name, "sa_chan_destroy")) return true;
+    if (std.mem.eql(u8, name, "sa_chan_close")) return true;
+    if (std.mem.eql(u8, name, "sa_chan_send")) return true;
+    if (std.mem.eql(u8, name, "sa_chan_recv")) return true;
+    if (std.mem.eql(u8, name, "sa_chan_len")) return true;
+    if (std.mem.eql(u8, name, "sa_chan_cap")) return true;
+    if (std.mem.eql(u8, name, "sa_chan_select")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_mutex_new")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_mutex_lock")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_mutex_try_lock")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_mutex_unlock")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_rwlock_new")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_rwlock_rlock")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_rwlock_runlock")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_rwlock_lock")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_rwlock_unlock")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_waitgroup_new")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_waitgroup_add")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_waitgroup_done")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_waitgroup_wait")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_once_new")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_once_do")) return true;
+    if (std.mem.eql(u8, name, "sa_sync_destroy")) return true;
+    if (std.mem.eql(u8, name, "sa_coop_take_result")) return true;
+    if (std.mem.eql(u8, name, "sa_coop_finish")) return true;
+    if (std.mem.eql(u8, name, "sa_coop_run_main")) return true;
+    return false;
+}
+
+/// Extern shims backed by the __sa_globals cell-registry chunk
+/// (sa_std/globals.sai). The chunk is emitted only for programs
+/// declaring one of these (same declaration gate as the task chunk).
+pub fn isJsGlobalsShim(name: []const u8) bool {
+    if (std.mem.eql(u8, name, "sa_global_u64_set")) return true;
+    if (std.mem.eql(u8, name, "sa_global_u64_get")) return true;
+    if (std.mem.eql(u8, name, "sa_global_u64_set_once")) return true;
+    if (std.mem.eql(u8, name, "sa_global_u64_add")) return true;
+    if (std.mem.eql(u8, name, "sa_global_bytes_set")) return true;
+    if (std.mem.eql(u8, name, "sa_global_bytes_get")) return true;
+    return false;
+}
+
+/// Whether `name` is a JS value-handle runtime builtin: externs the JS
+/// target implements by name (handle release, callback creation, the
+/// callback queue pump). They are runtime services, not npm bindings;
+/// declaring one pulls in the handle runtime chunk (gate below).
+pub fn isJsHandleBuiltin(name: []const u8) bool {
+    return std.mem.eql(u8, name, "sa_js_value_release") or
+        std.mem.eql(u8, name, "sa_js_make_callback") or
+        std.mem.eql(u8, name, "sa_js_callback_poll");
+}
