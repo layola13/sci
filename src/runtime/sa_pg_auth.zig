@@ -45,7 +45,7 @@ pub const ScramState = struct {
     client_first_bare: []u8,
     salted_password: [32]u8 = undefined,
 
-    fn deinit(self: *ScramState) void {
+    pub fn deinit(self: *ScramState) void {
         freeSlice(self.client_nonce);
         freeSlice(self.client_first_bare);
     }
