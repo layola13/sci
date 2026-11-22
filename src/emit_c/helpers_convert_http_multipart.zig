@@ -1,6 +1,6 @@
 const HelperDef = @import("types.zig").HelperDef;
 
-pub const chunk_2: [76]HelperDef = .{
+pub const chunk_convert_http_multipart: [76]HelperDef = .{
     .{ .name = "sa_cvt_sext_i16", .code =
     \\static sa_u64 sa_cvt_sext_i16(sa_u64 v){return (sa_u64)(sa_i64)(int16_t)v;}
     , .deps = &.{} },

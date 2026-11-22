@@ -1,6 +1,6 @@
 // JS runtime header chunk (moved from src/emit_js.zig writeRuntimeHeader).
 // Pure data: the emitted JS source text for the runtime header.
-pub const header_runtime_js_b =
+pub const header_runtime_js_convert_registries =
         \\function __sa_cvt_bitcast_f64i(v) {
         \\  // int-domain source with a 64-bit target: reinterpret the bits.
         \\  // Used when the emitter statically knows the source is integral

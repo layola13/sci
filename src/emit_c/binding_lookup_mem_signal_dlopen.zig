@@ -1,7 +1,7 @@
 const std = @import("std");
 const Binding = @import("binding_types.zig").Binding;
 
-pub fn bindingForBucket4(name: []const u8) ?Binding {
+pub fn bindingForMemSignalDlopen(name: []const u8) ?Binding {
     const all_void: u64 = ~@as(u64, 0);
     return     if (std.mem.eql(u8, name, "memcpy"))
         // The libc copy primitive (sa_std core/mem.sa's

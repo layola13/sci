@@ -1,18 +1,18 @@
 const std = @import("std");
-const shims_std_a = @import("shims_std_a.zig");
-const shims_std_b = @import("shims_std_b.zig");
-const shims_std_c = @import("shims_std_c.zig");
-const shims_std_d = @import("shims_std_d.zig");
-const shims_http_a = @import("shims_http_a.zig");
-const shims_http_b = @import("shims_http_b.zig");
-const shims_json_a = @import("shims_json_a.zig");
-const shims_json_b = @import("shims_json_b.zig");
-const shims_cookie_a = @import("shims_cookie_a.zig");
-const shims_cookie_b = @import("shims_cookie_b.zig");
-const shims_misc_a = @import("shims_misc_a.zig");
-const shims_misc_b = @import("shims_misc_b.zig");
-const shims_misc_c = @import("shims_misc_c.zig");
-const shims_misc_d = @import("shims_misc_d.zig");
+const shims_std_fs_compress_multipart = @import("shims_std_fs_compress_multipart.zig");
+const shims_std_net_tcp_udp = @import("shims_std_net_tcp_udp.zig");
+const shims_std_udp_ssh_tls = @import("shims_std_udp_ssh_tls.zig");
+const shims_std_tls_shaped = @import("shims_std_tls_shaped.zig");
+const shims_http_client = @import("shims_http_client.zig");
+const shims_http_server_sse_ws = @import("shims_http_server_sse_ws.zig");
+const shims_json_core = @import("shims_json_core.zig");
+const shims_json_writer_write = @import("shims_json_writer_write.zig");
+const shims_cookie = @import("shims_cookie.zig");
+const shims_cookie_value = @import("shims_cookie_value.zig");
+const shims_misc_regex_string = @import("shims_misc_regex_string.zig");
+const shims_misc_fmt_node_time = @import("shims_misc_fmt_node_time.zig");
+const shims_misc_deno_math_sync_task = @import("shims_misc_deno_math_sync_task.zig");
+const shims_misc_chan_mem_globals = @import("shims_misc_chan_mem_globals.zig");
 const inst = @import("../common/instruction.zig");
 const sig = @import("../common/signature.zig");
 const jsIdent = @import("ident.zig").jsIdent;
@@ -150,20 +150,20 @@ pub fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: 
     if (task.kind == .extern_decl) {
         // Known sa_std IO shims live in the emitter (NOT in sa_std): they only
         // read already-emitted linear memory. Unknown externs still trap.
-        if (try shims_std_a.emitShim(writer, fsig.name)) return;
-        if (try shims_std_b.emitShim(writer, fsig.name)) return;
-        if (try shims_std_c.emitShim(writer, fsig.name)) return;
-        if (try shims_std_d.emitShim(writer, fsig.name)) return;
-        if (try shims_http_a.emitShim(writer, fsig.name)) return;
-        if (try shims_http_b.emitShim(writer, fsig.name)) return;
-        if (try shims_json_a.emitShim(writer, fsig.name)) return;
-        if (try shims_json_b.emitShim(writer, fsig.name)) return;
-        if (try shims_cookie_a.emitShim(writer, fsig.name)) return;
-        if (try shims_cookie_b.emitShim(writer, fsig.name)) return;
-        if (try shims_misc_a.emitShim(writer, fsig.name)) return;
-        if (try shims_misc_b.emitShim(writer, fsig.name)) return;
-        if (try shims_misc_c.emitShim(writer, fsig.name)) return;
-        if (try shims_misc_d.emitShim(writer, fsig.name)) return;
+        if (try shims_std_fs_compress_multipart.emitShim(writer, fsig.name)) return;
+        if (try shims_std_net_tcp_udp.emitShim(writer, fsig.name)) return;
+        if (try shims_std_udp_ssh_tls.emitShim(writer, fsig.name)) return;
+        if (try shims_std_tls_shaped.emitShim(writer, fsig.name)) return;
+        if (try shims_http_client.emitShim(writer, fsig.name)) return;
+        if (try shims_http_server_sse_ws.emitShim(writer, fsig.name)) return;
+        if (try shims_json_core.emitShim(writer, fsig.name)) return;
+        if (try shims_json_writer_write.emitShim(writer, fsig.name)) return;
+        if (try shims_cookie.emitShim(writer, fsig.name)) return;
+        if (try shims_cookie_value.emitShim(writer, fsig.name)) return;
+        if (try shims_misc_regex_string.emitShim(writer, fsig.name)) return;
+        if (try shims_misc_fmt_node_time.emitShim(writer, fsig.name)) return;
+        if (try shims_misc_deno_math_sync_task.emitShim(writer, fsig.name)) return;
+        if (try shims_misc_chan_mem_globals.emitShim(writer, fsig.name)) return;
         if (std.mem.eql(u8, fsig.name, "memcpy")) {
             try writer.writeAll(
                 \\function memcpy(dst, src, n) {

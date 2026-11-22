@@ -39,9 +39,9 @@ pub const flattenFileWithPackages = @import("flattener/expandimportsinto.zig").f
 pub const flattenFileWithContextAndPackages = @import("flattener/expandimportsinto.zig").flattenFileWithContextAndPackages;
 
 test {
-    _ = @import("flattener/tests_10.zig");
-    _ = @import("flattener/tests_11.zig");
-    _ = @import("flattener/tests_12.zig");
-    _ = @import("flattener/tests_13.zig");
-    _ = @import("flattener/tests_14.zig");
+    _ = @import("flattener/tests_scan_remap_cache.zig");
+    _ = @import("flattener/tests_flatten_imports_forbidden.zig");
+    _ = @import("flattener/tests_import_cache_packages.zig");
+    _ = @import("flattener/tests_macro_pbt.zig");
+    _ = @import("flattener/tests_macro_hygiene.zig");
 }

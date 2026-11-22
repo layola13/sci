@@ -6,20 +6,20 @@ const sig = @import("common/signature.zig");
 const call = @import("referee/call.zig");
 const const_decl = @import("common/const_decl.zig");
 const sio = @import("sio");
-const shims_std_a = @import("emit_js/shims_std_a.zig");
-const shims_std_b = @import("emit_js/shims_std_b.zig");
-const shims_std_c = @import("emit_js/shims_std_c.zig");
-const shims_std_d = @import("emit_js/shims_std_d.zig");
-const shims_http_a = @import("emit_js/shims_http_a.zig");
-const shims_http_b = @import("emit_js/shims_http_b.zig");
-const shims_json_a = @import("emit_js/shims_json_a.zig");
-const shims_json_b = @import("emit_js/shims_json_b.zig");
-const shims_cookie_a = @import("emit_js/shims_cookie_a.zig");
-const shims_cookie_b = @import("emit_js/shims_cookie_b.zig");
-const shims_misc_a = @import("emit_js/shims_misc_a.zig");
-const shims_misc_b = @import("emit_js/shims_misc_b.zig");
-const shims_misc_c = @import("emit_js/shims_misc_c.zig");
-const shims_misc_d = @import("emit_js/shims_misc_d.zig");
+const shims_std_fs_compress_multipart = @import("emit_js/shims_std_fs_compress_multipart.zig");
+const shims_std_net_tcp_udp = @import("emit_js/shims_std_net_tcp_udp.zig");
+const shims_std_udp_ssh_tls = @import("emit_js/shims_std_udp_ssh_tls.zig");
+const shims_std_tls_shaped = @import("emit_js/shims_std_tls_shaped.zig");
+const shims_http_client = @import("emit_js/shims_http_client.zig");
+const shims_http_server_sse_ws = @import("emit_js/shims_http_server_sse_ws.zig");
+const shims_json_core = @import("emit_js/shims_json_core.zig");
+const shims_json_writer_write = @import("emit_js/shims_json_writer_write.zig");
+const shims_cookie = @import("emit_js/shims_cookie.zig");
+const shims_cookie_value = @import("emit_js/shims_cookie_value.zig");
+const shims_misc_regex_string = @import("emit_js/shims_misc_regex_string.zig");
+const shims_misc_fmt_node_time = @import("emit_js/shims_misc_fmt_node_time.zig");
+const shims_misc_deno_math_sync_task = @import("emit_js/shims_misc_deno_math_sync_task.zig");
+const shims_misc_chan_mem_globals = @import("emit_js/shims_misc_chan_mem_globals.zig");
 
 pub const EmitOptions = emit_options.EmitOptions;
 pub const JsEmitError = @import("emit_js/types.zig").JsEmitError;
@@ -205,7 +205,7 @@ const jshandle_runtime_js = @import("emit_js/runtime_handle.zig").jshandle_runti
 // sa2js net runtime chunk (BP): cookie engine, TLS config model,
 // synchronous socket bridge (worker + SAB + Atomics.wait), netinfo.
 // Emitted once per program that declares any BP net shim (gate below).
-const jsnet_runtime_js = @import("emit_js/runtime_net_a.zig").jsnet_runtime_js_a ++ "\n" ++ @import("emit_js/runtime_net_b.zig").jsnet_runtime_js_b;
+const jsnet_runtime_js = @import("emit_js/runtime_net_cookie_jar.zig").jsnet_runtime_js_cookie_jar ++ "\n" ++ @import("emit_js/runtime_net_sockets_tls.zig").jsnet_runtime_js_sockets_tls;
 
 const isKnownShim = @import("emit_js/shim_names.zig").isKnownShim;
 

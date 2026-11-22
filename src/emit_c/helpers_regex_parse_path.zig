@@ -1,6 +1,6 @@
 const HelperDef = @import("types.zig").HelperDef;
 
-pub const chunk_4: [10]HelperDef = .{
+pub const chunk_regex_parse_path: [10]HelperDef = .{
     .{ .name = "sa_regex_collect_block", .code =
     \\/* Match list block (guest): [0]=text base [8]=0x53414C58<<32 | count
     \\   [16]=group count, then per match n (start,end) pairs. */

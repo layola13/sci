@@ -1,9 +1,9 @@
 const Binding = @import("binding_types.zig").Binding;
-const bindingForBucket1 = @import("binding_lookup_1.zig").bindingForBucket1;
-const bindingForBucket2 = @import("binding_lookup_2.zig").bindingForBucket2;
-const bindingForBucket3 = @import("binding_lookup_3.zig").bindingForBucket3;
-const bindingForBucket4 = @import("binding_lookup_4.zig").bindingForBucket4;
+const bindingForStdHttp = @import("binding_lookup_std_http.zig").bindingForStdHttp;
+const bindingForCookieJsonFmt = @import("binding_lookup_cookie_json_fmt.zig").bindingForCookieJsonFmt;
+const bindingForTaskTimeStrNet = @import("binding_lookup_task_time_str_net.zig").bindingForTaskTimeStrNet;
+const bindingForMemSignalDlopen = @import("binding_lookup_mem_signal_dlopen.zig").bindingForMemSignalDlopen;
 
 pub fn bindingForName(name: []const u8) ?Binding {
-    return bindingForBucket1(name) orelse bindingForBucket2(name) orelse bindingForBucket3(name) orelse bindingForBucket4(name);
+    return bindingForStdHttp(name) orelse bindingForCookieJsonFmt(name) orelse bindingForTaskTimeStrNet(name) orelse bindingForMemSignalDlopen(name);
 }

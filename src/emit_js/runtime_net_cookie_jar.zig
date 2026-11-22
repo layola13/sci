@@ -1,7 +1,7 @@
 // JS runtime chunk (moved from src/emit_js.zig).
 // Pure data: the emitted JS source text for one runtime piece.
 // Part of jsnet_runtime_js; concatenated with the other part in emit_js.zig.
-pub const jsnet_runtime_js_a =
+pub const jsnet_runtime_js_cookie_jar =
     \\// ---- sa2js net runtime chunk (BP wave: cookie / tls-config / net-slice / netinfo) ----
     \\// Emitted ONCE per generated program that declares any BP net shim (see the
     \\// gate after writeRuntimeHeader in emit_js.zig). Pure functions operate on

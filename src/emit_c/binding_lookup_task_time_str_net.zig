@@ -1,7 +1,7 @@
 const std = @import("std");
 const Binding = @import("binding_types.zig").Binding;
 
-pub fn bindingForBucket3(name: []const u8) ?Binding {
+pub fn bindingForTaskTimeStrNet(name: []const u8) ?Binding {
     const all_void: u64 = ~@as(u64, 0);
     return     if (std.mem.eql(u8, name, "sa_task_spawn"))
         .{ .voids = all_void ^ 0b111, .tag = .task_spawn }

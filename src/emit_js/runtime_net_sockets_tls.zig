@@ -1,7 +1,7 @@
 // JS runtime chunk (moved from src/emit_js.zig).
 // Pure data: the emitted JS source text for one runtime piece.
 // Part of jsnet_runtime_js; concatenated with the other part in emit_js.zig.
-pub const jsnet_runtime_js_b =
+pub const jsnet_runtime_js_sockets_tls =
     \\  // returns cookie, the string "bad" (indexed pair malformed -> last_error),
     \\  // or null (index out of range -> no error)
     \\  function headerPairAt(raw, index) {

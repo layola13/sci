@@ -1,7 +1,7 @@
 const std = @import("std");
 const Binding = @import("binding_types.zig").Binding;
 
-pub fn bindingForBucket1(name: []const u8) ?Binding {
+pub fn bindingForStdHttp(name: []const u8) ?Binding {
     const all_void: u64 = ~@as(u64, 0);
     return     if (std.mem.eql(u8, name, "sa_std_fs_exists"))
         .{ .voids = all_void ^ 0b11, .tag = .std_fs_exists }

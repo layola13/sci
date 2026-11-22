@@ -1,6 +1,6 @@
 const HelperDef = @import("types.zig").HelperDef;
 
-pub const chunk_1: [90]HelperDef = .{
+pub const chunk_runtime_arith_convert: [90]HelperDef = .{
     .{ .name = "sa_install_sigpipe_ignore", .code =
     \\#include <signal.h>
     \\static void sa_install_sigpipe_ignore(void) { static int done = 0; if (done) return; done = 1; signal(SIGPIPE, SIG_IGN); }

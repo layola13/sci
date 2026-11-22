@@ -1,6 +1,6 @@
 // JS runtime header chunk (moved from src/emit_js.zig writeRuntimeHeader).
 // Pure data: the emitted JS source text for the runtime header.
-pub const header_runtime_js_a =
+pub const header_runtime_js_memory =
         \\// ---- SA JS runtime (MVP, JEV: ArrayBuffer linear memory) ----
         \\const __SA_MEM_BYTES = __SA_MEM_BYTES_DECL__;
         \\const __sa_memory = new ArrayBuffer(__SA_MEM_BYTES);

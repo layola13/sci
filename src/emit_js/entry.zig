@@ -22,7 +22,7 @@ const isJsNetShim = @import("shim_names.zig").isJsNetShim;
 const policy_runtime_js = @import("runtime_policy.zig").policy_runtime_js;
 const jstask_runtime_js = @import("runtime_task.zig").jstask_runtime_js;
 const jshandle_runtime_js = @import("runtime_handle.zig").jshandle_runtime_js;
-const jsnet_runtime_js = @import("runtime_net_a.zig").jsnet_runtime_js_a ++ "\n" ++ @import("runtime_net_b.zig").jsnet_runtime_js_b;
+const jsnet_runtime_js = @import("runtime_net_cookie_jar.zig").jsnet_runtime_js_cookie_jar ++ "\n" ++ @import("runtime_net_sockets_tls.zig").jsnet_runtime_js_sockets_tls;
 const globals_runtime_js = @import("runtime_globals.zig").globals_runtime_js;
 const emitOneFunction = @import("funcs.zig").emitOneFunction;
 const emitBodyAsPcMachine = @import("funcs.zig").emitBodyAsPcMachine;
@@ -558,9 +558,9 @@ pub fn writeRuntimeHeader(writer: anytype, js_opt: JsEmitOptions, size_bits: u16
             }
         }
     }
-    try writer.writeAll(@import("runtime_header_a.zig").header_runtime_js_a);
+    try writer.writeAll(@import("runtime_header_memory.zig").header_runtime_js_memory);
     try writer.writeAll("\n");
-    try writer.writeAll(@import("runtime_header_b.zig").header_runtime_js_b);
+    try writer.writeAll(@import("runtime_header_convert_registries.zig").header_runtime_js_convert_registries);
 }
 
 const DtsAliases = @import("dts.zig").DtsAliases;

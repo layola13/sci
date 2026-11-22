@@ -1,11 +1,11 @@
 const HelperDef = @import("types.zig").HelperDef;
-const chunk_1 = @import("helpers_1.zig").chunk_1;
-const chunk_2 = @import("helpers_2.zig").chunk_2;
-const chunk_3 = @import("helpers_3.zig").chunk_3;
-const chunk_4 = @import("helpers_4.zig").chunk_4;
+const chunk_runtime_arith_convert = @import("helpers_runtime_arith_convert.zig").chunk_runtime_arith_convert;
+const chunk_convert_http_multipart = @import("helpers_convert_http_multipart.zig").chunk_convert_http_multipart;
+const chunk_hash_json_regex = @import("helpers_hash_json_regex.zig").chunk_hash_json_regex;
+const chunk_regex_parse_path = @import("helpers_regex_parse_path.zig").chunk_regex_parse_path;
 const std = @import("std");
 
-pub const kRuntimeHelpers: []const HelperDef = &(chunk_1 ++ chunk_2 ++ chunk_3 ++ chunk_4);
+pub const kRuntimeHelpers: []const HelperDef = &(chunk_runtime_arith_convert ++ chunk_convert_http_multipart ++ chunk_hash_json_regex ++ chunk_regex_parse_path);
 
 /// Emission order for the catalog, topologically sorted by deps at
 /// comptime (Kahn's algorithm, stable by table order). Callees always
