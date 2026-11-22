@@ -100,7 +100,7 @@ pub fn buildSmokeTests(ctx: *BuildCtx) void {
     if (is_windows and enable_llvm) windows_llvm_smoke_step.dependOn(&run_windows_llvm_smoke.step);
 
     const pkg_core_tests_module = b.createModule(.{
-        .root_source_file = b.path("src/pkg/pkg_core_tests.zig"),
+        .root_source_file = b.path("src/pkg_core_tests_root.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
