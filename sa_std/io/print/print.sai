@@ -1,0 +1,3 @@
+// Legacy print contract for demos and simple applications.
+// Implemented by the Zig-backed sa_std.io library as stdout().write_all(bytes).
+@extern sa_print_bytes(&msg: ptr, len: u64) -> void

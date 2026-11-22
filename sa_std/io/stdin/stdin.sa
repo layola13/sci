@@ -1,0 +1,41 @@
+// Stdin / generic read macros. Split from sa_std/io.sa (Phase 1, 2026-11-22); no semantic change.
+@import "../io.sai"
+@import "../../os/fd.sa"
+
+[MACRO] IO_STDIN %out_handle
+    %out_handle = call @sa_io_stdin()
+[END_MACRO]
+
+[MACRO] IO_STDIN_AS_RAW_FD %out_status, %out_fd
+    __io_stdin_handle_%out_status = call @sa_io_stdin()
+    EXPAND FD_AS_RAW %out_status, %out_fd, __io_stdin_handle_%out_status
+    !__io_stdin_handle_%out_status
+[END_MACRO]
+
+[MACRO] IO_STDIN_AS_FD %out_status, %out_fd
+    __io_stdin_handle_%out_status = call @sa_io_stdin()
+    EXPAND FD_AS_RAW %out_status, %out_fd, __io_stdin_handle_%out_status
+    !__io_stdin_handle_%out_status
+[END_MACRO]
+
+[MACRO] READ_LINE %out_buf, %handle, %max_bytes
+    __read_line = call @sa_io_read_line(%handle, %max_bytes)
+    %out_buf = ? __read_line
+    !__read_line
+[END_MACRO]
+
+[MACRO] IO_READ_LINE %out_buf, %handle, %max_bytes
+    EXPAND READ_LINE %out_buf, %handle, %max_bytes
+[END_MACRO]
+
+[MACRO] READ %out_len, %handle, %buf, %cap
+    __read_len_slot = stack_alloc 8
+    __read_status = call @sa_io_read(%handle, &%buf, %cap, &__read_len_slot)
+    %out_len = load __read_len_slot+0 as u64
+    !__read_status
+[END_MACRO]
+
+[MACRO] IO_READ_SOME %out_len, %handle, %buf, %cap
+    EXPAND READ %out_len, %handle, %buf, %cap
+[END_MACRO]
+

@@ -1,0 +1,7 @@
+// Scalar formatting helper. Moved from sa_std/io.sa (Phase 1, 2026-11-22);
+// this was io's only fmt dependency, so the move removes the io -> fmt edge.
+@import "../fmt.sai"
+
+[MACRO] FORMAT_INT %out_buf, %value, %base
+    %out_buf = call @sa_fmt_i64(%value, %base)
+[END_MACRO]

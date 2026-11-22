@@ -1,0 +1,2 @@
+// stdout/stderr aggregate.
+@import "stdout.sa"

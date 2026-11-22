@@ -3,7 +3,7 @@
 @import "mpsc.sal"
 @import "../core/mem.sa"
 @import "../num.sa"
-@import "../time.sai"
+@import "../time/time.sai"
 
 @__mpsc_try_send(&chan: ptr, &value_slot: ptr) -> i32:
 L_ENTRY:

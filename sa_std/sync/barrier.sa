@@ -2,7 +2,7 @@
 // Spin/backoff based (no OS futex). Leader = last waiter to arrive.
 // Scope: single-generation spin barrier for concrete N; not full Rust generation object.
 @import "barrier.sal"
-@import "../time.sai"
+@import "../time/time.sai"
 
 @__barrier_wait_spin(barrier: ptr) -> u64:
 L_ENTRY:

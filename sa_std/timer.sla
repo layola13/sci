@@ -100,7 +100,7 @@
 // The body-check form below (bool flag condition, clock read in the
 // loop body, only flag + deadline live across the await) is stable.
 
-@import "sa_std/time.sla"
+@import "sa_std/time/time.sla"
 @import "sa_std/future.sa"
 @import "sa_std/core/arc.sa"
 

@@ -54,7 +54,7 @@
 // net_info.sai.
 
 @import "sa_std/net_info.sai"
-@import "sa_std/fs.sai"
+@import "sa_std/io/file/fs.sai"
 @import "sa_std/encoding/json.sai"
 @import "sa_std/encoding/json.sla"
 @import "sa_std/status.sla"

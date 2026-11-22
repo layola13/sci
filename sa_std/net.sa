@@ -1,7 +1,7 @@
 @import "net.sal"
 @import "net.sai"
 @import "hash.sa"
-@import "io.sal"
+@import "io/io.sal"
 @import "os/fd.sa"
 
 [MACRO] NET_LAST_ERROR %out_error

@@ -32,7 +32,7 @@
 @import "sa_std/core/result.sa"
 @import "sa_std/core/arc.sa"
 @import "sa_std/thread.sa"
-@import "sa_std/time.sla"
+@import "sa_std/time/time.sla"
 @import "sa_std/future.sa"
 @import "sa_std/core/waker.sa"
 @import "sa_std/pin.sa"

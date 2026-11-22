@@ -1,0 +1,37 @@
+// Print / write-to-stdout macros. Split from sa_std/io.sa (Phase 1, 2026-11-22); no semantic change.
+@import "../io.sal"
+@import "../io.sai"
+@import "print.sai"
+
+@const IO_NEWLINE = utf8:"\n"
+
+[MACRO] PRINT %msg, %len
+    call @sa_print_bytes(&%msg, %len)
+[END_MACRO]
+
+[MACRO] PRINTLN %msg, %len
+    call @sa_print_bytes(&%msg, %len)
+    call @sa_print_bytes(&IO_NEWLINE, 1)
+[END_MACRO]
+
+[MACRO] WRITE %handle, %msg, %len
+    call @sa_io_write_all(%handle, &%msg, %len)
+[END_MACRO]
+
+[MACRO] WRITELN %handle, %msg, %len
+    call @sa_io_write_all(%handle, &%msg, %len)
+    call @sa_io_write_all(%handle, &IO_NEWLINE, 1)
+[END_MACRO]
+
+[MACRO] EPRINT %msg, %len
+    __eprint_handle = call @sa_io_stderr()
+    EXPAND WRITE __eprint_handle, %msg, %len
+    !__eprint_handle
+[END_MACRO]
+
+[MACRO] EPRINTLN %msg, %len
+    __eprintln_handle = call @sa_io_stderr()
+    EXPAND WRITELN __eprintln_handle, %msg, %len
+    !__eprintln_handle
+[END_MACRO]
+

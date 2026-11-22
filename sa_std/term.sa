@@ -1,2 +1,4 @@
-@import "term.sal"
-@import "term.sai"
+// Phase 1 modularization shim (2026-11-22): canonical location is sa_std/os/term.sa.
+// Thin forwarder only; the loader dedupes by canonical path, so importing
+// both the old and the new path in one program is safe (see src/flattener/expandimportsinto.zig: seen_paths).
+@import "os/term.sa"

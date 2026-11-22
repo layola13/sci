@@ -1,0 +1,4 @@
+// fmt domain aggregate (Phase 1, 2026-11-22). Import this for the full fmt surface.
+@import "fmt.sal"
+@import "fmt.sai"
+@import "format/prelude.sa"

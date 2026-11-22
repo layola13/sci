@@ -47,7 +47,7 @@
 @import "sa_std/crypto.sai"
 @import "sa_std/encoding/base64.sai"
 @import "sa_std/encoding/json.sai"
-@import "sa_std/time.sai"
+@import "sa_std/time/time.sai"
 @import "sa_std/string.sa"
 @import "sa_std/vec.sa"
 @import "sa_std/core/slice.sa"

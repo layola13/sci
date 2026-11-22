@@ -3,8 +3,8 @@
 @import "condvar.sal"
 @import "mutex.sal"
 @import "mutex.sa"
-@import "../time.sa"
-@import "../time.sai"
+@import "../time/time.sa"
+@import "../time/time.sai"
 
 @__condvar_dec_waiter(cond: ptr) -> u64:
 L_ENTRY:

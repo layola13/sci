@@ -1,0 +1,27 @@
+#def SA_PROCESS_OK = 0
+#def SA_PROCESS_ERR_INVALID_ARGUMENT = 1
+#def SA_PROCESS_ERR_INVALID_HANDLE = 2
+#def SA_PROCESS_ERR_NO_MEMORY = 5
+#def SA_PROCESS_ERR_IO = 6
+#def SA_PROCESS_ERR_UNSUPPORTED = 8
+#def SA_PROCESS_ERR_UNKNOWN = 127
+
+#def SaProcessArgv_SIZE = 16
+#def SaProcessArgv_data = +0
+#def SaProcessArgv_len = +8
+
+#def ProcessExitStatus_SIZE = 8
+#def ProcessExitStatus_code = +0
+#def ProcessExitStatus_raw = +4
+
+#def ProcessOutput_SIZE = 24
+#def ProcessOutput_status = +0
+#def ProcessOutput_stdout = +8
+#def ProcessOutput_stderr = +16
+
+#def ProcessStdio_SIZE = 1
+#def ProcessStdio_ALIGN = 1
+#def ProcessStdio_kind = +0
+#def PROCESS_STDIO_KIND_INHERIT = 0
+#def PROCESS_STDIO_KIND_PIPED = 1
+#def PROCESS_STDIO_KIND_NULL = 2

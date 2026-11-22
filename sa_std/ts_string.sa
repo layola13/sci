@@ -13,7 +13,7 @@
 
 @import "string.sai"
 @import "ts_array.sa"
-@import "fmt.sai"
+@import "fmt/fmt.sai"
 
 @const jn_empty = utf8:"\0"
 

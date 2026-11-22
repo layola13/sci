@@ -1,4 +1,4 @@
-@import "../io.sal"
-@import "buf_reader.sa"
-@import "buf_writer.sa"
-@import "print.sai"
+// Phase 1 modularization shim (2026-11-22): canonical location is sa_std/io/buffer/bufio.sal.
+// Thin forwarder only; the loader dedupes by canonical path, so importing
+// both the old and the new path in one program is safe (see src/flattener/expandimportsinto.zig: seen_paths).
+@import "buffer/bufio.sal"

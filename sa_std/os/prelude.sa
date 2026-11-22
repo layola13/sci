@@ -1,2 +1,6 @@
+// os domain aggregate (Phase 1, 2026-11-22).
 @import "fd.sa"
 @import "unix_ffi.sa"
+@import "env.sa"
+@import "process.sa"
+@import "term.sa"

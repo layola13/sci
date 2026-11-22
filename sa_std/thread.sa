@@ -1,5 +1,5 @@
 @import "thread.sai"
-@import "time.sa"
+@import "time/time.sa"
 
 [MACRO] THREAD_SPAWN %out_handle, %entry_ptr, %arg_ptr
     %out_handle = call @pthread_spawn(%entry_ptr, %arg_ptr)

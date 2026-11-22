@@ -2,7 +2,7 @@
 // The payload is stored as raw u64 bits so callers can round-trip ptr or
 // integer values without hidden type magic.
 @import "once.sal"
-@import "../time.sai"
+@import "../time/time.sai"
 
 @__once_wait_ready(&once: ptr) -> void:
 L_ENTRY:

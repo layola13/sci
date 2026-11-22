@@ -1,5 +1,5 @@
 @import "rwlock.sal"
-@import "../time.sai"
+@import "../time/time.sai"
 
 @__rwlock_release_read(lock: ptr) -> void:
 L_ENTRY:

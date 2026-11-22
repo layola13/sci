@@ -54,8 +54,8 @@
 // never a silent empty result.
 
 @import "sa_std/net.sai"
-@import "sa_std/fs.sai"
-@import "sa_std/time.sai"
+@import "sa_std/io/file/fs.sai"
+@import "sa_std/time/time.sai"
 @import "sa_std/string.sa"
 @import "sa_std/vec.sa"
 @import "sa_std/core/slice.sa"

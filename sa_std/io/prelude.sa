@@ -1,1 +1,9 @@
-@import "bufio.sa"
+// io domain aggregate (Phase 1, 2026-11-22). Import this for the full io surface.
+@import "handle.sa"
+@import "print/print.sa"
+@import "stdin/stdin.sa"
+@import "stdout/stdout.sa"
+@import "buffer/bufio.sa"
+@import "buffer/cursor.sa"
+@import "file/fs.sa"
+@import "file/path.sa"

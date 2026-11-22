@@ -1,7 +1,7 @@
 // Concrete mutex/spinlock macros built on atomic xchg and release unlock.
 @import "mutex.sal"
-@import "../time.sa"
-@import "../time.sai"
+@import "../time/time.sa"
+@import "../time/time.sai"
 
 @__mutex_lock_spin(lock: ptr) -> void:
 L_MUTEX_LOCK_INIT:

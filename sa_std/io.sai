@@ -1,29 +1,4 @@
-// SA-facing contracts for the Zig-backed sa_std.io module.
-// Handles returned by stdio accessors are borrowed process handles; do not close them.
-@extern sa_io_stdin() -> u64
-@extern sa_io_stdout() -> u64
-@extern sa_io_stderr() -> u64
-
-// Convenience printing uses the same Zig-backed stdout writer as the runtime facade.
-@extern sa_std_println(&msg: ptr, len: u64) -> i32!
-
-// Owned handles returned by Zig-backed modules are closed explicitly.
-@extern sa_io_read_line(handle: u64, max_bytes: u64, &out_handle: ptr) -> i32
-@extern sa_io_read(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32
-@extern sa_io_read_exact(handle: u64, &buf: ptr, len: u64) -> i32
-@extern sa_io_write(handle: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32
-@extern sa_io_write_all(handle: u64, &buf: ptr, len: u64) -> i32
-@extern sa_io_flush(handle: u64) -> i32
-@extern sa_io_close(handle: u64) -> i32
-
-// Owned byte buffers are registry handles (the buffer resources
-// sa_io_read_line produces), freed explicitly. data/len/free take
-// the handle by value, exactly like the sa_fs_read_buffer_* family
-// (W1-DEF-IO-BUFFER-API: the old raw SaIoBuffer-pointer form could
-// not consume read_line's product at all).
-@extern sa_io_buffer_data(buffer: u64) -> &ptr
-@extern sa_io_buffer_len(buffer: u64) -> u64
-@extern sa_io_buffer_free(^buffer: u64) -> i32
-
-// Legacy demo compatibility: equivalent to stdout().write_all(bytes).
-@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+// Phase 1 modularization shim (2026-11-22): canonical location is sa_std/io/io.sai.
+// Thin forwarder only; the loader dedupes by canonical path, so importing
+// both the old and the new path in one program is safe (see src/flattener/expandimportsinto.zig: seen_paths).
+@import "io/io.sai"

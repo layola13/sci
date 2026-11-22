@@ -1,3 +1,4 @@
-// Legacy print contract for demos and simple applications.
-// Implemented by the Zig-backed sa_std.io library as stdout().write_all(bytes).
-@extern sa_print_bytes(&msg: ptr, len: u64) -> void
+// Phase 1 modularization shim (2026-11-22): canonical location is sa_std/io/print/print.sai.
+// Thin forwarder only; the loader dedupes by canonical path, so importing
+// both the old and the new path in one program is safe (see src/flattener/expandimportsinto.zig: seen_paths).
+@import "print/print.sai"

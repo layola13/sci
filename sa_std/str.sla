@@ -1,5 +1,5 @@
 @import "sa_std/string.sa"
-@import "sa_std/string_format.sa"
+@import "sa_std/fmt/format/string_format.sa"
 @import "sa_std/core/result.sa"
 @import "sa_std/core/slice.sa"
 

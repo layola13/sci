@@ -44,8 +44,8 @@
 // IPv4-mapped addresses).
 
 @import "sa_std/string.sa"
-@import "sa_std/fmt.sai"
-@import "sa_std/string_format.sa"
+@import "sa_std/fmt/fmt.sai"
+@import "sa_std/fmt/format/string_format.sa"
 @import "sa_std/vec.sa"
 @import "sa_std/alloc/vec.sa"
 @import "sa_std/ptr.sa"

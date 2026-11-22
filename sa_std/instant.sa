@@ -1,3 +1,4 @@
-// Public Instant/SystemTime facade. Runtime and arithmetic macros live in time.sa.
-@import "time.sal"
-@import "time.sa"
+// Phase 1 modularization shim (2026-11-22): canonical location is sa_std/time/instant.sa.
+// Thin forwarder only; the loader dedupes by canonical path, so importing
+// both the old and the new path in one program is safe (see src/flattener/expandimportsinto.zig: seen_paths).
+@import "time/instant.sa"

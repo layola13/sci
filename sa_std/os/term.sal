@@ -1,0 +1,33 @@
+#def SA_TERM_OK = 0
+#def SA_TERM_ERR_UNKNOWN = 1
+#def SA_TERM_ERR_INVALID_ARGUMENT = 2
+#def SA_TERM_ERR_INVALID_HANDLE = 3
+#def SA_TERM_ERR_UNSUPPORTED = 4
+#def SA_TERM_ERR_NO_MEMORY = 5
+#def SA_TERM_ERR_IO = 6
+
+#def SA_TERM_EPOLL_CTL_ADD = 1
+#def SA_TERM_EPOLL_CTL_DEL = 2
+#def SA_TERM_EPOLL_CTL_MOD = 3
+
+#def SA_TERM_EPOLL_CLOEXEC = 1
+#def SA_TERM_EPOLLIN = 0x001
+#def SA_TERM_EPOLLPRI = 0x002
+#def SA_TERM_EPOLLOUT = 0x004
+#def SA_TERM_EPOLLERR = 0x008
+#def SA_TERM_EPOLLHUP = 0x010
+#def SA_TERM_EPOLLRDHUP = 0x2000
+#def SA_TERM_EPOLLEXCLUSIVE = 0x10000000
+#def SA_TERM_EPOLLWAKEUP = 0x20000000
+#def SA_TERM_EPOLLONESHOT = 0x40000000
+#def SA_TERM_EPOLLET = 0x80000000
+
+#def SaTermWinsize_SIZE = 8
+#def SaTermWinsize_row = +0
+#def SaTermWinsize_col = +2
+#def SaTermWinsize_xpixel = +4
+#def SaTermWinsize_ypixel = +6
+
+#def SaTermEpollEvent_SIZE = 16
+#def SaTermEpollEvent_events = +0
+#def SaTermEpollEvent_data = +8

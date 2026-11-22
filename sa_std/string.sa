@@ -5,9 +5,9 @@
 @import "vec.sa"
 @import "vec.sal"
 @import "string.sai"
-@import "fmt.sai"
+@import "fmt/fmt.sai"
 @import "hash.sa"
-@import "string_format.sa"
+@import "fmt/format/string_format.sa"
 @extern sa_mem_free(^ptr: ptr) -> void
 
 [MACRO] STR_LEN %out_len, %slice_reg

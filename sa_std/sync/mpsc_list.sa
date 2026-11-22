@@ -4,7 +4,7 @@
 @import "mutex.sa"
 @import "../collections/linked_list.sa"
 @import "mpsc.sal"
-@import "../time.sai"
+@import "../time/time.sai"
 
 @sa_mpsc_list_new() -> ^ptr:
 L_ENTRY:

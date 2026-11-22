@@ -53,7 +53,7 @@
 @import "sa_std/ptr.sa"
 @import "sa_std/status.sla"
 @import "sa_std/net.sai"
-@import "sa_std/time.sai"
+@import "sa_std/time/time.sai"
 
 const SA_ICMP_TYPE_ECHO_REPLY: u8 = 0;
 const SA_ICMP_TYPE_DESTINATION_UNREACHABLE: u8 = 3;

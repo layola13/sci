@@ -19,7 +19,7 @@
 // for this batch.
 
 @import "sa_std/task.sai"
-@import "sa_std/time.sai"
+@import "sa_std/time/time.sai"
 @import "sa_std/ptr.sa"
 
 struct SupervisePolicy {
