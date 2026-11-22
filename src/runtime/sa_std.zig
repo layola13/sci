@@ -187,6 +187,35 @@ fn installSigpipeIgnore() void {
     applySigpipeIgnore();
 }
 
+// ---------------------------------------------------------------------
+// Task 75: heap page return (frag/escape retention).
+// The SA program heap is libc malloc (alloc lowers to malloc,
+// sa_mem_free lowers to free). glibc keeps sub-threshold chunks in the
+// brk arena and only returns memory by trimming the top chunk, so a
+// fragmenting free pattern -- live and dead blocks interleaved, as in
+// the frag arm -- retains the freed pages: the top chunk is a live
+// block, no trim happens, and post-free RSS equals peak RSS. Measured
+// on probe p_frag (4500 live + 4500 dead x 64 KiB blocks, live set
+// 288,000 KiB): post-free steady-state RSS 578,488 KiB (== peak), i.e.
+// ~290 MiB of freed memory retained; with MALLOC_MMAP_THRESHOLD_=32768
+// the same probe reads 290,324 KiB (== live set + ~2 MiB runtime) at
+// no time cost (1.87 s vs 1.93 s median). Full frees already return
+// pages (p_big/p_many/p_sparse plateaus ~2 MiB); only the interleaved
+// partial free retains.
+// Fix: lower glibc's mmap threshold to 32 KiB at startup, so blocks
+// >= 32 KiB are individually mmap'd and munmap'd on free regardless of
+// interleaving. This is the code form of MALLOC_MMAP_THRESHOLD_=32768.
+// M_MMAP_THRESHOLD is glibc mallopt param -3. Best-effort: a failed
+// mallopt (returns 0) leaves the default threshold in place.
+// Runs in policyBootstrap (.init_array, before main), gated to Linux;
+// wasm/no-libc targets never reference mallopt (comptime gate).
+extern fn mallopt(param: c_int, value: c_int) c_int;
+
+fn applyHeapPageReturn() void {
+    if (comptime !is_linux or is_wasm) return;
+    _ = mallopt(-3, 32768);
+}
+
 /// DEF-R7 startup entry called by every generated program main
 /// wrapper (LLVM shim + C backend) before user code runs. This is
 /// the coverage backbone: a plain reference from the wrapper extracts
@@ -199,6 +228,7 @@ pub export fn sa_install_sigpipe_ignore() void {
 }
 
 fn policyBootstrap() callconv(.c) void {
+    applyHeapPageReturn();
     installSigpipeIgnore();
     if (policy_bootstrap_attempted) return;
     policy_bootstrap_attempted = true;
