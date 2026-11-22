@@ -255,6 +255,10 @@ pub fn readTestConsumedScanCount() usize {
     return if (builtin.is_test) test_consumed_scan_count else 0;
 }
 
+pub fn incrementTestConsumedScanCount() void {
+    if (builtin.is_test) test_consumed_scan_count += 1;
+}
+
 pub fn symbolName(symbol_names: []const []const u8, id: u32) []const u8 {
     const idx: usize = @intCast(id);
     if (idx >= symbol_names.len) return "";

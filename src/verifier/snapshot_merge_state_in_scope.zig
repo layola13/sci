@@ -21,13 +21,13 @@ const StateMismatch = @import("const_trap.zig").StateMismatch;
 const VerifyBodyResult = @import("reg_state_change.zig").VerifyBodyResult;
 const copyTextBuf = @import("reg_state_change.zig").copyTextBuf;
 const hasInteriorPtr = @import("const_trap.zig").hasInteriorPtr;
+const incrementTestConsumedScanCount = @import("reg_state_change.zig").incrementTestConsumedScanCount;
 const isDecl = @import("const_trap.zig").isDecl;
 const isIdentLike = @import("reg_state_change.zig").isIdentLike;
 const maskOf = @import("reg_state_change.zig").maskOf;
 const mergeJoinMask = @import("const_trap.zig").mergeJoinMask;
 const parseInstructionCallForFunctionScan = @import("sax_trap_report.zig").parseInstructionCallForFunctionScan;
 const snapshotMaskAt = @import("const_trap.zig").snapshotMaskAt;
-const test_consumed_scan_count = @import("reg_state_change.zig").test_consumed_scan_count;
 const trapCode = @import("reg_state_change.zig").trapCode;
 const trimTrailingCr = @import("reg_state_change.zig").trimTrailingCr;
 
@@ -146,7 +146,7 @@ pub fn computeFunctionConsumedRegs(
     while (idx < instructions.len) : (idx += 1) {
         const item = instructions[idx];
         if (isDecl(item.kind)) break;
-        if (builtin.is_test) test_consumed_scan_count += 1;
+        incrementTestConsumedScanCount();
         markInstructionConsumedRegs(allocator, item, symbols, scope, consumed_in_function);
     }
 }
