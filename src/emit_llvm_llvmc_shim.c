@@ -132,7 +132,11 @@ typedef struct {
 } SaModule;
 
 typedef struct { const char *name; LLVMBasicBlockRef block; long inst_index; unsigned char is_header; long back_edge_max; unsigned char needs_rewind; LLVMValueRef sp_save_slot; LLVMBasicBlockRef rewind_block; } LabelEntry;
-typedef struct { LLVMValueRef slot; LLVMValueRef value; LLVMValueRef fallible_slot; SaType ty; unsigned char fallible; unsigned char initialized; unsigned int indirect_sig_index; unsigned char is_malloc; } RegValue;
+typedef struct { LLVMValueRef slot; LLVMValueRef value; LLVMValueRef fallible_slot; SaType ty; unsigned char fallible; unsigned char initialized; unsigned int indirect_sig_index; unsigned char is_malloc; unsigned int prov_root; } RegValue;
+/* prov_root (task 104): slot of the allocation this register's pointer
+ * derives from (UINT_MAX = none). Registers holding the same heap pointer
+ * (aliases via assign / pointer add / bitcast) share one root, so freeing
+ * the pointer can clear the owned-base flag for the whole alias group. */
 typedef struct {
     LLVMContextRef ctx;
     LLVMModuleRef module;
@@ -994,6 +998,7 @@ static int reg_store(EmitCtx *e, RegValue *regs, size_t reg_count, unsigned int 
     regs[slot].fallible_slot = NULL;
     regs[slot].value = value;
     regs[slot].is_malloc = 0;
+    regs[slot].prov_root = UINT_MAX;
     if (fallible) {
         return 0;
     }
@@ -1005,6 +1010,27 @@ static int reg_store(EmitCtx *e, RegValue *regs, size_t reg_count, unsigned int 
         LLVMBuildStore(e->builder, bits, regs[slot].slot);
     }
     return 0;
+}
+
+/* Task 104: clear is_malloc for a whole provenance group. When a heap
+ * pointer is freed (via a call to a free function or via SA_OP_RELEASE),
+ * every register aliasing that pointer must lose its owned-base flag, or
+ * a later `!alias` emits a second free on the same address (double free:
+ * Arc drop calls sa_mem_free(tmp_22) and the scope end then releases `a`,
+ * where tmp_22 aliases a). prov_root is reset as well so the freed pointer
+ * cannot re-seed a new alias chain. */
+static void clear_malloc_group(RegValue *regs, size_t reg_count, unsigned int slot) {
+    if (slot >= reg_count) return;
+    unsigned int root = regs[slot].prov_root;
+    regs[slot].is_malloc = 0;
+    regs[slot].prov_root = UINT_MAX;
+    if (root == UINT_MAX) return;
+    for (size_t i = 0; i < reg_count; i++) {
+        if (regs[i].prov_root == root) {
+            regs[i].is_malloc = 0;
+            regs[i].prov_root = UINT_MAX;
+        }
+    }
 }
 
 static int fallible_value_ptr(EmitCtx *e, RegValue *reg, LLVMValueRef *out, SaType *out_ty) {
@@ -1476,7 +1502,7 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
     LabelEntry *labels = (LabelEntry *)calloc(f->instruction_count + 1, sizeof(LabelEntry));
     if (regs == NULL || labels == NULL) { free(regs); free(labels); return fail_body(e, f, NULL, 0, "alloc frame failed"); }
     size_t label_count = 0;
-    for (size_t i = 0; i < reg_count; i++) regs[i].indirect_sig_index = UINT_MAX;
+    for (size_t i = 0; i < reg_count; i++) { regs[i].indirect_sig_index = UINT_MAX; regs[i].prov_root = UINT_MAX; }
 
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(e->ctx, fn, "entry");
     LLVMPositionBuilderAtEnd(e->builder, entry);
@@ -1490,7 +1516,7 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
             reg_store(e, regs, reg_count, f->params[i].slot, LLVMGetParam(fn, (unsigned)i), f->params[i].ty, 0, UINT_MAX);
             /* DEF-R8-FIX (F1b): reg_store clears is_malloc; re-seed it
              * for move-cap pointer params (see converter side). */
-            if (f->params[i].is_malloc) regs[f->params[i].slot].is_malloc = 1;
+            if (f->params[i].is_malloc) { regs[f->params[i].slot].is_malloc = 1; regs[f->params[i].slot].prov_root = f->params[i].slot; }
         }
     }
     for (size_t i = 0; i < f->instruction_count; i++) {
@@ -1617,6 +1643,7 @@ static int emit_function_body(EmitCtx *e, const SaFunction *f) {
                 v0 = coerce_to_size(e, v0, "alloc_size");
 if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(e->malloc_fn), e->malloc_fn, &v0, 1, "malloced"), SA_T_PTR, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
                 regs[in->dst].is_malloc = 1;
+                regs[in->dst].prov_root = in->dst;
                 break;
             case SA_OP_STACK_ALLOC:
                 if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
@@ -1696,6 +1723,7 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 if (reg_store(e, regs, reg_count, in->dst, load_inst, in->ty, 0, in->indirect_sig_index)) { free(regs); free(labels); return 1; }
                 if (in->op == SA_OP_TAKE && in->ty == SA_T_PTR) {
                     regs[in->dst].is_malloc = 1;
+                    regs[in->dst].prov_root = in->dst;
                 }
                 break;
             case SA_OP_STORE:
@@ -1785,17 +1813,20 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                     v0 = coerce(e, v0, t0, SA_T_I64); v1 = coerce(e, v1, t1, SA_T_I64);
                     if (reg_store(e, regs, reg_count, in->dst, build_binop(e, in->binary_op, v0, v1), SA_T_I64, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
                 }
+                if (in->operand0.kind == SA_OPER_REG && in->operand0.reg < reg_count && regs[in->operand0.reg].prov_root != UINT_MAX) regs[in->dst].prov_root = regs[in->operand0.reg].prov_root;
                 break;
             case SA_OP_PTR_ADD:
                 if (operand_addressable_value(e, &in->operand0, regs, reg_count, &v0, &t0) || operand_value(e, &in->operand1, regs, reg_count, &v1, &t1)) { free(regs); free(labels); return 1; }
                 v0 = coerce(e, v0, t0, SA_T_PTR); v1 = coerce(e, v1, t1, SA_T_I64);
                 if (reg_store(e, regs, reg_count, in->dst, LLVMBuildGEP2(e->builder, e->i8_ty, v0, &v1, 1, "ptradd"), SA_T_PTR, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
+                if (in->operand0.kind == SA_OPER_REG && in->operand0.reg < reg_count && regs[in->operand0.reg].prov_root != UINT_MAX) regs[in->dst].prov_root = regs[in->operand0.reg].prov_root;
                 break;
             case SA_OP_BITCAST: {
                 if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
                 LLVMValueRef bv = bitcast_value(e, v0, t0, in->ty);
                 if (bv == NULL) { free(regs); free(labels); return fail_body(e, f, in, i, "bitcast failed"); }
                 if (reg_store(e, regs, reg_count, in->dst, bv, in->ty, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
+                if (in->operand0.kind == SA_OPER_REG && in->operand0.reg < reg_count && regs[in->operand0.reg].prov_root != UINT_MAX) regs[in->dst].prov_root = regs[in->operand0.reg].prov_root;
                 break;
             }
             case SA_OP_ASSIGN: {
@@ -1816,6 +1847,7 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                     if (reg_store(e, regs, reg_count, in->dst, coerce(e, v0, t0, dst_ty), dst_ty, dst_fallible, dst_indirect)) { free(regs); free(labels); return 1; }
                 }
                 regs[in->dst].is_malloc = (t0 == SA_T_PTR) ? src_is_malloc : 0;
+                if (regs[in->dst].is_malloc && in->operand0.kind == SA_OPER_REG && in->operand0.reg < reg_count) regs[in->dst].prov_root = regs[in->operand0.reg].prov_root;
                 break;
             }
             case SA_OP_JMP: {
@@ -1904,6 +1936,16 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 if (in->has_dst) {
                     if (reg_store(e, regs, reg_count, in->dst, resultv, in->ty, in->return_fallible, UINT_MAX)) { free(args); free(regs); free(labels); return 1; }
                     regs[in->dst].is_malloc = (in->ty == SA_T_PTR) ? in->is_malloc : 0;
+                    if (in->ty == SA_T_PTR && in->is_malloc) regs[in->dst].prov_root = in->dst;
+                }
+                /* Task 104: a call to a free function consumes its argument's
+                 * allocation. Clear the whole provenance group so a later
+                 * `!alias` cannot free the same pointer again (Arc drop:
+                 * sa_mem_free(tmp_22) then !a, where tmp_22 aliases a). */
+                if (in->callee != NULL && (strcmp(in->callee, "sa_mem_free") == 0 || strcmp(in->callee, "sa_free") == 0)) {
+                    for (size_t a = 0; a < in->arg_count; a++) {
+                        if (in->args[a].kind == SA_OPER_REG && in->args[a].reg < reg_count) clear_malloc_group(regs, reg_count, in->args[a].reg);
+                    }
                 }
                 free(args);
                 break;
@@ -1967,6 +2009,7 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 if (in->has_dst) {
                     if (reg_store(e, regs, reg_count, in->dst, callv, eff_ret_ty, eff_fallible, UINT_MAX)) { free(args); free(regs); free(labels); return 1; }
                     regs[in->dst].is_malloc = (in->ty == SA_T_PTR) ? in->is_malloc : 0;
+                    if (in->ty == SA_T_PTR && in->is_malloc) regs[in->dst].prov_root = in->dst;
                 }
                 free(args);
                 break;
@@ -1994,6 +2037,7 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                 LLVMPositionBuilderAtEnd(e->builder, ok_bb);
                 if (reg_store(e, regs, reg_count, in->dst, LLVMBuildExtractValue(e->builder, v0, 1, "try_payload"), t0, 0, UINT_MAX)) { free(regs); free(labels); return 1; }
                 regs[in->dst].is_malloc = (t0 == SA_T_PTR) ? src_is_malloc : 0;
+                if (regs[in->dst].is_malloc) regs[in->dst].prov_root = regs[src_reg].prov_root;
                 break;
             }
             case SA_OP_RET:
@@ -2050,6 +2094,10 @@ if (reg_store(e, regs, reg_count, in->dst, LLVMBuildCall2(e->builder, LLVMGlobal
                         if (operand_value(e, &in->operand0, regs, reg_count, &v0, &t0)) { free(regs); free(labels); return 1; }
                         v0 = coerce(e, v0, t0, SA_T_PTR);
                         LLVMBuildCall2(e->builder, LLVMGlobalGetValueType(e->free_fn), e->free_fn, &v0, 1, "");
+                        /* Task 104: the pointer is now freed; clear the whole
+                         * provenance group so a later `!alias` cannot free it
+                         * again. */
+                        clear_malloc_group(regs, reg_count, in->operand0.reg);
                     }
                 }
                 break;

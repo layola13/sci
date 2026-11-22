@@ -2995,6 +2995,41 @@ test "sa test runs isolated native tests with filterable names" {
     try std.testing.expect(std.mem.containsAtLeast(u8, stderr_buffer.items, 1, "terminated by signal"));
 }
 
+test "sa test arc drop frees once (task 104 regression)" {
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    defer original_cwd.setAsCwd() catch {};
+
+    const source_path = try original_cwd.realpathAlloc(std.testing.allocator, "tests/unit_test_arc_double_free.sa");
+    defer std.testing.allocator.free(source_path);
+
+    var stdout_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stdout_buffer.deinit();
+    var stderr_buffer = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stderr_buffer.deinit();
+
+    // --no-incremental: the project test cache keys on the .sa source hash,
+    // so a stale binary built before a codegen fix would mask a regression.
+    const test_argv = [_][]const u8{ "sa", "test", source_path, "--jobs", "1", "--no-incremental" };
+    const test_code = try saasm.cli.executeWithWriters(
+        std.testing.allocator,
+        test_argv[0..],
+        sio.managedWriter(&stdout_buffer),
+        sio.managedWriter(&stderr_buffer),
+    );
+    if (test_code != 0 or stderr_buffer.items.len != 0) {
+        std.debug.print("sa test failed:\nstdout:\n{s}\nstderr:\n{s}\n", .{ stdout_buffer.items, stderr_buffer.items });
+    }
+    try std.testing.expectEqual(@as(u8, 0), test_code);
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "[PASS] arc drop frees once"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, stdout_buffer.items, 1, "test result: ok. 1 passed; 0 failed; 0 skipped"));
+    try std.testing.expectEqual(@as(usize, 0), stderr_buffer.items.len);
+}
+
 test "sa test schedules native tests in parallel when jobs are higher" {
     var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();

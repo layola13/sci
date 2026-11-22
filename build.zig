@@ -891,6 +891,25 @@ pub fn build(b: *std.Build) void {
     const pthread_vtable_smoke_step = b.step("pthread-vtable-smoke", "Run pthread vtable native codegen regression test");
     pthread_vtable_smoke_step.dependOn(&run_pthread_vtable_smoke.step);
 
+    const arc_double_free_smoke_module = b.createModule(.{
+        .root_source_file = b.path("tests/cli_smoke.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    arc_double_free_smoke_module.addImport("sio", sio_module);
+    arc_double_free_smoke_module.addImport("saasm", lib_module);
+    arc_double_free_smoke_module.addOptions("build_options", build_options);
+    const arc_double_free_smoke = b.addTest(.{
+        .root_module = arc_double_free_smoke_module,
+        .filters = &.{"sa test arc drop frees once (task 104 regression)"},
+    });
+    const run_arc_double_free_smoke = b.addRunArtifact(arc_double_free_smoke);
+    run_arc_double_free_smoke.setCwd(repo_root_lazy);
+    addLlvmBinDirToRun(b, run_arc_double_free_smoke, enable_llvm, llvm_lib_dir, target.result.os.tag);
+    test_step.dependOn(&run_arc_double_free_smoke.step);
+    const arc_double_free_smoke_step = b.step("arc-double-free-smoke", "Run the Arc drop double-free regression smoke test (task 104)");
+    arc_double_free_smoke_step.dependOn(&run_arc_double_free_smoke.step);
+
     const trap_baseline_module = b.createModule(.{
         .root_source_file = b.path("tests/golden/trap_baseline.zig"),
         .target = target,

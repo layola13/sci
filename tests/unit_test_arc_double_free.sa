@@ -1,0 +1,82 @@
+// Regression test for task 104: Arc drop must free the ArcBox exactly once.
+// Before the fix, the scope-end `!a` emitted a second free on the same
+// pointer already freed by ARC_DROP -> sa_mem_free (double free, SIGABRT).
+// After the fix, the test passes (value 1, clean exit 0).
+// Minimal repro: single-threaded Arc<AtomicI32>, fetch_add, load, drop.
+
+@import "sa_std/io/print.sai"
+@import "sa_std/fmt.sai"
+@import "sa_std/core/arc.sa"
+@import "sa_std/sync/atomic.sa"
+@import "sa_std/core/result.sa"
+
+[MACRO] SLA_ARRAY_FILL_U8 %array_ptr, %value, %length
+    call @sa_mem_set(&%array_ptr, %value, %length)
+[END_MACRO]
+
+@test "arc drop frees once"():
+L_ENTRY:
+    tmp_0 = 0
+    tmp_1 = alloc AtomicI32_SIZE
+    EXPAND ATOMIC_I32_INIT tmp_1, tmp_0
+    !tmp_0
+    EXPAND ARC_NEW tmp_2, tmp_1
+    ^tmp_1
+    a = tmp_2
+    EXPAND ARC_GET tmp_3, a
+    tmp_4 = 1
+    EXPAND ATOMIC_I32_FETCH_ADD tmp_5, tmp_3, tmp_4, seq_cst
+    !tmp_3
+    !tmp_4
+    tmp_6 = 32
+    tmp_7 = shl tmp_5, tmp_6
+    _old = ashr tmp_7, tmp_6
+    !tmp_7
+    !tmp_6
+    !tmp_5
+    EXPAND ARC_GET tmp_8, a
+    EXPAND ATOMIC_I32_LOAD tmp_9, tmp_8, seq_cst
+    !tmp_8
+    tmp_10 = 32
+    tmp_11 = shl tmp_9, tmp_10
+    v = ashr tmp_11, tmp_10
+    !tmp_11
+    !tmp_10
+    !tmp_9
+    ok = eq v, 1
+    br ok -> L_CHECK_OK, L_CHECK_ERR
+
+L_CHECK_OK:
+    !ok
+    tmp_20 = add a, 0
+    EXPAND ARC_DROP tmp_20, L_SMART_CLEAN_0
+    jmp L_SMART_AFTER_2
+
+L_SMART_CLEAN_0:
+    !__arc_is_last_tmp_20
+    !__arc_strong_tmp_20
+    tmp_21 = load tmp_20+ArcBox_data as ptr
+    !tmp_21
+    EXPAND ARC_WEAK_DROP tmp_20, L_SMART_FREE_1
+    jmp L_SMART_AFTER_2
+
+L_SMART_FREE_1:
+    !__weak_is_last_tmp_20
+    !__weak_next_count_tmp_20
+    tmp_22 = add tmp_20, 0
+    call @sa_mem_free(^tmp_22)
+    jmp L_SMART_END_3
+
+L_SMART_AFTER_2:
+    jmp L_SMART_END_3
+
+L_SMART_END_3:
+    !tmp_20
+    !a
+    !_old
+    !v
+    return
+
+L_CHECK_ERR:
+    !ok
+    panic(201)
