@@ -273,6 +273,10 @@ const Goroutine = struct {
     arg: ?*anyopaque = null,
     // stack bookkeeping
     region: []align(4096) u8 = undefined,
+    // Guard-table slot for region (task 65 freelist): null when the
+    // region was mapped without an entry (table full at spawn).
+    // The carrier hands it to freeStack with the region at exit.
+    guard_idx: ?usize = null,
     sp: u64 = 0,
     state: std.atomic.Value(State) = .init(.empty),
     queued: bool = false, // guarded by sched_mu
@@ -526,7 +530,50 @@ var cfg_carriers: usize = 0;
 /// passing via a larger constant).
 var stack_grow_events: std.atomic.Value(u64) = .init(0);
 
-fn allocStack(id: u64) ?[]align(4096) u8 {
+/// A stack mapping plus its guard-table slot (null when the table
+/// was full at spawn and no entry exists).
+const StackAlloc = struct {
+    region: []align(4096) u8,
+    guard_idx: ?usize,
+};
+
+/// Stack-region freelist (task 65 P1). A freed region keeps its
+/// mapping (guard + reserve + committed top); reuse hands the whole
+/// mapping to the next goroutine, so a spawn/exit cycle in steady
+/// state pays no mmap/mprotect/munmap and no guard-table scan.
+/// The guard entry is retired when the region is pooled and
+/// re-registered on reuse (guardLookup must never resolve a pooled
+/// region to its dead owner); the pooled entry stores the commit
+/// so reuse re-registers with the grown size. Regions that grew
+/// past STACK_FREE_MAX_COMMIT are not pooled: their committed
+/// pages would be retained idle. Bounded: at most STACK_FREE_MAX
+/// regions are retained.
+const STACK_FREE_MAX: usize = 256;
+const STACK_FREE_MAX_COMMIT: usize = 1024 * 1024;
+const StackFreeEntry = struct {
+    region: []align(4096) u8,
+    committed_lo: usize,
+};
+var stack_free_mu: Mutex = .{};
+var stack_free: [STACK_FREE_MAX]StackFreeEntry = undefined;
+var stack_free_len: usize = 0;
+
+fn allocStack(id: u64) ?StackAlloc {
+    stack_free_mu.lock();
+    if (stack_free_len > 0) {
+        stack_free_len -= 1;
+        const e = stack_free[stack_free_len];
+        stack_free_mu.unlock();
+        // Re-register the mapping under the new owner. The entry
+        // was retired when the region was pooled (guardLookup must
+        // never resolve a pooled region to its dead owner), so the
+        // reuse claims a fresh slot; the stored commit already
+        // reflects any growth the previous owner committed.
+        const top = @intFromPtr(e.region.ptr) + e.region.len;
+        const guard_idx = guardRegister(@intFromPtr(e.region.ptr), top, e.committed_lo, id);
+        return .{ .region = e.region, .guard_idx = guard_idx };
+    }
+    stack_free_mu.unlock();
     const total = GUARD_KIB * 1024 + cfg_stack_cap;
     const rc = linux.mmap(null, total, linux.PROT{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0);
     if (@as(isize, @bitCast(rc)) < 0) return null;
@@ -540,12 +587,35 @@ fn allocStack(id: u64) ?[]align(4096) u8 {
         _ = linux.munmap(base, total);
         return null;
     }
-    guardRegister(@intFromPtr(base), top, committed_lo, id);
-    return base[0..total];
+    const guard_idx = guardRegister(@intFromPtr(base), top, committed_lo, id);
+    return .{ .region = base[0..total], .guard_idx = guard_idx };
 }
 
-fn freeStack(region: []align(4096) u8) void {
-    guardUnregister(@intFromPtr(region.ptr));
+fn freeStack(region: []align(4096) u8, guard_idx: ?usize) void {
+    const top = @intFromPtr(region.ptr) + region.len;
+    // The pooled entry stores the commit, not the guard slot: the
+    // guard entry is retired here (guardLookup must not resolve a
+    // pooled region to its dead owner), and reuse re-registers.
+    const committed: usize = if (guard_idx) |idx|
+        guard_table[idx].committed_lo.load(.monotonic)
+    else
+        top - cfg_stack_initial;
+    const poolable = top - committed <= STACK_FREE_MAX_COMMIT;
+    if (guard_idx) |idx| {
+        // Retire the entry directly by slot instead of the old
+        // full-table scan, whether pooled or not.
+        guard_table[idx].live.store(false, .release);
+    }
+    if (poolable) {
+        stack_free_mu.lock();
+        if (stack_free_len < STACK_FREE_MAX) {
+            stack_free[stack_free_len] = .{ .region = region, .committed_lo = committed };
+            stack_free_len += 1;
+            stack_free_mu.unlock();
+            return;
+        }
+        stack_free_mu.unlock();
+    }
     _ = linux.munmap(region.ptr, region.len);
 }
 
@@ -581,7 +651,7 @@ const GuardEntry = struct {
 var guard_table: [GUARD_SLOTS]GuardEntry = std.mem.zeroes([GUARD_SLOTS]GuardEntry);
 var guard_hint: std.atomic.Value(usize) = .init(0);
 
-fn guardRegister(lo: usize, top: usize, committed_lo: usize, id: u64) void {
+fn guardRegister(lo: usize, top: usize, committed_lo: usize, id: u64) ?usize {
     var i: usize = 0;
     while (i < GUARD_SLOTS) : (i += 1) {
         const idx = (guard_hint.load(.monotonic) + i) % GUARD_SLOTS;
@@ -592,19 +662,12 @@ fn guardRegister(lo: usize, top: usize, committed_lo: usize, id: u64) void {
             guard_table[idx].committed_lo.store(committed_lo, .monotonic);
             guard_table[idx].id = id;
             guard_hint.store(idx + 1, .monotonic);
-            return;
+            return idx;
         }
     }
+    return null;
 }
 
-fn guardUnregister(lo: usize) void {
-    for (&guard_table) |*e| {
-        if (e.live.load(.acquire) and e.lo == lo) {
-            e.live.store(false, .release);
-            return;
-        }
-    }
-}
 
 /// Guard-zone lookup (the overflow trap's range; also what the
 /// unit tests pin): only the hard guard resolves here.
@@ -778,6 +841,8 @@ const Carrier = struct {
     /// final switch; the carrier frees it after regaining
     /// control. Carrier-local, so no recycling race can alias it.
     exit_region: ?[]align(4096) u8 = null,
+    /// Guard-table slot for exit_region (task 65 freelist).
+    exit_guard_idx: ?usize = null,
 
     fn push(c: *Carrier, g: *Goroutine) bool {
         c.runq_mu.lock();
@@ -1025,7 +1090,12 @@ fn unparkWake(g: *Goroutine, wake: bool) bool {
 /// releases the node, potentially while the owner resumes on
 /// another carrier and reuses its stack frame -- the heap node's
 /// lifetime is exactly what makes the peer-side release sound.
-const WAIT_NODE_POOL_MAX: usize = 256;
+/// Task 65 P1: raised from 256. The dispatch shape parks 5000 senders
+/// at once; a 256 cap meant all but 256 nodes still paid a
+/// page_allocator mmap/munmap pair per rendezvous. The cap bounds
+/// retained pages (4096 x one page); the pool only ever fills from
+/// actual releases, so small workloads retain nothing extra.
+const WAIT_NODE_POOL_MAX: usize = 4096;
 var wait_node_pool_mu: Mutex = .{};
 var wait_node_pool_head: ?*WaitNode = null;
 var wait_node_pool_len: usize = 0;
@@ -1282,7 +1352,10 @@ fn goroutineExit() noreturn {
     sched_mu.unlock();
     // Deposit the stack with our carrier for post-switch freeing
     // (the struct may be recycled only after that handoff).
-    if (carrier_self) |c| c.exit_region = g.region;
+    if (carrier_self) |c| {
+        c.exit_region = g.region;
+        c.exit_guard_idx = g.guard_idx;
+    }
     // Decrement BEFORE waking joiners: once a join returns, the
     // goroutine must already be out of the live count.
     _ = live_count.fetchSub(1, .seq_cst);
@@ -1403,11 +1476,13 @@ fn runGoroutine(c: *Carrier, g: *Goroutine) void {
     if (requeue) enqueueRunnable(g);
     if (c.exit_region) |region| {
         c.exit_region = null;
+        const exit_guard_idx = c.exit_guard_idx;
+        c.exit_guard_idx = null;
         // The stack (the expensive part) is freed at exit; the
         // completion record stays in the registry until a join
         // consumes it. Marking the handoff complete may release
         // a reap that a join already requested.
-        freeStack(region);
+        freeStack(region, exit_guard_idx);
         registry_mu.lock();
         g.exit_handed_off = true;
         // A reap a join already requested completes here; a
@@ -1727,12 +1802,13 @@ pub export fn sa_task_spawn(entry: ?*const anyopaque, arg: ?*anyopaque, out_hand
     if (!entryIsExecutable(e)) return ERR_INVALID;
     if (!ensureInit()) return ERR_UNSUPPORTED;
     const g = registryAlloc(e, arg) orelse return ERR_NOMEM;
-    const region = allocStack(g.handle()) orelse {
+    const sa = allocStack(g.handle()) orelse {
         g.state.store(.done, .release);
         registryRecycle(g, g.gen);
         return ERR_NOMEM;
     };
-    g.region = region;
+    g.region = sa.region;
+    g.guard_idx = sa.guard_idx;
     initStackFrame(g);
     _ = live_count.fetchAdd(1, .seq_cst);
     noteProgress();
@@ -1767,12 +1843,13 @@ pub export fn sa_task_spawn_supervised(entry: ?*const anyopaque, arg: ?*anyopaqu
         g.trap_sink = &recordOnlySink;
     }
     g.trap_ctx = sink_ctx;
-    const region = allocStack(g.handle()) orelse {
+    const sa = allocStack(g.handle()) orelse {
         g.state.store(.done, .release);
         registryRecycle(g, g.gen);
         return ERR_NOMEM;
     };
-    g.region = region;
+    g.region = sa.region;
+    g.guard_idx = sa.guard_idx;
     initStackFrame(g);
     _ = live_count.fetchAdd(1, .seq_cst);
     noteProgress();
