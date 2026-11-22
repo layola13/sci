@@ -10,18 +10,17 @@ const SA_STD_ERR_NO_MEMORY = @import("sa_http2.zig").SA_STD_ERR_NO_MEMORY;
 const SA_STD_OK = @import("sa_http2.zig").SA_STD_OK;
 const UnsupportedStatus = @import("sa_http2.zig").UnsupportedStatus;
 const fail = @import("sa_http2.zig").fail;
-const h2SettingsClientThread = @import("sa_http2.zig").h2SettingsClientThread;
 const http2ParseUrl = @import("sa_http2.zig").http2ParseUrl;
 const http2ReadFrameHeader = @import("sa_http2.zig").http2ReadFrameHeader;
 const http2ReadSetting = @import("sa_http2.zig").http2ReadSetting;
 const loadNghttp2Api = @import("sa_http2.zig").loadNghttp2Api;
 const posixRead = @import("sa_http2.zig").posixRead;
-const readHandle = @import("sa_http2.zig").readHandle;
 const registerBuffer = @import("sa_http2.zig").registerBuffer;
 const registerOwnedString = @import("sa_http2.zig").registerOwnedString;
 const sa_std_http2_buffer_data = @import("sa_http2.zig").sa_std_http2_buffer_data;
 const sa_std_http2_buffer_free = @import("sa_http2.zig").sa_std_http2_buffer_free;
 const sa_std_http2_buffer_len = @import("sa_http2.zig").sa_std_http2_buffer_len;
+const sa_std_http2_client_request_with_settings = @import("sa_http2.zig").sa_std_http2_client_request_with_settings;
 const sa_std_http2_get_default_settings_json = @import("sa_http2.zig").sa_std_http2_get_default_settings_json;
 const sa_std_http2_get_packed_settings = @import("sa_http2.zig").sa_std_http2_get_packed_settings;
 const sa_std_http2_get_unpacked_settings_json = @import("sa_http2.zig").sa_std_http2_get_unpacked_settings_json;
@@ -32,6 +31,12 @@ const sa_std_http2_status_json = @import("sa_http2.zig").sa_std_http2_status_jso
 const sa_std_http2_supported = @import("sa_http2.zig").sa_std_http2_supported;
 const sio = @import("sa_http2.zig").sio;
 const testing = @import("sa_http2.zig").testing;
+
+fn readHandle(handle: u64) []const u8 {
+    const len = sa_std_http2_buffer_len(handle);
+    const ptr = sa_std_http2_buffer_data(handle) orelse return "";
+    return ptr[0..@intCast(len)];
+}
 
 test "buffer handle register/data/len/free roundtrip" {
     const bytes = try std.heap.page_allocator.dupe(u8, "hello-h2");
@@ -370,6 +375,15 @@ test "export fn return-status domain never overlaps SA_STD_OK" {
     try testing.expect(SA_STD_ERR_NO_MEMORY < 0);
     try testing.expect(SA_STD_ERR_INVALID_ARGUMENT < 0);
     try testing.expect(@as(u32, 0x8000_0000) != 0); // UnsupportedStatus sentinel for flush
+}
+
+fn h2SettingsClientThread(port: u16) void {
+    var url_buf: [128]u8 = undefined;
+    const url = std.fmt.bufPrint(&url_buf, "http://127.0.0.1:{d}/", .{port}) catch return;
+    const settings = "{\"headerTableSize\":8192,\"initialWindowSize\":1000000,\"maxFrameSize\":32768}";
+    var out: u64 = 0;
+    _ = sa_std_http2_client_request_with_settings(url.ptr, url.len, "GET".ptr, 3, null, 0, settings.ptr, settings.len, &out);
+    if (out != 0) _ = sa_std_http2_buffer_free(out);
 }
 
 test "client_request_with_settings puts custom SETTINGS in the client preface" {

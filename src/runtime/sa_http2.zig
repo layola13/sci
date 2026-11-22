@@ -675,10 +675,6 @@ pub const sa_std_http2_buffer_free = @import("sa_http2_buffer.zig").sa_std_http2
 
 pub const testing = std.testing;
 
-pub const readHandle = @import("sa_http2_test.zig").readHandle;
-
 // ============================================================================
 // Stricter boundary / contract tests (added to defend the sinking invariants).
 // ============================================================================
-
-pub const h2SettingsClientThread = @import("sa_http2_test.zig").h2SettingsClientThread;
