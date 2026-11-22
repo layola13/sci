@@ -1326,13 +1326,33 @@ fn lowerInstruction(allocator: std.mem.Allocator, state: *BuildState, body_item:
         .try_, .early_return => .{ .op = .try_, .dst = try state.regSlot(base.operands[0].reg), .operand0 = try state.operand(base.operands[1]), .operand1 = none, .operand2 = none, .ty = try cType(returnTypeForSig(state.fsig.return_cap, state.fsig.return_ty)), .binary_op = .add, .label = null, .false_label = null, .callee = null, .args = &.{}, .arg_count = 0, .indirect_param_tys = &.{}, .indirect_param_count = 0, .has_dst = true, .atomic_ordering = default_ordering, .atomic_second_ordering = default_ordering, .atomic_rmw_op = default_rmw, .return_fallible = false, .indirect_sig_index = std.math.maxInt(u32) },
         .assign, .borrow, .raw_cast, .assume_safe, .assume_borrow => blk: {
             const value = try assignOperand(state, base);
-            const assign_ty = assignTy(base, value);
-            const is_ptr = (assign_ty == .ptr);
             var is_malloc_val = false;
-            const dst_global_id = try state.regGlobalId(base.operands[0].reg);
-            if (is_ptr) {
+            // DEF-RUST-LETBOUND-OPTION-LEAK (task 68, part 2): the delta's
+            // change.reg is the raw operand id (the Referee indexes its
+            // state by item.operands[0].reg). regGlobalId() maps a slot to
+            // a function-global id, which never matches when
+            // reg_operands_are_global_ids is false -- the `.call` arm
+            // avoids this by comparing against findId(), i.e. the raw id.
+            const dst_id = base.operands[0].reg;
+            // DEF-RUST-LETBOUND-OPTION-LEAK (task 68): the old `is_ptr`
+            // gate (assignTy == .ptr) could never be true for a plain
+            // register copy -- register operands always carry .ty = .i64
+            // and `o = tmp` carries no ` as ptr` suffix -- so the
+            // Referee delta was never consulted and malloc provenance was
+            // silently dropped on every let-binding move of a heap
+            // pointer (`!o` then emitted no free). The `.call` arm above
+            // consults the delta unconditionally; do the same here when
+            // the source is a register. Safety rests on the two guards
+            // that remain: the delta's disqualifying bits (BorrowView /
+            // FfiBorrow / Untracked / InteriorPtr) keep borrows and views
+            // non-malloc, and the shim's SA_OP_ASSIGN only propagates the
+            // source register's flag when the value type is SA_T_PTR, so
+            // a scalar source can never seed a false free. Immediates
+            // have no source register to propagate from, so they stay
+            // non-malloc.
+            if (base.operands[1] == .reg) {
                 for (body_item.delta.changes) |change| {
-                    if (change.reg == dst_global_id) {
+                    if (change.reg == dst_id) {
                         if ((change.after & (0x10 | 0x20 | 0x40 | 0x0200)) == 0) {
                             is_malloc_val = true;
                         }
