@@ -109,6 +109,7 @@ pub fn setSocketOptLinger(fd: std.posix.fd_t, enabled: bool, timeout_ns: u64) !v
 }
 
 pub fn getSocketOptLinger(fd: std.posix.fd_t) !LingerOption {
+    if (comptime sa_std.is_wasm) return error.Unsupported;
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var value = LingerOption{ .onoff = 0, .linger = 0 };
     var len: SockLenT = @sizeOf(LingerOption);
@@ -126,6 +127,7 @@ pub fn getSocketOptLinger(fd: std.posix.fd_t) !LingerOption {
 /// (SOL_SOCKET / SCM_CREDENTIALS), same walk as udp_recv_msg.
 
 pub fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
+    if (comptime sa_std.is_wasm) return error.Unsupported;
     if (comptime builtin.cpu.arch.isWasm()) return error.Unsupported;
     var value: i32 = 0;
     var len: SockLenT = @sizeOf(i32);
@@ -140,6 +142,7 @@ pub fn getSocketOptInt(fd: std.posix.fd_t, level: i32, optname: u32) !i32 {
 }
 
 pub fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
+    if (comptime sa_std.is_wasm) return error.Unsupported;
     var value: u8 = 0;
     var len: SockLenT = @sizeOf(u8);
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
@@ -153,6 +156,7 @@ pub fn getSocketOptByte(fd: std.posix.fd_t, level: i32, optname: u32) !u8 {
 }
 
 pub fn getSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32) !u32 {
+    if (comptime sa_std.is_wasm) return error.Unsupported;
     var value: u32 = 0;
     var len: SockLenT = @sizeOf(u32);
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&value)), &len);
@@ -166,6 +170,7 @@ pub fn getSocketOptU32(fd: std.posix.fd_t, level: i32, optname: u32) !u32 {
 }
 
 pub fn getSocketOptBytes(fd: std.posix.fd_t, level: i32, optname: u32, out: []u8) !void {
+    if (comptime sa_std.is_wasm) return error.Unsupported;
     var len: SockLenT = @intCast(out.len);
     const rc = std.os.linux.getsockopt(fd, level, optname, out.ptr, &len);
     switch (std.os.linux.errno(rc)) {

@@ -206,6 +206,7 @@ pub fn lxSetSocketOptBool(fd: std.posix.fd_t, level: i32, optname: u32, enabled:
 }
 
 pub fn rebuildTcpListenerV6Only(listener: u64, enabled: bool) !void {
+    if (comptime is_wasm) return error.Unsupported;
     while (!sa_std.registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -252,6 +253,7 @@ pub fn rebuildTcpListenerV6Only(listener: u64, enabled: bool) !void {
 }
 
 pub fn rebuildUdpSocketV6Only(socket: u64, enabled: bool) !void {
+    if (comptime is_wasm) return error.Unsupported;
     while (!sa_std.registry_mutex.tryLock()) {
         std.Thread.yield() catch {};
     }
@@ -303,6 +305,7 @@ pub fn rebuildUdpSocketV6Only(socket: u64, enabled: bool) !void {
 }
 
 pub fn getUnixPeerCred(fd: std.posix.fd_t) !LinuxUCred {
+    if (comptime is_wasm) return error.Unsupported;
     var value: LinuxUCred = .{ .pid = 0, .uid = 0, .gid = 0 };
     var len: SockLenT = @sizeOf(LinuxUCred);
     const rc = std.os.linux.getsockopt(fd, SOLT.SOCKET, std.os.linux.SO.PEERCRED, @as([*]u8, @ptrCast(&value)), &len);
@@ -376,6 +379,7 @@ fn scmCredentials(ctrl: []const u8) ?LinuxUCred {
 }
 
 pub fn getSocketOptTimeval(fd: std.posix.fd_t, level: i32, optname: u32) !u64 {
+    if (comptime is_wasm) return error.Unsupported;
     var tv: Timeval = .{ .sec = 0, .usec = 0 };
     var len: SockLenT = @sizeOf(Timeval);
     const rc = std.os.linux.getsockopt(fd, level, optname, @as([*]u8, @ptrCast(&tv)), &len);

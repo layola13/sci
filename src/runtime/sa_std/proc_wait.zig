@@ -76,6 +76,7 @@ pub const ProcessHandle = struct {
 };
 
 pub fn capture_fd_to_owned(allocator: std.mem.Allocator, fd: std.posix.fd_t) ![]u8 {
+    if (comptime is_wasm) return error.Unsupported;
     var list = std.array_list.Managed(u8).init(allocator);
     defer list.deinit();
     var buf: [4096]u8 = undefined;
@@ -91,6 +92,7 @@ pub fn capture_fd_to_owned(allocator: std.mem.Allocator, fd: std.posix.fd_t) ![]
 }
 
 pub fn statusFromWaitStatus(status: u32) u32 {
+    if (comptime is_wasm) return 127;
     if (WT.IFEXITED(status)) return @as(u32, @intCast(WT.EXITSTATUS(status)));
     if (WT.IFSIGNALED(status)) return 128 + @as(u32, @backingInt(WT.TERMSIG(status)));
     if (WT.IFSTOPPED(status)) return 130;
@@ -106,6 +108,7 @@ pub fn waitStatusCode(raw: i32) u32 {
 }
 
 pub fn waitStatusSignal(raw: i32) i32 {
+    if (comptime is_wasm) return -1;
     const status = rawWaitStatus(raw);
     if (!WT.IFSIGNALED(status)) return -1;
     return @as(i32, @bitCast(@backingInt(WT.TERMSIG(status))));
@@ -118,6 +121,7 @@ pub fn waitStatusCoreDumped(raw: i32) u8 {
 }
 
 pub fn waitStatusStoppedSignal(raw: i32) i32 {
+    if (comptime is_wasm) return -1;
     const status = rawWaitStatus(raw);
     if (!WT.IFSTOPPED(status)) return -1;
     return @as(i32, @bitCast(@backingInt(WT.STOPSIG(status))));

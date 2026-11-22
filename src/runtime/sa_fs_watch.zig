@@ -9,7 +9,7 @@
 //! event-loop integration. Watching a path is a read-side acquisition,
 //! so add goes through the 16_policy fs gate (read).
 //! Status codes mirror sa_std.zig (0 ok, 1 invalid argument, 2 invalid
-//! handle, 5 no memory, 6 io, 9 truncated, 10 permission denied).
+//! handle, 5 no memory, 6 io, 8 unsupported, 9 truncated, 10 permission denied).
 
 const std = @import("std");
 const sio = @import("sio");
@@ -20,6 +20,7 @@ const ERR_INVALID: i32 = 1;
 const ERR_HANDLE: i32 = 2;
 const ERR_NOMEM: i32 = 5;
 const ERR_IO: i32 = 6;
+const ERR_UNSUPPORTED: i32 = 8;
 const ERR_TRUNCATED: i32 = 9;
 const ERR_PERMISSION: i32 = 10;
 
@@ -60,6 +61,7 @@ fn removeWatcher(handle: u64) ?*Watcher {
 }
 
 pub export fn sa_fs_watch_create(out_handle: ?*u64) i32 {
+    if (comptime sa_std_root.is_wasm) return ERR_UNSUPPORTED;
     const out = out_handle orelse return ERR_INVALID;
     out.* = 0;
     const rc = std.os.linux.inotify_init1(std.os.linux.IN.CLOEXEC | std.os.linux.IN.NONBLOCK);
@@ -77,6 +79,7 @@ pub export fn sa_fs_watch_create(out_handle: ?*u64) i32 {
 }
 
 pub export fn sa_fs_watch_add(handle: u64, path_ptr: ?[*]const u8, path_len: u64, mask: u32, out_wd: ?*i32) i32 {
+    if (comptime sa_std_root.is_wasm) return ERR_UNSUPPORTED;
     const out = out_wd orelse return ERR_INVALID;
     out.* = -1;
     const pp = path_ptr orelse return ERR_INVALID;
@@ -95,6 +98,7 @@ pub export fn sa_fs_watch_add(handle: u64, path_ptr: ?[*]const u8, path_len: u64
 }
 
 pub export fn sa_fs_watch_remove(handle: u64, wd: i32) i32 {
+    if (comptime sa_std_root.is_wasm) return ERR_UNSUPPORTED;
     const w = getWatcher(handle) orelse return ERR_HANDLE;
     const rc = std.os.linux.inotify_rm_watch(w.fd, wd);
     if (std.os.linux.errno(rc) != .SUCCESS) return ERR_IO;
@@ -102,6 +106,7 @@ pub export fn sa_fs_watch_remove(handle: u64, wd: i32) i32 {
 }
 
 pub export fn sa_fs_watch_poll(handle: u64, timeout_ms: i32, out_pending: ?*u32) i32 {
+    if (comptime sa_std_root.is_wasm) return ERR_UNSUPPORTED;
     const out = out_pending orelse return ERR_INVALID;
     out.* = 0;
     const w = getWatcher(handle) orelse return ERR_HANDLE;
@@ -123,6 +128,7 @@ pub export fn sa_fs_watch_poll(handle: u64, timeout_ms: i32, out_pending: ?*u32)
 /// Compacts and refills the event buffer. Returns the number of new
 /// bytes read (0 = would block, nothing available right now).
 fn fill(w: *Watcher) !usize {
+    if (comptime sa_std_root.is_wasm) return error.IoError;
     if (w.start > 0) {
         const remaining = w.end - w.start;
         if (remaining > 0) std.mem.copyForwards(u8, w.buf[0..remaining], w.buf[w.start..w.end]);
@@ -142,6 +148,7 @@ fn fill(w: *Watcher) !usize {
 }
 
 pub export fn sa_fs_watch_next(handle: u64, out_ready: ?*u32, out_wd: ?*i32, out_mask: ?*u32, out_cookie: ?*u32, name_ptr: ?[*]u8, name_cap: u64, out_name_len: ?*u64) i32 {
+    if (comptime sa_std_root.is_wasm) return ERR_UNSUPPORTED;
     const ready_out = out_ready orelse return ERR_INVALID;
     const wd_out = out_wd orelse return ERR_INVALID;
     const mask_out = out_mask orelse return ERR_INVALID;
@@ -193,6 +200,7 @@ pub export fn sa_fs_watch_next(handle: u64, out_ready: ?*u32, out_wd: ?*i32, out
 }
 
 pub export fn sa_fs_watch_close(handle: u64) i32 {
+    if (comptime sa_std_root.is_wasm) return ERR_UNSUPPORTED;
     const w = removeWatcher(handle) orelse return ERR_HANDLE;
     _ = std.os.linux.close(w.fd);
     std.heap.page_allocator.destroy(w);

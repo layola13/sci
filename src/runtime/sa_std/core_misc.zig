@@ -301,6 +301,7 @@ pub fn argvFromEntries(allocator: std.mem.Allocator, argv_ptr: ?[*]const SaProce
 }
 
 pub fn waitStatusFromSiginfo(siginfo: std.posix.siginfo_t) u32 {
+    if (comptime sa_std.is_wasm) return 0;
     const status = @as(u32, @intCast(siginfo.fields.common.second.sigchld.status));
     return switch (siginfo.code) {
         1 => (status & 0xff) << 8, // CLD_EXITED
@@ -313,6 +314,7 @@ pub fn waitStatusFromSiginfo(siginfo: std.posix.siginfo_t) u32 {
 }
 
 pub fn sendSignalToProcessGroup(pgid: std.posix.pid_t, signum: u8) !void {
+    if (comptime sa_std.is_wasm) return error.Unsupported;
     const target: std.posix.pid_t = -pgid;
     var attempts: u8 = 0;
     while (true) : (attempts += 1) {

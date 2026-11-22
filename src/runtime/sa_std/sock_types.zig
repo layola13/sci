@@ -84,11 +84,11 @@ pub const TCP_QUICKACK: u32 = if (is_linux) std.os.linux.TCP.QUICKACK else 0;
 
 pub const TCP_DEFER_ACCEPT: u32 = if (is_linux) std.os.linux.TCP.DEFER_ACCEPT else 0;
 
-pub const TCP_KEEPIDLE: u32 = if (is_linux) std.os.linux.TCP.KEEPIDLE else if (builtin.os.tag == .freebsd) 256 else std.posix.TCP.KEEPALIVE;
+pub const TCP_KEEPIDLE: u32 = if (is_linux) std.os.linux.TCP.KEEPIDLE else if (is_wasm) 4 else if (builtin.os.tag == .freebsd) 256 else std.posix.TCP.KEEPALIVE;
 
-pub const TCP_KEEPINTVL: u32 = if (is_linux) std.os.linux.TCP.KEEPINTVL else std.posix.TCP.KEEPINTVL;
+pub const TCP_KEEPINTVL: u32 = if (is_linux) std.os.linux.TCP.KEEPINTVL else if (is_wasm) 5 else std.posix.TCP.KEEPINTVL;
 
-pub const TCP_KEEPCNT: u32 = if (is_linux) std.os.linux.TCP.KEEPCNT else std.posix.TCP.KEEPCNT;
+pub const TCP_KEEPCNT: u32 = if (is_linux) std.os.linux.TCP.KEEPCNT else if (is_wasm) 6 else std.posix.TCP.KEEPCNT;
 
 pub const SO_PASSCRED: u32 = if (is_linux) std.os.linux.SO.PASSCRED else 0;
 

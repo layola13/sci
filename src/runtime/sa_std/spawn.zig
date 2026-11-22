@@ -116,6 +116,7 @@ fn openPidfd(pid: std.posix.pid_t) ?std.posix.fd_t {
 }
 
 pub fn sendSignalToPidfd(fd: std.posix.fd_t, signum: u8, flags: u32) !void {
+    if (comptime is_wasm) return error.Unsupported;
     const result = std.os.linux.pidfd_send_signal(fd, @fromBackingInt(@intCast(signum)), null, flags);
     switch (std.os.linux.errno(result)) {
         .SUCCESS => return,

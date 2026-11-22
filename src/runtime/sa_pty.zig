@@ -24,6 +24,7 @@ const ERR_INVALID: i32 = 1;
 const ERR_HANDLE: i32 = 2;
 const ERR_NOMEM: i32 = 5;
 const ERR_IO: i32 = 6;
+const ERR_UNSUPPORTED: i32 = 8;
 const ERR_PERMISSION: i32 = 10;
 
 const Winsize = extern struct {
@@ -162,6 +163,7 @@ pub export fn sa_pty_spawn(file_ptr: ?[*]const u8, file_len: u64, argv_ptr: ?[*]
 }
 
 pub export fn sa_pty_read(handle: u64, buf_ptr: ?[*]u8, cap: u64, out_read: ?*u64) i32 {
+    if (comptime sa_std_root.is_wasm) return ERR_UNSUPPORTED;
     const out = out_read orelse return ERR_INVALID;
     out.* = 0;
     const buf = buf_ptr orelse return ERR_INVALID;
@@ -182,6 +184,7 @@ pub export fn sa_pty_read(handle: u64, buf_ptr: ?[*]u8, cap: u64, out_read: ?*u6
 }
 
 pub export fn sa_pty_write(handle: u64, buf_ptr: ?[*]const u8, len: u64, out_written: ?*u64) i32 {
+    if (comptime sa_std_root.is_wasm) return ERR_UNSUPPORTED;
     const out = out_written orelse return ERR_INVALID;
     out.* = 0;
     const buf = buf_ptr orelse return ERR_INVALID;
@@ -204,6 +207,7 @@ pub export fn sa_pty_write(handle: u64, buf_ptr: ?[*]const u8, len: u64, out_wri
 }
 
 pub export fn sa_pty_poll(handle: u64, timeout_ms: i32, out_events: ?*u32) i32 {
+    if (comptime sa_std_root.is_wasm) return ERR_UNSUPPORTED;
     const out = out_events orelse return ERR_INVALID;
     out.* = 0;
     const pty = getPty(handle) orelse return ERR_HANDLE;
@@ -255,6 +259,7 @@ pub export fn sa_pty_kill(handle: u64, sig: u32) i32 {
 }
 
 pub export fn sa_pty_try_wait(handle: u64, out_done: ?*u32, out_status: ?*i32) i32 {
+    if (comptime sa_std_root.is_wasm) return ERR_UNSUPPORTED;
     const done_out = out_done orelse return ERR_INVALID;
     const status_out = out_status orelse return ERR_INVALID;
     done_out.* = 0;
