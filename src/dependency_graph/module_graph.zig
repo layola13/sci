@@ -296,24 +296,27 @@ pub const ModuleGraph = struct {
     /// 拓扑排序（Kahn 算法，显式队列）：依赖先于使用方。
     /// 成功返回调用方拥有的顺序切片（用完调 allocator.free 释放）；
     /// 有环返回 error.CycleDetected，环记录见 lastCycles()。
-    /// 输出顺序是确定的：零入度节点按节点加入顺序出队，后继按边的
-    /// 加入顺序入队。
+    /// 输出顺序是确定的：零依赖节点（出度 0）按节点加入顺序出队，
+    /// 使用方按边的加入顺序入队。
     pub fn topoSort(self: *ModuleGraph) GraphError![]ModuleId {
         self.clearCycles();
-        var in_degree = std.HashMap(ModuleId, usize, ModuleId.Context, 80).init(self.allocator);
-        defer in_degree.deinit();
+        // 剩余依赖数：边 from -> to 表示 from 依赖 to，故每条边使 from
+        // 的剩余依赖数 +1。零依赖节点（出度 0）先出队，出队后沿反向边
+        // 递减其使用方的剩余依赖数，归零即入队；输出为依赖先于使用方。
+        var remaining = std.HashMap(ModuleId, usize, ModuleId.Context, 80).init(self.allocator);
+        defer remaining.deinit();
         for (self.insertion_order.items) |id| {
-            try in_degree.put(id, 0);
+            try remaining.put(id, 0);
         }
         for (self.edges.items) |edge| {
-            const cur = in_degree.get(edge.to) orelse 0;
-            try in_degree.put(edge.to, cur + 1);
+            const cur = remaining.get(edge.from) orelse 0;
+            try remaining.put(edge.from, cur + 1);
         }
         var queue = std.array_list.Managed(ModuleId).init(self.allocator);
         defer queue.deinit();
         var head: usize = 0;
         for (self.insertion_order.items) |id| {
-            if (in_degree.get(id) orelse 0 == 0) try queue.append(id);
+            if (remaining.get(id) orelse 0 == 0) try queue.append(id);
         }
         var order = std.array_list.Managed(ModuleId).init(self.allocator);
         errdefer order.deinit();
@@ -322,18 +325,18 @@ pub const ModuleGraph = struct {
             head += 1;
             try order.append(id);
             for (self.edges.items) |edge| {
-                if (!edge.from.eql(id)) continue;
-                const d = in_degree.get(edge.to) orelse 0;
-                if (d == 0) continue; // 防御：入度不可能在处理中先归零
+                if (!edge.to.eql(id)) continue;
+                const d = remaining.get(edge.from) orelse 0;
+                if (d == 0) continue; // 防御：剩余依赖数不可能在处理中先归零
                 const next = d - 1;
-                try in_degree.put(edge.to, next);
-                if (next == 0) try queue.append(edge.to);
+                try remaining.put(edge.from, next);
+                if (next == 0) try queue.append(edge.from);
             }
         }
         if (order.items.len == self.insertion_order.items.len) {
             return try order.toOwnedSlice();
         }
-        // 有环：剩余节点（未出队者）为环成员及其下游；提取简单环。
+        // 有环：剩余节点（未出队者）为环成员及其使用方；提取简单环。
         var seen = std.HashMap(ModuleId, void, ModuleId.Context, 80).init(self.allocator);
         defer seen.deinit();
         for (order.items) |id| {

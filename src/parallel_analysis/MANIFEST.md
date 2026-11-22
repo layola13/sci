@@ -92,7 +92,7 @@
 | # | 出入 | 裁决（合并时填） |
 |---|---|---|
 | A1 | `types.zig` 正本形状：`AnalysisOutcome` 四变体、`ParallelError`、`Schedule`（`layers` / `total_modules` / `max_width` / `deinit`）、`Layer`（`depth` / `modules`）、`ParallelConfig` | 以 P8A 落盘为准，无出入：四变体 / `ParallelError` / `Schedule` / `Layer` / `ParallelConfig` 均与任务书约定一致；facade 转发其中 8 个名。 |
-| A2 | `computeLayers(graph, allocator)` 的 `graph` 是否可写（`*ModuleGraph` 还是 `*const ModuleGraph`）、`layers` 是否按 `depth` 升序 | 以 P8A 落盘为准：`graph` 为 `*ModuleGraph`（可写，内调 `topoSort()` 写 `lastCycles`）；`layers` 按 `depth` 升序，`runSchedule` 不重排。另：`topoSort()` 实际输出使用方在前（见 §7.2 第 7 项），`computeLayers` 倒序遍历算层——合并时未改方向。 |
+| A2 | `computeLayers(graph, allocator)` 的 `graph` 是否可写（`*ModuleGraph` 还是 `*const ModuleGraph`）、`layers` 是否按 `depth` 升序 | 以 P8A 落盘为准：`graph` 为 `*ModuleGraph`（可写，内调 `topoSort()` 写 `lastCycles`）；`layers` 按 `depth` 升序，`runSchedule` 不重排。另：任务 105 已决（Jev 裁决 fix_impl_deps_first，jev-1.14.0，置信度 1.0）：`topoSort()` 已改成依赖在前，`computeLayers` 正序遍历算层（见 §7.2 第 7 项）。 |
 | A3 | `analyzeOne(loader, id)` 的 `loader` 是否为 `*LazyLoader`、`WorkResult` 的字段（`id` / `outcome` / `detail` 是否存在、类型） | 以 P8B 落盘为准：`loader` 为 `*LazyLoader`；`WorkResult` 字段为 `module`（非 `id`）/ `outcome` / `detail: []const u8`；`driver.zig` 的 A3 文档已按落盘改回（M2）。 |
 | A4 | `splitLayer(modules, plan, allocator)` 的参数顺序与返回值、`LayerSplit` 的字段名（`reuse` / `to_analyze`）、`isReuse` / `isRebuild` 的参数顺序 | 以 P8B 落盘为准：`splitLayer(modules, plan, allocator) std.mem.Allocator.Error!LayerSplit`；`LayerSplit` 字段为 `skipped` / `to_analyze`（非 `reuse`）；`isReuse` / `isRebuild` 参数顺序为 `(plan, id)`；`driver.zig` 的 A4 文档与 `split.reuse.len` 代码行已按落盘改回（M2）。 |
 | A5 | `ReusePlan` 的形状（Phase 7 已落盘：`reuse` / `rebuild` / `invalidated` + `stats`） | Phase 7 落盘为准，无改动：`reuse` / `rebuild` / `invalidated` + `stats`；`splitLayer` 的切分规则（rebuild 优先、未进计划保守进 `to_analyze`）与之一致。 |
@@ -130,7 +130,7 @@
 4. `RunReport` 是否携带逐模块明细（目前只记数）：调用方要明细须读 `schedule` 各层与 `plan` 的三个切片再结合 loader 状态；是否补逐模块 outcome 表，待接线 Phase 定。
 5. 线程池执行器的归属：是 Phase 8 内的后续文件，还是独立的接线 Phase；执行器是否复用 `ParallelConfig` 的字段，待定。
 6. 有环图的失败口径：`computeLayers` 报 `CycleDetected` 时整轮返回错误；是否应先产出一份“截至环前已完成层”的部分报告，待定（目前不产出半成品报告）。
-7. **`topoSort()` 文档与实现相反（P8A 发现、协调 agent 亲读落盘证实，Phase 4 缺陷，修复阶段裁决）**：文档两处（`module_graph.zig:40`、`:296`）称“依赖先于使用方”，实现按 `edge.to` 计入度、零入度种子是无人依赖的根模块，实际输出使用方在前、依赖在后（A→B→C 链输出 A、B、C）。全仓无任何 `topoSort` 代码消费者（只有文档引用），今天无既有行为受影响；`computeLayers` 倒序遍历算层，合并时未改方向。裁决二选一：(a) 上游把 `topoSort()` 改成与文档一致的“依赖在前”，`computeLayers` 的倒序同步改回正序；(b) 改文档认领现状，倒序保留。**在裁决前不要动 `topoSort()` 或 `scheduler.zig` 的遍历方向。**
+7. **`topoSort()` 文档与实现相反（P8A 发现、协调 agent 亲读落盘证实，Phase 4 缺陷）——已由任务 105 关闭**：原状为文档两处（`module_graph.zig:40`、`:296`）称“依赖先于使用方”，实现按 `edge.to` 计入度、零入度种子是无人依赖的根模块，实际输出使用方在前、依赖在后（A→B→C 链输出 A、B、C）。裁决：Jev 评估（jev-1.14.0，置信度 1.0）选 (a) 改实现就文档——`topoSort()` 已改成剩余依赖数 Kahn（零依赖节点先出队，输出 C、B、A），`computeLayers` 倒序同步改回正序；唯一代码消费者即 `computeLayers`，已同步改完。`lastCycles()` 提取的环记录不变（剩余集由“环成员及其依赖”变为“环成员及其使用方”，提取出的简单环集合相同）。
 8. `stateOf` 返回 null（未登记模块）的 detail 文案（P8B N2）：目前按 `.unloaded` 同款处理，detail 为 `"module not loaded"`；是否改为独立 detail（如 `"module not registered"`），待定。
 9. `splitLayer` 只信计划、不查 loader 状态（P8B N1）：计划算出后、切分前 loader 状态若变了，仍按旧计划划进 `skipped`；计划与切分应在同一轮内先后完成（P8C 驱动的责任）；是否切分时二次核对 loader 状态，待定。
 

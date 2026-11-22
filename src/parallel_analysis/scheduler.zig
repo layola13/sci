@@ -12,13 +12,11 @@
 //!   2. 按拓扑序逐个节点算层：`layer(m) = 0`（`dependsOn(m)` 为空），否则
 //!      `1 + max(layer(d))`（`d` 取遍 `dependsOn(m)`，即 m 直接依赖的模块）。
 //!
-//! 拓扑序方向（重要）：`ModuleGraph.topoSort()` 的文档称“依赖先于使用方”，
-//! 但其实现按“入度 = 依赖方个数”做 Kahn——零入度种子是无人依赖的根模块
-//! （入口），出队后沿出边递减依赖的入度，故实际输出是使用方在前、依赖在后
-//! （例：A 依赖 B、B 依赖 C 时输出 A、B、C）。本文件按实际实现倒序遍历拓扑
-//! 序算层，算 `layer(m)` 时其依赖的层必已算好；若上游把 `topoSort()` 改成
-//! 与文档一致的“依赖在前”，此处倒序必须同步改回正序（见文件尾的注释与
-//! 本次报告的待裁决第 1 项）。依赖深度未算好时本文件用 `unreachable`
+//! 拓扑序方向：`ModuleGraph.topoSort()` 输出依赖先于使用方（Kahn 算法，
+//! 零依赖节点先出队；例：A 依赖 B、B 依赖 C 时输出 C、B、A）。本文件正序
+//! 遍历拓扑序算层，算 `layer(m)` 时其依赖的层必已算好（任务 105 按 Jev
+//! 裁决 fix_impl_deps_first 改实现就文档，倒序同步改回正序）。
+//! 依赖深度未算好时本文件用 `unreachable`
 //! 响亮失败，不静默回退成深度 0（与 Phase 7 M1 的收窄口径一致）。
 //!
 //! 边方向：`ModuleGraph` 里边 `from -> to` 表示 from 依赖 to；
@@ -81,17 +79,14 @@ pub fn computeLayers(graph: *ModuleGraph, allocator: std.mem.Allocator) Parallel
         };
     }
 
-    // 每节点的依赖深度。倒序遍历拓扑序：topoSort() 实际输出使用方在前、
-    // 依赖在后（见文件头），倒序后依赖先于使用方，算 layer(m) 时其依赖的
-    // 层必已在表里；未命中即排序不变式被破坏，响亮失败（不静默当 0 层）。
+    // 每节点的依赖深度。正序遍历拓扑序：topoSort() 输出依赖先于使用方
+    // （见文件头），算 layer(m) 时其依赖的层必已在表里；未命中即排序
+    // 不变式被破坏，响亮失败（不静默当 0 层）。
     var depth_of = std.HashMap(ModuleId, usize, ModuleId.Context, 80).init(allocator);
     defer depth_of.deinit();
 
     var max_depth: usize = 0;
-    var i: usize = order.len;
-    while (i > 0) {
-        i -= 1;
-        const id = order[i];
+    for (order) |id| {
         const deps = try graph.dependsOn(id);
         defer if (deps.len > 0) graph.allocator.free(deps);
         var depth: usize = 0;
