@@ -184,6 +184,23 @@ const OsWaiter = struct {
     fn wait(os: *OsWaiter) void {
         _ = external_blocked.fetchAdd(1, .seq_cst);
         defer _ = external_blocked.fetchSub(1, .seq_cst);
+        // Bounded spin (task 94 v3): a partner delivering within
+        // microseconds is picked up without a futex sleep/wake round
+        // trip. This is what makes the partner fast enough for the
+        // carrier spin to catch: an OS thread's futex wakeup costs
+        // ~5 us, which alone forced the carrier spin bound to
+        // 20 us. The spin polls only this waiter's own word, and
+        // the futexWait below is unchanged, so no wakeup can be
+        // lost; the deadline is checked every 32 iterations.
+        if (cfg_idle_spin_ns > 0) {
+            const deadline = monotonicNs() + @as(i64, @intCast(cfg_idle_spin_ns));
+            var i: usize = 0;
+            while (os.word.load(.acquire) == 0) {
+                i += 1;
+                if (i % 32 == 0 and monotonicNs() >= deadline) break;
+                std.atomic.spinLoopHint();
+            }
+        }
         while (os.word.load(.acquire) == 0) futexWait(&os.word, 0, null);
     }
 
@@ -524,6 +541,11 @@ pub const STACK_GROW_QUANTUM: usize = 256 * 1024;
 var cfg_stack_initial: usize = DEFAULT_STACK_USABLE_KIB * 1024;
 var cfg_stack_cap: usize = DEFAULT_STACK_CAP_KIB * 1024;
 var cfg_carriers: usize = 0;
+/// Default carrier idle-spin bound, nanoseconds (task 94).
+/// The spin budget is 10 us; override with SA_TASK_IDLE_SPIN_NS.
+/// A bound of 0 disables the spin entirely (the v2/v3 A/B spin0 cell).
+pub const DEFAULT_IDLE_SPIN_NS: u64 = 10_000;
+var cfg_idle_spin_ns: usize = DEFAULT_IDLE_SPIN_NS;
 
 /// Reserve-fault growth events so far (telemetry; the unit
 /// tests use it to prove growth happened in place rather than
@@ -843,6 +865,15 @@ const Carrier = struct {
     exit_region: ?[]align(4096) u8 = null,
     /// Guard-table slot for exit_region (task 65 freelist).
     exit_guard_idx: ?usize = null,
+    /// Task 94 (v3): true when this carrier ran a goroutine since
+    /// it last slept. The idle spin is gated on it: only the carrier
+    /// that just ran the goroutine spins for the partner's delivery.
+    /// A carrier woken spuriously (the work it was woken for was
+    /// already taken by the spinning carrier) has nothing recent and
+    /// sleeps immediately instead of burning the full spin bound
+    /// finding nothing — the 10-round confirmation showed the
+    /// ungated spin burning ~8-10 s of user CPU per pingpong run.
+    has_recent_work: bool = false,
 
     fn push(c: *Carrier, g: *Goroutine) bool {
         c.runq_mu.lock();
@@ -1452,6 +1483,7 @@ fn findWork(c: *Carrier) ?*Goroutine {
 
 fn runGoroutine(c: *Carrier, g: *Goroutine) void {
     g.state.store(.running, .release);
+    c.has_recent_work = true;
     c.current = g;
     current_g = g;
     ctxSwitch(&c.sched_sp, g.sp);
@@ -1529,6 +1561,32 @@ fn deadlockCheck() void {
     processTrap(msg);
 }
 
+/// Poll for newly enqueued work until the deadline; returns the goroutine
+/// found, if any. The carrier idle spin (task 94): a carrier that just
+/// ran out of work polls briefly before sleeping in futexWait, so a
+/// partner delivering within microseconds is picked up without a futex
+/// sleep/wake round trip — and the goroutine stays on the carrier it
+/// last ran on (hot cache) instead of migrating to whichever stalest
+/// idle carrier the FIFO futex wake happens to pick.
+/// The poll is deliberately cheap: only this carrier's runnext slot
+/// (carrier-local) and the global wake_word are read. It must NOT call
+/// findWork in a tight loop — findWork takes sched_mu on every pass
+/// (globalPop), and hammering it delays the very enqueue the spin is
+/// waiting for (v1 did this and measured slower than no spin at all).
+/// Correctness: the spin only adds polls; the futexWait wake protocol
+/// below is unchanged — a wake_word bump during the spin makes the
+/// futexWait return immediately, so no wakeup can be lost.
+fn spinForWork(c: *Carrier, wake_snapshot: u32, deadline_ns: i64) ?*Goroutine {
+    var i: usize = 0;
+    while (true) {
+        if (c.popRunnext()) |g| return g;
+        if (wake_word.load(.acquire) != wake_snapshot) return findWork(c);
+        i += 1;
+        if (i % 32 == 0 and monotonicNs() >= deadline_ns) return null;
+        std.atomic.spinLoopHint();
+    }
+}
+
 fn carrierMain(c: *Carrier) void {
     carrier_self = c;
     installAltStack();
@@ -1579,6 +1637,24 @@ fn carrierMain(c: *Carrier) void {
             const cap: u64 = 50 * std.time.ns_per_ms;
             timeout_ns = if (timeout_ns) |t| @min(t, cap) else cap;
         }
+        // Bounded idle spin (task 94): poll for work before sleeping.
+        // The spin only adds findWork polls, so the wake protocol
+        // below is unchanged: a wake_word bump during the spin makes
+        // the futexWait return immediately, and a genuinely idle
+        // carrier still sleeps after at most the spin bound. The
+        // deadlock re-check above already ran; timers are re-checked
+        // on the next loop pass, at most the spin bound late.
+        // v3 gate: only spin when this carrier ran a goroutine since
+        // it last slept — a carrier woken spuriously has nothing
+        // recent and must sleep immediately (see has_recent_work).
+        if (cfg_idle_spin_ns > 0 and c.has_recent_work) {
+            if (spinForWork(c, w, monotonicNs() + @as(i64, @intCast(cfg_idle_spin_ns)))) |g| {
+                _ = idle_carriers.fetchSub(1, .acq_rel);
+                runGoroutine(c, g);
+                continue;
+            }
+        }
+        c.has_recent_work = false;
         futexWait(&wake_word, w, timeout_ns);
         _ = idle_carriers.fetchSub(1, .acq_rel);
     }
@@ -1648,6 +1724,9 @@ fn initScheduler() void {
     var want = envUsize("SA_TASK_CARRIERS") orelse cpu;
     want = std.math.clamp(want, 1, 128);
     cfg_carriers = want;
+    if (envUsize("SA_TASK_IDLE_SPIN_NS")) |ns| {
+        cfg_idle_spin_ns = ns;
+    }
     carriers = alloc.alloc(Carrier, want) catch processTrap("sa_task: out of memory starting scheduler");
     for (carriers) |*c| c.* = .{};
     installSegvHandler();
@@ -3321,6 +3400,73 @@ fn blockedSender(arg: ?*anyopaque) callconv(.c) void {
     var v: Slot = .{ .a = 44, .b = 0 };
     _ = sa_chan_send(ch, &v);
     block_send_done.store(true, .release);
+}
+
+var v3_spin_consumer_sum: std.atomic.Value(u64) = .init(0);
+
+fn v3SpinConsumer(arg: ?*anyopaque) callconv(.c) void {
+    const ch: u64 = @intFromPtr(arg.?);
+    var sum: u64 = 0;
+    while (true) {
+        var out: Slot = undefined;
+        var closed: u32 = 99;
+        const rc = sa_chan_recv(ch, &out, &closed);
+        if (rc != SA_TASK_OK) break;
+        if (closed == 1) break;
+        sum += out.a;
+    }
+    v3_spin_consumer_sum.store(sum, .release);
+}
+
+test "sa_task.test.chan: task94 v3 spin ping-pong completes" {
+    if (!supported) return error.SkipZigTest;
+    // Pin the landing spin budget (10 us) regardless of env, and
+    // restore it afterwards so other tests see the configured value.
+    // A lost wakeup in either spin path would hang this test (the
+    // test runner's timeout fails it); wrong values fail the
+    // expectations below.
+    const prev_spin_ns = cfg_idle_spin_ns;
+    cfg_idle_spin_ns = DEFAULT_IDLE_SPIN_NS;
+    defer cfg_idle_spin_ns = prev_spin_ns;
+    // Phase 1: OS-thread recv (exercises OsWaiter.wait spin, v3 D).
+    {
+        var ch: u64 = 0;
+        try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &ch));
+        var h: u64 = 0;
+        try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&pingPongProducer, @ptrFromInt(@as(usize, @intCast(ch))), &h));
+        var i: u64 = 0;
+        while (i < 100) : (i += 1) {
+            var out: Slot = undefined;
+            var closed: u32 = 99;
+            try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, &closed));
+            try testing.expectEqual(@as(u32, 0), closed);
+            try testing.expectEqual(i, out.a);
+            try testing.expectEqual(i * 7, out.b);
+        }
+        var out: Slot = undefined;
+        var closed: u32 = 0;
+        try testing.expectEqual(SA_TASK_OK, sa_chan_recv(ch, &out, &closed));
+        try testing.expectEqual(@as(u32, 1), closed);
+        try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+        try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+    }
+    // Phase 2: goroutine recv loop (exercises the carrier spin gate, v3 A-C).
+    {
+        var ch: u64 = 0;
+        try testing.expectEqual(SA_TASK_OK, sa_chan_make(0, &ch));
+        v3_spin_consumer_sum.store(0, .release);
+        var h: u64 = 0;
+        try testing.expectEqual(SA_TASK_OK, sa_task_spawn(&v3SpinConsumer, @ptrFromInt(@as(usize, @intCast(ch))), &h));
+        var i: u64 = 0;
+        while (i < 100) : (i += 1) {
+            var v: Slot = .{ .a = i, .b = i * 7 };
+            try testing.expectEqual(SA_TASK_OK, sa_chan_send(ch, &v));
+        }
+        try testing.expectEqual(SA_TASK_OK, sa_chan_close(ch));
+        try testing.expectEqual(SA_TASK_OK, sa_task_join(h));
+        try testing.expectEqual(@as(u64, 4950), v3_spin_consumer_sum.load(.acquire));
+        try testing.expectEqual(SA_TASK_OK, sa_chan_destroy(ch));
+    }
 }
 
 test "sa_task.test.chan: buffered full and empty edges" {
