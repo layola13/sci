@@ -2,45 +2,36 @@ const std = @import("std");
 const sio = @import("sio");
 const pkg_resolver = @import("../pkg/resolver.zig");
 const ResolveContext = @import("importexpansion.zig").ResolveContext;
-const expanded_import_cache = @import("importexpansion.zig").expanded_import_cache;
-const expanded_import_cache_mutex = @import("importexpansion.zig").expanded_import_cache_mutex;
-const expanded_import_cache_tick = @import("importexpansion.zig").expanded_import_cache_tick;
 const flattenFile = @import("expandimportsinto.zig").flattenFile;
 const flattenFileWithPackages = @import("expandimportsinto.zig").flattenFileWithPackages;
 const freeExpandedImportCacheEntry = @import("importexpansion.zig").freeExpandedImportCacheEntry;
 const freeImportSourceCacheEntry = @import("importexpansion.zig").freeImportSourceCacheEntry;
-const import_source_cache = @import("importexpansion.zig").import_source_cache;
-const import_source_cache_mutex = @import("importexpansion.zig").import_source_cache_mutex;
-const import_source_cache_tick = @import("importexpansion.zig").import_source_cache_tick;
+const importexpansion = @import("importexpansion.zig");
 const isFunctionSigDeclared = @import("emitparsedline.zig").isFunctionSigDeclared;
 const packageNamespacePrefix = @import("injectimportedfile.zig").packageNamespacePrefix;
 const readImportFile = @import("injectimportedfile.zig").readImportFile;
-const test_expanded_import_cache_hits = @import("importexpansion.zig").test_expanded_import_cache_hits;
-const test_expanded_import_cache_max_entries = @import("importexpansion.zig").test_expanded_import_cache_max_entries;
-const test_expanded_import_cache_stores = @import("importexpansion.zig").test_expanded_import_cache_stores;
-const test_import_source_cache_max_entries = @import("importexpansion.zig").test_import_source_cache_max_entries;
 
 
 pub fn clearImportSourceCacheForTest() void {
-    while (!import_source_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer import_source_cache_mutex.unlock();
-    if (import_source_cache) |*cache| {
+    while (!importexpansion.import_source_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
+    defer importexpansion.import_source_cache_mutex.unlock();
+    if (importexpansion.import_source_cache) |*cache| {
         var it = cache.iterator();
         while (it.next()) |entry| {
             std.heap.page_allocator.free(entry.key_ptr.*);
             freeImportSourceCacheEntry(entry.value_ptr.*, true);
         }
         cache.deinit();
-        import_source_cache = null;
+        importexpansion.import_source_cache = null;
     }
-    import_source_cache_tick = 0;
-    test_import_source_cache_max_entries = null;
+    importexpansion.import_source_cache_tick = 0;
+    importexpansion.test_import_source_cache_max_entries = null;
 }
 
 fn importSourceCacheHasEntryPathForTest(path: []const u8) bool {
-    while (!import_source_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer import_source_cache_mutex.unlock();
-    const cache = if (import_source_cache) |*cache| cache else return false;
+    while (!importexpansion.import_source_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
+    defer importexpansion.import_source_cache_mutex.unlock();
+    const cache = if (importexpansion.import_source_cache) |*cache| cache else return false;
     var it = cache.iterator();
     while (it.next()) |entry| {
         if (std.mem.eql(u8, entry.value_ptr.entry_path, path)) return true;
@@ -49,21 +40,21 @@ fn importSourceCacheHasEntryPathForTest(path: []const u8) bool {
 }
 
 pub fn clearExpandedImportCacheForTest() void {
-    while (!expanded_import_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
-    defer expanded_import_cache_mutex.unlock();
-    if (expanded_import_cache) |*cache| {
+    while (!importexpansion.expanded_import_cache_mutex.tryLock()) { std.Thread.yield() catch {}; }
+    defer importexpansion.expanded_import_cache_mutex.unlock();
+    if (importexpansion.expanded_import_cache) |*cache| {
         var it = cache.iterator();
         while (it.next()) |entry| {
             std.heap.page_allocator.free(entry.key_ptr.*);
             freeExpandedImportCacheEntry(entry.value_ptr.*);
         }
         cache.deinit();
-        expanded_import_cache = null;
+        importexpansion.expanded_import_cache = null;
     }
-    expanded_import_cache_tick = 0;
-    test_expanded_import_cache_max_entries = null;
-    test_expanded_import_cache_hits = 0;
-    test_expanded_import_cache_stores = 0;
+    importexpansion.expanded_import_cache_tick = 0;
+    importexpansion.test_expanded_import_cache_max_entries = null;
+    importexpansion.test_expanded_import_cache_hits = 0;
+    importexpansion.test_expanded_import_cache_stores = 0;
 }
 
 test "expanded import cache reuses expanded std fragments across flatten calls" {
@@ -115,8 +106,8 @@ test "expanded import cache reuses expanded std fragments across flatten calls" 
     defer std.testing.allocator.free(source_path_a);
     var first = try flattenFileWithPackages(std.testing.allocator, source_path_a, source_a, resolve_ctx);
     defer first.deinit(std.testing.allocator);
-    try std.testing.expect(test_expanded_import_cache_stores > 0);
-    try std.testing.expectEqual(@as(usize, 0), test_expanded_import_cache_hits);
+    try std.testing.expect(importexpansion.test_expanded_import_cache_stores > 0);
+    try std.testing.expectEqual(@as(usize, 0), importexpansion.test_expanded_import_cache_hits);
 
     const source_b = try tdir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
     defer std.testing.allocator.free(source_b);
@@ -124,7 +115,7 @@ test "expanded import cache reuses expanded std fragments across flatten calls" 
     defer std.testing.allocator.free(source_path_b);
     var second = try flattenFileWithPackages(std.testing.allocator, source_path_b, source_b, resolve_ctx);
     defer second.deinit(std.testing.allocator);
-    try std.testing.expect(test_expanded_import_cache_hits > 0);
+    try std.testing.expect(importexpansion.test_expanded_import_cache_hits > 0);
     try std.testing.expectEqual(first.instructions.len, second.instructions.len);
 }
 
@@ -180,14 +171,14 @@ test "expanded import cache invalidates when transitive import changes" {
         defer file.close();
         try file.writeAll("#def EXPANDED_CACHE_VALUE = 777\n");
     }
-    test_expanded_import_cache_hits = 0;
+    importexpansion.test_expanded_import_cache_hits = 0;
     const source_b = try tdir.readFileAlloc(std.testing.allocator, "main_b.sa", 4096);
     defer std.testing.allocator.free(source_b);
     const source_path_b = try tdir.realpathAlloc(std.testing.allocator, "main_b.sa");
     defer std.testing.allocator.free(source_path_b);
     var second = try flattenFileWithPackages(std.testing.allocator, source_path_b, source_b, resolve_ctx);
     defer second.deinit(std.testing.allocator);
-    try std.testing.expectEqual(@as(usize, 0), test_expanded_import_cache_hits);
+    try std.testing.expectEqual(@as(usize, 0), importexpansion.test_expanded_import_cache_hits);
     try std.testing.expectEqualStrings("777", second.def_dict.get("EXPANDED_CACHE_VALUE").?);
 }
 
@@ -284,7 +275,7 @@ test "expanded import cache LRU is opt-in" {
     defer clearImportSourceCacheForTest();
     clearExpandedImportCacheForTest();
     defer clearExpandedImportCacheForTest();
-    test_expanded_import_cache_max_entries = 1;
+    importexpansion.test_expanded_import_cache_max_entries = 1;
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -342,10 +333,10 @@ test "expanded import cache LRU is opt-in" {
     var first_b = try flattenFileWithPackages(std.testing.allocator, source_path_b, source_b, resolve_ctx);
     defer first_b.deinit(std.testing.allocator);
 
-    test_expanded_import_cache_hits = 0;
+    importexpansion.test_expanded_import_cache_hits = 0;
     var second_a = try flattenFileWithPackages(std.testing.allocator, source_path_a, source_a, resolve_ctx);
     defer second_a.deinit(std.testing.allocator);
-    try std.testing.expectEqual(@as(usize, 0), test_expanded_import_cache_hits);
+    try std.testing.expectEqual(@as(usize, 0), importexpansion.test_expanded_import_cache_hits);
     try std.testing.expectEqualStrings("11", second_a.def_dict.get("EXPANDED_CACHE_VALUE").?);
 }
 
@@ -404,7 +395,7 @@ test "layout import exposes sibling extern declarations from sai" {
 test "import source cache LRU is opt-in and avoids borrowed hits" {
     clearImportSourceCacheForTest();
     defer clearImportSourceCacheForTest();
-    test_import_source_cache_max_entries = 2;
+    importexpansion.test_import_source_cache_max_entries = 2;
 
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
