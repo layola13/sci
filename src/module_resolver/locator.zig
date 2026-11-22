@@ -157,23 +157,23 @@ pub fn normalizeSpecifier(allocator: std.mem.Allocator, spec: []const u8) Resolv
         if (c.* == '.') c.* = '/';
     }
 
-    var out = std.ArrayList(u8).init(allocator);
-    errdefer out.deinit();
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
     var it = std.mem.splitScalar(u8, slashy, '/');
     var first = true;
     while (it.next()) |seg| {
         if (seg.len == 0) continue; // 去重斜杠
         if (std.mem.eql(u8, seg, ".")) continue; // 去 `.` 段
-        if (!first) try out.append('/');
-        try out.appendSlice(seg);
+        if (!first) try out.append(allocator, '/');
+        try out.appendSlice(allocator, seg);
         first = false;
     }
     if (out.items.len == 0) {
-        out.deinit();
+        out.deinit(allocator);
         return error.InvalidImportSpec;
     }
-    if (ext) |e| try out.appendSlice(e);
-    return out.toOwnedSlice();
+    if (ext) |e| try out.appendSlice(allocator, e);
+    return out.toOwnedSlice(allocator);
 }
 
 /// `dir` 内 `path` 是否为一个真实文件（非目录、非缺失）。
@@ -221,15 +221,15 @@ fn resolveRelativePath(allocator: std.mem.Allocator, base_dir: []const u8, spec_
         }
         try segments.append(allocator, seg);
     }
-    var out = std.ArrayList(u8).init(allocator);
-    errdefer out.deinit();
-    if (absolute) try out.append('/');
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    if (absolute) try out.append(allocator, '/');
     for (segments.items, 0..) |seg, i| {
-        if (i > 0) try out.append('/');
-        try out.appendSlice(seg);
+        if (i > 0) try out.append(allocator, '/');
+        try out.appendSlice(allocator, seg);
     }
     if (out.items.len == 0) return error.ModuleNotFound;
-    return out.toOwnedSlice();
+    return out.toOwnedSlice(allocator);
 }
 
 /// 域 → 该域 prelude.sa 的相对路径（如 `io/prelude.sa`），调用方所有。
@@ -242,7 +242,8 @@ pub fn findPrelude(allocator: std.mem.Allocator, domain_name: []const u8) Resolv
     const domain = findDomain(domain_name) orelse return null;
     // string/ 走此分支：现状缺口，Phase 2 不新建 prelude 文件。
     if (!domain.has_prelude) return null;
-    return std.fmt.allocPrint(allocator, "{s}/prelude.sa", .{domain.dir});
+    const s = try std.fmt.allocPrint(allocator, "{s}/prelude.sa", .{domain.dir});
+    return s;
 }
 
 /// 模块定位器：std_root 是 sa_std/ 树的路径（相对或绝对均可，由调用方按
