@@ -366,6 +366,21 @@ const WebSocketOpcode = enum(u8) {
 /// Always heap-allocated and never moved while pooled.
 const ConnState = struct {
     stream: std.Io.net.Stream,
+    /// Peer address captured at accept4 time (acceptFresh fills it
+    /// from the accept4 out-param). sa_http_server_req_peer_addr_v2
+    /// reads this instead of a per-request getpeername(2) (task 82,
+    /// fix 5). 0 = not captured (fall back to getpeername).
+    peer_addr: [128]u8 = std.mem.zeroes([128]u8),
+    peer_addr_len: u32 = 0,
+    /// Blocking-mode tracker (task 82, fix 2): accept4 yields a
+    /// blocking socket and the HTTP path never sets it nonblocking
+    /// (setNonBlocking is only reached from setReceiveTimeout(0),
+    /// which no request-path call passes, and from the WebSocket
+    /// upgrade, which consumes the connection), so the per-request
+    /// setBlocking in the claim path was a pure no-op. When true,
+    /// ensureBlocking skips the GETFL+SETFL pair (and the
+    /// RCVTIMEO=0 the following setReceiveTimeout overwrites).
+    is_blocking: bool = true,
     read_buffer: []u8,
     /// Bytes in read_buffer[request_start..read_len] are buffered pipelined data.
     read_len: usize = 0,
@@ -503,6 +518,14 @@ pub const HttpServer = struct {
     /// without this the next request on a reused connection could sleep
     /// until the poll timeout.
     wake_pipe: [2]std.posix.fd_t,
+    /// Wake coalescing (task 82, fix 3): true while a wake byte is
+    /// believed pending in the pipe. pushRecycled skips its write
+    /// when the flag is already set (the accept loop sweeps the
+    /// whole pool on any wake, so one byte covers every recycle
+    /// since the last drain); the drain in pollAcceptEx clears it.
+    /// A stale set only costs a bounded poll-timeout delay, never a
+    /// hang: the byte itself, not the flag, is what wakes poll().
+    wake_pending: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     /// Active plugin-internal thread pool (serve_threaded), if any.
     pool: ?*ThreadPool = null,
     /// Resident instrumentation counters [segment][bucket]
@@ -782,6 +805,9 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
             while (posixRead(self.wake_pipe[0], &tmp)) |n| {
                 if (n == 0) break;
             } else |_| {}
+            // Task 82, fix 3: the pipe is drained; the next recycle
+            // must write again to wake the loop.
+            self.wake_pending.store(false, .release);
         }
         for (fds[0..nrec]) |pfd| {
             if (pfd.revents != 0) recycled_ready = true;
@@ -1089,7 +1115,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
             if (!entry.has_buffered) {
                 // Readable: give the head parse a short bounded wait so a
                 // head+body split across TCP segments still completes.
-                setBlocking(stream) catch {
+                ensureBlocking(conn) catch {
                     self.removeFromPool(conn);
                     self.destroyConn(conn, true);
                     continue;
@@ -1132,7 +1158,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                     continue;
                 };
             } else {
-                setBlocking(stream) catch {
+                ensureBlocking(conn) catch {
                     self.removeFromPool(conn);
                     req.deinit();
                     continue;
@@ -1234,7 +1260,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                     }
                     continue;
                 }
-                setBlocking(stream) catch {
+                ensureBlocking(conn) catch {
                     self.removeFromPool(conn);
                     self.destroyConn(conn, true);
                     continue;
@@ -1264,7 +1290,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                     continue;
                 };
             } else {
-                setBlocking(stream) catch {
+                ensureBlocking(conn) catch {
                     self.removeFromPool(conn);
                     req.deinit();
                     continue;
@@ -1327,6 +1353,11 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
             errdefer accepted.close(sio.io());
             break :blk try self.newConn(accepted);
         };
+        // Task 82, fix 5: capture the peer address from accept4 so
+        // sa_http_server_req_peer_addr_v2 can serve it without a
+        // per-request getpeername(2).
+        conn.peer_addr_len = @min(addr_len, 128);
+        @memcpy(conn.peer_addr[0..conn.peer_addr_len], std.mem.asBytes(&addr)[0..conn.peer_addr_len]);
         errdefer self.destroyConn(conn, true);
         const stream = conn.stream;
         // Bound the head parse: v1 (parse_timeout == null) gets a generous
@@ -1338,7 +1369,7 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         if (post_parse) |ms| {
             try setReceiveTimeout(stream, ms);
         } else {
-            try setBlocking(stream);
+            try ensureBlocking(conn);
         }
         return req;
     }
@@ -1477,6 +1508,19 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
         return request;
     }
 
+    /// Ensure the connection socket is in blocking mode (task 82,
+    /// fix 2+7). See ConnState.is_blocking: in the HTTP path the
+    /// socket is blocking from accept4 onward, so this is a no-op
+    /// for a recycled keep-alive connection (saving the GETFL+SETFL
+    /// pair and the RCVTIMEO=0 that the caller's setReceiveTimeout
+    /// overwrites immediately after). It still repairs the mode if
+    /// some path ever leaves the socket nonblocking.
+    fn ensureBlocking(conn: *ConnState) !void {
+        if (conn.is_blocking) return;
+        try setBlocking(conn.stream);
+        conn.is_blocking = true;
+    }
+
     fn newConn(self: *HttpServer, accepted: std.Io.net.Stream) !*ConnState {
         const read_buffer = try self.allocator.alloc(u8, conn_read_buffer_len);
         errdefer self.allocator.free(read_buffer);
@@ -1562,6 +1606,10 @@ fn posixRead(fd: std.posix.fd_t, buf: []u8) !usize {
                 return;
             };
         }
+        // Task 82, fix 3: coalesce the wake. If a byte is already
+        // believed pending, the accept loop will sweep the pool on
+        // that wake and see this connection too, so skip the write.
+        if (self.wake_pending.swap(true, .acq_rel)) return;
         var b: [1]u8 = .{0};
         _ = std.c.write(self.wake_pipe[1], &b, 1);
     }
@@ -2866,7 +2914,13 @@ pub export fn sa_http_server_req_peer_addr_v2(req: ?*anyopaque, out: ?[*]u8, out
     const fd = request.stream().socket.handle;
     var storage: [128]u8 align(4) = std.mem.zeroes([128]u8);
     var addr_len: u32 = storage.len;
-    if (comptime builtin.cpu.arch.isWasm()) {
+    // Task 82, fix 5: prefer the peer address captured at accept4
+    // time (request.conn.peer_addr); fall back to getpeername when
+    // the cache is empty (a connection not created by acceptFresh).
+    if (request.conn.peer_addr_len > 0) {
+        addr_len = request.conn.peer_addr_len;
+        @memcpy(storage[0..addr_len], request.conn.peer_addr[0..addr_len]);
+    } else if (comptime builtin.cpu.arch.isWasm()) {
         return networkStatus(.invalid);
     } else if (comptime builtin.os.tag == .linux) {
         const rc = std.os.linux.getpeername(fd, @ptrCast(&storage), &addr_len);
