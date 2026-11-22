@@ -343,7 +343,21 @@ pub const Locator = struct {
                 // 域名优先：`sa_std/io` 是模块级导入 → 域 prelude。
                 const leaf_base = stripKnownExtension(rest);
                 if (findDomain(leaf_base) != null) {
-                    return self.locatePrelude(leaf_base);
+                    return self.locatePrelude(leaf_base) catch |err| switch (err) {
+                        // 域存在但无 prelude（如 string，has_prelude=false）：
+                        // 回落到顶层文件，而不是直接报 ModuleNotFound。
+                        // 请求带扩展名时先试确切文件（string.sal 不应被
+                        // probe_order 首位的 .sa 抢占），再按序试顶层 shim。
+                        error.ModuleNotFound => {
+                            var root = try self.openRoot();
+                            defer root.close();
+                            if (knownExtension(rest) != null and fileExists(root, rest)) {
+                                return self.makeInfo(spec, rest, true);
+                            }
+                            return self.locateTopLevelShim(spec, leaf_base);
+                        },
+                        else => return err,
+                    };
                 }
                 // 否则走顶层旧路径 shim：`sa_std/vec[.sa]` → sa_std/vec.sa。
                 return self.locateTopLevelShim(spec, leaf_base);
