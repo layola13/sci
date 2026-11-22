@@ -934,6 +934,85 @@ test "cli build project cache is default and can be disabled" {
     try std.testing.expect(std.mem.indexOf(u8, stdout_buf.items, "--mem-report") != null);
 }
 
+test "cli build-exe cache key separates plain and release-small" {
+    // Same-directory plain build followed by --release-small must
+    // NOT return the plain binary: the two optimization levels
+    // emit different binaries (O0 vs O1), so their cache keys must
+    // differ. The probe program is a small sum-of-squares loop whose
+    // plain and --release-small binaries differ by hash and size
+    // (verified: 542,944 B vs 540,840 B on the pristine host).
+    const source =
+        \\@main() -> i32:
+        \\L_ENTRY:
+        \\    total_slot = stack_alloc 8
+        \\    store total_slot+0, 0 as u32
+        \\    i_slot = stack_alloc 8
+        \\    store i_slot+0, 0 as u32
+        \\    jmp L_COND
+        \\L_COND:
+        \\    i = load i_slot+0 as u32
+        \\    more = ult i, 100000
+        \\    br more -> L_BODY, L_END
+        \\L_BODY:
+        \\    total = load total_slot+0 as u32
+        \\    sq = mul i, i
+        \\    next_total = add total, sq
+        \\    store total_slot+0, next_total as u32
+        \\    next_i = add i, 1
+        \\    store i_slot+0, next_i as u32
+        \\    !total
+        \\    !sq
+        \\    !next_total
+        \\    !next_i
+        \\    !i
+        \\    !more
+        \\    jmp L_COND
+        \\L_END:
+        \\    !i
+        \\    !more
+        \\    result = load total_slot+0 as u32
+        \\    !result
+        \\    return result
+    ;
+
+    var original_cwd = try sio.cwd().openDir(".", .{});
+    defer original_cwd.close();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try std.process.setCurrentDir(std.testing.io, tmp.dir);
+    defer original_cwd.setAsCwd() catch {};
+
+    try writeSource(tmp.dir, "optdisc.sa", source);
+
+    var stdout_buf = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stdout_buf.deinit();
+    var stderr_buf = std.array_list.Managed(u8).init(std.testing.allocator);
+    defer stderr_buf.deinit();
+
+    const plain_argv = [_][]const u8{ "sa", "build-exe", "optdisc.sa", "-o", "plain.bin" };
+    const plain_code = try saasm.cli.executeWithWriters(std.testing.allocator, plain_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
+    try std.testing.expectEqual(@as(u8, 0), plain_code);
+    const plain_bytes = try tmp.dir.readFileAlloc(std.testing.io, "plain.bin", std.testing.allocator, .limited(16 * 1024 * 1024));
+    defer std.testing.allocator.free(plain_bytes);
+    var plain_hash: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(plain_bytes, &plain_hash, .{});
+
+    stdout_buf.clearRetainingCapacity();
+    stderr_buf.clearRetainingCapacity();
+    const rs_argv = [_][]const u8{ "sa", "build-exe", "optdisc.sa", "-o", "rs.bin", "--release-small" };
+    const rs_code = try saasm.cli.executeWithWriters(std.testing.allocator, rs_argv[0..], sio.managedWriter(&stdout_buf), sio.managedWriter(&stderr_buf));
+    try std.testing.expectEqual(@as(u8, 0), rs_code);
+    const rs_bytes = try tmp.dir.readFileAlloc(std.testing.io, "rs.bin", std.testing.allocator, .limited(16 * 1024 * 1024));
+    defer std.testing.allocator.free(rs_bytes);
+    var rs_hash: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(rs_bytes, &rs_hash, .{});
+
+    // The two binaries must differ: equal hashes mean the cache
+    // served the plain binary for the --release-small request.
+    try std.testing.expect(!std.mem.eql(u8, &plain_hash, &rs_hash));
+}
+
 test "cli cache clean removes invalid project cache entries" {
     var original_cwd = try sio.cwd().openDir(".", .{});
     defer original_cwd.close();

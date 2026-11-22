@@ -6538,14 +6538,22 @@ fn hashResolvedSourceTree(
 fn cacheBuildSemanticFlags(
     hasher: *std.crypto.hash.sha2.Sha256,
     debug: bool,
-    release_fast: bool,
+    optimization: driver.Optimization,
     incremental: bool,
     dce: DceMode,
     default_immutable: bool,
     fast_math: bool,
 ) void {
     cacheBool(hasher, debug);
-    cacheBool(hasher, release_fast);
+    // The optimization level is a semantic dimension of the build,
+    // so it is part of the key: a plain (O0) artifact can never
+    // satisfy a --release-small (O1) request or vice versa. The
+    // previous form folded only a single bool (whether the
+    // optimization was release-fast), which collapsed .none and
+    // .release_small to the same value, so a cached plain binary
+    // silently satisfied a --release-small build in the same
+    // directory.
+    cacheBytes(hasher, @tagName(optimization));
     cacheBool(hasher, incremental);
     cacheBytes(hasher, dce.name());
     // The mutability mode is a semantic dimension of the build, so it is
@@ -6571,7 +6579,7 @@ fn computeProjectBuildKey(
     source_suffix: []const u8,
     kind: BuildCacheKind,
     debug: bool,
-    release_fast: bool,
+    optimization: driver.Optimization,
     incremental: bool,
     wasm: ?WasmTarget,
     hash_source_tree: bool,
@@ -6604,7 +6612,7 @@ fn computeProjectBuildKey(
     cacheBytes(&hasher, key_source_path);
     cacheBytes(&hasher, target_name);
     cacheBytes(&hasher, source_suffix);
-    cacheBuildSemanticFlags(&hasher, debug, release_fast, incremental, dce, default_immutable, fast_math);
+    cacheBuildSemanticFlags(&hasher, debug, optimization, incremental, dce, default_immutable, fast_math);
     // The linked sa_std runtime is identified by the semantic digest of
     // the std source tree it is built from. The previous formula fed the
     // archive's (size, mtime) stat pair: a byte-identical archive rebuild
@@ -8102,7 +8110,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", compile_options.target_triple orelse "", .build_exe, debug, optimization == .release_fast, false, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "exe", compile_options.target_triple orelse "", .build_exe, debug, optimization, false, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -8164,7 +8172,7 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
                     try stderr.writeAll("error: --target cannot be combined with --incremental yet\n");
                     return 1;
                 }
-                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math);
+                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization, true, null, false, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math);
                 const incr_obj_path = try std.fmt.allocPrint(allocator, "{s}.incr.o", .{out_path});
                 defer allocator.free(incr_obj_path);
                 const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
@@ -8454,7 +8462,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", compile_options.target_triple orelse "", .build_obj, debug, optimization == .release_fast, incremental, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", compile_options.target_triple orelse "", .build_obj, debug, optimization, incremental, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -8491,7 +8499,7 @@ fn executeBuildObj(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             }
             const size_bits = sizeBitsForTriple(compile_options.target_triple);
             if (incremental) {
-                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math);
+                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization, true, null, false, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math);
                 try buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, out_path, debug, optimization, compile_options, stderr);
                 emit_llvm_llvmc.emitLlvmcToFile(allocator, owned.verified, &owned.flat.def_dict, owned.flat.loc_table, source_path, size_bits, .{ .debug = debug, .jobs = compile_options.jobs, .opt_level = opt_level, .dce = compile_options.dce, .fast_math = compile_options.fast_math, .std_root = emit_std_root, .target_triple = compile_options.target_triple }, artifact_path) catch |err| {
                     try printLlvmcEmitError(stderr, err, diagnostics_mode);
@@ -8525,7 +8533,7 @@ fn executeBuildWasm(allocator: std.mem.Allocator, source_path: []const u8, out_p
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization == .release_fast, false, target, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "wasm", target.triple, .build_wasm, debug, optimization, false, target, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
     else
         null;
     const artifact_path = try intermediateArtifactPath(allocator, out_path);
@@ -10188,7 +10196,7 @@ fn executeTestInner(
     var project_context = try loadProjectContext(allocator, project_root, compile_options.package_name);
     defer project_context.deinit(allocator);
     const cache_key: ?ProjectCacheKey = if (compile_options.incremental_cache)
-        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, false, false, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
+        try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "test", "", .test_cache, false, test_options.optimization, false, null, true, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math)
     else
         null;
 
@@ -11772,8 +11780,8 @@ test "cache key tree paths tag project and std roots" {
 test "fast-math is a separate build cache dimension" {
     var off = std.crypto.hash.sha2.Sha256.init(.{});
     var on = std.crypto.hash.sha2.Sha256.init(.{});
-    cacheBuildSemanticFlags(&off, false, true, false, .std, false, false);
-    cacheBuildSemanticFlags(&on, false, true, false, .std, false, true);
+    cacheBuildSemanticFlags(&off, false, .release_fast, false, .std, false, false);
+    cacheBuildSemanticFlags(&on, false, .release_fast, false, .std, false, true);
     var off_digest: [32]u8 = undefined;
     var on_digest: [32]u8 = undefined;
     off.final(&off_digest);
@@ -11782,10 +11790,41 @@ test "fast-math is a separate build cache dimension" {
     // The flag must not collapse with a different mode either: the default
     // artifact may never satisfy a --fast-math request once cached.
     var other = std.crypto.hash.sha2.Sha256.init(.{});
-    cacheBuildSemanticFlags(&other, false, true, false, .std, false, false);
+    cacheBuildSemanticFlags(&other, false, .release_fast, false, .std, false, false);
     var other_digest: [32]u8 = undefined;
     other.final(&other_digest);
     try std.testing.expectEqualSlices(u8, &off_digest, &other_digest);
+}
+
+test "optimization level is a separate build cache dimension" {
+    // A plain build (.none, O0) and a --release-small build
+    // (.release_small, O1) emit different binaries, so their
+    // cache keys must differ too. The previous form folded
+    // only `optimization == .release_fast`, which collapsed
+    // .none and .release_small to the same key and let a
+    // cached plain binary silently satisfy a --release-small
+    // build in the same directory.
+    var none_h = std.crypto.hash.sha2.Sha256.init(.{});
+    var small_h = std.crypto.hash.sha2.Sha256.init(.{});
+    var fast_h = std.crypto.hash.sha2.Sha256.init(.{});
+    cacheBuildSemanticFlags(&none_h, false, .none, false, .std, false, false);
+    cacheBuildSemanticFlags(&small_h, false, .release_small, false, .std, false, false);
+    cacheBuildSemanticFlags(&fast_h, false, .release_fast, false, .std, false, false);
+    var none_digest: [32]u8 = undefined;
+    var small_digest: [32]u8 = undefined;
+    var fast_digest: [32]u8 = undefined;
+    none_h.final(&none_digest);
+    small_h.final(&small_digest);
+    fast_h.final(&fast_digest);
+    try std.testing.expect(!std.mem.eql(u8, &none_digest, &small_digest));
+    try std.testing.expect(!std.mem.eql(u8, &none_digest, &fast_digest));
+    try std.testing.expect(!std.mem.eql(u8, &small_digest, &fast_digest));
+    // Identical inputs still key identically.
+    var again_h = std.crypto.hash.sha2.Sha256.init(.{});
+    cacheBuildSemanticFlags(&again_h, false, .release_small, false, .std, false, false);
+    var again_digest: [32]u8 = undefined;
+    again_h.final(&again_digest);
+    try std.testing.expectEqualSlices(u8, &small_digest, &again_digest);
 }
 
 test "flatten error mapping keeps import resolution and unsupported type hints specific" {

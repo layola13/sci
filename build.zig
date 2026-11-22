@@ -841,6 +841,7 @@ pub fn build(b: *std.Build) void {
         .filters = &.{
             "cli pkg add records the require line and pkg list reads it back",
             "cli cache clean --all removes the project .sla-cache only on request",
+            "cli build-exe cache key separates plain and release-small",
             "cli help surfaces lifecycle routing, pkg aliases, and plugin confirm",
         },
     });
