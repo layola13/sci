@@ -1,7 +1,2 @@
-#def BinaryHeap_SIZE = 24
-#def BinaryHeap_buf = +0
-#def BinaryHeap_cap = +8
-#def BinaryHeap_len = +16
-
-#def BinaryHeap_INITIAL_CAP = 8
-#def BinaryHeap_SLOT_SIZE = 8
+// Phase 1 modularization shim (2026-11-22, domain C): canonical path is sa_std/collections/heap/binary_heap.sal.
+@import "collections/heap/binary_heap.sal"

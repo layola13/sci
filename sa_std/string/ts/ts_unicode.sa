@@ -1,0 +1,55 @@
+@import "ts_unicode.sai"
+
+// ts_unicode.sa -- SA wrapper for Unicode normalization (ICU extern).
+//
+// Written for the tsgosa String.prototype.normalize lowering (tsgosa main
+// 673aaae12; no prior Go function to port from -- this is the SA side of
+// the new extern, built ON the extern per JEV extern_first, not a table).
+//
+// Handle model (16-byte {ptr,len} slice handle, same as ts_string.sa):
+//   +0: data ptr (utf8 bytes)
+//   +8: len u64 (byte length)
+// Ownership/purity: @ts_unicode_normalize borrows its input (the caller
+// retains it) and returns a FRESH handle over a FRESH buffer (caller-owned);
+// no other allocation, no reads/writes of caller state beyond the input
+// bytes, no globals, no I/O. The helper never releases its input.
+// The two-pass extern protocol keeps allocation verifier-visible in SA:
+// query the needed length, alloc exactly that, fill, build the handle.
+// A length mismatch between query and fill can never silently truncate or
+// overrun: query and fill call the same deterministic ICU function on the
+// same input, so fill always fits the queried length; a mismatch would
+// mean ICU lied, and the wrapper panics loudly (1401) instead of ever
+// returning a truncated or over-long handle.
+// Empty input returns a fresh handle over a 1-byte scratch (alloc 0 is
+// never attempted, its validity being unproven).
+
+// @ts_unicode_normalize normalizes a string handle to the requested form.
+// form codes: 0 = NFC, 1 = NFD, 2 = NFKC, 3 = NFKD (JEV i32_code; the
+// tsgosa emitter folds literal form strings to codes, non-literals refuse).
+// Invalid codes panic in the runtime (JEV runtime_panic).
+@ts_unicode_normalize(bp: ptr, bl: u64, form: i32) -> ptr:
+L_TUN_ENTRY:
+    is_empty = eq bl, 0
+    br is_empty -> L_TUN_EMPTY, L_TUN_QUERY
+L_TUN_EMPTY:
+    nbuf = alloc 1
+    out = alloc 16
+    store out+0, nbuf as ptr
+    store out+8, 0 as u64
+    return out
+L_TUN_QUERY:
+    n = call @sa_unicode_normalize(&bp, bl, form, &bp, 0)
+    is_zero = eq n, 0
+    br is_zero -> L_TUN_EMPTY, L_TUN_ALLOC
+L_TUN_ALLOC:
+    nbuf = alloc n
+    m = call @sa_unicode_normalize(&bp, bl, form, &nbuf, n)
+    fits = sle m, n
+    br fits -> L_TUN_DONE, L_TUN_IMPOSSIBLE
+L_TUN_IMPOSSIBLE:
+    panic(1401)
+L_TUN_DONE:
+    out = alloc 16
+    store out+0, nbuf as ptr
+    store out+8, m as u64
+    return out

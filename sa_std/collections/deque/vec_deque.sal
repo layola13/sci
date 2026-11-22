@@ -1,0 +1,8 @@
+#def VecDeque_SIZE = 32
+#def VecDeque_buf = +0
+#def VecDeque_cap = +8
+#def VecDeque_head = +16
+#def VecDeque_len = +24
+
+#def VecDeque_INITIAL_CAP = 8
+#def VecDeque_SLOT_SIZE = 8

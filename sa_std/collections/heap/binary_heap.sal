@@ -1,0 +1,7 @@
+#def BinaryHeap_SIZE = 24
+#def BinaryHeap_buf = +0
+#def BinaryHeap_cap = +8
+#def BinaryHeap_len = +16
+
+#def BinaryHeap_INITIAL_CAP = 8
+#def BinaryHeap_SLOT_SIZE = 8

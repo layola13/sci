@@ -1,0 +1,15 @@
+// GrowVec (F1) declaration view: grow-only, never-moving buffer.
+// The handle is { ptr, len, max, rsv } (32 bytes: data ptr +0,
+// element count +8, element cap +16, reserved bytes +24); element
+// addresses are stable for the container's whole life.
+// Implementations live in alloc/growvec.sa (SA source, pulled in via
+// sa_std/growvec.sa).
+@extern sa_growvec_new(elem_size: u64, max_elems: u64) -> ptr
+@extern sa_growvec_len(&gv: ptr) -> u64
+@extern sa_growvec_reserved(&gv: ptr) -> u64
+@extern sa_growvec_capacity(&gv: ptr) -> u64
+@extern sa_growvec_is_empty(&gv: ptr) -> i32
+@extern sa_growvec_data_ptr(&gv: ptr) -> ptr
+@extern sa_growvec_push(^gv: ptr, value: u64, elem_size: u64) -> ptr
+@extern sa_growvec_extend_from_slice(^gv: ptr, &slice: ptr, elem_size: u64) -> ptr
+@extern sa_growvec_free(^gv: ptr) -> void

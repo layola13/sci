@@ -1,0 +1,6 @@
+#def BTreeSet_SIZE = 24
+#def BTreeSet_entries = +0
+#def BTreeSet_cap = +8
+#def BTreeSet_len = +16
+
+#def BTreeSet_INITIAL_CAP = 8

@@ -1,6 +1,2 @@
-#def BTreeSet_SIZE = 24
-#def BTreeSet_entries = +0
-#def BTreeSet_cap = +8
-#def BTreeSet_len = +16
-
-#def BTreeSet_INITIAL_CAP = 8
+// Phase 1 modularization shim (2026-11-22, domain C): canonical path is sa_std/collections/btree/btree_set.sal.
+@import "collections/btree/btree_set.sal"

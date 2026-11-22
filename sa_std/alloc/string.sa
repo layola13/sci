@@ -1,3 +1,2 @@
-[MACRO] STR_FROM_CONST %out_slice, %const_label, %const_len
-    EXPAND SLICE_NEW %out_slice, &%const_label, %const_len
-[END_MACRO]
+// Phase 1 modularization shim (2026-11-22, domain C): canonical path is sa_std/../string/builder/str_from_const.sa.
+@import "../string/builder/str_from_const.sa"

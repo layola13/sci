@@ -101,7 +101,7 @@
 // never rewritten in place (Vec index writes are unsupported on
 // the SAB path).
 
-@import "sa_std/vec.sa"
+@import "sa_std/collections/vec/vec.sa"
 @import "sa_std/core/slice.sa"
 @import "sa_std/ptr.sa"
 @import "sa_std/status.sla"

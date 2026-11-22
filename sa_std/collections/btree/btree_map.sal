@@ -1,0 +1,11 @@
+#def BTreeMap_SIZE = 24
+#def BTreeMap_entries = +0
+#def BTreeMap_cap = +8
+#def BTreeMap_len = +16
+
+#def BTreeMapEntry_SIZE = 24
+#def BTreeMapEntry_key_ptr = +0
+#def BTreeMapEntry_key_len = +8
+#def BTreeMapEntry_value = +16
+
+#def BTreeMap_INITIAL_CAP = 8

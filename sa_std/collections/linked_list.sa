@@ -1,7 +1,7 @@
 // Concrete LinkedList<u64> facade over heap nodes.
 // Models supportable Rust LinkedList push/pop/front/back/len/clear/append/contains.
 @import "linked_list.sal"
-@import "../vec.sa"
+@import "vec/vec.sa"
 @import "../core/slice.sal"
 
 @sa_linked_list_new() -> ^ptr:

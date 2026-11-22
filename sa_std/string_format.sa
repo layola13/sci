@@ -1,4 +1,2 @@
-// Phase 1 modularization shim (2026-11-22): canonical location is sa_std/fmt/format/string_format.sa.
-// Thin forwarder only; the loader dedupes by canonical path, so importing
-// both the old and the new path in one program is safe (see src/flattener/expandimportsinto.zig: seen_paths).
-@import "fmt/format/string_format.sa"
+// Phase 1 modularization shim (2026-11-22, domain C): canonical path is sa_std/string/builder/string_format.sa.
+@import "string/builder/string_format.sa"

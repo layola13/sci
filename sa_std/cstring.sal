@@ -1,2 +1,2 @@
-// C string layout aliases.
-@import "ffi.sal"
+// Phase 1 modularization shim (2026-11-22, domain C): canonical path is sa_std/string/string/cstring.sal.
+@import "string/string/cstring.sal"

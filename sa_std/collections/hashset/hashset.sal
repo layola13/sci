@@ -1,0 +1,18 @@
+#def HashSet_SIZE = 32
+#def HashSet_slots = +0
+#def HashSet_cap = +8
+#def HashSet_len = +16
+#def HashSet_tombs = +24
+
+#def HashSetSlot_SIZE = 32
+#def HashSetSlot_hash = +0
+#def HashSetSlot_key = +8
+#def HashSetSlot_value = +16
+#def HashSetSlot_state = +24
+
+#def HashSet_INITIAL_CAP = 8
+#def HashSet_STATE_EMPTY = 0
+#def HashSet_STATE_FILLED = 1
+#def HashSet_STATE_TOMB = 2
+
+#def HashSet_VALUE_SENTINEL = 1

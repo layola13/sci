@@ -1,3 +1,2 @@
-// Public CStr/CString facade over the FFI string implementation.
-@import "ffi.sal"
-@import "ffi.sa"
+// Phase 1 modularization shim (2026-11-22, domain C): canonical path is sa_std/string/string/cstring.sa.
+@import "string/string/cstring.sa"

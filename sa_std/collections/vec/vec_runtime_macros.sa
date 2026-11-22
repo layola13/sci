@@ -1,0 +1,11 @@
+[MACRO] ITER_VEC_NEW %out_vec
+    %out_vec = call @sa_vec_new()
+[END_MACRO]
+
+[MACRO] ITER_VEC_PUSH %vec_reg, %value, %elem_size
+    %vec_reg = call @sa_vec_push(^%vec_reg, %value, %elem_size)
+[END_MACRO]
+
+[MACRO] ITER_VEC_PUSH_U64 %vec_reg, %value
+    EXPAND ITER_VEC_PUSH %vec_reg, %value, 8
+[END_MACRO]

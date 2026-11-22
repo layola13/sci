@@ -1,1 +1,2 @@
-#def Vec_data = +0
+// Phase 1 modularization shim (2026-11-22, domain C): canonical path is sa_std/collections/vec/vec.sal.
+@import "collections/vec/vec.sal"
