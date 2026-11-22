@@ -1373,7 +1373,7 @@ fn writeBuildOptionsHelp(writer: anytype, artifact: []const u8, include_incremen
     try writer.writeAll("  --release-small                Optimize for small release output\n");
     try writer.writeAll("  --release-fast                 Optimize for fast release output\n");
     try writer.writeAll("  --target <triple>              Cross-compile for a zig-style target triple (e.g. aarch64-linux-gnu)\n");
-    if (include_incremental) try writer.writeAll("  --incremental                  Reuse per-function cached objects when building .o\n");
+    if (include_incremental) try writer.print("  --incremental                  Reuse per-function cached objects when building {s}\n", .{artifact});
     try writeCompileOptionsHelp(writer);
 }
 
@@ -1527,21 +1527,21 @@ fn printCommandHelp(writer: anytype, cmd: Command, args: []const []const u8) !vo
             try writer.writeAll("usage: sa build <file> [options]\n\n");
             try writer.writeAll("Compile a .sa source file or .sab binary to a native executable.\n\n");
             try writer.writeAll("Options:\n");
-            try writeBuildOptionsHelp(writer, "the executable", false);
+            try writeBuildOptionsHelp(writer, "the executable", true);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .build_workspace => {
             try writer.writeAll("usage: sa build-workspace [options]\n\n");
             try writer.writeAll("Build the selected workspace member from the current workspace root or member directory.\n\n");
             try writer.writeAll("Options:\n");
-            try writeBuildOptionsHelp(writer, "the executable", false);
+            try writeBuildOptionsHelp(writer, "the executable", true);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .build_exe => {
             try writer.writeAll("usage: sa build-exe <file> [options]\n\n");
             try writer.writeAll("Build a standalone native executable. This is an alias for `sa build`.\n\n");
             try writer.writeAll("Options:\n");
-            try writeBuildOptionsHelp(writer, "the executable", false);
+            try writeBuildOptionsHelp(writer, "the executable", true);
             try writer.writeAll("  -h, --help                     Show this help message\n");
         },
         .build_obj => {
@@ -8092,7 +8092,7 @@ fn executeRun(
     }
 }
 
-fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, compile_options_in: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
+fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_path: []const u8, debug: bool, optimization: driver.Optimization, incremental: bool, compile_options_in: CompileOptions, stderr: anytype, diagnostics_mode: DiagnosticsMode) !u8 {
     var compile_options = compile_options_in;
     if (stageTimingEnabled()) compile_options.profile = true;
     const total_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
@@ -8149,6 +8149,60 @@ fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, out_pa
             };
             defer allocator.free(std_archive_path);
             const size_bits = sizeBitsForTriple(compile_options.target_triple);
+
+            // TASK64: --incremental exe builds reuse the build-obj
+            // per-function object cache (buildIncrementalObject):
+            // only functions whose body/signature changed are
+            // re-emitted to LLVM; the cached .o files are merged
+            // (ld -r) and linked into the exe. The whole-artifact
+            // build-exe cache above still serves the no-op case and
+            // the entry is stored below, like the CGU path (which
+            // likewise produces no whole-module bitcode artifact).
+            // --target is rejected, like build-obj --incremental.
+            if (incremental) {
+                if (compile_options.target_triple != null) {
+                    try stderr.writeAll("error: --target cannot be combined with --incremental yet\n");
+                    return 1;
+                }
+                const incremental_key = try computeProjectBuildKey(allocator, &project_context, project_root, source_path, "obj", "", .build_obj_incremental, debug, optimization == .release_fast, true, null, false, compile_options.offline, compile_options.dce, compile_options.default_immutable, compile_options.fast_math);
+                const incr_obj_path = try std.fmt.allocPrint(allocator, "{s}.incr.o", .{out_path});
+                defer allocator.free(incr_obj_path);
+                const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
+                buildIncrementalObject(allocator, project_root, incremental_key, &owned, source_path, incr_obj_path, debug, optimization, compile_options, stderr) catch |err| {
+                    try printLlvmcEmitError(stderr, err, diagnostics_mode);
+                    return 1;
+                };
+                const emit_ns = if (emit_start) |start| elapsedNs(start) else null;
+                recordMetricMemoryAfterEmit(&owned.metrics);
+                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_emit", memory.after_emit_rss_bytes, memory.after_verify_rss_bytes);
+
+                var link_inputs = std.array_list.Managed([]const u8).init(allocator);
+                defer link_inputs.deinit();
+                var owned_link_inputs = std.array_list.Managed([]const u8).init(allocator);
+                defer {
+                    for (owned_link_inputs.items) |arg| allocator.free(arg);
+                    owned_link_inputs.deinit();
+                }
+                if (!try appendNativePluginLinkInputs(allocator, &link_inputs, &owned_link_inputs, &owned.verified, stderr)) return 1;
+                const link_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
+                driver.compileExe(allocator, incr_obj_path, out_path, optimization, std_archive_path, link_inputs.items, debug, stderr, compile_options.target_triple) catch |err| switch (err) {
+                    error.ChildProcessFailed => return 1,
+                    else => return err,
+                };
+                const link_ns = if (link_start) |start| elapsedNs(start) else null;
+                recordMetricMemoryAfterLink(&owned.metrics);
+                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "after_link", memory.after_link_rss_bytes, memory.after_emit_rss_bytes);
+                recordMetricMemoryEnd(&owned.metrics);
+                if (owned.metrics.memory) |memory| try writeMemoryStageSampleForOptions(compile_options, "end", memory.end_rss_bytes, memoryEndPrevious(memory));
+                finishProfileMetrics(&owned.metrics, emit_ns, link_ns, if (total_start) |start| elapsedNs(start) else null);
+                if (cache_key) |key| try projectCacheStore(allocator, project_root, .build_exe, key, out_path, out_path);
+                attachBackendIrMetrics(&owned.metrics, &owned.verified, debug);
+                if (cache_key != null) owned.metrics.cache = .{ .kind = BuildCacheKind.build_exe.dirName(), .hit = false };
+
+                if (stageTimingEnabled()) printStageTiming(stderr, &owned.metrics);
+                try writeSuccessDiagnostics(stderr, owned.metrics, diagnostics_mode);
+                return 0;
+            }
 
             const worker_count = blk: {
                 if (compile_options.jobs) |j| {
@@ -10816,6 +10870,7 @@ fn executeWithWritersAndOptionsImpl(
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .none;
+            var incremental = false;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -10841,6 +10896,10 @@ fn executeWithWritersAndOptionsImpl(
                     optimization = mode;
                     continue;
                 }
+                if (std.mem.eql(u8, args[i], "--incremental")) {
+                    incremental = true;
+                    continue;
+                }
                 return error.UnexpectedArgument;
             }
             const project_root = try projectRootDir(allocator);
@@ -10851,7 +10910,7 @@ fn executeWithWritersAndOptionsImpl(
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, executableSuffixForTriple(compile_options.target_triple));
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, incremental, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_workspace => {
             var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);
@@ -10860,6 +10919,7 @@ fn executeWithWritersAndOptionsImpl(
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .none;
+            var incremental = false;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -10881,6 +10941,10 @@ fn executeWithWritersAndOptionsImpl(
                     optimization = mode;
                     continue;
                 }
+                if (std.mem.eql(u8, args[i], "--incremental")) {
+                    incremental = true;
+                    continue;
+                }
                 return error.UnexpectedArgument;
             }
             const project_root = try projectRootDir(allocator);
@@ -10890,7 +10954,7 @@ fn executeWithWritersAndOptionsImpl(
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, executableSuffixForTriple(compile_options.target_triple));
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, incremental, compile_options, stderr, if (json_mode) .json else .human);
         },
         .fetch => {
             if (args.len < 3) return error.MissingSourcePath;
@@ -10932,6 +10996,7 @@ fn executeWithWritersAndOptionsImpl(
             var out_path: ?[]const u8 = null;
             var debug = false;
             var optimization: driver.Optimization = .none;
+            var incremental = false;
             var i: usize = 2;
             while (i < args.len) : (i += 1) {
                 if (try consumeCompileOption(args[i], args, &i, &compile_options)) continue;
@@ -10957,6 +11022,10 @@ fn executeWithWritersAndOptionsImpl(
                     optimization = mode;
                     continue;
                 }
+                if (std.mem.eql(u8, args[i], "--incremental")) {
+                    incremental = true;
+                    continue;
+                }
                 return error.UnexpectedArgument;
             }
             const project_root = try projectRootDir(allocator);
@@ -10967,7 +11036,7 @@ fn executeWithWritersAndOptionsImpl(
             const owned_out = if (out_path) |p| p else try deriveOutputPath(allocator, final_source_path, executableSuffixForTriple(compile_options.target_triple));
             defer if (out_path == null) allocator.free(owned_out);
             configureCompileDiagnostics(&compile_options, json_mode);
-            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, compile_options, stderr, if (json_mode) .json else .human);
+            return try executeBuildExe(allocator, final_source_path, if (out_path) |p| p else owned_out, debug, optimization, incremental, compile_options, stderr, if (json_mode) .json else .human);
         },
         .build_obj => {
             var diag_forward = sio.ForwardWriter(@TypeOf(stderr)).init(stderr);

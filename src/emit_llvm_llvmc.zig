@@ -1659,6 +1659,29 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
             }
         }
     } else if (options.function_task_index) |wanted_task_idx| {
+        // TASK64: vtable-slot functions must be declared (extern)
+        // in a per-function module, exactly like the CGU branch
+        // above. Every vtable const is emitted into every module
+        // (shim: vtable slots resolve via LLVMGetNamedFunction and
+        // fail the whole emit with "vtable function not found" when
+        // the callee is absent), so a program with any fn-pointer
+        // vtable -- e.g. every sla-generated program, which emits
+        // one SLA_FNPTR_VT_* per function -- failed per-function
+        // emit on the first foreign vtable. Vtables are private
+        // linkage, so the duplicated definitions across the cached
+        // .o files do not collide at ld -r time (same reason the
+        // CGU shards link cleanly).
+        for (verified.const_decls) |decl| {
+            switch (decl.value) {
+                .vtable => |literal| {
+                    for (literal.slots) |slot| {
+                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, &function_sig_index, slot.func_name);
+                    }
+                },
+                else => {},
+            }
+        }
+
         var sig_index: usize = 0;
         var idx: usize = 0;
         var task_idx: usize = 0;
@@ -1819,7 +1842,16 @@ fn emitLlvmcInternal(allocator: std.mem.Allocator, verified: anytype, def_dict: 
         .wasm_compat = options.wasm_compat,
         .test_mode = options.test_mode,
         .debug = options.debug,
-        .is_cgu = options.codegen_unit_count > 1,
+        // TASK64: a per-function module is a one-function shard:
+        // its defined function must be externally visible (like a
+        // CGU shard's), or the merged relocatable object carries
+        // only local definitions that cannot satisfy the global
+        // call/vtable references from the other shards
+        // ("undefined symbol: sla__f0 ... defined in: out.o").
+        // Internal linkage is what lets whole-module builds inline
+        // aggressively; a lone function in its own module has no
+        // in-module caller to inline into, so nothing is lost.
+        .is_cgu = options.codegen_unit_count > 1 or options.function_task_index != null,
         .fast_math = options.fast_math,
         .source_file = if (options.debug) module_source_file.ptr else null,
         .source_dir = if (options.debug) module_source_dir.ptr else null,
@@ -1950,6 +1982,29 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
             }
         }
     } else if (options.function_task_index) |wanted_task_idx| {
+        // TASK64: vtable-slot functions must be declared (extern)
+        // in a per-function module, exactly like the CGU branch
+        // above. Every vtable const is emitted into every module
+        // (shim: vtable slots resolve via LLVMGetNamedFunction and
+        // fail the whole emit with "vtable function not found" when
+        // the callee is absent), so a program with any fn-pointer
+        // vtable -- e.g. every sla-generated program, which emits
+        // one SLA_FNPTR_VT_* per function -- failed per-function
+        // emit on the first foreign vtable. Vtables are private
+        // linkage, so the duplicated definitions across the cached
+        // .o files do not collide at ld -r time (same reason the
+        // CGU shards link cleanly).
+        for (verified.const_decls) |decl| {
+            switch (decl.value) {
+                .vtable => |literal| {
+                    for (literal.slots) |slot| {
+                        _ = try markReachableFunctionByName(&referenced_functions, verified.function_sigs, &function_sig_index, slot.func_name);
+                    }
+                },
+                else => {},
+            }
+        }
+
         var sig_index: usize = 0;
         var idx: usize = 0;
         var task_idx: usize = 0;
@@ -2100,7 +2155,16 @@ pub fn emitLlvmcToArtifacts(allocator: std.mem.Allocator, verified: anytype, def
         .wasm_compat = options.wasm_compat,
         .test_mode = options.test_mode,
         .debug = options.debug,
-        .is_cgu = options.codegen_unit_count > 1,
+        // TASK64: a per-function module is a one-function shard:
+        // its defined function must be externally visible (like a
+        // CGU shard's), or the merged relocatable object carries
+        // only local definitions that cannot satisfy the global
+        // call/vtable references from the other shards
+        // ("undefined symbol: sla__f0 ... defined in: out.o").
+        // Internal linkage is what lets whole-module builds inline
+        // aggressively; a lone function in its own module has no
+        // in-module caller to inline into, so nothing is lost.
+        .is_cgu = options.codegen_unit_count > 1 or options.function_task_index != null,
         .fast_math = options.fast_math,
         .source_file = if (options.debug) module_source_file.ptr else null,
         .source_dir = if (options.debug) module_source_dir.ptr else null,
