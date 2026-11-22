@@ -1,11 +1,3 @@
-#def SA_QUIC_OK = 0
-#def SA_QUIC_ERR_UNSUPPORTED = -1
-#def SA_QUIC_ERR_NO_MEMORY = -12
-#def SA_QUIC_ERR_INVALID_ARGUMENT = -22
-
-#def QUIC_ALPN_H3 = 0
-#def QUIC_STREAM_BIDIRECTIONAL = 0
-#def QUIC_STREAM_UNIDIRECTIONAL = 1
-
-#def HTTP3_RFC = 9114
-#def HTTP3_QPACK_RFC = 9204
+// Phase 1 std modularization (2026-11-22): this file moved to sa_std/net/quic.sal.
+// Compatibility shim: forwards to the new location. Do not add API here.
+@import "net/quic.sal"

@@ -60,7 +60,7 @@
 @import "sa_std/vec.sa"
 @import "sa_std/core/slice.sa"
 @import "sa_std/ptr.sa"
-@import "sa_std/http_client.sai"
+@import "sa_std/http/client/http_client.sai"
 
 struct SseEvent {
     event_type: Vec<u8>,

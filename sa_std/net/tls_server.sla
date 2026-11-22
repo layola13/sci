@@ -1,0 +1,23 @@
+// SLA-facing named constants for the sa_std TLS-server error codes.
+//
+// Why this file exists: the values have always existed at the other
+// layers -- sa_std/tls_server.sal defines them for SA (#def) and the
+// Zig runtime implements them (SA_STD_* in src/runtime/sa_tls_server.zig)
+// -- but an SLA consumer importing tls_server.sai saw only the bare i32
+// and had to hard-code the numbers. This is the SLA spelling of the same
+// face, following the status.sla / encoding/json.sla precedent. Pure
+// declarations: no new externs, no ABI change.
+//
+// Values (verified against tls_server.sal and sa_tls_server.zig):
+//   SA_TLS_SERVER_OK = 0
+//   SA_TLS_SERVER_ERR_UNSUPPORTED = -1
+//   SA_TLS_SERVER_ERR_NO_MEMORY = -12
+//   SA_TLS_SERVER_ERR_INVALID_ARGUMENT = -22
+//   SA_TLS_SERVER_ERR_TLS_VERIFY = -100 (accept() rejected the peer:
+//   a required client certificate was absent or failed verification)
+
+const SA_TLS_SERVER_OK: i32 = 0;
+const SA_TLS_SERVER_ERR_UNSUPPORTED: i32 = -1;
+const SA_TLS_SERVER_ERR_NO_MEMORY: i32 = -12;
+const SA_TLS_SERVER_ERR_INVALID_ARGUMENT: i32 = -22;
+const SA_TLS_SERVER_ERR_TLS_VERIFY: i32 = -100;

@@ -1,0 +1,5 @@
+// Stable http namespace aggregation (Phase 1, 2026-11-22).
+// Public SA face of sa_std/http: HTTP/2 macros plus the client/server plugin adapters.
+@import "http2.sa"
+@import "client/plugin_http_async.sa"
+@import "server/plugin_http_server.sa"

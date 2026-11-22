@@ -1,2 +1,3 @@
-// SLA import surface for HTTP server plugin adapters.
-@import "sa_std/plugin_http_server.sa"
+// Phase 1 std modularization (2026-11-22): this file moved to sa_std/http/server/plugin_http_server.sla.
+// Compatibility shim: forwards to the new location. Do not add API here.
+@import "sa_std/http/server/plugin_http_server.sla"

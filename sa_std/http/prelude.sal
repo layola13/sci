@@ -1,0 +1,7 @@
+// ABI/layout companion for http namespace aggregation (Phase 1, 2026-11-22).
+@import "http2.sal"
+@import "http2.sai"
+@import "client/http_client.sai"
+@import "server/http_server.sai"
+@import "request/multipart.sai"
+@import "http_cookie.sai"

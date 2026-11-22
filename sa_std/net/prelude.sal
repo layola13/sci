@@ -1,0 +1,13 @@
+// ABI/layout companion for net namespace aggregation (Phase 1, 2026-11-22).
+@import "socket/net.sal"
+@import "socket/net.sai"
+@import "netx.sal"
+@import "netx.sai"
+@import "quic.sal"
+@import "quic.sai"
+@import "dtls.sal"
+@import "dtls.sai"
+@import "tls_server.sal"
+@import "tls_server.sai"
+@import "tls_client.sai"
+@import "ws_client.sai"

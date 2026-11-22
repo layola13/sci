@@ -1,0 +1,10 @@
+// Stable net namespace aggregation (Phase 1, 2026-11-22).
+// Public SA face of sa_std/net: socket API, io_uring engine, QUIC,
+// DTLS, TLS client/server, WebSocket client.
+@import "socket/net.sa"
+@import "netx.sa"
+@import "quic.sa"
+@import "dtls.sa"
+@import "tls_client.sa"
+@import "tls_server.sa"
+@import "ws_client.sa"

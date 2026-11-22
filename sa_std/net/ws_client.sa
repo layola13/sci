@@ -1,0 +1,51 @@
+@import "ws_client.sai"
+
+// One-liner CONNECT over sa_std_ws_client_connect (zero new host code).
+// Handles ws:// and wss:// (wss inherits the tls_client verify policy).
+// Returns an opaque u64 handle; close it with WS_CLIENT_CLOSE.
+[MACRO] WS_CLIENT_CONNECT %out_status, %out_handle, %url, %url_len
+    __ws_cli_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_ws_client_connect(&%url, %url_len, &__ws_cli_handle_%out_status)
+    %out_handle = load __ws_cli_handle_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] WS_CLIENT_SEND_TEXT %out_status, %handle, %buf, %len
+    %out_status = call @sa_std_ws_client_send_text(%handle, &%buf, %len)
+[END_MACRO]
+
+[MACRO] WS_CLIENT_SEND_BINARY %out_status, %handle, %buf, %len
+    %out_status = call @sa_std_ws_client_send_binary(%handle, &%buf, %len)
+[END_MACRO]
+
+[MACRO] WS_CLIENT_RECV %out_status, %out_opcode, %out_buf_handle, %handle
+    __ws_cli_opcode_%out_status = stack_alloc 1
+    __ws_cli_buf_%out_status = stack_alloc 8
+    %out_status = call @sa_std_ws_client_recv(%handle, &__ws_cli_opcode_%out_status, &__ws_cli_buf_%out_status)
+    %out_opcode = load __ws_cli_opcode_%out_status+0 as u8
+    %out_buf_handle = load __ws_cli_buf_%out_status+0 as u64
+[END_MACRO]
+
+[MACRO] WS_CLIENT_CLOSE %out_status, %handle
+    __ws_cli_empty_%out_status = stack_alloc 1
+    %out_status = call @sa_std_ws_client_close(%handle, 1000, &__ws_cli_empty_%out_status, 0)
+[END_MACRO]
+
+[MACRO] WS_CLIENT_STATUS_JSON %out_status, %out_buffer
+    __ws_cli_status_handle_%out_status = stack_alloc 8
+    %out_status = call @sa_std_ws_client_status_json(&__ws_cli_status_handle_%out_status)
+    %out_buffer = load __ws_cli_status_handle_%out_status+0 as u64
+[END_MACRO]
+
+// buffer handle accessors (sci convention)
+
+[MACRO] WS_CLIENT_BUFFER_DATA %out_ptr, %buffer
+    %out_ptr = call @sa_std_ws_client_buffer_data(%buffer)
+[END_MACRO]
+
+[MACRO] WS_CLIENT_BUFFER_LEN %out_len, %buffer
+    %out_len = call @sa_std_ws_client_buffer_len(%buffer)
+[END_MACRO]
+
+[MACRO] WS_CLIENT_BUFFER_FREE %out_status, %buffer
+    %out_status = call @sa_std_ws_client_buffer_free(^%buffer)
+[END_MACRO]
