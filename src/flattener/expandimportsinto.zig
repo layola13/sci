@@ -15,6 +15,7 @@ const ForbiddenLine = @import("appendexpandedimportcachehit.zig").ForbiddenLine;
 const ImportExpansion = @import("importexpansion.zig").ImportExpansion;
 const LayoutVersion = @import("importexpansion.zig").LayoutVersion;
 const MacroDef = @import("importexpansion.zig").MacroDef;
+const ModuleTable = @import("../module_loader/wiring.zig").ModuleTable;
 const Replacement = @import("importexpansion.zig").Replacement;
 const ResolveContext = @import("importexpansion.zig").ResolveContext;
 const appendExpandedImportCacheHit = @import("appendexpandedimportcachehit.zig").appendExpandedImportCacheHit;
@@ -48,7 +49,10 @@ const storeExpandedImportCacheEntry = @import("appendexpandedimportcachehit.zig"
 const traceImportsEnabled = @import("importexpansion.zig").traceImportsEnabled;
 
 
-pub fn expandImportsInto(
+/// 表核心：两张旧 map 已由 ModuleTable（wiring.zig）收拢；去重与循环判定
+/// 走 checkImport/markLoading/finishLoading，语义与旧代码一致（loading
+/// 态重遇 → ImportCycle，loaded/analyzed 态重遇 → 跳过）。
+pub fn expandImportsIntoTable(
     allocator: std.mem.Allocator,
     out: *std.array_list.Managed(u8),
     line_package_identities: *std.array_list.Managed(?[]const u8),
@@ -59,8 +63,7 @@ pub fn expandImportsInto(
     base_dir: []const u8,
     current_source_path: ?[]const u8,
     is_root_call: bool,
-    active_paths: *std.StringHashMap(void),
-    seen_paths: *std.StringHashMap(void),
+    modules: *ModuleTable,
     seen_package_identities: *std.StringHashMap(void),
     owned_paths: *std.array_list.Managed([]u8),
     layout_versions: *std.array_list.Managed(LayoutVersion),
@@ -105,14 +108,17 @@ pub fn expandImportsInto(
                 null;
             defer if (expanded_cache_key) |key| allocator.free(key);
 
-            if (active_paths.contains(imported.entry_path)) {
-                imported.deinit(allocator);
-                return error.ImportCycle;
-            }
-            if (seen_paths.contains(imported.entry_path)) {
-                markSeenImportContextDependency(cache_dependency, owned_paths.items, imported.entry_path);
-                imported.deinit(allocator);
-                continue;
+            switch (modules.checkImport(imported.entry_path)) {
+                .loading => {
+                    imported.deinit(allocator);
+                    return error.ImportCycle;
+                },
+                .seen => {
+                    markSeenImportContextDependency(cache_dependency, owned_paths.items, imported.entry_path);
+                    imported.deinit(allocator);
+                    continue;
+                },
+                .fresh => {},
             }
             if (expanded_cache_key) |key| {
                 if (try appendExpandedImportCacheHit(
@@ -123,8 +129,8 @@ pub fn expandImportsInto(
                     line_package_hashes,
                     line_origin_paths,
                     line_origin_lines,
-                    active_paths,
-                    seen_paths,
+                    &modules.active_paths,
+                    &modules.seen_paths,
                     owned_paths,
                     layout_versions,
                 )) {
@@ -149,9 +155,9 @@ pub fn expandImportsInto(
             };
             imported.entry_path_owned = false;
             defer imported.deinit(allocator);
-            try seen_paths.put(imported.entry_path, {});
-            try active_paths.put(imported.entry_path, {});
-            defer _ = active_paths.remove(imported.entry_path);
+            const imported_id = ModuleTable.idForEntryPath(imported.entry_path);
+            try modules.markLoading(imported_id, imported.entry_path);
+            defer modules.finishLoading(imported_id, imported.entry_path);
 
             const import_dir = std.fs.path.dirname(imported.entry_path) orelse ".";
             try injectImportedFile(
@@ -162,8 +168,8 @@ pub fn expandImportsInto(
                 line_origin_paths,
                 line_origin_lines,
                 &imported,
-                active_paths,
-                seen_paths,
+                &modules.active_paths,
+                &modules.seen_paths,
                 seen_package_identities,
                 owned_paths,
                 layout_versions,
@@ -184,7 +190,7 @@ pub fn expandImportsInto(
                 }
                 break :blk imported.source;
             } else imported.source;
-            try expandImportsInto(
+            try expandImportsIntoTable(
                 allocator,
                 out,
                 line_package_identities,
@@ -195,8 +201,7 @@ pub fn expandImportsInto(
                 import_dir,
                 imported.entry_path,
                 false,
-                active_paths,
-                seen_paths,
+                modules,
                 seen_package_identities,
                 owned_paths,
                 layout_versions,
@@ -241,6 +246,37 @@ pub fn expandImportsInto(
     }
 }
 
+/// 旧签名适配器：唯一未迁移调用方 injectImportedFile（injectimportedfile.zig:484，
+/// 不在 P3C 可改范围）仍传两张旧 map；临时装表后调表核心，返回前换回；该调用方
+/// 迁到表核心后即可删除本函数。（参数与转发调用故意写紧凑，以守 700 行上限。）
+pub fn expandImportsInto(
+    allocator: std.mem.Allocator, out: *std.array_list.Managed(u8),
+    line_package_identities: *std.array_list.Managed(?[]const u8),
+    line_package_hashes: *std.array_list.Managed(?[32]u8),
+    line_origin_paths: *std.array_list.Managed(?[]const u8),
+    line_origin_lines: *std.array_list.Managed(u32), source: []const u8,
+    base_dir: []const u8, current_source_path: ?[]const u8, is_root_call: bool,
+    active_paths: *std.StringHashMap(void), seen_paths: *std.StringHashMap(void),
+    seen_package_identities: *std.StringHashMap(void),
+    owned_paths: *std.array_list.Managed([]u8),
+    layout_versions: *std.array_list.Managed(LayoutVersion),
+    error_ctx: ?*ErrorContext, current_package_identity: ?[]const u8,
+    current_package_hash: ?[32]u8, resolve_ctx: ?ResolveContext,
+    cache_dependency: ?*ExpandedImportCacheDependency,
+) !void {
+    var modules = ModuleTable.init(allocator);
+    defer modules.deinit();
+    const saved = modules.adoptMaps(active_paths, seen_paths);
+    defer modules.restoreMaps(active_paths, seen_paths, saved);
+    return expandImportsIntoTable(
+        allocator, out, line_package_identities, line_package_hashes,
+        line_origin_paths, line_origin_lines, source, base_dir,
+        current_source_path, is_root_call, &modules, seen_package_identities,
+        owned_paths, layout_versions, error_ctx, current_package_identity,
+        current_package_hash, resolve_ctx, cache_dependency,
+    );
+}
+
 pub fn expandImports(
     allocator: std.mem.Allocator,
     source: []const u8,
@@ -248,11 +284,8 @@ pub fn expandImports(
     error_ctx: ?*ErrorContext,
     resolve_ctx: ?ResolveContext,
 ) !ImportExpansion {
-    var active_paths = std.StringHashMap(void).init(allocator);
-    errdefer active_paths.deinit();
-
-    var seen_paths = std.StringHashMap(void).init(allocator);
-    errdefer seen_paths.deinit();
+    var modules = ModuleTable.init(allocator);
+    errdefer modules.deinit();
 
     var seen_package_identities = std.StringHashMap(void).init(allocator);
     errdefer {
@@ -299,8 +332,8 @@ pub fn expandImports(
             return err;
         };
         root_source_path = source_full;
-        try active_paths.put(source_full, {});
-        try seen_paths.put(source_full, {});
+        // 根源文件与旧代码一致记为 loading 态（旧代码把它留在 active_paths 里从不移除）。
+        try modules.markLoading(ModuleTable.idForEntryPath(source_full), source_full);
 
         if (std.mem.endsWith(u8, source_full, ".sal")) {
             try recordLayoutVersion(allocator, &layout_versions, source_full, source);
@@ -314,7 +347,7 @@ pub fn expandImports(
             null
     else
         null;
-    try expandImportsInto(
+    try expandImportsIntoTable(
         allocator,
         &out,
         &line_package_identities,
@@ -325,8 +358,7 @@ pub fn expandImports(
         base_dir,
         root_source_path,
         true,
-        &active_paths,
-        &seen_paths,
+        &modules,
         &seen_package_identities,
         &owned_paths,
         &layout_versions,
@@ -339,8 +371,7 @@ pub fn expandImports(
 
     return .{
         .source = try out.toOwnedSlice(),
-        .active_paths = active_paths,
-        .seen_paths = seen_paths,
+        .modules = modules,
         .seen_package_identities = seen_package_identities,
         .line_package_identities = line_package_identities,
         .line_package_hashes = line_package_hashes,

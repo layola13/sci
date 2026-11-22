@@ -4,13 +4,14 @@
 //! 是提案 §4 的 `sa-module-resolver` 的定位部分。只做存在性判断，
 //! 不读文件内容、不解析、不做语义分析。
 //!
-//! 与现有机制的关系（本定位器不替换以下任何一处）：
-//!   - flattener 的 seen_paths 去重与 ImportCycle 循环检测
-//!     （src/flattener/expandimportsinto.zig，约 110 行处）继续负责
-//!     @import 文本包含的去重与成环报错；本定位器不跟踪加载状态。
-//!   - src/pkg/resolver.zig 的 `sa_std/` 前缀解析继续负责包名前缀到
-//!     仓库内 sa_std/ 树的映射；本定位器假定 std_root 已由调用方按
-//!     该映射给好，只在树内做域校验与扩展名试探。
+//! 与现有机制的关系：
+//!   - flattener 的去重与 ImportCycle 循环检测（src/flattener/
+//!     expandimportsinto.zig，Phase 3 起由 module_loader/wiring.zig 的
+//!     ModuleTable 承接）继续负责 @import 文本包含的去重与成环报错；
+//!     本定位器不跟踪加载状态。
+//!   - src/pkg/resolver.zig 的 `sa_std/` 前缀解析自 Phase 3（P3C）起改走
+//!     本定位器的 locate()（经 parseImportSpec 解析）；本定位器假定
+//!     std_root 已由调用方按该映射给好，只在树内做域校验与扩展名试探。
 //!   - Phase 3 懒加载器消费本模块时再接线：定位（本文件）→ 按需读取
 //!     → 解析 → 状态机推进（ModuleState.unloaded → analyzed）。
 //!
@@ -193,6 +194,44 @@ pub fn probeExtensions(dir: sio.Dir, stem: []const u8) ?[]const u8 {
     return null;
 }
 
+/// 把 base_dir 与一条相对规约路径按词法拼接并消解 `.` / `..` 段（不触磁盘）。
+/// base_dir 为绝对路径时结果绝对；为相对路径时多余的 `..` 保留在前导。
+/// `..` 越过绝对根时报 ModuleNotFound。调用方所有。
+fn resolveRelativePath(allocator: std.mem.Allocator, base_dir: []const u8, spec_path: []const u8) ResolveError![]u8 {
+    const absolute = std.mem.startsWith(u8, base_dir, "/");
+    var segments = std.ArrayListUnmanaged([]const u8).empty;
+    defer segments.deinit(allocator);
+    var base_it = std.mem.splitScalar(u8, base_dir, '/');
+    while (base_it.next()) |seg| {
+        if (seg.len == 0 or std.mem.eql(u8, seg, ".")) continue;
+        try segments.append(allocator, seg);
+    }
+    var spec_it = std.mem.splitScalar(u8, spec_path, '/');
+    while (spec_it.next()) |seg| {
+        if (seg.len == 0 or std.mem.eql(u8, seg, ".")) continue;
+        if (std.mem.eql(u8, seg, "..")) {
+            if (segments.items.len > 0 and !std.mem.eql(u8, segments.items[segments.items.len - 1], "..")) {
+                _ = segments.pop();
+            } else if (absolute) {
+                return error.ModuleNotFound;
+            } else {
+                try segments.append(allocator, seg);
+            }
+            continue;
+        }
+        try segments.append(allocator, seg);
+    }
+    var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+    if (absolute) try out.append('/');
+    for (segments.items, 0..) |seg, i| {
+        if (i > 0) try out.append('/');
+        try out.appendSlice(seg);
+    }
+    if (out.items.len == 0) return error.ModuleNotFound;
+    return out.toOwnedSlice();
+}
+
 /// 域 → 该域 prelude.sa 的相对路径（如 `io/prelude.sa`），调用方所有。
 ///
 /// 无 prelude 的域（当前只有 string/）返回 null；未知域名也返回 null
@@ -263,15 +302,16 @@ pub const Locator = struct {
     ///   - 域本身：`sa_std/io`（模块级导入 → 域 prelude，见 locatePrelude）。
     /// 不接受的写法：
     ///   - 相对路径，如 `cell/arc.sa`（真实语法 `@import "cell/arc.sa"` 存在，
-    ///     但它是相对于导入方文件所在目录的相对路径；本定位器没有基准目录，
-    ///     调用方须先解析成包限定形式——Phase 3 懒加载器补基准目录参数）。
+    ///     但它是相对于导入方文件所在目录的相对路径；本方法没有基准目录，
+    ///     调用方须用 locateRelative(spec, base_dir)（Phase 3，P3C）。
     ///     此类说明符首段既非包名也非域名，在此报 ModuleNotFound。
     ///   - 包名非 `sa_std`：Phase 2 只有本地 sa_std 单一版本树，无注册表，
     ///     其他包一律 ModuleNotFound。
     ///   - `sa_std/<name>` 且 <name> 不是域名：如 `sa_std/vec`，先试顶层 shim
     ///    （sa_std/vec.sa 存在即返回 is_shim=true）；shim 也不存在才报
-    ///     ModuleNotFound。注意：中间层旧路径 shim（如 collections/vec_deque.sa）
-    ///     不在本定位器的 shim 路径内，是已知缺口，见文件末尾注释。
+    ///     ModuleNotFound。中间层旧路径 shim（如 collections/vec_deque.sa）
+    ///     由第 1 步规范试探直接命中（shim 文件就在旧域级路径上），不走
+    ///     shim 路，见文件末尾注释（P3C 已核实）。
     pub fn locate(self: Locator, spec: ImportSpec) ResolveError!ModuleInfo {
         if (spec.package.len == 0) return error.InvalidImportSpec;
         if (spec.path.len == 0) return error.InvalidImportSpec;
@@ -372,15 +412,63 @@ pub const Locator = struct {
             .is_shim = false,
         };
     }
+
+    /// 相对导入定位：把一条相对规约（如 `cell/arc.sa`、`../task/prelude.sal`）
+    /// 按 base_dir（导入方文件所在目录）解析成磁盘上的模块文件。
+    ///
+    /// 与 locate() 的区别：不要求包名前缀，不校验域；`..` 段按词法消解
+    /// （不经 normalizeSpecifier，后者拒 `..`）；无扩展名时按 probe_order
+    /// 试探。std_root 与本方法无关（相对导入不进 sa_std 树）。
+    /// 约定：相对导入无包，ModuleInfo.id.package 为 ""；id.path 为 base_dir
+    /// 拼接后的归一化路径（含命中扩展名），fs_path 为同一磁盘路径；去重仍以
+    /// flattener 的规范 entry_path 为准（见 wiring.zig）。
+    /// 非相对规约（spec.package 非空）或绝对路径一律报 ModuleNotFound，
+    /// 由调用方走 locate() 或既有绝对路径分支。
+    pub fn locateRelative(self: Locator, spec: ImportSpec, base_dir: []const u8) ResolveError!ModuleInfo {
+        if (spec.package.len != 0) return error.ModuleNotFound;
+        if (spec.path.len == 0) return error.InvalidImportSpec;
+        if (std.mem.startsWith(u8, spec.path, "/")) return error.ModuleNotFound;
+        const joined = try resolveRelativePath(self.allocator, base_dir, spec.path);
+        defer self.allocator.free(joined);
+        const root = sio.cwd();
+        if (knownExtension(joined) != null) {
+            if (!fileExists(root, joined)) return error.ModuleNotFound;
+            return self.makeRelativeInfo(spec, joined);
+        }
+        const ext = probeExtensions(root, joined) orelse return error.ModuleNotFound;
+        const resolved = try std.mem.concat(self.allocator, u8, &.{ joined, ext });
+        defer self.allocator.free(resolved);
+        return self.makeRelativeInfo(spec, resolved);
+    }
+
+    /// 组装一条相对导入的 ModuleInfo：fs_path 与 id.path 均为 base_dir 拼接
+    /// 后的归一化路径（调用方所有，各一份拷贝）；package 为 ""（无包）。
+    fn makeRelativeInfo(self: Locator, spec: ImportSpec, rel_path: []const u8) ResolveError!ModuleInfo {
+        const fs_path = try self.allocator.dupe(u8, rel_path);
+        errdefer self.allocator.free(fs_path);
+        const id_path = try self.allocator.dupe(u8, rel_path);
+        return .{
+            .id = .{ .package = "", .path = id_path },
+            .state = .unloaded,
+            .fs_path = fs_path,
+            .kind = spec.kind,
+            .is_shim = false,
+        };
+    }
 };
 
 // 已知缺口（只记，不修；Phase 2 不动 sa_std/、不动已有文件）：
-//   - 中间层旧路径 shim 不覆盖：Phase 1 在 collections/ 下补了 6 个中间路径
-//     shim（如 collections/vec_deque.sa → collections/deque/vec_deque.sa），
-//     本定位器的 shim 路只试顶层 sa_std/<leaf>，这类中间 shim 命中不了，
-//     须由 Phase 3 在接线时决定是否扩展 shim 搜索层级。
-//   - 相对导入无基准目录：`@import "cell/arc.sa"` 这类相对导入需调用方先按
-//     导入方文件所在目录解析成包限定形式；Locator.locate 对其报 ModuleNotFound。
+//   - 中间层旧路径 shim 已核实覆盖、无需扩展搜索层级（P3C，2026-11-22）：
+//     6 个中间 shim（如 collections/vec_deque.sa）本身就落在旧域级路径上，
+//     locate() 第 1 步规范试探直接命中；顶层旧写法（如 sa_std/vec_deque）
+//     由顶层 shim 试探命中（sa_std/vec_deque.sa 等 6 个顶层文件均存在）。
+//     两路之外（如写错域的旧路径）不在覆盖内，仍报 ModuleNotFound。
+//   - 相对导入已由 Locator.locateRelative 覆盖（Phase 3，P3C）：调用方
+//     resolver.zig 的 resolveRelativeImport 先试 locateRelative
+//     （base_dir 为基准），未命中再走既有逐段回退循环。
+//   - sa_std/<非域名> 口径（P3C）：先试顶层 shim，shim 不存在才报
+//     ModuleNotFound，不严格报错；顶层 shim 是 Phase 1 的既有约定
+//     （如 sa_std/io.sa → io/prelude.sa 的 1 行 @import 转发）。
 //   - string/ 无 prelude.sa：模块级导入 sa_std.string 报 ModuleNotFound，
 //     Phase 2 不新建该文件。
 //   - 版本只记录不校验：ImportSpec.version 原样保留，定位时忽略；多版本 /

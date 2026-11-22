@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const sio = @import("sio");
+pub const sio = @import("sio");
+const module_locator = @import("../module_resolver/locator.zig");
+const module_spec = @import("../module_resolver/spec.zig");
 const build_options = if (builtin.is_test) struct {
     pub const repo_root: []const u8 = ".";
 } else @import("build_options");
@@ -339,12 +341,38 @@ fn computeResolvedSourceHash(
     return hashSourceBytes(source);
 }
 
+/// 相对导入先试 Phase 2 的 Locator.locateRelative（base_dir 为基准，含 `..`
+/// 消解与无扩展名试探；std_root 无关）；未命中返回 null，走既有逐段回退循环。
+fn locateRelativeImport(allocator: std.mem.Allocator, base_dir: []const u8, import_path: []const u8, max_bytes: usize) ResolveError!?ResolvedImport {
+    if (std.fs.path.isAbsolute(import_path)) return null;
+    var spec = module_spec.parseImportSpec(allocator, import_path) catch return null;
+    defer spec.deinit(allocator);
+    if (spec.package.len != 0) return null;
+    const locator = module_locator.Locator.init(allocator, "");
+    const info = locator.locateRelative(spec, base_dir) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return null,
+    };
+    defer allocator.free(info.fs_path); defer allocator.free(info.id.path);
+    const canonical = sio.cwd().realpathAlloc(allocator, info.fs_path) catch return null;
+    errdefer allocator.free(canonical);
+    const source = try readFileAlloc(allocator, canonical, max_bytes);
+    errdefer allocator.free(source);
+    const source_hash = try computeResolvedSourceHash(allocator, canonical, null, source);
+    return .{ .entry_path = canonical, .source = source, .owned_source = source, .source_sha256 = source_hash };
+}
+
 fn resolveRelativeImport(
     allocator: std.mem.Allocator,
     base_dir: []const u8,
     import_path: []const u8,
     max_bytes: usize,
 ) ResolveError!?ResolvedImport {
+    // Phase 3（P3C）接线：相对导入先走 Locator.locateRelative（base_dir 为基准，定位器内解析）；
+    // 未命中则走既有逐段回退循环（行为不变）。
+    if (try locateRelativeImport(allocator, base_dir, import_path, max_bytes)) |resolved| {
+        return resolved;
+    }
     var current_path = import_path;
     while (true) {
         const candidate = if (std.fs.path.isAbsolute(current_path))
@@ -653,6 +681,29 @@ fn resolveRootedImport(
     return resolved;
 }
 
+/// parseImportSpec 的 AmbiguousImport 回退：文件侧与目录 prelude 并存只是
+/// 分类歧义，定位本身是确定性的（规范路径优先、域 prelude 其次），故用 kind=.module 重试；package 取字面量 "sa_std"。
+fn fallbackModuleSpec(allocator: std.mem.Allocator, import_path: []const u8) ResolveError!module_spec.ImportSpec {
+    const raw = try allocator.dupe(u8, import_path);
+    errdefer allocator.free(raw);
+    const path = try allocator.dupe(u8, import_path);
+    return .{ .raw = raw, .kind = .module, .package = "sa_std", .path = path, .symbol = null, .version = null };
+}
+
+/// 经 Locator.locate 定位后复用既有 resolveRootedImport 读文件并算哈希，
+/// ResolvedImport 形状与现行手工路径分支一致；定位未命中返回 null。
+fn locateStandardImport(allocator: std.mem.Allocator, spec: module_spec.ImportSpec, std_root: []const u8, max_bytes: usize) ResolveError!?ResolvedImport {
+    const locator = module_locator.Locator.init(allocator, std_root);
+    const info = locator.locate(spec) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return null, // 含 ModuleNotFound/InvalidImportSpec；其余变体 Phase 2 不触发。
+    };
+    defer allocator.free(info.fs_path); defer allocator.free(info.id.path);
+    // id.path 为 "sa_std/<rel>"，去包名前缀得相对 std_root 的路径。
+    const rel = info.id.path["sa_std/".len..];
+    return resolveRootedImport(allocator, std_root, rel, max_bytes) catch null;
+}
+
 fn resolveStandardImport(
     allocator: std.mem.Allocator,
     import_path: []const u8,
@@ -660,19 +711,22 @@ fn resolveStandardImport(
 ) ResolveError!?ResolvedImport {
     if (!std.mem.startsWith(u8, import_path, "sa_std/") and !std.mem.eql(u8, import_path, "sa_std")) return null;
 
-    const std_rel = if (std.mem.eql(u8, import_path, "sa_std")) "" else import_path["sa_std/".len..];
-
+    // Phase 3（P3C）接线：sa_std/ 前缀分支改走 Phase 2 的 Locator.locate
+    // （经 parseImportSpec 解析），替代现行手工拼路径；失败返回 null，走既有回退链。
+    // 口径：sa_std/<非域名>（如 sa_std/vec）先试顶层 shim，shim 不存在才报未命中。
+    var spec = module_spec.parseImportSpec(allocator, import_path) catch |err| switch (err) {
+        error.AmbiguousImport => try fallbackModuleSpec(allocator, import_path),
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return null,
+    };
+    defer spec.deinit(allocator);
     if (options.std_root) |std_root| {
-        if (resolveRootedImport(allocator, std_root, std_rel, options.max_local_file_bytes) catch null) |resolved| {
-            return resolved;
-        }
+        if (try locateStandardImport(allocator, spec, std_root, options.max_local_file_bytes)) |resolved| return resolved;
     }
 
     const repo_std_root = try std.fs.path.join(allocator, &.{ build_options.repo_root, "sa_std" });
     defer allocator.free(repo_std_root);
-    if (resolveRootedImport(allocator, repo_std_root, std_rel, options.max_local_file_bytes) catch null) |resolved| {
-        return resolved;
-    }
+    if (try locateStandardImport(allocator, spec, repo_std_root, options.max_local_file_bytes)) |resolved| return resolved;
 
     if (projectRootPath(allocator, options) catch null) |project_root| {
         defer allocator.free(project_root);

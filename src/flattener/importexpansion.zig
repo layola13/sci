@@ -7,6 +7,7 @@ const ClassifiedLine = @import("line_classifier.zig").ClassifiedLine;
 const LineKind = @import("line_classifier.zig").LineKind;
 const declTargetFor = @import("injectimportedfile.zig").declTargetFor;
 const deinitOwnedSourceLines = @import("appendexpandedimportcachehit.zig").deinitOwnedSourceLines;
+const ModuleTable = @import("../module_loader/wiring.zig").ModuleTable;
 
 
 pub const max_expanded_instructions: usize = 10_000_000;
@@ -277,8 +278,9 @@ pub fn appendGeneratedLocLine(
 
 pub const ImportExpansion = struct {
     source: []u8,
-    active_paths: std.StringHashMap(void),
-    seen_paths: std.StringHashMap(void),
+    /// 模块状态表（旧 active_paths/seen_paths 两张 map 已收拢进表内；
+    /// 见 src/module_loader/wiring.zig）。
+    modules: ModuleTable,
     seen_package_identities: std.StringHashMap(void),
     line_package_identities: std.array_list.Managed(?[]const u8),
     line_package_hashes: std.array_list.Managed(?[32]u8),
@@ -307,8 +309,7 @@ pub const ImportExpansion = struct {
         self.seen_package_identities.deinit();
         for (self.layout_versions.items) |*layout_version| layout_version.deinit(allocator);
         self.layout_versions.deinit();
-        self.active_paths.deinit();
-        self.seen_paths.deinit();
+        self.modules.deinit();
         allocator.free(self.source);
         self.* = undefined;
     }
