@@ -49,9 +49,9 @@ L_FEX:
     ok_for = eq sum, 45
     !sum
     !i
-    // ── FOR_RANGE 一体版：sum 0..5 = 10 ──
+    // ── CTL_FOR_RANGE 一体版：sum 0..5 = 10 ──
     sum2 = add 0, 0
-    EXPAND FOR_RANGE j, 0, 5, L_GHD, L_GBD, L_GEX
+    EXPAND CTL_FOR_RANGE j, 0, 5, L_GHD, L_GBD, L_GEX
 L_GBD:
     sum2 = add sum2, j
     EXPAND FOR_NEXT j, 1, L_GHD
