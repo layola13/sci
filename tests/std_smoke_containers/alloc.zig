@@ -38,13 +38,13 @@ test "sa_std alloc helpers are concrete and verifiable" {
         },
     }
 
-    const vec_macro_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/vec.sal");
+    const vec_macro_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/collections/vec/vec.sal");
     defer std.testing.allocator.free(vec_macro_layout);
     try std.testing.expectEqualStrings("#def Vec_data = +0\n", vec_macro_layout);
 
-    const vec_macro_src = try common.readFileAlloc(std.testing.allocator, "sa_std/vec.sa");
+    const vec_macro_src = try common.readFileAlloc(std.testing.allocator, "sa_std/collections/vec/vec.sa");
     defer std.testing.allocator.free(vec_macro_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "@import \"alloc/vec.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "@import \"../../alloc/vec.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_AS_PTR"));
@@ -90,7 +90,7 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, vec_macro_src, 1, "[MACRO] VEC_TRY_SPLIT_AT_U64"));
 
     var vec_macro_error_ctx = saasm.flattener.ErrorContext{};
-    var vec_macro_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/vec.sa", vec_macro_src, &vec_macro_error_ctx) catch |err| {
+    var vec_macro_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/collections/vec/vec.sa", vec_macro_src, &vec_macro_error_ctx) catch |err| {
         const source_line = saasm.flattener.takeErrorSourceLine(&vec_macro_error_ctx) orelse 0;
         std.debug.print("vec macro flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
         return err;
@@ -148,7 +148,7 @@ test "sa_std alloc helpers are concrete and verifiable" {
         },
     }
 
-    const string_src = try common.readFileAlloc(std.testing.allocator, "sa_std/alloc/string.sa");
+    const string_src = try common.readFileAlloc(std.testing.allocator, "sa_std/string/builder/str_from_const.sa");
     defer std.testing.allocator.free(string_src);
     try std.testing.expect(!std.mem.containsAtLeast(u8, string_src, 1, "inttoptr"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, string_src, 1, "假定"));
@@ -156,9 +156,9 @@ test "sa_std alloc helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, string_src, 1, "[MACRO] STR_FROM_CONST"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_src, 1, "EXPAND SLICE_NEW"));
 
-    const string_macro_src = try common.readFileAlloc(std.testing.allocator, "sa_std/string.sa");
+    const string_macro_src = try common.readFileAlloc(std.testing.allocator, "sa_std/string/string/string.sa");
     defer std.testing.allocator.free(string_macro_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "@import \"fmt.sai\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "@import \"../../fmt.sai\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STRING_LEN"));
     try std.testing.expect(std.mem.containsAtLeast(u8, string_macro_src, 1, "[MACRO] STR_AS_PTR"));

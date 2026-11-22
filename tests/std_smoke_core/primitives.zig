@@ -6,7 +6,7 @@ const saasm = common.saasm;
 const flattenFixture = @import("helpers.zig").flattenFixture;
 
 test "sa_std core primitives are concrete and verifiable" {
-    const slice_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/core/slice.sal");
+    const slice_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/core/slice/slice.sal");
     defer std.testing.allocator.free(slice_layout);
     try std.testing.expectEqualStrings(
         \\#def Slice_SIZE = 16
@@ -21,7 +21,7 @@ test "sa_std core primitives are concrete and verifiable" {
         slice_layout,
     );
 
-    const slice_src = try common.readFileAlloc(std.testing.allocator, "sa_std/core/slice.sa");
+    const slice_src = try common.readFileAlloc(std.testing.allocator, "sa_std/core/slice/slice.sa");
     defer std.testing.allocator.free(slice_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_NEW"));
     try std.testing.expect(std.mem.containsAtLeast(u8, slice_src, 1, "[MACRO] SLICE_GET_PTR"));
@@ -268,7 +268,7 @@ test "sa_std core primitives are concrete and verifiable" {
         },
     }
 
-    const mem_src = try common.readFileAlloc(std.testing.allocator, "sa_std/core/mem.sa");
+    const mem_src = try common.readFileAlloc(std.testing.allocator, "sa_std/core/memory/raw.sa");
     defer std.testing.allocator.free(mem_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "@export sa_mem_copy"));
     try std.testing.expect(std.mem.containsAtLeast(u8, mem_src, 1, "@export sa_mem_set"));
@@ -344,7 +344,7 @@ test "sa_std http2 buffer accessors borrow handles before free" {
 }
 
 test "sa_std io and process interfaces match native resource ABI" {
-    const io_iface = try common.readFileAlloc(std.testing.allocator, "sa_std/io.sai");
+    const io_iface = try common.readFileAlloc(std.testing.allocator, "sa_std/io/io.sai");
     defer std.testing.allocator.free(io_iface);
     try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "@extern sa_io_stdin() -> u64"));
     try std.testing.expect(std.mem.containsAtLeast(u8, io_iface, 1, "@extern sa_io_read(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32"));
@@ -353,7 +353,7 @@ test "sa_std io and process interfaces match native resource ABI" {
     try std.testing.expect(!std.mem.containsAtLeast(u8, io_iface, 1, "@extern sa_io_read(handle: ptr, &buf: ptr, cap: u64) -> u64!"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, io_iface, 1, "@extern sa_io_close(^handle: ptr) -> i32!"));
 
-    const process_iface = try common.readFileAlloc(std.testing.allocator, "sa_std/process.sai");
+    const process_iface = try common.readFileAlloc(std.testing.allocator, "sa_std/os/process.sai");
     defer std.testing.allocator.free(process_iface);
     try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_run(&argv: ptr, argv_len: u64, &out_handle: ptr) -> i32"));
     try std.testing.expect(std.mem.containsAtLeast(u8, process_iface, 1, "@extern sa_std_process_id() -> u32"));
@@ -368,7 +368,7 @@ test "sa_std io and process interfaces match native resource ABI" {
     try std.testing.expect(!std.mem.containsAtLeast(u8, process_iface, 1, "sa_std_process_wait(handle: ptr"));
     try std.testing.expect(!std.mem.containsAtLeast(u8, process_iface, 1, "sa_std_process_close(^handle: ptr"));
 
-    const process_src = try common.readFileAlloc(std.testing.allocator, "sa_std/process.sa");
+    const process_src = try common.readFileAlloc(std.testing.allocator, "sa_std/os/process.sa");
     defer std.testing.allocator.free(process_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, process_src, 1, "[MACRO] PROCESS_ABORT"));
     try std.testing.expect(std.mem.containsAtLeast(u8, process_src, 1, "[MACRO] PROCESS_CHILD_ID %out_status, %out_pid, %process"));
@@ -376,27 +376,33 @@ test "sa_std io and process interfaces match native resource ABI" {
     try std.testing.expect(std.mem.containsAtLeast(u8, process_src, 1, "[MACRO] PROCESS_TRY_WAIT_EXIT_STATUS"));
     try std.testing.expect(std.mem.containsAtLeast(u8, process_src, 1, "[MACRO] PROCESS_KILL"));
 
-    const io_src = try common.readFileAlloc(std.testing.allocator, "sa_std/io.sa");
+    const io_src = try common.readFileAlloc(std.testing.allocator, "sa_std/io/prelude.sa");
     defer std.testing.allocator.free(io_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] READ "));
-    try std.testing.expect(std.mem.containsAtLeast(u8, io_src, 1, "[MACRO] WRITE_SOME"));
-    var io_flat = try flattenFixture(std.testing.allocator, "sa_std/io.sa", io_src);
+    // READ / WRITE_SOME moved out of the io aggregate into the stdin/stdout
+    // modules it aggregates (Phase 1 modularization, 2026-11-22).
+    const io_stdin_src = try common.readFileAlloc(std.testing.allocator, "sa_std/io/stdin/stdin.sa");
+    defer std.testing.allocator.free(io_stdin_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_stdin_src, 1, "[MACRO] READ "));
+    const io_stdout_src = try common.readFileAlloc(std.testing.allocator, "sa_std/io/stdout/stdout.sa");
+    defer std.testing.allocator.free(io_stdout_src);
+    try std.testing.expect(std.mem.containsAtLeast(u8, io_stdout_src, 1, "[MACRO] WRITE_SOME"));
+    var io_flat = try flattenFixture(std.testing.allocator, "sa_std/io/prelude.sa", io_src);
     defer io_flat.deinit(std.testing.allocator);
     try std.testing.expect(io_flat.function_sigs.len > 0);
 
-    const buf_reader_src = try common.readFileAlloc(std.testing.allocator, "sa_std/io/buf_reader.sa");
+    const buf_reader_src = try common.readFileAlloc(std.testing.allocator, "sa_std/io/buffer/buf_reader.sa");
     defer std.testing.allocator.free(buf_reader_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "call @sa_io_read(%handle, &%buf, %cap, &__buf_reader_read_slot)"));
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_reader_src, 1, "call @sa_io_close(%handle)"));
-    var buf_reader_flat = try flattenFixture(std.testing.allocator, "sa_std/io/buf_reader.sa", buf_reader_src);
+    var buf_reader_flat = try flattenFixture(std.testing.allocator, "sa_std/io/buffer/buf_reader.sa", buf_reader_src);
     defer buf_reader_flat.deinit(std.testing.allocator);
     try std.testing.expect(buf_reader_flat.function_sigs.len > 0);
 
-    const buf_writer_src = try common.readFileAlloc(std.testing.allocator, "sa_std/io/buf_writer.sa");
+    const buf_writer_src = try common.readFileAlloc(std.testing.allocator, "sa_std/io/buffer/buf_writer.sa");
     defer std.testing.allocator.free(buf_writer_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "call @sa_io_write(%handle, &%buf, %len, &__buf_writer_write_slot)"));
     try std.testing.expect(std.mem.containsAtLeast(u8, buf_writer_src, 1, "call @sa_io_close(%handle)"));
-    var buf_writer_flat = try flattenFixture(std.testing.allocator, "sa_std/io/buf_writer.sa", buf_writer_src);
+    var buf_writer_flat = try flattenFixture(std.testing.allocator, "sa_std/io/buffer/buf_writer.sa", buf_writer_src);
     defer buf_writer_flat.deinit(std.testing.allocator);
     try std.testing.expect(buf_writer_flat.function_sigs.len > 0);
 }

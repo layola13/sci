@@ -3,7 +3,7 @@ const common = @import("../std_smoke_common.zig");
 const saasm = common.saasm;
 
 test "sa_std hashset helpers are concrete and verifiable" {
-    const hashset_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/hashset.sal");
+    const hashset_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/collections/hashset/hashset.sal");
     defer std.testing.allocator.free(hashset_layout);
     try std.testing.expectEqualStrings(
         "#def HashSet_SIZE = 32\n#def HashSet_slots = +0\n#def HashSet_cap = +8\n#def HashSet_len = +16\n#def HashSet_tombs = +24\n\n#def HashSetSlot_SIZE = 32\n#def HashSetSlot_hash = +0\n#def HashSetSlot_key = +8\n#def HashSetSlot_value = +16\n#def HashSetSlot_state = +24\n\n#def HashSet_INITIAL_CAP = 8\n#def HashSet_STATE_EMPTY = 0\n#def HashSet_STATE_FILLED = 1\n#def HashSet_STATE_TOMB = 2\n\n#def HashSet_VALUE_SENTINEL = 1\n",
@@ -12,16 +12,16 @@ test "sa_std hashset helpers are concrete and verifiable" {
 
     const collections_hashset = try common.readFileAlloc(std.testing.allocator, "sa_std/collections/hashset.sa");
     defer std.testing.allocator.free(collections_hashset);
-    try std.testing.expect(std.mem.containsAtLeast(u8, collections_hashset, 1, "@import \"../hashset.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, collections_hashset, 1, "@import \"hashset/hashset.sa\""));
 
-    const hashset_src = try common.readFileAlloc(std.testing.allocator, "sa_std/hashset.sa");
+    const hashset_src = try common.readFileAlloc(std.testing.allocator, "sa_std/collections/hashset/hashset.sa");
     defer std.testing.allocator.free(hashset_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"hashset.sal\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"hashmap.sa\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"core/slice.sal\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"alloc/vec.sal\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"vec.sa\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"num.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"../hashmap/hashmap.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"../../core/slice.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"../../alloc/vec.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"../../collections/vec/vec.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@import \"../../num.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "EXPAND NUM_U64_CHECKED_MUL __set_drain_bytes_ok_%out_vec"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_new"));
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "@export sa_set_with_capacity"));
@@ -52,7 +52,7 @@ test "sa_std hashset helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, hashset_src, 1, "[MACRO] SET_LIT2"));
 
     var hashset_error_ctx = saasm.flattener.ErrorContext{};
-    var hashset_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/hashset.sa", hashset_src, &hashset_error_ctx) catch |err| {
+    var hashset_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/collections/hashset/hashset.sa", hashset_src, &hashset_error_ctx) catch |err| {
         const source_line = saasm.flattener.takeErrorSourceLine(&hashset_error_ctx) orelse 0;
         std.debug.print("hashset flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
         return err;

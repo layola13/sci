@@ -4,7 +4,7 @@ const saasm = common.saasm;
 const flattenFixture = @import("helpers.zig").flattenFixture;
 
 test "sa_std btree_set helpers are concrete and verifiable" {
-    const btree_set_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/btree_set.sal");
+    const btree_set_layout = try common.readFileAlloc(std.testing.allocator, "sa_std/collections/btree/btree_set.sal");
     defer std.testing.allocator.free(btree_set_layout);
     try std.testing.expectEqualStrings(
         "#def BTreeSet_SIZE = 24\n#def BTreeSet_entries = +0\n#def BTreeSet_cap = +8\n#def BTreeSet_len = +16\n\n#def BTreeSet_INITIAL_CAP = 8\n",
@@ -13,9 +13,9 @@ test "sa_std btree_set helpers are concrete and verifiable" {
 
     const collections_btree_set = try common.readFileAlloc(std.testing.allocator, "sa_std/collections/btree_set.sa");
     defer std.testing.allocator.free(collections_btree_set);
-    try std.testing.expectEqualStrings("@import \"../btree_set.sa\"\n", collections_btree_set);
+    try std.testing.expect(std.mem.containsAtLeast(u8, collections_btree_set, 1, "@import \"btree/btree_set.sa\""));
 
-    const btree_set_src = try common.readFileAlloc(std.testing.allocator, "sa_std/btree_set.sa");
+    const btree_set_src = try common.readFileAlloc(std.testing.allocator, "sa_std/collections/btree/btree_set.sa");
     defer std.testing.allocator.free(btree_set_src);
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@import \"btree_set.sal\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "@import \"btree_map.sa\""));
@@ -61,21 +61,21 @@ test "sa_std btree_set helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_SPLIT_OFF"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_set_src, 1, "[MACRO] BTREE_SET_LIT2"));
 
-    const btree_map_src = try common.readFileAlloc(std.testing.allocator, "sa_std/btree_map.sa");
+    const btree_map_src = try common.readFileAlloc(std.testing.allocator, "sa_std/collections/btree/btree_map.sa");
     defer std.testing.allocator.free(btree_map_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, btree_map_src, 1, "@import \"num.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, btree_map_src, 1, "@import \"../../num.sa\""));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_map_src, 1, "EXPAND NUM_U64_CHECKED_ADD next_cap_ok, next_cap, old_cap, old_cap"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_map_src, 1, "EXPAND NUM_U64_CHECKED_MUL new_bytes_ok, new_bytes, next_cap, BTreeMapEntry_SIZE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, btree_map_src, 1, "EXPAND NUM_U64_CHECKED_MUL clear_bytes_ok, bytes, cap, BTreeMapEntry_SIZE"));
 
-    const hashmap_src = try common.readFileAlloc(std.testing.allocator, "sa_std/hashmap.sa");
+    const hashmap_src = try common.readFileAlloc(std.testing.allocator, "sa_std/collections/hashmap/hashmap.sa");
     defer std.testing.allocator.free(hashmap_src);
-    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"core/slice.sal\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"alloc/vec.sal\""));
-    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"vec.sa\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"../../core/slice.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"../../alloc/vec.sal\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hashmap_src, 1, "@import \"../../collections/vec/vec.sa\""));
 
     var btree_set_error_ctx = saasm.flattener.ErrorContext{};
-    var btree_set_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/btree_set.sa", btree_set_src, &btree_set_error_ctx) catch |err| {
+    var btree_set_flat = saasm.flattener.flattenFileWithContext(std.testing.allocator, "sa_std/collections/btree/btree_set.sa", btree_set_src, &btree_set_error_ctx) catch |err| {
         const source_line = saasm.flattener.takeErrorSourceLine(&btree_set_error_ctx) orelse 0;
         std.debug.print("btree_set flatten failed on line {d}: {s}\n", .{ source_line, @errorName(err) });
         return err;
