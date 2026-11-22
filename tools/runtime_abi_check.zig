@@ -77,16 +77,14 @@ pub fn main(init: std.process.Init) !void {
     {
         var runtime_dir = try std.Io.Dir.cwd().openDir(tio, "src/runtime", .{ .iterate = true });
         defer runtime_dir.close(tio);
-        var runtime_it = runtime_dir.iterate();
-        while (try runtime_it.next(tio)) |entry| {
-            if (entry.kind != .file) continue;
-            if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
-            if (std.mem.eql(u8, entry.name, "sa_std_windows.zig")) continue;
-            const source = try runtime_dir.readFileAlloc(tio, entry.name, allocator, .limited(32 * 1024 * 1024));
-            try collectZigSymbols(&linux_symbols, source);
-        }
+        try collectRuntimeDirSymbols(&linux_symbols, tio, runtime_dir, allocator, true);
     }
     try collectZigSymbols(&windows_symbols, windows_source);
+    {
+        var windows_dir = try std.Io.Dir.cwd().openDir(tio, "src/runtime/sa_std_windows", .{ .iterate = true });
+        defer windows_dir.close(tio);
+        try collectRuntimeDirSymbols(&windows_symbols, tio, windows_dir, allocator, false);
+    }
     try collectManifestSymbols(&unsupported_windows_symbols, unsupported_source, &unsupported_stats);
     try collectManifestSymbols(&extra_windows_symbols, extra_source, &extra_stats);
     try collectManifestSymbols(&plugin_provided_symbols, plugin_provided_source, &plugin_provided_stats);
@@ -146,6 +144,28 @@ fn collectHeaderSymbols(symbols: *SymbolSet, contents: []const u8) !void {
     }
 }
 
+// Recursively collect symbols from every .zig file under a runtime dir.
+ // The Linux pass skips the Windows subtree (sa_std_windows.zig and the
+ // sa_std_windows/ directory), matching the previous top-level-only scope;
+ // the Windows pass walks sa_std_windows/ with skip_windows_dir=false.
+fn collectRuntimeDirSymbols(symbols: *SymbolSet, tio: std.Io, dir: std.Io.Dir, allocator: std.mem.Allocator, skip_windows_dir: bool) !void {
+    var it = dir.iterate();
+    while (try it.next(tio)) |entry| {
+        if (entry.kind == .directory) {
+            if (skip_windows_dir and std.mem.eql(u8, entry.name, "sa_std_windows")) continue;
+            var sub = try dir.openDir(tio, entry.name, .{ .iterate = true });
+            defer sub.close(tio);
+            try collectRuntimeDirSymbols(symbols, tio, sub, allocator, skip_windows_dir);
+            continue;
+        }
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+        if (std.mem.eql(u8, entry.name, "sa_std_windows.zig")) continue;
+        const source = try dir.readFileAlloc(tio, entry.name, allocator, .limited(32 * 1024 * 1024));
+        try collectZigSymbols(symbols, source);
+    }
+}
+
 fn collectZigSymbols(symbols: *SymbolSet, contents: []const u8) !void {
     var index: usize = 0;
     while (index < contents.len) {
@@ -182,6 +202,24 @@ fn collectZigSymbols(symbols: *SymbolSet, contents: []const u8) !void {
             }
             index = @max(name_end, index + 1);
             continue;
+        }
+
+        if (std.mem.startsWith(u8, contents[index..], "pub const sa_")) {
+            const name_start = index + "pub const ".len;
+            const name_end = identifierEnd(contents, name_start);
+            if (name_end > name_start) {
+                // Split re-export: `pub const sa_x = @import("...").sa_x;`.
+                // Only count it when the statement forwards from another
+                // module, so a local `pub const sa_x = ...` definition is
+                // not mistaken for an exported ABI symbol.
+                var semi = name_end;
+                while (semi < contents.len and contents[semi] != ';' and semi - name_start < 512) : (semi += 1) {}
+                if (semi < contents.len and std.mem.indexOf(u8, contents[name_end..semi], "@import(") != null) {
+                    try symbols.put(contents[name_start..name_end], {});
+                }
+                index = @max(semi, index + 1);
+                continue;
+            }
         }
 
         if (std.mem.startsWith(u8, contents[index..], ".name")) {

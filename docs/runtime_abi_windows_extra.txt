@@ -13,3 +13,11 @@
 sa_deno_make_temp_dir
 sa_deno_make_temp_file
 sa_test_debug_i64
+
+# 2026-11-22 (task 120-a2): surfaced by the re-export-aware scanner in
+# tools/runtime_abi_check.zig. sa_net_iov is the vectored-I/O address/length
+# struct (typedef in sa_std.h, re-exported by src/runtime/sa_std_windows.zig
+# from sa_std_windows/windows_winsock_startup.zig); it is a type, not a function export, so the
+# old top-level-only scanner never saw it and it belongs in neither the
+# shared header function list nor the unsupported list.
+sa_net_iov
