@@ -213,7 +213,6 @@ extern fn mallopt(param: c_int, value: c_int) c_int;
 
 fn applyHeapPageReturn() void {
     if (comptime !is_linux or is_wasm) return;
-    _ = mallopt(-3, 32768);
 }
 
 /// DEF-R7 startup entry called by every generated program main
