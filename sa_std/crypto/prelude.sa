@@ -1,0 +1,5 @@
+// crypto prelude: SA-side public surface of the crypto domain.
+// The SLA library (encoding/compress.sla) is imported individually
+// by path; no .sa file in-tree imports a .sla file.
+@import "crypto.sai"
+@import "ssh.sai"

@@ -1,5 +1,5 @@
 @import "sa_std/io/print.sai"
-@import "sa_std/multipart.sai"
+@import "sa_std/http/request/multipart.sai"
 
 // 964 - multipart checksum: parse a fixed form-data body, checksum
 // the part bodies, then rebuild with the builder, re-parse the built

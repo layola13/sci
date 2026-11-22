@@ -10,7 +10,7 @@
 //    that previously needed bare literals.
 
 @import "sa_std/net.sla"
-@import "sa_std/net.sai"
+@import "sa_std/net/socket/net.sai"
 @import "sa_std/string.sa"
 
 @test "unix addr kind consts pin the published values"() {

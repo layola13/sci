@@ -1,13 +1,13 @@
 @import "../../core/slice.sal"
 @import "../../core/slice.sa"
-@import "../utf8/char.sa"
-@import "../utf8/ascii.sa"
+@import "../../core/types/char.sa"
+@import "../../core/types/ascii.sa"
 @import "../../collections/vec/vec.sa"
 @import "../../collections/vec/vec.sal"
 @import "string.sai"
 @import "../../fmt.sai"
 @import "../../hash.sa"
-@import "../builder/string_format.sa"
+@import "../../fmt/format/string_format.sa"
 @extern sa_mem_free(^ptr: ptr) -> void
 
 [MACRO] STR_LEN %out_len, %slice_reg

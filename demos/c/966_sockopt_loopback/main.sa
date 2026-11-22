@@ -1,5 +1,5 @@
 @import "sa_std/io/print.sai"
-@import "sa_std/net.sai"
+@import "sa_std/net/socket/net.sai"
 @import "sa_std/process.sai"
 
 @const HOST = utf8:"127.0.0.1"

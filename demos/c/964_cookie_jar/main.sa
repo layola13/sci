@@ -1,5 +1,5 @@
 @import "sa_std/io/print.sai"
-@import "sa_std/http_cookie.sai"
+@import "sa_std/http/http_cookie.sai"
 
 @const URL = utf8:"http://example.com/"
 @const SET_COOKIE = utf8:"SID=abc; Path=/"

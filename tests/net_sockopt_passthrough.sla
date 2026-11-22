@@ -1,4 +1,4 @@
-// Behavioral tests for the wave-2 socket surface in sa_std/net.sai:
+// Behavioral tests for the wave-2 socket surface in sa_std/net/socket/net.sai:
 // the generic setsockopt/getsockopt passthrough
 // (sa_std_net_socket_*), datagram receive with per-packet info
 // (sa_std_net_udp_recv_msg: pktinfo + SO_TIMESTAMP), batch
@@ -13,7 +13,7 @@
 // rejects the literal "127.0.0.1" on this host), and it is not the
 // surface under test here.
 
-@import "sa_std/net.sai"
+@import "sa_std/net/socket/net.sai"
 @import "sa_std/net.sla"
 @import "sa_std/process.sai"
 @import "sa_std/status.sla"

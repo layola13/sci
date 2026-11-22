@@ -1,5 +1,5 @@
 @import "sa_std/io/print.sai"
-@import "sa_std/tls_client.sai"
+@import "sa_std/net/tls_client.sai"
 
 @const NOT_PEM = utf8:"not a pem"
 @const OK_MSG = utf8:"TLS_OK\n"

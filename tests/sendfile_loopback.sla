@@ -1,5 +1,5 @@
 // Loopback test for sa_std_net_tcp_stream_send_file (sendfile(2),
-// sa_std/net.sai, wave-3): a file written through the fs surface is
+// sa_std/net/socket/net.sai, wave-3): a file written through the fs surface is
 // sent over a loopback TCP pair and the received bytes must equal
 // the file bytes exactly, including for an offset send. The Zig
 // unit test in src/runtime/sa_std.zig covers the same surface at
@@ -11,7 +11,7 @@
 // The probe file is created in the working directory and removed
 // at the end of the test.
 
-@import "sa_std/net.sai"
+@import "sa_std/net/socket/net.sai"
 @import "sa_std/fs.sai"
 @import "sa_std/status.sla"
 @import "sa_std/string.sa"
