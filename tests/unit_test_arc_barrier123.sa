@@ -1,0 +1,533 @@
+// Regression test for task 125: barrier123 three-worker Arc drop.
+// The canary's barrier123_exe double-freed (rc=134) on sci 74bb3641 because
+// the shim emitted an unconditional free() at the scope-end `!barrier` in
+// sla__barrier_worker and in the main drop tail, on top of the guarded
+// ARC_DROP -> sa_mem_free. Task 104 (sci 2b037616, clear_malloc_group) fixes
+// it. Before the fix this test aborts (double free, SIGABRT); after the fix
+// it passes (release count 3, clean exit 0).
+// Source: the plugin-generated barrier123.sa (rosetta 123_barrier_sync,
+// main.sla sha e4d68028...), with the stub @test replaced by a real check
+// that the three workers each release the Arc exactly once.
+
+@import "sa_std/io/print.sai"
+@import "sa_std/fmt.sai"
+@import "sa_std/core/arc.sa"
+@import "sa_std/sync/atomic.sa"
+@import "sa_std/thread.sa"
+@import "sa_std/core/result.sa"
+@import "sa_std/io/print.sai"
+@import "sa_std/fmt.sai"
+
+[MACRO] SLA_ARRAY_FILL_U8 %array_ptr, %value, %length
+    call @sa_mem_set(&%array_ptr, %value, %length)
+[END_MACRO]
+@import "sa_std/thread.sa"
+@import "sa_std/core/result.sa"
+@import "sa_std/sync/atomic.sa"
+@const SLA_THREAD_VT_0 = vtable { call = @sla_thread_worker_0 }
+@const SLA_THREAD_VT_1 = vtable { call = @sla_thread_worker_1 }
+@const SLA_THREAD_VT_2 = vtable { call = @sla_thread_worker_2 }
+
+@ffi_wrapper sla_thread_spawn_0(*slot: ptr):
+L_ENTRY:
+    worker_vt = &SLA_THREAD_VT_0
+    worker_fn = load worker_vt+0 as ptr
+    worker_raw = *worker_fn
+    worker_safe = assume_safe worker_raw
+    EXPAND THREAD_SPAWN handle, *worker_safe, *slot
+    store slot+0, handle as i32
+    !handle
+    !worker_safe
+    !worker_raw
+    !worker_fn
+    !worker_vt
+    !slot
+    return
+
+@sla_thread_worker_0(&slot: ptr) -> i32:
+L_ENTRY:
+    tmp_0 = load slot+16 as ptr
+    tmp_1 = call @sla__barrier_worker(^tmp_0)
+    store slot+8, tmp_1 as i32
+    !slot
+    return tmp_1
+
+@ffi_wrapper sla_thread_spawn_1(*slot: ptr):
+L_ENTRY:
+    worker_vt = &SLA_THREAD_VT_1
+    worker_fn = load worker_vt+0 as ptr
+    worker_raw = *worker_fn
+    worker_safe = assume_safe worker_raw
+    EXPAND THREAD_SPAWN handle, *worker_safe, *slot
+    store slot+0, handle as i32
+    !handle
+    !worker_safe
+    !worker_raw
+    !worker_fn
+    !worker_vt
+    !slot
+    return
+
+@sla_thread_worker_1(&slot: ptr) -> i32:
+L_ENTRY:
+    tmp_2 = load slot+16 as ptr
+    tmp_3 = call @sla__barrier_worker(^tmp_2)
+    store slot+8, tmp_3 as i32
+    !slot
+    return tmp_3
+
+@ffi_wrapper sla_thread_spawn_2(*slot: ptr):
+L_ENTRY:
+    worker_vt = &SLA_THREAD_VT_2
+    worker_fn = load worker_vt+0 as ptr
+    worker_raw = *worker_fn
+    worker_safe = assume_safe worker_raw
+    EXPAND THREAD_SPAWN handle, *worker_safe, *slot
+    store slot+0, handle as i32
+    !handle
+    !worker_safe
+    !worker_raw
+    !worker_fn
+    !worker_vt
+    !slot
+    return
+
+@sla_thread_worker_2(&slot: ptr) -> i32:
+L_ENTRY:
+    tmp_4 = load slot+16 as ptr
+    tmp_5 = call @sla__barrier_worker(^tmp_4)
+    store slot+8, tmp_5 as i32
+    !slot
+    return tmp_5
+
+@const SLA_FNPTR_VT_barrier_worker = vtable { call = @sla__barrier_worker }
+@const SLA_FNPTR_VT_barrier_release_count = vtable { call = @sla__barrier_release_count }
+@const SLA_FNPTR_VT_main = vtable { call = @main }
+@sla__barrier_worker(^barrier__sla_arg: ptr) -> i32:
+L_ENTRY:
+    barrier = barrier__sla_arg
+    EXPAND ARC_GET tmp_6, barrier
+    tmp_7 = 1
+    EXPAND ATOMIC_I32_FETCH_ADD tmp_8, tmp_6, tmp_7, seq_cst
+    !tmp_6
+    !tmp_7
+    tmp_9 = 32
+    tmp_10 = shl tmp_8, tmp_9
+    _old = ashr tmp_10, tmp_9
+    !tmp_10
+    !tmp_9
+    !tmp_8
+    jmp L_WHILE_HEAD_0
+
+L_WHILE_HEAD_0:
+    EXPAND ARC_GET tmp_11, barrier
+    EXPAND ATOMIC_I32_LOAD tmp_12, tmp_11, seq_cst
+    !tmp_11
+    tmp_13 = 3
+    tmp_14 = slt tmp_12, tmp_13
+    !tmp_12
+    !tmp_13
+    br tmp_14 -> L_WHILE_BODY_1, L_WHILE_COND_FALSE_2
+
+L_WHILE_BODY_1:
+    !tmp_14
+    jmp L_WHILE_HEAD_0
+
+L_WHILE_COND_FALSE_2:
+    !tmp_14
+    jmp L_WHILE_EXIT_3
+
+L_WHILE_EXIT_3:
+    tmp_15 = 1
+    tmp_16 = 32
+    tmp_17 = shl tmp_15, tmp_16
+    tmp_18 = ashr tmp_17, tmp_16
+    !tmp_15
+    !tmp_17
+    !tmp_16
+    !_old
+    tmp_19 = add barrier, 0
+    EXPAND ARC_DROP tmp_19, L_SMART_CLEAN_4
+    jmp L_SMART_AFTER_6
+
+L_SMART_CLEAN_4:
+    !__arc_is_last_tmp_19
+    !__arc_strong_tmp_19
+    tmp_20 = load tmp_19+ArcBox_data as ptr
+    !tmp_20
+    EXPAND ARC_WEAK_DROP tmp_19, L_SMART_FREE_5
+    jmp L_SMART_AFTER_6
+
+L_SMART_FREE_5:
+    !__weak_is_last_tmp_19
+    !__weak_next_count_tmp_19
+    tmp_21 = add tmp_19, 0
+    call @sa_mem_free(^tmp_21)
+    jmp L_SMART_END_7
+
+L_SMART_AFTER_6:
+    jmp L_SMART_END_7
+
+L_SMART_END_7:
+    !tmp_19
+    !barrier
+    return tmp_18
+
+@sla__barrier_release_count() -> i32:
+L_ENTRY:
+    tmp_22 = 0
+    tmp_23 = alloc AtomicI32_SIZE
+    EXPAND ATOMIC_I32_INIT tmp_23, tmp_22
+    !tmp_22
+    EXPAND ARC_NEW tmp_24, tmp_23
+    ^tmp_23
+    barrier = tmp_24
+    tmp_25 = add barrier, 0
+    EXPAND ARC_CLONE tmp_25
+    left = tmp_25
+    tmp_26 = add barrier, 0
+    EXPAND ARC_CLONE tmp_26
+    middle = tmp_26
+    tmp_27 = add barrier, 0
+    EXPAND ARC_CLONE tmp_27
+    right = tmp_27
+    tmp_28 = alloc 24
+    store tmp_28+0, 0 as i32
+    store tmp_28+8, 0 as i32
+    store tmp_28+16, left as ptr
+    ^left
+    call @sla_thread_spawn_0(*tmp_28)
+    a = tmp_28
+    tmp_29 = alloc 24
+    store tmp_29+0, 0 as i32
+    store tmp_29+8, 0 as i32
+    store tmp_29+16, middle as ptr
+    ^middle
+    call @sla_thread_spawn_1(*tmp_29)
+    b = tmp_29
+    tmp_30 = alloc 24
+    store tmp_30+0, 0 as i32
+    store tmp_30+8, 0 as i32
+    store tmp_30+16, right as ptr
+    ^right
+    call @sla_thread_spawn_2(*tmp_30)
+    c = tmp_30
+    tmp_31 = load a+0 as i32
+    tmp_32 = eq tmp_31, -1
+    br tmp_32 -> L_THREAD_JOIN_INLINE_8, L_THREAD_JOIN_PTHREAD_9
+
+L_THREAD_JOIN_INLINE_8:
+    !tmp_32
+    tmp_36 = load a+8 as i32
+    tmp_35 = alloc 24
+    tmp_37 = 0
+    store tmp_35+0, tmp_37 as u64
+    store tmp_35+8, tmp_36 as i32
+    store tmp_35+16, tmp_37 as u64
+    !tmp_37
+    !tmp_36
+    jmp L_THREAD_JOIN_END_12
+
+L_THREAD_JOIN_PTHREAD_9:
+    !tmp_32
+    EXPAND THREAD_JOIN_STATUS tmp_33, tmp_31, *a
+    EXPAND THREAD_DROP tmp_31
+    tmp_34 = eq tmp_33, 0
+    br tmp_34 -> L_THREAD_JOIN_OK_10, L_THREAD_JOIN_ERR_11
+
+L_THREAD_JOIN_OK_10:
+    !tmp_34
+    tmp_38 = load a+8 as i32
+    tmp_35 = alloc 24
+    tmp_39 = 0
+    store tmp_35+0, tmp_39 as u64
+    store tmp_35+8, tmp_38 as i32
+    store tmp_35+16, tmp_39 as u64
+    !tmp_39
+    !tmp_38
+    !tmp_33
+    jmp L_THREAD_JOIN_END_12
+
+L_THREAD_JOIN_ERR_11:
+    !tmp_34
+    tmp_40 = add tmp_33, 0
+    tmp_35 = alloc 24
+    tmp_41 = 1
+    tmp_42 = 0
+    store tmp_35+0, tmp_41 as u64
+    store tmp_35+8, tmp_42 as i32
+    store tmp_35+16, tmp_40 as i64
+    !tmp_42
+    !tmp_41
+    !tmp_40
+    !tmp_33
+    jmp L_THREAD_JOIN_END_12
+
+L_THREAD_JOIN_END_12:
+    !tmp_31
+    !a
+    tmp_44 = load tmp_35+0 as u64
+    tmp_45 = eq tmp_44, 0
+    br tmp_45 -> L_RESULT_UNWRAP_OK_13, L_RESULT_UNWRAP_ERR_14
+
+L_RESULT_UNWRAP_OK_13:
+    !tmp_45
+    tmp_43 = load tmp_35+8 as i32
+    !tmp_44
+    jmp L_RESULT_UNWRAP_END_15
+
+L_RESULT_UNWRAP_ERR_14:
+    !tmp_45
+    panic(17)
+    tmp_43 = 0
+    !tmp_44
+    jmp L_RESULT_UNWRAP_END_15
+
+L_RESULT_UNWRAP_END_15:
+    !tmp_35
+    tmp_46 = 32
+    tmp_47 = shl tmp_43, tmp_46
+    av = ashr tmp_47, tmp_46
+    !tmp_47
+    !tmp_46
+    !tmp_43
+    tmp_48 = load b+0 as i32
+    tmp_49 = eq tmp_48, -1
+    br tmp_49 -> L_THREAD_JOIN_INLINE_16, L_THREAD_JOIN_PTHREAD_17
+
+L_THREAD_JOIN_INLINE_16:
+    !tmp_49
+    tmp_53 = load b+8 as i32
+    tmp_52 = alloc 24
+    tmp_54 = 0
+    store tmp_52+0, tmp_54 as u64
+    store tmp_52+8, tmp_53 as i32
+    store tmp_52+16, tmp_54 as u64
+    !tmp_54
+    !tmp_53
+    jmp L_THREAD_JOIN_END_20
+
+L_THREAD_JOIN_PTHREAD_17:
+    !tmp_49
+    EXPAND THREAD_JOIN_STATUS tmp_50, tmp_48, *b
+    EXPAND THREAD_DROP tmp_48
+    tmp_51 = eq tmp_50, 0
+    br tmp_51 -> L_THREAD_JOIN_OK_18, L_THREAD_JOIN_ERR_19
+
+L_THREAD_JOIN_OK_18:
+    !tmp_51
+    tmp_55 = load b+8 as i32
+    tmp_52 = alloc 24
+    tmp_56 = 0
+    store tmp_52+0, tmp_56 as u64
+    store tmp_52+8, tmp_55 as i32
+    store tmp_52+16, tmp_56 as u64
+    !tmp_56
+    !tmp_55
+    !tmp_50
+    jmp L_THREAD_JOIN_END_20
+
+L_THREAD_JOIN_ERR_19:
+    !tmp_51
+    tmp_57 = add tmp_50, 0
+    tmp_52 = alloc 24
+    tmp_58 = 1
+    tmp_59 = 0
+    store tmp_52+0, tmp_58 as u64
+    store tmp_52+8, tmp_59 as i32
+    store tmp_52+16, tmp_57 as i64
+    !tmp_59
+    !tmp_58
+    !tmp_57
+    !tmp_50
+    jmp L_THREAD_JOIN_END_20
+
+L_THREAD_JOIN_END_20:
+    !tmp_48
+    !b
+    tmp_61 = load tmp_52+0 as u64
+    tmp_62 = eq tmp_61, 0
+    br tmp_62 -> L_RESULT_UNWRAP_OK_21, L_RESULT_UNWRAP_ERR_22
+
+L_RESULT_UNWRAP_OK_21:
+    !tmp_62
+    tmp_60 = load tmp_52+8 as i32
+    !tmp_61
+    jmp L_RESULT_UNWRAP_END_23
+
+L_RESULT_UNWRAP_ERR_22:
+    !tmp_62
+    panic(17)
+    tmp_60 = 0
+    !tmp_61
+    jmp L_RESULT_UNWRAP_END_23
+
+L_RESULT_UNWRAP_END_23:
+    !tmp_52
+    tmp_63 = 32
+    tmp_64 = shl tmp_60, tmp_63
+    bv = ashr tmp_64, tmp_63
+    !tmp_64
+    !tmp_63
+    !tmp_60
+    tmp_65 = load c+0 as i32
+    tmp_66 = eq tmp_65, -1
+    br tmp_66 -> L_THREAD_JOIN_INLINE_24, L_THREAD_JOIN_PTHREAD_25
+
+L_THREAD_JOIN_INLINE_24:
+    !tmp_66
+    tmp_70 = load c+8 as i32
+    tmp_69 = alloc 24
+    tmp_71 = 0
+    store tmp_69+0, tmp_71 as u64
+    store tmp_69+8, tmp_70 as i32
+    store tmp_69+16, tmp_71 as u64
+    !tmp_71
+    !tmp_70
+    jmp L_THREAD_JOIN_END_28
+
+L_THREAD_JOIN_PTHREAD_25:
+    !tmp_66
+    EXPAND THREAD_JOIN_STATUS tmp_67, tmp_65, *c
+    EXPAND THREAD_DROP tmp_65
+    tmp_68 = eq tmp_67, 0
+    br tmp_68 -> L_THREAD_JOIN_OK_26, L_THREAD_JOIN_ERR_27
+
+L_THREAD_JOIN_OK_26:
+    !tmp_68
+    tmp_72 = load c+8 as i32
+    tmp_69 = alloc 24
+    tmp_73 = 0
+    store tmp_69+0, tmp_73 as u64
+    store tmp_69+8, tmp_72 as i32
+    store tmp_69+16, tmp_73 as u64
+    !tmp_73
+    !tmp_72
+    !tmp_67
+    jmp L_THREAD_JOIN_END_28
+
+L_THREAD_JOIN_ERR_27:
+    !tmp_68
+    tmp_74 = add tmp_67, 0
+    tmp_69 = alloc 24
+    tmp_75 = 1
+    tmp_76 = 0
+    store tmp_69+0, tmp_75 as u64
+    store tmp_69+8, tmp_76 as i32
+    store tmp_69+16, tmp_74 as i64
+    !tmp_76
+    !tmp_75
+    !tmp_74
+    !tmp_67
+    jmp L_THREAD_JOIN_END_28
+
+L_THREAD_JOIN_END_28:
+    !tmp_65
+    !c
+    tmp_78 = load tmp_69+0 as u64
+    tmp_79 = eq tmp_78, 0
+    br tmp_79 -> L_RESULT_UNWRAP_OK_29, L_RESULT_UNWRAP_ERR_30
+
+L_RESULT_UNWRAP_OK_29:
+    !tmp_79
+    tmp_77 = load tmp_69+8 as i32
+    !tmp_78
+    jmp L_RESULT_UNWRAP_END_31
+
+L_RESULT_UNWRAP_ERR_30:
+    !tmp_79
+    panic(17)
+    tmp_77 = 0
+    !tmp_78
+    jmp L_RESULT_UNWRAP_END_31
+
+L_RESULT_UNWRAP_END_31:
+    !tmp_69
+    tmp_80 = 32
+    tmp_81 = shl tmp_77, tmp_80
+    cv = ashr tmp_81, tmp_80
+    !tmp_81
+    !tmp_80
+    !tmp_77
+    tmp_82 = add av, bv
+    tmp_83 = add tmp_82, cv
+    !tmp_82
+    tmp_84 = 32
+    tmp_85 = shl tmp_83, tmp_84
+    tmp_86 = ashr tmp_85, tmp_84
+    !tmp_83
+    !tmp_85
+    !tmp_84
+    tmp_87 = add barrier, 0
+    EXPAND ARC_DROP tmp_87, L_SMART_CLEAN_32
+    jmp L_SMART_AFTER_34
+
+L_SMART_CLEAN_32:
+    !__arc_is_last_tmp_87
+    !__arc_strong_tmp_87
+    tmp_88 = load tmp_87+ArcBox_data as ptr
+    !tmp_88
+    EXPAND ARC_WEAK_DROP tmp_87, L_SMART_FREE_33
+    jmp L_SMART_AFTER_34
+
+L_SMART_FREE_33:
+    !__weak_is_last_tmp_87
+    !__weak_next_count_tmp_87
+    tmp_89 = add tmp_87, 0
+    call @sa_mem_free(^tmp_89)
+    jmp L_SMART_END_35
+
+L_SMART_AFTER_34:
+    jmp L_SMART_END_35
+
+L_SMART_END_35:
+    !tmp_87
+    !barrier
+    !av
+    !bv
+    !cv
+    return tmp_86
+
+@main() -> i32:
+L_ENTRY:
+    tmp_90 = call @sla__barrier_release_count()
+    tmp_91 = 32
+    tmp_92 = shl tmp_90, tmp_91
+    result = ashr tmp_92, tmp_91
+    !tmp_92
+    !tmp_91
+    !tmp_90
+    tmp_93 = call @sa_fmt_i64(result, 10)
+    tmp_94 = call @sa_fmt_buffer_data(tmp_93)
+    tmp_95 = call @sa_fmt_buffer_len(tmp_93)
+    tmp_96 = tmp_94
+    call @sa_print_bytes(&tmp_96, tmp_95)
+    call @sa_fmt_buffer_free(^tmp_93)
+    !tmp_96
+    !tmp_95
+    @const SLA_STR_0 = utf8:"\n"
+    call @sa_print_bytes(&SLA_STR_0, 1)
+    tmp_97 = 32
+    tmp_98 = shl result, tmp_97
+    tmp_99 = ashr tmp_98, tmp_97
+    !tmp_98
+    !tmp_97
+    !result
+    return tmp_99
+
+@test "barrier123 three workers drop Arc once"():
+L_ENTRY:
+    result = call @sla__barrier_release_count()
+    ok = eq result, 3
+    br ok -> L_CHECK_OK, L_CHECK_ERR
+
+L_CHECK_OK:
+    !ok
+    !result
+    return
+
+L_CHECK_ERR:
+    !ok
+    !result
+    panic(201)
+

@@ -901,7 +901,10 @@ pub fn build(b: *std.Build) void {
     arc_double_free_smoke_module.addOptions("build_options", build_options);
     const arc_double_free_smoke = b.addTest(.{
         .root_module = arc_double_free_smoke_module,
-        .filters = &.{"sa test arc drop frees once (task 104 regression)"},
+        .filters = &.{
+            "sa test arc drop frees once (task 104 regression)",
+            "sa test barrier123 three workers drop Arc once (task 125 regression)",
+        },
     });
     const run_arc_double_free_smoke = b.addRunArtifact(arc_double_free_smoke);
     run_arc_double_free_smoke.setCwd(repo_root_lazy);
