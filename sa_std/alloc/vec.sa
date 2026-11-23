@@ -219,7 +219,12 @@ L_GROW_COPY_OVERFLOW:
     panic(1207)
 
 L_GROW_COPY:
-    call @sa_mem_copy(&next_ptr, &buf, copy_bytes)
+    // Task 130: the push growth copy used the byte-loop @sa_mem_copy
+    // (mem.sa: measured ~5 ms/MiB vs ~0.04 ms for memcpy); the growth
+    // dst is a fresh alloc so src/dst cannot overlap -- use the
+    // memcpy-bound face, as sa_vec_reserve_grow / sa_vec_extend
+    // already do for their growth copies.
+    call @sa_mem_copy_nonoverlapping(&next_ptr, &buf, copy_bytes)
     store vec+Vec_ptr, next_ptr as ptr
     store vec+Vec_cap, next_cap as u64
     call @sa_mem_free(^buf)
