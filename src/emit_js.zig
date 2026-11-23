@@ -12954,6 +12954,17 @@ fn emitOneFunction(writer: anytype, allocator: std.mem.Allocator, verified: anyt
             );
             return;
         }
+        if (std.mem.eql(u8, fsig.name, "memcpy")) {
+            try writer.writeAll(
+                \\function memcpy(dst, src, n) {
+                \\  const d = __sa_num(dst), s = __sa_num(src), c = __sa_num(n);
+                \\  if (c > 0) __sa_u8.set(__sa_u8.subarray(s, s + c), d);
+                \\  return dst;
+                \\}
+                \\
+            );
+            return;
+        }
         try writer.writeAll("function ");
         try jsFuncName(writer, fsig.name);
         try writer.writeAll("() { __sa_trap(\"extern not linked: ");
