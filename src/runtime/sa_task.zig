@@ -157,6 +157,25 @@ const Mutex = struct {
     }
 };
 
+/// Bounded sleep that wake_word bumps cannot interrupt (task 118,
+/// kernel 3): the idle backoff must actually sleep, because a
+/// timed futexWait on wake_word returns on any bump by
+/// construction — that is the current behaviour, not the fix.
+/// Loops on EINTR like the nanosleep use in sa_task_sleep.
+fn sleepNs(ns: u64) void {
+    if (!supported) return;
+    var ts: linux.timespec = .{
+        .sec = @intCast(@divTrunc(ns, std.time.ns_per_s)),
+        .nsec = @intCast(@mod(ns, std.time.ns_per_s)),
+    };
+    var rem: linux.timespec = undefined;
+    while (true) {
+        const rc = linux.nanosleep(&ts, &rem);
+        if (linux.errno(rc) != .INTR) break;
+        ts = rem;
+    }
+}
+
 fn futexWait(word: *std.atomic.Value(u32), expect: u32, timeout_ns: ?u64) void {
     if (!supported) return;
     var ts: linux.timespec = undefined;
@@ -547,6 +566,23 @@ var cfg_carriers: usize = 0;
 pub const DEFAULT_IDLE_SPIN_NS: u64 = 10_000;
 var cfg_idle_spin_ns: usize = DEFAULT_IDLE_SPIN_NS;
 
+/// Default carrier idle-backoff bound, nanoseconds (task 118,
+/// kernel 3): after DEFAULT_IDLE_BACKOFF_PASSES consecutive empty
+/// carrierMain passes (all findWork calls + the bounded spin
+/// finding nothing), a carrier sleeps for a bounded,
+/// bump-insensitive interval instead of returning to futexWait,
+/// which returns immediately on the next wake_word bump and
+/// re-polls findWork (3 sched_mu takes) without doing useful
+/// work. Override with SA_TASK_IDLE_BACKOFF_NS; 0 disables the
+/// backoff entirely. The sleep is capped by any pending
+/// timer/net/deadlock deadline.
+pub const DEFAULT_IDLE_BACKOFF_NS: u64 = 50_000;
+/// Default empty-pass threshold for the idle backoff.
+/// Override with SA_TASK_IDLE_BACKOFF_PASSES.
+pub const DEFAULT_IDLE_BACKOFF_PASSES: u32 = 8;
+var cfg_idle_backoff_ns: usize = DEFAULT_IDLE_BACKOFF_NS;
+var cfg_idle_backoff_passes: u32 = DEFAULT_IDLE_BACKOFF_PASSES;
+
 /// Reserve-fault growth events so far (telemetry; the unit
 /// tests use it to prove growth happened in place rather than
 /// passing via a larger constant).
@@ -874,6 +910,17 @@ const Carrier = struct {
     /// finding nothing — the 10-round confirmation showed the
     /// ungated spin burning ~8-10 s of user CPU per pingpong run.
     has_recent_work: bool = false,
+    /// Task 118 (kernel 3): slot index of this carrier (set in
+    /// initScheduler). The idle-backoff sleep is staggered by
+    /// slot so carriers do not all re-enter the poll loop
+    /// simultaneously.
+    idx: usize = 0,
+    /// Task 118 (kernel 3): consecutive carrierMain passes that
+    /// found no work in any findWork call or the bounded spin.
+    /// Reset when the carrier runs a goroutine (runGoroutine);
+    /// reaching DEFAULT_IDLE_BACKOFF_PASSES triggers the bounded
+    /// idle backoff instead of another futexWait.
+    empty_passes: u32 = 0,
 
     fn push(c: *Carrier, g: *Goroutine) bool {
         c.runq_mu.lock();
@@ -1484,6 +1531,7 @@ fn findWork(c: *Carrier) ?*Goroutine {
 fn runGoroutine(c: *Carrier, g: *Goroutine) void {
     g.state.store(.running, .release);
     c.has_recent_work = true;
+    c.empty_passes = 0;
     c.current = g;
     current_g = g;
     ctxSwitch(&c.sched_sp, g.sp);
@@ -1655,6 +1703,33 @@ fn carrierMain(c: *Carrier) void {
             }
         }
         c.has_recent_work = false;
+        if (cfg_idle_backoff_ns > 0 and c.empty_passes >= cfg_idle_backoff_passes) {
+            // Bounded idle backoff (task 118, kernel 3): this
+            // carrier has been woken N times in a row and found
+            // nothing — the work went to another carrier. Sleep
+            // for a bounded, bump-insensitive interval instead of
+            // going back to futexWait, which returns immediately
+            // on the next wake_word bump and re-polls findWork
+            // (3 sched_mu takes) without doing useful work. The
+            // sleep is capped by any pending timer/net/deadlock
+            // deadline so timers are not delayed. A genuine
+            // enqueue is still picked up promptly: the carrier
+            // that just ran work spins for it, and any carrier
+            // in futexWait wakes on the bump; this carrier
+            // re-polls at the loop top when its sleep ends.
+            // Durations are staggered by carrier slot so the
+            // carriers do not all re-enter the poll loop
+            // simultaneously.
+            const base_ns = cfg_idle_backoff_ns;
+            const stagger_ns = base_ns / 2 * @as(u64, @intCast(c.idx % 3));
+            var sleep_ns: u64 = base_ns + stagger_ns;
+            if (timeout_ns) |t| sleep_ns = @min(sleep_ns, t);
+            sleepNs(sleep_ns);
+            c.empty_passes = 0;
+            _ = idle_carriers.fetchSub(1, .acq_rel);
+            continue;
+        }
+        c.empty_passes += 1;
         futexWait(&wake_word, w, timeout_ns);
         _ = idle_carriers.fetchSub(1, .acq_rel);
     }
@@ -1724,6 +1799,12 @@ fn initScheduler() void {
     var want = envUsize("SA_TASK_CARRIERS") orelse cpu;
     want = std.math.clamp(want, 1, 128);
     cfg_carriers = want;
+    if (envUsize("SA_TASK_IDLE_BACKOFF_NS")) |ns| {
+        cfg_idle_backoff_ns = ns;
+    }
+    if (envUsize("SA_TASK_IDLE_BACKOFF_PASSES")) |n| {
+        cfg_idle_backoff_passes = @intCast(@min(n, 1_000_000));
+    }
     if (envUsize("SA_TASK_IDLE_SPIN_NS")) |ns| {
         cfg_idle_spin_ns = ns;
     }
@@ -1731,7 +1812,8 @@ fn initScheduler() void {
     for (carriers) |*c| c.* = .{};
     installSegvHandler();
     noteProgress();
-    for (carriers) |*c| {
+    for (carriers, 0..) |*c, i| {
+        c.idx = i;
         c.thread = std.Thread.spawn(.{}, carrierMain, .{c}) catch processTrap("sa_task: cannot spawn carrier thread");
         if (c.thread) |t| t.detach();
     }
