@@ -1,0 +1,10 @@
+// SA-facing contracts for float math (v0.24a supplement for the Haxe
+// SA target's Math.* surface; ts-plugin precedent for naming).
+// Pure functions over f64; no handles, no failure modes.
+@extern sa_math_floor(x: f64) -> f64
+@extern sa_math_ceil(x: f64) -> f64
+@extern sa_math_sqrt(x: f64) -> f64
+@extern sa_math_sin(x: f64) -> f64
+@extern sa_math_cos(x: f64) -> f64
+@extern sa_math_pow(base: f64, exp: f64) -> f64
+@extern sa_math_random() -> f64

@@ -1,4 +1,3 @@
-// ABI/layout companion for marker namespace aggregation.
-@import "phantom_data.sal"
-@import "../manually_drop.sal"
-@import "../marker.sal"
+// Moved to core/marker/prelude.sal in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "../core/marker/prelude.sal"

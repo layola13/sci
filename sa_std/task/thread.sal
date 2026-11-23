@@ -1,0 +1,4 @@
+#def JoinHandle_SIZE = 16
+#def JoinHandle_handle = +0
+#def JoinHandle_result = +8
+#def THREAD_DEFAULT_ID = 0

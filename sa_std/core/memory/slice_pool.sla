@@ -1,0 +1,282 @@
+// sa_std/slice_pool.sla -- contiguous byte-segment pool
+// (Class-A batch, A-3; the Goose slice_pool idea localized to
+// our ownership discipline).
+//
+// PURPOSE: a reusable home for non-nested lifetimes -- RESP /
+// parse staging, sub-list byte images, scratch segments -- so
+// hot code stops building and dropping a fresh Vec per segment
+// (and paying the per-element deep drop on the way out).
+//
+// STORAGE SHAPE (deviations from the study sketch, registered):
+// the sketch had `data: Vec<u8>`, but a Vec<u8>'s buffer is
+// word-slotted (8 bytes per element, DEF-8 contract), so it
+// cannot back byte-contiguous segments and a {ptr, len} view
+// into it would be the packed-pointer trap DEF-8 exists to
+// prevent. The arena is therefore a Vec<u64> treated as raw
+// bytes: offsets and lengths in this file are BYTE offsets
+// into one contiguous block, and views are honest packed byte
+// pointers.
+// The span table is also word storage, two words per span
+// (off|len packed in word 0, used flag in word 1): the current
+// compiler lays out Vec<plain-struct> elements at a fixed
+// 8-byte stride regardless of the struct's size, silently
+// truncating wider structs (minimal repro registered as a
+// compiler-layout defect candidate), so record storage in a
+// Vec is word packing until that is fixed.
+//
+// SEMANTICS (pinned by corpus, no implementation freedom):
+//   * alloc: first-fit over the span table IN REGISTRATION
+//     ORDER among free spans with len >= n; an exact fit is
+//     marked used in place; a larger fit is split -- the used
+//     part keeps the span's slot, the free remainder is
+//     appended as a new span. No fit: the segment is appended
+//     at the arena high-water mark (contents zero: fresh arena
+//     words are zero-filled).
+//   * free: the (off, n) pair must name a live used span
+//     exactly, otherwise panic 1312 -- our free is a real
+//     release point, not Goose's tolerant stale-read pool.
+//     The freed span then merges with a free successor and/or
+//     a free predecessor (off-adjacent), in that order.
+//   * alloc(0) returns off 0 and registers nothing; free(0, 0)
+//     is its no-op pair.
+//   * view: the returned pointer is invalidated by any later
+//     alloc (the arena Vec may reallocate as it grows) -- this
+//     is the explicit difference from Goose's never-moving
+//     stacks. Copy or re-take the view after growing.
+//   * The pool is an ordinary owned value: dropping it deep
+//     drops its two Vecs, no special path.
+
+@import "sa_std/vec.sa"
+@import "sa_std/ptr.sa"
+
+struct SlicePool {
+    data: Vec<u64>,
+    spans: Vec<u64>,
+}
+
+fn slice_pool_new() -> SlicePool {
+    return SlicePool { data: Vec::new(), spans: Vec::new() };
+}
+
+fn slice_pool_arena_ptr(d: &Vec<u64>) -> ptr {
+    return VEC_AS_PTR(d);
+}
+
+// Span words are WRITTEN through this pointer, never through
+// `spans[i] = w` index assignment: assigning into a Vec element
+// through a struct-field place crashes the text backend's
+// teardown (minimal repro registered as a compiler defect
+// candidate -- 20-line program, value correct, segfault at
+// exit; plain-Vec index assignment is unaffected). Reads keep
+// using index access, which is sound. The pointer is re-taken
+// after any push on the same Vec (growth may reallocate).
+fn slice_pool_spans_ptr(d: &Vec<u64>) -> ptr {
+    return VEC_AS_PTR(d);
+}
+
+fn slice_pool_span_store(sp: ptr, word_idx: u64, w: u64) {
+    let off: u64 = word_idx * 8;
+    let wp: ptr = PTR_BYTE_ADD(sp, off);
+    PTR_WRITE_U64(wp, w);
+}
+
+fn slice_pool_nspans(p: &SlicePool) -> u64 {
+    return len(p.spans) / 2;
+}
+
+fn slice_pool_span_off(p: &SlicePool, i: u64) -> u32 {
+    let w: u64 = p.spans[i * 2];
+    let lo: u64 = w & 4294967295;
+    return lo as u32;
+}
+
+fn slice_pool_span_len(p: &SlicePool, i: u64) -> u32 {
+    let w: u64 = p.spans[i * 2];
+    let hi: u64 = w >> 32;
+    return hi as u32;
+}
+
+fn slice_pool_span_used(p: &SlicePool, i: u64) -> bool {
+    let f: u64 = p.spans[i * 2 + 1];
+    return f != 0;
+}
+
+fn slice_pool_span_word(off: u32, n: u32) -> u64 {
+    let o: u64 = off as u64;
+    let l: u64 = n as u64;
+    return o | (l << 32);
+}
+
+fn slice_pool_alloc(p: SlicePool, n: u64) -> (SlicePool, u32) {
+    if n == 0 {
+        return (p, 0);
+    };
+    if n > 4294967295 {
+        panic(1311);
+    };
+    let want: u32 = n as u32;
+    let q = p;
+    let nspans: u64 = slice_pool_nspans(&q);
+    let high: u64 = 0;
+    let i: u64 = 0;
+    while i < nspans {
+        let soff: u64 = slice_pool_span_off(&q, i) as u64;
+        let slen: u64 = slice_pool_span_len(&q, i) as u64;
+        if soff + slen > high {
+            high = soff + slen;
+        };
+        if slice_pool_span_used(&q, i) == false && slice_pool_span_len(&q, i) >= want {
+            let o: u32 = slice_pool_span_off(&q, i);
+            let sp: ptr = slice_pool_spans_ptr(&q.spans);
+            if slice_pool_span_len(&q, i) == want {
+                slice_pool_span_store(sp, i * 2 + 1, 1);
+            } else {
+                let rem_off: u32 = o + want;
+                let rem_len: u32 = slice_pool_span_len(&q, i) - want;
+                let w0: u64 = slice_pool_span_word(o, want);
+                slice_pool_span_store(sp, i * 2, w0);
+                slice_pool_span_store(sp, i * 2 + 1, 1);
+                let rw: u64 = slice_pool_span_word(rem_off, rem_len);
+                q.spans.push(rw);
+                q.spans.push(0);
+            };
+            return (q, o);
+        };
+        i = i + 1;
+    }
+    // No reusable span: append at the high-water mark.
+    // (The grow is inlined, not a helper call: threading the
+    // pool struct through by-value helper returns mid-function
+    // is the crash-A hazard shape -- see slice_pool_free.)
+    let off: u32 = high as u32;
+    let need: u64 = high + n;
+    while len(q.data) * 8 < need {
+        q.data.push(0);
+    }
+    let w0: u64 = slice_pool_span_word(off, want);
+    q.spans.push(w0);
+    q.spans.push(1);
+    return (q, off);
+}
+
+// Returns the pool plus the number of free spans after the
+// release. The tuple return is deliberate (here and in
+// slot_pool_free): a fn that takes a Vec-bearing struct by
+// value and returns it as the SOLE return value corrupts the
+// text backend's teardown (value correct, segfault at exit --
+// minimal repro pair registered as a compiler defect
+// candidate); the tuple form is sound and matches alloc.
+fn slice_pool_free(p: SlicePool, off: u32, n: u64) -> (SlicePool, u64) {
+    if n == 0 {
+        let c0: u64 = 0;
+        let t0: u64 = 0;
+        while t0 < slice_pool_nspans(&p) {
+            if slice_pool_span_used(&p, t0) == false {
+                c0 = c0 + 1;
+            };
+            t0 = t0 + 1;
+        }
+        return (p, c0);
+    };
+    if n > 4294967295 {
+        panic(1312);
+    };
+    let want: u32 = n as u32;
+    let q = p;
+    let nspans: u64 = slice_pool_nspans(&q);
+    let k: u64 = 0;
+    let found: bool = false;
+    while k < nspans {
+        if slice_pool_span_used(&q, k) && slice_pool_span_off(&q, k) == off && slice_pool_span_len(&q, k) == want {
+            found = true;
+            break;
+        };
+        k = k + 1;
+    }
+    if found == false {
+        panic(1312);
+    };
+    let sp: ptr = slice_pool_spans_ptr(&q.spans);
+    slice_pool_span_store(sp, k * 2 + 1, 0);
+    // Merge a free successor into this span.
+    let j: u64 = 0;
+    while j < slice_pool_nspans(&q) {
+        if j != k && slice_pool_span_used(&q, j) == false {
+            let kend: u64 = (slice_pool_span_off(&q, k) as u64) + (slice_pool_span_len(&q, k) as u64);
+            if (slice_pool_span_off(&q, j) as u64) == kend {
+                let add: u32 = slice_pool_span_len(&q, j);
+                let newlen: u32 = slice_pool_span_len(&q, k) + add;
+                let kw: u64 = slice_pool_span_word(slice_pool_span_off(&q, k), newlen);
+                slice_pool_span_store(sp, k * 2, kw);
+                // Inline span removal (shift pairs down, pop
+                // the tail pair). Deliberately NOT a by-value
+                // helper call: rebinding the pool from a helper
+                // return mid-function makes the compiler drop
+                // the pre-call value whose Vec handles alias
+                // the returned pool's buffers (the crash-A
+                // hazard shape); word ops on the local cannot.
+                let last1: u64 = slice_pool_nspans(&q) - 1;
+                let r: u64 = j;
+                while r < last1 {
+                    let sw0: u64 = q.spans[(r + 1) * 2];
+                    let sw1: u64 = q.spans[(r + 1) * 2 + 1];
+                    slice_pool_span_store(sp, r * 2, sw0);
+                    slice_pool_span_store(sp, r * 2 + 1, sw1);
+                    r = r + 1;
+                }
+                let gp1 = q.spans.pop();
+                let gp2 = q.spans.pop();
+                if j < k {
+                    k = k - 1;
+                };
+                break;
+            };
+        };
+        j = j + 1;
+    }
+    // Merge this span into a free predecessor.
+    let m: u64 = 0;
+    while m < slice_pool_nspans(&q) {
+        if m != k && slice_pool_span_used(&q, m) == false {
+            let mend: u64 = (slice_pool_span_off(&q, m) as u64) + (slice_pool_span_len(&q, m) as u64);
+            if mend == (slice_pool_span_off(&q, k) as u64) {
+                let add2: u32 = slice_pool_span_len(&q, k);
+                let newlen2: u32 = slice_pool_span_len(&q, m) + add2;
+                let mw: u64 = slice_pool_span_word(slice_pool_span_off(&q, m), newlen2);
+                slice_pool_span_store(sp, m * 2, mw);
+                // Inline span removal, as in the successor merge.
+                let last2: u64 = slice_pool_nspans(&q) - 1;
+                let r2: u64 = k;
+                while r2 < last2 {
+                    let tw0: u64 = q.spans[(r2 + 1) * 2];
+                    let tw1: u64 = q.spans[(r2 + 1) * 2 + 1];
+                    slice_pool_span_store(sp, r2 * 2, tw0);
+                    slice_pool_span_store(sp, r2 * 2 + 1, tw1);
+                    r2 = r2 + 1;
+                }
+                let gq1 = q.spans.pop();
+                let gq2 = q.spans.pop();
+                break;
+            };
+        };
+        m = m + 1;
+    }
+    let fc: u64 = 0;
+    let t: u64 = 0;
+    while t < slice_pool_nspans(&q) {
+        if slice_pool_span_used(&q, t) == false {
+            fc = fc + 1;
+        };
+        t = t + 1;
+    }
+    return (q, fc);
+}
+
+// Byte view of a live segment: (data ptr + off, n). Invalidated
+// by any later alloc on the same pool (arena may move).
+fn slice_pool_view(p: &SlicePool, off: u32, n: u32) -> (ptr, u64) {
+    let base: ptr = slice_pool_arena_ptr(&p.data);
+    let o: u64 = off as u64;
+    let vp: ptr = PTR_BYTE_ADD(base, o);
+    return (vp, n as u64);
+}

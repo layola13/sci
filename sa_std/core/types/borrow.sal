@@ -1,0 +1,13 @@
+#def BorrowRef_SIZE = 8
+#def BorrowRef_ptr = +0
+
+#def BorrowMut_SIZE = 8
+#def BorrowMut_ptr = +0
+
+#def CowSlice_SIZE = 24
+#def CowSlice_tag = +0
+#def CowSlice_ptr = +8
+#def CowSlice_len = +16
+
+#def COW_BORROWED = 0
+#def COW_OWNED = 1

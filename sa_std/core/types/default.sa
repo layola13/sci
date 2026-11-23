@@ -1,0 +1,99 @@
+[MACRO] DEFAULT_BOOL %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_U8 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_U16 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_U32 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_U64 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_U64.
+[MACRO] DEFAULT %out_value
+    EXPAND DEFAULT_U64 %out_value
+[END_MACRO]
+
+[MACRO] DEFAULT_I8 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_I16 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_I32 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_I64 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_USIZE %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_ISIZE %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_F32 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_F64 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_CHAR %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+
+[MACRO] DEFAULT_PHANTOM_DATA %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_PHANTOM_PINNED %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_WRAPPING_U64 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_WRAPPING_U64.
+[MACRO] DEFAULT_WRAPPING %out_value
+    EXPAND DEFAULT_WRAPPING_U64 %out_value
+[END_MACRO]
+
+[MACRO] DEFAULT_WRAPPING_U32 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_WRAPPING_I64 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+[MACRO] DEFAULT_SATURATING_U64 %out_value
+    %out_value = add 0, 0
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_SATURATING_U64.
+[MACRO] DEFAULT_SATURATING %out_value
+    EXPAND DEFAULT_SATURATING_U64 %out_value
+[END_MACRO]
+
+[MACRO] DEFAULT_SATURATING_I64 %out_value
+    %out_value = add 0, 0
+[END_MACRO]

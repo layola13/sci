@@ -1,3 +1,3 @@
-// Stable numeric namespace aggregation.
-@import "nonzero.sa"
-@import "../num.sa"
+// Moved to core/num/prelude.sa in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "../core/num/prelude.sa"

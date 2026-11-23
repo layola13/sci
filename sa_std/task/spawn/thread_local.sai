@@ -1,0 +1,9 @@
+// SA-facing contracts for Rust `thread_local!` storage.
+//
+// Backed by the pure-Zig registry in src/runtime/sa_thread_local.zig:
+// slots are keyed by (OS thread id, key), zero-initialized, never freed.
+// Each `thread_local!` static maps to one u64 key (FNV-1a of its rustc
+// DefPath, computed by the sarust rsc driver so .sa stays string-free).
+// A slot holds raw u64 bits; Cell<u32>/Cell<u64> narrow/widen at the macros.
+@extern sa_thread_local_slot(key: u64) -> ptr
+@extern sa_thread_local_supported(&out_supported: ptr) -> i32

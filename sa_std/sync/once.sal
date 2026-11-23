@@ -1,31 +1,4 @@
-#def Once_SIZE = 16
-#def Once_state = +0
-#def Once_value = +8
-#def Once_STATE_UNINIT = 0
-#def Once_STATE_RUNNING = 1
-#def Once_STATE_READY = 2
-
-#def OnceState_SIZE = 8
-#def OnceState_ALIGN = 4
-#def OnceState_poisoned = +0
-#def OnceState_set_state_to = +4
-#def OnceState_STATE_COMPLETE = 0
-#def OnceState_STATE_RUNNING = 1
-#def OnceState_STATE_POISONED = 2
-#def OnceState_STATE_INCOMPLETE = 3
-#def OnceState_STATE_QUEUED = 4
-#def OnceState_STATE_MASK = 3
-
-#def OnceLock_SIZE = 16
-#def OnceLock_state = +0
-#def OnceLock_value = +8
-#def ONCE_LOCK_STATE_UNINIT = Once_STATE_UNINIT
-#def ONCE_LOCK_STATE_RUNNING = Once_STATE_RUNNING
-#def ONCE_LOCK_STATE_READY = Once_STATE_READY
-
-#def LazyLock_SIZE = 16
-#def LazyLock_state = +0
-#def LazyLock_value = +8
-#def LAZY_LOCK_STATE_UNINIT = Once_STATE_UNINIT
-#def LAZY_LOCK_STATE_RUNNING = Once_STATE_RUNNING
-#def LAZY_LOCK_STATE_READY = Once_STATE_READY
+// Compatibility shim (SA std modularization Phase 1, 2026-11-22).
+// Canonical location: sa_std/sync/once/once.sal. This file only forwards the import;
+// do not add definitions here.
+@import "once/once.sal"

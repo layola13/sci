@@ -1,0 +1,79 @@
+@import "pin.sal"
+
+[MACRO] PIN_NEW %pin_ptr, %target_ptr
+    store %pin_ptr+Pin_ptr, %target_ptr as ptr
+[END_MACRO]
+
+[MACRO] PIN_NEW_UNCHECKED %pin_ptr, %target_ptr
+    store %pin_ptr+Pin_ptr, %target_ptr as ptr
+[END_MACRO]
+
+[MACRO] PIN_MUT_NEW %pin_ptr, %target_ptr
+    store %pin_ptr+PinMut_ptr, %target_ptr as ptr
+[END_MACRO]
+
+[MACRO] PIN_MUT_NEW_UNCHECKED %pin_ptr, %target_ptr
+    store %pin_ptr+PinMut_ptr, %target_ptr as ptr
+[END_MACRO]
+
+[MACRO] PIN_GET_REF %out_ptr, %pin_ptr
+    %out_ptr = load %pin_ptr+Pin_ptr as ptr
+[END_MACRO]
+
+[MACRO] PIN_MUT_GET_REF %out_ptr, %pin_ptr
+    %out_ptr = load %pin_ptr+PinMut_ptr as ptr
+[END_MACRO]
+
+[MACRO] PIN_MUT_GET_MUT %out_ptr, %pin_ptr
+    %out_ptr = load %pin_ptr+PinMut_ptr as ptr
+[END_MACRO]
+
+[MACRO] PIN_MUT_GET_UNCHECKED_MUT %out_ptr, %pin_ptr
+    %out_ptr = load %pin_ptr+PinMut_ptr as ptr
+[END_MACRO]
+
+[MACRO] PIN_AS_REF %out_pin_ptr, %pin_ptr
+    __pin_ref_ptr_%out_pin_ptr = load %pin_ptr+Pin_ptr as ptr
+    store %out_pin_ptr+Pin_ptr, __pin_ref_ptr_%out_pin_ptr as ptr
+    !__pin_ref_ptr_%out_pin_ptr
+[END_MACRO]
+
+[MACRO] PIN_MUT_AS_REF %out_pin_ptr, %pin_ptr
+    __pin_mut_ref_ptr_%out_pin_ptr = load %pin_ptr+PinMut_ptr as ptr
+    store %out_pin_ptr+Pin_ptr, __pin_mut_ref_ptr_%out_pin_ptr as ptr
+    !__pin_mut_ref_ptr_%out_pin_ptr
+[END_MACRO]
+
+[MACRO] PIN_MUT_AS_MUT %out_pin_ptr, %pin_ptr
+    __pin_mut_ptr_%out_pin_ptr = load %pin_ptr+PinMut_ptr as ptr
+    store %out_pin_ptr+PinMut_ptr, __pin_mut_ptr_%out_pin_ptr as ptr
+    !__pin_mut_ptr_%out_pin_ptr
+[END_MACRO]
+
+[MACRO] PIN_MUT_INTO_REF %out_pin_ptr, %pin_ptr
+    EXPAND PIN_MUT_AS_REF %out_pin_ptr, %pin_ptr
+[END_MACRO]
+
+[MACRO] PIN_INTO_INNER_UNCHECKED %out_ptr, %pin_ptr
+    %out_ptr = load %pin_ptr+Pin_ptr as ptr
+[END_MACRO]
+
+[MACRO] PIN_MUT_INTO_INNER_UNCHECKED %out_ptr, %pin_ptr
+    %out_ptr = load %pin_ptr+PinMut_ptr as ptr
+[END_MACRO]
+
+[MACRO] PIN_PTR_EQ %out_bool, %left_pin, %right_pin
+    __pin_left_%out_bool = load %left_pin+Pin_ptr as ptr
+    __pin_right_%out_bool = load %right_pin+Pin_ptr as ptr
+    %out_bool = eq __pin_left_%out_bool, __pin_right_%out_bool
+    !__pin_right_%out_bool
+    !__pin_left_%out_bool
+[END_MACRO]
+
+[MACRO] PIN_MUT_PTR_EQ %out_bool, %left_pin, %right_pin
+    __pin_mut_left_%out_bool = load %left_pin+PinMut_ptr as ptr
+    __pin_mut_right_%out_bool = load %right_pin+PinMut_ptr as ptr
+    %out_bool = eq __pin_mut_left_%out_bool, __pin_mut_right_%out_bool
+    !__pin_mut_right_%out_bool
+    !__pin_mut_left_%out_bool
+[END_MACRO]

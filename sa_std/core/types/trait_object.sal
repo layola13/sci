@@ -1,0 +1,4 @@
+#def Dyn_SIZE = 16
+#def Dyn_data = +0
+#def Dyn_vtable = +8
+

@@ -1,0 +1,29 @@
+// Common state for adapting plugin-owned poll handles to SA Future values.
+// The plugin operation remains owned by the caller; this layout only tracks
+// the Future-facing terminal state and the last plugin error/value.
+
+#def PluginAsyncOp_SIZE = 64
+#def PluginAsyncOp_handle = +0
+#def PluginAsyncOp_state = +8
+#def PluginAsyncOp_status = +16
+#def PluginAsyncOp_value = +24
+#def PluginAsyncOp_error = +32
+#def PluginAsyncOp_deadline_ms = +40
+#def PluginAsyncOp_cancelled = +48
+#def PluginAsyncOp_owned = +56
+
+#def PluginAsync_PENDING = 0
+#def PluginAsync_READY = 1
+#def PluginAsync_FAILED = 2
+#def PluginAsync_CANCELLED = 3
+
+#def PluginAsync_STATUS_OK = 0
+#def PluginAsync_STATUS_WOULD_BLOCK = 1
+#def PluginAsync_STATUS_CLOSED = 2
+#def PluginAsync_STATUS_TIMEOUT = 3
+#def PluginAsync_STATUS_TOO_LARGE = 4
+#def PluginAsync_STATUS_INVALID = 5
+#def PluginAsync_STATUS_IO_ERROR = 6
+
+#def PluginAsync_ERROR_CANCELLED = 97
+#def PluginAsync_ERROR_DEADLINE = 96

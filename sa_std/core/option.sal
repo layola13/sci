@@ -1,11 +1,3 @@
-#def Option_SIZE = 16
-#def Option_tag = +0
-#def Option_value = +8
-#def Option_NONE = 0
-#def Option_SOME = 1
-
-
-#def OptionPairU64_SIZE = 24
-#def OptionPairU64_tag = +0
-#def OptionPairU64_value1 = +8
-#def OptionPairU64_value2 = +16
+// Moved to core/option/option.sal in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "option/option.sal"

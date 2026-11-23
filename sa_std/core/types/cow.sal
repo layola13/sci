@@ -1,0 +1,2 @@
+// Copy-on-write slice layout aliases.
+@import "borrow.sal"

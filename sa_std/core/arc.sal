@@ -1,4 +1,3 @@
-#def ArcBox_SIZE = 24
-#def ArcBox_strong = +0
-#def ArcBox_weak = +8
-#def ArcBox_data = +16
+// Moved to core/cell/arc.sal in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "cell/arc.sal"

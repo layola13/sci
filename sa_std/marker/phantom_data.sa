@@ -1,3 +1,3 @@
-// PhantomData namespace facade.
-@import "../marker.sal"
-@import "../marker.sa"
+// Moved to core/marker/phantom_data.sa in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "../core/marker/phantom_data.sa"

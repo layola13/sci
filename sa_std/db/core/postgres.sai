@@ -1,0 +1,65 @@
+// SA-facing ABI for the sa_std built-in PostgreSQL client
+// (wire protocol v3). Implementation: sci src/runtime/sa_pg.zig
+// (in libsa_std.a). No plugin is required.
+//
+// Synchronous and caller-serialized per connection; one result set
+// per connection at a time (a new exec/execute replaces it). Handles
+// are opaque u64s: connections from sa_pg_connect, statements from
+// sa_pg_prepare.
+//
+// i32 statuses mirror SA_STD_* (0 ok, 1 invalid argument, 2 invalid
+// handle, 3 not found, 5 no memory, 6 io, 7 net/poisoned connection,
+// 8 unsupported, 9 truncated) plus one domain code:
+//   12 (SA_STD_ERR_PG_SERVER) -- the server answered ErrorResponse;
+//   sa_pg_last_sqlstate / sa_pg_last_error / sa_pg_last_error_detail
+//   then carry the PostgreSQL SQLSTATE and message. Server errors are
+//   never swallowed, and protocol surprises poison the connection
+//   (further calls return 7 until sa_pg_close).
+//
+// String outputs use the caller-buffer model: out_len always
+// receives the full length; cap too small returns 9 and copies
+// nothing. Bind indexes are 1-based. All values travel in text
+// format; the typed cell getters parse the text form. Column type
+// OIDs are PostgreSQL's: bool 16, int2 21, int4 23, int8 20,
+// float4 700, float8 701, text 25, varchar 1043, date 1082,
+// timestamp 1114, timestamptz 1184.
+//
+// timeout_ms bounds socket reads/writes after connect (0 selects
+// the default 10000). ssl_mode: 0 = plaintext; any other value
+// returns 8 in this version -- TLS is not implemented and a request
+// for it is never silently downgraded to plaintext.
+
+@extern sa_pg_connect(&host: ptr, host_len: u64, port: u32, &user: ptr, user_len: u64, &password: ptr, password_len: u64, &database: ptr, database_len: u64, timeout_ms: u32, ssl_mode: u32, &out_handle: ptr) -> i32
+@extern sa_pg_close(handle: u64) -> i32
+@extern sa_pg_server_version(handle: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_pg_txn_status(handle: u64, &out_status: ptr) -> i32
+@extern sa_pg_last_sqlstate(handle: u64, &out: ptr) -> i32
+@extern sa_pg_last_error(handle: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_pg_last_error_detail(handle: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+
+// Simple query protocol. Multi-statement SQL keeps the last result.
+@extern sa_pg_exec(handle: u64, &sql: ptr, sql_len: u64) -> i32
+
+// Extended query protocol: prepare once, bind (1-based), execute.
+@extern sa_pg_prepare(handle: u64, &sql: ptr, sql_len: u64, &out_stmt: ptr) -> i32
+@extern sa_pg_stmt_param_count(stmt: u64, &out_count: ptr) -> i32
+@extern sa_pg_stmt_free(stmt: u64) -> i32
+@extern sa_pg_bind_null(stmt: u64, index: u32) -> i32
+@extern sa_pg_bind_text(stmt: u64, index: u32, &value: ptr, value_len: u64) -> i32
+@extern sa_pg_bind_i64(stmt: u64, index: u32, value: i64) -> i32
+@extern sa_pg_bind_f64(stmt: u64, index: u32, value: f64) -> i32
+@extern sa_pg_bind_bool(stmt: u64, index: u32, value: u32) -> i32
+@extern sa_pg_execute(handle: u64, stmt: u64) -> i32
+
+// Result access (rows/cols are 0-based here).
+@extern sa_pg_result_rows(handle: u64, &out_rows: ptr) -> i32
+@extern sa_pg_result_cols(handle: u64, &out_cols: ptr) -> i32
+@extern sa_pg_col_name(handle: u64, col: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_pg_col_type_oid(handle: u64, col: u64, &out_oid: ptr) -> i32
+@extern sa_pg_cell_is_null(handle: u64, row: u64, col: u64, &out_is_null: ptr) -> i32
+@extern sa_pg_cell_len(handle: u64, row: u64, col: u64, &out_len: ptr) -> i32
+@extern sa_pg_cell_copy(handle: u64, row: u64, col: u64, &out: ptr, cap: u64, &out_len: ptr) -> i32
+@extern sa_pg_cell_i64(handle: u64, row: u64, col: u64, &out_value: ptr) -> i32
+@extern sa_pg_cell_f64(handle: u64, row: u64, col: u64, &out_value: ptr) -> i32
+@extern sa_pg_cell_bool(handle: u64, row: u64, col: u64, &out_value: ptr) -> i32
+@extern sa_pg_rows_affected(handle: u64, &out_count: ptr) -> i32

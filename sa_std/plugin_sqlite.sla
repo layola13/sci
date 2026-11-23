@@ -1,2 +1,2 @@
-// SLA import surface for the synchronous Node SQLite facade.
-@import "sa_std/plugin_sqlite.sa"
+// Compatibility shim (Phase 1 modularization, 2026-11-22): moved to sa_std/db/storage/plugin_sqlite.sla.
+@import "sa_std/db/storage/plugin_sqlite.sla"

@@ -1,14 +1,3 @@
-#def CMP_ORDERING_LESS = -1
-#def CMP_ORDERING_EQUAL = 0
-#def CMP_ORDERING_GREATER = 1
-#def CMP_ORDERING_DEFAULT_VALUE = CMP_ORDERING_EQUAL
-
-#def CmpReverseU64_SIZE = 8
-#def CmpReverseU64_value = +0
-
-#def CmpReverseI64_SIZE = 8
-#def CmpReverseI64_value = +0
-
-
-#def CMP_ORDERING_MIN = -1
-#def CMP_ORDERING_MAX = 1
+// Moved to core/types/cmp.sal in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "core/types/cmp.sal"

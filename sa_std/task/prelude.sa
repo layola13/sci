@@ -1,0 +1,9 @@
+// Stable task namespace aggregation.
+@import "task.sa"
+@import "future.sa"
+@import "spawn/thread.sa"
+@import "spawn/thread_local.sa"
+@import "join/join_handle.sa"
+@import "m_async.sa"
+@import "plugin_async.sa"
+@import "libsa_async.sa"

@@ -1,5 +1,5 @@
 @import "sa_std/io/print.sai"
-@import "sa_std/compress.sai"
+@import "sa_std/crypto/encoding/compress.sai"
 
 // 963 - compress checksum: gzip round trip must be byte-exact.
 // The djb2-style checksum over the decoded bytes must equal the

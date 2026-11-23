@@ -1,0 +1,23 @@
+#def TypeId_SIZE = 16
+#def TypeId_lo = +0
+#def TypeId_hi = +8
+
+#def AnyRef_SIZE = 24
+#def AnyRef_type_lo = +0
+#def AnyRef_type_hi = +8
+#def AnyRef_ptr = +16
+
+#def ANY_TYPE_BOOL_LO = 1
+#def ANY_TYPE_U8_LO = 2
+#def ANY_TYPE_U16_LO = 3
+#def ANY_TYPE_U32_LO = 4
+#def ANY_TYPE_U64_LO = 5
+#def ANY_TYPE_I8_LO = 6
+#def ANY_TYPE_I16_LO = 7
+#def ANY_TYPE_I32_LO = 8
+#def ANY_TYPE_I64_LO = 9
+#def ANY_TYPE_PTR_LO = 10
+#def ANY_TYPE_SLICE_LO = 11
+#def ANY_TYPE_STRING_LO = 12
+#def ANY_TYPE_VEC_LO = 13
+#def ANY_TYPE_ID_HI = 0

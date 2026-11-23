@@ -1,0 +1,45 @@
+// Rust `thread_local!` / `LocalKey<T>` storage over the sa_thread_local_slot
+// registry (src/runtime/sa_thread_local.zig). No second implementation lives
+// here: this file is a thin macro facade, reusing only existing SA core
+// (`alloc`/`load`/`store`, `call @extern`) plus the Cell u32/u64 width
+// convention from sa_std/core/cell.sa.
+//
+// Rust mapping (see sarust/STD_MAP.md):
+//   thread_local! { static K: Cell<u32> }  -> key = FNV1a(DefPath), slot u64
+//   LocalKey::with(|c| …)                  -> THREAD_LOCAL_SLOT + call indirect
+//   EagerStorage::get (internal accessor)  -> THREAD_LOCAL_SLOT (the lowered
+//                                            ThreadLocal rvalue shape)
+//   Cell::get / Cell::set                  -> THREAD_LOCAL_U32_GET / SET
+//   Cell<u64> variants                     -> THREAD_LOCAL_U64_GET / SET
+@import "thread_local.sai"
+
+// Resolve (or lazily create) the calling thread's u64 slot for %key.
+// Loud on OOM (registry returns null) via panic(1403), same family as the
+// mpsc 1401/1402 allocation-failure codes.
+[MACRO] THREAD_LOCAL_SLOT %out_slot, %key
+    %out_slot = call @sa_thread_local_slot(%key)
+    __tls_slot_ok_%out_slot = ne %out_slot, 0
+    br __tls_slot_ok_%out_slot -> L_TLS_SLOT_OK_%out_slot, L_TLS_SLOT_OOM_%out_slot
+L_TLS_SLOT_OOM_%out_slot:
+    panic(1403)
+L_TLS_SLOT_OK_%out_slot:
+    !__tls_slot_ok_%out_slot
+[END_MACRO]
+
+// Cell<u32> view of a resolved slot (the TLS_N corpus shape).
+[MACRO] THREAD_LOCAL_U32_GET %out_value, %slot_reg
+    %out_value = load %slot_reg+0 as u32
+[END_MACRO]
+
+[MACRO] THREAD_LOCAL_U32_SET %slot_reg, %value
+    store %slot_reg+0, %value as u32
+[END_MACRO]
+
+// Cell<u64> view of a resolved slot.
+[MACRO] THREAD_LOCAL_U64_GET %out_value, %slot_reg
+    %out_value = load %slot_reg+0 as u64
+[END_MACRO]
+
+[MACRO] THREAD_LOCAL_U64_SET %slot_reg, %value
+    store %slot_reg+0, %value as u64
+[END_MACRO]

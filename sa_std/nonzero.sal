@@ -1,2 +1,3 @@
-// NonZero integer layout and constants.
-@import "num.sal"
+// Moved to core/num/nonzero.sal in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "core/num/nonzero.sal"

@@ -1,4 +1,3 @@
-// Stable marker namespace aggregation.
-@import "phantom_data.sa"
-@import "../manually_drop.sa"
-@import "../marker.sa"
+// Moved to core/marker/prelude.sa in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "../core/marker/prelude.sa"

@@ -1,0 +1,109 @@
+// SA-facing ABI for the sa_std built-in MySQL/MariaDB client.
+// Implementation: sci src/runtime/sa_mysql_client.zig (in libsa_std.a).
+// Pure-Zig MySQL client/server protocol (v10) over plain TCP; no
+// plugin is required and no external MySQL library is linked.
+//
+// Handles are opaque u64 (0 == invalid): a connection handle from
+// sa_mysql_connect, a result handle from sa_mysql_query /
+// sa_mysql_stmt_execute, a statement handle from sa_mysql_prepare.
+// A result is owned by its connection: sa_mysql_result_free releases
+// it early, and closing the connection releases every live result and
+// statement on it. close() consumes the connection handle
+// (double-close is a caller bug).
+//
+// Error codes (i32): 0 = OK; -1 unsupported, -5 I/O, -12 out of
+// memory, -22 invalid argument (sci conventions); MySQL-specific:
+//   -101 server ERR packet: the server rejected the command; the
+//        MySQL errno, SQLSTATE and message are recorded on the
+//        connection — read them with sa_mysql_errno /
+//        sa_mysql_sqlstate / sa_mysql_error_message. Nothing about a
+//        server error is swallowed or folded into a generic code.
+//   -102 protocol error: malformed or unexpected packet; the
+//        connection is dead (close it and reconnect).
+//   -103 caching_sha2_password full authentication was demanded but
+//        requires a TLS channel or RSA password encryption, neither
+//        of which sa_std provides yet; v1 refuses explicitly instead
+//        of sending credentials in an unprotected form. Once the
+//        server credential cache is warm (any prior full auth by any
+//        client), the fast path succeeds.
+//   -104 the server demands an authentication plugin v1 does not
+//        implement (only mysql_native_password and
+//        caching_sha2_password are implemented).
+//
+// Authentication coverage (v1):
+//   mysql_native_password  — full support (incl. auth switch).
+//   caching_sha2_password  — fast auth path; full auth = -103 (above).
+//   anything else          — -104.
+// Transport is plaintext TCP: there is no TLS in v1, so do not send
+// credentials over untrusted networks with this surface yet.
+//
+// Value model: results are fully materialized. Text-protocol values
+// are the server's own text rendering, byte for byte. Binary-protocol
+// (prepared statement) values are decoded to the same text shape:
+// integers render decimal (respecting the column UNSIGNED flag),
+// FLOAT/DOUBLE render as the shortest round-trip decimal,
+// DATE/DATETIME/TIMESTAMP/TIME render in MySQL's ISO text form
+// (fractional seconds trimmed of trailing zeros, TIME hours may
+// exceed 24), DECIMAL/NEWDECIMAL and the string family pass through
+// as raw bytes, BIT is raw big-endian bytes and GEOMETRY raw bytes.
+// SQL NULL is reported through out_is_null, never as an empty string.
+// Value/name pointers returned by the accessors borrow result- or
+// connection-owned memory and stay valid until that owner is freed
+// or (for the connection error accessors) the next command runs.
+//
+// Unsupported in v1, all refused explicitly (never silently):
+//   LOAD DATA LOCAL INFILE (server request -> -1, connection closed),
+//   multiple statements per query (never negotiated), stored-procedure
+//   multi-result sets beyond the first (drained and discarded to keep
+//   the connection in sync — do not CALL procedures whose extra
+//   result sets you need), TLS, connection attributes, query
+//   timeouts/interruption, COM_STMT_SEND_LONG_DATA (bind values are
+//   sent inline), prepared-statement cursors/fetch.
+
+@extern sa_mysql_supported(&out_supported: ptr) -> i32
+
+@extern sa_mysql_connect(&host: ptr, host_len: u64, port: u32, &user: ptr, user_len: u64, &pass: ptr, pass_len: u64, &db: ptr, db_len: u64, &out_conn: ptr) -> i32
+@extern sa_mysql_close(conn: u64) -> i32
+@extern sa_mysql_ping(conn: u64) -> i32
+
+// On failure (including -101) out_result is 0 and, for -101, the
+// server error is available via the connection error accessors. On a
+// failed connect the out_conn handle is still handed back (nonzero)
+// whenever allocation succeeded, purely so the caller can read the
+// recorded handshake/auth error and must close it; issuing commands
+// on it returns -102.
+@extern sa_mysql_query(conn: u64, &sql: ptr, sql_len: u64, &out_result: ptr) -> i32
+
+@extern sa_mysql_prepare(conn: u64, &sql: ptr, sql_len: u64, &out_stmt: ptr) -> i32
+@extern sa_mysql_stmt_bind_null(stmt: u64, idx: u64) -> i32
+@extern sa_mysql_stmt_bind_i64(stmt: u64, idx: u64, value: i64) -> i32
+@extern sa_mysql_stmt_bind_u64(stmt: u64, idx: u64, value: u64) -> i32
+@extern sa_mysql_stmt_bind_f64(stmt: u64, idx: u64, value: f64) -> i32
+@extern sa_mysql_stmt_bind_bytes(stmt: u64, idx: u64, &data: ptr, data_len: u64) -> i32
+@extern sa_mysql_stmt_param_count(stmt: u64) -> u64
+@extern sa_mysql_stmt_execute(stmt: u64, &out_result: ptr) -> i32
+@extern sa_mysql_stmt_close(stmt: u64) -> i32
+
+@extern sa_mysql_errno(conn: u64) -> u32
+@extern sa_mysql_sqlstate(conn: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_mysql_error_message(conn: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_mysql_server_version(conn: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+@extern sa_mysql_connection_id(conn: u64) -> u32
+
+@extern sa_mysql_result_free(result: u64) -> i32
+// 1 when the result carries a row set, 0 for an OK-style result
+// (INSERT/UPDATE/DDL): use affected_rows / last_insert_id there.
+@extern sa_mysql_result_has_result_set(result: u64) -> u32
+@extern sa_mysql_result_column_count(result: u64) -> u64
+@extern sa_mysql_result_column_name(result: u64, idx: u64, &out_ptr: ptr, &out_len: ptr) -> i32
+// Column type code (see mysql_client.sla SA_MYSQL_TYPE_*); the
+// sentinel 0xFFFFFFFF marks an out-of-range index.
+@extern sa_mysql_result_column_type(result: u64, idx: u64) -> u32
+@extern sa_mysql_result_row_count(result: u64) -> u64
+// Sequential cursor: returns 1 and sets out_row to the next row
+// index, or 0 when the result is exhausted.
+@extern sa_mysql_result_next(result: u64, &out_row: ptr) -> i32
+@extern sa_mysql_result_value(result: u64, row_idx: u64, col_idx: u64, &out_ptr: ptr, &out_len: ptr, &out_is_null: ptr) -> i32
+@extern sa_mysql_affected_rows(result: u64) -> u64
+@extern sa_mysql_last_insert_id(result: u64) -> u64
+@extern sa_mysql_result_warnings(result: u64) -> u32

@@ -1,4 +1,3 @@
-#def Iter_SIZE = 24
-#def Iter_ptr = +0
-#def Iter_len = +8
-#def Iter_index = +16
+// Moved to core/iter/iter.sal in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "iter/iter.sal"

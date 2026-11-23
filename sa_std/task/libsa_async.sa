@@ -1,0 +1,80 @@
+// Standard async state machine helper macros.
+// These are pure text templates: the frontend still owns the actual
+// coroutine/state-machine shape, but the repetitive poll/pending/ready
+// bookkeeping is standardized here.
+// The poll context is expected to remain owned by the caller; these macros
+// only manage the state-machine bookkeeping and never release the context.
+
+[MACRO] ASYNC_CTX_DEF %name
+    #def %name_SIZE = 32
+    #def %name_state = +0
+    #def %name_stage = +4
+    #def %name_status = +8
+    #def %name_value = +16
+    #def %name_resume = +24
+    #def %name_PENDING = 0
+    #def %name_READY = 1
+    #def %name_INVALID = 102
+[END_MACRO]
+
+[MACRO] ASYNC_STATE_BEGIN %state_id
+L_ASYNC_STATE_%state_id:
+[END_MACRO]
+
+[MACRO] ASYNC_STATE_END %ctx, %state_field, %next_state
+    store %ctx+%state_field, %next_state as u32
+[END_MACRO]
+
+[MACRO] ASYNC_POLL_PROLOGUE %ctx, %state_field
+    async_state_%state_field = load %ctx+%state_field as u32
+[END_MACRO]
+
+[MACRO] ASYNC_AWAIT_POINT %ctx, %state_field, %state_id, %poll_fn, %take_fn, %result_field
+    async_poll_status_%state_id_%state_field = call %poll_fn(%ctx)
+    async_is_ready_%state_id_%state_field = eq async_poll_status_%state_id_%state_field, 1
+    br async_is_ready_%state_id_%state_field -> L_ASYNC_AWAIT_READY_%state_id_%state_field, L_ASYNC_AWAIT_PENDING_%state_id_%state_field
+L_ASYNC_AWAIT_PENDING_%state_id_%state_field:
+    store %ctx+%state_field, %state_id as u32
+    !async_poll_status_%state_id_%state_field
+    !async_is_ready_%state_id_%state_field
+    return 0
+L_ASYNC_AWAIT_READY_%state_id_%state_field:
+    call %take_fn(%ctx)
+    async_result_%state_id_%state_field = load %ctx+%result_field as i32
+    async_next_state_%state_id_%state_field = add %state_id, 1
+    store %ctx+%state_field, async_next_state_%state_id_%state_field as u32
+    !async_poll_status_%state_id_%state_field
+    !async_is_ready_%state_id_%state_field
+    !async_next_state_%state_id_%state_field
+[END_MACRO]
+
+[MACRO] ASYNC_AWAIT_POINT_FINAL %ctx, %state_field, %state_id, %poll_fn, %take_fn
+    async_poll_status_%state_id_%state_field = call %poll_fn(%ctx)
+    async_is_ready_%state_id_%state_field = eq async_poll_status_%state_id_%state_field, 1
+    br async_is_ready_%state_id_%state_field -> L_ASYNC_AWAIT_FINAL_READY_%state_id_%state_field, L_ASYNC_AWAIT_FINAL_PENDING_%state_id_%state_field
+L_ASYNC_AWAIT_FINAL_PENDING_%state_id_%state_field:
+    store %ctx+%state_field, %state_id as u32
+    !async_poll_status_%state_id_%state_field
+    !async_is_ready_%state_id_%state_field
+    return 0
+L_ASYNC_AWAIT_FINAL_READY_%state_id_%state_field:
+    call %take_fn(%ctx)
+    async_next_state_%state_id_%state_field = add %state_id, 1
+    store %ctx+%state_field, async_next_state_%state_id_%state_field as u32
+    !async_poll_status_%state_id_%state_field
+    !async_is_ready_%state_id_%state_field
+    !async_next_state_%state_id_%state_field
+    return 1
+[END_MACRO]
+
+[MACRO] ASYNC_RETURN_PENDING
+    return 0
+[END_MACRO]
+
+[MACRO] ASYNC_READY
+    return 1
+[END_MACRO]
+
+[MACRO] ASYNC_INVALID_STATE
+    panic(102)
+[END_MACRO]

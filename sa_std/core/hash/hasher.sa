@@ -1,0 +1,1486 @@
+@import "hash.sal"
+@import "../slice/slice.sal"
+@import "../cell/rc.sal"
+@import "../cell/arc.sal"
+
+[MACRO] DEFAULT_HASHER_NEW %hasher
+    store %hasher+DefaultHasher_state, HASHER_DEFAULT_SEED as u64
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_DEFAULT %hasher
+    EXPAND DEFAULT_HASHER_NEW %hasher
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_CLONE %out_hasher, %hasher
+    __default_hasher_clone_state_%out_hasher = load %hasher+DefaultHasher_state as u64
+    store %out_hasher+DefaultHasher_state, __default_hasher_clone_state_%out_hasher as u64
+    !__default_hasher_clone_state_%out_hasher
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WITH_SEED %hasher, %seed
+    store %hasher+DefaultHasher_state, %seed as u64
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_RESET %hasher
+    EXPAND DEFAULT_HASHER_NEW %hasher
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_FINISH %out_hash, %hasher
+    %out_hash = load %hasher+DefaultHasher_state as u64
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_U64 %hasher, %value
+    __hasher_state_%hasher = load %hasher+DefaultHasher_state as u64
+    __hasher_xor_%hasher = xor __hasher_state_%hasher, %value
+    __hasher_next_%hasher = mul __hasher_xor_%hasher, HASHER_MIX_PRIME
+    store %hasher+DefaultHasher_state, __hasher_next_%hasher as u64
+    !__hasher_next_%hasher
+    !__hasher_xor_%hasher
+    !__hasher_state_%hasher
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_USIZE %hasher, %value
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %value
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_I64 %hasher, %value
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %value
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_I8 %hasher, %value
+    EXPAND DEFAULT_HASHER_WRITE_U8 %hasher, %value
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_I16 %hasher, %value
+    EXPAND DEFAULT_HASHER_WRITE_U16 %hasher, %value
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_I32 %hasher, %value
+    EXPAND DEFAULT_HASHER_WRITE_U32 %hasher, %value
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_ISIZE %hasher, %value
+    EXPAND DEFAULT_HASHER_WRITE_USIZE %hasher, %value
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_U32 %hasher, %value
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %value
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_U16 %hasher, %value
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %value
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_U8 %hasher, %value
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %value
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_BOOL %hasher, %value
+    __hasher_bool_%hasher = ne %value, 0
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __hasher_bool_%hasher
+    !__hasher_bool_%hasher
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_CHAR %hasher, %code
+    EXPAND DEFAULT_HASHER_WRITE_U32 %hasher, %code
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_PTR %hasher, %ptr
+    __hasher_ptr_bits_%hasher = bitcast %ptr as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __hasher_ptr_bits_%hasher
+    !__hasher_ptr_bits_%hasher
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_CONST_PTR %hasher, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_PTR %hasher, %ptr
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_MUT_PTR %hasher, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_PTR %hasher, %ptr
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_UNIT %hasher, %unit
+    __hasher_unit_noop_%hasher = add %unit, 0
+    !__hasher_unit_noop_%hasher
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_REF_U64 %hasher, %ptr
+    __hasher_ref_u64_value_%hasher = load %ptr+0 as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __hasher_ref_u64_value_%hasher
+    !__hasher_ref_u64_value_%hasher
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_REF_U64.
+[MACRO] DEFAULT_HASHER_WRITE_REF %hasher, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_REF_U64 %hasher, %ptr
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_REF_MUT_U64 %hasher, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_REF_U64 %hasher, %ptr
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_REF_MUT_U64.
+[MACRO] DEFAULT_HASHER_WRITE_REF_MUT %hasher, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_REF_MUT_U64 %hasher, %ptr
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_BOX_U64 %hasher, %box_reg
+    __hasher_box_u64_value_%hasher = load %box_reg+0 as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __hasher_box_u64_value_%hasher
+    !__hasher_box_u64_value_%hasher
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_BOX_U64.
+[MACRO] DEFAULT_HASHER_WRITE_BOX %hasher, %box_reg
+    EXPAND DEFAULT_HASHER_WRITE_BOX_U64 %hasher, %box_reg
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_RC_U64 %hasher, %rc_reg
+    __hasher_rc_u64_value_%hasher = load %rc_reg+RcBox_data as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __hasher_rc_u64_value_%hasher
+    !__hasher_rc_u64_value_%hasher
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_RC_U64.
+[MACRO] DEFAULT_HASHER_WRITE_RC %hasher, %rc_reg
+    EXPAND DEFAULT_HASHER_WRITE_RC_U64 %hasher, %rc_reg
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_ARC_U64 %hasher, %arc_reg
+    __hasher_arc_u64_value_%hasher = load %arc_reg+ArcBox_data as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __hasher_arc_u64_value_%hasher
+    !__hasher_arc_u64_value_%hasher
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_ARC_U64.
+[MACRO] DEFAULT_HASHER_WRITE_ARC %hasher, %arc_reg
+    EXPAND DEFAULT_HASHER_WRITE_ARC_U64 %hasher, %arc_reg
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE2_U64 %hasher, %left, %right
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %left
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %right
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_TUPLE2_U64.
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE2 %hasher, %left, %right
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE2_U64 %hasher, %left, %right
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE3_U64 %hasher, %first, %second, %third
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %first
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %second
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %third
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_TUPLE3_U64.
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE3 %hasher, %first, %second, %third
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE3_U64 %hasher, %first, %second, %third
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE4_U64 %hasher, %first, %second, %third, %fourth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %first
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %second
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %third
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fourth
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_TUPLE4_U64.
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE4 %hasher, %first, %second, %third, %fourth
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE4_U64 %hasher, %first, %second, %third, %fourth
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE5_U64 %hasher, %first, %second, %third, %fourth, %fifth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %first
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %second
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %third
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fourth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fifth
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_TUPLE5_U64.
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE5 %hasher, %first, %second, %third, %fourth, %fifth
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE5_U64 %hasher, %first, %second, %third, %fourth, %fifth
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE6_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %first
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %second
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %third
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fourth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fifth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %sixth
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_TUPLE6_U64.
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE6 %hasher, %first, %second, %third, %fourth, %fifth, %sixth
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE6_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE7_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %first
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %second
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %third
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fourth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fifth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %sixth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %seventh
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_TUPLE7_U64.
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE7 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE7_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE8_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %first
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %second
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %third
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fourth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fifth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %sixth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %seventh
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %eighth
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_TUPLE8_U64.
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE8 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE8_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE9_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %first
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %second
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %third
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fourth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fifth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %sixth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %seventh
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %eighth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %ninth
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_TUPLE9_U64.
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE9 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE9_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE10_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %first
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %second
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %third
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fourth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fifth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %sixth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %seventh
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %eighth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %ninth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %tenth
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_TUPLE10_U64.
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE10 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE10_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE11_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %first
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %second
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %third
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fourth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fifth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %sixth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %seventh
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %eighth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %ninth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %tenth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %eleventh
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_TUPLE11_U64.
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE11 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE11_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE12_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %first
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %second
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %third
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fourth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %fifth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %sixth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %seventh
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %eighth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %ninth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %tenth
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %eleventh
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %twelfth
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_TUPLE12_U64.
+[MACRO] DEFAULT_HASHER_WRITE_TUPLE12 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE12_U64 %hasher, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_LENGTH_PREFIX %hasher, %len
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, %len
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_BYTES %hasher, %slice_reg
+    __hasher_bytes_ptr_%hasher = load %slice_reg+Slice_ptr as ptr
+    __hasher_bytes_len_%hasher = load %slice_reg+Slice_len as u64
+    __hasher_bytes_idx_slot_%hasher = stack_alloc 8
+    store __hasher_bytes_idx_slot_%hasher+0, 0 as u64
+    jmp L_HASHER_WRITE_BYTES_HEAD_%hasher
+
+L_HASHER_WRITE_BYTES_HEAD_%hasher:
+    __hasher_bytes_idx_%hasher = load __hasher_bytes_idx_slot_%hasher+0 as u64
+    __hasher_bytes_done_%hasher = eq __hasher_bytes_idx_%hasher, __hasher_bytes_len_%hasher
+    br __hasher_bytes_done_%hasher -> L_HASHER_WRITE_BYTES_DONE_%hasher, L_HASHER_WRITE_BYTES_BODY_%hasher
+
+L_HASHER_WRITE_BYTES_BODY_%hasher:
+    __hasher_bytes_item_%hasher = ptr_add __hasher_bytes_ptr_%hasher, __hasher_bytes_idx_%hasher
+    __hasher_bytes_value_%hasher = load __hasher_bytes_item_%hasher+0 as u8
+    EXPAND DEFAULT_HASHER_WRITE_U8 %hasher, __hasher_bytes_value_%hasher
+    __hasher_bytes_next_%hasher = add __hasher_bytes_idx_%hasher, 1
+    store __hasher_bytes_idx_slot_%hasher+0, __hasher_bytes_next_%hasher as u64
+    !__hasher_bytes_next_%hasher
+    !__hasher_bytes_value_%hasher
+    !__hasher_bytes_item_%hasher
+    !__hasher_bytes_done_%hasher
+    !__hasher_bytes_idx_%hasher
+    jmp L_HASHER_WRITE_BYTES_HEAD_%hasher
+
+L_HASHER_WRITE_BYTES_DONE_%hasher:
+    !__hasher_bytes_done_%hasher
+    !__hasher_bytes_idx_%hasher
+    !__hasher_bytes_len_%hasher
+    !__hasher_bytes_ptr_%hasher
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE %hasher, %slice_reg
+    EXPAND DEFAULT_HASHER_WRITE_BYTES %hasher, %slice_reg
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_STR %hasher, %slice_reg
+    EXPAND DEFAULT_HASHER_WRITE_BYTES %hasher, %slice_reg
+    EXPAND DEFAULT_HASHER_WRITE_U8 %hasher, 255
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_SLICE_U8 %hasher, %slice_reg
+    __hasher_u8_slice_len_%hasher = load %slice_reg+Slice_len as u64
+    EXPAND DEFAULT_HASHER_WRITE_LENGTH_PREFIX %hasher, __hasher_u8_slice_len_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_BYTES %hasher, %slice_reg
+    !__hasher_u8_slice_len_%hasher
+[END_MACRO]
+
+[MACRO] DEFAULT_HASHER_WRITE_SLICE_U64 %hasher, %slice_reg
+    __hasher_u64_slice_ptr_%hasher = load %slice_reg+Slice_ptr as ptr
+    __hasher_u64_slice_len_%hasher = load %slice_reg+Slice_len as u64
+    __hasher_u64_slice_idx_slot_%hasher = stack_alloc 8
+    EXPAND DEFAULT_HASHER_WRITE_LENGTH_PREFIX %hasher, __hasher_u64_slice_len_%hasher
+    store __hasher_u64_slice_idx_slot_%hasher+0, 0 as u64
+    jmp L_HASHER_WRITE_SLICE_U64_HEAD_%hasher
+
+L_HASHER_WRITE_SLICE_U64_HEAD_%hasher:
+    __hasher_u64_slice_idx_%hasher = load __hasher_u64_slice_idx_slot_%hasher+0 as u64
+    __hasher_u64_slice_done_%hasher = eq __hasher_u64_slice_idx_%hasher, __hasher_u64_slice_len_%hasher
+    br __hasher_u64_slice_done_%hasher -> L_HASHER_WRITE_SLICE_U64_DONE_%hasher, L_HASHER_WRITE_SLICE_U64_BODY_%hasher
+
+L_HASHER_WRITE_SLICE_U64_BODY_%hasher:
+    __hasher_u64_slice_off_%hasher = mul __hasher_u64_slice_idx_%hasher, 8
+    __hasher_u64_slice_item_%hasher = ptr_add __hasher_u64_slice_ptr_%hasher, __hasher_u64_slice_off_%hasher
+    __hasher_u64_slice_value_%hasher = load __hasher_u64_slice_item_%hasher+0 as u64
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __hasher_u64_slice_value_%hasher
+    __hasher_u64_slice_next_%hasher = add __hasher_u64_slice_idx_%hasher, 1
+    store __hasher_u64_slice_idx_slot_%hasher+0, __hasher_u64_slice_next_%hasher as u64
+    !__hasher_u64_slice_next_%hasher
+    !__hasher_u64_slice_value_%hasher
+    !__hasher_u64_slice_item_%hasher
+    !__hasher_u64_slice_off_%hasher
+    !__hasher_u64_slice_done_%hasher
+    !__hasher_u64_slice_idx_%hasher
+    jmp L_HASHER_WRITE_SLICE_U64_HEAD_%hasher
+
+L_HASHER_WRITE_SLICE_U64_DONE_%hasher:
+    !__hasher_u64_slice_done_%hasher
+    !__hasher_u64_slice_idx_%hasher
+    !__hasher_u64_slice_len_%hasher
+    !__hasher_u64_slice_ptr_%hasher
+[END_MACRO]
+
+// Rust method-name alias over DEFAULT_HASHER_WRITE_SLICE_U64.
+[MACRO] DEFAULT_HASHER_WRITE_SLICE %hasher, %slice_reg
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U64 %hasher, %slice_reg
+[END_MACRO]
+
+[MACRO] HASH_U64 %out_hash, %value
+    __hash_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_U64 __hash_u64_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_U64.
+[MACRO] HASH %out_hash, %value
+    EXPAND HASH_U64 %out_hash, %value
+[END_MACRO]
+
+[MACRO] HASH_U32 %out_hash, %value
+    __hash_u32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_u32_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_U32 __hash_u32_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_u32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_U16 %out_hash, %value
+    __hash_u16_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_u16_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_U16 __hash_u16_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_u16_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_U8 %out_hash, %value
+    __hash_u8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_u8_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_U8 __hash_u8_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_u8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_USIZE %out_hash, %value
+    __hash_usize_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_usize_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_USIZE __hash_usize_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_usize_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_I64 %out_hash, %value
+    __hash_i64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_i64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_I64 __hash_i64_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_i64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_I32 %out_hash, %value
+    __hash_i32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_i32_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_I32 __hash_i32_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_i32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_I16 %out_hash, %value
+    __hash_i16_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_i16_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_I16 __hash_i16_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_i16_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_I8 %out_hash, %value
+    __hash_i8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_i8_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_I8 __hash_i8_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_i8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_ISIZE %out_hash, %value
+    __hash_isize_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_isize_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_ISIZE __hash_isize_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_isize_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_BOOL %out_hash, %value
+    __hash_bool_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_bool_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_BOOL __hash_bool_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_bool_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_PTR_VALUE %out_hash, %ptr
+    __hash_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_ptr_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_PTR __hash_ptr_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_ptr_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_CONST_PTR_VALUE %out_hash, %ptr
+    __hash_const_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_const_ptr_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_CONST_PTR __hash_const_ptr_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_const_ptr_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_MUT_PTR_VALUE %out_hash, %ptr
+    __hash_mut_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_mut_ptr_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_MUT_PTR __hash_mut_ptr_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_mut_ptr_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_UNIT %out_hash, %unit
+    __hash_unit_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_unit_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __hash_unit_hasher_%out_hash, %unit
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_unit_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_REF_U64 %out_hash, %ptr
+    __hash_ref_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_ref_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_REF_U64 __hash_ref_u64_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_ref_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_REF_U64.
+[MACRO] HASH_REF %out_hash, %ptr
+    EXPAND HASH_REF_U64 %out_hash, %ptr
+[END_MACRO]
+
+[MACRO] HASH_REF_MUT_U64 %out_hash, %ptr
+    __hash_ref_mut_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_ref_mut_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_REF_MUT_U64 __hash_ref_mut_u64_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_ref_mut_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_REF_MUT_U64.
+[MACRO] HASH_REF_MUT %out_hash, %ptr
+    EXPAND HASH_REF_MUT_U64 %out_hash, %ptr
+[END_MACRO]
+
+[MACRO] HASH_BOX_U64 %out_hash, %box_reg
+    __hash_box_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_box_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_BOX_U64 __hash_box_u64_hasher_%out_hash, %box_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_box_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_BOX_U64.
+[MACRO] HASH_BOX %out_hash, %box_reg
+    EXPAND HASH_BOX_U64 %out_hash, %box_reg
+[END_MACRO]
+
+[MACRO] HASH_RC_U64 %out_hash, %rc_reg
+    __hash_rc_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_rc_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_RC_U64 __hash_rc_u64_hasher_%out_hash, %rc_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_rc_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_RC_U64.
+[MACRO] HASH_RC %out_hash, %rc_reg
+    EXPAND HASH_RC_U64 %out_hash, %rc_reg
+[END_MACRO]
+
+[MACRO] HASH_ARC_U64 %out_hash, %arc_reg
+    __hash_arc_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_arc_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_ARC_U64 __hash_arc_u64_hasher_%out_hash, %arc_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_arc_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_ARC_U64.
+[MACRO] HASH_ARC %out_hash, %arc_reg
+    EXPAND HASH_ARC_U64 %out_hash, %arc_reg
+[END_MACRO]
+
+[MACRO] HASH_TUPLE2_U64 %out_hash, %left, %right
+    __hash_tuple2_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_tuple2_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE2_U64 __hash_tuple2_u64_hasher_%out_hash, %left, %right
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_tuple2_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_TUPLE2_U64.
+[MACRO] HASH_TUPLE2 %out_hash, %left, %right
+    EXPAND HASH_TUPLE2_U64 %out_hash, %left, %right
+[END_MACRO]
+
+[MACRO] HASH_TUPLE3_U64 %out_hash, %first, %second, %third
+    __hash_tuple3_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_tuple3_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE3_U64 __hash_tuple3_u64_hasher_%out_hash, %first, %second, %third
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_tuple3_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_TUPLE3_U64.
+[MACRO] HASH_TUPLE3 %out_hash, %first, %second, %third
+    EXPAND HASH_TUPLE3_U64 %out_hash, %first, %second, %third
+[END_MACRO]
+
+[MACRO] HASH_TUPLE4_U64 %out_hash, %first, %second, %third, %fourth
+    __hash_tuple4_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_tuple4_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE4_U64 __hash_tuple4_u64_hasher_%out_hash, %first, %second, %third, %fourth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_tuple4_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_TUPLE4_U64.
+[MACRO] HASH_TUPLE4 %out_hash, %first, %second, %third, %fourth
+    EXPAND HASH_TUPLE4_U64 %out_hash, %first, %second, %third, %fourth
+[END_MACRO]
+
+[MACRO] HASH_TUPLE5_U64 %out_hash, %first, %second, %third, %fourth, %fifth
+    __hash_tuple5_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_tuple5_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE5_U64 __hash_tuple5_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_tuple5_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_TUPLE5_U64.
+[MACRO] HASH_TUPLE5 %out_hash, %first, %second, %third, %fourth, %fifth
+    EXPAND HASH_TUPLE5_U64 %out_hash, %first, %second, %third, %fourth, %fifth
+[END_MACRO]
+
+[MACRO] HASH_TUPLE6_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth
+    __hash_tuple6_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_tuple6_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE6_U64 __hash_tuple6_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_tuple6_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_TUPLE6_U64.
+[MACRO] HASH_TUPLE6 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth
+    EXPAND HASH_TUPLE6_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth
+[END_MACRO]
+
+[MACRO] HASH_TUPLE7_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+    __hash_tuple7_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_tuple7_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE7_U64 __hash_tuple7_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_tuple7_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_TUPLE7_U64.
+[MACRO] HASH_TUPLE7 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+    EXPAND HASH_TUPLE7_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+[END_MACRO]
+
+[MACRO] HASH_TUPLE8_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+    __hash_tuple8_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_tuple8_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE8_U64 __hash_tuple8_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_tuple8_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_TUPLE8_U64.
+[MACRO] HASH_TUPLE8 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+    EXPAND HASH_TUPLE8_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+[END_MACRO]
+
+[MACRO] HASH_TUPLE9_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+    __hash_tuple9_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_tuple9_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE9_U64 __hash_tuple9_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_tuple9_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_TUPLE9_U64.
+[MACRO] HASH_TUPLE9 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+    EXPAND HASH_TUPLE9_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+[END_MACRO]
+
+[MACRO] HASH_TUPLE10_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+    __hash_tuple10_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_tuple10_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE10_U64 __hash_tuple10_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_tuple10_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_TUPLE10_U64.
+[MACRO] HASH_TUPLE10 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+    EXPAND HASH_TUPLE10_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+[END_MACRO]
+
+[MACRO] HASH_TUPLE11_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+    __hash_tuple11_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_tuple11_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE11_U64 __hash_tuple11_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_tuple11_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_TUPLE11_U64.
+[MACRO] HASH_TUPLE11 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+    EXPAND HASH_TUPLE11_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+[END_MACRO]
+
+[MACRO] HASH_TUPLE12_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+    __hash_tuple12_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_tuple12_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE12_U64 __hash_tuple12_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_tuple12_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over HASH_TUPLE12_U64.
+[MACRO] HASH_TUPLE12 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+    EXPAND HASH_TUPLE12_U64 %out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+[END_MACRO]
+
+[MACRO] HASH_STR %out_hash, %slice_reg
+    __hash_str_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_str_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_STR __hash_str_hasher_%out_hash, %slice_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_str_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_CHAR %out_hash, %code
+    __hash_char_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_char_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_CHAR __hash_char_hasher_%out_hash, %code
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_char_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] HASH_SLICE_U8 %out_hash, %slice_reg
+    __hash_slice_u8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_slice_u8_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U8 __hash_slice_u8_hasher_%out_hash, %slice_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_slice_u8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] SLICE_HASH_U64 %out_hash, %slice_reg
+    __hash_slice_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND DEFAULT_HASHER_NEW __hash_slice_u64_hasher_%out_hash
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U64 __hash_slice_u64_hasher_%out_hash, %slice_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __hash_slice_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over SLICE_HASH_U64.
+[MACRO] SLICE_HASH %out_hash, %slice_reg
+    EXPAND SLICE_HASH_U64 %out_hash, %slice_reg
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_NEW %builder
+    %builder = add 0, 0
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_DEFAULT %builder
+    EXPAND BUILD_HASHER_DEFAULT_NEW %builder
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_CLONE %out_builder, %builder
+    EXPAND BUILD_HASHER_DEFAULT_NEW %out_builder
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_COPY %out_builder, %builder
+    EXPAND BUILD_HASHER_DEFAULT_CLONE %out_builder, %builder
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_EQ %out_bool, %left_builder, %right_builder
+    %out_bool = add 0, 1
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_NE %out_bool, %left_builder, %right_builder
+    %out_bool = add 0, 0
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_BUILD %hasher, %builder
+    EXPAND DEFAULT_HASHER_NEW %hasher
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_U64 %out_hash, %builder, %value
+    __build_hash_one_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_U64 __build_hash_one_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE %out_hash, %builder, %value
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_U64 %out_hash, %builder, %value
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_U32 %out_hash, %builder, %value
+    __build_hash_one_u32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_u32_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_U32 __build_hash_one_u32_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_u32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_U16 %out_hash, %builder, %value
+    __build_hash_one_u16_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_u16_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_U16 __build_hash_one_u16_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_u16_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_U8 %out_hash, %builder, %value
+    __build_hash_one_u8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_u8_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_U8 __build_hash_one_u8_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_u8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_USIZE %out_hash, %builder, %value
+    __build_hash_one_usize_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_usize_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_USIZE __build_hash_one_usize_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_usize_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_I64 %out_hash, %builder, %value
+    __build_hash_one_i64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_i64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_I64 __build_hash_one_i64_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_i64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_I32 %out_hash, %builder, %value
+    __build_hash_one_i32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_i32_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_I32 __build_hash_one_i32_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_i32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_I16 %out_hash, %builder, %value
+    __build_hash_one_i16_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_i16_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_I16 __build_hash_one_i16_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_i16_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_I8 %out_hash, %builder, %value
+    __build_hash_one_i8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_i8_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_I8 __build_hash_one_i8_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_i8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_ISIZE %out_hash, %builder, %value
+    __build_hash_one_isize_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_isize_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_ISIZE __build_hash_one_isize_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_isize_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_BOOL %out_hash, %builder, %value
+    __build_hash_one_bool_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_bool_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_BOOL __build_hash_one_bool_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_bool_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_CHAR %out_hash, %builder, %code
+    __build_hash_one_char_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_char_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_CHAR __build_hash_one_char_hasher_%out_hash, %code
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_char_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_UNIT %out_hash, %builder, %unit
+    __build_hash_one_unit_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_unit_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __build_hash_one_unit_hasher_%out_hash, %unit
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_unit_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_PTR_VALUE %out_hash, %builder, %ptr
+    __build_hash_one_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_ptr_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_PTR __build_hash_one_ptr_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __build_hash_one_ptr_hasher_%out_hash, 0
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_ptr_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_CONST_PTR_VALUE %out_hash, %builder, %ptr
+    __build_hash_one_const_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_const_ptr_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_CONST_PTR __build_hash_one_const_ptr_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __build_hash_one_const_ptr_hasher_%out_hash, 0
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_const_ptr_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_MUT_PTR_VALUE %out_hash, %builder, %ptr
+    __build_hash_one_mut_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_mut_ptr_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_MUT_PTR __build_hash_one_mut_ptr_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __build_hash_one_mut_ptr_hasher_%out_hash, 0
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_mut_ptr_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_REF_U64 %out_hash, %builder, %ptr
+    __build_hash_one_ref_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_ref_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_REF_U64 __build_hash_one_ref_u64_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_ref_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_REF_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_REF %out_hash, %builder, %ptr
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_REF_U64 %out_hash, %builder, %ptr
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_REF_MUT_U64 %out_hash, %builder, %ptr
+    __build_hash_one_ref_mut_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_ref_mut_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_REF_MUT_U64 __build_hash_one_ref_mut_u64_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_ref_mut_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_REF_MUT_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_REF_MUT %out_hash, %builder, %ptr
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_REF_MUT_U64 %out_hash, %builder, %ptr
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_BOX_U64 %out_hash, %builder, %box_reg
+    __build_hash_one_box_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_box_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_BOX_U64 __build_hash_one_box_u64_hasher_%out_hash, %box_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_box_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_BOX_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_BOX %out_hash, %builder, %box_reg
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_BOX_U64 %out_hash, %builder, %box_reg
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_RC_U64 %out_hash, %builder, %rc_reg
+    __build_hash_one_rc_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_rc_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_RC_U64 __build_hash_one_rc_u64_hasher_%out_hash, %rc_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_rc_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_RC_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_RC %out_hash, %builder, %rc_reg
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_RC_U64 %out_hash, %builder, %rc_reg
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_ARC_U64 %out_hash, %builder, %arc_reg
+    __build_hash_one_arc_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_arc_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_ARC_U64 __build_hash_one_arc_u64_hasher_%out_hash, %arc_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_arc_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_ARC_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_ARC %out_hash, %builder, %arc_reg
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_ARC_U64 %out_hash, %builder, %arc_reg
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE2_U64 %out_hash, %builder, %left, %right
+    __build_hash_one_tuple2_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_tuple2_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE2_U64 __build_hash_one_tuple2_u64_hasher_%out_hash, %left, %right
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_tuple2_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE2_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE2 %out_hash, %builder, %left, %right
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE2_U64 %out_hash, %builder, %left, %right
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE3_U64 %out_hash, %builder, %first, %second, %third
+    __build_hash_one_tuple3_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_tuple3_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE3_U64 __build_hash_one_tuple3_u64_hasher_%out_hash, %first, %second, %third
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_tuple3_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE3_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE3 %out_hash, %builder, %first, %second, %third
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE3_U64 %out_hash, %builder, %first, %second, %third
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE4_U64 %out_hash, %builder, %first, %second, %third, %fourth
+    __build_hash_one_tuple4_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_tuple4_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE4_U64 __build_hash_one_tuple4_u64_hasher_%out_hash, %first, %second, %third, %fourth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_tuple4_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE4_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE4 %out_hash, %builder, %first, %second, %third, %fourth
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE4_U64 %out_hash, %builder, %first, %second, %third, %fourth
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE5_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth
+    __build_hash_one_tuple5_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_tuple5_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE5_U64 __build_hash_one_tuple5_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_tuple5_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE5_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE5 %out_hash, %builder, %first, %second, %third, %fourth, %fifth
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE5_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE6_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth
+    __build_hash_one_tuple6_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_tuple6_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE6_U64 __build_hash_one_tuple6_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_tuple6_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE6_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE6 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE6_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE7_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+    __build_hash_one_tuple7_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_tuple7_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE7_U64 __build_hash_one_tuple7_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_tuple7_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE7_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE7 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE7_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE8_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+    __build_hash_one_tuple8_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_tuple8_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE8_U64 __build_hash_one_tuple8_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_tuple8_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE8_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE8 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE8_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE9_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+    __build_hash_one_tuple9_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_tuple9_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE9_U64 __build_hash_one_tuple9_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_tuple9_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE9_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE9 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE9_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE10_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+    __build_hash_one_tuple10_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_tuple10_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE10_U64 __build_hash_one_tuple10_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_tuple10_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE10_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE10 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE10_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE11_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+    __build_hash_one_tuple11_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_tuple11_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE11_U64 __build_hash_one_tuple11_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_tuple11_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE11_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE11 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE11_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE12_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+    __build_hash_one_tuple12_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_tuple12_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE12_U64 __build_hash_one_tuple12_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_tuple12_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE12_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE12 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_TUPLE12_U64 %out_hash, %builder, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_STR %out_hash, %builder, %slice_reg
+    __build_hash_one_str_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_str_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_STR __build_hash_one_str_hasher_%out_hash, %slice_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_str_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_SLICE_U8 %out_hash, %builder, %slice_reg
+    __build_hash_one_slice_u8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_slice_u8_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U8 __build_hash_one_slice_u8_hasher_%out_hash, %slice_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_slice_u8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_SLICE_U64 %out_hash, %builder, %slice_reg
+    __build_hash_one_slice_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND BUILD_HASHER_DEFAULT_BUILD __build_hash_one_slice_u64_hasher_%out_hash, %builder
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U64 __build_hash_one_slice_u64_hasher_%out_hash, %slice_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __build_hash_one_slice_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over BUILD_HASHER_DEFAULT_HASH_ONE_SLICE_U64.
+[MACRO] BUILD_HASHER_DEFAULT_HASH_ONE_SLICE %out_hash, %builder, %slice_reg
+    EXPAND BUILD_HASHER_DEFAULT_HASH_ONE_SLICE_U64 %out_hash, %builder, %slice_reg
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_NEW %state
+    store %state+RandomState_k0, RANDOM_STATE_DEFAULT_K0 as u64
+    store %state+RandomState_k1, RANDOM_STATE_DEFAULT_K1 as u64
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_DEFAULT %state
+    EXPAND RANDOM_STATE_NEW %state
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_WITH_SEEDS %state, %k0, %k1
+    store %state+RandomState_k0, %k0 as u64
+    store %state+RandomState_k1, %k1 as u64
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_CLONE %out_state, %state
+    __random_state_k0_%out_state = load %state+RandomState_k0 as u64
+    __random_state_k1_%out_state = load %state+RandomState_k1 as u64
+    store %out_state+RandomState_k0, __random_state_k0_%out_state as u64
+    store %out_state+RandomState_k1, __random_state_k1_%out_state as u64
+    !__random_state_k1_%out_state
+    !__random_state_k0_%out_state
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_BUILD %hasher, %state
+    __random_state_build_k0_%hasher = load %state+RandomState_k0 as u64
+    __random_state_build_k1_%hasher = load %state+RandomState_k1 as u64
+    EXPAND DEFAULT_HASHER_WITH_SEED %hasher, __random_state_build_k0_%hasher
+    EXPAND DEFAULT_HASHER_WRITE_U64 %hasher, __random_state_build_k1_%hasher
+    !__random_state_build_k1_%hasher
+    !__random_state_build_k0_%hasher
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_U64 %out_hash, %state, %value
+    __random_state_hash_one_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_U64 __random_state_hash_one_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_U64.
+[MACRO] RANDOM_STATE_HASH_ONE %out_hash, %state, %value
+    EXPAND RANDOM_STATE_HASH_ONE_U64 %out_hash, %state, %value
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_U32 %out_hash, %state, %value
+    __random_state_hash_one_u32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_u32_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_U32 __random_state_hash_one_u32_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_u32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_U16 %out_hash, %state, %value
+    __random_state_hash_one_u16_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_u16_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_U16 __random_state_hash_one_u16_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_u16_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_U8 %out_hash, %state, %value
+    __random_state_hash_one_u8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_u8_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_U8 __random_state_hash_one_u8_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_u8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_USIZE %out_hash, %state, %value
+    __random_state_hash_one_usize_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_usize_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_USIZE __random_state_hash_one_usize_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_usize_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_I64 %out_hash, %state, %value
+    __random_state_hash_one_i64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_i64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_I64 __random_state_hash_one_i64_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_i64_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_I32 %out_hash, %state, %value
+    __random_state_hash_one_i32_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_i32_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_I32 __random_state_hash_one_i32_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_i32_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_I16 %out_hash, %state, %value
+    __random_state_hash_one_i16_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_i16_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_I16 __random_state_hash_one_i16_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_i16_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_I8 %out_hash, %state, %value
+    __random_state_hash_one_i8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_i8_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_I8 __random_state_hash_one_i8_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_i8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_ISIZE %out_hash, %state, %value
+    __random_state_hash_one_isize_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_isize_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_ISIZE __random_state_hash_one_isize_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_isize_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_BOOL %out_hash, %state, %value
+    __random_state_hash_one_bool_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_bool_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_BOOL __random_state_hash_one_bool_hasher_%out_hash, %value
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_bool_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_CHAR %out_hash, %state, %code
+    __random_state_hash_one_char_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_char_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_CHAR __random_state_hash_one_char_hasher_%out_hash, %code
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_char_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_UNIT %out_hash, %state, %unit
+    __random_state_hash_one_unit_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_unit_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __random_state_hash_one_unit_hasher_%out_hash, %unit
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_unit_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_PTR_VALUE %out_hash, %state, %ptr
+    __random_state_hash_one_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_ptr_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_PTR __random_state_hash_one_ptr_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __random_state_hash_one_ptr_hasher_%out_hash, 0
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_ptr_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_CONST_PTR_VALUE %out_hash, %state, %ptr
+    __random_state_hash_one_const_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_const_ptr_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_CONST_PTR __random_state_hash_one_const_ptr_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __random_state_hash_one_const_ptr_hasher_%out_hash, 0
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_const_ptr_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_MUT_PTR_VALUE %out_hash, %state, %ptr
+    __random_state_hash_one_mut_ptr_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_mut_ptr_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_MUT_PTR __random_state_hash_one_mut_ptr_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_WRITE_UNIT __random_state_hash_one_mut_ptr_hasher_%out_hash, 0
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_mut_ptr_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_REF_U64 %out_hash, %state, %ptr
+    __random_state_hash_one_ref_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_ref_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_REF_U64 __random_state_hash_one_ref_u64_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_ref_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_REF_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_REF %out_hash, %state, %ptr
+    EXPAND RANDOM_STATE_HASH_ONE_REF_U64 %out_hash, %state, %ptr
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_REF_MUT_U64 %out_hash, %state, %ptr
+    __random_state_hash_one_ref_mut_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_ref_mut_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_REF_MUT_U64 __random_state_hash_one_ref_mut_u64_hasher_%out_hash, %ptr
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_ref_mut_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_REF_MUT_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_REF_MUT %out_hash, %state, %ptr
+    EXPAND RANDOM_STATE_HASH_ONE_REF_MUT_U64 %out_hash, %state, %ptr
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_BOX_U64 %out_hash, %state, %box_reg
+    __random_state_hash_one_box_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_box_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_BOX_U64 __random_state_hash_one_box_u64_hasher_%out_hash, %box_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_box_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_BOX_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_BOX %out_hash, %state, %box_reg
+    EXPAND RANDOM_STATE_HASH_ONE_BOX_U64 %out_hash, %state, %box_reg
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_RC_U64 %out_hash, %state, %rc_reg
+    __random_state_hash_one_rc_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_rc_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_RC_U64 __random_state_hash_one_rc_u64_hasher_%out_hash, %rc_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_rc_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_RC_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_RC %out_hash, %state, %rc_reg
+    EXPAND RANDOM_STATE_HASH_ONE_RC_U64 %out_hash, %state, %rc_reg
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_ARC_U64 %out_hash, %state, %arc_reg
+    __random_state_hash_one_arc_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_arc_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_ARC_U64 __random_state_hash_one_arc_u64_hasher_%out_hash, %arc_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_arc_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_ARC_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_ARC %out_hash, %state, %arc_reg
+    EXPAND RANDOM_STATE_HASH_ONE_ARC_U64 %out_hash, %state, %arc_reg
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE2_U64 %out_hash, %state, %left, %right
+    __random_state_hash_one_tuple2_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_tuple2_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE2_U64 __random_state_hash_one_tuple2_u64_hasher_%out_hash, %left, %right
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_tuple2_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_TUPLE2_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE2 %out_hash, %state, %left, %right
+    EXPAND RANDOM_STATE_HASH_ONE_TUPLE2_U64 %out_hash, %state, %left, %right
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE3_U64 %out_hash, %state, %first, %second, %third
+    __random_state_hash_one_tuple3_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_tuple3_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE3_U64 __random_state_hash_one_tuple3_u64_hasher_%out_hash, %first, %second, %third
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_tuple3_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_TUPLE3_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE3 %out_hash, %state, %first, %second, %third
+    EXPAND RANDOM_STATE_HASH_ONE_TUPLE3_U64 %out_hash, %state, %first, %second, %third
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE4_U64 %out_hash, %state, %first, %second, %third, %fourth
+    __random_state_hash_one_tuple4_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_tuple4_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE4_U64 __random_state_hash_one_tuple4_u64_hasher_%out_hash, %first, %second, %third, %fourth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_tuple4_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_TUPLE4_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE4 %out_hash, %state, %first, %second, %third, %fourth
+    EXPAND RANDOM_STATE_HASH_ONE_TUPLE4_U64 %out_hash, %state, %first, %second, %third, %fourth
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE5_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth
+    __random_state_hash_one_tuple5_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_tuple5_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE5_U64 __random_state_hash_one_tuple5_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_tuple5_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_TUPLE5_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE5 %out_hash, %state, %first, %second, %third, %fourth, %fifth
+    EXPAND RANDOM_STATE_HASH_ONE_TUPLE5_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE6_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth
+    __random_state_hash_one_tuple6_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_tuple6_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE6_U64 __random_state_hash_one_tuple6_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_tuple6_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_TUPLE6_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE6 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth
+    EXPAND RANDOM_STATE_HASH_ONE_TUPLE6_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE7_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+    __random_state_hash_one_tuple7_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_tuple7_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE7_U64 __random_state_hash_one_tuple7_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_tuple7_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_TUPLE7_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE7 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+    EXPAND RANDOM_STATE_HASH_ONE_TUPLE7_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE8_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+    __random_state_hash_one_tuple8_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_tuple8_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE8_U64 __random_state_hash_one_tuple8_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_tuple8_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_TUPLE8_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE8 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+    EXPAND RANDOM_STATE_HASH_ONE_TUPLE8_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE9_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+    __random_state_hash_one_tuple9_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_tuple9_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE9_U64 __random_state_hash_one_tuple9_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_tuple9_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_TUPLE9_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE9 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+    EXPAND RANDOM_STATE_HASH_ONE_TUPLE9_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE10_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+    __random_state_hash_one_tuple10_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_tuple10_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE10_U64 __random_state_hash_one_tuple10_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_tuple10_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_TUPLE10_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE10 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+    EXPAND RANDOM_STATE_HASH_ONE_TUPLE10_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE11_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+    __random_state_hash_one_tuple11_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_tuple11_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE11_U64 __random_state_hash_one_tuple11_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_tuple11_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_TUPLE11_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE11 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+    EXPAND RANDOM_STATE_HASH_ONE_TUPLE11_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE12_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+    __random_state_hash_one_tuple12_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_tuple12_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_TUPLE12_U64 __random_state_hash_one_tuple12_u64_hasher_%out_hash, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_tuple12_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_TUPLE12_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_TUPLE12 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+    EXPAND RANDOM_STATE_HASH_ONE_TUPLE12_U64 %out_hash, %state, %first, %second, %third, %fourth, %fifth, %sixth, %seventh, %eighth, %ninth, %tenth, %eleventh, %twelfth
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_STR %out_hash, %state, %slice_reg
+    __random_state_hash_one_str_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_str_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_STR __random_state_hash_one_str_hasher_%out_hash, %slice_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_str_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_SLICE_U8 %out_hash, %state, %slice_reg
+    __random_state_hash_one_slice_u8_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_slice_u8_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U8 __random_state_hash_one_slice_u8_hasher_%out_hash, %slice_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_slice_u8_hasher_%out_hash
+[END_MACRO]
+
+[MACRO] RANDOM_STATE_HASH_ONE_SLICE_U64 %out_hash, %state, %slice_reg
+    __random_state_hash_one_slice_u64_hasher_%out_hash = stack_alloc DefaultHasher_SIZE
+    EXPAND RANDOM_STATE_BUILD __random_state_hash_one_slice_u64_hasher_%out_hash, %state
+    EXPAND DEFAULT_HASHER_WRITE_SLICE_U64 __random_state_hash_one_slice_u64_hasher_%out_hash, %slice_reg
+    EXPAND DEFAULT_HASHER_FINISH %out_hash, __random_state_hash_one_slice_u64_hasher_%out_hash
+[END_MACRO]
+
+// Rust method-name alias over RANDOM_STATE_HASH_ONE_SLICE_U64.
+[MACRO] RANDOM_STATE_HASH_ONE_SLICE %out_hash, %state, %slice_reg
+    EXPAND RANDOM_STATE_HASH_ONE_SLICE_U64 %out_hash, %state, %slice_reg
+[END_MACRO]

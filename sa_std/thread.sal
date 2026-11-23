@@ -1,4 +1,4 @@
-#def JoinHandle_SIZE = 16
-#def JoinHandle_handle = +0
-#def JoinHandle_result = +8
-#def THREAD_DEFAULT_ID = 0
+// Compatibility shim (SA std modularization Phase 1, 2026-11-22).
+// Canonical location: sa_std/task/thread.sal. This file only forwards the import;
+// do not add definitions here.
+@import "task/thread.sal"

@@ -1,2 +1,4 @@
-// Hyphenated import compatibility for the m-async spelling.
-@import "sa_std/m_async.sa"
+// Compatibility shim (SA std modularization Phase 1, 2026-11-22).
+// Canonical location: sa_std/task/m_async.sla. This file only forwards the import;
+// do not add definitions here.
+@import "sa_std/task/m_async.sla"

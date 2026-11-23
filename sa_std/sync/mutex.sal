@@ -1,7 +1,4 @@
-#def Mutex_SIZE = 8
-#def Mutex_lock = +0
-#def Mutex_data = +8
-
-#def MutexGuard_SIZE = 8
-#def MutexGuard_mutex = +0
-#def MutexGuard_data = +8
+// Compatibility shim (SA std modularization Phase 1, 2026-11-22).
+// Canonical location: sa_std/sync/mutex/mutex.sal. This file only forwards the import;
+// do not add definitions here.
+@import "mutex/mutex.sal"

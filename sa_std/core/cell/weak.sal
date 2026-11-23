@@ -1,0 +1,4 @@
+#def WeakBox_SIZE = 24
+#def WeakBox_strong = +0
+#def WeakBox_weak = +8
+#def WeakBox_data = +16

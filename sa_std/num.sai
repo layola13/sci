@@ -1,11 +1,3 @@
-// Checked integer arithmetic contract (Rust `overflow-checks = true` semantics).
-//
-// Declared here (not invented in a backend): every `*WithOverflow` MIR rvalue
-// lowers to one of these, and the value they return is exact — overflow traps
-// with `panic(code)` instead of wrapping, which is what rustc's overflow
-// `Assert` enforces. Implemented by the Zig-backed sa_std.num library; the
-// guard shape is mirrored in `num.sal` (NUM_*_CHECKED macros) so generated SA
-// can inline the same logic.
-@extern sa_num_add_checked(a: i64, b: i64) -> i64
-@extern sa_num_sub_checked(a: i64, b: i64) -> i64
-@extern sa_num_mul_checked(a: i64, b: i64) -> i64
+// Moved to core/num/num.sai in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "core/num/num.sai"

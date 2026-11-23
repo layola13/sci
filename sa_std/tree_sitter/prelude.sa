@@ -1,0 +1,14 @@
+// tree_sitter prelude: SA-side public surface.
+// The SLA constants file (tree_sitter.sla) is imported individually
+// by path; no .sa file in-tree imports a .sla file.
+@import "tree_sitter.sai"
+@import "ts_host.sa"
+@import "ts_unicode.sa"
+@import "ts_array.sa"
+@import "ts_string.sa"
+@import "ts_jsval.sa"
+@import "ts_object.sa"
+@import "ts_jsx.sa"
+@import "ts_math.sa"
+@import "ts_num.sa"
+@import "ts_promise.sa"

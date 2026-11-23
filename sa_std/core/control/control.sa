@@ -1,0 +1,20 @@
+[MACRO] MATCH_BOOL %out_value, %cond, %true_label, %false_label
+    %out_value = add %cond, 0
+    br %cond -> %true_label, %false_label
+[END_MACRO]
+
+[MACRO] ELIF %cond, %true_label, %false_label
+    br %cond -> %true_label, %false_label
+[END_MACRO]
+
+[MACRO] WHILE_LET %cond, %body_label, %done_label
+    br %cond -> %body_label, %done_label
+[END_MACRO]
+
+[MACRO] BREAK_IF %cond, %break_label, %cont_label
+    br %cond -> %break_label, %cont_label
+[END_MACRO]
+
+[MACRO] CONTINUE_IF %cond, %continue_label, %next_label
+    br %cond -> %continue_label, %next_label
+[END_MACRO]

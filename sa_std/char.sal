@@ -1,2 +1,3 @@
-// Phase 1 modularization shim (2026-11-22, domain C): canonical path is sa_std/string/utf8/char.sal.
-@import "string/utf8/char.sal"
+// Moved to core/types/char.sal in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "core/types/char.sal"

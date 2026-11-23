@@ -1,0 +1,7 @@
+// ABI/layout companion for task namespace aggregation.
+@import "task.sal"
+@import "future.sal"
+@import "thread.sal"
+@import "join/join_handle.sal"
+@import "spawn/thread.sai"
+@import "../task.sai"

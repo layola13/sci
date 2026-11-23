@@ -1,4 +1,4 @@
-// SLA import surface for plugin async adapters.
-@import "sa_std/plugin_async.sa"
-@import "sa_std/plugin_http_async.sa"
-@import "sa_std/plugin_http_server.sla"
+// Compatibility shim (SA std modularization Phase 1, 2026-11-22).
+// Canonical location: sa_std/task/plugin_async.sla. This file only forwards the import;
+// do not add definitions here.
+@import "sa_std/task/plugin_async.sla"

@@ -1,2 +1,3 @@
-#def Box_SIZE = 8
-#def Box_value = +0
+// Moved to core/memory/box.sal in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "memory/box.sal"

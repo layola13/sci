@@ -1,26 +1,3 @@
-@import "core/cell.sal"
-@import "core/refcell.sal"
-@import "core/rc.sal"
-@import "core/weak.sal"
-@import "core/trait_object.sal"
-@import "core/waker.sal"
-@import "core/future.sal"
-@import "core/task.sal"
-@import "core/option.sal"
-@import "core/result.sal"
-@import "core/iter.sal"
-
-#def RustCore_VERSION = 1
-#def RustCore_SUPPORTS_OPTION = 1
-#def RustCore_SUPPORTS_RESULT = 1
-#def RustCore_SUPPORTS_PANIC = 1
-#def RustCore_SUPPORTS_ITER = 1
-#def RustCore_SUPPORTS_CELL = 1
-#def RustCore_SUPPORTS_REFCELL = 1
-#def RustCore_SUPPORTS_RC = 1
-#def RustCore_SUPPORTS_WEAK = 1
-#def RustCore_SUPPORTS_TRAIT_OBJECT = 1
-#def RustCore_SUPPORTS_WAKER = 1
-#def RustCore_SUPPORTS_FUTURE = 1
-#def RustCore_SUPPORTS_TASK = 1
-#def RustCore_SUPPORTS_ASCII = 1
+// Moved to core/rust_core.sal in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "core/rust_core.sal"

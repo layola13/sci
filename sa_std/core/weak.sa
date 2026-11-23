@@ -1,2 +1,3 @@
-@import "weak.sal"
-@import "rc.sa"
+// Moved to core/cell/weak.sa in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "cell/weak.sa"

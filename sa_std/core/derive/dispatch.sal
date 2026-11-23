@@ -1,0 +1,5 @@
+#def Dispatch_SIZE = 16
+#def Dispatch_tag = +0
+#def Dispatch_payload = +8
+#def Dispatch_TAG_A = 0
+#def Dispatch_TAG_B = 1

@@ -1,0 +1,297 @@
+@export sa_mem_copy(&dst: ptr, &src: ptr, count: u64) -> void:
+L_ENTRY:
+    nonzero = ne count, 0
+    br nonzero -> L_CHECK_DST, L_COPY_INIT
+L_CHECK_DST:
+    dst_null = eq dst, 0
+    br dst_null -> L_NULL_DST, L_CHECK_SRC
+L_NULL_DST:
+    panic(1701)
+L_CHECK_SRC:
+    src_null = eq src, 0
+    br src_null -> L_NULL_SRC, L_COPY_INIT_FROM_CHECK
+L_NULL_SRC:
+    panic(1702)
+L_COPY_INIT_FROM_CHECK:
+    !src_null
+    !dst_null
+    jmp L_COPY_INIT
+L_COPY_INIT:
+    zero_slot = stack_alloc 8
+    one_slot = stack_alloc 8
+    offset_slot = stack_alloc 8
+    remaining_slot = stack_alloc 8
+    store zero_slot+0, 0 as i64
+    zero = load zero_slot+0 as i64
+    store one_slot+0, 1 as i64
+    one = load one_slot+0 as i64
+    store offset_slot+0, 0 as u64
+    store remaining_slot+0, count as u64
+    jmp L_LOOP
+L_LOOP:
+    offset = load offset_slot+0 as u64
+    remaining = load remaining_slot+0 as u64
+    done = eq remaining, zero
+    br done -> L_END, L_BODY
+L_BODY:
+    src_ip = ptr_add src, offset
+    dst_ip = ptr_add dst, offset
+    byte = load src_ip+0 as u8
+    store dst_ip+0, byte as u8
+    next_offset = add offset, one
+    next_remaining = sub remaining, one
+    !src_ip
+    !dst_ip
+    !byte
+    !offset
+    !remaining
+    !done
+    store offset_slot+0, next_offset as u64
+    store remaining_slot+0, next_remaining as u64
+    !next_offset
+    !next_remaining
+    jmp L_LOOP
+L_END:
+    !done
+    !offset
+    !remaining
+    !one
+    !zero
+    !nonzero
+    !count
+    !src
+    !dst
+    return
+
+@export sa_mem_set(&dst: ptr, val: u8, count: u64) -> void:
+L_ENTRY:
+    nonzero = ne count, 0
+    br nonzero -> L_CHECK_DST, L_SET_INIT
+L_CHECK_DST:
+    dst_null = eq dst, 0
+    br dst_null -> L_NULL_DST, L_SET_INIT_FROM_CHECK
+L_NULL_DST:
+    panic(1703)
+L_SET_INIT_FROM_CHECK:
+    !dst_null
+    jmp L_SET_INIT
+L_SET_INIT:
+    zero_slot = stack_alloc 8
+    one_slot = stack_alloc 8
+    offset_slot = stack_alloc 8
+    remaining_slot = stack_alloc 8
+    store zero_slot+0, 0 as i64
+    zero = load zero_slot+0 as i64
+    store one_slot+0, 1 as i64
+    one = load one_slot+0 as i64
+    store offset_slot+0, 0 as u64
+    store remaining_slot+0, count as u64
+    jmp L_LOOP
+L_LOOP:
+    offset = load offset_slot+0 as u64
+    remaining = load remaining_slot+0 as u64
+    done = eq remaining, zero
+    br done -> L_END, L_BODY
+L_BODY:
+    dst_ip = ptr_add dst, offset
+    store dst_ip+0, val as u8
+    next_offset = add offset, one
+    next_remaining = sub remaining, one
+    !dst_ip
+    !offset
+    !remaining
+    !done
+    store offset_slot+0, next_offset as u64
+    store remaining_slot+0, next_remaining as u64
+    !next_offset
+    !next_remaining
+    jmp L_LOOP
+L_END:
+    !done
+    !offset
+    !remaining
+    !one
+    !zero
+    !nonzero
+    !count
+    !val
+    !dst
+    return
+
+// Target-conditional declaration (C-upper materialization; shared
+// spec: sa_plugin_sla docs/target_conditional_decls.md). memcpy's
+// count parameter is a C size_t: u64 wide on native targets, u32 wide
+// on wasm32 (wasi-libc). Materialized per target at the std assembly
+// points; the assembler itself sees exactly one variant.
+// @target-begin
+// @target native
+@extern memcpy(dst: ptr, src: ptr, n: u64) -> ptr
+// @target wasm32
+@extern memcpy(dst: ptr, src: ptr, n: u32) -> ptr
+// @target-end
+
+// Bulk byte copy bound to the platform memcpy (Class-A batch,
+// GAP-BULKAPPEND). sa_mem_copy above is the portable SA face --
+// its body is a byte loop, which the compiled backends do NOT
+// recognize as a copy idiom (measured ~5 ms per MiB appended
+// through it, vs ~0.04 ms for memcpy on the same host), so bulk
+// paths (the vec geometric-growth primitives) bind this face
+// instead. Semantics match sa_mem_copy: non-overlapping regions,
+// count == 0 is a no-op, null dst/src with nonzero count panics
+// with the same codes (1701/1702).
+@export sa_mem_copy_nonoverlapping(&dst: ptr, &src: ptr, count: u64) -> void:
+L_ENTRY:
+    nonzero = ne count, 0
+    br nonzero -> L_CHECK_DST, L_DONE
+L_CHECK_DST:
+    dst_null = eq dst, 0
+    br dst_null -> L_NULL_DST, L_CHECK_SRC
+L_NULL_DST:
+    panic(1701)
+L_CHECK_SRC:
+    src_null = eq src, 0
+    br src_null -> L_NULL_SRC, L_DO
+L_NULL_SRC:
+    panic(1702)
+L_DO:
+// The wasm32 variant converts the u64 count to the u32 size_t width
+// explicitly, with a bounds check (panic 1703) instead of a silent
+// truncation; this function's published signature is unchanged.
+// @target-begin
+// @target native
+    r = call @memcpy(dst, src, count)
+    !r
+    !src_null
+    !dst_null
+    !nonzero
+    !count
+    !src
+    !dst
+    return
+// @target wasm32
+    count_ok = ule count, 4294967295
+    br count_ok -> L_DO_COPY, L_TOO_BIG
+L_TOO_BIG:
+    panic(1703)
+L_DO_COPY:
+    count_sz = count as u32
+    r = call @memcpy(dst, src, count_sz)
+    !count_sz
+    !count_ok
+    !r
+    !src_null
+    !dst_null
+    !nonzero
+    // No !count here: an `as` assignment moves its source register, so
+    // the conversion above already consumed count.
+    !src
+    !dst
+    return
+// @target-end
+L_DONE:
+    !nonzero
+    !count
+    !src
+    !dst
+    return
+
+[MACRO] BOX_NEW %out_box, %value
+    %out_box = alloc Box_SIZE
+    store %out_box+Box_value, %value as u64
+[END_MACRO]
+
+[MACRO] BOX_DEFAULT_U64 %out_box
+    EXPAND BOX_NEW %out_box, 0
+[END_MACRO]
+
+// Rust method-name alias over BOX_DEFAULT_U64.
+[MACRO] BOX_DEFAULT %out_box
+    EXPAND BOX_DEFAULT_U64 %out_box
+[END_MACRO]
+
+[MACRO] BOX_GET_U64 %out_value, %box_reg
+    %out_value = load %box_reg+Box_value as u64
+[END_MACRO]
+
+// Rust method-name alias over BOX_GET_U64.
+[MACRO] BOX_GET %out_value, %box_reg
+    EXPAND BOX_GET_U64 %out_value, %box_reg
+[END_MACRO]
+
+[MACRO] BOX_SET_U64 %box_reg, %value
+    store %box_reg+Box_value, %value as u64
+[END_MACRO]
+
+// Rust method-name alias over BOX_SET_U64.
+[MACRO] BOX_SET %box_reg, %value
+    EXPAND BOX_SET_U64 %box_reg, %value
+[END_MACRO]
+
+[MACRO] BOX_AS_PTR %out_ptr, %box_reg
+    %out_ptr = ptr_add %box_reg, Box_value
+[END_MACRO]
+
+[MACRO] BOX_AS_MUT_PTR %out_ptr, %box_reg
+    %out_ptr = ptr_add %box_reg, Box_value
+[END_MACRO]
+
+[MACRO] BOX_PTR_EQ %out_bool, %left_box, %right_box
+    %out_bool = eq %left_box, %right_box
+[END_MACRO]
+
+[MACRO] BOX_REPLACE_U64 %out_old, %box_reg, %new_value
+    %out_old = load %box_reg+Box_value as u64
+    store %box_reg+Box_value, %new_value as u64
+[END_MACRO]
+
+// Rust method-name alias over BOX_REPLACE_U64.
+[MACRO] BOX_REPLACE %out_old, %box_reg, %new_value
+    EXPAND BOX_REPLACE_U64 %out_old, %box_reg, %new_value
+[END_MACRO]
+
+[MACRO] BOX_TAKE_U64 %out_old, %box_reg
+    %out_old = load %box_reg+Box_value as u64
+    store %box_reg+Box_value, 0 as u64
+[END_MACRO]
+
+// Rust method-name alias over BOX_TAKE_U64.
+[MACRO] BOX_TAKE %out_old, %box_reg
+    EXPAND BOX_TAKE_U64 %out_old, %box_reg
+[END_MACRO]
+
+[MACRO] BOX_CLONE_U64 %out_box, %box_reg
+    __box_clone_value_%out_box = load %box_reg+Box_value as u64
+    EXPAND BOX_NEW %out_box, __box_clone_value_%out_box
+    !__box_clone_value_%out_box
+[END_MACRO]
+
+// Rust method-name alias over BOX_CLONE_U64.
+[MACRO] BOX_CLONE %out_box, %box_reg
+    EXPAND BOX_CLONE_U64 %out_box, %box_reg
+[END_MACRO]
+
+[MACRO] BOX_INTO_INNER_U64 %out_value, %box_reg
+    %out_value = load %box_reg+Box_value as u64
+    !%box_reg
+[END_MACRO]
+
+// Rust method-name alias over BOX_INTO_INNER_U64.
+[MACRO] BOX_INTO_INNER %out_value, %box_reg
+    EXPAND BOX_INTO_INNER_U64 %out_value, %box_reg
+[END_MACRO]
+
+[MACRO] BOX_INTO_RAW %out_ptr, %box_reg
+    %out_ptr = ptr_add %box_reg, Box_value
+[END_MACRO]
+
+[MACRO] BOX_FROM_RAW %out_box, %raw_ptr
+    %out_box = ptr_add %raw_ptr, 0
+[END_MACRO]
+
+[MACRO] BOX_LEAK %out_ptr, %box_reg
+    %out_ptr = ptr_add %box_reg, Box_value
+[END_MACRO]
+
+[MACRO] BOX_FREE %box_reg
+    !%box_reg
+[END_MACRO]

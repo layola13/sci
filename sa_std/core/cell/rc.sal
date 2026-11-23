@@ -1,0 +1,4 @@
+#def RcBox_SIZE = 24
+#def RcBox_strong = +0
+#def RcBox_weak = +8
+#def RcBox_data = +16

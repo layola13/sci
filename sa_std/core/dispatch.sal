@@ -1,5 +1,3 @@
-#def Dispatch_SIZE = 16
-#def Dispatch_tag = +0
-#def Dispatch_payload = +8
-#def Dispatch_TAG_A = 0
-#def Dispatch_TAG_B = 1
+// Moved to core/derive/dispatch.sal in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "derive/dispatch.sal"

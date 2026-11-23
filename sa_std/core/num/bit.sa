@@ -1,0 +1,41 @@
+[MACRO] BIT_MASK %out_mask, %bit_index
+    one = add 0, 1
+    %out_mask = shl one, %bit_index
+    !one
+[END_MACRO]
+
+[MACRO] BIT_SET %out_value, %value, %bit_index
+    EXPAND BIT_MASK __bit_mask_%out_value, %bit_index
+    %out_value = or %value, __bit_mask_%out_value
+    !__bit_mask_%out_value
+[END_MACRO]
+
+[MACRO] BIT_GET %out_value, %value, %bit_index
+    EXPAND BIT_MASK __bit_mask_%out_value, %bit_index
+    __bit_value_%out_value = and %value, __bit_mask_%out_value
+    %out_value = ne __bit_value_%out_value, 0
+    !__bit_value_%out_value
+    !__bit_mask_%out_value
+[END_MACRO]
+
+[MACRO] BIT_CLEAR %out_value, %value, %bit_index
+    EXPAND BIT_MASK __bit_mask_%out_value, %bit_index
+    __bit_not_mask_%out_value = xor __bit_mask_%out_value, -1
+    %out_value = and %value, __bit_not_mask_%out_value
+    !__bit_not_mask_%out_value
+    !__bit_mask_%out_value
+[END_MACRO]
+
+[MACRO] BIT_TEST %out_bool, %value, %bit_index
+    EXPAND BIT_GET %out_bool, %value, %bit_index
+[END_MACRO]
+
+[MACRO] BIT_INDEX_BYTE %out_index, %bit_index
+    %out_index = lshr %bit_index, 3
+[END_MACRO]
+
+[MACRO] BIT_INDEX_BIT %out_index, %bit_index
+    eight = add 0, 8
+    %out_index = rem %bit_index, eight
+    !eight
+[END_MACRO]

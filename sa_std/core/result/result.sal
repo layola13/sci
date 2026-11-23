@@ -1,0 +1,6 @@
+#def Result_SIZE = 24
+#def Result_tag = +0
+#def Result_ok = +8
+#def Result_err = +16
+#def Result_OK = 0
+#def Result_ERR = 1

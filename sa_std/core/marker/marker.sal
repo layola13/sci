@@ -1,0 +1,15 @@
+#def PhantomData_SIZE = 0
+#def PhantomData_ALIGN = 1
+
+#def PhantomPinned_SIZE = 0
+#def PhantomPinned_ALIGN = 1
+
+#def MARKER_TRAIT_SIZED = 1
+#def MARKER_TRAIT_COPY = 2
+#def MARKER_TRAIT_SEND = 3
+#def MARKER_TRAIT_SYNC = 4
+#def MARKER_TRAIT_UNPIN = 5
+#def MARKER_TRAIT_FREEZE = 6
+
+#def MARKER_CAP_FALSE = 0
+#def MARKER_CAP_TRUE = 1

@@ -1,0 +1,4 @@
+#def ArcBox_SIZE = 24
+#def ArcBox_strong = +0
+#def ArcBox_weak = +8
+#def ArcBox_data = +16

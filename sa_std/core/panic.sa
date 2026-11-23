@@ -1,23 +1,3 @@
-[MACRO] PANIC %code
-    panic(%code)
-[END_MACRO]
-
-[MACRO] PANIC_MSG %code, %msg_ptr, %msg_len
-    panic_msg(%code, %msg_ptr, %msg_len)
-[END_MACRO]
-
-@const TODO_PANIC = utf8:"called todo!() in SA"
-@const UNIMPLEMENTED_PANIC = utf8:"called unimplemented!() in SA"
-@const UNREACHABLE_PANIC = utf8:"entered unreachable!() in SA"
-
-[MACRO] TODO
-    EXPAND PANIC_MSG 102, *TODO_PANIC, 20
-[END_MACRO]
-
-[MACRO] UNIMPLEMENTED
-    EXPAND PANIC_MSG 102, *UNIMPLEMENTED_PANIC, 29
-[END_MACRO]
-
-[MACRO] UNREACHABLE
-    EXPAND PANIC_MSG 102, *UNREACHABLE_PANIC, 28
-[END_MACRO]
+// Moved to core/panic/panic.sa in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "panic/panic.sa"

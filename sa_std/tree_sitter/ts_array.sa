@@ -1,0 +1,1349 @@
+// ts_array.sa -- thin-handle array ops for tsgosa mapping (R1 backport).
+//
+// Handle model (thin口 16 字节堆头, 与 `sci/sa_std/vec.sa` Vec 寄存器组
+// 不同构, 不可直调, 故另立本模块):
+//   +0: data ptr (4B 元数组)
+//   +8: len u64 (元数)
+// 新柄调用方持有, 用后 `!` 释放 (与 tsgosa 薄口归属口径一致).
+
+// @ts_arr_concat2 双片合并（新柄调用方持有；形参值拷，用后即释不碰原槽）。
+// @ts_arr_push_word 尾部追加一字（i32 槽；调用方传句柄时作 i32 入槽，与
+// tsgosa saLowerArrayPush 同形：换柄释新柄旧柄泄漏纪律原样保留，归属移交；
+// 返同柄，调用方保留原归属）。
+@ts_arr_push_word(h: ptr, v: i32) -> ptr:
+L_PUSH_ENTRY:
+    ln = load h+8 as u64
+    data = load h+0 as ptr
+    nlen = add ln, 1
+    nbytes = mul nlen, 4
+    isempty = eq nbytes, 0
+    br isempty -> L_PUSH_EMPTY, L_PUSH_ALLOC
+L_PUSH_EMPTY:
+    ndata = alloc 4
+    jmp L_PUSH_DONE
+L_PUSH_ALLOC:
+    ndata = alloc nbytes
+    jmp L_PUSH_DONE
+L_PUSH_DONE:
+    i = 0
+    jmp L_PUSH_COPY
+L_PUSH_COPY:
+    c = slt i, ln
+    br c -> L_PUSH_BODY, L_PUSH_END
+L_PUSH_BODY:
+    soff = mul i, 4
+    saddr = add data, soff
+    tmp = load saddr+0 as i32
+    daddr = add ndata, soff
+    store daddr+0, tmp as i32
+    inext = add i, 1
+    i = inext
+    jmp L_PUSH_COPY
+L_PUSH_END:
+    voff = mul ln, 4
+    vaddr = add ndata, voff
+    store vaddr+0, v as i32
+    store h+0, ndata as ptr
+    store h+8, nlen as u64
+    !ndata
+    return h
+
+@ts_arr_concat2(a: ptr, b: ptr) -> ptr:
+L_ENTRY:
+    alen = load a+8 as u64
+    blen = load b+8 as u64
+    nlen = add alen, blen
+    nbytes = mul nlen, 4
+    nbuf = alloc nbytes
+    nh = alloc 16
+    store nh+0, nbuf as ptr
+    store nh+8, nlen as u64
+    !nbuf
+    aptr = load a+0 as ptr
+    bptr = load b+0 as ptr
+    dptr = load nh+0 as ptr
+    i = 0
+    jmp L_C1_TOP
+L_C1_TOP:
+    c1 = slt i, alen
+    br c1 -> L_C1_BODY, L_C1_END
+L_C1_BODY:
+    soff = mul i, 4
+    saddr = add aptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_C1_TOP
+L_C1_END:
+    j = 0
+    jmp L_C2_TOP
+L_C2_TOP:
+    c2 = slt j, blen
+    br c2 -> L_C2_BODY, L_C2_END
+L_C2_BODY:
+    soff2 = mul j, 4
+    saddr2 = add bptr, soff2
+    v2 = load saddr2+0 as i32
+    k = add alen, j
+    doff2 = mul k, 4
+    daddr2 = add dptr, doff2
+    store daddr2+0, v2 as i32
+    jnext = add j, 1
+    j = jnext
+    jmp L_C2_TOP
+L_C2_END:
+    !a
+    !b
+    return nh
+// end 双端钳位, end<start 即空; 形参 i32(薄口门禁已保非负?不, 负起合法,
+// 故此处全量钳位); 句柄值参（调用方原槽不受影响；引用传参系 move 语义，
+// 禁用于复用句柄）；返回新柄, 调用方持有.
+// @ts_arr_splice 原地删段返删除段（插入三段拷统一新缓冲，无插入即
+// ilen=0 退化同形；换柄后释旧缓冲；形参值拷，用后即释不碰原槽）。
+@ts_arr_splice(src: ptr, start: i32, del: i32, items: ptr) -> ptr:
+L_SP_ENTRY:
+    slen = load src+8 as u64
+    ilen = load items+8 as u64
+    sbuf = load src+0 as ptr
+    s_slot = alloc 8
+    s_neg = slt start, 0
+    br s_neg -> L_SP_S_NEG, L_SP_S_POS
+L_SP_S_NEG:
+    s_plus = add start, slen
+    s_ppos = sge s_plus, 0
+    br s_ppos -> L_SP_S_KEEP, L_SP_S_ZERO
+L_SP_S_KEEP:
+    store s_slot+0, s_plus as i32
+    jmp L_SP_S_DONE
+L_SP_S_ZERO:
+    store s_slot+0, 0 as i32
+    jmp L_SP_S_DONE
+L_SP_S_POS:
+    s_lt = slt start, slen
+    br s_lt -> L_SP_S_TAKE, L_SP_S_CLAMP
+L_SP_S_TAKE:
+    store s_slot+0, start as i32
+    jmp L_SP_S_DONE
+L_SP_S_CLAMP:
+    store s_slot+0, slen as i32
+    jmp L_SP_S_DONE
+L_SP_S_DONE:
+    s = load s_slot+0 as i32
+    !s_slot
+    d_slot = alloc 8
+    d_neg = slt del, 0
+    br d_neg -> L_SP_D_ZERO, L_SP_D_POS
+L_SP_D_ZERO:
+    store d_slot+0, 0 as i32
+    jmp L_SP_D_DONE
+L_SP_D_POS:
+    maxdel = sub slen, s
+    d_over = sgt del, maxdel
+    br d_over -> L_SP_D_CLAMP, L_SP_D_TAKE
+L_SP_D_CLAMP:
+    store d_slot+0, maxdel as i32
+    jmp L_SP_D_DONE
+L_SP_D_TAKE:
+    store d_slot+0, del as i32
+    jmp L_SP_D_DONE
+L_SP_D_DONE:
+    d = load d_slot+0 as i32
+    !d_slot
+    sd = add s, d
+    ntmp = sub slen, d
+    nlen = add ntmp, ilen
+    dh = alloc 16
+    dbytes = mul d, 4
+    dbuf = alloc dbytes
+    store dh+0, dbuf as ptr
+    store dh+8, d as u64
+    !dbuf
+    dptr = load dh+0 as ptr
+    iptr = load items+0 as ptr
+    i = 0
+    jmp L_SP1_TOP
+L_SP1_TOP:
+    c1 = slt i, d
+    br c1 -> L_SP1_BODY, L_SP1_END
+L_SP1_BODY:
+    si = add s, i
+    soff = mul si, 4
+    saddr = add sbuf, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_SP1_TOP
+L_SP1_END:
+    nbytes = mul nlen, 4
+    nbuf = alloc nbytes
+    nptr = add nbuf, 0
+    j = 0
+    jmp L_SP2_TOP
+L_SP2_TOP:
+    c2 = slt j, s
+    br c2 -> L_SP2_BODY, L_SP2_END
+L_SP2_BODY:
+    joff = mul j, 4
+    jaddr = add sbuf, joff
+    v2 = load jaddr+0 as i32
+    koff = mul j, 4
+    kaddr = add nptr, koff
+    store kaddr+0, v2 as i32
+    jnext = add j, 1
+    j = jnext
+    jmp L_SP2_TOP
+L_SP2_END:
+    k = 0
+    jmp L_SP3_TOP
+L_SP3_TOP:
+    c3 = slt k, ilen
+    br c3 -> L_SP3_BODY, L_SP3_END
+L_SP3_BODY:
+    koff2 = mul k, 4
+    kaddr2 = add iptr, koff2
+    v3 = load kaddr2+0 as i32
+    q = add s, k
+    qoff = mul q, 4
+    qaddr = add nptr, qoff
+    store qaddr+0, v3 as i32
+    knext = add k, 1
+    k = knext
+    jmp L_SP3_TOP
+L_SP3_END:
+    dst = add s, ilen
+    m = 0
+    jmp L_SP4_TOP
+L_SP4_TOP:
+    c4 = slt m, slen
+    br c4 -> L_SP4_CHK, L_SP4_END
+L_SP4_CHK:
+    tail = sge m, sd
+    br tail -> L_SP4_BODY, L_SP4_NEXT
+L_SP4_BODY:
+    moff = mul m, 4
+    maddr = add sbuf, moff
+    v4 = load maddr+0 as i32
+    q2 = sub m, d
+    qq2 = add q2, ilen
+    qoff2 = mul qq2, 4
+    qaddr2 = add nptr, qoff2
+    store qaddr2+0, v4 as i32
+    jmp L_SP4_NEXT
+L_SP4_NEXT:
+    mnext = add m, 1
+    m = mnext
+    jmp L_SP4_TOP
+L_SP4_END:
+    store src+0, nptr as ptr
+    store src+8, nlen as u64
+    !sbuf
+    !nbuf
+    !src
+    !items
+    !start
+    !del
+    return dh
+// items 为插入项柄；形参值拷，用后即释不碰原槽）。
+@ts_arr_tospliced(src: ptr, start: i32, del: i32, items: ptr) -> ptr:
+L_TS_ENTRY:
+    slen = load src+8 as u64
+    ilen = load items+8 as u64
+    s_slot = alloc 8
+    s_neg = slt start, 0
+    br s_neg -> L_TS_S_NEG, L_TS_S_POS
+L_TS_S_NEG:
+    s_plus = add start, slen
+    s_ppos = sge s_plus, 0
+    br s_ppos -> L_TS_S_KEEP, L_TS_S_ZERO
+L_TS_S_KEEP:
+    store s_slot+0, s_plus as i32
+    jmp L_TS_S_DONE
+L_TS_S_ZERO:
+    store s_slot+0, 0 as i32
+    jmp L_TS_S_DONE
+L_TS_S_POS:
+    s_lt = slt start, slen
+    br s_lt -> L_TS_S_TAKE, L_TS_S_CLAMP
+L_TS_S_TAKE:
+    store s_slot+0, start as i32
+    jmp L_TS_S_DONE
+L_TS_S_CLAMP:
+    store s_slot+0, slen as i32
+    jmp L_TS_S_DONE
+L_TS_S_DONE:
+    s = load s_slot+0 as i32
+    !s_slot
+    d_slot = alloc 8
+    d_neg = slt del, 0
+    br d_neg -> L_TS_D_ZERO, L_TS_D_POS
+L_TS_D_ZERO:
+    store d_slot+0, 0 as i32
+    jmp L_TS_D_DONE
+L_TS_D_POS:
+    maxdel = sub slen, s
+    d_over = sgt del, maxdel
+    br d_over -> L_TS_D_CLAMP, L_TS_D_TAKE
+L_TS_D_CLAMP:
+    store d_slot+0, maxdel as i32
+    jmp L_TS_D_DONE
+L_TS_D_TAKE:
+    store d_slot+0, del as i32
+    jmp L_TS_D_DONE
+L_TS_D_DONE:
+    d = load d_slot+0 as i32
+    !d_slot
+    ntmp = sub slen, d
+    nlen = add ntmp, ilen
+    nbytes = mul nlen, 4
+    nbuf = alloc nbytes
+    nh = alloc 16
+    store nh+0, nbuf as ptr
+    store nh+8, nlen as u64
+    !nbuf
+    sptr = load src+0 as ptr
+    iptr = load items+0 as ptr
+    dptr = load nh+0 as ptr
+    i = 0
+    jmp L_TS1_TOP
+L_TS1_TOP:
+    c1 = slt i, s
+    br c1 -> L_TS1_BODY, L_TS1_END
+L_TS1_BODY:
+    soff = mul i, 4
+    saddr = add sptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_TS1_TOP
+L_TS1_END:
+    j = 0
+    jmp L_TS2_TOP
+L_TS2_TOP:
+    c2 = slt j, ilen
+    br c2 -> L_TS2_BODY, L_TS2_END
+L_TS2_BODY:
+    ioff = mul j, 4
+    iaddr = add iptr, ioff
+    v2 = load iaddr+0 as i32
+    k = add s, j
+    doff2 = mul k, 4
+    daddr2 = add dptr, doff2
+    store daddr2+0, v2 as i32
+    jnext = add j, 1
+    j = jnext
+    jmp L_TS2_TOP
+L_TS2_END:
+    sd = add s, d
+    dst = add s, ilen
+    k2 = 0
+    jmp L_TS3_TOP
+L_TS3_TOP:
+    c3 = slt k2, slen
+    br c3 -> L_TS3_CHK, L_TS3_END
+L_TS3_CHK:
+    tail = sge k2, sd
+    br tail -> L_TS3_BODY, L_TS3_NEXT
+L_TS3_BODY:
+    toff = mul k2, 4
+    taddr = add sptr, toff
+    v3 = load taddr+0 as i32
+    q = sub k2, d
+    qq = add q, ilen
+    doff3 = mul qq, 4
+    daddr3 = add dptr, doff3
+    store daddr3+0, v3 as i32
+    jmp L_TS3_NEXT
+L_TS3_NEXT:
+    k2next = add k2, 1
+    k2 = k2next
+    jmp L_TS3_TOP
+L_TS3_END:
+    !src
+    !items
+    !start
+    !del
+    return nh
+// end 双端钳位, end<start 即空; 形参 i32; 句柄值参（调用方原槽不受影响；
+// 引用传参系 move 语义，禁用于复用句柄）；返回新柄, 调用方持有.
+@ts_arr_slice_copy(src: ptr, start: i32, end: i32) -> ptr:
+L_ENTRY:
+    slen = load src+8 as u64
+    s_slot = alloc 8
+    s_neg = slt start, 0
+    br s_neg -> L_S_NEG, L_S_POS
+L_S_NEG:
+    s_plus = add start, slen
+    s_pos = sge s_plus, 0
+    br s_pos -> L_S_KEEP, L_S_ZERO
+L_S_KEEP:
+    store s_slot+0, s_plus as i32
+    jmp L_S_DONE
+L_S_ZERO:
+    store s_slot+0, 0 as i32
+    jmp L_S_DONE
+L_S_POS:
+    s_lt = slt start, slen
+    br s_lt -> L_S_TAKE, L_S_CLAMP
+L_S_TAKE:
+    store s_slot+0, start as i32
+    jmp L_S_DONE
+L_S_CLAMP:
+    store s_slot+0, slen as i32
+    jmp L_S_DONE
+L_S_DONE:
+    s = load s_slot+0 as i32
+    !s_slot
+    e_slot = alloc 8
+    e_neg = slt end, 0
+    br e_neg -> L_E_NEG, L_E_POS
+L_E_NEG:
+    e_plus = add end, slen
+    e_ppos = sge e_plus, 0
+    br e_ppos -> L_E_KEEP, L_E_ZERO
+L_E_KEEP:
+    store e_slot+0, e_plus as i32
+    jmp L_E_DONE
+L_E_ZERO:
+    store e_slot+0, 0 as i32
+    jmp L_E_DONE
+L_E_POS:
+    e_lt = slt end, slen
+    br e_lt -> L_E_TAKE, L_E_CLAMP
+L_E_TAKE:
+    store e_slot+0, end as i32
+    jmp L_E_DONE
+L_E_CLAMP:
+    store e_slot+0, slen as i32
+    jmp L_E_DONE
+L_E_DONE:
+    e = load e_slot+0 as i32
+    !e_slot
+    e_ge = sge e, s
+    br e_ge -> L_N_OK, L_N_EMPTY
+L_N_OK:
+    nlen = sub e, s
+    jmp L_N_DONE
+L_N_EMPTY:
+    nlen = 0
+    jmp L_N_DONE
+L_N_DONE:
+    sptr = load src+0 as ptr
+    nbytes = mul nlen, 4
+    nbuf = alloc nbytes
+    nh = alloc 16
+    store nh+0, nbuf as ptr
+    store nh+8, nlen as u64
+    !nbuf
+    dptr = load nh+0 as ptr
+    i = 0
+    jmp L_TOP
+L_TOP:
+    c = slt i, nlen
+    br c -> L_BODY, L_END
+L_BODY:
+    si = add s, i
+    soff = mul si, 4
+    saddr = add sptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_TOP
+L_END:
+    !src
+    !start
+    !end
+    return nh
+
+// @ts_arr_with 单点替换返新数组（负下标即 len+idx；越界原样返回；
+// 新柄调用方持有；形参值拷，用后即释不碰原槽）。
+@ts_arr_with(src: ptr, idx: i32, val: i32) -> ptr:
+L_W_ENTRY:
+    slen = load src+8 as u64
+    sptr = load src+0 as ptr
+    nbytes = mul slen, 4
+    nbuf = alloc nbytes
+    nh = alloc 16
+    store nh+0, nbuf as ptr
+    store nh+8, slen as u64
+    !nbuf
+    dptr = load nh+0 as ptr
+    isneg = slt idx, 0
+    adj = mul slen, isneg
+    norm = add idx, adj
+    i = 0
+    jmp L_W_TOP
+L_W_TOP:
+    c = slt i, slen
+    br c -> L_W_BODY, L_W_END
+L_W_BODY:
+    soff = mul i, 4
+    saddr = add sptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_W_TOP
+L_W_END:
+    lo = slt norm, 0
+    hi = sge norm, slen
+    bad = or lo, hi
+    br bad -> L_W_BAD, L_W_SET
+L_W_BAD:
+    panic(2501)
+L_W_SET:
+    woff = mul norm, 4
+    waddr = add dptr, woff
+    store waddr+0, val as i32
+    jmp L_W_FIN
+L_W_FIN:
+    !src
+    !idx
+    !val
+    return nh
+
+// @ts_arr_toreversed 逆序拷返新数组（原不动；新柄调用方持有；
+// 形参值拷，用后即释不碰原槽）。
+@ts_arr_toreversed(src: ptr) -> ptr:
+L_TR_ENTRY:
+    slen = load src+8 as u64
+    sptr = load src+0 as ptr
+    nbytes = mul slen, 4
+    nbuf = alloc nbytes
+    nh = alloc 16
+    store nh+0, nbuf as ptr
+    store nh+8, slen as u64
+    !nbuf
+    dptr = load nh+0 as ptr
+    i = 0
+    jmp L_TR_TOP
+L_TR_TOP:
+    c = slt i, slen
+    br c -> L_TR_BODY, L_TR_END
+L_TR_BODY:
+    t = sub slen, 1
+    si = sub t, i
+    soff = mul si, 4
+    saddr = add sptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_TR_TOP
+L_TR_END:
+    !src
+    return nh
+
+// @ts_arr_tosorted 拷贝并数值插入排序返新数组（原不动；新柄调用方持有；
+// 形参值拷，用后即释不碰原槽；与 tsgosa saLowerInsertionSort 同形）。
+@ts_arr_tosorted(src: ptr) -> ptr:
+L_TS_ENTRY:
+    slen = load src+8 as u64
+    sptr = load src+0 as ptr
+    nbytes = mul slen, 4
+    nbuf = alloc nbytes
+    nh = alloc 16
+    store nh+0, nbuf as ptr
+    store nh+8, slen as u64
+    !nbuf
+    dptr = load nh+0 as ptr
+    i = 0
+    jmp L_TS_CP_TOP
+L_TS_CP_TOP:
+    c = slt i, slen
+    br c -> L_TS_CP_BODY, L_TS_CP_END
+L_TS_CP_BODY:
+    soff = mul i, 4
+    saddr = add sptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_TS_CP_TOP
+L_TS_CP_END:
+    si = 1
+    jmp L_TS_TOP
+L_TS_TOP:
+    c2 = slt si, slen
+    br c2 -> L_TS_BODY, L_TS_END
+L_TS_BODY:
+    ioff = mul si, 4
+    iaddr = add dptr, ioff
+    key = load iaddr+0 as i32
+    sj = sub si, 1
+    jmp L_TS_IN_TOP
+L_TS_IN_TOP:
+    c3 = sge sj, 0
+    br c3 -> L_TS_IN_CHK, L_TS_IN_END
+L_TS_IN_CHK:
+    joff = mul sj, 4
+    jaddr = add dptr, joff
+    aj = load jaddr+0 as i32
+    c4 = sgt aj, key
+    br c4 -> L_TS_IN_BODY, L_TS_IN_END
+L_TS_IN_BODY:
+    j1 = add sj, 1
+    j1off = mul j1, 4
+    j1addr = add dptr, j1off
+    store j1addr+0, aj as i32
+    jm = sub sj, 1
+    sj = jm
+    jmp L_TS_IN_TOP
+L_TS_IN_END:
+    k1 = add sj, 1
+    k1off = mul k1, 4
+    k1addr = add dptr, k1off
+    store k1addr+0, key as i32
+    snext = add si, 1
+    si = snext
+    jmp L_TS_TOP
+L_TS_END:
+    !src
+    return nh
+
+// @ts_arr_sort 原地数值插入排序（无新柄；调用方保留原柄；
+// 形参 token 用后即释；与 tsgosa saLowerInsertionSort 同形）。
+@ts_arr_sort(src: ptr):
+L_S_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    si = 1
+    jmp L_S_TOP
+L_S_TOP:
+    c2 = slt si, slen
+    br c2 -> L_S_BODY, L_S_END
+L_S_BODY:
+    ioff = mul si, 4
+    iaddr = add dptr, ioff
+    key = load iaddr+0 as i32
+    sj = sub si, 1
+    jmp L_S_IN_TOP
+L_S_IN_TOP:
+    c3 = sge sj, 0
+    br c3 -> L_S_IN_CHK, L_S_IN_END
+L_S_IN_CHK:
+    joff = mul sj, 4
+    jaddr = add dptr, joff
+    aj = load jaddr+0 as i32
+    c4 = sgt aj, key
+    br c4 -> L_S_IN_BODY, L_S_IN_END
+L_S_IN_BODY:
+    j1 = add sj, 1
+    j1off = mul j1, 4
+    j1addr = add dptr, j1off
+    store j1addr+0, aj as i32
+    jm = sub sj, 1
+    sj = jm
+    jmp L_S_IN_TOP
+L_S_IN_END:
+    k1 = add sj, 1
+    k1off = mul k1, 4
+    k1addr = add dptr, k1off
+    store k1addr+0, key as i32
+    snext = add si, 1
+    si = snext
+    jmp L_S_TOP
+L_S_END:
+    !src
+    ret
+
+// @ts_arr_sort_str 原地串元插入排序（字典序内联判定，与 @ts_str_compare
+// 同律：字节无符号序+前缀规则；4B 槽存 16B 柄指针，取值展开后比较，交换
+// 槽值；ts_array.sa 不得反向依赖 ts_string.sa（后者已依赖本模块），故
+// 内联判定环；无新柄，调用方保留原柄；形参 token 用后即释；与 @ts_arr_sort
+// 同骨架，比较位换字典序）。
+@ts_arr_sort_str(src: ptr):
+L_SS_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    si = 1
+    jmp L_SS_TOP
+L_SS_TOP:
+    c2 = slt si, slen
+    br c2 -> L_SS_BODY, L_SS_END
+L_SS_BODY:
+    ioff = mul si, 4
+    iaddr = add dptr, ioff
+    key = load iaddr+0 as i32
+    kep = load key+0 as ptr
+    kel = load key+8 as u64
+    sj = sub si, 1
+    jmp L_SS_IN_TOP
+L_SS_IN_TOP:
+    c3 = sge sj, 0
+    br c3 -> L_SS_IN_CHK, L_SS_IN_END
+L_SS_IN_CHK:
+    joff = mul sj, 4
+    jaddr = add dptr, joff
+    aj = load jaddr+0 as i32
+    aep = load aj+0 as ptr
+    ael = load aj+8 as u64
+    ci = 0
+    jmp L_SS_CMP_TOP
+L_SS_CMP_TOP:
+    cld = eq ci, ael
+    crd = eq ci, kel
+    br cld -> L_SS_CMP_LD, L_SS_CMP_LS
+L_SS_CMP_LS:
+    br crd -> L_SS_CMP_GT, L_SS_CMP_BODY
+L_SS_CMP_BODY:
+    clo = add aep, ci
+    cro = add kep, ci
+    clb = load clo + 0 as u8
+    crb = load cro + 0 as u8
+    clt = ult clb, crb
+    br clt -> L_SS_IN_END, L_SS_CMP_CG
+L_SS_CMP_CG:
+    cgt = ugt clb, crb
+    br cgt -> L_SS_IN_BODY, L_SS_CMP_NEXT
+L_SS_CMP_NEXT:
+    cinext = add ci, 1
+    ci = cinext
+    jmp L_SS_CMP_TOP
+L_SS_CMP_LD:
+    br crd -> L_SS_IN_END, L_SS_IN_END
+L_SS_CMP_GT:
+    jmp L_SS_IN_BODY
+L_SS_IN_BODY:
+    j1 = add sj, 1
+    j1off = mul j1, 4
+    j1addr = add dptr, j1off
+    store j1addr+0, aj as i32
+    jm = sub sj, 1
+    sj = jm
+    jmp L_SS_IN_TOP
+L_SS_IN_END:
+    k1 = add sj, 1
+    k1off = mul k1, 4
+    k1addr = add dptr, k1off
+    store k1addr+0, key as i32
+    snext = add si, 1
+    si = snext
+    jmp L_SS_TOP
+L_SS_END:
+    !src
+    ret
+
+// @ts_arr_reverse 原地对称交换（无新柄；调用方保留原柄；
+// 形参 token 用后即释；与 tsgosa saLowerArrayReverse 同形）。
+@ts_arr_reverse(src: ptr):
+L_RV_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    half = div slen, 2
+    i = 0
+    jmp L_RV_TOP
+L_RV_TOP:
+    c = slt i, half
+    br c -> L_RV_BODY, L_RV_END
+L_RV_BODY:
+    t = sub slen, 1
+    j = sub t, i
+    aoff = mul i, 4
+    aaddr = add dptr, aoff
+    boff = mul j, 4
+    baddr = add dptr, boff
+    a = load aaddr+0 as i32
+    b = load baddr+0 as i32
+    store aaddr+0, b as i32
+    store baddr+0, a as i32
+    inext = add i, 1
+    i = inext
+    jmp L_RV_TOP
+L_RV_END:
+    !src
+    ret
+
+// @ts_arr_fill 全域值填充（无新柄；调用方保留原柄；
+// 形参 token 用后即释；与 satsgo lowerArrayFill:6257 全域同形）。
+@ts_arr_fill(src: ptr, val: i32):
+L_FL_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    i = 0
+    jmp L_FL_TOP
+L_FL_TOP:
+    c = slt i, slen
+    br c -> L_FL_BODY, L_FL_END
+L_FL_BODY:
+    off = mul i, 4
+    addr = add dptr, off
+    store addr+0, val as i32
+    inext = add i, 1
+    i = inext
+    jmp L_FL_TOP
+L_FL_END:
+    !src
+    !val
+    ret
+
+// @ts_arr_scan 相等扫描（index 系回位/-1，includes 回 1/0；
+// hasfrom=0 即缺省（正向 0/逆向末位），否则 from 全量钳位；
+// 钳位与 `ts_array.sa` 内 slice/splice 系列同形；形状证据：
+// 封存 lowerArrayScan:6444-6513）。
+@ts_arr_scan(src: ptr, want: i32, from: i32, hasfrom: i32, rev: i32, wantidx: i32) -> i32:
+L_Q_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    s_slot = alloc 8
+    hf = ne hasfrom, 0
+    br hf -> L_Q_CLAMP, L_Q_DEFLT
+L_Q_DEFLT:
+    rv0 = ne rev, 0
+    br rv0 -> L_Q_LAST, L_Q_ZERO
+L_Q_LAST:
+    lm1 = sub slen, 1
+    store s_slot+0, lm1 as i32
+    jmp L_Q_GOT
+L_Q_ZERO:
+    store s_slot+0, 0 as i32
+    jmp L_Q_GOT
+L_Q_CLAMP:
+    fneg = slt from, 0
+    br fneg -> L_Q_NEG, L_Q_POS
+L_Q_NEG:
+    fplus = add from, slen
+    fpos = sge fplus, 0
+    br fpos -> L_Q_KEEP, L_Q_FZERO
+L_Q_KEEP:
+    store s_slot+0, fplus as i32
+    jmp L_Q_GOT
+L_Q_FZERO:
+    store s_slot+0, 0 as i32
+    jmp L_Q_GOT
+L_Q_POS:
+    flt = slt from, slen
+    br flt -> L_Q_TAKE, L_Q_CMP
+L_Q_TAKE:
+    store s_slot+0, from as i32
+    jmp L_Q_GOT
+L_Q_CMP:
+    store s_slot+0, slen as i32
+    jmp L_Q_GOT
+L_Q_GOT:
+    start = load s_slot+0 as i32
+    !s_slot
+    wi = ne wantidx, 0
+    br wi -> L_Q_M1, L_Q_Z1
+L_Q_M1:
+    res = -1
+    jmp L_Q_INIT
+L_Q_Z1:
+    res = 0
+    jmp L_Q_INIT
+L_Q_INIT:
+    i = add start, 0
+    jmp L_Q_TOP
+L_Q_TOP:
+    rv1 = ne rev, 0
+    br rv1 -> L_Q_BCOND, L_Q_FCOND
+L_Q_FCOND:
+    c = slt i, slen
+    br c -> L_Q_BODY, L_Q_END
+L_Q_BCOND:
+    c2 = sge i, 0
+    br c2 -> L_Q_BODY, L_Q_END
+L_Q_BODY:
+    off = mul i, 4
+    addr = add dptr, off
+    cur = load addr+0 as i32
+    eq = eq cur, want
+    br eq -> L_Q_HIT, L_Q_NEXT
+L_Q_HIT:
+    wi2 = ne wantidx, 0
+    br wi2 -> L_Q_AT, L_Q_ONE
+L_Q_AT:
+    res = add i, 0
+    jmp L_Q_END
+L_Q_ONE:
+    res = 1
+    jmp L_Q_END
+L_Q_NEXT:
+    rv2 = ne rev, 0
+    br rv2 -> L_Q_DEC, L_Q_INC
+L_Q_INC:
+    step = add i, 1
+    i = step
+    jmp L_Q_TOP
+L_Q_DEC:
+    step2 = sub i, 1
+    i = step2
+    jmp L_Q_TOP
+L_Q_END:
+    !src
+    !want
+    !from
+    !hasfrom
+    !rev
+    !wantidx
+    return res
+
+// @ts_arr_pop 末端取值并缩长（返 i32；调用方保留原柄；
+// 形状证据：封存 lowerArrayPop:上游 saemit.go:6162）。
+@ts_arr_pop(src: ptr) -> i32:
+L_P_ENTRY:
+    slen = load src+8 as u64
+    last = sub slen, 1
+    dptr = load src+0 as ptr
+    off = mul last, 4
+    addr = add dptr, off
+    out = load addr+0 as i32
+    store src+8, last as u64
+    !src
+    return out
+
+// @ts_arr_shift 首端取值并前移缩长（返 i32；调用方保留原柄；
+// 形状证据：封存 lowerArrayShift:上游 saemit.go:6178）。
+@ts_arr_shift(src: ptr) -> i32:
+L_SH_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    out = load dptr+0 as i32
+    nlen = sub slen, 1
+    i = 0
+    jmp L_SH_TOP
+L_SH_TOP:
+    c = slt i, nlen
+    br c -> L_SH_BODY, L_SH_END
+L_SH_BODY:
+    s = add i, 1
+    soff = mul s, 4
+    saddr = add dptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    inext = add i, 1
+    i = inext
+    jmp L_SH_TOP
+L_SH_END:
+    store src+8, nlen as u64
+    !src
+    return out
+
+// @ts_arr_copywithin 交叠安全方向拷贝（无新柄；end 缺省即全长；
+// 钳位与 slice 系列同形三份内联；形状证据：封存 lowerCopyWithin:6717-6798）。
+@ts_arr_copywithin(src: ptr, target: i32, start: i32, end: i32, hasend: i32):
+L_CW_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    t_neg = slt target, 0
+    br t_neg -> L_CW_TN, L_CW_TP
+L_CW_TN:
+    t_adj = add slen, target
+    jmp L_CW_TE
+L_CW_TP:
+    t_adj = add target, 0
+    jmp L_CW_TE
+L_CW_TE:
+    t_lo = slt t_adj, 0
+    br t_lo -> L_CW_TLO, L_CW_TMD
+L_CW_TLO:
+    tc = 0
+    jmp L_CW_TOK
+L_CW_TMD:
+    t_hi = sgt t_adj, slen
+    br t_hi -> L_CW_THI, L_CW_TKP
+L_CW_THI:
+    tc = add slen, 0
+    jmp L_CW_TOK
+L_CW_TKP:
+    tc = add t_adj, 0
+    jmp L_CW_TOK
+L_CW_TOK:
+    s_neg = slt start, 0
+    br s_neg -> L_CW_SN, L_CW_SP
+L_CW_SN:
+    s_adj = add slen, start
+    jmp L_CW_SE
+L_CW_SP:
+    s_adj = add start, 0
+    jmp L_CW_SE
+L_CW_SE:
+    s_lo = slt s_adj, 0
+    br s_lo -> L_CW_SLO, L_CW_SMD
+L_CW_SLO:
+    sc = 0
+    jmp L_CW_SOK
+L_CW_SMD:
+    s_hi = sgt s_adj, slen
+    br s_hi -> L_CW_SHI, L_CW_SKP
+L_CW_SHI:
+    sc = add slen, 0
+    jmp L_CW_SOK
+L_CW_SKP:
+    sc = add s_adj, 0
+    jmp L_CW_SOK
+L_CW_SOK:
+    he = ne hasend, 0
+    br he -> L_CW_EC, L_CW_EL
+L_CW_EL:
+    fc = add slen, 0
+    jmp L_CW_EOK
+L_CW_EC:
+    e_neg = slt end, 0
+    br e_neg -> L_CW_EN, L_CW_EP
+L_CW_EN:
+    e_adj = add slen, end
+    jmp L_CW_EE
+L_CW_EP:
+    e_adj = add end, 0
+    jmp L_CW_EE
+L_CW_EE:
+    e_lo = slt e_adj, 0
+    br e_lo -> L_CW_ELO, L_CW_EMD
+L_CW_ELO:
+    fc = 0
+    jmp L_CW_EOK
+L_CW_EMD:
+    e_hi = sgt e_adj, slen
+    br e_hi -> L_CW_EHI, L_CW_EKP
+L_CW_EHI:
+    fc = add slen, 0
+    jmp L_CW_EOK
+L_CW_EKP:
+    fc = add e_adj, 0
+    jmp L_CW_EOK
+L_CW_EOK:
+    span = sub fc, sc
+    room = sub slen, tc
+    pick = slt span, room
+    br pick -> L_CW_MS, L_CW_MR
+L_CW_MS:
+    count = add span, 0
+    jmp L_CW_MC
+L_CW_MR:
+    count = add room, 0
+    jmp L_CW_MC
+L_CW_MC:
+    go = sgt count, 0
+    br go -> L_CW_RUN, L_CW_SKIP
+L_CW_RUN:
+    fwd = slt tc, sc
+    br fwd -> L_CW_FI, L_CW_BT
+L_CW_FI:
+    i = 0
+    jmp L_CW_FT
+L_CW_FT:
+    c = slt i, count
+    br c -> L_CW_FB, L_CW_FE
+L_CW_FB:
+    fsi = add sc, i
+    fso = mul fsi, 4
+    fsa = add dptr, fso
+    fcur = load fsa+0 as i32
+    fdi = add tc, i
+    fdof = mul fdi, 4
+    fda = add dptr, fdof
+    store fda+0, fcur as i32
+    finext = add i, 1
+    i = finext
+    jmp L_CW_FT
+L_CW_FE:
+    jmp L_CW_SKIP
+L_CW_BT:
+    j = sub count, 1
+    jmp L_CW_BC
+L_CW_BC:
+    bc = sge j, 0
+    br bc -> L_CW_BB, L_CW_BE
+L_CW_BB:
+    bsi = add sc, j
+    bso = mul bsi, 4
+    bsa = add dptr, bso
+    bcur = load bsa+0 as i32
+    bdi = add tc, j
+    bdof = mul bdi, 4
+    bda = add dptr, bdof
+    store bda+0, bcur as i32
+    jn = sub j, 1
+    j = jn
+    jmp L_CW_BC
+L_CW_BE:
+    jmp L_CW_SKIP
+L_CW_SKIP:
+    !src
+    !target
+    !start
+    !end
+    !hasend
+    ret
+
+// @ts_arr_rotr1 右旋一步（末槽复制语义由调用方扩展保证；
+// 调用方保留原柄；unshift 后半段形状）。
+@ts_arr_rotr1(src: ptr):
+L_RR_ENTRY:
+    slen = load src+8 as u64
+    dptr = load src+0 as ptr
+    i = sub slen, 1
+    jmp L_RR_TOP
+L_RR_TOP:
+    c = sgt i, 0
+    br c -> L_RR_BODY, L_RR_END
+L_RR_BODY:
+    prev = sub i, 1
+    soff = mul prev, 4
+    saddr = add dptr, soff
+    v = load saddr+0 as i32
+    doff = mul i, 4
+    daddr = add dptr, doff
+    store daddr+0, v as i32
+    i = prev
+    jmp L_RR_TOP
+L_RR_END:
+    !src
+    ret
+
+// @ts_arr_append_slice 整片拷贝入目标（逐元 push；移植 saAppendSlice 全形）。
+@ts_arr_append_slice(dst: ptr, src: ptr) -> ptr:
+L_APS_ENTRY:
+    ln = load src+8 as u64
+    data = load src+0 as ptr
+    i = 0
+    jmp L_APS_TOP
+L_APS_TOP:
+    c = slt i, ln
+    br c -> L_APS_BODY, L_APS_END
+L_APS_BODY:
+    off = mul i, 4
+    addr = add data, off
+    elem = load addr+0 as i32
+    call @ts_arr_push_word(dst, elem)
+    inext = add i, 1
+    i = inext
+    jmp L_APS_TOP
+L_APS_END:
+    return dst
+
+// @ts_arr_copy_range 拷贝 src[s0,s1) 到 dst[d0,.]（调用方保证目标已分配；
+// 移植 saCopyRange 全形）。
+@ts_arr_copy_range(sdata: ptr, ddata: ptr, s0: i32, s1: i32, d0: i32) -> i32:
+L_CR_ENTRY:
+    i = add s0, 0
+    jmp L_CR_TOP
+L_CR_TOP:
+    c = slt i, s1
+    br c -> L_CR_BODY, L_CR_END
+L_CR_BODY:
+    rel = sub i, s0
+    so = mul i, 4
+    sa = add sdata, so
+    cv = load sa+0 as i32
+    di = add d0, rel
+    dof = mul di, 4
+    da = add ddata, dof
+    store da+0, cv as i32
+    inext = add i, 1
+    i = inext
+    jmp L_CR_TOP
+L_CR_END:
+    done = 0
+    return done
+
+// @ts_arr_clone_flat 单层数组拷贝（新柄新缓冲；移植 saLowerDeepCloneInner
+// flat 全形；嵌套 deep 形另立）。
+@ts_arr_clone_flat(src: ptr) -> ptr:
+L_CF_ENTRY:
+    ln = load src+8 as u64
+    sdata = load src+0 as ptr
+    dest = alloc 16
+    ln1 = add ln, 1
+    nby = mul ln1, 4
+    ddata = alloc nby
+    store dest+0, ddata as ptr
+    store dest+8, ln as u64
+    !ddata
+    dloop = load dest+0 as ptr
+    iv = 0
+    jmp L_CF_TOP
+L_CF_TOP:
+    c = slt iv, ln
+    br c -> L_CF_BODY, L_CF_END
+L_CF_BODY:
+    so = mul iv, 4
+    saddr = add sdata, so
+    daddr = add dloop, so
+    cv = load saddr+0 as i32
+    store daddr+0, cv as i32
+    inext = add iv, 1
+    iv = inext
+    jmp L_CF_TOP
+L_CF_END:
+    return dest
+
+// @ts_arr_mkcopy 按元数预分配数组（多 1 槽位，与调用点旧形一致；返柄，调用方持有）。
+@ts_arr_mkcopy(nlen: u64) -> ptr:
+L_MCP_ENTRY:
+    n1p = add nlen, 1
+    nby = mul n1p, 4
+    ddata = alloc nby
+    dest = alloc 16
+    store dest+0, ddata as ptr
+    store dest+8, nlen as u64
+    !ddata
+    return dest
+
+// @ts_arr_flat 一层拍扁（isnest=0 走浅拷贝；嵌套路两遍：遍 1 外槽累内长，
+// 遍 2 新柄逐内拷片；移植 saLowerArrayFlat 全形；arrNest 标记透传留调用点）。
+@ts_arr_flat(recv: ptr, isnest: i32) -> ptr:
+L_FL_ENTRY:
+    ln = load recv+8 as u64
+    sdata = load recv+0 as ptr
+    use_deep = ne isnest, 0
+    br use_deep -> L_FL_DEEP, L_FL_SHALLOW
+L_FL_SHALLOW:
+    dest = call @ts_arr_mkcopy(ln)
+    dloop = load dest+0 as ptr
+    call @ts_arr_copy_range(sdata, dloop, 0, ln, 0)
+    return dest
+L_FL_DEEP:
+    total = alloc 8
+    store total+0, 0 as i32
+    i = 0
+    jmp L_FL_SUM_TOP
+L_FL_SUM_TOP:
+    c = slt i, ln
+    br c -> L_FL_SUM_BODY, L_FL_SUM_END
+L_FL_SUM_BODY:
+    eoff = mul i, 4
+    eaddr = add sdata, eoff
+    eh = load eaddr+0 as i32
+    elen = load eh+8 as u64
+    tn = load total+0 as i32
+    tn2 = add tn, elen
+    store total+0, tn2 as i32
+    inext = add i, 1
+    i = inext
+    jmp L_FL_SUM_TOP
+L_FL_SUM_END:
+    tlen = load total+0 as i32
+    !total
+    dest = call @ts_arr_mkcopy(tlen)
+    dloop = load dest+0 as ptr
+    pos = alloc 8
+    store pos+0, 0 as i32
+    j = 0
+    jmp L_FL_CP_TOP
+L_FL_CP_TOP:
+    c2 = slt j, ln
+    br c2 -> L_FL_CP_BODY, L_FL_CP_END
+L_FL_CP_BODY:
+    f2 = mul j, 4
+    g2 = add sdata, f2
+    h2 = load g2+0 as i32
+    hd = load h2+0 as ptr
+    hl = load h2+8 as u64
+    pv = load pos+0 as i32
+    call @ts_arr_copy_range(hd, dloop, 0, hl, pv)
+    pv2 = add pv, hl
+    store pos+0, pv2 as i32
+    jnext = add j, 1
+    j = jnext
+    jmp L_FL_CP_TOP
+L_FL_CP_END:
+    !pos
+    return dest
+
+// @ts_arr_clone_deep 嵌套数组深拷贝（内柄递归；移植 saLowerDeepCloneInner
+// deep 全形；arrNest 标记留调用点）。
+@ts_arr_clone_deep(src: ptr) -> ptr:
+L_CD_ENTRY:
+    ln = load src+8 as u64
+    sdata = load src+0 as ptr
+    dest = alloc 16
+    ln1 = add ln, 1
+    nby = mul ln1, 4
+    ddata = alloc nby
+    store dest+0, ddata as ptr
+    store dest+8, ln as u64
+    !ddata
+    dloop = load dest+0 as ptr
+    iv = 0
+    jmp L_CD_TOP
+L_CD_TOP:
+    c = slt iv, ln
+    br c -> L_CD_BODY, L_CD_END
+L_CD_BODY:
+    so = mul iv, 4
+    saddr = add sdata, so
+    daddr = add dloop, so
+    inner = load saddr+0 as i32
+    inew = call @ts_arr_clone_flat(inner)
+    store daddr+0, inew as i32
+    inext = add iv, 1
+    iv = inext
+    jmp L_CD_TOP
+L_CD_END:
+    return dest
+
+// @ts_arr_entries 下标-值对数组（返新句柄数组：每元一个 2 元 i32 数组
+// {i, v}；外层数组存对句柄地址（与薄口嵌套数组模型同形：元素为句柄地址
+// 截断入槽，读回零扩展））。对数组由本符号侧分配（调用方持外层数组柄，
+// 无逐对归属问题）。i32 元数组专用。
+@ts_arr_entries(src: ptr) -> ptr:
+L_TAE_ENTRY:
+    out = alloc 16
+    store out+0, 0 as ptr
+    store out+8, 0 as u64
+    dptr = load src+0 as ptr
+    dlenraw = load src+8 as u64
+    dlen = trunc dlenraw as i32
+    i = 0
+L_TAE_TOP:
+    more = ult i, dlen
+    br more -> L_TAE_BODY, L_TAE_DONE
+L_TAE_BODY:
+    off = mul i, 4
+    vaddr = add dptr, off
+    v = load vaddr + 0 as i32
+    pbuf = alloc 8
+    p0 = add pbuf, 0
+    store p0 + 0, i as i32
+    p1 = add pbuf, 4
+    store p1 + 0, v as i32
+    pair = alloc 16
+    store pair+0, pbuf as ptr
+    store pair+8, 2 as u64
+    call @ts_arr_push_word(out, pair)
+    i = add i, 1
+    jmp L_TAE_TOP
+L_TAE_DONE:
+    return out
+
+// @ts_arr_keys 下标数组（返新句柄数组：元素为 0..len-1 的 i32 下标；外层
+// 数组按 word 存元素，与薄口 i32 数组模型同形）。由本符号侧分配（调用方持
+// 数组柄）。
+@ts_arr_keys(src: ptr) -> ptr:
+L_TAK_ENTRY:
+    out = alloc 16
+    store out+0, 0 as ptr
+    store out+8, 0 as u64
+    dlenraw = load src+8 as u64
+    dlen = trunc dlenraw as i32
+    i = 0
+L_TAK_TOP:
+    more = ult i, dlen
+    br more -> L_TAK_BODY, L_TAK_DONE
+L_TAK_BODY:
+    call @ts_arr_push_word(out, i)
+    i = add i, 1
+    jmp L_TAK_TOP
+L_TAK_DONE:
+    return out

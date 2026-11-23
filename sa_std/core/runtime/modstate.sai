@@ -1,0 +1,19 @@
+// SA-facing contracts for TypeScript top-level mutable module state
+// (satsgo modstate lowering: file-scope `let`/`var`, namespace
+// `export let`, same mechanism).
+//
+// Value semantics over the thread-local slot registry in
+// src/runtime/sa_thread_local.zig: no pointers cross the boundary, so
+// frontend callers never hold registry memory (none of the borrow/release
+// dynamics of the raw slot pointer in thread_local.sai, which stays the
+// sarust spelling). Width discipline (i32/u32/f64) lives in the frontend
+// (trunc/zext plus scratch-spill bit round-trips); slots store opaque bits.
+// Keys are FNV-1a-64 of the frontend's qualified slot name, same key-family
+// convention as thread_local!: the same (thread, key) shares one cell,
+// zero-initialized on first touch.
+//
+// Failure: set reports SA_STD_ERR_NO_MEMORY (5) when the registry cannot
+// grow; get has no failure channel and yields 0 on OOM, indistinguishable
+// from a fresh slot (documented; matches Cell::new(0) fresh-cell reads).
+@extern sa_modstate_get_u64(key: u64) -> u64
+@extern sa_modstate_set_u64(key: u64, value: u64) -> i32

@@ -1,0 +1,8 @@
+// db prelude: SA-side public surface of the database domain.
+// The SLA libraries (query/redis.sla, core/mysql_client.sla,
+// core/postgres.sla, core/jwt.sla, storage/plugin_sqlite.sla) are
+// imported individually by path: no .sa file in-tree imports a .sla
+// file, and no prelude.sla exists anywhere in the tree.
+@import "core/mysql_client.sai"
+@import "core/postgres.sai"
+@import "storage/plugin_sqlite.sa"

@@ -1,0 +1,39 @@
+// ts_jsx.sa -- JSX element descriptors for tsgosa mapping.
+//
+// Descriptor (JEV jsx_jsval_descriptor, confidence 1.0, probability 1.0;
+// jsx_scope simple_only, confidence 0.98, probability 0.99):
+//   A JSX element is a jsval object (kind 4) whose payload is a 24-byte
+//   element struct:
+//     +0: tag handle (ptr to a 16-byte str struct; intrinsic tag name, or
+//         component name as a string only -- component identity is NOT a
+//         function reference; DOM semantics are NOT claimed)
+//     +8: props handle (ptr to a btree_map with jsval values; empty map
+//         when there are no attributes)
+//     +16: children handle (ptr to a jsval box of kind 5, whose payload is
+//         a thin array of jsval child handles; empty array when no children)
+//   The jsval box itself follows the ts_jsval layout (32 bytes, +0 kind,
+//   +8 payload, +16 zero, +24 zero sidecar).
+// Ownership: caller owns the returned jsval box; tag/props/children handles
+// are stored into the element struct and must NOT be released by the caller
+// after the call (transfer into the descriptor, same discipline as
+// object-literal fields stored into an inst). The helper allocates the
+// element struct and the jsval box; both escape through the returned box.
+// Scope: intrinsic tags, fragments (tag ""), self-closing tags, string /
+// expression attributes, text / expression children, nested elements.
+// Spread attributes, member tags (Foo.Bar), namespaced tags, and event
+// handler semantics are refused by the emitter, not by this helper.
+
+// @ts_jsx_element builds a JSX element descriptor jsval from its parts
+// (tag str handle, props map handle, children jsval-array box handle).
+@ts_jsx_element(tag: ptr, props: ptr, children: ptr) -> ptr:
+L_TJX_ENTRY:
+    e = alloc 24
+    store e+0, tag as ptr
+    store e+8, props as ptr
+    store e+16, children as ptr
+    h = alloc 32
+    store h+0, 4 as i32
+    store h+8, e as ptr
+    store h+16, 0 as i32
+    store h+24, 0 as ptr
+    return h

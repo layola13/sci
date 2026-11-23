@@ -1,2 +1,3 @@
-#def NonNull_SIZE = 8
-#def NonNull_ptr = +0
+// Moved to core/ptr/ptr.sal in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "core/ptr/ptr.sal"

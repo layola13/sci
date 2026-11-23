@@ -1,0 +1,26 @@
+@import "cell/cell.sal"
+@import "cell/refcell.sal"
+@import "cell/rc.sal"
+@import "cell/weak.sal"
+@import "types/trait_object.sal"
+@import "future/waker.sal"
+@import "future/future.sal"
+@import "future/task.sal"
+@import "option/option.sal"
+@import "result/result.sal"
+@import "iter/iter.sal"
+
+#def RustCore_VERSION = 1
+#def RustCore_SUPPORTS_OPTION = 1
+#def RustCore_SUPPORTS_RESULT = 1
+#def RustCore_SUPPORTS_PANIC = 1
+#def RustCore_SUPPORTS_ITER = 1
+#def RustCore_SUPPORTS_CELL = 1
+#def RustCore_SUPPORTS_REFCELL = 1
+#def RustCore_SUPPORTS_RC = 1
+#def RustCore_SUPPORTS_WEAK = 1
+#def RustCore_SUPPORTS_TRAIT_OBJECT = 1
+#def RustCore_SUPPORTS_WAKER = 1
+#def RustCore_SUPPORTS_FUTURE = 1
+#def RustCore_SUPPORTS_TASK = 1
+#def RustCore_SUPPORTS_ASCII = 1

@@ -1,0 +1,341 @@
+#def NUM_U64_BITS = 64
+#def BOOL_DEFAULT = 0
+
+#def NUM_U32_BITS = 32
+#def NUM_U16_BITS = 16
+#def NUM_U8_BITS = 8
+#def NUM_I64_BITS = 64
+#def NUM_I32_BITS = 32
+#def NUM_I16_BITS = 16
+#def NUM_I8_BITS = 8
+#def NUM_USIZE_BITS = 64
+#def NUM_ISIZE_BITS = 64
+#def NUM_U64_MAX = -1
+#def NUM_U32_MAX = 4294967295
+#def NUM_U16_MAX = 65535
+#def NUM_U8_MAX = 255
+#def NUM_USIZE_MAX = -1
+#def NUM_I64_MAX = 9223372036854775807
+#def NUM_I64_MIN = -9223372036854775807 - 1
+#def NUM_I32_MAX = 2147483647
+#def NUM_I32_MIN = -2147483648
+#def NUM_I16_MAX = 32767
+#def NUM_I16_MIN = -32768
+#def NUM_I8_MAX = 127
+#def NUM_I8_MIN = -128
+#def NUM_ISIZE_MAX = 9223372036854775807
+#def NUM_ISIZE_MIN = -9223372036854775807 - 1
+
+#def NUM_U64_DEFAULT = 0
+#def NUM_U32_DEFAULT = 0
+#def NUM_U16_DEFAULT = 0
+#def NUM_U8_DEFAULT = 0
+#def NUM_USIZE_DEFAULT = 0
+#def NUM_I64_DEFAULT = 0
+#def NUM_I32_DEFAULT = 0
+#def NUM_I16_DEFAULT = 0
+#def NUM_I8_DEFAULT = 0
+#def NUM_ISIZE_DEFAULT = 0
+#def NUM_F32_DEFAULT = 0
+#def NUM_F64_DEFAULT = 0
+
+#def NonZeroU64_SIZE = 8
+#def NonZeroU64_value = +0
+
+#def NonZeroU32_SIZE = 8
+#def NonZeroU32_value = +0
+
+#def NonZeroU16_SIZE = 8
+#def NonZeroU16_value = +0
+
+#def NonZeroU8_SIZE = 8
+#def NonZeroU8_value = +0
+
+#def NonZeroUsize_SIZE = 8
+#def NonZeroUsize_value = +0
+
+#def NonZeroI64_SIZE = 8
+#def NonZeroI64_value = +0
+
+#def NonZeroI32_SIZE = 8
+#def NonZeroI32_value = +0
+
+#def NonZeroI16_SIZE = 8
+#def NonZeroI16_value = +0
+
+#def NonZeroI8_SIZE = 8
+#def NonZeroI8_value = +0
+
+#def NonZeroIsize_SIZE = 8
+#def NonZeroIsize_value = +0
+#def NONZERO_U8_MIN = 1
+#def NONZERO_U8_MAX = 255
+#def NONZERO_U8_ONE = 1
+
+#def NONZERO_U16_MIN = 1
+#def NONZERO_U16_MAX = 65535
+#def NONZERO_U16_ONE = 1
+
+#def NONZERO_U32_MIN = 1
+#def NONZERO_U32_MAX = 4294967295
+#def NONZERO_U32_ONE = 1
+
+#def NONZERO_U64_MIN = 1
+#def NONZERO_U64_MAX = -1
+#def NONZERO_U64_ONE = 1
+
+#def NONZERO_USIZE_MIN = 1
+#def NONZERO_USIZE_MAX = -1
+#def NONZERO_USIZE_ONE = 1
+
+#def NONZERO_I8_MIN = -128
+#def NONZERO_I8_MAX = 127
+
+#def NONZERO_I16_MIN = -32768
+#def NONZERO_I16_MAX = 32767
+
+#def NONZERO_I32_MIN = -2147483648
+#def NONZERO_I32_MAX = 2147483647
+
+#def NONZERO_I64_MIN = -9223372036854775807 - 1
+#def NONZERO_I64_MAX = 9223372036854775807
+
+#def NONZERO_ISIZE_MIN = -9223372036854775807 - 1
+#def NONZERO_ISIZE_MAX = 9223372036854775807
+
+#def NUM_U8_MIN = 0
+#def NUM_U16_MIN = 0
+#def NUM_U32_MIN = 0
+#def NUM_U64_MIN = 0
+#def NUM_USIZE_MIN = 0
+
+#def NUM_U8_BYTES = 1
+#def NUM_U16_BYTES = 2
+#def NUM_U32_BYTES = 4
+#def NUM_U64_BYTES = 8
+#def NUM_USIZE_BYTES = 8
+#def NUM_I8_BYTES = 1
+#def NUM_I16_BYTES = 2
+#def NUM_I32_BYTES = 4
+#def NUM_I64_BYTES = 8
+#def NUM_ISIZE_BYTES = 8
+
+#def NUM_F32_BITS = 32
+#def NUM_F32_BYTES = 4
+#def NUM_F32_INFINITY = 0x7F800000
+#def NUM_F32_NEG_INFINITY = 0xFF800000
+#def NUM_F32_NAN = 0x7FC00000
+#def NUM_F32_ZERO = 0x00000000
+#def NUM_F32_MINUS_ZERO = 0x80000000
+#def NUM_F32_MIN_POSITIVE = 0x00800000
+#def NUM_F32_MAX = 0x7F7FFFFF
+#def NUM_F32_MIN = 0xFF7FFFFF
+#def NUM_F32_EPSILON = 0x34000000
+#def NUM_F32_MAX_SUBNORMAL = 0x007FFFFF
+#def NUM_F32_MIN_SUBNORMAL = 0x00000001
+
+#def NUM_F64_BITS = 64
+#def NUM_F64_BYTES = 8
+#def NUM_F64_INFINITY = 0x7FF0000000000000
+#def NUM_F64_NEG_INFINITY = 0xFFF0000000000000
+#def NUM_F64_NAN = 0x7FF8000000000000
+#def NUM_F64_ZERO = 0x0000000000000000
+#def NUM_F64_MINUS_ZERO = 0x8000000000000000
+#def NUM_F64_MIN_POSITIVE = 0x0010000000000000
+#def NUM_F64_MAX = 0x7FEFFFFFFFFFFFFF
+#def NUM_F64_MIN = 0xFFEFFFFFFFFFFFFF
+#def NUM_F64_EPSILON = 0x3CB0000000000000
+#def NUM_F64_MAX_SUBNORMAL = 0x000FFFFFFFFFFFFF
+#def NUM_F64_MIN_SUBNORMAL = 0x0000000000000001
+
+#def WrappingU64_SIZE = 8
+#def WrappingU64_value = +0
+#def WrappingU32_SIZE = 8
+#def WrappingU32_value = +0
+#def WrappingI64_SIZE = 8
+#def WrappingI64_value = +0
+
+#def SaturatingU64_SIZE = 8
+#def SaturatingU64_value = +0
+#def SaturatingI64_SIZE = 8
+#def SaturatingI64_value = +0
+
+#def NUM_F32_DIGITS = 6
+#def NUM_F32_RADIX = 2
+#def NUM_F32_MIN_EXP = -125
+#def NUM_F32_MAX_EXP = 128
+#def NUM_F32_MIN_10_EXP = -37
+#def NUM_F32_MAX_10_EXP = 38
+
+#def NUM_F64_DIGITS = 15
+#def NUM_F64_RADIX = 2
+#def NUM_F64_MIN_EXP = -1021
+#def NUM_F64_MAX_EXP = 1024
+#def NUM_F64_MIN_10_EXP = -307
+#def NUM_F64_MAX_10_EXP = 308
+
+#def NUM_F32_MANTISSA_DIGITS = 24
+#def NUM_F64_MANTISSA_DIGITS = 53
+
+#def WRAPPING_U64_MIN = 0
+#def WRAPPING_U64_MAX = -1
+#def WRAPPING_U64_BITS = NUM_U64_BITS
+#def WRAPPING_U32_MIN = 0
+#def WRAPPING_U32_MAX = 4294967295
+#def WRAPPING_U32_BITS = NUM_U32_BITS
+#def WRAPPING_I64_MIN = -9223372036854775807 - 1
+#def WRAPPING_I64_MAX = 9223372036854775807
+#def WRAPPING_I64_BITS = NUM_I64_BITS
+
+#def SATURATING_U64_MIN = 0
+#def SATURATING_U64_MAX = -1
+#def SATURATING_U64_BITS = NUM_U64_BITS
+#def SATURATING_I64_MIN = -9223372036854775807 - 1
+#def SATURATING_I64_MAX = 9223372036854775807
+#def SATURATING_I64_BITS = NUM_I64_BITS
+
+#def NUM_F32_SIGN_BIT = 0x80000000
+#def NUM_F32_EXP_MASK = 0x7F800000
+#def NUM_F32_MANT_MASK = 0x007FFFFF
+#def NUM_F32_EXP_BIAS = 127
+
+#def NUM_F64_SIGN_BIT = 0x8000000000000000
+#def NUM_F64_EXP_MASK = 0x7FF0000000000000
+#def NUM_F64_MANT_MASK = 0x000FFFFFFFFFFFFF
+#def NUM_F64_EXP_BIAS = 1023
+
+#def NUM_INT_ERROR_EMPTY = 0
+#def NUM_INT_ERROR_INVALID_DIGIT = 1
+#def NUM_INT_ERROR_POS_OVERFLOW = 2
+#def NUM_INT_ERROR_NEG_OVERFLOW = 3
+#def NUM_INT_ERROR_ZERO = 4
+
+#def ParseIntError_SIZE = 24
+#def ParseIntError_code = +0
+#def ParseIntError_msg = +8
+
+#def NUM_FLOAT_ERROR_EMPTY = 0
+#def NUM_FLOAT_ERROR_INVALID = 1
+
+#def ParseFloatError_SIZE = 8
+#def ParseFloatError_ALIGN = 8
+#def ParseFloatError_kind = +0
+
+#def TryFromIntError_SIZE = 8
+#def TryFromIntError_code = +0
+#def TRY_FROM_INT_ERROR_POS_OVERFLOW = 0
+#def TRY_FROM_INT_ERROR_NEG_OVERFLOW = 1
+
+#def NONZERO_U8_BITS = 8
+#def NONZERO_U8_BYTES = 1
+#def NONZERO_U16_BITS = 16
+#def NONZERO_U16_BYTES = 2
+#def NONZERO_U32_BITS = 32
+#def NONZERO_U32_BYTES = 4
+#def NONZERO_U64_BITS = 64
+#def NONZERO_U64_BYTES = 8
+#def NONZERO_USIZE_BITS = 64
+#def NONZERO_USIZE_BYTES = 8
+#def NONZERO_I8_BITS = 8
+#def NONZERO_I8_BYTES = 1
+#def NONZERO_I16_BITS = 16
+#def NONZERO_I16_BYTES = 2
+#def NONZERO_I32_BITS = 32
+#def NONZERO_I32_BYTES = 4
+#def NONZERO_I64_BITS = 64
+#def NONZERO_I64_BYTES = 8
+#def NONZERO_ISIZE_BITS = 64
+#def NONZERO_ISIZE_BYTES = 8
+
+// Checked signed arithmetic (mirrors sa_std/num.sai). Overflow traps with
+// panic(PANIC_ARITH_OVERFLOW) instead of wrapping, matching rustc's
+// `*WithOverflow` + overflow `Assert` pair. Guards are the standard sign
+// tests: an addition overflows when both operands share a sign that the
+// result does not, a subtraction when the operands' signs differ and the
+// result takes the subtrahend's sign.
+#def PANIC_ARITH_OVERFLOW = 9001
+
+[MACRO] NUM_ADD_CHECKED %out, %a, %b
+    %out = add %a, %b
+    %num_ac_pos_a_%out = gt %a, 0
+    %num_ac_pos_b_%out = gt %b, 0
+    %num_ac_both_pos_%out = and %num_ac_pos_a_%out, %num_ac_pos_b_%out
+    %num_ac_res_neg_%out = lt %out, 0
+    %num_ac_ovf_pos_%out = and %num_ac_both_pos_%out, %num_ac_res_neg_%out
+    %num_ac_neg_a_%out = lt %a, 0
+    %num_ac_neg_b_%out = lt %b, 0
+    %num_ac_both_neg_%out = and %num_ac_neg_a_%out, %num_ac_neg_b_%out
+    %num_ac_res_nonneg_%out = ge %out, 0
+    %num_ac_ovf_neg_%out = and %num_ac_both_neg_%out, %num_ac_res_nonneg_%out
+    %num_ac_ovf_%out = or %num_ac_ovf_pos_%out, %num_ac_ovf_neg_%out
+    br %num_ac_ovf_%out -> L_NUM_ADD_CHECKED_OVF_%out, L_NUM_ADD_CHECKED_OK_%out
+L_NUM_ADD_CHECKED_OVF_%out:
+    panic(PANIC_ARITH_OVERFLOW)
+L_NUM_ADD_CHECKED_OK_%out:
+    !%num_ac_ovf_neg_%out
+    !%num_ac_res_nonneg_%out
+    !%num_ac_both_neg_%out
+    !%num_ac_neg_b_%out
+    !%num_ac_neg_a_%out
+    !%num_ac_ovf_pos_%out
+    !%num_ac_res_neg_%out
+    !%num_ac_both_pos_%out
+    !%num_ac_pos_b_%out
+    !%num_ac_pos_a_%out
+[END_MACRO]
+
+[MACRO] NUM_SUB_CHECKED %out, %a, %b
+    %out = sub %a, %b
+    %num_sc_pos_a_%out = gt %a, 0
+    %num_sc_neg_b_%out = lt %b, 0
+    %num_sc_mixed_%out = and %num_sc_pos_a_%out, %num_sc_neg_b_%out
+    %num_sc_res_neg_%out = lt %out, 0
+    %num_sc_ovf_pos_%out = and %num_sc_mixed_%out, %num_sc_res_neg_%out
+    %num_sc_neg_a_%out = lt %a, 0
+    %num_sc_pos_b_%out = gt %b, 0
+    %num_sc_mixed2_%out = and %num_sc_neg_a_%out, %num_sc_pos_b_%out
+    %num_sc_res_nonneg_%out = ge %out, 0
+    %num_sc_ovf_neg_%out = and %num_sc_mixed2_%out, %num_sc_res_nonneg_%out
+    %num_sc_ovf_%out = or %num_sc_ovf_pos_%out, %num_sc_ovf_neg_%out
+    br %num_sc_ovf_%out -> L_NUM_SUB_CHECKED_OVF_%out, L_NUM_SUB_CHECKED_OK_%out
+L_NUM_SUB_CHECKED_OVF_%out:
+    panic(PANIC_ARITH_OVERFLOW)
+L_NUM_SUB_CHECKED_OK_%out:
+    !%num_sc_res_nonneg_%out
+    !%num_sc_mixed2_%out
+    !%num_sc_pos_b_%out
+    !%num_sc_neg_a_%out
+    !%num_sc_ovf_neg_%out
+    !%num_sc_res_neg_%out
+    !%num_sc_mixed_%out
+    !%num_sc_neg_b_%out
+    !%num_sc_pos_a_%out
+[END_MACRO]
+
+[MACRO] NUM_MUL_CHECKED %out, %a, %b
+    %out = mul %a, %b
+    // Divide back: the product is exact iff it divides without remainder and
+    // neither factor is -1 with a minimal result.
+    %num_mc_amin_%out = eq %a, -1
+    %num_mc_bmin_%out = eq %b, -1
+    %num_mc_back_%out = sub %out, 0
+    br %num_mc_amin_%out -> L_NUM_MUL_CHECKED_MIN_%out, L_NUM_MUL_CHECKED_DIV_%out
+L_NUM_MUL_CHECKED_MIN_%out:
+    br %num_mc_bmin_%out -> L_NUM_MUL_CHECKED_OK_%out, L_NUM_MUL_CHECKED_DIV_%out
+L_NUM_MUL_CHECKED_DIV_%out:
+    %num_mc_div_%out = div %out, %a
+    %num_mc_rem_%out = rem %num_mc_div_%out, %a
+    %num_mc_ovf_%out = ne %num_mc_rem_%out, 0
+    br %num_mc_ovf_%out -> L_NUM_MUL_CHECKED_OVF_%out, L_NUM_MUL_CHECKED_OK_%out
+L_NUM_MUL_CHECKED_OVF_%out:
+    panic(PANIC_ARITH_OVERFLOW)
+L_NUM_MUL_CHECKED_OK_%out:
+    !%num_mc_ovf_%out
+    !%num_mc_rem_%out
+    !%num_mc_div_%out
+    br L_NUM_MUL_CHECKED_TAIL_%out
+L_NUM_MUL_CHECKED_TAIL_%out:
+    !%num_mc_back_%out
+    !%num_mc_bmin_%out
+    !%num_mc_amin_%out
+[END_MACRO]

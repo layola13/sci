@@ -1,6 +1,3 @@
-#def Result_SIZE = 24
-#def Result_tag = +0
-#def Result_ok = +8
-#def Result_err = +16
-#def Result_OK = 0
-#def Result_ERR = 1
+// Moved to core/result/result.sal in the SA stdlib Phase 1 modularization (2026-11-22).
+// Compatibility shim; import the new path directly.
+@import "result/result.sal"
