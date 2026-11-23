@@ -27,16 +27,16 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const primitives = @import("sa_net_primitives");
-const tls_client = @import("sa_tls_client.zig");
-const sio = @import("sio");
+pub const primitives = @import("sa_net_primitives");
+pub const tls_client = @import("sa_tls_client.zig");
+pub const sio = @import("sio");
 
-const SA_STD_OK: i32 = 0;
+pub const SA_STD_OK: i32 = 0;
 const SA_STD_ERR_UNSUPPORTED: i32 = -1;
-const SA_STD_ERR_IO: i32 = -5;
+pub const SA_STD_ERR_IO: i32 = -5;
 const SA_STD_ERR_NO_MEMORY: i32 = -12;
 const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
-const SA_STD_ERR_TLS_VERIFY: i32 = -100;
+pub const SA_STD_ERR_TLS_VERIFY: i32 = -100;
 
 // wasm32-wasi: usize is 32-bit, C ABI passes u64 lengths. Checked conversion.
 fn u64ToUsize(v: u64) ?usize {
@@ -80,7 +80,7 @@ fn handleFromU64(handle: u64) *WsClientHandle {
 
 // NOTE(Zig 0.17): `std.Io.net.Stream` takes explicit `Io` and vectored
 // buffers; these helpers preserve the old single-buffer call shapes.
-fn tcpRead(stream: std.Io.net.Stream, buf: []u8) WsError!usize {
+pub fn tcpRead(stream: std.Io.net.Stream, buf: []u8) WsError!usize {
     if (comptime builtin.cpu.arch.isWasm()) return WsError.EndOfStream;
     std.debug.assert(buf.len != 0);
     var bufs: [1][]u8 = .{buf};
@@ -88,14 +88,14 @@ fn tcpRead(stream: std.Io.net.Stream, buf: []u8) WsError!usize {
     return result.data_len;
 }
 
-fn tcpWriteAll(stream: std.Io.net.Stream, bytes: []const u8) WsError!void {
+pub fn tcpWriteAll(stream: std.Io.net.Stream, bytes: []const u8) WsError!void {
     var wbuf: [8192]u8 = undefined;
     var w = stream.writer(sio.io(), &wbuf);
     w.interface.writeAll(bytes) catch return WsError.EndOfStream;
     w.interface.flush() catch return WsError.EndOfStream;
 }
 
-fn boundPort(listener: *const std.Io.net.Server) u16 {
+pub fn boundPort(listener: *const std.Io.net.Server) u16 {
     return switch (listener.socket.address) {
         .ip4 => |a| a.port,
         .ip6 => |a| a.port,
@@ -572,7 +572,7 @@ pub export fn sa_std_ws_client_buffer_free(handle: u64) i32 {
 // Unit tests.
 // ============================================================================
 
-const testing = std.testing;
+pub const testing = std.testing;
 
 test "supported is always 1: pure-Zig backend, no dlopen" {
     var flag: u32 = 0;
@@ -639,12 +639,12 @@ test "status json + buffer trio round-trips" {
 // masked-frame parsing, echo, and a mid-script server->client ping whose pong
 // it verifies. Deterministic, no sleeps.
 
-const SrvScript = struct {
+pub const SrvScript = struct {
     listener: std.Io.net.Server,
     err: *?anyerror,
 };
 
-fn srvReadFrame(stream: std.Io.net.Stream, fbuf: *std.ArrayListUnmanaged(u8), alloc: std.mem.Allocator) !struct { opcode: u8, payload: []u8 } {
+pub fn srvReadFrame(stream: std.Io.net.Stream, fbuf: *std.ArrayListUnmanaged(u8), alloc: std.mem.Allocator) !struct { opcode: u8, payload: []u8 } {
     var tmp: [8192]u8 = undefined;
     while (true) {
         const fr = primitives.parseWsFrame(fbuf.items) catch |e| {
@@ -666,7 +666,7 @@ fn srvReadFrame(stream: std.Io.net.Stream, fbuf: *std.ArrayListUnmanaged(u8), al
     }
 }
 
-fn srvSendFrame(stream: std.Io.net.Stream, opcode: u8, payload: []const u8, alloc: std.mem.Allocator) !void {
+pub fn srvSendFrame(stream: std.Io.net.Stream, opcode: u8, payload: []const u8, alloc: std.mem.Allocator) !void {
     // Servers MUST NOT mask.
     const out = try alloc.alloc(u8, 14 + payload.len);
     defer alloc.free(out);
@@ -674,7 +674,7 @@ fn srvSendFrame(stream: std.Io.net.Stream, opcode: u8, payload: []const u8, allo
     try tcpWriteAll(stream, out[0..n]);
 }
 
-fn wsScriptedServer(listener: *std.Io.net.Server) !void {
+pub fn wsScriptedServer(listener: *std.Io.net.Server) !void {
     defer listener.deinit(sio.io());
     const alloc = testing.allocator;
     var stream = try listener.accept(sio.io());
@@ -757,14 +757,14 @@ fn wsScriptedServer(listener: *std.Io.net.Server) !void {
     }
 }
 
-fn wsServerMain(ctx: SrvScript) void {
+pub fn wsServerMain(ctx: SrvScript) void {
     var listener = ctx.listener;
     wsScriptedServer(&listener) catch |e| {
         ctx.err.* = e;
     };
 }
 
-fn recvText(h: u64, want_opcode: u32, want: []const u8) !void {
+pub fn recvText(h: u64, want_opcode: u32, want: []const u8) !void {
     var opcode: u32 = 0;
     var msg_h: u64 = 0;
     try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_ws_client_recv(h, &opcode, &msg_h));
@@ -778,7 +778,7 @@ fn recvText(h: u64, want_opcode: u32, want: []const u8) !void {
 
 /// Runs the client side of the scripted exchange; used by both the IPv4 and
 /// the IPv6 loopback tests.
-fn runClientScript(url: []const u8) !void {
+pub fn runClientScript(url: []const u8) !void {
     var h: u64 = 0;
     try testing.expectEqual(@as(i32, SA_STD_OK), sa_std_ws_client_connect(url.ptr, url.len, &h));
     try testing.expect(h != 0);
@@ -851,7 +851,7 @@ test "connect to a closed port fails cleanly" {
 
 // ---- protocol-violation tests: raw TCP server speaking bad frames --------------
 
-const ViolationServer = struct {
+pub const ViolationServer = struct {
     listener: *std.Io.net.Server,
     frame: []const u8,
     fn run(self: *ViolationServer) void {
@@ -887,7 +887,7 @@ const ViolationServer = struct {
     }
 };
 
-fn expectViolation(frame: []const u8) !void {
+pub fn expectViolation(frame: []const u8) !void {
     const addr = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
     var listener = try addr.listen(sio.io(), .{});
     defer listener.deinit(sio.io());
@@ -923,7 +923,7 @@ test "server protocol violations fail recv with -5" {
 // terminates TLS and speaks just enough WebSocket to echo one message.
 // Iteration 1 is the unpinned (-100) probe, iteration 2 the pinned round-trip.
 
-const wss_server_py =
+pub const wss_server_py =
     \\import socket, ssl, hashlib, base64, sys
     \\
     \\cert_path, key_path, port = sys.argv[1], sys.argv[2], int(sys.argv[3])

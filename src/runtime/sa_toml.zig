@@ -22,11 +22,11 @@
 const std = @import("std");
 const sio = @import("sio");
 
-const OK: i32 = 0;
-const ERR_INVALID: i32 = 1;
-const ERR_HANDLE: i32 = 2;
-const ERR_NOT_FOUND: i32 = 3;
-const ERR_NOMEM: i32 = 5;
+pub const OK: i32 = 0;
+pub const ERR_INVALID: i32 = 1;
+pub const ERR_HANDLE: i32 = 2;
+pub const ERR_NOT_FOUND: i32 = 3;
+pub const ERR_NOMEM: i32 = 5;
 
 pub const KIND_STRING: u32 = 1;
 pub const KIND_INTEGER: u32 = 2;
@@ -36,20 +36,20 @@ pub const KIND_DATETIME: u32 = 5;
 pub const KIND_ARRAY: u32 = 6;
 pub const KIND_TABLE: u32 = 7;
 
-const CreatedAs = enum { implicit, dotted, header, inline_table };
+pub const CreatedAs = enum { implicit, dotted, header, inline_table };
 
-const Table = struct {
+pub const Table = struct {
     entries: std.array_list.Managed(Entry),
     created_as: CreatedAs = .implicit,
     header_defined: bool = false,
 };
 
-const Entry = struct {
+pub const Entry = struct {
     key: []const u8,
     value: Value,
 };
 
-const Value = struct {
+pub const Value = struct {
     kind: u32,
     str: []const u8 = "",
     int: i64 = 0,
@@ -60,7 +60,7 @@ const Value = struct {
     table: ?*Table = null,
 };
 
-const Document = struct {
+pub const Document = struct {
     allocator: std.mem.Allocator,
     root: *Table,
     ser_buf: ?[]u8 = null,
@@ -72,7 +72,7 @@ const Document = struct {
     }
 };
 
-fn freeTable(alloc: std.mem.Allocator, table: *Table) void {
+pub fn freeTable(alloc: std.mem.Allocator, table: *Table) void {
     for (table.entries.items) |entry| {
         alloc.free(entry.key);
         freeValue(alloc, entry.value);
@@ -81,7 +81,7 @@ fn freeTable(alloc: std.mem.Allocator, table: *Table) void {
     alloc.destroy(table);
 }
 
-fn freeValue(alloc: std.mem.Allocator, value: Value) void {
+pub fn freeValue(alloc: std.mem.Allocator, value: Value) void {
     switch (value.kind) {
         KIND_STRING, KIND_DATETIME => alloc.free(value.str),
         KIND_ARRAY => {
@@ -124,7 +124,7 @@ fn removeDocument(handle: u64) ?*Document {
 var last_error_buf: [512]u8 = undefined;
 var last_error_len: usize = 0;
 
-fn setLastError(comptime fmt: []const u8, args: anytype) void {
+pub fn setLastError(comptime fmt: []const u8, args: anytype) void {
     const msg = std.fmt.bufPrint(&last_error_buf, fmt, args) catch blk: {
         last_error_len = 0;
         break :blk "";
@@ -138,9 +138,9 @@ fn clearLastError() void {
 
 // ---------------- parser ----------------
 
-const ParseError = error{ TomlSyntax, DuplicateKey, OutOfMemory };
+pub const ParseError = error{ TomlSyntax, DuplicateKey, OutOfMemory };
 
-const Parser = struct {
+pub const Parser = struct {
     alloc: std.mem.Allocator,
     src: []const u8,
     pos: usize = 0,
@@ -692,7 +692,7 @@ const Parser = struct {
 
 // ---------------- dotted-path resolution ----------------
 
-fn splitPath(alloc: std.mem.Allocator, path: []const u8) ![][]const u8 {
+pub fn splitPath(alloc: std.mem.Allocator, path: []const u8) ![][]const u8 {
     var segs = std.array_list.Managed([]const u8).init(alloc);
     errdefer {
         for (segs.items) |s| alloc.free(s);
@@ -720,7 +720,7 @@ fn splitPath(alloc: std.mem.Allocator, path: []const u8) ![][]const u8 {
     return segs.toOwnedSlice();
 }
 
-fn freePathSegs(alloc: std.mem.Allocator, segs: [][]const u8) void {
+pub fn freePathSegs(alloc: std.mem.Allocator, segs: [][]const u8) void {
     for (segs) |s| alloc.free(s);
     alloc.free(segs);
 }
@@ -732,7 +732,7 @@ fn findInTable(table: *Table, key: []const u8) ?*Value {
     return null;
 }
 
-fn resolveValue(doc: *Document, path: []const u8) ?*Value {
+pub fn resolveValue(doc: *Document, path: []const u8) ?*Value {
     const alloc = std.heap.page_allocator;
     const segs = splitPath(alloc, path) catch return null;
     defer freePathSegs(alloc, segs);
@@ -943,16 +943,16 @@ pub export fn sa_toml_array_get_i64(handle: u64, path_ptr: ?[*]const u8, path_le
 // tables: parsed configs (env = { ... }) must stay editable, and the
 // inline-table restriction is a text rule, not a builder rule.
 
-const WriteError = error{ Invalid, NotFound, OutOfMemory };
+pub const WriteError = error{ Invalid, NotFound, OutOfMemory };
 
-fn bareTable(alloc: std.mem.Allocator, created_as: CreatedAs) WriteError!*Table {
+pub fn bareTable(alloc: std.mem.Allocator, created_as: CreatedAs) WriteError!*Table {
     const t = alloc.create(Table) catch return error.OutOfMemory;
     t.* = .{ .entries = std.array_list.Managed(Entry).init(alloc), .created_as = created_as };
     return t;
 }
 
 // Invalidate the cached serialization after a successful mutation.
-fn touch(doc: *Document) void {
+pub fn touch(doc: *Document) void {
     if (doc.ser_buf) |buf| {
         doc.allocator.free(buf);
         doc.ser_buf = null;
@@ -964,7 +964,7 @@ fn touch(doc: *Document) void {
 // (handled by the walks themselves), never by an implicit "most
 // recent element", so a path means the same thing to the mutation
 // walks as it does to resolveValue on the read side.
-fn descendMutable(value: *Value) WriteError!*Table {
+pub fn descendMutable(value: *Value) WriteError!*Table {
     if (value.kind == KIND_TABLE) return value.table.?;
     return error.Invalid;
 }
@@ -975,7 +975,7 @@ fn descendMutable(value: *Value) WriteError!*Table {
 // create=true missing segments become fresh tables. A numeric segment
 // directly after an array key indexes that array, exactly like the
 // read side's resolveValue.
-fn walkParent(doc: *Document, segs: []const []const u8, create: bool) WriteError!*Table {
+pub fn walkParent(doc: *Document, segs: []const []const u8, create: bool) WriteError!*Table {
     const alloc = doc.allocator;
     var table = doc.root;
     var i: usize = 0;
@@ -1018,7 +1018,7 @@ fn walkParent(doc: *Document, segs: []const []const u8, create: bool) WriteError
 // (it is freed again on failure). The parent chain is validated before
 // any table is created, so a rejected set leaves the document
 // untouched apart from tables a dry run proved creatable.
-fn setValueAt(doc: *Document, path: []const u8, value: Value) i32 {
+pub fn setValueAt(doc: *Document, path: []const u8, value: Value) i32 {
     const alloc = doc.allocator;
     const segs = splitPath(alloc, path) catch {
         freeValue(alloc, value);
@@ -1063,7 +1063,7 @@ fn setValueAt(doc: *Document, path: []const u8, value: Value) i32 {
     return OK;
 }
 
-fn appendToArray(alloc: std.mem.Allocator, arr_value: *Value, value: Value) WriteError!void {
+pub fn appendToArray(alloc: std.mem.Allocator, arr_value: *Value, value: Value) WriteError!void {
     var items = std.array_list.Managed(Value).init(alloc);
     defer items.deinit();
     items.appendSlice(arr_value.array) catch return error.OutOfMemory;
@@ -1076,7 +1076,7 @@ fn appendToArray(alloc: std.mem.Allocator, arr_value: *Value, value: Value) Writ
 // Append `value` to the array at `path`, creating the array when the
 // path is still free. is_table marks arrays created by
 // sa_toml_array_push_table so they serialize as [[table]] blocks.
-fn pushValueAt(doc: *Document, path: []const u8, value: Value, is_table: bool) i32 {
+pub fn pushValueAt(doc: *Document, path: []const u8, value: Value, is_table: bool) i32 {
     const alloc = doc.allocator;
     const segs = splitPath(alloc, path) catch {
         freeValue(alloc, value);
@@ -1144,7 +1144,7 @@ fn pushValueAt(doc: *Document, path: []const u8, value: Value, is_table: bool) i
     return OK;
 }
 
-fn removeAtPath(doc: *Document, path: []const u8) i32 {
+pub fn removeAtPath(doc: *Document, path: []const u8) i32 {
     const alloc = doc.allocator;
     const segs = splitPath(alloc, path) catch return ERR_NOMEM;
     defer freePathSegs(alloc, segs);
@@ -1203,7 +1203,7 @@ fn removeAtPath(doc: *Document, path: []const u8) i32 {
 
 // ---------------- serializer ----------------
 
-fn isBareKey(key: []const u8) bool {
+pub fn isBareKey(key: []const u8) bool {
     if (key.len == 0) return false;
     for (key) |c| {
         const ok = (c >= 'A' and c <= 'Z') or (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '_' or c == '-';
@@ -1212,7 +1212,7 @@ fn isBareKey(key: []const u8) bool {
     return true;
 }
 
-fn writeEscapedInto(out: *std.array_list.Managed(u8), s: []const u8) error{OutOfMemory}!void {
+pub fn writeEscapedInto(out: *std.array_list.Managed(u8), s: []const u8) error{OutOfMemory}!void {
     const hexd = "0123456789ABCDEF";
     for (s) |c| {
         switch (c) {
@@ -1236,7 +1236,7 @@ fn writeEscapedInto(out: *std.array_list.Managed(u8), s: []const u8) error{OutOf
     }
 }
 
-fn writeKeyInto(out: *std.array_list.Managed(u8), key: []const u8) error{OutOfMemory}!void {
+pub fn writeKeyInto(out: *std.array_list.Managed(u8), key: []const u8) error{OutOfMemory}!void {
     if (isBareKey(key)) {
         try out.appendSlice(key);
         return;
@@ -1246,7 +1246,7 @@ fn writeKeyInto(out: *std.array_list.Managed(u8), key: []const u8) error{OutOfMe
     try out.append('"');
 }
 
-fn writeFloatInto(alloc: std.mem.Allocator, out: *std.array_list.Managed(u8), v: f64) error{OutOfMemory}!void {
+pub fn writeFloatInto(alloc: std.mem.Allocator, out: *std.array_list.Managed(u8), v: f64) error{OutOfMemory}!void {
     if (std.math.isNan(v)) {
         try out.appendSlice("nan");
         return;
@@ -1265,7 +1265,7 @@ fn writeFloatInto(alloc: std.mem.Allocator, out: *std.array_list.Managed(u8), v:
 
 // Value form: scalars, arrays and tables as they appear after "=" or
 // inside an array (tables become inline tables here).
-fn writeValueInto(alloc: std.mem.Allocator, out: *std.array_list.Managed(u8), value: Value) error{OutOfMemory}!void {
+pub fn writeValueInto(alloc: std.mem.Allocator, out: *std.array_list.Managed(u8), value: Value) error{OutOfMemory}!void {
     switch (value.kind) {
         KIND_STRING => {
             try out.append('"');
@@ -1305,7 +1305,7 @@ fn writeValueInto(alloc: std.mem.Allocator, out: *std.array_list.Managed(u8), va
     }
 }
 
-fn childPrefix(alloc: std.mem.Allocator, prefix: []const u8, key: []const u8) error{OutOfMemory}![]u8 {
+pub fn childPrefix(alloc: std.mem.Allocator, prefix: []const u8, key: []const u8) error{OutOfMemory}![]u8 {
     var seg = std.array_list.Managed(u8).init(alloc);
     defer seg.deinit();
     try writeKeyInto(&seg, key);
@@ -1316,7 +1316,7 @@ fn childPrefix(alloc: std.mem.Allocator, prefix: []const u8, key: []const u8) er
 // Section form: plain entries first (they belong to the section the
 // caller just opened), then subtable sections, then [[array]] blocks.
 // prefix is this table's written dotted path ("" for the root).
-fn writeTableInto(alloc: std.mem.Allocator, out: *std.array_list.Managed(u8), table: *Table, prefix: []const u8) error{OutOfMemory}!void {
+pub fn writeTableInto(alloc: std.mem.Allocator, out: *std.array_list.Managed(u8), table: *Table, prefix: []const u8) error{OutOfMemory}!void {
     for (table.entries.items) |entry| {
         const v = entry.value;
         if (v.kind == KIND_TABLE) continue;

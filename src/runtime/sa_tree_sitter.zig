@@ -22,11 +22,10 @@
 //! Status codes mirror sa_std.zig.
 
 
-test "sa_tree_sitter_tests" { std.testing.refAllDecls(@import("sa_tree_sitter_test.zig")); }
 
 const std = @import("std");
 const builtin = @import("builtin");
-const sio = @import("sio");
+pub const sio = @import("sio");
 
 /// WASI has no dynamic loading (std.DynLib does not exist there),
 /// which otherwise breaks the whole sa_std archive build for
@@ -47,17 +46,17 @@ const DynLib = if (dynlib_supported) std.DynLib else struct {
     pub fn close(_: *@This()) void {}
 };
 
-const OK: i32 = 0;
-const ERR_INVALID: i32 = 1;
-const ERR_HANDLE: i32 = 2;
-const ERR_NOT_FOUND: i32 = 3;
-const ERR_NOMEM: i32 = 5;
-const ERR_IO: i32 = 6;
-const ERR_UNSUPPORTED: i32 = 8;
+pub const OK: i32 = 0;
+pub const ERR_INVALID: i32 = 1;
+pub const ERR_HANDLE: i32 = 2;
+pub const ERR_NOT_FOUND: i32 = 3;
+pub const ERR_NOMEM: i32 = 5;
+pub const ERR_IO: i32 = 6;
+pub const ERR_UNSUPPORTED: i32 = 8;
 const ERR_TRUNCATED: i32 = 9;
 
-const ABI_MIN: u32 = 13;
-const ABI_MAX: u32 = 15;
+pub const ABI_MIN: u32 = 13;
+pub const ABI_MAX: u32 = 15;
 
 const TSNode = extern struct {
     context: [4]u32,
@@ -91,14 +90,14 @@ const TSQueryCapture = extern struct {
     index: u32,
 };
 
-const TSQueryMatch = extern struct {
+pub const TSQueryMatch = extern struct {
     id: u32,
     pattern_index: u16,
     capture_count: u16,
     captures: ?[*]const TSQueryCapture,
 };
 
-const TSInputEdit = extern struct {
+pub const TSInputEdit = extern struct {
     start_byte: u32,
     old_end_byte: u32,
     new_end_byte: u32,
@@ -156,11 +155,11 @@ const Fns = struct {
     tree_edit: FnTreeEdit,
 };
 
-var load_mu = std.Io.Mutex.init;
+pub var load_mu = std.Io.Mutex.init;
 var load_state: enum { unloaded, ready, missing } = .unloaded;
 var core_lib: ?DynLib = null;
 var core_dir: ?[]u8 = null; // owned; set when the core came from a directory
-var fns: Fns = undefined;
+pub var fns: Fns = undefined;
 var grammar_libs: std.AutoHashMapUnmanaged(u64, DynLib) = .empty;
 var grammar_langs: std.AutoHashMapUnmanaged(u64, *const anyopaque) = .empty;
 
@@ -168,7 +167,7 @@ fn nameHash(name: []const u8) u64 {
     return std.hash.Wyhash.hash(0, name);
 }
 
-fn ensureLoaded() bool {
+pub fn ensureLoaded() bool {
     load_mu.lockUncancelable(sio.io());
     defer load_mu.unlock(sio.io());
     if (load_state != .unloaded) return load_state == .ready;
@@ -235,7 +234,7 @@ fn ensureLoaded() bool {
 }
 
 /// Caller must hold load_mu (grammar state shares the load lock).
-fn loadLanguageLocked(name: []const u8) !*const anyopaque {
+pub fn loadLanguageLocked(name: []const u8) !*const anyopaque {
     const key = nameHash(name);
     if (grammar_langs.get(key)) |lang| return lang;
     const alloc = std.heap.page_allocator;
@@ -274,29 +273,29 @@ fn loadLanguageLocked(name: []const u8) !*const anyopaque {
 const ParserEntry = struct { raw: *anyopaque };
 const TreeEntry = struct { raw: *anyopaque, source: []u8 };
 const NodeEntry = struct { node: TSNode, tree_handle: u64 };
-const QueryEntry = struct { raw: *anyopaque };
-const CursorEntry = struct {
+pub const QueryEntry = struct { raw: *anyopaque };
+pub const CursorEntry = struct {
     raw: *anyopaque,
     tree_handle: u64 = 0,
     has_match: bool = false,
     match: TSQueryMatch = .{ .id = 0, .pattern_index = 0, .capture_count = 0, .captures = null },
 };
 
-var reg_mu = std.Io.Mutex.init;
+pub var reg_mu = std.Io.Mutex.init;
 var parsers: std.AutoHashMapUnmanaged(u64, *ParserEntry) = .empty;
-var trees: std.AutoHashMapUnmanaged(u64, *TreeEntry) = .empty;
-var nodes: std.AutoHashMapUnmanaged(u64, *NodeEntry) = .empty;
-var queries: std.AutoHashMapUnmanaged(u64, *QueryEntry) = .empty;
-var cursors: std.AutoHashMapUnmanaged(u64, *CursorEntry) = .empty;
+pub var trees: std.AutoHashMapUnmanaged(u64, *TreeEntry) = .empty;
+pub var nodes: std.AutoHashMapUnmanaged(u64, *NodeEntry) = .empty;
+pub var queries: std.AutoHashMapUnmanaged(u64, *QueryEntry) = .empty;
+pub var cursors: std.AutoHashMapUnmanaged(u64, *CursorEntry) = .empty;
 var next_handle: u64 = 1;
 
-fn allocHandle() u64 {
+pub fn allocHandle() u64 {
     const h = next_handle;
     next_handle += 1;
     return h;
 }
 
-fn registerNode(node: TSNode, tree_handle: u64) !u64 {
+pub fn registerNode(node: TSNode, tree_handle: u64) !u64 {
     reg_mu.lockUncancelable(sio.io());
     defer reg_mu.unlock(sio.io());
     const alloc = std.heap.page_allocator;
@@ -308,31 +307,31 @@ fn registerNode(node: TSNode, tree_handle: u64) !u64 {
     return h;
 }
 
-fn getNode(handle: u64) ?*NodeEntry {
+pub fn getNode(handle: u64) ?*NodeEntry {
     reg_mu.lockUncancelable(sio.io());
     defer reg_mu.unlock(sio.io());
     return nodes.get(handle);
 }
 
-fn getTree(handle: u64) ?*TreeEntry {
+pub fn getTree(handle: u64) ?*TreeEntry {
     reg_mu.lockUncancelable(sio.io());
     defer reg_mu.unlock(sio.io());
     return trees.get(handle);
 }
 
-fn getQuery(handle: u64) ?*QueryEntry {
+pub fn getQuery(handle: u64) ?*QueryEntry {
     reg_mu.lockUncancelable(sio.io());
     defer reg_mu.unlock(sio.io());
     return queries.get(handle);
 }
 
-fn getCursor(handle: u64) ?*CursorEntry {
+pub fn getCursor(handle: u64) ?*CursorEntry {
     reg_mu.lockUncancelable(sio.io());
     defer reg_mu.unlock(sio.io());
     return cursors.get(handle);
 }
 
-fn copyOut(text: []const u8, buf_ptr: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
+pub fn copyOut(text: []const u8, buf_ptr: ?[*]u8, cap: u64, out_len: ?*u64) i32 {
     const out = out_len orelse return ERR_INVALID;
     out.* = @intCast(text.len);
     if (text.len > cap) return ERR_TRUNCATED;
@@ -818,7 +817,7 @@ pub export fn sa_ts_tree_edit(handle: u64, start_byte: u32, old_end_byte: u32, n
 
 // ---------------- tests ----------------
 
-fn anyMissingBelow(node: u64) bool {
+pub fn anyMissingBelow(node: u64) bool {
     var flag: u32 = 0;
     if (sa_ts_node_is_missing(node, &flag) != OK) return false;
     if (flag != 0) return true;
@@ -1119,7 +1118,7 @@ test "tree-sitter: parse javascript, query its function definitions" {
     try std.testing.expectEqual(@as(u32, 0), has);
 }
 
-fn setTsDir() void {
+pub fn setTsDir() void {
     // DEF-TS-HARDCODE-PATH: the tests must load the tree-sitter artifacts
     // that ship with this repository (artifacts/tree_sitter), never a
     // venue-specific absolute path. Derive the directory from the
@@ -1138,7 +1137,7 @@ fn setTsDir() void {
     _ = setenv("SA_TREE_SITTER_DIR", dir, 1);
 }
 
-fn readInto(comptime F: anytype, handle: u64, buf: []u8) ![]u8 {
+pub fn readInto(comptime F: anytype, handle: u64, buf: []u8) ![]u8 {
     var len: u64 = 0;
     const rc = F(handle, buf.ptr, buf.len, &len);
     if (rc != OK) return error.ReadFailed;

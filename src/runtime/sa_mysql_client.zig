@@ -59,7 +59,7 @@
 //   -104 SA_MYSQL_ERR_AUTH_PLUGIN server demands an auth plugin v1 lacks
 
 const std = @import("std");
-const sio = @import("sio");
+pub const sio = @import("sio");
 
 pub const SA_STD_OK: i32 = 0;
 pub const SA_STD_ERR_UNSUPPORTED: i32 = -1;
@@ -74,21 +74,21 @@ pub const SA_MYSQL_ERR_AUTH_PLUGIN: i32 = -104;
 // Client capability flags (protocol reference values).
 const CLIENT_LONG_PASSWORD: u32 = 0x0000_0001;
 const CLIENT_LONG_FLAG: u32 = 0x0000_0004;
-const CLIENT_CONNECT_WITH_DB: u32 = 0x0000_0008;
-const CLIENT_PROTOCOL_41: u32 = 0x0000_0200;
+pub const CLIENT_CONNECT_WITH_DB: u32 = 0x0000_0008;
+pub const CLIENT_PROTOCOL_41: u32 = 0x0000_0200;
 const CLIENT_TRANSACTIONS: u32 = 0x0000_2000;
-const CLIENT_SECURE_CONNECTION: u32 = 0x0000_8000;
-const CLIENT_PLUGIN_AUTH: u32 = 0x0008_0000;
+pub const CLIENT_SECURE_CONNECTION: u32 = 0x0000_8000;
+pub const CLIENT_PLUGIN_AUTH: u32 = 0x0008_0000;
 
-const CLIENT_BASE_FLAGS: u32 = CLIENT_LONG_PASSWORD | CLIENT_LONG_FLAG |
+pub const CLIENT_BASE_FLAGS: u32 = CLIENT_LONG_PASSWORD | CLIENT_LONG_FLAG |
     CLIENT_PROTOCOL_41 | CLIENT_TRANSACTIONS | CLIENT_SECURE_CONNECTION |
     CLIENT_PLUGIN_AUTH;
 
 // utf8mb4_general_ci: present on every MySQL 5.6+/MariaDB 10.x server,
 // unlike utf8mb4_0900_ai_ci (id 255, MySQL 8 only).
-const MYSQL_CHARSET_UTF8MB4: u8 = 45;
+pub const MYSQL_CHARSET_UTF8MB4: u8 = 45;
 
-const SERVER_MORE_RESULTS_EXISTS: u16 = 0x0008;
+pub const SERVER_MORE_RESULTS_EXISTS: u16 = 0x0008;
 const SERVER_STATUS_AUTOCOMMIT: u16 = 0x0002;
 
 const MAX_PACKET_SIZE: usize = 0x00FF_FFFF;
@@ -123,15 +123,15 @@ pub const MYSQL_TYPE_VAR_STRING: u8 = 253;
 pub const MYSQL_TYPE_STRING: u8 = 254;
 pub const MYSQL_TYPE_GEOMETRY: u8 = 255;
 
-const UNSIGNED_FLAG: u32 = 0x20;
+pub const UNSIGNED_FLAG: u32 = 0x20;
 
-const alloc = std.heap.page_allocator;
+pub const alloc = std.heap.page_allocator;
 
-fn u64ToUsize(v: u64) ?usize {
+pub fn u64ToUsize(v: u64) ?usize {
     return std.math.cast(usize, v);
 }
 
-fn sliceArg(ptr: ?[*]const u8, len: u64) ?[]const u8 {
+pub fn sliceArg(ptr: ?[*]const u8, len: u64) ?[]const u8 {
     const n = u64ToUsize(len) orelse return null;
     if (ptr) |p| return p[0..n];
     if (n == 0) return "";
@@ -145,9 +145,9 @@ fn sliceArg(ptr: ?[*]const u8, len: u64) ?[]const u8 {
 /// Decode a length-encoded integer at `pos`. Returns null on truncation.
 /// `is_null` is set when the marker is 0xFB (NULL in string contexts);
 /// callers decoding pure integers treat 0xFB per the packet grammar.
-const LenencInt = struct { value: u64, is_null: bool, next: usize };
+pub const LenencInt = struct { value: u64, is_null: bool, next: usize };
 
-fn readLenencInt(bytes: []const u8, pos: usize) ?LenencInt {
+pub fn readLenencInt(bytes: []const u8, pos: usize) ?LenencInt {
     if (pos >= bytes.len) return null;
     const b = bytes[pos];
     switch (b) {
@@ -170,7 +170,7 @@ fn readLenencInt(bytes: []const u8, pos: usize) ?LenencInt {
     }
 }
 
-fn writeLenencInt(out: *std.ArrayList(u8), a: std.mem.Allocator, value: u64) !void {
+pub fn writeLenencInt(out: *std.ArrayList(u8), a: std.mem.Allocator, value: u64) !void {
     if (value < 251) {
         try out.append(a, @intCast(value));
     } else if (value < 65536) {
@@ -191,7 +191,7 @@ fn writeLenencInt(out: *std.ArrayList(u8), a: std.mem.Allocator, value: u64) !vo
     }
 }
 
-fn writeLenencString(out: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
+pub fn writeLenencString(out: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
     try writeLenencInt(out, a, s.len);
     try out.appendSlice(a, s);
 }
@@ -202,7 +202,7 @@ fn writeLenencString(out: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u
 
 /// mysql_native_password token: SHA1(pw) XOR SHA1(salt + SHA1(SHA1(pw))).
 /// Empty password -> empty token.
-fn nativePasswordToken(password: []const u8, salt: []const u8, out: *[20]u8) usize {
+pub fn nativePasswordToken(password: []const u8, salt: []const u8, out: *[20]u8) usize {
     if (password.len == 0) return 0;
     var stage1: [20]u8 = undefined;
     std.crypto.hash.Sha1.hash(password, &stage1, .{});
@@ -220,7 +220,7 @@ fn nativePasswordToken(password: []const u8, salt: []const u8, out: *[20]u8) usi
 /// caching_sha2_password scramble:
 /// SHA256(pw) XOR SHA256(SHA256(SHA256(pw)) + salt).
 /// Empty password -> empty token.
-fn cachingSha2Token(password: []const u8, salt: []const u8, out: *[32]u8) usize {
+pub fn cachingSha2Token(password: []const u8, salt: []const u8, out: *[32]u8) usize {
     if (password.len == 0) return 0;
     const Sha256 = std.crypto.hash.sha2.Sha256;
     var stage1: [32]u8 = undefined;
@@ -236,9 +236,9 @@ fn cachingSha2Token(password: []const u8, salt: []const u8, out: *[32]u8) usize 
     return 32;
 }
 
-const AuthPlugin = enum { native_password, caching_sha2, unsupported };
+pub const AuthPlugin = enum { native_password, caching_sha2, unsupported };
 
-fn authPluginFromName(name: []const u8) AuthPlugin {
+pub fn authPluginFromName(name: []const u8) AuthPlugin {
     if (std.mem.eql(u8, name, "mysql_native_password")) return .native_password;
     if (std.mem.eql(u8, name, "caching_sha2_password")) return .caching_sha2;
     return .unsupported;
@@ -246,7 +246,7 @@ fn authPluginFromName(name: []const u8) AuthPlugin {
 
 /// Compute the auth response for `plugin`; returns the token length
 /// written to `out` (max 32 bytes), or null for an unsupported plugin.
-fn authToken(plugin: AuthPlugin, password: []const u8, salt: []const u8, out: *[32]u8) ?usize {
+pub fn authToken(plugin: AuthPlugin, password: []const u8, salt: []const u8, out: *[32]u8) ?usize {
     switch (plugin) {
         .native_password => {
             var t: [20]u8 = undefined;
@@ -293,7 +293,7 @@ pub const Result = struct {
     warning_count: u16 = 0,
     status_flags: u16 = 0,
 
-    fn deinit(self: *Result) void {
+    pub fn deinit(self: *Result) void {
         for (self.columns[0..self.columns_filled]) |c| alloc.free(c.name);
         if (self.columns.len > 0) alloc.free(self.columns);
         for (self.rows.items) |row| {
@@ -306,7 +306,7 @@ pub const Result = struct {
     }
 };
 
-const Conn = struct {
+pub const Conn = struct {
     stream: ?std.Io.net.Stream = null,
     reader: ?std.Io.net.Stream.Reader = null,
     writer: ?std.Io.net.Stream.Writer = null,
@@ -330,7 +330,7 @@ const Conn = struct {
     sql_state: [5]u8 = .{ '0', '0', '0', '0', '0' },
     err_msg: []u8 = &.{},
 
-    fn recordServerError(self: *Conn, payload: []const u8) void {
+    pub fn recordServerError(self: *Conn, payload: []const u8) void {
         // ERR packet: 0xFF, errno(2 LE), ['#' sqlstate(5)], message.
         if (payload.len < 3) return;
         self.err_no = std.mem.readInt(u16, payload[1..3], .little);
@@ -347,14 +347,14 @@ const Conn = struct {
         self.err_msg = owned;
     }
 
-    fn clearServerError(self: *Conn) void {
+    pub fn clearServerError(self: *Conn) void {
         self.err_no = 0;
         self.sql_state = .{ '0', '0', '0', '0', '0' };
         if (self.err_msg.len > 0) alloc.free(self.err_msg);
         self.err_msg = &.{};
     }
 
-    fn markDead(self: *Conn) void {
+    pub fn markDead(self: *Conn) void {
         self.dead = true;
         if (self.stream) |s| {
             s.close(sio.io());
@@ -364,7 +364,7 @@ const Conn = struct {
         }
     }
 
-    fn deinit(self: *Conn) void {
+    pub fn deinit(self: *Conn) void {
         // Free live results/statements first (they borrow the conn).
         while (self.stmts.items.len > 0) {
             const st = self.stmts.items[self.stmts.items.len - 1];
@@ -387,11 +387,11 @@ const Conn = struct {
     }
 };
 
-const IoError = error{ Io, Protocol, OutOfMemory };
+pub const IoError = error{ Io, Protocol, OutOfMemory };
 
 /// Send one logical packet, splitting payloads at the 16MB-1 framing
 /// limit as the protocol requires.
-fn writePacket(conn: *Conn, payload: []const u8) IoError!void {
+pub fn writePacket(conn: *Conn, payload: []const u8) IoError!void {
     const w = &conn.writer.?.interface;
     var rest = payload;
     while (true) {
@@ -420,7 +420,7 @@ fn writePacket(conn: *Conn, payload: []const u8) IoError!void {
 
 /// Read one logical packet into conn.packet_scratch and return it.
 /// Validates the sequence id; on a mismatch the connection is dead.
-fn readPacket(conn: *Conn) IoError![]const u8 {
+pub fn readPacket(conn: *Conn) IoError![]const u8 {
     conn.packet_scratch.clearRetainingCapacity();
     const r = &conn.reader.?.interface;
     while (true) {
@@ -451,7 +451,7 @@ fn dialHost(host: []const u8, port: u16) !std.Io.net.Stream {
     return hn.connect(sio.io(), port, .{ .mode = .stream });
 }
 
-const Handshake = struct {
+pub const Handshake = struct {
     server_version: []const u8,
     connection_id: u32,
     salt: [20]u8,
@@ -460,7 +460,7 @@ const Handshake = struct {
     plugin_name: []const u8,
 };
 
-fn parseHandshake(payload: []const u8) ?Handshake {
+pub fn parseHandshake(payload: []const u8) ?Handshake {
     // HandshakeV10.
     if (payload.len < 1 or payload[0] == 0xFF) return null;
     var pos: usize = 1; // protocol version
@@ -519,7 +519,7 @@ fn parseHandshake(payload: []const u8) ?Handshake {
 /// Send the handshake response and run the auth conversation.
 /// Returns SA_STD_OK or a negative status; on failure the connection
 /// keeps the recorded server error (if any) for the accessors.
-fn runAuth(conn: *Conn, hs: Handshake, user: []const u8, password: []const u8, database: []const u8) i32 {
+pub fn runAuth(conn: *Conn, hs: Handshake, user: []const u8, password: []const u8, database: []const u8) i32 {
     var plugin = authPluginFromName(hs.plugin_name);
     if (plugin == .unsupported) return SA_MYSQL_ERR_AUTH_PLUGIN;
     var salt_buf: [20]u8 = hs.salt;
@@ -631,7 +631,7 @@ fn runAuth(conn: *Conn, hs: Handshake, user: []const u8, password: []const u8, d
     }
 }
 
-fn mapIoErr(e: IoError) i32 {
+pub fn mapIoErr(e: IoError) i32 {
     return switch (e) {
         error.Io => SA_STD_ERR_IO,
         error.Protocol => SA_MYSQL_ERR_PROTOCOL,
@@ -643,9 +643,9 @@ fn mapIoErr(e: IoError) i32 {
 // Result-set reading
 // ---------------------------------------------------------------------------
 
-const QueryError = error{ Io, Protocol, OutOfMemory, ServerError, Unsupported };
+pub const QueryError = error{ Io, Protocol, OutOfMemory, ServerError, Unsupported };
 
-fn mapQueryErr(conn: *Conn, e: QueryError) i32 {
+pub fn mapQueryErr(conn: *Conn, e: QueryError) i32 {
     return switch (e) {
         error.Io => SA_STD_ERR_IO,
         error.Protocol => blk: {
@@ -658,7 +658,7 @@ fn mapQueryErr(conn: *Conn, e: QueryError) i32 {
     };
 }
 
-const Cursor = struct {
+pub const Cursor = struct {
     bytes: []const u8,
     pos: usize = 0,
 
@@ -696,13 +696,13 @@ const Cursor = struct {
     }
 };
 
-fn isEofPacket(p: []const u8) bool {
+pub fn isEofPacket(p: []const u8) bool {
     return p.len >= 1 and p[0] == 0xFE and p.len < 9;
 }
 
-const OkInfo = struct { affected: u64 = 0, insert_id: u64 = 0, status: u16 = 0, warnings: u16 = 0 };
+pub const OkInfo = struct { affected: u64 = 0, insert_id: u64 = 0, status: u16 = 0, warnings: u16 = 0 };
 
-fn parseOkPacket(p: []const u8) ?OkInfo {
+pub fn parseOkPacket(p: []const u8) ?OkInfo {
     if (p.len == 0 or p[0] != 0x00) return null;
     var c = Cursor{ .bytes = p, .pos = 1 };
     const affected = c.lenencInt() orelse return null;
@@ -715,7 +715,7 @@ fn parseOkPacket(p: []const u8) ?OkInfo {
     return info;
 }
 
-fn parseColumnDef(p: []const u8) QueryError!Column {
+pub fn parseColumnDef(p: []const u8) QueryError!Column {
     var c = Cursor{ .bytes = p };
     // catalog, schema, table, org_table — skipped; name kept.
     _ = c.lenencBytes() orelse return error.Protocol;
@@ -744,7 +744,7 @@ fn parseColumnDef(p: []const u8) QueryError!Column {
 /// already consumed and is passed as `first` (it is the column-count
 /// packet, an OK packet, or an ERR packet).
 /// `binary_rows` selects the binary row decoder (prepared statements).
-fn readOneResult(conn: *Conn, first: []const u8, binary_rows: bool) QueryError!*Result {
+pub fn readOneResult(conn: *Conn, first: []const u8, binary_rows: bool) QueryError!*Result {
     if (first.len == 0) return error.Protocol;
     if (first[0] == 0xFF) {
         conn.recordServerError(first);
@@ -824,7 +824,7 @@ fn readOneResult(conn: *Conn, first: []const u8, binary_rows: bool) QueryError!*
     return result;
 }
 
-fn mapReadErr(e: IoError) QueryError {
+pub fn mapReadErr(e: IoError) QueryError {
     return switch (e) {
         error.Io => error.Io,
         error.Protocol => error.Protocol,
@@ -832,7 +832,7 @@ fn mapReadErr(e: IoError) QueryError {
     };
 }
 
-fn parseTextRow(col_count: usize, pkt: []const u8) QueryError![]const ?[]u8 {
+pub fn parseTextRow(col_count: usize, pkt: []const u8) QueryError![]const ?[]u8 {
     const row = alloc.alloc(?[]u8, col_count) catch return error.OutOfMemory;
     errdefer alloc.free(row);
     var c = Cursor{ .bytes = pkt };
@@ -857,7 +857,7 @@ fn parseTextRow(col_count: usize, pkt: []const u8) QueryError![]const ?[]u8 {
 }
 
 /// Decode one binary-protocol row into owned text-shaped values.
-fn parseBinaryRow(conn: *Conn, columns: []const Column, pkt: []const u8) QueryError![]const ?[]u8 {
+pub fn parseBinaryRow(conn: *Conn, columns: []const Column, pkt: []const u8) QueryError![]const ?[]u8 {
     _ = conn;
     if (pkt.len == 0 or pkt[0] != 0x00) return error.Protocol;
     const row = alloc.alloc(?[]u8, columns.len) catch return error.OutOfMemory;
@@ -886,11 +886,11 @@ fn parseBinaryRow(conn: *Conn, columns: []const Column, pkt: []const u8) QueryEr
     return row;
 }
 
-fn fmtAlloc(comptime fmt: []const u8, args: anytype) QueryError![]u8 {
+pub fn fmtAlloc(comptime fmt: []const u8, args: anytype) QueryError![]u8 {
     return std.fmt.allocPrint(alloc, fmt, args) catch return error.OutOfMemory;
 }
 
-fn decodeBinaryValue(col: Column, c: *Cursor) QueryError!?[]u8 {
+pub fn decodeBinaryValue(col: Column, c: *Cursor) QueryError!?[]u8 {
     const unsigned = col.isUnsigned();
     switch (col.type_code) {
         MYSQL_TYPE_TINY => {
@@ -999,7 +999,7 @@ fn decodeBinaryValue(col: Column, c: *Cursor) QueryError!?[]u8 {
 /// Returns the first result; further result sets (only producible by
 /// stored procedures, which v1 never calls) are drained and discarded
 /// so the connection stays in sync, as documented in the .sai header.
-fn runCommand(conn: *Conn, payload: []const u8, binary_rows: bool) QueryError!*Result {
+pub fn runCommand(conn: *Conn, payload: []const u8, binary_rows: bool) QueryError!*Result {
     conn.clearServerError();
     conn.seq = 0;
     writePacket(conn, payload) catch |e| return mapReadErr(e);
@@ -1024,7 +1024,7 @@ fn runCommand(conn: *Conn, payload: []const u8, binary_rows: bool) QueryError!*R
 // Prepared statements
 // ---------------------------------------------------------------------------
 
-const Binding = union(enum) {
+pub const Binding = union(enum) {
     null,
     i64: i64,
     u64: u64,
@@ -1032,13 +1032,13 @@ const Binding = union(enum) {
     bytes: []u8,
 };
 
-const Stmt = struct {
+pub const Stmt = struct {
     conn: *Conn,
     id: u32,
     param_count: usize,
     bindings: []Binding,
 
-    fn deinit(self: *Stmt) void {
+    pub fn deinit(self: *Stmt) void {
         for (self.bindings) |b| {
             switch (b) {
                 .bytes => |bytes| alloc.free(bytes),
@@ -1049,7 +1049,7 @@ const Stmt = struct {
     }
 };
 
-fn prepareStmt(conn: *Conn, sql: []const u8) QueryError!*Stmt {
+pub fn prepareStmt(conn: *Conn, sql: []const u8) QueryError!*Stmt {
     conn.clearServerError();
     var payload: std.ArrayList(u8) = .empty;
     defer payload.deinit(alloc);
@@ -1101,7 +1101,7 @@ fn prepareStmt(conn: *Conn, sql: []const u8) QueryError!*Stmt {
     return stmt;
 }
 
-fn executeStmt(stmt: *Stmt) QueryError!*Result {
+pub fn executeStmt(stmt: *Stmt) QueryError!*Result {
     const conn = stmt.conn;
     var payload: std.ArrayList(u8) = .empty;
     defer payload.deinit(alloc);
@@ -1157,17 +1157,17 @@ fn executeStmt(stmt: *Stmt) QueryError!*Result {
 // Exported surface
 // ---------------------------------------------------------------------------
 
-fn connFrom(handle: u64) ?*Conn {
+pub fn connFrom(handle: u64) ?*Conn {
     if (handle == 0) return null;
     return @ptrFromInt(@as(usize, @intCast(handle)));
 }
 
-fn resultFrom(handle: u64) ?*Result {
+pub fn resultFrom(handle: u64) ?*Result {
     if (handle == 0) return null;
     return @ptrFromInt(@as(usize, @intCast(handle)));
 }
 
-fn stmtFrom(handle: u64) ?*Stmt {
+pub fn stmtFrom(handle: u64) ?*Stmt {
     if (handle == 0) return null;
     return @ptrFromInt(@as(usize, @intCast(handle)));
 }
@@ -1302,7 +1302,7 @@ pub export fn sa_mysql_prepare(handle: u64, sql_ptr: ?[*]const u8, sql_len: u64,
     return SA_STD_OK;
 }
 
-fn bindSet(stmt_handle: u64, idx: u64, binding: Binding) i32 {
+pub fn bindSet(stmt_handle: u64, idx: u64, binding: Binding) i32 {
     const stmt = stmtFrom(stmt_handle) orelse return SA_STD_ERR_INVALID_ARGUMENT;
     const i = u64ToUsize(idx) orelse return SA_STD_ERR_INVALID_ARGUMENT;
     if (i >= stmt.param_count) return SA_STD_ERR_INVALID_ARGUMENT;
@@ -1524,9 +1524,9 @@ pub export fn sa_mysql_result_warnings(handle: u64) u32 {
 // Tests
 // ---------------------------------------------------------------------------
 
-const testing = std.testing;
+pub const testing = std.testing;
 
-fn hexToBytes(comptime hex: []const u8, out: []u8) void {
+pub fn hexToBytes(comptime hex: []const u8, out: []u8) void {
     std.debug.assert(hex.len == out.len * 2);
     for (out, 0..) |*b, i| {
         b.* = std.fmt.parseInt(u8, hex[i * 2 ..][0..2], 16) catch unreachable;
@@ -1646,7 +1646,7 @@ test "mysql binary row decoding renders text values" {
 // set, one prepare/execute round trip with a binary row (incl. a NULL
 // column via the null bitmap), one ERR packet, PING and QUIT.
 
-const FakeServer = struct {
+pub const FakeServer = struct {
     listener: *std.Io.net.Server,
     token_ok: bool = false,
     user_ok: bool = false,

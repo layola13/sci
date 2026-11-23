@@ -59,7 +59,7 @@ fn normalizedPath(path: []const u8) []u8 {
     return std.mem.replaceOwned(u8, std.heap.page_allocator, path, std.fs.path.sep_str, "/") catch unreachable;
 }
 
-fn pathEndsWithPortable(path: []const u8, suffix: []const u8) bool {
+pub fn pathEndsWithPortable(path: []const u8, suffix: []const u8) bool {
     if (suffix.len > path.len) return false;
     const tail = path[path.len - suffix.len ..];
     for (tail, suffix) |actual, expected| {
@@ -75,7 +75,7 @@ fn appendPathComponent(writer: anytype, path: []const u8) !void {
     }
 }
 
-fn packageTreeHash(allocator: std.mem.Allocator, root_dir: []const u8) ResolveError![32]u8 {
+pub fn packageTreeHash(allocator: std.mem.Allocator, root_dir: []const u8) ResolveError![32]u8 {
     var entries = std.array_list.Managed([]u8).init(allocator);
     defer {
         for (entries.items) |entry| allocator.free(entry);
@@ -236,7 +236,7 @@ fn isPackageIdentity(import_path: []const u8) bool {
         !std.mem.endsWith(u8, trimmed, ".sal");
 }
 
-fn isPluginInterfaceImportPath(import_path: []const u8) bool {
+pub fn isPluginInterfaceImportPath(import_path: []const u8) bool {
     const trimmed = trim(import_path);
     if (trimmed.len == 0) return false;
     if (std.fs.path.isAbsolute(trimmed)) return false;
@@ -253,7 +253,7 @@ fn isPluginInterfaceImportPath(import_path: []const u8) bool {
     return true;
 }
 
-fn pathWithinRoot(root_dir: []const u8, entry_path: []const u8) bool {
+pub fn pathWithinRoot(root_dir: []const u8, entry_path: []const u8) bool {
     if (std.mem.eql(u8, root_dir, entry_path)) return true;
     if (!std.mem.startsWith(u8, entry_path, root_dir)) return false;
     if (entry_path.len <= root_dir.len) return false;
@@ -279,11 +279,11 @@ fn homeDirPath(allocator: std.mem.Allocator, options: ResolveOptions) ResolveErr
     };
 }
 
-fn pathJoin(allocator: std.mem.Allocator, parts: []const []const u8) ResolveError![]u8 {
+pub fn pathJoin(allocator: std.mem.Allocator, parts: []const []const u8) ResolveError![]u8 {
     return try std.fs.path.join(allocator, parts);
 }
 
-fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: usize) ResolveError![]u8 {
+pub fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: usize) ResolveError![]u8 {
     var file = sio.cwd().openFile(path, .{}) catch return error.PackageNotResolved;
     defer file.close();
 
@@ -325,7 +325,7 @@ fn mapFileReadOnly(path: []const u8, max_bytes: usize) ResolveError!struct { map
     return .{ .mapped = mapped, .source = mapped };
 }
 
-fn computeResolvedSourceHash(
+pub fn computeResolvedSourceHash(
     allocator: std.mem.Allocator,
     entry_path: []const u8,
     root_dir: ?[]const u8,
@@ -480,7 +480,7 @@ fn resolveFromPackageRoot(
     return null;
 }
 
-fn resolveFromPluginImportRoot(
+pub fn resolveFromPluginImportRoot(
     allocator: std.mem.Allocator,
     root_dir: []const u8,
     import_path: []const u8,
@@ -518,7 +518,7 @@ fn resolveFromPluginImportRoot(
 /// that layout), so the name is the segment between "installed" and
 /// "current". Roots of any other shape are not addressable by a
 /// qualified plugin import.
-fn pluginNameForImportRoot(root_dir: []const u8) ?[]const u8 {
+pub fn pluginNameForImportRoot(root_dir: []const u8) ?[]const u8 {
     var parts = std.mem.tokenizeAny(u8, root_dir, "/\\");
     var prev: ?[]const u8 = null;
     var prev2: ?[]const u8 = null;
@@ -542,7 +542,7 @@ fn pluginNameForImportRoot(root_dir: []const u8) ?[]const u8 {
 /// canonicalization and root-containment rules, without reading the
 /// file. Used to detect that a later root also provides an import a
 /// bare-name search already resolved in an earlier root.
-fn pluginImportRootHasImport(
+pub fn pluginImportRootHasImport(
     allocator: std.mem.Allocator,
     root_dir: []const u8,
     import_path: []const u8,
@@ -560,7 +560,7 @@ fn pluginImportRootHasImport(
 /// sink: the first root still wins (legacy behavior), but the choice
 /// is no longer silent. Diagnostics never fail the resolution itself,
 /// so every allocation here is best-effort.
-fn noteAmbiguousPluginImport(
+pub fn noteAmbiguousPluginImport(
     allocator: std.mem.Allocator,
     import_path: []const u8,
     options: ResolveOptions,
@@ -588,7 +588,7 @@ fn noteAmbiguousPluginImport(
     callback(options.diagnostics_ctx, message);
 }
 
-fn resolveFromPluginImportRoots(
+pub fn resolveFromPluginImportRoots(
     allocator: std.mem.Allocator,
     import_path: []const u8,
     options: ResolveOptions,

@@ -8,14 +8,14 @@
 // Status codes follow the sci convention: 0 = SA_STD_OK, negative = error.
 
 const std = @import("std");
-const builtin = @import("builtin");
-const sio = @import("sio");
+pub const builtin = @import("builtin");
+pub const sio = @import("sio");
 
-const SA_STD_OK: i32 = 0;
-const SA_STD_ERR_NO_MEMORY: i32 = -12;
-const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
-const SA_STD_ERR_UNSUPPORTED: i32 = -1;
-const SA_STD_ERR_IO: i32 = -5;
+pub const SA_STD_OK: i32 = 0;
+pub const SA_STD_ERR_NO_MEMORY: i32 = -12;
+pub const SA_STD_ERR_INVALID_ARGUMENT: i32 = -22;
+pub const SA_STD_ERR_UNSUPPORTED: i32 = -1;
+pub const SA_STD_ERR_IO: i32 = -5;
 const SA_STD_ERR_TLS_VERIFY: i32 = -100;
 
 // wasm32-wasi: usize is 32-bit, C ABI passes u64 lengths. Checked conversion.
@@ -23,33 +23,33 @@ fn u64ToUsize(v: u64) ?usize {
     return std.math.cast(usize, v);
 }
 
-fn ptrFromU64(T: type, h: u64) *T {
+pub fn ptrFromU64(T: type, h: u64) *T {
     return @ptrFromInt(@as(usize, @intCast(h)));
 }
 
-const SslCtx = opaque {};
-const Ssl = opaque {};
+pub const SslCtx = opaque {};
+pub const Ssl = opaque {};
 const SslMethod = opaque {};
-const Bio = opaque {};
-const X509 = opaque {};
+pub const Bio = opaque {};
+pub const X509 = opaque {};
 const X509Store = opaque {};
-const X509Name = opaque {};
-const SslStack = opaque {};
+pub const X509Name = opaque {};
+pub const SslStack = opaque {};
 
-const AlpnSelectCb = *const fn (?*Ssl, *?[*]const u8, *u8, [*]const u8, c_uint, ?*anyopaque) callconv(.c) c_int;
+pub const AlpnSelectCb = *const fn (?*Ssl, *?[*]const u8, *u8, [*]const u8, c_uint, ?*anyopaque) callconv(.c) c_int;
 
-const SslMethodNew = *const fn () callconv(.c) ?*const SslMethod;
-const SslCtxNew = *const fn (?*const SslMethod) callconv(.c) ?*SslCtx;
-const SslCtxFree = *const fn (?*SslCtx) callconv(.c) void;
-const SslCtxUseCertFile = *const fn (?*SslCtx, [*:0]const u8, c_int) callconv(.c) c_int;
-const SslCtxUseKeyFile = *const fn (?*SslCtx, [*:0]const u8, c_int) callconv(.c) c_int;
-const SslNew = *const fn (?*SslCtx) callconv(.c) ?*Ssl;
-const SslFree = *const fn (?*Ssl) callconv(.c) void;
-const SslSetFd = *const fn (?*Ssl, c_int) callconv(.c) c_int;
-const SslAccept = *const fn (?*Ssl) callconv(.c) c_int;
-const SslRead = *const fn (?*Ssl, [*]u8, c_int) callconv(.c) c_int;
-const SslWrite = *const fn (?*Ssl, [*]const u8, c_int) callconv(.c) c_int;
-const SslShutdown = *const fn (?*Ssl) callconv(.c) c_int;
+pub const SslMethodNew = *const fn () callconv(.c) ?*const SslMethod;
+pub const SslCtxNew = *const fn (?*const SslMethod) callconv(.c) ?*SslCtx;
+pub const SslCtxFree = *const fn (?*SslCtx) callconv(.c) void;
+pub const SslCtxUseCertFile = *const fn (?*SslCtx, [*:0]const u8, c_int) callconv(.c) c_int;
+pub const SslCtxUseKeyFile = *const fn (?*SslCtx, [*:0]const u8, c_int) callconv(.c) c_int;
+pub const SslNew = *const fn (?*SslCtx) callconv(.c) ?*Ssl;
+pub const SslFree = *const fn (?*Ssl) callconv(.c) void;
+pub const SslSetFd = *const fn (?*Ssl, c_int) callconv(.c) c_int;
+pub const SslAccept = *const fn (?*Ssl) callconv(.c) c_int;
+pub const SslRead = *const fn (?*Ssl, [*]u8, c_int) callconv(.c) c_int;
+pub const SslWrite = *const fn (?*Ssl, [*]const u8, c_int) callconv(.c) c_int;
+pub const SslShutdown = *const fn (?*Ssl) callconv(.c) c_int;
 const ErrClearError = *const fn () callconv(.c) void;
 const ErrPeekError = *const fn () callconv(.c) u64;
 
@@ -63,7 +63,7 @@ const SSL_CTRL_EXTRA_CHAIN_CERT: c_int = 14;
 const SSL_TLSEXT_ERR_OK: c_int = 0;
 const SSL_TLSEXT_ERR_NOACK: c_int = 3;
 
-const SslApi = struct {
+pub const SslApi = struct {
     lib: if (builtin.cpu.arch.isWasm()) void else std.DynLib,
     ctx_new: SslCtxNew,
     ctx_free: SslCtxFree,
@@ -107,10 +107,10 @@ const SslApi = struct {
     bio_free: *const fn (?*Bio) callconv(.c) c_int,
 };
 
-var ssl_api: ?SslApi = null;
-var ssl_api_mutex = std.Io.Mutex.init;
+pub var ssl_api: ?SslApi = null;
+pub var ssl_api_mutex = std.Io.Mutex.init;
 
-fn loadSslApi() ?*SslApi {
+pub fn loadSslApi() ?*SslApi {
     if (comptime builtin.cpu.arch.isWasm()) {
         return null;
     } else {
@@ -118,7 +118,7 @@ fn loadSslApi() ?*SslApi {
     }
 }
 
-fn loadSslApiNative() ?*SslApi {
+pub fn loadSslApiNative() ?*SslApi {
     if (comptime builtin.cpu.arch.isWasm()) return null;
     ssl_api_mutex.lockUncancelable(sio.io());
     defer ssl_api_mutex.unlock(sio.io());
@@ -479,7 +479,7 @@ pub export fn sa_std_tls_server_status_json(out_handle: ?*u64) i32 {
 var string_registry_mutex = std.Io.Mutex.init;
 var string_registry = std.ArrayListUnmanaged(?[]u8).empty;
 
-fn registerString(bytes: []u8, slot: *u64) i32 {
+pub fn registerString(bytes: []u8, slot: *u64) i32 {
     string_registry_mutex.lockUncancelable(sio.io());
     defer string_registry_mutex.unlock(sio.io());
     var i: usize = 0;
@@ -849,7 +849,7 @@ pub export fn sa_std_tls_server_peer_cert_chain_json(ssl_handle: u64, out_handle
     return registerString(json, slot);
 }
 
-fn appendJsonEscaped(list: *std.ArrayList(u8), alloc: std.mem.Allocator, s: []const u8) !void {
+pub fn appendJsonEscaped(list: *std.ArrayList(u8), alloc: std.mem.Allocator, s: []const u8) !void {
     for (s) |ch| {
         switch (ch) {
             '"' => try list.appendSlice(alloc, "\\\""),
@@ -867,7 +867,7 @@ fn appendJsonEscaped(list: *std.ArrayList(u8), alloc: std.mem.Allocator, s: []co
     }
 }
 
-fn appendHexUpper(list: *std.ArrayList(u8), alloc: std.mem.Allocator, bytes: []const u8, colon: bool) !void {
+pub fn appendHexUpper(list: *std.ArrayList(u8), alloc: std.mem.Allocator, bytes: []const u8, colon: bool) !void {
     const digits = "0123456789ABCDEF";
     for (bytes, 0..) |b, i| {
         if (colon and i != 0) try list.append(alloc, ':');
@@ -876,7 +876,7 @@ fn appendHexUpper(list: *std.ArrayList(u8), alloc: std.mem.Allocator, bytes: []c
     }
 }
 
-fn serialHex(alloc: std.mem.Allocator, der_bytes: []const u8) !?[]u8 {
+pub fn serialHex(alloc: std.mem.Allocator, der_bytes: []const u8) !?[]u8 {
     const der = std.crypto.Certificate.der;
     const outer = der.Element.parse(der_bytes, 0) catch return null;
     const tbs = der.Element.parse(der_bytes, outer.slice.start) catch return null;
@@ -898,7 +898,7 @@ fn serialHex(alloc: std.mem.Allocator, der_bytes: []const u8) !?[]u8 {
     return out;
 }
 
-fn collectSans(parsed: *const std.crypto.Certificate.Parsed, dns: *std.ArrayList([]const u8), ips: *std.ArrayList([]const u8), alloc: std.mem.Allocator) !void {
+pub fn collectSans(parsed: *const std.crypto.Certificate.Parsed, dns: *std.ArrayList([]const u8), ips: *std.ArrayList([]const u8), alloc: std.mem.Allocator) !void {
     const der = std.crypto.Certificate.der;
     const san = parsed.subjectAltName();
     if (san.len == 0) return;
@@ -921,9 +921,9 @@ fn collectSans(parsed: *const std.crypto.Certificate.Parsed, dns: *std.ArrayList
 /// rationale as X509_NAME_DISPLAY_FLAGS in sa_tls_shaped.zig (the
 /// XN_FLAG_ONELINE preset, spelled out bit by bit so the format can
 /// never drift with library defaults).
-const X509_NAME_DISPLAY_FLAGS: c_ulong = 0x82031f;
+pub const X509_NAME_DISPLAY_FLAGS: c_ulong = 0x82031f;
 
-fn appendX509DisplayName(api: *SslApi, out: *std.ArrayList(u8), alloc: std.mem.Allocator, name: ?*const X509Name) !void {
+pub fn appendX509DisplayName(api: *SslApi, out: *std.ArrayList(u8), alloc: std.mem.Allocator, name: ?*const X509Name) !void {
     const nm = name orelse return;
     const meth = api.bio_s_mem() orelse return;
     const bio = api.bio_new(meth) orelse return;
@@ -943,7 +943,7 @@ fn appendX509DisplayName(api: *SslApi, out: *std.ArrayList(u8), alloc: std.mem.A
 /// OpenSSL 3 spaced rendering, never the deprecated oneline slash
 /// form), common name, SAN lists, validity window, serial
 /// and SHA-256 fingerprint per certificate.
-fn buildPeerCertChainJson(api: *SslApi, ssl: *Ssl) ![]u8 {
+pub fn buildPeerCertChainJson(api: *SslApi, ssl: *Ssl) ![]u8 {
     const alloc = std.heap.page_allocator;
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(alloc);
@@ -1045,7 +1045,7 @@ fn buildPeerCertChainJson(api: *SslApi, ssl: *Ssl) ![]u8 {
 // Unit tests — real OpenSSL server handshake over loopback.
 // ============================================================================
 
-const testing = std.testing;
+pub const testing = std.testing;
 
 test "sa_std_tls_server_supported reflects real OpenSSL availability" {
     var flag: u32 = 0;

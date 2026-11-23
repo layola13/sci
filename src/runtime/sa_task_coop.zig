@@ -42,10 +42,10 @@ const sio = @import("sio");
 
 pub const SA_TASK_OK: i32 = 0;
 pub const SA_TASK_TRAPPED: i32 = 100;
-const ERR_INVALID: i32 = 1;
-const ERR_INVALID_HANDLE: i32 = 2;
+pub const ERR_INVALID: i32 = 1;
+pub const ERR_INVALID_HANDLE: i32 = 2;
 const ERR_NOT_FOUND: i32 = 3;
-const ERR_NOMEM: i32 = 5;
+pub const ERR_NOMEM: i32 = 5;
 const ERR_UNSUPPORTED: i32 = 8;
 const ERR_UNKNOWN: i32 = 127;
 
@@ -62,13 +62,13 @@ pub const TrapSinkFn = *const fn (handle: u64, code: i32, msg_ptr: [*]const u8, 
 /// identical to sa_task.zig's Slot.
 pub const Slot = extern struct { a: u64 = 0, b: u64 = 0 };
 
-const alloc = std.heap.page_allocator;
+pub const alloc = std.heap.page_allocator;
 
-fn coopTrap(comptime msg: []const u8) noreturn {
+pub fn coopTrap(comptime msg: []const u8) noreturn {
     @panic("sa_coop: " ++ msg);
 }
 
-fn nowNs() i64 {
+pub fn nowNs() i64 {
     return @intCast(std.Io.Clock.awake.now(sio.io()).toNanoseconds());
 }
 
@@ -80,7 +80,7 @@ fn hostSleepNs(ns: u64) void {
 // ---------------------------------------------------------------------
 // Tasks and the driver
 
-const Task = struct {
+pub const Task = struct {
     gen: u32,
     entry: EntryFn,
     arg: ?*anyopaque,
@@ -109,14 +109,14 @@ const Timer = struct {
 
 var tasks: std.ArrayList(?*Task) = .empty;
 var task_gens: std.ArrayList(u32) = .empty;
-var current: ?*Task = null;
+pub var current: ?*Task = null;
 var root_task: ?*Task = null;
 var driver_active: bool = false;
 /// Set while the driver synchronously runs a sa_sync_once_do
 /// entry: blocking is impossible there (the entry is a plain call
 /// frame), so a block attempt traps loudly instead of corrupting
 /// the once.
-var suspend_forbidden: u32 = 0;
+pub var suspend_forbidden: u32 = 0;
 
 var ready_head: ?*ReadyNode = null;
 var ready_tail: ?*ReadyNode = null;
@@ -127,7 +127,7 @@ const ReadyNode = struct {
 
 var timers_head: ?*Timer = null;
 
-fn makeHandle(slot: usize, gen: u32) u64 {
+pub fn makeHandle(slot: usize, gen: u32) u64 {
     return (@as(u64, gen) << 32) | @as(u64, @intCast(slot + 1));
 }
 
@@ -198,14 +198,14 @@ fn makeReady(t: *Task) void {
 /// Deliver a final status to a blocked task and make it runnable.
 /// The data outputs of its blocked call were already written
 /// through the captured pointers by the waker.
-fn wakeWith(t: *Task, status: i32) void {
+pub fn wakeWith(t: *Task, status: i32) void {
     t.pending = status;
     makeReady(t);
 }
 
 /// Suspend the current task: the caller (a blocking extern) has
 /// already registered it on a wait queue or timer.
-fn blockCurrent() i32 {
+pub fn blockCurrent() i32 {
     const me = current orelse return ERR_INVALID;
     if (suspend_forbidden > 0) coopTrap("blocking call inside a once_do entry or host context that cannot suspend");
     me.state = .blocked;
@@ -225,7 +225,7 @@ fn reapIfReady(t: *Task) void {
     }
 }
 
-fn addTimer(deadline: i64, task: ?*Task, sel: ?*SelectReg) error{OutOfMemory}!*Timer {
+pub fn addTimer(deadline: i64, task: ?*Task, sel: ?*SelectReg) error{OutOfMemory}!*Timer {
     const timer = try alloc.create(Timer);
     timer.* = .{ .deadline = deadline, .task = task, .sel = sel, .next = null };
     // Keep the list sorted by deadline (FIFO among equals):
@@ -298,7 +298,7 @@ fn anyBlocked() bool {
 // ---------------------------------------------------------------------
 // Channels
 
-const Chan = struct {
+pub const Chan = struct {
     gen: u32,
     cap: u32,
     buf: []Slot,
@@ -312,7 +312,7 @@ const Chan = struct {
     send_tail: ?*ChanWaiter = null,
 };
 
-const ChanWaiter = struct {
+pub const ChanWaiter = struct {
     task: *Task,
     // recv waiter delivery targets (point into the waiter's frame)
     out_value: ?*Slot = null,
@@ -325,7 +325,7 @@ const ChanWaiter = struct {
     next: ?*ChanWaiter = null,
 };
 
-const SelectReg = struct {
+pub const SelectReg = struct {
     task: *Task,
     out_index: *i64,
     out_closed: *u32,
@@ -335,7 +335,7 @@ const SelectReg = struct {
 var chans: std.ArrayList(?*Chan) = .empty;
 var chan_gens: std.ArrayList(u32) = .empty;
 
-fn chanFromHandle(handle: u64) ?*Chan {
+pub fn chanFromHandle(handle: u64) ?*Chan {
     if (handle == 0) return null;
     const slot_plus = handle & 0xFFFF_FFFF;
     if (slot_plus == 0) return null;
@@ -347,19 +347,19 @@ fn chanFromHandle(handle: u64) ?*Chan {
     return ch;
 }
 
-fn chanHandle(ch: *Chan) u64 {
+pub fn chanHandle(ch: *Chan) u64 {
     for (chans.items, 0..) |slot_chan, i| {
         if (slot_chan == ch) return makeHandle(i, ch.gen);
     }
     return 0;
 }
 
-fn waiterLive(w: *ChanWaiter) bool {
+pub fn waiterLive(w: *ChanWaiter) bool {
     if (w.sel) |sel| return !sel.fired;
     return true;
 }
 
-fn queuePush(head: *?*ChanWaiter, tail: *?*ChanWaiter, w: *ChanWaiter) void {
+pub fn queuePush(head: *?*ChanWaiter, tail: *?*ChanWaiter, w: *ChanWaiter) void {
     w.next = null;
     if (tail.*) |t| {
         t.next = w;
@@ -371,7 +371,7 @@ fn queuePush(head: *?*ChanWaiter, tail: *?*ChanWaiter, w: *ChanWaiter) void {
 }
 
 /// Pop the first live waiter, discarding stale select arms.
-fn queuePopLive(head: *?*ChanWaiter, tail: *?*ChanWaiter) ?*ChanWaiter {
+pub fn queuePopLive(head: *?*ChanWaiter, tail: *?*ChanWaiter) ?*ChanWaiter {
     while (head.*) |w| {
         head.* = w.next;
         if (head.* == null) tail.* = null;
@@ -381,7 +381,7 @@ fn queuePopLive(head: *?*ChanWaiter, tail: *?*ChanWaiter) ?*ChanWaiter {
     return null;
 }
 
-fn queueHasLive(head: ?*ChanWaiter) bool {
+pub fn queueHasLive(head: ?*ChanWaiter) bool {
     var it = head;
     while (it) |w| {
         if (waiterLive(w)) return true;
@@ -392,7 +392,7 @@ fn queueHasLive(head: ?*ChanWaiter) bool {
 
 /// Complete a send waiter whose payload has been consumed: plain
 /// waiters wake with OK; a select arm fires its registration.
-fn completeSendWaiter(w: *ChanWaiter) void {
+pub fn completeSendWaiter(w: *ChanWaiter) void {
     if (w.sel) |sel| {
         fireSelect(sel, @intCast(w.sel_index), 0);
     } else {
@@ -402,7 +402,7 @@ fn completeSendWaiter(w: *ChanWaiter) void {
 }
 
 /// Deliver a payload to a recv waiter (plain or select arm).
-fn completeRecvWaiter(w: *ChanWaiter, value: Slot, closed_flag: u32) void {
+pub fn completeRecvWaiter(w: *ChanWaiter, value: Slot, closed_flag: u32) void {
     if (w.sel) |sel| {
         // The arm's slot is the waiter's out_value for select arms.
         if (w.out_value) |ov| ov.* = value;
@@ -420,7 +420,7 @@ fn completeRecvWaiter(w: *ChanWaiter, value: Slot, closed_flag: u32) void {
 /// deliver OK. The data movement of the chosen arm has already
 /// happened (or, for a recv arm, completeRecvWaiter wrote the
 /// slot before calling here).
-fn fireSelect(sel: *SelectReg, index: i64, closed_flag: u32) void {
+pub fn fireSelect(sel: *SelectReg, index: i64, closed_flag: u32) void {
     if (sel.fired) return;
     sel.fired = true;
     sel.out_index.* = index;
@@ -428,12 +428,12 @@ fn fireSelect(sel: *SelectReg, index: i64, closed_flag: u32) void {
     wakeWith(sel.task, SA_TASK_OK);
 }
 
-fn bufPush(ch: *Chan, value: Slot) void {
+pub fn bufPush(ch: *Chan, value: Slot) void {
     ch.buf[(ch.head + ch.count) % ch.buf.len] = value;
     ch.count += 1;
 }
 
-fn bufPop(ch: *Chan) Slot {
+pub fn bufPop(ch: *Chan) Slot {
     const v = ch.buf[ch.head];
     ch.head = (ch.head + 1) % ch.buf.len;
     ch.count -= 1;
@@ -442,19 +442,19 @@ fn bufPop(ch: *Chan) Slot {
 
 /// A receive can complete now if the buffer is non-empty, a sender
 /// is waiting (rendezvous), or the channel is closed.
-fn recvReady(ch: *Chan) bool {
+pub fn recvReady(ch: *Chan) bool {
     return ch.count > 0 or queueHasLive(ch.send_q) or ch.closed;
 }
 
 /// A send can complete now if a receiver is waiting, the buffer
 /// has room, or the channel is closed (send-on-closed traps).
-fn sendReady(ch: *Chan) bool {
+pub fn sendReady(ch: *Chan) bool {
     return queueHasLive(ch.recv_q) or ch.count < ch.cap or ch.closed;
 }
 
 /// Perform a receive that is known ready. Delivery goes to
 /// out_value/out_closed. Returns false only when not ready.
-fn doRecv(ch: *Chan, out_value: *Slot, out_closed: *u32) bool {
+pub fn doRecv(ch: *Chan, out_value: *Slot, out_closed: *u32) bool {
     if (ch.count > 0) {
         const v = bufPop(ch);
         // Refill from a blocked sender (buffer was full).
@@ -483,7 +483,7 @@ fn doRecv(ch: *Chan, out_value: *Slot, out_closed: *u32) bool {
 
 /// Perform a send that is known ready. Returns false only when
 /// not ready.
-fn doSend(ch: *Chan, value: Slot) bool {
+pub fn doSend(ch: *Chan, value: Slot) bool {
     if (ch.closed) coopTrap("send on closed channel");
     if (queuePopLive(&ch.recv_q, &ch.recv_tail)) |w| {
         completeRecvWaiter(w, value, 0);
@@ -797,9 +797,9 @@ pub export fn sa_task_net_wait(handle: u64, interest: u32, timeout_ns: i64, read
 // ---------------------------------------------------------------------
 // Sync family (mutex / rwlock / waitgroup / once)
 
-const SyncKind = enum { mutex, rwlock, waitgroup, once };
+pub const SyncKind = enum { mutex, rwlock, waitgroup, once };
 
-const SyncObj = struct {
+pub const SyncObj = struct {
     gen: u32,
     kind: SyncKind,
     destroyed: bool = false,
@@ -820,12 +820,12 @@ const SyncObj = struct {
     once_queue: TaskQueue = .{},
 };
 
-const WaitNode = struct {
+pub const WaitNode = struct {
     task: *Task,
     next: ?*WaitNode = null,
 };
 
-const TaskQueue = struct {
+pub const TaskQueue = struct {
     head: ?*WaitNode = null,
     tail: ?*WaitNode = null,
 
@@ -858,7 +858,7 @@ const TaskQueue = struct {
 var syncs: std.ArrayList(?*SyncObj) = .empty;
 var sync_gens: std.ArrayList(u32) = .empty;
 
-fn syncFromHandle(handle: u64, kind: ?SyncKind) ?*SyncObj {
+pub fn syncFromHandle(handle: u64, kind: ?SyncKind) ?*SyncObj {
     if (handle == 0) return null;
     const slot_plus = handle & 0xFFFF_FFFF;
     if (slot_plus == 0) return null;
@@ -873,7 +873,7 @@ fn syncFromHandle(handle: u64, kind: ?SyncKind) ?*SyncObj {
     return o;
 }
 
-fn syncNew(kind: SyncKind, out_handle: ?*u64) i32 {
+pub fn syncNew(kind: SyncKind, out_handle: ?*u64) i32 {
     const out = out_handle orelse return ERR_INVALID;
     out.* = 0;
     const o = alloc.create(SyncObj) catch return ERR_NOMEM;

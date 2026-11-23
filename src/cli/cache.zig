@@ -1,4 +1,5 @@
 const std = @import("std");
+const driver = @import("../driver/zigcc.zig");
 const SabFunctionRange = @import("types.zig").SabFunctionRange;
 const flattener = @import("../flattener.zig");
 const pathJoinAlloc = @import("compile.zig").pathJoinAlloc;

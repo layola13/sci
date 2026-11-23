@@ -1,6 +1,6 @@
 const std = @import("std");
-const spawn = @import("sa_std/spawn.zig");
-const policy = @import("sa_std/policy.zig");
+pub const spawn = @import("sa_std/spawn.zig");
+pub const policy = @import("sa_std/policy.zig");
 test "sa_std_tests" { std.testing.refAllDecls(@import("sa_std/sa_std_tests.zig")); }
 test "sa_std_tests_net" { std.testing.refAllDecls(@import("sa_std/tests_net.zig")); }
 test "sa_std_tests_codec" { std.testing.refAllDecls(@import("sa_std/tests_codec.zig")); }
@@ -493,8 +493,6 @@ comptime {
     { const m = @import("sa_std/text_util.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_crypto_keyring.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_crypto_sign.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
-    { const m = @import("sa_tree_sitter_node.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
-    { const m = @import("sa_tree_sitter_query.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_tls_client_config.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_tls_client_handshake.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_http2_buffer.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
@@ -502,12 +500,6 @@ comptime {
     { const m = @import("sa_pg_result.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_crypto_asym_keygen.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_crypto_asym_x509.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
-    { const m = @import("sa_tls_server_cert.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
-    { const m = @import("sa_cookie_jar.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
-    { const m = @import("sa_cookie_set.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
-    { const m = @import("sa_cookie_header.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
-    { const m = @import("sa_mysql_client_bind.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
-    { const m = @import("sa_mysql_client_result_api.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_tls_shaped_ja3.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     { const m = @import("sa_tls_shaped_cert.zig"); for (std.meta.declarations(m)) |n| _ = &@field(m, n); }
     if (builtin.os.tag == .linux) {

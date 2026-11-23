@@ -49,10 +49,10 @@
 //! or @gpu declaration, or a second function).
 
 const std = @import("std");
-const flattener = @import("flattener.zig");
+pub const flattener = @import("flattener.zig");
 const sab = @import("sab.zig");
 const plugin_bridge = @import("plugin_bridge.zig");
-const instruction = @import("common/instruction.zig");
+pub const instruction = @import("common/instruction.zig");
 
 /// Fragment container format version. Frontends pin this version; a
 /// mismatch is a loud error, never a silent reinterpretation.
@@ -125,7 +125,7 @@ pub const ParsedFragment = struct {
 
 const Directive = enum { version, function, reads, owns, returns, caller };
 
-fn isIdentByte(c: u8) bool {
+pub fn isIdentByte(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '_';
 }
 
@@ -309,7 +309,7 @@ pub const Validation = union(enum) {
     }
 };
 
-fn violation(allocator: std.mem.Allocator, kind: ViolationKind, register: ?[]const u8, detail: []const u8) !Validation {
+pub fn violation(allocator: std.mem.Allocator, kind: ViolationKind, register: ?[]const u8, detail: []const u8) !Validation {
     return .{ .violation = .{
         .kind = kind,
         .register = if (register) |name| try allocator.dupe(u8, name) else null,
@@ -320,7 +320,7 @@ fn violation(allocator: std.mem.Allocator, kind: ViolationKind, register: ?[]con
 /// Instruction kinds whose operands[0] (when a register) is a
 /// definition of that register. Every other register operand is a
 /// use. This mirrors the operand layout the verifier relies on.
-fn isDefiningKind(kind: instruction.InstKind) bool {
+pub fn isDefiningKind(kind: instruction.InstKind) bool {
     return switch (kind) {
         .alloc,
         .stack_alloc,
@@ -344,14 +344,14 @@ fn isDefiningKind(kind: instruction.InstKind) bool {
     };
 }
 
-fn isDeclKind(kind: instruction.InstKind) bool {
+pub fn isDeclKind(kind: instruction.InstKind) bool {
     return switch (kind) {
         .func_decl, .test_decl, .ffi_wrapper_decl, .extern_decl, .export_decl, .gpu_decl, .label => true,
         else => false,
     };
 }
 
-fn nameInList(list: []const []const u8, name: []const u8) bool {
+pub fn nameInList(list: []const []const u8, name: []const u8) bool {
     for (list) |item| {
         if (std.mem.eql(u8, item, name)) return true;
     }
@@ -361,7 +361,7 @@ fn nameInList(list: []const []const u8, name: []const u8) bool {
 /// SA primitive type and keyword names: these can appear inside a
 /// call's textual argument list (casts, literals) but are never
 /// register names.
-fn isPrimitiveTextName(name: []const u8) bool {
+pub fn isPrimitiveTextName(name: []const u8) bool {
     const names = [_][]const u8{
         "u8", "u16", "u32", "u64", "u128", "i8", "i16", "i32", "i64", "i128",
         "f16", "f32", "f64", "bool", "void", "ptr", "usize", "isize",
@@ -380,7 +380,7 @@ fn isPrimitiveTextName(name: []const u8) bool {
 /// only here is exactly the case the contract exists to catch.
 /// Callee tokens (after '@', or directly before '(') and primitive
 /// type/keyword names never count.
-fn scanCallText(used: *std.StringHashMap(void), text: []const u8) !void {
+pub fn scanCallText(used: *std.StringHashMap(void), text: []const u8) !void {
     // Only the parenthesised argument list carries arguments; the
     // callee name in front of it is not an argument.
     const open = std.mem.indexOfScalar(u8, text, '(') orelse return;
@@ -419,7 +419,7 @@ fn scanCallText(used: *std.StringHashMap(void), text: []const u8) !void {
 /// rejected; @import/@const/@extern lines are environment, not
 /// declarations of the fragment itself. Lines inside [MACRO] blocks
 /// are macro text, not declarations.
-fn scanOwnDeclarations(
+pub fn scanOwnDeclarations(
     allocator: std.mem.Allocator,
     stripped_source: []const u8,
     contract: *const Contract,
@@ -671,11 +671,11 @@ pub fn validateContract(
     return .ok;
 }
 
-fn stringLessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+pub fn stringLessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
     return std.mem.order(u8, lhs, rhs) == .lt;
 }
 
-fn containsName(list: []const []const u8, name: []const u8) bool {
+pub fn containsName(list: []const []const u8, name: []const u8) bool {
     return nameInList(list, name);
 }
 

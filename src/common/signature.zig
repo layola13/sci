@@ -1,5 +1,5 @@
 const std = @import("std");
-const instr = @import("instruction.zig");
+pub const instr = @import("instruction.zig");
 const upstream = @import("upstream_loc.zig");
 
 pub const ParseError = error{
@@ -100,16 +100,16 @@ pub const FunctionKind = enum(u8) {
     gpu,
 };
 
-const HeaderSpec = struct {
+pub const HeaderSpec = struct {
     prefix: []const u8,
     require_colon: bool,
 };
 
-fn isIdentStart(c: u8) bool {
+pub fn isIdentStart(c: u8) bool {
     return std.ascii.isAlphabetic(c) or c == '_';
 }
 
-fn isIdentChar(c: u8) bool {
+pub fn isIdentChar(c: u8) bool {
     return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
@@ -193,7 +193,7 @@ pub fn primTypeFromTag(tag: u32) ?PrimType {
     return @enumFromInt(tag);
 }
 
-fn parseOptionalCap(text: []const u8) struct { cap: ?instr.CapPrefix, rest: []const u8 } {
+pub fn parseOptionalCap(text: []const u8) struct { cap: ?instr.CapPrefix, rest: []const u8 } {
     const trimmed = std.mem.trim(u8, text, " \t\r");
     if (trimmed.len == 0) return .{ .cap = null, .rest = trimmed };
     return switch (trimmed[0]) {
@@ -243,7 +243,7 @@ const ParamList = struct {
 /// exactly `...` marks the signature variadic (C-style) and is consumed
 /// rather than returned as a parameter. `...` anywhere else, or with no
 /// fixed parameter before it, is an InvalidFunctionSig.
-fn parseParamList(allocator: std.mem.Allocator, params_text: []const u8) ParseError!ParamList {
+pub fn parseParamList(allocator: std.mem.Allocator, params_text: []const u8) ParseError!ParamList {
     var param_list = std.array_list.Managed(ParamSpec).init(allocator);
     errdefer {
         for (param_list.items) |param| allocator.free(param.name);
@@ -274,7 +274,7 @@ const TestModifiers = struct {
     rest: []const u8,
 };
 
-fn parseTestModifiers(text: []const u8) ParseError!TestModifiers {
+pub fn parseTestModifiers(text: []const u8) ParseError!TestModifiers {
     var rest = std.mem.trimStart(u8, text, " \t");
     var ignored = false;
     var should_panic = false;
@@ -682,7 +682,7 @@ const nonvoid_type_cases = [_]TypeCase{
     .{ .name = "v128", .ty = .v128 },
 };
 
-fn capText(prefix: instr.CapPrefix) []const u8 {
+pub fn capText(prefix: instr.CapPrefix) []const u8 {
     return switch (prefix) {
         .by_value => "",
         .borrow => "&",
@@ -734,7 +734,7 @@ pub fn writeFunctionHeader(writer: anytype, sig: FunctionSig) !void {
     if (sig.kind != .external) try writer.writeByte(':');
 }
 
-fn expectSigEqual(expected: FunctionSig, actual: FunctionSig) !void {
+pub fn expectSigEqual(expected: FunctionSig, actual: FunctionSig) !void {
     try std.testing.expectEqual(expected.id, actual.id);
     try std.testing.expectEqual(expected.kind, actual.kind);
     try std.testing.expectEqual(expected.return_cap, actual.return_cap);

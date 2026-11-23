@@ -1,4 +1,5 @@
 const std = @import("std");
+const driver = @import("../driver/zigcc.zig");
 const sio = @import("sio");
 const referee = @import("../referee.zig");
 const build_options = @import("build_options");

@@ -77,7 +77,7 @@ const FmtHandle = struct {
     allocator: std.mem.Allocator,
     bytes: []u8,
 
-    fn deinit(self: *FmtHandle) void {
+    pub fn deinit(self: *FmtHandle) void {
         if (self.bytes.len != 0) self.allocator.free(self.bytes);
         self.bytes = &.{};
     }
@@ -139,7 +139,7 @@ const EnvHandle = struct {
     allocator: std.mem.Allocator,
     bytes: []u8,
 
-    fn deinit(self: *EnvHandle) void {
+    pub fn deinit(self: *EnvHandle) void {
         if (self.bytes.len != 0) self.allocator.free(self.bytes);
         self.bytes = &.{};
     }
@@ -166,7 +166,7 @@ pub const Timespec = std.posix.timespec;
 const OwnedFdHandle = struct {
     fd: std.posix.fd_t,
 
-    fn deinit(self: *OwnedFdHandle) void {
+    pub fn deinit(self: *OwnedFdHandle) void {
         lxClose(self.fd);
         self.fd = -1;
     }
@@ -176,7 +176,7 @@ const TerminalSession = struct {
     fd: std.posix.fd_t,
     saved: std.posix.termios,
 
-    fn deinit(self: *TerminalSession) !void {
+    pub fn deinit(self: *TerminalSession) !void {
         try std.posix.tcsetattr(self.fd, .FLUSH, self.saved);
     }
 };

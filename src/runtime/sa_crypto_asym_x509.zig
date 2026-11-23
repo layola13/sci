@@ -56,7 +56,7 @@ pub export fn sa_pem_decode(pem_ptr: ?[*]const u8, pem_len: u64, label_ptr: ?[*]
     return writeOut(out_ptr, cap, out_len, buf);
 }
 
-fn certParts(der: []const u8) error{Invalid}!struct {
+pub fn certParts(der: []const u8) error{Invalid}!struct {
     subject: Elem,
     spki: Elem,
     validity: Elem,
@@ -142,7 +142,7 @@ pub export fn sa_x509_public_key(cert_ptr: ?[*]const u8, cert_len: u64, out_ptr:
     return writeOut(out_ptr, cap, out_len, key);
 }
 
-fn daysFromCivil(y0: i64, m: u64, d: u64) i64 {
+pub fn daysFromCivil(y0: i64, m: u64, d: u64) i64 {
     var y = y0;
     if (m <= 2) y -= 1;
     const era: i64 = if (y >= 0) @divFloor(y, 400) else -@divFloor(-y + 399, 400);
@@ -153,7 +153,7 @@ fn daysFromCivil(y0: i64, m: u64, d: u64) i64 {
     return era * 146097 + @as(i64, @intCast(doe)) - 719468;
 }
 
-fn parseUint(b: []const u8) ?u64 {
+pub fn parseUint(b: []const u8) ?u64 {
     var v: u64 = 0;
     for (b) |c| {
         if (c < '0' or c > '9') return null;
@@ -162,7 +162,7 @@ fn parseUint(b: []const u8) ?u64 {
     return v;
 }
 
-fn parseDerTime(e: Elem) error{Invalid}!i64 {
+pub fn parseDerTime(e: Elem) error{Invalid}!i64 {
     const b = e.content;
     var year: i64 = undefined;
     var rest: []const u8 = undefined;
@@ -199,7 +199,7 @@ pub export fn sa_x509_validity(cert_ptr: ?[*]const u8, cert_len: u64, out_not_be
     return OK;
 }
 
-fn unhex(comptime s: []const u8) [s.len / 2]u8 {
+pub fn unhex(comptime s: []const u8) [s.len / 2]u8 {
     // The embedded openssl fixtures run to ~800 bytes; the default
     // comptime branch quota (1000) is far below the decode loop cost.
     @setEvalBranchQuota(100_000);

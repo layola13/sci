@@ -62,14 +62,14 @@
 //! or serialization of that same handle (the TOML stringify rule).
 
 const std = @import("std");
-const sio = @import("sio");
+pub const sio = @import("sio");
 
-const OK: i32 = 0;
-const ERR_INVALID: i32 = 1;
-const ERR_HANDLE: i32 = 2;
-const ERR_NOT_FOUND: i32 = 3;
-const ERR_NOMEM: i32 = 5;
-const ERR_IO: i32 = 6;
+pub const OK: i32 = 0;
+pub const ERR_INVALID: i32 = 1;
+pub const ERR_HANDLE: i32 = 2;
+pub const ERR_NOT_FOUND: i32 = 3;
+pub const ERR_NOMEM: i32 = 5;
+pub const ERR_IO: i32 = 6;
 
 pub const SAMESITE_UNSPECIFIED: u32 = 0;
 pub const SAMESITE_LAX: u32 = 1;
@@ -86,11 +86,11 @@ pub const STORE_DELETED: u32 = 2;
 pub const STORE_IGNORED_EXPIRED: u32 = 3;
 pub const STORE_REJECTED: u32 = 4;
 
-const alloc = std.heap.page_allocator;
+pub const alloc = std.heap.page_allocator;
 
 // ---------------- value model ----------------
 
-const Cookie = struct {
+pub const Cookie = struct {
     name: []u8,
     value: []u8,
     domain: []u8 = "",
@@ -112,7 +112,7 @@ const Cookie = struct {
     serial_buf: []u8 = "",
     pair_buf: []u8 = "",
 
-    fn deinit(self: *Cookie) void {
+    pub fn deinit(self: *Cookie) void {
         alloc.free(self.name);
         alloc.free(self.value);
         if (self.domain.len > 0) alloc.free(self.domain);
@@ -121,7 +121,7 @@ const Cookie = struct {
         if (self.pair_buf.len > 0) alloc.free(self.pair_buf);
     }
 
-    fn clone(self: *const Cookie) !*Cookie {
+    pub fn clone(self: *const Cookie) !*Cookie {
         const out = try makeCookie(self.name, self.value);
         errdefer {
             out.deinit();
@@ -145,7 +145,7 @@ const Cookie = struct {
 
 /// Heap-allocate a Cookie with owned name/value. Error paths free
 /// exactly what was allocated (no errdefer overlap).
-fn makeCookie(name: []const u8, value: []const u8) ParseError!*Cookie {
+pub fn makeCookie(name: []const u8, value: []const u8) ParseError!*Cookie {
     const n = try alloc.dupe(u8, name);
     errdefer alloc.free(n);
     const v = try alloc.dupe(u8, value);
@@ -159,14 +159,14 @@ fn makeCookie(name: []const u8, value: []const u8) ParseError!*Cookie {
 
 // ---------------- small helpers ----------------
 
-fn constSlice(p: ?[*]const u8, len: u64) ?[]const u8 {
+pub fn constSlice(p: ?[*]const u8, len: u64) ?[]const u8 {
     if (len == 0) return "";
     const ptr = p orelse return null;
     const n: usize = @intCast(len);
     return ptr[0..n];
 }
 
-fn isCtl(c: u8) bool {
+pub fn isCtl(c: u8) bool {
     return c < 0x20 or c == 0x7f;
 }
 
@@ -179,7 +179,7 @@ fn isTokenChar(c: u8) bool {
     };
 }
 
-fn validCookieName(name: []const u8) bool {
+pub fn validCookieName(name: []const u8) bool {
     if (name.len == 0) return false;
     for (name) |c| {
         if (!isTokenChar(c)) return false;
@@ -193,27 +193,27 @@ fn isCookieOctet(c: u8) bool {
         (c >= 0x3c and c <= 0x5b) or (c >= 0x5d and c <= 0x7e);
 }
 
-fn validCookieValue(value: []const u8) bool {
+pub fn validCookieValue(value: []const u8) bool {
     for (value) |c| {
         if (!isCookieOctet(c)) return false;
     }
     return true;
 }
 
-fn trimOws(s: []const u8) []const u8 {
+pub fn trimOws(s: []const u8) []const u8 {
     var out = s;
     while (out.len > 0 and (out[0] == ' ' or out[0] == '\t')) out = out[1..];
     while (out.len > 0 and (out[out.len - 1] == ' ' or out[out.len - 1] == '\t')) out = out[0 .. out.len - 1];
     return out;
 }
 
-fn lowerDup(s: []const u8) ![]u8 {
+pub fn lowerDup(s: []const u8) ![]u8 {
     const out = try alloc.dupe(u8, s);
     for (out) |*c| c.* = std.ascii.toLower(c.*);
     return out;
 }
 
-fn eqFold(a: []const u8, b: []const u8) bool {
+pub fn eqFold(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
     for (a, b) |x, y| {
         if (std.ascii.toLower(x) != std.ascii.toLower(y)) return false;
@@ -221,14 +221,14 @@ fn eqFold(a: []const u8, b: []const u8) bool {
     return true;
 }
 
-fn endsWithFold(s: []const u8, suffix: []const u8) bool {
+pub fn endsWithFold(s: []const u8, suffix: []const u8) bool {
     if (suffix.len > s.len) return false;
     return eqFold(s[s.len - suffix.len ..], suffix);
 }
 
 // ---------------- dates (RFC 6265 5.1.1 + IMF-fixdate) ----------------
 
-fn daysFromCivil(y0: i64, m: u32, d: u32) i64 {
+pub fn daysFromCivil(y0: i64, m: u32, d: u32) i64 {
     var y = y0;
     if (m <= 2) y -= 1;
     const era: i64 = @divFloor(y, 400);
@@ -239,9 +239,9 @@ fn daysFromCivil(y0: i64, m: u32, d: u32) i64 {
     return era * 146097 + @as(i64, @intCast(doe)) - 719468;
 }
 
-const Civil = struct { year: i64, month: u32, day: u32 };
+pub const Civil = struct { year: i64, month: u32, day: u32 };
 
-fn civilFromDays(z0: i64) Civil {
+pub fn civilFromDays(z0: i64) Civil {
     const z = z0 + 719468;
     const era: i64 = @divFloor(z, 146097);
     const doe: u64 = @intCast(z - era * 146097);
@@ -254,15 +254,15 @@ fn civilFromDays(z0: i64) Civil {
     return .{ .year = if (m <= 2) y + 1 else y, .month = m, .day = d };
 }
 
-fn isDateDelimiter(c: u8) bool {
+pub fn isDateDelimiter(c: u8) bool {
     // RFC 6265 5.1.1 delimiter set.
     return c == 0x09 or (c >= 0x20 and c <= 0x2f) or (c >= 0x3b and c <= 0x40) or
         (c >= 0x5b and c <= 0x60) or (c >= 0x7b and c <= 0x7e);
 }
 
-const month_names = [_][]const u8{ "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
+pub const month_names = [_][]const u8{ "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
 
-fn parseLeadingUint(token: []const u8, max_digits: usize) ?struct { value: u32, digits: usize } {
+pub fn parseLeadingUint(token: []const u8, max_digits: usize) ?struct { value: u32, digits: usize } {
     var value: u32 = 0;
     var n: usize = 0;
     while (n < token.len and n < max_digits and std.ascii.isDigit(token[n])) : (n += 1) {
@@ -272,9 +272,9 @@ fn parseLeadingUint(token: []const u8, max_digits: usize) ?struct { value: u32, 
     return .{ .value = value, .digits = n };
 }
 
-const TimeOfDay = struct { h: u32, m: u32, s: u32 };
+pub const TimeOfDay = struct { h: u32, m: u32, s: u32 };
 
-fn tokenTime(token: []const u8) ?TimeOfDay {
+pub fn tokenTime(token: []const u8) ?TimeOfDay {
     // hms-time: 1*2DIGIT ":" 1*2DIGIT ":" 1*2DIGIT, trailing junk ignored.
     const h = parseLeadingUint(token, 2) orelse return null;
     var rest = token[h.digits..];
@@ -292,7 +292,7 @@ fn tokenTime(token: []const u8) ?TimeOfDay {
 /// RFC 850 and asctime shapes (and the loose variants the RFC
 /// algorithm accepts). Returns null when the string is not a
 /// cookie date -- callers treat that as "attribute absent".
-fn parseCookieDate(s: []const u8) ?i64 {
+pub fn parseCookieDate(s: []const u8) ?i64 {
     var time: ?TimeOfDay = null;
     var day: ?u32 = null;
     var month: ?u32 = null;
@@ -363,11 +363,11 @@ fn parseCookieDate(s: []const u8) ?i64 {
     return days * 86400 + @as(i64, t.h) * 3600 + @as(i64, t.m) * 60 + @as(i64, t.s);
 }
 
-const weekday_names = [_][]const u8{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
-const month_names_full = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+pub const weekday_names = [_][]const u8{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+pub const month_names_full = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
 /// IMF-fixdate, the only date form serialization emits.
-fn formatImfFixdate(unix: i64, buf: *[40]u8) []const u8 {
+pub fn formatImfFixdate(unix: i64, buf: *[40]u8) []const u8 {
     const days = @divFloor(unix, 86400);
     var rem = unix - days * 86400;
     const c = civilFromDays(days);
@@ -393,7 +393,7 @@ fn formatImfFixdate(unix: i64, buf: *[40]u8) []const u8 {
 
 // ---------------- matching (RFC 6265 5.1.3 / 5.1.4) ----------------
 
-fn hostIsIp(host: []const u8) bool {
+pub fn hostIsIp(host: []const u8) bool {
     if (host.len == 0) return false;
     if (std.mem.indexOfScalar(u8, host, ':') != null) return true; // IPv6 literal (brackets already stripped)
     var parts: usize = 0;
@@ -411,7 +411,7 @@ fn hostIsIp(host: []const u8) bool {
 /// RFC 6265 5.1.3 string matching: identical, or host ends with
 /// "." ++ domain. When the host is an IP literal only the identical
 /// form counts (a cookie domain must never suffix-match an IP).
-fn domainMatch(domain: []const u8, host: []const u8) bool {
+pub fn domainMatch(domain: []const u8, host: []const u8) bool {
     if (domain.len == 0 or host.len == 0) return false;
     if (eqFold(domain, host)) return true;
     if (hostIsIp(host)) return false;
@@ -421,7 +421,7 @@ fn domainMatch(domain: []const u8, host: []const u8) bool {
 }
 
 /// RFC 6265 5.1.4 path-match.
-fn pathMatch(cookie_path: []const u8, request_path: []const u8) bool {
+pub fn pathMatch(cookie_path: []const u8, request_path: []const u8) bool {
     if (cookie_path.len == 0) return false;
     const rp = if (request_path.len == 0) "/" else request_path;
     if (std.mem.eql(u8, cookie_path, rp)) return true;
@@ -433,7 +433,7 @@ fn pathMatch(cookie_path: []const u8, request_path: []const u8) bool {
 }
 
 /// RFC 6265 5.1.4 default-path of a request URI path.
-fn defaultPath(uri_path: []const u8) []const u8 {
+pub fn defaultPath(uri_path: []const u8) []const u8 {
     if (uri_path.len == 0 or uri_path[0] != '/') return "/";
     const last_slash = std.mem.lastIndexOfScalar(u8, uri_path, '/') orelse return "/";
     if (last_slash == 0) return "/";
@@ -442,13 +442,13 @@ fn defaultPath(uri_path: []const u8) []const u8 {
 
 // ---------------- URL splitting (jar operations) ----------------
 
-const UrlParts = struct {
+pub const UrlParts = struct {
     scheme: []const u8,
     host: []const u8,
     path: []const u8,
 };
 
-fn splitUrl(url: []const u8) ?UrlParts {
+pub fn splitUrl(url: []const u8) ?UrlParts {
     const scheme_end = std.mem.indexOf(u8, url, "://") orelse return null;
     const scheme = url[0..scheme_end];
     if (scheme.len == 0) return null;
@@ -494,23 +494,23 @@ fn splitUrl(url: []const u8) ?UrlParts {
 
 /// RFC 6265bis "potentially trustworthy origin": a secure scheme,
 /// or a loopback / localhost host.
-fn originTrustworthy(scheme: []const u8, host: []const u8) bool {
+pub fn originTrustworthy(scheme: []const u8, host: []const u8) bool {
     if (eqFold(scheme, "https") or eqFold(scheme, "wss")) return true;
     if (eqFold(host, "localhost") or endsWithFold(host, ".localhost")) return true;
     if (std.mem.eql(u8, host, "127.0.0.1") or std.mem.eql(u8, host, "::1")) return true;
     return false;
 }
 
-fn nowUnix() i64 {
+pub fn nowUnix() i64 {
     const ts = std.Io.Clock.real.now(sio.io());
     return @divFloor(ts.toMilliseconds(), 1000);
 }
 
 // ---------------- parse / serialize core ----------------
 
-const ParseError = error{ InvalidCookie, OutOfMemory };
+pub const ParseError = error{ InvalidCookie, OutOfMemory };
 
-fn parseMaxAge(s: []const u8) ?i64 {
+pub fn parseMaxAge(s: []const u8) ?i64 {
     if (s.len == 0) return null;
     var idx: usize = 0;
     var negative = false;
@@ -534,7 +534,7 @@ fn parseMaxAge(s: []const u8) ?i64 {
     return if (negative) -value else value;
 }
 
-fn validDomainAttr(s: []const u8) bool {
+pub fn validDomainAttr(s: []const u8) bool {
     if (s.len == 0) return false;
     for (s) |c| {
         const ok = std.ascii.isAlphanumeric(c) or c == '-' or c == '.' or c == '_';
@@ -545,7 +545,7 @@ fn validDomainAttr(s: []const u8) bool {
 
 /// Parse one Set-Cookie header value into an owned Cookie.
 /// Caller owns the returned object (alloc.destroy after deinit).
-fn parseSetCookie(raw: []const u8) ParseError!*Cookie {
+pub fn parseSetCookie(raw: []const u8) ParseError!*Cookie {
     const first_semi = std.mem.indexOfScalar(u8, raw, ';') orelse raw.len;
     const pair = trimOws(raw[0..first_semi]);
     const eq = std.mem.indexOfScalar(u8, pair, '=') orelse return error.InvalidCookie;
@@ -619,7 +619,7 @@ fn parseSetCookie(raw: []const u8) ParseError!*Cookie {
     return cookie;
 }
 
-fn serializeInto(list: *std.array_list.Managed(u8), c: *const Cookie, pair_only: bool) !void {
+pub fn serializeInto(list: *std.array_list.Managed(u8), c: *const Cookie, pair_only: bool) !void {
     try list.appendSlice(c.name);
     try list.append('=');
     try list.appendSlice(c.value);
@@ -653,7 +653,7 @@ fn serializeInto(list: *std.array_list.Managed(u8), c: *const Cookie, pair_only:
     if (c.partitioned) try list.appendSlice("; Partitioned");
 }
 
-fn serializeOwned(c: *const Cookie, pair_only: bool) ![]u8 {
+pub fn serializeOwned(c: *const Cookie, pair_only: bool) ![]u8 {
     var list = std.array_list.Managed(u8).init(alloc);
     errdefer list.deinit();
     try serializeInto(&list, c, pair_only);
@@ -670,7 +670,7 @@ var jars_mu = std.Io.Mutex.init;
 var jars_map: std.AutoHashMapUnmanaged(u64, *Jar) = .empty;
 var jars_next: u64 = 1;
 
-fn registerCookie(c: *Cookie) !u64 {
+pub fn registerCookie(c: *Cookie) !u64 {
     cookies_mu.lockUncancelable(sio.io());
     defer cookies_mu.unlock(sio.io());
     const h = cookies_next;
@@ -679,7 +679,7 @@ fn registerCookie(c: *Cookie) !u64 {
     return h;
 }
 
-fn getCookie(handle: u64) ?*Cookie {
+pub fn getCookie(handle: u64) ?*Cookie {
     cookies_mu.lockUncancelable(sio.io());
     defer cookies_mu.unlock(sio.io());
     return cookies_map.get(handle);
@@ -692,7 +692,7 @@ fn removeCookie(handle: u64) ?*Cookie {
     return kv.value;
 }
 
-fn registerJar(j: *Jar) !u64 {
+pub fn registerJar(j: *Jar) !u64 {
     jars_mu.lockUncancelable(sio.io());
     defer jars_mu.unlock(sio.io());
     const h = jars_next;
@@ -701,13 +701,13 @@ fn registerJar(j: *Jar) !u64 {
     return h;
 }
 
-fn getJar(handle: u64) ?*Jar {
+pub fn getJar(handle: u64) ?*Jar {
     jars_mu.lockUncancelable(sio.io());
     defer jars_mu.unlock(sio.io());
     return jars_map.get(handle);
 }
 
-fn removeJar(handle: u64) ?*Jar {
+pub fn removeJar(handle: u64) ?*Jar {
     jars_mu.lockUncancelable(sio.io());
     defer jars_mu.unlock(sio.io());
     const kv = jars_map.fetchRemove(handle) orelse return null;
@@ -717,7 +717,7 @@ fn removeJar(handle: u64) ?*Jar {
 var last_error_buf: [512]u8 = undefined;
 var last_error_len: usize = 0;
 
-fn setLastError(comptime fmt: []const u8, args: anytype) void {
+pub fn setLastError(comptime fmt: []const u8, args: anytype) void {
     const msg = std.fmt.bufPrint(&last_error_buf, fmt, args) catch blk: {
         last_error_len = 0;
         break :blk "";
@@ -725,7 +725,7 @@ fn setLastError(comptime fmt: []const u8, args: anytype) void {
     last_error_len = msg.len;
 }
 
-fn clearLastError() void {
+pub fn clearLastError() void {
     last_error_len = 0;
 }
 
@@ -1003,7 +1003,7 @@ pub export fn sa_cookie_path_match(cookie_path_ptr: ?[*]const u8, cookie_path_le
 // Cookie request header: "name=value; name2=value2". Segments
 // without '=' are malformed (explicit error, never skipped
 // silently); empty segments from stray ';' are skipped.
-fn parseHeaderPair(segment: []const u8) ParseError!*Cookie {
+pub fn parseHeaderPair(segment: []const u8) ParseError!*Cookie {
     const eq = std.mem.indexOfScalar(u8, segment, '=') orelse return error.InvalidCookie;
     const name = trimOws(segment[0..eq]);
     if (!validCookieName(name)) return error.InvalidCookie;
@@ -1065,13 +1065,13 @@ pub export fn sa_cookie_header_pair_at(bytes: ?[*]const u8, len: u64, index: u64
 
 // ---------------- jar layer ----------------
 
-const Jar = struct {
+pub const Jar = struct {
     entries: std.array_list.Managed(Cookie) = std.array_list.Managed(Cookie).init(alloc),
     policy: u32 = POLICY_ACCEPT_ALL,
     next_seq: u64 = 1,
     header_buf: []u8 = "",
 
-    fn deinit(self: *Jar) void {
+    pub fn deinit(self: *Jar) void {
         for (self.entries.items) |*e| e.deinit();
         self.entries.deinit();
         if (self.header_buf.len > 0) alloc.free(self.header_buf);
@@ -1108,7 +1108,7 @@ const Jar = struct {
 /// Replaces an existing (name, domain, path) entry in place,
 /// preserving its creation sequence. Takes ownership of `entry`'s
 /// strings in all outcomes.
-fn jarInsert(jar: *Jar, entry: Cookie) !enum { stored, replaced } {
+pub fn jarInsert(jar: *Jar, entry: Cookie) !enum { stored, replaced } {
     if (jar.findEntry(entry.name, entry.domain, entry.path)) |idx| {
         var old = &jar.entries.items[idx];
         const seq = old.seq;
@@ -1273,7 +1273,7 @@ pub export fn sa_cookie_jar_store(handle: u64, url_ptr: ?[*]const u8, url_len: u
     return OK;
 }
 
-fn headerLessThan(_: void, a: *Cookie, b: *Cookie) bool {
+pub fn headerLessThan(_: void, a: *Cookie, b: *Cookie) bool {
     if (a.path.len != b.path.len) return a.path.len > b.path.len;
     return a.seq < b.seq;
 }
@@ -1357,7 +1357,7 @@ pub export fn sa_cookie_jar_evict_expired(handle: u64, now: i64, out_removed: ?*
 
 // ---------------- Netscape cookie file persistence ----------------
 
-fn boolWord(b: bool) []const u8 {
+pub fn boolWord(b: bool) []const u8 {
     return if (b) "TRUE" else "FALSE";
 }
 
@@ -1407,7 +1407,7 @@ pub export fn sa_cookie_jar_save(handle: u64, path_ptr: ?[*]const u8, path_len: 
     return OK;
 }
 
-fn parseBoolWord(s: []const u8) ?bool {
+pub fn parseBoolWord(s: []const u8) ?bool {
     if (std.mem.eql(u8, s, "TRUE")) return true;
     if (std.mem.eql(u8, s, "FALSE")) return false;
     return null;
@@ -1552,7 +1552,7 @@ pub export fn sa_cookie_jar_store_response(handle: u64, url_ptr: ?[*]const u8, u
 
 // ---------------- tests ----------------
 
-fn expectOut(expected: []const u8, ptr_slot: ?[*]const u8, len: u64) !void {
+pub fn expectOut(expected: []const u8, ptr_slot: ?[*]const u8, len: u64) !void {
     try std.testing.expectEqual(expected.len, @as(usize, @intCast(len)));
     if (len > 0) try std.testing.expectEqualStrings(expected, ptr_slot.?[0..@intCast(len)]);
 }
@@ -1735,13 +1735,13 @@ test "cookie value: request header pairs" {
     try std.testing.expectEqual(@as(u64, 0), count);
 }
 
-fn jarStore(jar: u64, url: []const u8, sc: []const u8, now: i64) !u32 {
+pub fn jarStore(jar: u64, url: []const u8, sc: []const u8, now: i64) !u32 {
     var result: u32 = 999;
     try std.testing.expectEqual(OK, sa_cookie_jar_store(jar, url.ptr, url.len, sc.ptr, sc.len, now, &result));
     return result;
 }
 
-fn jarHeaderEq(jar: u64, url: []const u8, now: i64, expected: ?[]const u8) !void {
+pub fn jarHeaderEq(jar: u64, url: []const u8, now: i64, expected: ?[]const u8) !void {
     var op: ?[*]const u8 = null;
     var ol: u64 = 0;
     const st = sa_cookie_jar_header(jar, url.ptr, url.len, now, &op, &ol);
@@ -1754,7 +1754,7 @@ fn jarHeaderEq(jar: u64, url: []const u8, now: i64, expected: ?[]const u8) !void
     }
 }
 
-fn jarCount(jar: u64) !u64 {
+pub fn jarCount(jar: u64) !u64 {
     var count: u64 = 0;
     try std.testing.expectEqual(OK, sa_cookie_jar_count(jar, &count));
     return count;

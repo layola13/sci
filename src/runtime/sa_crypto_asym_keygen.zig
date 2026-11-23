@@ -13,7 +13,7 @@ const mulMod = @import("sa_crypto_asym.zig").mulMod;
 const oid_rsa_encryption = @import("sa_crypto_asym.zig").oid_rsa_encryption;
 const sio = @import("sa_crypto_asym.zig").sio;
 
-fn derIntContent(a: std.mem.Allocator, mag: []const u8) ![]u8 {
+pub fn derIntContent(a: std.mem.Allocator, mag: []const u8) ![]u8 {
     var b = mag;
     while (b.len > 1 and b[0] == 0) b = b[1..];
     const pad: usize = if (b.len > 0 and b[0] & 0x80 != 0) 1 else 0;
@@ -23,7 +23,7 @@ fn derIntContent(a: std.mem.Allocator, mag: []const u8) ![]u8 {
     return out;
 }
 
-fn nibbleValue(c: u8) u8 {
+pub fn nibbleValue(c: u8) u8 {
     return switch (c) {
         '0'...'9' => c - '0',
         'a'...'f' => c - 'a' + 10,
@@ -32,7 +32,7 @@ fn nibbleValue(c: u8) u8 {
     };
 }
 
-fn bigToBytes(a: std.mem.Allocator, v: *const Managed) ![]u8 {
+pub fn bigToBytes(a: std.mem.Allocator, v: *const Managed) ![]u8 {
     const nbytes = bigByteLen(v);
     const out = try a.alloc(u8, nbytes);
     if (nbytes == 0) return out;
@@ -55,14 +55,14 @@ fn bigToBytes(a: std.mem.Allocator, v: *const Managed) ![]u8 {
     return out;
 }
 
-const small_primes = [_]u32{
+pub const small_primes = [_]u32{
     3,  5,  7,  11, 13, 17, 19, 23, 29, 31,  37,  41,  43,  47,  53,
     59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127,
     131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193,
     197, 199, 211, 223, 227, 229, 233, 239, 241, 251,
 };
 
-fn modInverse(a: std.mem.Allocator, x: *const Managed, m: *const Managed) !Managed {
+pub fn modInverse(a: std.mem.Allocator, x: *const Managed, m: *const Managed) !Managed {
     var old_r = try x.clone();
     var r = try m.clone();
     var old_s = try Managed.initSet(a, @as(u32, 1));
@@ -83,7 +83,7 @@ fn modInverse(a: std.mem.Allocator, x: *const Managed, m: *const Managed) !Manag
     return modOf(a, &old_s, m);
 }
 
-fn isProbablePrime(a: std.mem.Allocator, n: *const Managed) !bool {
+pub fn isProbablePrime(a: std.mem.Allocator, n: *const Managed) !bool {
     var two = try Managed.initSet(a, @as(u32, 2));
     _ = &two;
     for (small_primes) |p| {
@@ -137,7 +137,7 @@ fn isProbablePrime(a: std.mem.Allocator, n: *const Managed) !bool {
     return true;
 }
 
-fn genPrime(a: std.mem.Allocator, half_bits: usize) !Managed {
+pub fn genPrime(a: std.mem.Allocator, half_bits: usize) !Managed {
     const nbytes = half_bits / 8;
     const buf = try a.alloc(u8, nbytes);
     while (true) {
@@ -149,28 +149,28 @@ fn genPrime(a: std.mem.Allocator, half_bits: usize) !Managed {
     }
 }
 
-const GeneratedKeypair = struct { spki: []u8, pkcs8: []u8 };
+pub const GeneratedKeypair = struct { spki: []u8, pkcs8: []u8 };
 
-fn derInt(a: std.mem.Allocator, mag: []const u8) ![]u8 {
+pub fn derInt(a: std.mem.Allocator, mag: []const u8) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     try appendTlv(&out, a, 0x02, try derIntContent(a, mag));
     return out.items;
 }
 
-fn derSeq(a: std.mem.Allocator, content: []const u8) ![]u8 {
+pub fn derSeq(a: std.mem.Allocator, content: []const u8) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     try appendTlv(&out, a, 0x30, content);
     return out.items;
 }
 
-fn rsaAlgIdSeq(a: std.mem.Allocator) ![]u8 {
+pub fn rsaAlgIdSeq(a: std.mem.Allocator) ![]u8 {
     var alg: std.ArrayList(u8) = .empty;
     try appendTlv(&alg, a, 0x06, &oid_rsa_encryption);
     try appendTlv(&alg, a, 0x05, &.{});
     return derSeq(a, alg.items);
 }
 
-fn generateRsaKeypair(a: std.mem.Allocator, bits: u32) !GeneratedKeypair {
+pub fn generateRsaKeypair(a: std.mem.Allocator, bits: u32) !GeneratedKeypair {
     const half: usize = @intCast(bits / 2);
     var e = try Managed.initSet(a, @as(u32, 65537));
     var one = try Managed.initSet(a, @as(u32, 1));

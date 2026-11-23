@@ -233,14 +233,14 @@ pub fn resourceKey(allocator: std.mem.Allocator, resource: Resource) ![]u8 {
 // ---------------------------------------------------------------------
 // Matchers
 
-fn stringListHas(list: []const []const u8, value: []const u8) bool {
+pub fn stringListHas(list: []const []const u8, value: []const u8) bool {
     for (list) |entry| {
         if (std.mem.eql(u8, entry, value)) return true;
     }
     return false;
 }
 
-fn fsListAllows(list: []const []const u8, path: []const u8) bool {
+pub fn fsListAllows(list: []const []const u8, path: []const u8) bool {
     for (list) |entry| {
         const prefix = std.mem.trimEnd(u8, entry, "/");
         if (std.mem.eql(u8, path, prefix)) return true;
@@ -249,7 +249,7 @@ fn fsListAllows(list: []const []const u8, path: []const u8) bool {
     return false;
 }
 
-fn parseIpv4(text: []const u8) ?u32 {
+pub fn parseIpv4(text: []const u8) ?u32 {
     var parts = std.mem.splitScalar(u8, text, '.');
     var value: u32 = 0;
     var count: usize = 0;
@@ -265,7 +265,7 @@ fn parseIpv4(text: []const u8) ?u32 {
     return value;
 }
 
-fn netEntryMatches(entry: []const u8, resource: NetResource) bool {
+pub fn netEntryMatches(entry: []const u8, resource: NetResource) bool {
     const colon = std.mem.lastIndexOfScalar(u8, entry, ':') orelse return false;
     const entry_host = entry[0..colon];
     const entry_port = entry[colon + 1 ..];
@@ -286,7 +286,7 @@ fn netEntryMatches(entry: []const u8, resource: NetResource) bool {
     return std.ascii.eqlIgnoreCase(entry_host, resource.host);
 }
 
-fn netListAllows(list: []const []const u8, resource: NetResource) bool {
+pub fn netListAllows(list: []const []const u8, resource: NetResource) bool {
     for (list) |entry| {
         if (netEntryMatches(entry, resource)) return true;
     }
@@ -296,7 +296,7 @@ fn netListAllows(list: []const []const u8, resource: NetResource) bool {
 // ---------------------------------------------------------------------
 // Narrowing (context derivation may only tighten)
 
-fn modeNarrowsTo(child: Mode, parent: Mode) bool {
+pub fn modeNarrowsTo(child: Mode, parent: Mode) bool {
     if (child == .deny) return true;
     return switch (child) {
         .deny => unreachable,
@@ -307,14 +307,14 @@ fn modeNarrowsTo(child: Mode, parent: Mode) bool {
     };
 }
 
-fn listSubset(child: []const []const u8, parent: []const []const u8) bool {
+pub fn listSubset(child: []const []const u8, parent: []const []const u8) bool {
     for (child) |entry| {
         if (!stringListHas(parent, entry)) return false;
     }
     return true;
 }
 
-fn fsEntriesSubset(child: []const []const u8, parent: []const []const u8) bool {
+pub fn fsEntriesSubset(child: []const []const u8, parent: []const []const u8) bool {
     // A child fs prefix narrows a parent prefix when it equals it or
     // lives strictly underneath it.
     for (child) |entry| {
@@ -525,7 +525,7 @@ pub const AuditEvent = struct {
     }
 };
 
-fn escapeJson(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
+pub fn escapeJson(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
     for (text) |byte| {
@@ -550,21 +550,21 @@ fn escapeJson(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
 // JSON configuration parsing (strict: unknown keys are errors, a typo
 // in a security policy must never silently change its meaning)
 
-fn jsonString(value: std.json.Value) ![]const u8 {
+pub fn jsonString(value: std.json.Value) ![]const u8 {
     return switch (value) {
         .string => |text| text,
         else => error.InvalidPolicy,
     };
 }
 
-fn jsonObject(value: std.json.Value) !std.json.ObjectMap {
+pub fn jsonObject(value: std.json.Value) !std.json.ObjectMap {
     return switch (value) {
         .object => |object| object,
         else => error.InvalidPolicy,
     };
 }
 
-fn collectJsonStrings(allocator: std.mem.Allocator, value: ?std.json.Value) ![][]u8 {
+pub fn collectJsonStrings(allocator: std.mem.Allocator, value: ?std.json.Value) ![][]u8 {
     const array = switch (value orelse return error.InvalidPolicy) {
         .array => |items| items,
         else => return error.InvalidPolicy,
@@ -580,7 +580,7 @@ fn collectJsonStrings(allocator: std.mem.Allocator, value: ?std.json.Value) ![][
     return try out.toOwnedSlice();
 }
 
-fn parseMode(text: []const u8) !Mode {
+pub fn parseMode(text: []const u8) !Mode {
     if (std.mem.eql(u8, text, "allow")) return .allow;
     if (std.mem.eql(u8, text, "deny")) return .deny;
     if (std.mem.eql(u8, text, "allow-list")) return .allow_list;
@@ -589,7 +589,7 @@ fn parseMode(text: []const u8) !Mode {
     return error.InvalidPolicy;
 }
 
-fn parseCategoryPolicy(allocator: std.mem.Allocator, value: std.json.Value, category: Category) !CategoryPolicy {
+pub fn parseCategoryPolicy(allocator: std.mem.Allocator, value: std.json.Value, category: Category) !CategoryPolicy {
     const object = try jsonObject(value);
     var result = CategoryPolicy{};
     errdefer result.deinit(allocator);
@@ -719,14 +719,14 @@ pub fn mintTokenSpecs(context: *PolicyContext, allocator: std.mem.Allocator, spe
     }
 }
 
-fn categoryFromName(name: []const u8) ?Category {
+pub fn categoryFromName(name: []const u8) ?Category {
     inline for ([_]Category{ .net, .fs, .env, .run, .time, .random }) |category| {
         if (std.mem.eql(u8, name, @tagName(category))) return category;
     }
     return null;
 }
 
-fn dupeStrings(allocator: std.mem.Allocator, items: []const []const u8) ![][]u8 {
+pub fn dupeStrings(allocator: std.mem.Allocator, items: []const []const u8) ![][]u8 {
     var out = std.array_list.Managed([]u8).init(allocator);
     errdefer {
         for (out.items) |item| allocator.free(item);
