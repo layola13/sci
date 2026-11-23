@@ -114,3 +114,11 @@ sa_std.lib.obj
 /.pi/
 AGENTS.md
 cxu.code-workspace
+
+# c-matrix smoke outputs: sa build-c -o {tag}_{stem}.c + cc, left in repo root on every c-matrix run; must not be committed
+/964_cookie_jar_main.c
+/964_cookie_jar_main_c
+/965_tls_config_main.c
+/965_tls_config_main_c
+/966_sockopt_loopback_main.c
+/966_sockopt_loopback_main_c
