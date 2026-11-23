@@ -317,6 +317,162 @@ L_REUSE_WDONE:
     !needs_grow
     return vec
 
+// Task 144 (P1 shape (b), D1): borrow-form push that HANDS BACK the
+// old buffer to the caller instead of freeing it (the 137 borrow twin
+// leaks: its `!buf` lowers to nothing, and a real free inside the callee
+// traps 1022 because buf is an interior pointer of the borrowed header).
+// Returns the old buffer when the push grew, null (0) when it reused the
+// capacity. The caller frees the returned value with @sa_mem_free, which
+// is a safe no-op on null (core_export.zig: `if (ptr) |p| std.c.free(p)`).
+// The returned value is a plain active pointer (ret_cap .move), so the
+// caller-side free is verifier-legal; the borrow itself is released
+// (`!vec`) before either return, as in sa_vec_push_borrow.
+// NOTE: the returned old buffer is derived with `load` (old_buf), NOT
+// with the `take` that produces buf. A `take` from a borrowed header
+// attaches buf as an interior child of vec, so `!vec` (clearBorrow)
+// consumes it and `return buf` traps UseAfterMove (1009). A `load` of
+// the same field sets regFlagRawPointer and attaches NO interior child,
+// so it survives `!vec` and the return skips the consume logic entirely.
+@export sa_vec_push_borrow_ret(&vec: ptr, value: u64, elem_size: u64) -> ^ptr:
+L_ENTRY:
+    buf = take vec+Vec_ptr
+    len = load vec+Vec_len as u64
+    cap = load vec+Vec_cap as u64
+    needs_grow = eq len, cap
+    br needs_grow -> L_GROW, L_REUSE
+L_GROW:
+    cap_is_zero = eq cap, 0
+    br cap_is_zero -> L_GROW_FROM_ZERO, L_GROW_DOUBLE
+
+L_GROW_FROM_ZERO:
+    next_cap = add 0, 4
+    next_cap_ok = add 0, 1
+    jmp L_GROW_ALLOC
+
+L_GROW_DOUBLE:
+    EXPAND NUM_U64_CHECKED_ADD next_cap_ok, next_cap, cap, cap
+    br next_cap_ok -> L_GROW_ALLOC, L_GROW_CAP_OVERFLOW
+
+L_GROW_CAP_OVERFLOW:
+    panic(1205)
+
+L_GROW_ALLOC:
+    EXPAND NUM_U64_CHECKED_MUL next_cap_bytes_ok, next_cap_bytes, next_cap, elem_size
+    br next_cap_bytes_ok -> L_GROW_COPY_SIZE, L_GROW_BYTES_OVERFLOW
+
+L_GROW_BYTES_OVERFLOW:
+    panic(1206)
+
+L_GROW_COPY_SIZE:
+    next_ptr = alloc next_cap_bytes
+    EXPAND NUM_U64_CHECKED_MUL copy_bytes_ok, copy_bytes, len, elem_size
+    br copy_bytes_ok -> L_GROW_COPY, L_GROW_COPY_OVERFLOW
+
+L_GROW_COPY_OVERFLOW:
+    panic(1207)
+
+L_GROW_COPY:
+    // Task 130: the push growth copy used the byte-loop @sa_mem_copy
+    // (mem.sa: measured ~5 ms/MiB vs ~0.04 ms for memcpy); the growth
+    // dst is a fresh alloc so src/dst cannot overlap -- use the
+    // memcpy-bound face, as sa_vec_reserve_grow / sa_vec_extend
+    // already do for their growth copies.
+    old_buf = load vec+Vec_ptr as ptr
+    call @sa_mem_copy_nonoverlapping(&next_ptr, &buf, copy_bytes)
+    store vec+Vec_ptr, next_ptr as ptr
+    store vec+Vec_cap, next_cap as u64
+    jmp L_WRITE_GROW
+L_REUSE:
+    store vec+Vec_ptr, buf as ptr
+    jmp L_WRITE_REUSE
+L_WRITE_GROW:
+    write_off = mul len, elem_size
+    write_ptr = ptr_add next_ptr, write_off
+    w_is1 = eq elem_size, 1
+    w_is2 = eq elem_size, 2
+    w_is4 = eq elem_size, 4
+    br w_is1 -> L_GROW_W1, L_GROW_N1
+L_GROW_N1:
+    br w_is2 -> L_GROW_W2, L_GROW_N2
+L_GROW_N2:
+    br w_is4 -> L_GROW_W4, L_GROW_W8
+L_GROW_W1:
+    store write_ptr+0, value as u8
+    jmp L_GROW_WDONE
+L_GROW_W2:
+    store write_ptr+0, value as u16
+    jmp L_GROW_WDONE
+L_GROW_W4:
+    store write_ptr+0, value as u32
+    jmp L_GROW_WDONE
+L_GROW_W8:
+    store write_ptr+0, value as u64
+    jmp L_GROW_WDONE
+L_GROW_WDONE:
+    !w_is1
+    !w_is2
+    !w_is4
+    next_len = add len, 1
+    store vec+Vec_len, next_len as u64
+    !write_ptr
+    !write_off
+    !next_len
+    !copy_bytes_ok
+    !copy_bytes
+    !next_cap_bytes_ok
+    !next_cap_bytes
+    !next_cap_ok
+    !next_cap
+    !cap_is_zero
+    !value
+    !elem_size
+    !cap
+    !len
+    !needs_grow
+    !vec
+    return old_buf
+L_WRITE_REUSE:
+    write_off = mul len, elem_size
+    write_ptr = ptr_add buf, write_off
+    w_is1 = eq elem_size, 1
+    w_is2 = eq elem_size, 2
+    w_is4 = eq elem_size, 4
+    br w_is1 -> L_REUSE_W1, L_REUSE_N1
+L_REUSE_N1:
+    br w_is2 -> L_REUSE_W2, L_REUSE_N2
+L_REUSE_N2:
+    br w_is4 -> L_REUSE_W4, L_REUSE_W8
+L_REUSE_W1:
+    store write_ptr+0, value as u8
+    jmp L_REUSE_WDONE
+L_REUSE_W2:
+    store write_ptr+0, value as u16
+    jmp L_REUSE_WDONE
+L_REUSE_W4:
+    store write_ptr+0, value as u32
+    jmp L_REUSE_WDONE
+L_REUSE_W8:
+    store write_ptr+0, value as u64
+    jmp L_REUSE_WDONE
+L_REUSE_WDONE:
+    !w_is1
+    !w_is2
+    !w_is4
+    next_len = add len, 1
+    store vec+Vec_len, next_len as u64
+    !write_ptr
+    !write_off
+    !next_len
+    !buf
+    !value
+    !elem_size
+    !cap
+    !len
+    !needs_grow
+    !vec
+    null_ptr = 0 as ptr
+    return null_ptr
+
 @export sa_vec_try_pop(&vec: ptr, &out_value_slot: ptr) -> i32:
 L_ENTRY:
     len = load vec+Vec_len as u64
@@ -1195,3 +1351,4 @@ L_GO:
     call @sa_mem_free(^inner_ptr)
     call @sa_mem_free(^vec)
     return
+
