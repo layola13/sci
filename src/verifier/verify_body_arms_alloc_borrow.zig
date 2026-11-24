@@ -71,7 +71,19 @@ pub fn armLoad(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifie
         ((source_mask & (maskOf(.borrow_view) | maskOf(.ffi_borrow))) != 0);
     const new_mask = maskOf(.active) | if (load_is_borrowed_ptr) maskOf(.interior_ptr) else 0;
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, new_mask, &vb.interior)) |tr| return tr;
-    vb.flags[@intCast(item.operands[0].reg)] = if (item.kind == .load) (if (loaded_ty == .ptr) regFlagRawPointer else regFlagEphemeralScalar) else 0;
+    // VERIFIER-BFULL (suggestion 3): a load's scalar status follows the
+    // loaded type - a blob_handle load is owning, not an ephemeral
+    // scalar (isScalarPrimType says blob_handle is owning).
+    // VERIFIER-BFULL (scalar-move): a `take` of a scalar likewise yields
+    // a freely droppable value; ptr/owning takes stay tracked exactly
+    // as before (take of ptr keeps flags 0, take of a handle keeps
+    // flags 0).
+    vb.flags[@intCast(item.operands[0].reg)] = if (item.kind == .load and loaded_ty == .ptr)
+        regFlagRawPointer
+    else if (sig.isScalarPrimType(loaded_ty))
+        regFlagEphemeralScalar
+    else
+        0;
     if (item.kind == .take and ((source_mask & (maskOf(.borrow_view) | maskOf(.ffi_borrow) | maskOf(.interior_ptr))) != 0 or hasInteriorTree(vb.state, vb.interior_first_child, item.operands[1].reg))) {
         attachInteriorChild(vb.state, vb.interior_parent, vb.interior_first_child, vb.interior_next_sibling, item.operands[1].reg, item.operands[0].reg);
         setInteriorOffsetFromBase(&vb.interior, item.operands[1].reg, item.operands[0].reg, staticByteOffset(item.operands[2]));
@@ -109,7 +121,17 @@ pub fn armStore(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifi
 pub fn armAtomicLoad(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier.ClassifiedLine) !?VerifyBodyResult {
     if (readCheck(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, vb.state, vb.flags)) |tr| return tr;
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, maskOf(.untracked), &vb.interior)) |tr| return tr;
-    vb.flags[@intCast(item.operands[0].reg)] = regFlagEphemeralScalar;
+    // VERIFIER-BFULL (suggestion 3): the atomic result's scalar status
+    // follows its value type (inst.atomic_value_ty, e.g. `as i32`),
+    // like armLoad - a ptr result is a raw pointer, a scalar result is
+    // ephemeral, anything else (e.g. blob_handle) stays owning.
+    const atomic_ty: sig.PrimType = if (item.atomic_value_ty) |t| (sig.primTypeFromTag(t) orelse .i64) else .i64;
+    vb.flags[@intCast(item.operands[0].reg)] = if (atomic_ty == .ptr)
+        regFlagRawPointer
+    else if (sig.isScalarPrimType(atomic_ty))
+        regFlagEphemeralScalar
+    else
+        0;
     return null;
 }
 
@@ -149,7 +171,16 @@ pub fn armAtomicRmw(vb: *VerifyBodyCtx, item: inst.Instruction, classified: clas
         }
     }
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, maskOf(.active), &vb.interior)) |tr| return tr;
-    vb.flags[@intCast(item.operands[0].reg)] = regFlagEphemeralScalar;
+    // VERIFIER-BFULL (suggestion 3): same type-driven flag as
+    // armAtomicLoad - the RMW result is Active, so a non-scalar
+    // value type must stay owning instead of being wrongly exempted.
+    const rmw_ty: sig.PrimType = if (item.atomic_value_ty) |t| (sig.primTypeFromTag(t) orelse .i64) else .i64;
+    vb.flags[@intCast(item.operands[0].reg)] = if (rmw_ty == .ptr)
+        regFlagRawPointer
+    else if (sig.isScalarPrimType(rmw_ty))
+        regFlagEphemeralScalar
+    else
+        0;
     return null;
 }
 

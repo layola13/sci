@@ -583,6 +583,14 @@ pub fn consumeSourceValueCtx(
         return trapReport(.stack_escape, item, function_text, is_ffi_wrapper, name, maskOf(.active), state[idx], "stack allocation cannot be moved out of its function", null);
     }
     if ((flags[idx] & regFlagRawPointer) != 0) return null;
+    // VERIFIER-BFULL (G4): scalars are freely copyable — assigning,
+    // moving or transferring a scalar must not consume the source
+    // (`y = x; z = x` and `f(x); g(x)` stay legal). Untracked values
+    // (op results, raw casts) carry no obligation either and are
+    // equally copyable. Borrow views never carry the ephemeral flag
+    // (setBorrowState clears flags), so this cannot swallow a borrow.
+    if ((flags[idx] & regFlagEphemeralScalar) != 0) return null;
+    if ((state[idx] & maskOf(.untracked)) != 0) return null;
     if ((state[idx] & maskOf(.borrow_view)) != 0) {
         clearBorrowCtx(state, flags, origins, locks, id, interior);
     } else {

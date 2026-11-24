@@ -35,7 +35,12 @@ pub fn armAssign(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classif
     const dst_id = item.operands[0].reg;
     const source_is_ephemeral = switch (item.operands[1]) {
         .imm_i64, .imm_u64, .imm_int, .imm_float => true,
-        .reg => |src| (vb.flags[@intCast(src)] & regFlagEphemeralScalar) != 0,
+        // VERIFIER-BFULL (G4b): an untracked source (op result, raw
+        // cast) is a scalar temporary: the copy inherits scalar status
+        // instead of becoming a fresh owned register that would 1012
+        // at function exit unless explicitly released.
+        .reg => |src| (vb.flags[@intCast(src)] & regFlagEphemeralScalar) != 0 or
+            (vb.state[@intCast(src)] & maskOf(.untracked)) != 0,
         else => false,
     };
     if (item.operands[1] == .reg and item.operands[1].reg != dst_id) {

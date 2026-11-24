@@ -372,6 +372,12 @@ pub fn checkExitLeaks(
         if ((mask & maskOf(.borrow_view)) != 0) {
             const origin = origins[idx];
             if (origin != null and isConstData(flags, origin.?)) continue;
+            // VERIFIER-BFULL (G6): a borrow view of a scalar origin
+            // owes nothing — the origin itself is freely droppable, so
+            // the view needs no explicit end. A view of an owned value
+            // is still scanned: the exit scan on the view is the
+            // backstop that catches move-while-borrowed.
+            if (origin != null and origin.? < flags.len and (flags[origin.?] & regFlagEphemeralScalar) != 0) continue;
         }
         if ((flags[idx] & regFlagBranchCondition) != 0) continue;
         if (isStackAllocated(flags, origins, state, @intCast(idx))) continue;

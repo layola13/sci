@@ -14,7 +14,7 @@
 @extern sa_std_tls_server_ctx_create(&cert_path: ptr, cert_path_len: u64, &key_path: ptr, key_path_len: u64, &out_ctx: ptr) -> i32
 @extern sa_std_tls_server_ctx_free(ctx: u64) -> i32
 
-@extern sa_std_tls_server_accept(ctx: u64, fd: i32, &out_ssl: ptr) -> i32
+@extern sa_std_tls_server_accept(ctx: u64, fd: Fd(i32), &out_ssl: ptr) -> i32
 @extern sa_std_tls_server_read(ssl: u64, &out: ptr, cap: u64, &out_read: ptr) -> i32
 @extern sa_std_tls_server_write(ssl: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32
 @extern sa_std_tls_server_close(ssl: u64) -> i32

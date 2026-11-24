@@ -22,3 +22,4 @@ const _mod_tests_ffi_borrow_views_can_be_moved_or_r = @import("verifier/tests_ff
 const _mod_tests_native_escape_conservatively_consu = @import("verifier/tests_native_escape_conservatively_consu.zig");
 const _mod_tests_cfg_integrity_pbt_keeps_matching_b = @import("verifier/tests_cfg_integrity_pbt_keeps_matching_b.zig");
 const _mod_tests_assume_safe_of_owned_alloc_still_t = @import("verifier/tests_assume_safe_of_owned_alloc_still_t.zig");
+const _mod_tests_bfull_scalar_ownership = @import("verifier/tests_bfull_scalar_ownership.zig");

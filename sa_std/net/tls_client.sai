@@ -71,7 +71,7 @@
 // is closed on failure and owned by the returned handle on success. The
 // host supplies the default SNI / verification name (config server_name
 // overrides). POSIX only; Windows returns -1 (UNSUPPORTED).
-@extern sa_std_tls_client_start_tls(fd: i32, &host: ptr, host_len: u64, config: u64, &out_handle: ptr) -> i32
+@extern sa_std_tls_client_start_tls(fd: Fd(i32), &host: ptr, host_len: u64, config: u64, &out_handle: ptr) -> i32
 
 // Peer certificate on this backend: UNSUPPORTED by construction --
 // std.crypto.tls.Client does not retain the peer certificate after the
@@ -112,7 +112,7 @@
 
 // Upgrade an existing plaintext TCP connection (raw fd) with a profile;
 // same fd-ownership rule as sa_std_tls_client_start_tls.
-@extern sa_std_tls_shaped_start_tls(fd: i32, &host: ptr, host_len: u64, &profile: ptr, profile_len: u64, &out_handle: ptr) -> i32
+@extern sa_std_tls_shaped_start_tls(fd: Fd(i32), &host: ptr, host_len: u64, &profile: ptr, profile_len: u64, &out_handle: ptr) -> i32
 
 // Export the connection's resumable session as base64 DER (feed it back
 // via the profile `session` key). negotiated_json reports

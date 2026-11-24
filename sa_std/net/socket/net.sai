@@ -56,8 +56,8 @@
 @extern sa_std_net_tcp_listener_set_ttl(listener: u64, ttl: u32) -> i32
 @extern sa_std_net_tcp_listener_ttl(listener: u64, &out_ttl: ptr) -> i32
 @extern sa_std_net_tcp_listener_take_error(listener: u64, &out_error: ptr) -> i32
-@extern sa_std_net_tcp_listener_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
-@extern sa_std_net_tcp_stream_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
+@extern sa_std_net_tcp_listener_from_raw_fd(fd: Fd(i32), &out_handle: ptr) -> i32
+@extern sa_std_net_tcp_stream_from_raw_fd(fd: Fd(i32), &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_stream_try_clone(stream: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_tcp_listener_try_clone(listener: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_try_clone(socket: u64, &out_handle: ptr) -> i32
@@ -75,10 +75,10 @@
 @extern sa_std_net_unix_connect_addr(addr: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_listener_local_addr(listener: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_listener_try_clone(listener: u64, &out_handle: ptr) -> i32
-@extern sa_std_net_unix_listener_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_listener_from_raw_fd(fd: Fd(i32), &out_handle: ptr) -> i32
 @extern sa_std_net_unix_stream_local_addr(stream: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_stream_try_clone(stream: u64, &out_handle: ptr) -> i32
-@extern sa_std_net_unix_stream_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_stream_from_raw_fd(fd: Fd(i32), &out_handle: ptr) -> i32
 @extern sa_std_net_unix_stream_peer_addr(stream: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_stream_set_passcred(stream: u64, enabled: i32) -> i32
 @extern sa_std_net_unix_stream_passcred(stream: u64, &out_enabled: ptr) -> i32
@@ -91,7 +91,7 @@
 @extern sa_std_net_unix_datagram_connect(socket: u64, &path: ptr, path_len: u64) -> i32
 @extern sa_std_net_unix_datagram_connect_addr(socket: u64, addr: u64) -> i32
 @extern sa_std_net_unix_datagram_try_clone(socket: u64, &out_handle: ptr) -> i32
-@extern sa_std_net_unix_datagram_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
+@extern sa_std_net_unix_datagram_from_raw_fd(fd: Fd(i32), &out_handle: ptr) -> i32
 @extern sa_std_net_unix_datagram_local_addr(socket: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_datagram_peer_addr(socket: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_unix_datagram_set_passcred(socket: u64, enabled: i32) -> i32
@@ -129,7 +129,7 @@
 @extern sa_std_url_parse(&url: ptr, url_len: u64, &scheme_out: ptr, scheme_cap: u64, &scheme_len: ptr, &host_out: ptr, host_cap: u64, &host_len: ptr, &path_out: ptr, path_cap: u64, &path_len: ptr, &out_port: ptr) -> i32
 
 @extern sa_std_net_udp_bind(&host: ptr, host_len: u64, port: u32, &out_handle: ptr) -> i32
-@extern sa_std_net_udp_from_raw_fd(fd: i32, &out_handle: ptr) -> i32
+@extern sa_std_net_udp_from_raw_fd(fd: Fd(i32), &out_handle: ptr) -> i32
 @extern sa_std_net_udp_local_addr(socket: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_peer_addr(socket: u64, &out_handle: ptr) -> i32
 @extern sa_std_net_udp_connect(socket: u64, &host: ptr, host_len: u64, port: u32) -> i32

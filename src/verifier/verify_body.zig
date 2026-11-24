@@ -2,6 +2,7 @@ const std = @import("std");
 const const_decl = @import("../common/const_decl.zig");
 const inst = @import("../common/instruction.zig");
 const pkg_manifest = @import("../pkg/manifest.zig");
+const sig = @import("../common/signature.zig");
 const classifier = @import("../flattener/line_classifier.zig");
 const AnnotatedInstruction = @import("reg_state_change.zig").AnnotatedInstruction;
 const CollectResult = @import("reg_state_change.zig").CollectResult;
@@ -19,6 +20,7 @@ const isDecl = @import("const_trap.zig").isDecl;
 const isExecKind = @import("const_trap.zig").isExecKind;
 const localizeInstructionRegs = @import("sax_trap_report.zig").localizeInstructionRegs;
 const maskOf = @import("reg_state_change.zig").maskOf;
+const regFlagEphemeralScalar = @import("reg_state_change.zig").regFlagEphemeralScalar;
 const regFlagRawPointer = @import("reg_state_change.zig").regFlagRawPointer;
 const resetLabels = @import("clear_borrow_ctx.zig").resetLabels;
 const seedConstSymbols = @import("const_trap.zig").seedConstSymbols;
@@ -358,7 +360,20 @@ fn verifyBodyStep(vb: *VerifyBodyCtx, raw_item: inst.Instruction, inst_idx: usiz
                     .borrow => maskOf(.active) | maskOf(.borrow_view) | maskOf(.locked_read),
                     .raw => maskOf(.untracked),
                 };
-                vb.flags[reg_idx] = if (param.cap == .raw) regFlagRawPointer else 0;
+                // VERIFIER-BFULL (G1): owning-ness is decided by the SA
+                // signature TYPE, not by the parameter role. A scalar
+                // parameter (int/float/v128, no nominal wrapper) carries
+                // no obligation: flag it ephemeral so the exit scan, the
+                // early-return scan, copy-consume and `!` release all
+                // treat it as freely copyable/droppable. A nominal
+                // wrapper (`Fd(i32)`) or a non-scalar type
+                // (`blob_handle`, `ptr` by value/move) stays owning.
+                vb.flags[reg_idx] = if (param.cap == .raw)
+                    regFlagRawPointer
+                else if (param.nominal == null and sig.isScalarPrimType(param.ty))
+                    regFlagEphemeralScalar
+                else
+                    0;
                 if (param.cap == .borrow) {
                     vb.origins[reg_idx] = reg_slot;
                     vb.locks[reg_idx] = 1;

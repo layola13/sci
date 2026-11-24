@@ -140,7 +140,13 @@ pub fn armCall(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifie
                                 return trapReport(.stack_escape, item, vb.current_function_text, vb.current_is_ffi_wrapper, arg.text, maskOf(.active), vb.state[@intCast(arg_id)], "stack allocation cannot be passed by move", null);
                             }
                             const move_arg_reg_idx: usize = @intCast(arg_id);
-                            if ((vb.flags[move_arg_reg_idx] & regFlagRawPointer) != 0) {
+                            // VERIFIER-BFULL (G5): passing a scalar by
+                            // explicit move is a copy, not a move — the
+                            // caller keeps its value. Same for untracked
+                            // temporaries, which carry no obligation.
+                            if ((vb.flags[move_arg_reg_idx] & (regFlagRawPointer | regFlagEphemeralScalar)) != 0 or
+                                (vb.state[move_arg_reg_idx] & maskOf(.untracked)) != 0)
+                            {
                                 continue;
                             }
                             if ((vb.state[move_arg_reg_idx] & maskOf(.borrow_view)) != 0) {
@@ -222,7 +228,24 @@ pub fn armCall(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifie
                         };
                     };
                     vb.state[idx] = ret_state;
+                    // VERIFIER-BFULL (G2): a call returning a scalar
+                    // type (per the callee's SA signature, no nominal
+                    // wrapper) yields a freely droppable value. Borrow
+                    // returns stay borrow-tracked; indirect calls and
+                    // builtins have no known return type, so their
+                    // results stay owning (rule 3: unknown => owning).
                     vb.flags[idx] = 0;
+                    if (!parsed.is_indirect) {
+                        if (sig_match) |resolved| {
+                            if (resolved.return_nominal == null and
+                                (ret_state & maskOf(.borrow_view)) == 0 and
+                                (ret_state & (maskOf(.active) | maskOf(.fallible))) != 0 and
+                                sig.isScalarPrimType(resolved.return_ty))
+                            {
+                                vb.flags[idx] = regFlagEphemeralScalar;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -266,6 +289,9 @@ pub fn armTry(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier
         if ((mask & maskOf(.borrow_view)) != 0) {
             const origin = vb.origins[idx];
             if (origin != null and isConstData(vb.flags, origin.?)) continue;
+            // VERIFIER-BFULL (G6): same scalar-origin exemption as
+            // the function-exit scan (checkExitLeaks).
+            if (origin != null and origin.? < vb.flags.len and (vb.flags[origin.?] & regFlagEphemeralScalar) != 0) continue;
         }
         if (isStackAllocated(vb.flags, vb.origins, vb.state, @intCast(idx))) continue;
         if (idx < vb.consumed_in_function.len and vb.consumed_in_function[idx]) continue;
@@ -273,8 +299,10 @@ pub fn armTry(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifier
         return trapReport(.early_return_leak, item, vb.current_function_text, vb.current_is_ffi_wrapper, src_name, maskOf(.fallible), src_mask, "early return would leak live registers", null);
     }
 
+    const src_is_scalar = (vb.flags[src_idx] & regFlagEphemeralScalar) != 0;
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], dst_id, vb.state, vb.flags, maskOf(.active), &vb.interior)) |tr| return tr;
-    vb.flags[@intCast(dst_id)] = 0;
+    // VERIFIER-BFULL (G3): unwrapping a fallible scalar yields a scalar.
+    vb.flags[@intCast(dst_id)] = if (src_is_scalar) regFlagEphemeralScalar else 0;
     return null;
 }
 
@@ -375,7 +403,14 @@ pub fn armVaArg(vb: *VerifyBodyCtx, item: inst.Instruction, classified: classifi
     if (readCheck(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[1], item.operands[1].reg, vb.state, vb.flags)) |tr| return tr;
     if (assignValue(item, vb.current_function_text, vb.current_is_ffi_wrapper, classified.parts[0], item.operands[0].reg, vb.state, vb.flags, maskOf(.active), &vb.interior)) |tr| return tr;
     const read_ty: sig.PrimType = if (item.operands[2] == .ty) (sig.primTypeFromTag(item.operands[2].ty) orelse .i64) else .i64;
-    vb.flags[@intCast(item.operands[0].reg)] = if (read_ty == .ptr) regFlagRawPointer else regFlagEphemeralScalar;
+    // VERIFIER-BFULL (suggestion 3): like armLoad - a va_arg of a
+    // non-scalar type (e.g. blob_handle) is owning, not ephemeral.
+    vb.flags[@intCast(item.operands[0].reg)] = if (read_ty == .ptr)
+        regFlagRawPointer
+    else if (sig.isScalarPrimType(read_ty))
+        regFlagEphemeralScalar
+    else
+        0;
     return null;
 }
 

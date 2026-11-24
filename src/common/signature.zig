@@ -35,6 +35,11 @@ pub const ParamSpec = struct {
     name: []const u8,
     ty: PrimType,
     cap: instr.CapPrefix,
+    /// VERIFIER-BFULL: nominal wrapper type name, e.g. `Fd` in `fd: Fd(i32)`.
+    /// `ty` is the underlying primitive (codegen only ever reads `ty`).
+    /// A non-null nominal opts the parameter OUT of scalar status: the
+    /// verifier treats it as owning even when `ty` is a scalar primitive.
+    nominal: ?[]const u8 = null,
 };
 
 pub const FunctionSig = struct {
@@ -44,6 +49,9 @@ pub const FunctionSig = struct {
     kind: FunctionKind,
     return_cap: ?instr.CapPrefix,
     return_ty: PrimType,
+    /// VERIFIER-BFULL: nominal wrapper name for the return type, e.g. `Fd`
+    /// in `-> Fd(i32)`. Same opt-out semantics as `ParamSpec.nominal`.
+    return_nominal: ?[]const u8 = null,
     return_fallible: bool = false,
     entry_inst_idx: u32,
     is_ffi_wrapper: bool,
@@ -62,6 +70,7 @@ pub const FunctionSig = struct {
     pub fn deinit(self: *FunctionSig, allocator: std.mem.Allocator) void {
         for (self.params) |param| {
             allocator.free(param.name);
+            if (param.nominal) |nominal| allocator.free(nominal);
         }
         allocator.free(self.params);
         if (self.param_ids.len != 0) allocator.free(self.param_ids);
@@ -73,6 +82,7 @@ pub const FunctionSig = struct {
         }
         if (self.upstream_file) |file| allocator.free(file);
         if (self.llvm_name) |name| allocator.free(name);
+        if (self.return_nominal) |nominal| allocator.free(nominal);
         allocator.free(self.name);
         self.* = undefined;
     }
@@ -135,6 +145,46 @@ pub fn parsePrimType(text: []const u8) ParseError!PrimType {
         if (std.mem.eql(u8, trimmed, item.name)) return item.ty;
     }
     return ParseError.UnsupportedType;
+}
+
+/// VERIFIER-BFULL: true when a primitive type carries no ownership
+/// obligation — a pure value that may be freely copied and dropped.
+/// `ptr` is deliberately NOT scalar here: a bare `ptr` parameter's
+/// obligation is decided by its cap (`.raw` = no obligation, anything
+/// else = owning, conservative). `blob_handle` is owning. `void` has
+/// no register and is never scalar.
+pub fn isScalarPrimType(ty: PrimType) bool {
+    return switch (ty) {
+        .i1, .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .f32, .f64, .v128 => true,
+        .void, .ptr, .blob_handle => false,
+    };
+}
+
+pub const NominalType = struct {
+    ty: PrimType,
+    /// Nominal wrapper name, or null for a bare primitive.
+    nominal: ?[]const u8,
+};
+
+/// VERIFIER-BFULL: parse a type position that may carry a nominal
+/// wrapper: `Fd(i32)` is the nominal type `Fd` over primitive `i32`.
+/// A bare primitive parses as before with `nominal = null`. Anything
+/// else is `UnsupportedType`. The caller owns the returned `nominal`
+/// slice when non-null (it aliases `text`; duplicate it if the
+/// caller's storage outlives the input).
+pub fn parseNominalType(text: []const u8) ParseError!NominalType {
+    const trimmed = std.mem.trim(u8, text, " \t\r");
+    const open = std.mem.indexOfScalar(u8, trimmed, '(') orelse
+        return .{ .ty = try parsePrimType(trimmed), .nominal = null };
+    const name = std.mem.trim(u8, trimmed[0..open], " \t\r");
+    if (name.len == 0 or !isIdentStart(name[0])) return ParseError.UnsupportedType;
+    for (name[1..]) |c| {
+        if (!isIdentChar(c)) return ParseError.UnsupportedType;
+    }
+    if (trimmed[trimmed.len - 1] != ')') return ParseError.UnsupportedType;
+    const inner = std.mem.trim(u8, trimmed[open + 1 .. trimmed.len - 1], " \t\r");
+    if (std.mem.indexOfScalar(u8, inner, '(') != null) return ParseError.UnsupportedType;
+    return .{ .ty = try parsePrimType(inner), .nominal = name };
 }
 
 pub fn primTypeName(ty: PrimType) []const u8 {
@@ -227,10 +277,13 @@ fn parseParam(allocator: std.mem.Allocator, fragment: []const u8) ParseError!Par
         if (!isIdentChar(c)) return ParseError.InvalidFunctionSig;
     }
 
+    const parsed_ty = try parseNominalType(ty_text);
+
     return .{
         .name = try allocator.dupe(u8, name),
-        .ty = try parsePrimType(ty_text),
+        .ty = parsed_ty.ty,
         .cap = cap_split.cap orelse .by_value,
+        .nominal = if (parsed_ty.nominal) |nominal| try allocator.dupe(u8, nominal) else null,
     };
 }
 
@@ -246,7 +299,10 @@ const ParamList = struct {
 pub fn parseParamList(allocator: std.mem.Allocator, params_text: []const u8) ParseError!ParamList {
     var param_list = std.array_list.Managed(ParamSpec).init(allocator);
     errdefer {
-        for (param_list.items) |param| allocator.free(param.name);
+        for (param_list.items) |param| {
+            allocator.free(param.name);
+            if (param.nominal) |nominal| allocator.free(nominal);
+        }
         param_list.deinit();
     }
 
@@ -301,6 +357,23 @@ pub fn parseTestModifiers(text: []const u8) ParseError!TestModifiers {
     };
 }
 
+/// VERIFIER-BFULL: find the `)` matching the `(` at `open`, by depth.
+/// Returns null when unbalanced. Needed for nominal types: `Fd(i32)`
+/// nests parens inside the parameter list and the return type, so the
+/// last `)` in the line is no longer the parameter-list close.
+fn findMatchingClose(text: []const u8, open: usize) ?usize {
+    var depth: usize = 0;
+    for (text[open..], open..) |c, idx| {
+        if (c == '(') {
+            depth += 1;
+        } else if (c == ')') {
+            depth -= 1;
+            if (depth == 0) return idx;
+        }
+    }
+    return null;
+}
+
 pub fn parseFunctionSig(
     allocator: std.mem.Allocator,
     text: []const u8,
@@ -314,7 +387,7 @@ pub fn parseFunctionSig(
 
     const body = trimmed[1 .. trimmed.len - 1];
     const open = std.mem.indexOfScalar(u8, body, '(') orelse return ParseError.InvalidFunctionSig;
-    const close = std.mem.lastIndexOfScalar(u8, body, ')') orelse return ParseError.InvalidFunctionSig;
+    const close = findMatchingClose(body, open) orelse return ParseError.InvalidFunctionSig;
     if (close <= open) return ParseError.InvalidFunctionSig;
 
     const name_text = std.mem.trim(u8, body[0..open], " \t\r");
@@ -328,6 +401,7 @@ pub fn parseFunctionSig(
 
     var return_cap: ?instr.CapPrefix = null;
     var return_ty: PrimType = .void;
+    var return_nominal: ?[]const u8 = null;
     var return_fallible = false;
     if (tail.len != 0) {
         if (!std.mem.startsWith(u8, tail, "->")) return ParseError.InvalidFunctionSig;
@@ -345,13 +419,19 @@ pub fn parseFunctionSig(
         if (ty_text.len != 0 and (ty_text[0] == '*' or ty_text[0] == '&' or ty_text[0] == '^')) {
             return_ty = .ptr;
         } else {
-            return_ty = try parsePrimType(ty_text);
+            const parsed_ty = try parseNominalType(ty_text);
+            return_ty = parsed_ty.ty;
+            return_nominal = if (parsed_ty.nominal) |nominal| try allocator.dupe(u8, nominal) else null;
         }
     }
+    errdefer if (return_nominal) |nominal| allocator.free(nominal);
 
     const parsed_params = try parseParamList(allocator, params_text);
     errdefer {
-        for (parsed_params.params) |param| allocator.free(param.name);
+        for (parsed_params.params) |param| {
+            allocator.free(param.name);
+            if (param.nominal) |nominal| allocator.free(nominal);
+        }
         allocator.free(parsed_params.params);
     }
 
@@ -365,6 +445,7 @@ pub fn parseFunctionSig(
         .kind = .normal,
         .return_cap = return_cap,
         .return_ty = return_ty,
+        .return_nominal = return_nominal,
         .return_fallible = return_fallible,
         .entry_inst_idx = entry_inst_idx,
         .is_ffi_wrapper = false,
@@ -412,7 +493,7 @@ pub fn parseFunctionHeader(
 
     const after_name = std.mem.trimStart(u8, body, " \t");
     const open = std.mem.indexOfScalar(u8, after_name, '(') orelse return ParseError.InvalidFunctionSig;
-    const close = std.mem.lastIndexOfScalar(u8, after_name, ')') orelse return ParseError.InvalidFunctionSig;
+    const close = findMatchingClose(after_name, open) orelse return ParseError.InvalidFunctionSig;
     if (close <= open) return ParseError.InvalidFunctionSig;
 
     const name_text = std.mem.trim(u8, after_name[0..open], " \t\r");
@@ -435,6 +516,7 @@ pub fn parseFunctionHeader(
 
     var return_cap: ?instr.CapPrefix = null;
     var return_ty: PrimType = .void;
+    var return_nominal: ?[]const u8 = null;
     var return_fallible = false;
     if (tail.len != 0) {
         if (!std.mem.startsWith(u8, tail, "->")) return ParseError.InvalidFunctionSig;
@@ -452,13 +534,19 @@ pub fn parseFunctionHeader(
         if (ty_text.len != 0 and (ty_text[0] == '*' or ty_text[0] == '&' or ty_text[0] == '^')) {
             return_ty = .ptr;
         } else {
-            return_ty = try parsePrimType(ty_text);
+            const parsed_ty = try parseNominalType(ty_text);
+            return_ty = parsed_ty.ty;
+            return_nominal = if (parsed_ty.nominal) |nominal| try allocator.dupe(u8, nominal) else null;
         }
     }
+    errdefer if (return_nominal) |nominal| allocator.free(nominal);
 
     const parsed_params = try parseParamList(allocator, params_text);
     errdefer {
-        for (parsed_params.params) |param| allocator.free(param.name);
+        for (parsed_params.params) |param| {
+            allocator.free(param.name);
+            if (param.nominal) |nominal| allocator.free(nominal);
+        }
         allocator.free(parsed_params.params);
     }
 
@@ -474,6 +562,7 @@ pub fn parseFunctionHeader(
         .kind = kind,
         .return_cap = return_cap,
         .return_ty = return_ty,
+        .return_nominal = return_nominal,
         .return_fallible = return_fallible,
         .entry_inst_idx = entry_inst_idx,
         .is_ffi_wrapper = kind == .ffi_wrapper,
@@ -859,4 +948,32 @@ test "type literal PBT accepts supported names and rejects near misses" {
         defer std.testing.allocator.free(invalid);
         try std.testing.expectError(ParseError.UnsupportedType, parsePrimType(invalid));
     }
+}
+
+test "verifier-bfull: scalar primitive classification" {
+    for ([_]PrimType{ .i1, .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .f32, .f64, .v128 }) |ty| {
+        try std.testing.expect(isScalarPrimType(ty));
+    }
+    for ([_]PrimType{ .void, .ptr, .blob_handle }) |ty| {
+        try std.testing.expect(!isScalarPrimType(ty));
+    }
+}
+
+test "verifier-bfull: nominal wrapper type in param and return positions" {
+    var sig = try parseFunctionHeader(std.testing.allocator, "@open_fd(fd: Fd(i32)) -> Fd(i32):", 11, 0, .normal);
+    defer sig.deinit(std.testing.allocator);
+    try std.testing.expectEqual(PrimType.i32, sig.params[0].ty);
+    try std.testing.expectEqualStrings("Fd", sig.params[0].nominal.?);
+    try std.testing.expectEqual(PrimType.i32, sig.return_ty);
+    try std.testing.expectEqualStrings("Fd", sig.return_nominal.?);
+
+    var plain = try parseFunctionHeader(std.testing.allocator, "@double(x: u64) -> u64:", 12, 0, .normal);
+    defer plain.deinit(std.testing.allocator);
+    try std.testing.expectEqual(PrimType.u64, plain.params[0].ty);
+    try std.testing.expect(plain.params[0].nominal == null);
+    try std.testing.expect(plain.return_nominal == null);
+
+    try std.testing.expectError(ParseError.UnsupportedType, parseFunctionHeader(std.testing.allocator, "@bad(x: Fd(i33)) -> i32:", 13, 0, .normal));
+    try std.testing.expectError(ParseError.UnsupportedType, parseFunctionHeader(std.testing.allocator, "@bad(x: 9Fd(i32)) -> i32:", 14, 0, .normal));
+    try std.testing.expectError(ParseError.InvalidFunctionSig, parseFunctionHeader(std.testing.allocator, "@bad(x: Fd(i32)) -> i32", 15, 0, .normal));
 }
