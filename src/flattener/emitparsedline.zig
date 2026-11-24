@@ -30,6 +30,7 @@ const parseIntAllowLeadingPlus = @import("renderwithtokenreplacements.zig").pars
 const parseLayoutOffset = @import("renderwithtokenreplacements.zig").parseLayoutOffset;
 const parseMacroParams = @import("appendexpandedimportcachehit.zig").parseMacroParams;
 const recordErrorLine = @import("importexpansion.zig").recordErrorLine;
+const setErrorDetail = @import("importexpansion.zig").setErrorDetail;
 const resolveOperandText = @import("renderwithtokenreplacements.zig").resolveOperandText;
 const resolveSizeOperandText = @import("renderwithtokenreplacements.zig").resolveSizeOperandText;
 const setPendingLoc = @import("renderwithtokenreplacements.zig").setPendingLoc;
@@ -631,6 +632,31 @@ pub fn expandSourceLocationMacro(
     return error.InvalidMacroInvocation;
 }
 
+/// A macro redefinition is identical (and therefore tolerated) when it has
+/// the same parameter names, the same variadic marker, and byte-identical
+/// body lines. Body line numbers and origin files are intentionally excluded:
+/// the same macro text reached through two different import paths is one
+/// definition, not a conflict. This mirrors mergeDefDictAllowingIdentical
+/// (#def) and mergeConstDeclsAllowingIdentical (const decls), which already
+/// tolerate identical redefinitions in the same flattener. A redefinition
+/// that differs in any of these is still error.DuplicateDef.
+fn macroDefIdentical(existing: *const MacroDef, params: []const []const u8, variadic_param: ?[]const u8, body_lines: []const SourceLine) bool {
+    if (existing.params.len != params.len) return false;
+    for (existing.params, params) |a, b| {
+        if (!std.mem.eql(u8, a, b)) return false;
+    }
+    if (existing.variadic_param == null and variadic_param != null) return false;
+    if (existing.variadic_param != null and variadic_param == null) return false;
+    if (existing.variadic_param) |a| {
+        if (!std.mem.eql(u8, a, variadic_param.?)) return false;
+    }
+    if (existing.owned_body_lines.len != body_lines.len) return false;
+    for (existing.owned_body_lines, body_lines) |a, b| {
+        if (!std.mem.eql(u8, a.text, b.text)) return false;
+    }
+    return true;
+}
+
 pub fn collectMacroDefinitions(
     allocator: std.mem.Allocator,
     lines: []const SourceLine,
@@ -648,7 +674,21 @@ pub fn collectMacroDefinitions(
                 const name = line.classified.parts[0];
                 const parsed_params = try parseMacroParams(allocator, line.classified.parts[1]);
                 errdefer allocator.free(parsed_params.params);
-                if (macros.contains(name)) return error.DuplicateDef;
+                if (macros.get(name)) |existing| {
+                    if (macroDefIdentical(&existing, parsed_params.params, parsed_params.variadic_param, lines[idx + 1 .. end])) {
+                        // DUPDEF-IDENTICAL-TOLERANCE: an identical
+                        // redefinition (same params, same body text) is the
+                        // same macro reached through two import paths (e.g.
+                        // the std thread facade, defined identically in both
+                        // sa_std/thread.sa and sa_std/task/spawn/thread.sa).
+                        // Tolerate it; the first definition stands.
+                        allocator.free(parsed_params.params);
+                        idx = end;
+                        continue;
+                    }
+                    setErrorDetail(error_ctx, name);
+                    return error.DuplicateDef;
+                }
                 const owned_body_lines = try cloneOwnedSourceLines(allocator, lines[idx + 1 .. end]);
                 errdefer deinitOwnedSourceLines(allocator, owned_body_lines);
                 try macros.put(name, .{

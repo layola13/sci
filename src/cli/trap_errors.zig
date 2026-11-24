@@ -183,8 +183,16 @@ pub fn trapFromFlattenError(source_path: []const u8, source: []const u8, err: an
         error.DuplicateDef => .{
             .trap = .duplicate_def,
             .trap_code = trap.trapCode(.duplicate_def),
-            .file_buf = file_buf,
-            .file = source_path,
+            // DUPDEF-IDENTICAL-TOLERANCE: surface the conflicting symbol
+            // name (err_report.detail, recorded by the flattener via
+            // setErrorDetail) as bad_token, and attribute the file to the
+            // origin file when the duplicate lives in an imported file —
+            // mirroring the error.UndefinedMacro arm. Previously both were
+            // null/wrong: the JSON paired the root filename with the
+            // origin line number, which misattributed this trap to the
+            // root file's import line.
+            .file_buf = if (origin_is_root) file_buf else origin_file_buf,
+            .file = if (origin_is_root) source_path else null,
             .line = line_no,
             .source_line = line_no,
             .column = null,
@@ -192,7 +200,7 @@ pub fn trapFromFlattenError(source_path: []const u8, source: []const u8, err: an
             .original_text_buf = original_text_buf,
             .source_text = null,
             .original_text = null,
-            .bad_token_buf = bad_token_buf,
+            .bad_token_buf = macro_token_buf,
             .bad_token = null,
             .context = .{ .{}, .{}, .{}, .{}, .{} },
             .context_len = 0,

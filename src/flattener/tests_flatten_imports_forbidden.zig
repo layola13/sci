@@ -663,3 +663,169 @@ test "std import source cache reuses source without cloning on hit" {
     try std.testing.expect(second.owned_source == null);
     try std.testing.expectEqualStrings(first.source, second.source);
 }
+
+test "flattenFile attributes duplicate macro with different body inside an imported file to that file" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
+
+    var mod_a = try tdir.createFile("mod_a.sa", .{ .truncate = true });
+    try mod_a.writeAll(
+        \\[MACRO] FOO %x
+        \\    %x = add 1, 0
+        \\[END_MACRO]
+    );
+    mod_a.close();
+
+    var mod_b = try tdir.createFile("mod_b.sa", .{ .truncate = true });
+    try mod_b.writeAll(
+        \\[MACRO] FOO %x
+        \\    %x = add 2, 0
+        \\[END_MACRO]
+    );
+    mod_b.close();
+
+    var main_file = try tdir.createFile("main.sa", .{ .truncate = true });
+    try main_file.writeAll(
+        \\@import "mod_a.sa"
+        \\@import "mod_b.sa"
+        \\@main() -> i32:
+        \\    return 0
+    );
+    main_file.close();
+
+    const source = try tdir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    defer std.testing.allocator.free(source);
+
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "main.sa");
+    defer std.testing.allocator.free(source_path);
+    const mod_b_path = try tdir.realpathAlloc(std.testing.allocator, "mod_b.sa");
+    defer std.testing.allocator.free(mod_b_path);
+
+    var error_ctx: ErrorContext = .{};
+    try std.testing.expectError(error.DuplicateDef, flattenFileWithContext(std.testing.allocator, source_path, source, &error_ctx));
+    const report = errorReport(&error_ctx);
+    try std.testing.expectEqual(@as(?u32, 1), report.line);
+    try std.testing.expectEqualStrings(mod_b_path, report.path.?);
+    try std.testing.expectEqualStrings("FOO", report.detail.?);
+}
+
+test "flattenFile tolerates identical macro definitions across imported files" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
+
+    var mod_a = try tdir.createFile("mod_a.sa", .{ .truncate = true });
+    try mod_a.writeAll(
+        \\[MACRO] FOO %x
+        \\    %x = add 1, 0
+        \\[END_MACRO]
+    );
+    mod_a.close();
+
+    var mod_b = try tdir.createFile("mod_b.sa", .{ .truncate = true });
+    try mod_b.writeAll(
+        \\[MACRO] FOO %x
+        \\    %x = add 1, 0
+        \\[END_MACRO]
+    );
+    mod_b.close();
+
+    var main_file = try tdir.createFile("main.sa", .{ .truncate = true });
+    try main_file.writeAll(
+        \\@import "mod_a.sa"
+        \\@import "mod_b.sa"
+        \\@main() -> i32:
+        \\    return 0
+    );
+    main_file.close();
+
+    const source = try tdir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    defer std.testing.allocator.free(source);
+
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "main.sa");
+    defer std.testing.allocator.free(source_path);
+
+    var error_ctx: ErrorContext = .{};
+    var result = try flattenFileWithContext(std.testing.allocator, source_path, source, &error_ctx);
+    defer result.deinit(std.testing.allocator);
+}
+
+test "flattenFile tolerates identical #def definitions across imported files" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
+
+    var mod_a = try tdir.createFile("mod_a.sa", .{ .truncate = true });
+    try mod_a.writeAll(
+        \\#def SZ = 8
+    );
+    mod_a.close();
+
+    var mod_b = try tdir.createFile("mod_b.sa", .{ .truncate = true });
+    try mod_b.writeAll(
+        \\#def SZ = 8
+    );
+    mod_b.close();
+
+    var main_file = try tdir.createFile("main.sa", .{ .truncate = true });
+    try main_file.writeAll(
+        \\@import "mod_a.sa"
+        \\@import "mod_b.sa"
+        \\@main() -> i32:
+        \\    return 0
+    );
+    main_file.close();
+
+    const source = try tdir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    defer std.testing.allocator.free(source);
+
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "main.sa");
+    defer std.testing.allocator.free(source_path);
+
+    var error_ctx: ErrorContext = .{};
+    var result = try flattenFileWithContext(std.testing.allocator, source_path, source, &error_ctx);
+    defer result.deinit(std.testing.allocator);
+}
+
+test "flattenFile attributes duplicate #def with different value inside an imported file to that file" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    var tdir: sio.Dir = .{ .inner = tmp.dir };
+
+    var mod_a = try tdir.createFile("mod_a.sa", .{ .truncate = true });
+    try mod_a.writeAll(
+        \\#def SZ = 8
+    );
+    mod_a.close();
+
+    var mod_b = try tdir.createFile("mod_b.sa", .{ .truncate = true });
+    try mod_b.writeAll(
+        \\#def SZ = 9
+    );
+    mod_b.close();
+
+    var main_file = try tdir.createFile("main.sa", .{ .truncate = true });
+    try main_file.writeAll(
+        \\@import "mod_a.sa"
+        \\@import "mod_b.sa"
+        \\@main() -> i32:
+        \\    return 0
+    );
+    main_file.close();
+
+    const source = try tdir.readFileAlloc(std.testing.allocator, "main.sa", 4096);
+    defer std.testing.allocator.free(source);
+
+    const source_path = try tdir.realpathAlloc(std.testing.allocator, "main.sa");
+    defer std.testing.allocator.free(source_path);
+    const mod_b_path = try tdir.realpathAlloc(std.testing.allocator, "mod_b.sa");
+    defer std.testing.allocator.free(mod_b_path);
+
+    var error_ctx: ErrorContext = .{};
+    try std.testing.expectError(error.DuplicateDef, flattenFileWithContext(std.testing.allocator, source_path, source, &error_ctx));
+    const report = errorReport(&error_ctx);
+    try std.testing.expectEqual(@as(?u32, 1), report.line);
+    try std.testing.expectEqualStrings(mod_b_path, report.path.?);
+    try std.testing.expectEqualStrings("SZ", report.detail.?);
+}
