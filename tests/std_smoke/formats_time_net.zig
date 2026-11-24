@@ -246,7 +246,7 @@ test "sa_std net helpers are concrete and verifiable" {
     try std.testing.expect(std.mem.containsAtLeast(u8, net_layout, 1, "SA_NET_SOCKET_OPTION_ENABLE"));
     try std.testing.expect(std.mem.containsAtLeast(u8, net_layout, 1, "NetTcpIncoming_SIZE"));
 
-    const net_iface = try readFileAlloc(std.testing.allocator, "sa_std/net.sai");
+    const net_iface = try readFileAlloc(std.testing.allocator, "sa_std/net/socket/net.sai");
     defer std.testing.allocator.free(net_iface);
     const c_header = try readFileAlloc(std.testing.allocator, "src/runtime/sa_std.h");
     defer std.testing.allocator.free(c_header);

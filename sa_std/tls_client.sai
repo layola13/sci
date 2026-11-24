@@ -1,0 +1,4 @@
+// Phase 1 modularization shim (2026-11-24): canonical location is sa_std/net/tls_client.sai.
+// Thin forwarder only; the loader dedupes by canonical path, so importing
+// both the old and the new path in one program is safe (see src/flattener/expandimportsinto.zig: seen_paths).
+@import "net/tls_client.sai"
