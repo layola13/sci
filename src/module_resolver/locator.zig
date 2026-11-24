@@ -340,6 +340,20 @@ pub const Locator = struct {
                 rel_path = rest;
             } else {
                 // sa_std/<leaf>：无域内路径。
+                // P3B 裁決一（优先文件）：带扩展名的叶名（如 task.sai）是
+                // 一个确切文件，先试该确切文件；命中即返回，不再走域名
+                // prelude。裸叶名（sa_std/io）无扩展名，不走此分支，
+                // 仍由域名规则决定（→ 域 prelude）。
+                // is_shim=false：确切文件按规范路径处理（与第 1 步一致）；
+                // 顶层真实文件（如 task.sai，0 行 @import）不能标 shim，
+                // 否则懒加载器会按 shim 契约报 MalformedShim。
+                if (knownExtension(rest) != null) {
+                    var root = try self.openRoot();
+                    defer root.close();
+                    if (fileExists(root, rest)) {
+                        return self.makeInfo(spec, rest, false);
+                    }
+                }
                 // 域名优先：`sa_std/io` 是模块级导入 → 域 prelude。
                 const leaf_base = stripKnownExtension(rest);
                 if (findDomain(leaf_base) != null) {

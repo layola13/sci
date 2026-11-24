@@ -681,13 +681,16 @@ fn resolveRootedImport(
     return resolved;
 }
 
-/// parseImportSpec 的 AmbiguousImport 回退：文件侧与目录 prelude 并存只是
-/// 分类歧义，定位本身是确定性的（规范路径优先、域 prelude 其次），故用 kind=.module 重试；package 取字面量 "sa_std"。
+/// parseImportSpec 的 AmbiguousImport 回退（P3B 裁決一：优先文件）：
+/// 文件侧与目录 prelude 并存只是分类歧义，定位本身是确定性的
+/// （规范路径优先），故用 kind=.symbol 重试；package 取字面量 "sa_std"。
+/// 注：spec.zig 接线后 classifyImport 不再对 .both 报 AmbiguousImport，
+/// 本回退目前不可达；保留作纵深防御，万一歧义重现仍按文件优先处理。
 fn fallbackModuleSpec(allocator: std.mem.Allocator, import_path: []const u8) ResolveError!module_spec.ImportSpec {
     const raw = try allocator.dupe(u8, import_path);
     errdefer allocator.free(raw);
     const path = try allocator.dupe(u8, import_path);
-    return .{ .raw = raw, .kind = .module, .package = "sa_std", .path = path, .symbol = null, .version = null };
+    return .{ .raw = raw, .kind = .symbol, .package = "sa_std", .path = path, .symbol = null, .version = null };
 }
 
 /// 经 Locator.locate 定位后复用既有 resolveRootedImport 读文件并算哈希，
