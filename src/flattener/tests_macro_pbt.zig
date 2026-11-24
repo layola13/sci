@@ -247,6 +247,23 @@ test "duplicate macro definitions are rejected" {
     try std.testing.expectError(error.DuplicateDef, flatten(std.testing.allocator, source));
 }
 
+test "identical macro definitions are tolerated" {
+    const source =
+        \\[MACRO] DUP %x
+        \\    %x = add 1, 0
+        \\[END_MACRO]
+        \\[MACRO] DUP %x
+        \\    %x = add 1, 0
+        \\[END_MACRO]
+        \\
+        \\@main() -> i32:
+        \\    return 0
+    ;
+
+    var result = try flatten(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+}
+
 test "macro PBT rejects invalid definitions and invocations" {
     var prng = std.Random.DefaultPrng.init(0x5A5A_6A11);
     const random = prng.random();

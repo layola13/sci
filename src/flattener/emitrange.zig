@@ -23,6 +23,7 @@ const ensureRepExpansionBudget = @import("importexpansion.zig").ensureRepExpansi
 const expandImports = @import("expandimportsinto.zig").expandImports;
 const expandPrintOrFormat = @import("expandprintorformat.zig").expandPrintOrFormat;
 const expandSourceLocationMacro = @import("emitparsedline.zig").expandSourceLocationMacro;
+const findBlockEnd = @import("renderwithtokenreplacements.zig").findBlockEnd;
 const findNestedIfBounds = @import("renderwithtokenreplacements.zig").findNestedIfBounds;
 const findNestedRepEnd = @import("renderwithtokenreplacements.zig").findNestedRepEnd;
 const includeFileAsConst = @import("emitparsedline.zig").includeFileAsConst;
@@ -245,15 +246,36 @@ pub fn emitRange(
                 if (should_render) {
                     const rendered = try renderWithTokenReplacements(allocator, line.text, replacements);
                     try owned_text.append(rendered);
-                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, rendered, source_line, instructions, const_decls, function_sigs, owned_text, effective_package_identity, line.package_source_sha256 orelse current_package_hash);
+                    emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, rendered, source_line, instructions, const_decls, function_sigs, owned_text, effective_package_identity, line.package_source_sha256 orelse current_package_hash) catch |err| {
+                        // DUPDEF-IDENTICAL-TOLERANCE: name the conflicting
+                        // #def / #npm_bind in the diagnostic, mirroring the
+                        // UndefinedMacro precedent at the EXPAND site below.
+                        // emitParsedLine has no error context of its own, so
+                        // the name is recorded here, where the line's
+                        // classification (and the error context) are in scope.
+                        if (err == error.DuplicateDef and (line.classified.kind == .def or line.classified.kind == .npm_bind)) setErrorDetail(error_ctx, line.classified.parts[0]);
+                        return err;
+                    };
                 } else {
-                    try emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, line.text, source_line, instructions, const_decls, function_sigs, owned_text, effective_package_identity, line.package_source_sha256 orelse current_package_hash);
+                    emitParsedLine(allocator, dict, symbols, loc_table, pending_loc, line.text, source_line, instructions, const_decls, function_sigs, owned_text, effective_package_identity, line.package_source_sha256 orelse current_package_hash) catch |err| {
+                        if (err == error.DuplicateDef and (line.classified.kind == .def or line.classified.kind == .npm_bind)) setErrorDetail(error_ctx, line.classified.parts[0]);
+                        return err;
+                    };
                 }
             },
             .macro_start => {
                 if (!top_level) return error.InvalidMacroDefinitionContext;
-                const def = macros.get(line.classified.parts[0]) orelse return error.InvalidMacroInvocation;
-                idx = def.body_end;
+                _ = macros.get(line.classified.parts[0]) orelse return error.InvalidMacroInvocation;
+                // DUPDEF-IDENTICAL-TOLERANCE: skip to THIS definition's own
+                // matching .macro_end. The map lookup above only validates
+                // that the macro exists; its body_end belongs to the FIRST
+                // definition, so jumping to it for a tolerated identical
+                // redefinition moves idx BACKWARD (the first definition ends
+                // before the second one starts) and emitRange loops forever
+                // re-processing the second [MACRO] line. findBlockEnd gives
+                // the current definition's end in both cases (identical to
+                // def.body_end for a first definition on the same lines).
+                idx = findBlockEnd(lines, idx + 1, .macro_end) orelse return error.UnbalancedMacro;
             },
             .macro_end => return error.UnbalancedMacro,
             .rep_start => {

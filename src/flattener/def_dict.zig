@@ -39,13 +39,30 @@ pub const DefDict = struct {
     }
 
     pub fn putExpression(self: *DefDict, name: []const u8, expr: []const u8) DefError!void {
-        if (self.entries.contains(name)) { std.debug.print("[sa debug] DefDict.putExpression DuplicateDef for name: {s}\n", .{name}); return DefError.DuplicateDef; }
-
         const value = try self.evalExpression(std.mem.trim(u8, stripInlineComment(expr), " \t\r"), 0);
-        const key_copy = try self.allocator.dupe(u8, name);
         const value_copy = try std.fmt.allocPrint(self.allocator, "{d}", .{value});
-        errdefer self.allocator.free(key_copy);
         errdefer self.allocator.free(value_copy);
+        if (self.entries.get(name)) |existing| {
+            // DUPDEF-IDENTICAL-TOLERANCE: a #def reached twice through two
+            // import paths (e.g. the same .sal file inlined twice, or the
+            // same constant defined identically in two std files) is one
+            // definition, not a conflict — tolerate it when the evaluated
+            // values agree. This mirrors mergeDefDictAllowingIdentical,
+            // which already tolerates identical entries when merging cached
+            // fragments; the live .def line path came through here instead.
+            // A redefinition with a different value is still DuplicateDef.
+            // Note: the expression is evaluated before the duplicate check,
+            // so a redefinition with an invalid expression now reports the
+            // evaluation error instead of DuplicateDef.
+            if (std.mem.eql(u8, existing, value_copy)) {
+                self.allocator.free(value_copy);
+                return;
+            }
+            std.debug.print("[sa debug] DefDict.putExpression DuplicateDef for name: {s}\n", .{name});
+            return DefError.DuplicateDef;
+        }
+        const key_copy = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(key_copy);
         try self.entries.put(key_copy, value_copy);
     }
 
