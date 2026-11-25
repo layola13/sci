@@ -4,6 +4,9 @@
 pub const LlvmcError = @import("emit_llvm_llvmc/sa_llvmc_free.zig").LlvmcError;
 pub const EmitOptions = @import("emit_llvm_llvmc/sa_llvmc_free.zig").EmitOptions;
 pub const lastErrorMessage = @import("emit_llvm_llvmc/sa_llvmc_free.zig").lastErrorMessage;
+pub const sa_llvmc_init_native_target = @import("emit_llvm_llvmc/sa_llvmc_free.zig").sa_llvmc_init_native_target;
+pub const sa_llvmc_free = @import("emit_llvm_llvmc/sa_llvmc_free.zig").sa_llvmc_free;
+pub const recordLlvmcError = @import("emit_llvm_llvmc/sa_llvmc_free.zig").recordLlvmcError;
 pub const emitLlvmc = @import("emit_llvm_llvmc/emit_llvmc_internal.zig").emitLlvmc;
 pub const emitLlvmcToObject = @import("emit_llvm_llvmc/emit_llvmc_internal.zig").emitLlvmcToObject;
 pub const emitLlvmcToArtifacts = @import("emit_llvm_llvmc/emit_llvmc_internal.zig").emitLlvmcToArtifacts;

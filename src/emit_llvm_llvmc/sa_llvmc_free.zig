@@ -17,6 +17,7 @@ pub extern fn sa_llvmc_make_minimal_module_bitcode(out_bytes: *?[*]u8, out_len: 
 pub extern fn sa_llvmc_emit_module_bitcode(module: *const CModule, opt_level: c_int, out_bytes: *?[*]u8, out_len: *usize, out_error: *?[*:0]u8) callconv(.c) i32;
 pub extern fn sa_llvmc_emit_module_object(module: *const CModule, out_path: [*:0]const u8, opt_level: c_int, out_error: *?[*:0]u8) callconv(.c) i32;
 pub extern fn sa_llvmc_emit_module_artifacts(module: *const CModule, out_bitcode_path: [*:0]const u8, out_object_path: [*:0]const u8, opt_level: c_int, out_error: *?[*:0]u8) callconv(.c) i32;
+pub extern fn sa_llvmc_init_native_target(out_error: *?[*:0]u8) callconv(.c) i32;
 
 pub const LlvmcError = error{ Failed, InvalidOperand, UnsupportedType, UnknownFunction, UnsupportedInstruction, UnsupportedVariadic };
 pub const EmitOptions = emit_options.EmitOptions;

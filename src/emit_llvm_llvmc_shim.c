@@ -524,6 +524,46 @@ static void normalize_triple_for_llvm(const char *triple, char *out, size_t out_
     snprintf(out, out_len, "%s", triple);
 }
 
+/* DEF-SCI-BUILDEXE-LLVM-TARGET-HANG (xxxv): llvm::TargetRegistry
+ * first use is not thread-safe; when the main thread and the CGU
+ * workers each hit LLVMGetTargetFromTriple first (via
+ * apply_native_target_layout below) they spin forever in
+ * TargetRegistry::lookupTarget. The main thread calls this once
+ * BEFORE dispatching CGU workers (see executeBuildExe) so the
+ * registry is already initialized and every worker's lookup is a
+ * plain lookup. Idempotent: later calls are a no-op (the flag is
+ * only set on success). MUST only be called from the main thread
+ * before any worker is spawned. Returns 0 on success, non-zero
+ * with *out_error set (same convention as the other sa_llvmc_*
+ * entry points). */
+int sa_llvmc_init_native_target(char **out_error) {
+    static int initialized = 0;
+    if (initialized) return 0;
+
+    /* Initialize every LLVM target, not just the host one, exactly
+     * like apply_native_target_layout does. */
+    LLVMInitializeAllTargetInfos();
+    LLVMInitializeAllTargets();
+    LLVMInitializeAllTargetMCs();
+    LLVMInitializeAllAsmPrinters();
+
+    /* Force the registry's first lookup on this thread, with the
+     * native (default) triple. */
+    char *triple = LLVMGetDefaultTargetTriple();
+    if (triple == NULL) return set_error(out_error, "LLVMGetDefaultTargetTriple failed");
+    LLVMTargetRef target;
+    char *err_msg = NULL;
+    if (LLVMGetTargetFromTriple(triple, &target, &err_msg)) {
+        int status = set_error(out_error, err_msg ? err_msg : "target lookup failed");
+        if (err_msg) LLVMDisposeMessage(err_msg);
+        LLVMDisposeMessage(triple);
+        return status;
+    }
+    LLVMDisposeMessage(triple);
+    initialized = 1;
+    return 0;
+}
+
 static int apply_native_target_layout(EmitCtx *e, char **out_error) {
     if (e == NULL || e->module == NULL || e->wasm_compat) return 0;
 
