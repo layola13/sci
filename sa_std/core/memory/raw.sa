@@ -195,6 +195,43 @@ L_DONE:
     !dst
     return
 
+// Realloc bound to the platform realloc (Vec fix line, commit 1).
+// Declared plainly (no target-conditional wrapper): the probe's
+// realloc.sai used this exact form and linked to libc. The size
+// parameter is a C size_t (u64 on native).
+@extern realloc(^p: ptr, size: u64) -> ptr
+
+// Realloc-bound buffer growth (Vec fix line, commit 1). Grows the
+// buffer owned by `old` to `size` bytes via the platform realloc and
+// returns the (possibly moved) buffer. The old pointer is CONSUMED
+// (^old): after a successful realloc it is invalid -- the caller must
+// use only the returned pointer. realloc(NULL, size) behaves like
+// malloc(size), so a never-allocated (null) buffer grows cleanly.
+// Ownership (CRITICAL, proven 2026-11-24): the ^old parameter must be
+// MOVED onward into realloc (^old in the call) with NO `!old` after.
+// Passing `old` plain is a borrow, so the emitter still owns the ^
+// parameter and lowers `!old` to a REAL free(old) -- freeing a block
+// realloc already consumed (double free + the first 16 bytes of the
+// live buffer corrupted). The plain+! form failed minrealloc5 with
+// garbage; the ^move form passes CHECK.
+// Failure contract (DM 8688: a realloc failure must not leak or
+// corrupt the old buffer): realloc returns NULL with the old buffer
+// INTACT, so this wrapper panics(1704) LOUDLY on NULL *before* the
+// caller can overwrite its header or free anything -- the old buffer
+// is never lost, never freed, never overwritten. The process aborts
+// with the buffer still valid.
+@export sa_mem_realloc(^old: ptr, size: u64) -> ptr:
+L_ENTRY:
+    new_ptr = call @realloc(^old, size)
+    failed = eq new_ptr, 0
+    br failed -> L_REALLOC_FAIL, L_REALLOC_OK
+L_REALLOC_FAIL:
+    panic(1704)
+L_REALLOC_OK:
+    !failed
+    !size
+    return new_ptr
+
 [MACRO] BOX_NEW %out_box, %value
     %out_box = alloc Box_SIZE
     store %out_box+Box_value, %value as u64

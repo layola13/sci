@@ -1552,6 +1552,16 @@ L_VEC_PEEK_MUT_END_%out_ok:
     EXPAND VEC_PUSH %vec_reg, %value, 8
 [END_MACRO]
 
+// Unchecked push (Vec fix line, commit 3, variant (b)): caller guarantees
+// len < cap; no capacity check, never grows. See sa_vec_push_unchecked.
+[MACRO] VEC_PUSH_UNCHECKED %vec_reg, %value, %elem_size
+    %vec_reg = call @sa_vec_push_unchecked(^%vec_reg, %value, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_PUSH_UNCHECKED_U64 %vec_reg, %value
+    EXPAND VEC_PUSH_UNCHECKED %vec_reg, %value, 8
+[END_MACRO]
+
 [MACRO] VEC_PUSH_MUT %out_ptr, %vec_reg, %value, %elem_size
     EXPAND VEC_PUSH %vec_reg, %value, %elem_size
     __vec_push_mut_ptr_%out_ptr = load %vec_reg+Vec_ptr as ptr
@@ -1944,6 +1954,14 @@ L_VEC_POP_IF_MUT_END_%out_ok:
 
 [MACRO] VEC_WITH_CAPACITY_U64 %out_vec, %cap
     EXPAND VEC_WITH_CAPACITY %out_vec, %cap, 8
+[END_MACRO]
+
+[MACRO] VEC_WITH_CAPACITY_NOZERO %out_vec, %cap, %elem_size
+    %out_vec = call @sa_vec_with_capacity_nozero(%cap, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_WITH_CAPACITY_NOZERO_U64 %out_vec, %cap
+    EXPAND VEC_WITH_CAPACITY_NOZERO %out_vec, %cap, 8
 [END_MACRO]
 
 [MACRO] VEC_TRY_WITH_CAPACITY %out_ok, %out_vec, %cap, %elem_size

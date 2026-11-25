@@ -10,10 +10,13 @@
 //     the knife-2 component probe).
 //   * Incremental growth goes through sa_vec_reserve_grow /
 //     sa_vec_extend / sa_vec_extend_vec: geometric sequence
-//     (0 -> 4, then doubling; new_cap = max(needed, geo)), a single
-//     copy of the live range, and NO zero-fill promise for the
-//     capacity region [len, cap) -- the same observable surface the
-//     push growth path has always had (push never zeroed either).
+//     (0 -> 4, then doubling; new_cap = max(needed, geo)), grown in
+//     place via realloc when possible (no copy, no free on the
+//     growth path -- Vec fix line, commit 1), and NO zero-fill
+//     promise for the capacity region [len, cap) -- the same
+//     observable surface the push growth path has always had (push
+//     never zeroed either). sa_vec_extend / sa_vec_extend_vec keep
+//     their own malloc+copy growth (out of scope for commit 1).
 //   * sa_vec_push grows on the same geometric sequence (0 -> 4,
 //     doubling) since this batch (Jev F3 ruling A: one sequence on
 //     host, device and the new primitives).
@@ -47,6 +50,49 @@ L_SIZE_OK:
 L_ALLOC:
     buf = alloc bytes
     call @sa_mem_set(&buf, 0, bytes)
+    store vec+Vec_ptr, buf as ptr
+    store vec+Vec_cap, cap as u64
+    store vec+Vec_len, 0 as u64
+    ^buf
+    !bytes
+    !bytes_ok
+    !has_bytes
+    !cap
+    !elem_size
+    return vec
+L_EMPTY:
+    store vec+Vec_ptr, 0 as ptr
+    store vec+Vec_cap, cap as u64
+    store vec+Vec_len, 0 as u64
+    !bytes
+    !bytes_ok
+    !has_bytes
+    !cap
+    !elem_size
+    return vec
+
+// Vec fix line, commit 2: no-zero preallocation.
+// sa_vec_with_capacity_nozero allocates a Vec with the requested capacity
+// WITHOUT zeroing the data buffer (unlike sa_vec_with_capacity, which
+// memsets the whole buffer). Returns len=0; the capacity region [0, cap)
+// is uninitialized and NEVER readable through the Vec API (len=0, and
+// push writes each slot before bumping len; direct-write callers must
+// set len only after filling). Use only when the caller fills every slot
+// before reading. The growth path (push -> sa_vec_reserve_grow -> realloc)
+// does not zero either, so the no-zero property holds for the lifetime
+// of the Vec. Callers that need zeroed memory must use sa_vec_with_capacity.
+@export sa_vec_with_capacity_nozero(cap: u64, elem_size: u64) -> ^ptr:
+L_ENTRY:
+    vec = alloc Vec_SIZE
+    EXPAND NUM_U64_CHECKED_MUL bytes_ok, bytes, cap, elem_size
+    br bytes_ok -> L_SIZE_OK, L_SIZE_OVERFLOW
+L_SIZE_OVERFLOW:
+    panic(1201)
+L_SIZE_OK:
+    has_bytes = ne bytes, 0
+    br has_bytes -> L_ALLOC, L_EMPTY
+L_ALLOC:
+    buf = alloc bytes
     store vec+Vec_ptr, buf as ptr
     store vec+Vec_cap, cap as u64
     store vec+Vec_len, 0 as u64
@@ -182,7 +228,7 @@ L_RESERVE_DONE:
 // (string byte pushes at elem_size 1, UTF-16 unit pushes at 2).
 @export sa_vec_push(^vec: ptr, value: u64, elem_size: u64) -> ^ptr:
 L_ENTRY:
-    buf = take vec+Vec_ptr
+    buf = load vec+Vec_ptr as ptr
     len = load vec+Vec_len as u64
     cap = load vec+Vec_cap as u64
     needs_grow = eq len, cap
@@ -205,32 +251,29 @@ L_GROW_CAP_OVERFLOW:
 
 L_GROW_ALLOC:
     EXPAND NUM_U64_CHECKED_MUL next_cap_bytes_ok, next_cap_bytes, next_cap, elem_size
-    br next_cap_bytes_ok -> L_GROW_COPY_SIZE, L_GROW_BYTES_OVERFLOW
+    br next_cap_bytes_ok -> L_GROW_REALLOC, L_GROW_BYTES_OVERFLOW
 
 L_GROW_BYTES_OVERFLOW:
     panic(1206)
 
-L_GROW_COPY_SIZE:
-    next_ptr = alloc next_cap_bytes
-    EXPAND NUM_U64_CHECKED_MUL copy_bytes_ok, copy_bytes, len, elem_size
-    br copy_bytes_ok -> L_GROW_COPY, L_GROW_COPY_OVERFLOW
-
-L_GROW_COPY_OVERFLOW:
-    panic(1207)
-
-L_GROW_COPY:
-    // Task 130: the push growth copy used the byte-loop @sa_mem_copy
-    // (mem.sa: measured ~5 ms/MiB vs ~0.04 ms for memcpy); the growth
-    // dst is a fresh alloc so src/dst cannot overlap -- use the
-    // memcpy-bound face, as sa_vec_reserve_grow / sa_vec_extend
-    // already do for their growth copies.
-    call @sa_mem_copy_nonoverlapping(&next_ptr, &buf, copy_bytes)
+L_GROW_REALLOC:
+    // Vec fix line, commit 1: growth is realloc, not malloc+memcpy+free.
+    // sa_mem_realloc preserves the live range in place when it can and
+    // moves it when it must; there is no copy and no free on this path.
+    // On realloc failure sa_mem_realloc panics(1704) with the old buffer
+    // intact -- vec+Vec_ptr is only overwritten after a successful
+    // return, so a failed growth never loses or corrupts the buffer.
+    // realloc(NULL, size) == malloc(size), so a fresh (null) buffer
+    // grows cleanly.
+    next_ptr = call @sa_mem_realloc(^buf, next_cap_bytes)
     store vec+Vec_ptr, next_ptr as ptr
     store vec+Vec_cap, next_cap as u64
-    call @sa_mem_free(^buf)
     jmp L_WRITE_GROW
 L_REUSE:
-    store vec+Vec_ptr, buf as ptr
+    // (Vec fix line, commit 3, variant (a)): buf is a LOAD now, so the
+    // header field was never consumed and needs no restore. The
+    // per-iteration header write-back is dropped; this block is a
+    // pass-through to the write path.
     jmp L_WRITE_REUSE
 L_WRITE_GROW:
     write_off = mul len, elem_size
@@ -264,8 +307,6 @@ L_GROW_WDONE:
     !write_ptr
     !write_off
     !next_len
-    !copy_bytes_ok
-    !copy_bytes
     !next_cap_bytes_ok
     !next_cap_bytes
     !next_cap_ok
@@ -317,6 +358,58 @@ L_REUSE_WDONE:
     !needs_grow
     return vec
 
+// Unchecked push (Vec fix line, commit 3, variant (b)).
+// Same as sa_vec_push but WITHOUT the capacity check: the caller
+// guarantees len < cap, so the push never grows. The buffer pointer
+// is loaded (not taken) exactly as in sa_vec_push after variant (a);
+// there is no reuse-path header write-back.
+// Calling this with len >= cap writes past the buffer (memory
+// corruption). Only callers that preallocate exactly and push a known
+// count may use it (e.g. the memsteady presize/nozero fill loops,
+// which preallocate 262144 and push exactly 262144 times).
+// The elem_size dispatch and the len bump are identical to
+// sa_vec_push's reuse path.
+@export sa_vec_push_unchecked(^vec: ptr, value: u64, elem_size: u64) -> ^ptr:
+L_U_ENTRY:
+    buf = load vec+Vec_ptr as ptr
+    len = load vec+Vec_len as u64
+    write_off = mul len, elem_size
+    write_ptr = ptr_add buf, write_off
+    w_is1 = eq elem_size, 1
+    w_is2 = eq elem_size, 2
+    w_is4 = eq elem_size, 4
+    br w_is1 -> L_U_W1, L_U_N1
+L_U_N1:
+    br w_is2 -> L_U_W2, L_U_N2
+L_U_N2:
+    br w_is4 -> L_U_W4, L_U_W8
+L_U_W1:
+    store write_ptr+0, value as u8
+    jmp L_U_WDONE
+L_U_W2:
+    store write_ptr+0, value as u16
+    jmp L_U_WDONE
+L_U_W4:
+    store write_ptr+0, value as u32
+    jmp L_U_WDONE
+L_U_W8:
+    store write_ptr+0, value as u64
+    jmp L_U_WDONE
+L_U_WDONE:
+    !w_is1
+    !w_is2
+    !w_is4
+    next_len = add len, 1
+    store vec+Vec_len, next_len as u64
+    !write_ptr
+    !write_off
+    !next_len
+    !buf
+    !value
+    !elem_size
+    !len
+    return vec
+
 // Task 144 (P1 shape (b), D1): borrow-form push that HANDS BACK the
 // old buffer to the caller instead of freeing it (the 137 borrow twin
 // leaks: its `!buf` lowers to nothing, and a real free inside the callee
@@ -324,6 +417,10 @@ L_REUSE_WDONE:
 // Returns the old buffer when the push grew, null (0) when it reused the
 // capacity. The caller frees the returned value with @sa_mem_free, which
 // is a safe no-op on null (core_export.zig: `if (ptr) |p| std.c.free(p)`).
+// Vec fix line, commit 1: growth is realloc now, so the grow path ALSO
+// returns null -- realloc consumed the old buffer (grew it in place or
+// moved it), so there is no old buffer to hand back. The caller-side
+// free stays a no-op on null; VEC_PUSH_STACK_B is unaffected.
 // The returned value is a plain active pointer (ret_cap .move), so the
 // caller-side free is verifier-legal; the borrow itself is released
 // (`!vec`) before either return, as in sa_vec_push_borrow.
@@ -335,7 +432,7 @@ L_REUSE_WDONE:
 // so it survives `!vec` and the return skips the consume logic entirely.
 @export sa_vec_push_borrow_ret(&vec: ptr, value: u64, elem_size: u64) -> ^ptr:
 L_ENTRY:
-    buf = take vec+Vec_ptr
+    buf = load vec+Vec_ptr as ptr
     len = load vec+Vec_len as u64
     cap = load vec+Vec_cap as u64
     needs_grow = eq len, cap
@@ -358,32 +455,25 @@ L_GROW_CAP_OVERFLOW:
 
 L_GROW_ALLOC:
     EXPAND NUM_U64_CHECKED_MUL next_cap_bytes_ok, next_cap_bytes, next_cap, elem_size
-    br next_cap_bytes_ok -> L_GROW_COPY_SIZE, L_GROW_BYTES_OVERFLOW
+    br next_cap_bytes_ok -> L_GROW_REALLOC, L_GROW_BYTES_OVERFLOW
 
 L_GROW_BYTES_OVERFLOW:
     panic(1206)
 
-L_GROW_COPY_SIZE:
-    next_ptr = alloc next_cap_bytes
-    EXPAND NUM_U64_CHECKED_MUL copy_bytes_ok, copy_bytes, len, elem_size
-    br copy_bytes_ok -> L_GROW_COPY, L_GROW_COPY_OVERFLOW
-
-L_GROW_COPY_OVERFLOW:
-    panic(1207)
-
-L_GROW_COPY:
-    // Task 130: the push growth copy used the byte-loop @sa_mem_copy
-    // (mem.sa: measured ~5 ms/MiB vs ~0.04 ms for memcpy); the growth
-    // dst is a fresh alloc so src/dst cannot overlap -- use the
-    // memcpy-bound face, as sa_vec_reserve_grow / sa_vec_extend
-    // already do for their growth copies.
-    old_buf = load vec+Vec_ptr as ptr
-    call @sa_mem_copy_nonoverlapping(&next_ptr, &buf, copy_bytes)
+L_GROW_REALLOC:
+    // Vec fix line, commit 1: growth is realloc (see sa_vec_push).
+    // There is no old buffer to hand back: realloc consumed it (grew
+    // it in place or moved it), so the grow path returns null like
+    // the reuse path -- the caller-side free is a no-op on null.
+    next_ptr = call @sa_mem_realloc(^buf, next_cap_bytes)
     store vec+Vec_ptr, next_ptr as ptr
     store vec+Vec_cap, next_cap as u64
     jmp L_WRITE_GROW
 L_REUSE:
-    store vec+Vec_ptr, buf as ptr
+    // (Vec fix line, commit 3, variant (a)): buf is a LOAD now, so the
+    // header field was never consumed and needs no restore. The
+    // per-iteration header write-back is dropped; this block is a
+    // pass-through to the write path.
     jmp L_WRITE_REUSE
 L_WRITE_GROW:
     write_off = mul len, elem_size
@@ -417,8 +507,6 @@ L_GROW_WDONE:
     !write_ptr
     !write_off
     !next_len
-    !copy_bytes_ok
-    !copy_bytes
     !next_cap_bytes_ok
     !next_cap_bytes
     !next_cap_ok
@@ -430,7 +518,8 @@ L_GROW_WDONE:
     !len
     !needs_grow
     !vec
-    return old_buf
+    grow_null = 0 as ptr
+    return grow_null
 L_WRITE_REUSE:
     write_off = mul len, elem_size
     write_ptr = ptr_add buf, write_off
@@ -1141,28 +1230,18 @@ L_CAP_NEEDED:
 L_GROW_ALLOC:
     old_buf = take vec+Vec_ptr
     EXPAND NUM_U64_CHECKED_MUL new_bytes_ok, new_bytes, new_cap, elem_size
-    br new_bytes_ok -> L_ALLOC, L_BYTES_OVERFLOW
+    br new_bytes_ok -> L_REALLOC, L_BYTES_OVERFLOW
 
 L_BYTES_OVERFLOW:
     panic(1217)
 
-L_ALLOC:
-    new_buf = alloc new_bytes
-    EXPAND NUM_U64_CHECKED_MUL copy_bytes_ok, copy_bytes, len, elem_size
-    br copy_bytes_ok -> L_COPY, L_COPY_OVERFLOW
-
-L_COPY_OVERFLOW:
-    panic(1218)
-
-L_COPY:
-    call @sa_mem_copy_nonoverlapping(&new_buf, &old_buf, copy_bytes)
+L_REALLOC:
+    // Vec fix line, commit 1: growth is realloc (see sa_vec_push).
+    new_buf = call @sa_mem_realloc(^old_buf, new_bytes)
     store vec+Vec_ptr, new_buf as ptr
     store vec+Vec_cap, new_cap as u64
-    !copy_bytes_ok
-    !copy_bytes
     !new_bytes_ok
     !new_bytes
-    call @sa_mem_free(^old_buf)
     ^new_buf
     !geo_wins
     !new_cap
