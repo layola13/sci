@@ -568,6 +568,19 @@ pub fn timerMain() void {
                 timeout_ns = @intCast(delta);
             }
         }
+        // DEF-134-FUTEX: same re-check as carrierMain. A timerAdd
+        // bump in the fireTimers/deadline window would make this
+        // wait return EAGAIN at once, and a zero timeout (deadline
+        // already past) can only return at once. Skip the syscall
+        // and re-poll; when the word moved, adopt the fresh value
+        // so the next wait compares correctly (fireTimers at the
+        // loop top services any newly armed timer).
+        if (timeout_ns == 0) continue;
+        const cur = timer_wake_word.load(.acquire);
+        if (cur != observed) {
+            observed = cur;
+            continue;
+        }
         futexWait(&timer_wake_word, observed, timeout_ns);
         observed = timer_wake_word.load(.acquire);
     }

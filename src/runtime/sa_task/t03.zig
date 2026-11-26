@@ -323,6 +323,26 @@ pub fn carrierMain(c: *Carrier) void {
             continue;
         }
         c.empty_passes += 1;
+        // DEF-134-FUTEX (2026-11-26): re-check wake_word immediately
+        // before the syscall. The snapshot w predates the last
+        // findWork + deadline computation; any enqueue in that
+        // window bumped the word, and the futex call would return
+        // EAGAIN at once (measured: ~50% of carrier parks, 2,813
+        // of 5,657 in the futex-split trace). A fresh load that
+        // differs from w means work arrived — skip the syscall
+        // and re-poll. A zero timeout means a deadline is already
+        // past; the call could only return at once, so skip it
+        // too (fireTimers at the loop top services the deadline).
+        if (t02.wake_word.load(.acquire) != w) {
+            _ = t02.idle_carriers.fetchSub(1, .acq_rel);
+            continue;
+        }
+        if (timeout_ns) |t| {
+            if (t == 0) {
+                _ = t02.idle_carriers.fetchSub(1, .acq_rel);
+                continue;
+            }
+        }
         futexWait(&t02.wake_word, w, timeout_ns);
         _ = t02.idle_carriers.fetchSub(1, .acq_rel);
     }
