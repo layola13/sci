@@ -8,3 +8,23 @@
 @extern sa_math_cos(x: f64) -> f64
 @extern sa_math_pow(base: f64, exp: f64) -> f64
 @extern sa_math_random() -> f64
+// S1 libm completion (psa_std substrate): exp/log family, trig
+// completion, hyperbolics, and frexp decomposition. Same contract:
+// pure functions over f64. frexp writes the exponent (i32) through
+// its out-pointer and returns the significand in [0.5, 1) (0 for 0).
+@extern sa_math_exp(x: f64) -> f64
+@extern sa_math_log(x: f64) -> f64
+@extern sa_math_log10(x: f64) -> f64
+@extern sa_math_log2(x: f64) -> f64
+@extern sa_math_tan(x: f64) -> f64
+@extern sa_math_asin(x: f64) -> f64
+@extern sa_math_acos(x: f64) -> f64
+@extern sa_math_atan(x: f64) -> f64
+@extern sa_math_atan2(y: f64, x: f64) -> f64
+@extern sa_math_hypot(x: f64, y: f64) -> f64
+@extern sa_math_sinh(x: f64) -> f64
+@extern sa_math_cosh(x: f64) -> f64
+@extern sa_math_tanh(x: f64) -> f64
+@extern sa_math_expm1(x: f64) -> f64
+@extern sa_math_log1p(x: f64) -> f64
+@extern sa_math_frexp(x: f64, &exp_out: ptr) -> f64

@@ -541,6 +541,66 @@ pub fn emitShim(writer: anytype, name: []const u8) !bool {
         );
         return true;
     }
+    if (std.mem.eql(u8, name, "sa_math_acos")) {
+        try writer.writeAll("function sa_math_acos(x) { return Math.acos(x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_asin")) {
+        try writer.writeAll("function sa_math_asin(x) { return Math.asin(x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_atan")) {
+        try writer.writeAll("function sa_math_atan(x) { return Math.atan(x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_atan2")) {
+        try writer.writeAll("function sa_math_atan2(y, x) { return Math.atan2(y, x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_cosh")) {
+        try writer.writeAll("function sa_math_cosh(x) { return Math.cosh(x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_exp")) {
+        try writer.writeAll("function sa_math_exp(x) { return Math.exp(x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_expm1")) {
+        try writer.writeAll("function sa_math_expm1(x) { return Math.expm1(x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_hypot")) {
+        try writer.writeAll("function sa_math_hypot(x, y) { return Math.hypot(x, y); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_log")) {
+        try writer.writeAll("function sa_math_log(x) { return Math.log(x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_log10")) {
+        try writer.writeAll("function sa_math_log10(x) { return Math.log10(x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_log1p")) {
+        try writer.writeAll("function sa_math_log1p(x) { return Math.log1p(x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_log2")) {
+        try writer.writeAll("function sa_math_log2(x) { return Math.log2(x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_sinh")) {
+        try writer.writeAll("function sa_math_sinh(x) { return Math.sinh(x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_tan")) {
+        try writer.writeAll("function sa_math_tan(x) { return Math.tan(x); }\n");
+        return true;
+    }
+    if (std.mem.eql(u8, name, "sa_math_tanh")) {
+        try writer.writeAll("function sa_math_tanh(x) { return Math.tanh(x); }\n");
+        return true;
+    }
     if (std.mem.eql(u8, name, "sa_math_sin")) {
         try writer.writeAll("function sa_math_sin(x) { return Math.sin(x); }\n");
         return true;
