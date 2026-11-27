@@ -45,6 +45,14 @@ static LLVMValueRef sa_fast_float(unsigned char fast_math, LLVMValueRef v) {
 
 typedef enum { SA_T_VOID=0, SA_T_I1=1, SA_T_I8=2, SA_T_I16=3, SA_T_I32=4, SA_T_I64=5, SA_T_F32=6, SA_T_F64=7, SA_T_PTR=8, SA_T_U8=9, SA_T_U16=10, SA_T_U32=11, SA_T_U64=12 } SaType;
 typedef enum { SA_F_NORMAL=0, SA_F_EXTERNAL=1, SA_F_EXPORTED=2, SA_F_TEST=3 } SaFuncKind;
+/* jihoo-attr (task 2): parameter capability, mirrors the Zig CapPrefix
+   enum in src/common/instruction.zig (by_value=0, borrow=1, move=2,
+   raw=3). Carried in SaParam.cap so the declaration loop can add the
+   Referee-guaranteed LLVM parameter attributes. */
+#define SA_CAP_BY_VALUE 0
+#define SA_CAP_BORROW 1
+#define SA_CAP_MOVE 2
+#define SA_CAP_RAW 3
 typedef enum { SA_OP_NONE=0, SA_OP_LABEL=1, SA_OP_ALLOC=2, SA_OP_STACK_ALLOC=3, SA_OP_LOAD=4, SA_OP_STORE=5, SA_OP_BINOP=6, SA_OP_PTR_ADD=7, SA_OP_JMP=8, SA_OP_BR=9, SA_OP_CALL=10, SA_OP_RET=11, SA_OP_PANIC=12, SA_OP_PANIC_MSG=13, SA_OP_ATOMIC_LOAD=14, SA_OP_ATOMIC_STORE=15, SA_OP_ATOMIC_RMW=16, SA_OP_CMPXCHG=17, SA_OP_FENCE=18, SA_OP_TRY=19, SA_OP_CALL_INDIRECT=20, SA_OP_ASSIGN=21, SA_OP_RELEASE=22, SA_OP_TAKE=23, SA_OP_VA_START=24, SA_OP_VA_ARG=25, SA_OP_VA_END=26, SA_OP_BITCAST=27 } SaOp;
 typedef enum { SA_OPER_NONE=0, SA_OPER_REG=1, SA_OPER_IMM_I64=2, SA_OPER_IMM_U64=3, SA_OPER_CONST_PTR=4, SA_OPER_IMM_F64=5 } SaOperandKind;
 typedef enum { SA_BIN_ADD=0, SA_BIN_SUB=1, SA_BIN_MUL=2, SA_BIN_SDIV=3, SA_BIN_UDIV=4, SA_BIN_SREM=5, SA_BIN_UREM=6, SA_BIN_AND=7, SA_BIN_OR=8, SA_BIN_XOR=9, SA_BIN_SHL=10, SA_BIN_LSHR=11, SA_BIN_ASHR=12, SA_BIN_EQ=13, SA_BIN_NE=14, SA_BIN_SLT=15, SA_BIN_SLE=16, SA_BIN_SGT=17, SA_BIN_SGE=18, SA_BIN_ULT=19, SA_BIN_ULE=20, SA_BIN_UGT=21, SA_BIN_UGE=22, SA_BIN_FADD=23, SA_BIN_FSUB=24, SA_BIN_FMUL=25, SA_BIN_FDIV=26, SA_BIN_FCMP_EQ=27, SA_BIN_FCMP_NE=28, SA_BIN_FCMP_LT=29, SA_BIN_FCMP_LE=30, SA_BIN_FCMP_GT=31, SA_BIN_FCMP_GE=32 } SaBinaryOp;
@@ -60,7 +68,7 @@ void LLVMInitializeX86AsmPrinter(void);
 
 typedef struct { const char *name; const unsigned char *data; size_t len; } SaConst;
 typedef struct { const char *name; const char *const *funcs; size_t func_count; } SaVTable;
-typedef struct { const char *name; SaType ty; unsigned int slot; unsigned char is_malloc; } SaParam;
+typedef struct { const char *name; SaType ty; unsigned int slot; unsigned char is_malloc; unsigned char cap; } SaParam;
 typedef struct { unsigned int line; unsigned int col; } SaDebugLoc;
 typedef struct { const char *name; SaType ty; unsigned int slot; unsigned char is_param; unsigned int line; unsigned int col; } SaDebugVar;
 typedef struct { SaOperandKind kind; unsigned int reg; long long i64_value; unsigned long long u64_value; double f64_value; SaType ty; const char *name; } SaOperand;
@@ -696,6 +704,43 @@ static LLVMTypeRef fn_type_for(EmitCtx *e, const SaFunction *f) {
     LLVMTypeRef ty = LLVMFunctionType(return_type_for(e, f), params, (unsigned)total, f->is_variadic ? 1 : 0);
     free(params);
     return ty;
+}
+
+/* jihoo-attr (task 2): add the Referee-guaranteed LLVM parameter
+   attributes for borrow parameters.
+   Soundness (each exclusion pinned to the verifier):
+   - nonnull: a borrow parameter is the address of a live place in the
+     caller; the verifier enforces cap matching at every call
+     (callPrefixMatchesParam) plus liveness (readCheck), so a borrow
+     argument is never null. (An unverified external caller passing NULL
+     for a borrow parameter violates the signature contract, exactly as
+     passing NULL for a Rust &T from C does.)
+   - noalias: NOT added. Aliasing read borrows are legal in SA: the
+     truth table allows borrow_read_again on Locked_Read, and armCall
+     runs only readCheck per borrow argument with no duplicate-argument
+     check, so f(&x, &x) verifies and two borrow parameters may alias.
+   - readonly: NOT added. The verifier's writeCheck allows writes
+     through a borrow parameter when locks[origin]==1 (the entry state),
+     and armStore even upgrades the origin lock read->mut on such a
+     write; &T covers read+write by design.
+   - dereferenceable(N): NOT added. The LLVM layer has no pointee size
+     (SA_T_PTR is untyped, ParamSpec carries no pointee size), and
+     dereferenceable(1) would need ruling out zero-sized borrows, which
+     neither the verifier nor the plugin guards.
+   The sret pointer (external fallible functions on win64) occupies LLVM
+   parameter slot 0, so SA parameter i sits at LLVM index (sret?1:0)+i
+   and attribute index (sret?1:0)+i+1 -- the same shift fn_type_for uses. */
+static void add_borrow_param_attrs(EmitCtx *e, LLVMValueRef fn, const SaFunction *f) {
+    unsigned sret = external_fallible_uses_sret_win64(f) ? 1 : 0;
+    unsigned kind = LLVMGetEnumAttributeKindForName("nonnull", 7);
+    if (kind == 0) return;
+    for (size_t i = 0; i < f->param_count; i++) {
+        if (f->params[i].cap != SA_CAP_BORROW) continue;
+        if (f->params[i].ty != SA_T_PTR) continue;
+        unsigned idx = (unsigned)(sret + i + 1);
+        LLVMAttributeRef attr = LLVMCreateEnumAttribute(e->ctx, kind, 0);
+        LLVMAddAttributeAtIndex(fn, idx, attr);
+    }
 }
 
 static const SaFunction *function_by_index(EmitCtx *e, unsigned int index) {
@@ -3829,6 +3874,7 @@ static int build_sa_llvm_module(const SaModule *m, EmitCtx *e, char **out_error)
             LLVMAttributeRef sret_attr = LLVMCreateTypeAttribute(e->ctx, sret_kind, sret_struct);
             LLVMAddAttributeAtIndex(fn, 1, sret_attr);
         }
+        add_borrow_param_attrs(e, fn, &m->functions[i]);
         if (m->functions[i].kind != SA_F_EXPORTED && strcmp(m->functions[i].name, "saasm_main") != 0)
             LLVMSetLinkage(fn, (m->functions[i].kind == SA_F_EXTERNAL || m->is_cgu) ? LLVMExternalLinkage : LLVMInternalLinkage);
         int direct_self_call = function_has_direct_self_call(&m->functions[i]);
