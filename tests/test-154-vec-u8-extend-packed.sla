@@ -1,0 +1,63 @@
+// Regression test for task 154: sa_vec_u8_extend_packed must store bytes packed (stride 1).
+//
+// The S1C modularization (5cff2a8b) rewrote sa_std/collections/vec/vec_packed.sla
+// to store Vec elements in word slots (stride max(abi_size(T), 8)): for Vec<u8>
+// each byte landed in its own 8-byte slot. But the compiler still passes
+// elem_size = abi_size(T) = 1 to sa_vec_push, so push-built Vec<u8>s are
+// packed while extend_packed-built ones are word-slotted -- an inconsistent
+// layout. slaredis reads socket bytes into Vec<u8> via sa_vec_u8_extend_packed
+// (server.sla / gserver.sla) and parses the buffer as packed bytes, so with
+// the word-slot layout every command is garbage: PING times out, SET gets
+// a protocol error (task 154, cells 1-4 + 3b).
+//
+// This test FAILS on the broken std (bytes read back wrong) and PASSES on
+// the fixed std (packed stride restored). Panic codes are 15401-15406.
+//
+// Run:
+//   SA_PLUGIN_DEV=1 SA_STD_DIR=<std> <sa> test <this file>
+// Fail-before: SA_STD_DIR = d98fdf37 sa_std (broken) -> FAIL.
+// Pass-after:  SA_STD_DIR = fixed sa_std (vec_packed.sla reverted) -> PASS.
+
+@import "sa_std/vec_packed.sla"
+@import "sa_std/vec.sa"
+@import "sa_std/core/slice.sa"
+@import "sa_std/ptr.sa"
+
+fn byte_at(v: &Vec<u8>, index: u64) -> u8 {
+    let sl: Slice<u8> = VEC_AS_SLICE(v);
+    let b: u8 = 0;
+    SLICE_GET_U8(b, sl, index);
+    return b;
+}
+
+@test "task154 sa_vec_u8_extend_packed stores bytes packed"() {
+    // Source bytes in a stack array: 'h' 'i' '!' 'A' 'B'.
+    let arr: [u8; 8] = [0u8; 8];
+    let sp: ptr = PTR_BYTE_ADD(&arr, 0);
+    PTR_WRITE_U8(PTR_BYTE_ADD(sp, 0), 104);
+    PTR_WRITE_U8(PTR_BYTE_ADD(sp, 1), 105);
+    PTR_WRITE_U8(PTR_BYTE_ADD(sp, 2), 33);
+    PTR_WRITE_U8(PTR_BYTE_ADD(sp, 3), 65);
+    PTR_WRITE_U8(PTR_BYTE_ADD(sp, 4), 66);
+    let v: Vec<u8> = Vec::new();
+    let v2: Vec<u8> = sa_vec_u8_extend_packed(v, sp, 5);
+    let n: u64 = len(v2) as u64;
+    if n != 5 {
+        panic(15401);
+    };
+    if byte_at(&v2, 0) != 104 {
+        panic(15402);
+    };
+    if byte_at(&v2, 1) != 105 {
+        panic(15403);
+    };
+    if byte_at(&v2, 2) != 33 {
+        panic(15404);
+    };
+    if byte_at(&v2, 3) != 65 {
+        panic(15405);
+    };
+    if byte_at(&v2, 4) != 66 {
+        panic(15406);
+    };
+}

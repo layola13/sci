@@ -122,6 +122,36 @@ pub const header_runtime_js_memory =
         \\  (__sa_fl[size] || (__sa_fl[size] = [])).push(p);
         \\  return 0;
         \\}
+        \\function __sa_realloc(ptr, size) {
+        \\  // C realloc over the __sa_alloc heap: grow the block, copy the live
+        \\  // range, free the old block. realloc(NULL, size) == malloc(size);
+        \\  // size 0 follows __sa_alloc and never returns 0 (sa_mem_realloc
+        \\  // panics(1704) on NULL, so a valid pointer is the only safe answer).
+        \\  const n = __sa_align((__sa_num(size) | 0), 8);
+        \\  const p = __sa_addr(ptr);
+        \\  if (p === 0) return __sa_alloc(size);
+        \\  // Old block size: a live slab slot reports its class; a live big
+        \\  // base reports the 8-byte header in front of it.
+        \\  let old = -1;
+        \\  const slab = __sa_slab_by_page.get(p >>> 12);
+        \\  if (slab) {
+        \\    const idx = ((p - slab.base) / slab.sc) | 0;
+        \\    if (idx >= 0 && idx < slab.count && slab.base + idx * slab.sc === p && slab.live[idx]) old = slab.sc;
+        \\  }
+        \\  if (old < 0 && __sa_live.has(p)) old = __sa_view.getUint32((p - 8), true);
+        \\  if (old < 0) {
+        \\    // Foreign, interior, const or already-free pointer: C realloc is
+        \\    // UB here. Mirror __sa_free's silent discipline — hand back a
+        \\    // fresh block of the requested size, copy nothing, free nothing.
+        \\    return __sa_alloc(size);
+        \\  }
+        \\  if (old === n) return p | 0; // already the right size: keep identity
+        \\  const np = __sa_alloc(size);
+        \\  const c = Math.min(old, n);
+        \\  if (c > 0) __sa_u8.set(__sa_u8.subarray(p, p + c), np);
+        \\  __sa_free(p);
+        \\  return np | 0;
+        \\}
         \\const __sa_fstack = []; // call-stack of frames; each frame lists its stack slots
         \\function __sa_salloc(size) {
         \\  // Function-scoped allocation: freed when the owning frame returns

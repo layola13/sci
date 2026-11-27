@@ -148,6 +148,14 @@ pub const sa_fmt_u64 = @import("sa_std_windows/w06.zig").sa_fmt_u64; pub const s
 pub const sa_math_floor = @import("sa_std_windows/w06.zig").sa_math_floor; pub const sa_math_ceil = @import("sa_std_windows/w06.zig").sa_math_ceil;
 pub const sa_math_sqrt = @import("sa_std_windows/w06.zig").sa_math_sqrt; pub const sa_math_sin = @import("sa_std_windows/w06.zig").sa_math_sin;
 pub const sa_math_cos = @import("sa_std_windows/w06.zig").sa_math_cos; pub const sa_math_pow = @import("sa_std_windows/w06.zig").sa_math_pow;
+pub const sa_math_exp = @import("sa_std_windows/w06.zig").sa_math_exp; pub const sa_math_log = @import("sa_std_windows/w06.zig").sa_math_log;
+pub const sa_math_log10 = @import("sa_std_windows/w06.zig").sa_math_log10; pub const sa_math_log2 = @import("sa_std_windows/w06.zig").sa_math_log2;
+pub const sa_math_tan = @import("sa_std_windows/w06.zig").sa_math_tan; pub const sa_math_asin = @import("sa_std_windows/w06.zig").sa_math_asin;
+pub const sa_math_acos = @import("sa_std_windows/w06.zig").sa_math_acos; pub const sa_math_atan = @import("sa_std_windows/w06.zig").sa_math_atan;
+pub const sa_math_atan2 = @import("sa_std_windows/w06.zig").sa_math_atan2; pub const sa_math_hypot = @import("sa_std_windows/w06.zig").sa_math_hypot;
+pub const sa_math_sinh = @import("sa_std_windows/w06.zig").sa_math_sinh; pub const sa_math_cosh = @import("sa_std_windows/w06.zig").sa_math_cosh;
+pub const sa_math_tanh = @import("sa_std_windows/w06.zig").sa_math_tanh; pub const sa_math_expm1 = @import("sa_std_windows/w06.zig").sa_math_expm1;
+pub const sa_math_log1p = @import("sa_std_windows/w06.zig").sa_math_log1p; pub const sa_math_frexp = @import("sa_std_windows/w06.zig").sa_math_frexp;
 pub const sa_math_random = @import("sa_std_windows/w06.zig").sa_math_random; pub const sa_fmt_f64 = @import("sa_std_windows/w06.zig").sa_fmt_f64;
 pub const sa_fmt_f64_into = @import("sa_std_windows/w06.zig").sa_fmt_f64_into; pub const sa_fmt_bool = @import("sa_std_windows/w06.zig").sa_fmt_bool;
 pub const sa_fmt_bool_into = @import("sa_std_windows/w06.zig").sa_fmt_bool_into; pub const sa_fmt_bytes = @import("sa_std_windows/w06.zig").sa_fmt_bytes;

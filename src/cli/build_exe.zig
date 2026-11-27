@@ -280,6 +280,26 @@ pub fn executeBuildExe(allocator: std.mem.Allocator, source_path: []const u8, ou
                     };
                 }
 
+                // DEF-SCI-BUILDEXE-LLVM-TARGET-HANG (xxxv): TargetRegistry
+                // first use is not thread-safe; concurrent first use by
+                // the CGU workers spins in lookupTarget. Initialize the
+                // native target once on this (main) thread before any
+                // worker is spawned / cgu_0 runs, so every worker's
+                // lookupTarget is a plain lookup on an initialized
+                // registry. Sequential shards run on this thread too,
+                // so the call is harmless there.
+                {
+                    var init_err: ?[*:0]u8 = null;
+                    if (emit_llvm_llvmc.sa_llvmc_init_native_target(&init_err) != 0) {
+                        if (init_err) |msg| {
+                            emit_llvm_llvmc.recordLlvmcError("llvm target preinit", msg);
+                            emit_llvm_llvmc.sa_llvmc_free(msg);
+                        }
+                        try printLlvmcEmitError(stderr, error.Failed, diagnostics_mode);
+                        return 1;
+                    }
+                }
+
                 const emit_start = if (compile_options.profile) std.Io.Clock.awake.now(sio.io()) else null;
                 if (sequential_cgu) {
                     // Sequential shard emission (LINE-OPT-CGU-SHARD

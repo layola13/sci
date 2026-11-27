@@ -383,12 +383,12 @@ fn probeInDir(dir: sio.Dir, path: []const u8) ProbeOutcome {
 ///   * 以末段符号名结尾的点分路径(点分段数 >= 3,如 `sa_std.io.print`)
 ///     → symbol;点分段数 <= 2(如 `sa_std.io`) → module。
 ///   * 以域名或域路径结尾、无扩展名、无末段符号的斜杠路径
-///     (如 `sa_std/io`) → 探针:文件与目录 prelude 并存 → 报
-///     error.AmbiguousImport,仅文件 → symbol,仅目录 → module,
+///     (如 `sa_std/io`) → 探针:文件与目录 prelude 并存 → 判 symbol
+///     (P3B 裁決一:优先文件),仅文件 → symbol,仅目录 → module,
 ///     两侧皆无 → module(语法默认;缺失由 locator 报)。
-///   * 歧义消歧:优先文件还是优先 prelude 由 Phase 3 定,Phase 2 只报
-///     歧义不静默选边。歧义是错误(ImportKind 只有 .symbol/.module
-///     两态,无 .ambiguous 变体),不是第三种 kind。
+///   * 歧义消歧:P3B 裁決一已定——优先文件。文件与目录 prelude 并存
+///     时判 .symbol;AmbiguousImport 变体保留,留给真正的多候选歧义
+///     (如未来的多版本树),不再用于文件/prelude 探针。
 ///   * 斜杠与点分同形不同义:斜杠 `sa_std/io/print`(无扩展名)走探针,
 ///     目录存在则判 module;而点分 `sa_std.io.print` 按末段符号名判
 ///     symbol。同一规范路径、两种拼写、两种结论——这是任务规则的字面
@@ -402,7 +402,7 @@ pub fn classifyImport(spec: ImportSpec) ResolveError!ImportKind {
     if (classifySyntactic(spec)) |kind| return kind;
     if (spec.package.len != 0) {
         switch (probeInDir(sio.cwd(), spec.path)) {
-            .both => return error.AmbiguousImport,
+            .both => return .symbol, // P3B 裁決一：优先文件
             .file_only => return .symbol,
             .dir_only => return .module,
             .neither => {},
@@ -422,7 +422,7 @@ pub fn classifyImportAt(spec: ImportSpec, root_path: []const u8) ResolveError!Im
         var dir = sio.cwd().openDir(root_path, .{}) catch return .module;
         defer dir.close();
         switch (probeInDir(dir, spec.path)) {
-            .both => return error.AmbiguousImport,
+            .both => return .symbol, // P3B 裁決一：优先文件
             .file_only => return .symbol,
             .dir_only => return .module,
             .neither => {},

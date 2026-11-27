@@ -11,6 +11,15 @@
     %out_vec = call @sa_vec_new()
 [END_MACRO]
 
+// Task 137 (P1): in-place init for a stack-allocated Vec header.
+// The caller provides the slot (a stack_alloc address); no call, no
+// heap allocation — the three zero stores of sa_vec_new, in place.
+[MACRO] VEC_NEW_STACK %out_vec
+    store %out_vec+Vec_ptr, 0 as ptr
+    store %out_vec+Vec_cap, 0 as u64
+    store %out_vec+Vec_len, 0 as u64
+[END_MACRO]
+
 [MACRO] VEC_DEFAULT %out_vec
     EXPAND VEC_NEW %out_vec
 [END_MACRO]
@@ -1526,8 +1535,31 @@ L_VEC_PEEK_MUT_END_%out_ok:
     %vec_reg = call @sa_vec_push(^%vec_reg, %value, %elem_size)
 [END_MACRO]
 
+// Task 144 (P1 shape (b), D1): borrow-form push that hands the old
+// buffer back to the caller, which frees it in the stack-binding scope.
+// The callee (sa_vec_push_borrow_ret) returns the old buffer on growth
+// and null on reuse; @sa_mem_free is a no-op on null, so no branch is
+// needed. The returned value is a plain active pointer (ret_cap .move),
+// so the caller-side free is verifier-legal -- unlike freeing inside
+// the callee, where buf is an interior pointer of the borrowed header
+// (trap 1022, task 137 Finding 3).
+[MACRO] VEC_PUSH_STACK_B %vec_reg, %value, %elem_size
+    __vec_psb_old_%vec_reg = call @sa_vec_push_borrow_ret(&%vec_reg, %value, %elem_size)
+    call @sa_mem_free(^__vec_psb_old_%vec_reg)
+[END_MACRO]
+
 [MACRO] VEC_PUSH_U64 %vec_reg, %value
     EXPAND VEC_PUSH %vec_reg, %value, 8
+[END_MACRO]
+
+// Unchecked push (Vec fix line, commit 3, variant (b)): caller guarantees
+// len < cap; no capacity check, never grows. See sa_vec_push_unchecked.
+[MACRO] VEC_PUSH_UNCHECKED %vec_reg, %value, %elem_size
+    %vec_reg = call @sa_vec_push_unchecked(^%vec_reg, %value, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_PUSH_UNCHECKED_U64 %vec_reg, %value
+    EXPAND VEC_PUSH_UNCHECKED %vec_reg, %value, 8
 [END_MACRO]
 
 [MACRO] VEC_PUSH_MUT %out_ptr, %vec_reg, %value, %elem_size
@@ -1557,6 +1589,20 @@ L_VEC_PEEK_MUT_END_%out_ok:
 
 [MACRO] VEC_FREE %vec_reg
     call @sa_vec_free(^%vec_reg)
+[END_MACRO]
+
+// Task 144 (P1 shape (b)): buffer-only free for a stack-allocated Vec
+// header, inlined in the caller (the E1 form, proven in the 144 verifier
+// experiment). The buffer is taken from the header slot in the caller's
+// scope -- provenance is the stack slot itself, not a `&` borrow -- so
+// the direct free is verifier-legal. (The 137 form called
+// sa_vec_free_buf, whose `!buf` lowers to nothing, leaking the buffer; a
+// real free inside that callee traps 1022: the taken buffer is an
+// interior pointer of the borrowed header.) @sa_mem_free is a safe no-op
+// on null, so no branch is needed for a never-pushed Vec.
+[MACRO] VEC_FREE_BUF %vec_reg
+    __vec_fb_buf_%vec_reg = take %vec_reg+Vec_ptr
+    call @sa_mem_free(^__vec_fb_buf_%vec_reg)
 [END_MACRO]
 
 [MACRO] VEC_CAPACITY %out_cap, %vec_reg
@@ -1908,6 +1954,14 @@ L_VEC_POP_IF_MUT_END_%out_ok:
 
 [MACRO] VEC_WITH_CAPACITY_U64 %out_vec, %cap
     EXPAND VEC_WITH_CAPACITY %out_vec, %cap, 8
+[END_MACRO]
+
+[MACRO] VEC_WITH_CAPACITY_NOZERO %out_vec, %cap, %elem_size
+    %out_vec = call @sa_vec_with_capacity_nozero(%cap, %elem_size)
+[END_MACRO]
+
+[MACRO] VEC_WITH_CAPACITY_NOZERO_U64 %out_vec, %cap
+    EXPAND VEC_WITH_CAPACITY_NOZERO %out_vec, %cap, 8
 [END_MACRO]
 
 [MACRO] VEC_TRY_WITH_CAPACITY %out_ok, %out_vec, %cap, %elem_size

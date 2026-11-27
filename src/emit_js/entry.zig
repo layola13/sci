@@ -327,7 +327,7 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
     }
     // exports + main runner
     if (js_opt.format == .cjs) {
-        try writer.writeAll("\nmodule.exports = { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc, __sa_sfree, __sa_mem_used");
+        try writer.writeAll("\nmodule.exports = { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_realloc, __sa_salloc, __sa_sfree, __sa_mem_used");
         for (tasks) |task| {
             if (task.kind == .extern_decl) continue;
             const fsig = verified.function_sigs[task.fsig_index];
@@ -337,7 +337,7 @@ pub fn emitJsToString(allocator: std.mem.Allocator, verified: anytype, source_pa
         try writer.writeAll(" };\n");
         if (has_main) try writer.writeAll("if (require.main === module) { main(); }\n");
     } else {
-        try writer.writeAll("\nexport { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_salloc, __sa_sfree, __sa_mem_used };\n");
+        try writer.writeAll("\nexport { __sa_memory, __sa_view, __sa_u8, __sa_alloc, __sa_free, __sa_realloc, __sa_salloc, __sa_sfree, __sa_mem_used };\n");
         if (has_main) try writer.writeAll("if (typeof globalThis.process !== \"undefined\" && globalThis.process.argv && globalThis.process.argv[1] && /\\.(mjs|js|cjs)$/.test(globalThis.process.argv[1])) { try { main(); } catch (e) { globalThis.console.error(e); globalThis.process.exit(1); } }\n");
     }
     return out.toOwnedSlice();
@@ -434,6 +434,7 @@ pub fn emitDtsToString(allocator: std.mem.Allocator, verified: anytype, source_p
     try body.writer.writeAll("export declare const __sa_u8: Uint8Array;\n");
     try body.writer.writeAll("export declare function __sa_alloc(size: number): number;\n");
     try body.writer.writeAll("export declare function __sa_free(ptr: SaPtr): number;\n");
+    try body.writer.writeAll("export declare function __sa_realloc(ptr: SaPtr, size: number): number;\n");
     try body.writer.writeAll("export declare function __sa_salloc(size: number): number;\n");
     try body.writer.writeAll("export declare function __sa_sfree(ptr: SaPtr): number;\n");
     try body.writer.writeAll("export declare function __sa_mem_used(): number;\n");

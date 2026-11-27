@@ -345,6 +345,14 @@ pub fn emitShim(writer: anytype, name: []const u8) !bool {
         try writer.writeAll("function sa_mem_free(ptr) { return __sa_free(ptr); }\n");
         return true;
     }
+    if (std.mem.eql(u8, name, "realloc")) {
+        // C realloc over the JS heap (__sa_alloc): grow the block, copy
+        // the live range, free the old block. sa_mem_realloc (sa_std)
+        // calls this on every Vec/StringBuf/GrowVec regrow; without it
+        // the call trapped at run time with "extern not linked: realloc".
+        try writer.writeAll("function realloc(ptr, size) { return __sa_realloc(ptr, size); }\n");
+        return true;
+    }
     if (std.mem.eql(u8, name, "sa_coop_finish")) {
         try writer.writeAll("function sa_coop_finish() { return __sa_task.coopFinish(); }\n");
         return true;
