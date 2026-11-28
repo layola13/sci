@@ -56,12 +56,7 @@ pub const CAtomicRmwOp = enum(c_int) { add = 0, sub = 1, band = 2, bor = 3, xor 
 
 pub const CConst = extern struct { name: [*:0]const u8, data: [*]const u8, len: usize };
 pub const CVTable = extern struct { name: [*:0]const u8, funcs: [*]const [*:0]const u8, func_count: usize };
-// jihoo-attr (task 2): `cap` mirrors common/instruction.zig CapPrefix
-// (0=by_value, 1=borrow, 2=move, 3=raw) so the LLVM shim can add the
-// Referee-guaranteed parameter attributes (nonnull on borrow params).
-// Appended last: CParam/SaParam layout and size are unchanged (both pad
-// to 24 bytes), so the Zig/C FFI stays ABI-compatible.
-pub const CParam = extern struct { name: [*:0]const u8, ty: CType, slot: u32, is_malloc: bool, cap: u8 };
+pub const CParam = extern struct { name: [*:0]const u8, ty: CType, slot: u32, is_malloc: bool };
 pub const CDebugLoc = extern struct { line: u32, col: u32 };
 pub const CDebugVar = extern struct { name: [*:0]const u8, ty: CType, slot: u32, is_param: bool, line: u32, col: u32 };
 pub const COperand = extern struct { kind: COperandKind, reg: u32, i64_value: i64, u64_value: u64, f64_value: f64, ty: CType, name: ?[*:0]const u8 };

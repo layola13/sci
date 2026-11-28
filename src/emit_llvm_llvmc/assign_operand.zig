@@ -327,7 +327,7 @@ pub fn emitWorker(comptime VerifiedType: type, context_ptr: *anyopaque) void {
             params[pidx] = .{ .name = pname.ptr, .ty = cType(valueTypeForPrefix(param.cap, param.ty)) catch |err| {
                 job.err = err;
                 return;
-            }, .slot = fsig.slotOf(reg_id) orelse @intCast(pidx), .is_malloc = param.cap == .move and param.ty == .ptr, .cap = @intFromEnum(param.cap) };
+            }, .slot = fsig.slotOf(reg_id) orelse @intCast(pidx), .is_malloc = param.cap == .move and param.ty == .ptr };
         }
 
         const debug_vars = if (context.options.debug and task.decl_kind != .extern_decl)

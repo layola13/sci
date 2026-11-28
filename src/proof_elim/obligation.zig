@@ -1,8 +1,8 @@
 // obligation.zig — extract "loop induction variable vs len" obligations
 // from flat SA instructions, prove them, and verify the proofs.
 //
-// Scope (prototype): ONLY the loop-induction-variable-vs-len class.
-// A check is in the class when:
+// Scope (prototype): the loop-induction-variable-vs-len class, plus
+// (round 3) the dominating-check class. A check is in the IV class when:
 //   * it sits in a loop body (textual loop: a backward `jmp` to a header
 //     label whose block ends in a conditional `br` on an unsigned
 //     comparison), and
@@ -27,6 +27,33 @@
 //     of the bound location (the strict rule closes the aliasing hole:
 //     with no store at all on the path, no aliased store can change len).
 //
+// A check is in the dominating-check class (round 3) when:
+//   * it sits in a loop body, and
+//   * some comparison on the OK-chain from the header to the body entry
+//     (an "entry fact": a bounds check the loop condition's own indexing
+//     emits, or the real loop condition itself) compares the same index
+//     against a load of the same (base, offset), and
+//   * the index and the bound base are not redefined between the fact
+//     and the check, and
+//   * the fact's bound base is a leaf register (a function parameter:
+//     its value is a local, not a field of a struct a call could reach
+//     through a containing pointer), and
+//   * on the path from the fact's bound load to the check's bound load,
+//     every store's effective address provably differs from the bound
+//     location (same base + same offset, following ptr_add/assign/move
+//     displacement chains), every call provably does not receive the
+//     bound base or a pointer derived from it (argument names resolved
+//     through the symbol table), there is no redefinition of the bound
+//     base, and no `take` of the bound location (the relaxed mutation
+//     scan; see mutationScanDom). The bound base must not escape the
+//     function (never stored as a value, never borrowed), so no load
+//     can return it and no callee can hold a pointer to it.
+// A dominating fact must be a *different* comparison than the check
+// itself: a check cannot prove itself. The IV class is tried first;
+// the dominating class is tried when the IV gates fail (in particular
+// when there is no positive-constant increment, as in a loop whose
+// index is a loop-invariant parameter).
+//
 // Soundness notes (read before extending):
 //   * Loops are found textually: the plugin emits structured while loops
 //     (header, body, exit in order, one backward `jmp`). A general
@@ -46,8 +73,11 @@
 
 const std = @import("std");
 const common_instruction = @import("../common/instruction.zig");
+const symbol_table = @import("../flattener/symbol.zig");
 const linear = @import("linear.zig");
 const fm = @import("fm.zig");
+
+pub const SymbolTable = symbol_table.SymbolTable;
 
 pub const Inst = common_instruction.Instruction;
 pub const InstKind = common_instruction.InstKind;
@@ -88,6 +118,13 @@ pub const ProofStats = struct {
     proven: u32 = 0,
     unproven: u32 = 0,
     not_target_class: u32 = 0,
+};
+
+/// The result of analyzing one function. Named (not anonymous) so the
+/// no-table wrapper and the with-symbols entry point share one type.
+pub const AnalyzeResult = struct {
+    obligations: []Obligation,
+    stats: ProofStats,
 };
 
 // ---------------------------------------------------------------- helpers
@@ -378,6 +415,375 @@ fn sameValue(insts: []const Inst, func_start: usize, r1: u32, pos1: usize, r2: u
     }
 }
 
+// ---------------------------------------------------------------- dominating-check class (round 3)
+
+/// One entry fact: a comparison on the OK-chain from the loop header to
+/// the body entry (a bounds check the loop condition's own indexing
+/// emits, or the real loop condition itself). `has_bound` is false when
+/// neither side of the comparison is a load; such a fact can never
+/// match a bounds check (whose bound is always a load).
+const DomFact = struct {
+    br_idx: usize,
+    cmp_idx: usize,
+    cmp_kind: OpKind,
+    idx_reg: u32,
+    bound_reg: u32,
+    bound_base: u32,
+    bound_offset: u64,
+    bound_load_idx: usize,
+    has_bound: bool,
+};
+
+/// Collect the entry facts by walking the OK-chain from the header
+/// block to the real loop condition (the same walk as findLoopCondBr,
+/// but keeping every `br` on the chain, including the final condition).
+/// A fact whose comparison is not an unsigned comparison, or whose
+/// condition has no defining op in its block, ends the walk: fewer
+/// facts only lose proofs, never claim a false one.
+fn collectEntryFacts(allocator: std.mem.Allocator, insts: []const Inst, header_idx: usize, body_end: usize) ![]DomFact {
+    var facts = std.array_list.Managed(DomFact).init(allocator);
+    var cur = header_idx;
+    var steps: usize = 0;
+    while (steps < 32) : (steps += 1) {
+        const end = blockEnd(insts, cur);
+        if (end == 0 or end > insts.len) break;
+        const br_idx = end - 1;
+        if (insts[br_idx].kind != .br) break;
+        const cond_reg = regOf(insts[br_idx].operands[0]) orelse break;
+        const cmp_idx = findDef(insts, cur, br_idx, cond_reg) orelse break;
+        const cmp = insts[cmp_idx];
+        if (cmp.kind == .op) {
+            if (cmp.op_kind) |kind| {
+                if (kind == .ult or kind == .ule or kind == .ugt or kind == .uge) {
+                    if (regOf(cmp.operands[1])) |lhs| {
+                        if (regOf(cmp.operands[2])) |rhs| {
+                            var fact = DomFact{
+                                .br_idx = br_idx,
+                                .cmp_idx = cmp_idx,
+                                .cmp_kind = kind,
+                                .idx_reg = 0,
+                                .bound_reg = 0,
+                                .bound_base = 0,
+                                .bound_offset = 0,
+                                .bound_load_idx = 0,
+                                .has_bound = false,
+                            };
+                            for ([_]struct { idx: u32, bnd: u32 }{
+                                .{ .idx = lhs, .bnd = rhs },
+                                .{ .idx = rhs, .bnd = lhs },
+                            }) |c| {
+                                const li = findDef(insts, cur, cmp_idx, c.bnd) orelse continue;
+                                const ld = loadOperands(insts[li]) orelse continue;
+                                fact.idx_reg = c.idx;
+                                fact.bound_reg = c.bnd;
+                                fact.bound_base = ld.base;
+                                fact.bound_offset = ld.offset;
+                                fact.bound_load_idx = li;
+                                fact.has_bound = true;
+                                break;
+                            }
+                            try facts.append(fact);
+                        }
+                    }
+                }
+            }
+        }
+        // Advance along the OK-chain; the real condition (whose false
+        // target is not a lone panic) is the last fact.
+        const false_label = labelOf(insts[br_idx].operands[3]) orelse break;
+        const false_def = findLabelDef(insts, false_label) orelse break;
+        if (lonePanicBlock(insts, false_def) == null) break;
+        const true_label = labelOf(insts[br_idx].operands[1]) orelse break;
+        const next = findLabelDef(insts, true_label) orelse break;
+        if (next <= cur or next > body_end) break;
+        cur = next;
+    }
+    return facts.toOwnedSlice();
+}
+
+/// A store's address: (base register, offset). `.store` and
+/// `.atomic_store` share the layout (base, offset, value, type); the
+/// offset may be an immediate or a decimal text offset.
+fn storeOperands(inst: Inst) ?struct { base: u32, offset: u64 } {
+    if (inst.kind != .store and inst.kind != .atomic_store) return null;
+    const base = regOf(inst.operands[0]) orelse return null;
+    const offset = switch (inst.operands[1]) {
+        .imm_u64 => |v| v,
+        .imm_i64 => |v| if (v >= 0) @as(u64, @intCast(v)) else return null,
+        .imm_int => |v| if (v >= 0) @as(u64, @intCast(v)) else return null,
+        .text => |t| std.fmt.parseInt(u64, t, 10) catch return null,
+        else => return null,
+    };
+    return .{ .base = base, .offset = offset };
+}
+
+/// A load-like access (`.load`, `.take`, `.atomic_load`): (base, offset).
+/// Used for the `take` check, which loadOperands cannot serve (it only
+/// accepts `.load`).
+fn loadLikeOperands(inst: Inst) ?struct { base: u32, offset: u64 } {
+    if (inst.kind != .load and inst.kind != .take and inst.kind != .atomic_load) return null;
+    const base = regOf(inst.operands[1]) orelse return null;
+    const offset = switch (inst.operands[2]) {
+        .imm_u64 => |v| v,
+        .imm_i64 => |v| if (v >= 0) @as(u64, @intCast(v)) else return null,
+        .imm_int => |v| if (v >= 0) @as(u64, @intCast(v)) else return null,
+        else => return null,
+    };
+    return .{ .base = base, .offset = offset };
+}
+
+/// The constant displacement `d` such that `reg == base_reg + d`,
+/// following a chain of `ptr_add` (constant offset), `assign`/`move_`
+/// copies, and `op add` with a constant. Returns null when the value
+/// is not derivable from `base_reg` by such a chain (a load result, a
+/// call result, an unrelated leaf, or a chain too deep). `use_pos` is
+/// the instruction index the register is used at (definitions are
+/// searched in [func_start, use_pos)).
+fn displacementFrom(insts: []const Inst, func_start: usize, use_pos: usize, reg: u32, base_reg: u32, depth: u32) ?i64 {
+    if (depth > 16) return null;
+    if (reg == base_reg) return 0;
+    const def_idx = findDef(insts, func_start, use_pos, reg) orelse return null;
+    const def = insts[def_idx];
+    switch (def.kind) {
+        .ptr_add => {
+            const src = regOf(def.operands[1]) orelse return null;
+            const k = constValue(insts, func_start, def_idx, def.operands[2]) orelse return null;
+            const d = displacementFrom(insts, func_start, def_idx, src, base_reg, depth + 1) orelse return null;
+            return std.math.add(i64, d, k) catch return null;
+        },
+        .assign, .move_ => {
+            const src = regOf(def.operands[1]) orelse return null;
+            return displacementFrom(insts, func_start, def_idx, src, base_reg, depth + 1);
+        },
+        .op => {
+            if (def.op_kind != .add) return null;
+            const lhs = def.operands[1];
+            const rhs = def.operands[2];
+            // One side must be a register derived from base_reg, the
+            // other a constant.
+            if (regOf(lhs)) |r| {
+                if (constValue(insts, func_start, def_idx, rhs)) |k| {
+                    const d = displacementFrom(insts, func_start, def_idx, r, base_reg, depth + 1) orelse return null;
+                    return std.math.add(i64, d, k) catch return null;
+                }
+            }
+            if (regOf(rhs)) |r| {
+                if (constValue(insts, func_start, def_idx, lhs)) |k| {
+                    const d = displacementFrom(insts, func_start, def_idx, r, base_reg, depth + 1) orelse return null;
+                    return std.math.add(i64, d, k) catch return null;
+                }
+            }
+            return null;
+        },
+        else => return null,
+    }
+}
+
+/// Does the bound base escape the function: is it ever stored as a
+/// value, or ever borrowed? If so, a load could return it (or a
+/// pointer to it), and the relaxed scan's "a load-defined base is a
+/// different pointer" reasoning fails. Scanned over the whole
+/// function [func_start, func_end).
+fn boundBaseEscapes(insts: []const Inst, func_start: usize, func_end: usize, bound_base: u32) bool {
+    var i = func_start;
+    while (i < func_end and i < insts.len) : (i += 1) {
+        const inst = insts[i];
+        if (inst.kind == .store or inst.kind == .atomic_store) {
+            if (regOf(inst.operands[2])) |v| {
+                if (v == bound_base) return true;
+            }
+        }
+        if (inst.kind == .borrow) {
+            if (regOf(inst.operands[1])) |src| {
+                if (src == bound_base) return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// Registers that may hold the bound base or a pointer derived from it:
+/// the bound base itself, plus anything defined by `assign`/`move_`
+/// (a copy), `ptr_add` (a derived pointer), or `borrow` (a pointer to
+/// it) from a member, transitively. A call receiving any of these can
+/// reach the bound location. Computed by fixpoint over the function.
+fn derivedPointerSet(allocator: std.mem.Allocator, insts: []const Inst, func_start: usize, func_end: usize, bound_base: u32) ![]u32 {
+    var set = std.array_list.Managed(u32).init(allocator);
+    try set.append(bound_base);
+    var changed = true;
+    var rounds: usize = 0;
+    while (changed and rounds < 64) : (rounds += 1) {
+        changed = false;
+        var i = func_start;
+        while (i < func_end and i < insts.len) : (i += 1) {
+            const inst = insts[i];
+            const dst = definesReg(inst) orelse continue;
+            if (inst.kind != .assign and inst.kind != .move_ and inst.kind != .ptr_add and inst.kind != .borrow) continue;
+            const src = regOf(inst.operands[1]) orelse continue;
+            var in_set = false;
+            for (set.items) |m| {
+                if (m == src) {
+                    in_set = true;
+                    break;
+                }
+            }
+            if (!in_set) continue;
+            var already = false;
+            for (set.items) |m| {
+                if (m == dst) {
+                    already = true;
+                    break;
+                }
+            }
+            if (!already) {
+                try set.append(dst);
+                changed = true;
+            }
+        }
+    }
+    return set.toOwnedSlice();
+}
+
+/// The call body text (`@callee(args...)`) of a `.call` /
+/// `.call_indirect`, from operands[1] (with a destination register)
+/// or operands[0] (without one).
+fn callBodyText(inst: Inst) ?[]const u8 {
+    if (inst.kind != .call and inst.kind != .call_indirect) return null;
+    const has_dest = inst.operands[0] == .reg;
+    const body_op = if (has_dest) inst.operands[1] else inst.operands[0];
+    return switch (body_op) {
+        .text => |t| t,
+        else => null,
+    };
+}
+
+/// Does this call pass the bound base (or a pointer derived from it)?
+/// Argument names are resolved through the symbol table to register
+/// ids and compared against `derived` (see derivedPointerSet). An
+/// argument name that looks like a register but does not resolve is
+/// treated conservatively as a possible bound-base use (the table
+/// holds every interned register name, so an unresolvable identifier
+/// is a keyword or literal; `true`/`false`/`null` are excluded).
+/// Returns true when the call must be treated as reaching the bound.
+fn callPassesBoundPointer(body_text: []const u8, symbols: *const SymbolTable, derived: []const u32) bool {
+    const open = std.mem.indexOfScalar(u8, body_text, '(') orelse return false;
+    const close = std.mem.lastIndexOfScalar(u8, body_text, ')') orelse return false;
+    if (close <= open) return false;
+    const args_text = body_text[open + 1 .. close];
+    var depth: usize = 0;
+    var start: usize = 0;
+    var i: usize = 0;
+    while (i <= args_text.len) : (i += 1) {
+        const at_end = i == args_text.len;
+        const c: u8 = if (at_end) ',' else args_text[i];
+        if (c == '(' or c == '[' or c == '{') depth += 1;
+        if (c == ')' or c == ']' or c == '}') depth = depth -| 1;
+        if ((c == ',' and depth == 0) or at_end) {
+            const arg = std.mem.trim(u8, args_text[start..i], " \t");
+            if (arg.len > 0) {
+                var j: usize = 0;
+                while (j < arg.len and (arg[j] == '^' or arg[j] == '&' or arg[j] == '*' or arg[j] == '!')) j += 1;
+                var k = j;
+                while (k < arg.len and (std.ascii.isAlphanumeric(arg[k]) or arg[k] == '_')) k += 1;
+                const name = arg[j..k];
+                if (name.len > 0) {
+                    if (symbols.findId(name)) |id| {
+                        for (derived) |d| {
+                            if (d == id) return true;
+                        }
+                    } else if ((std.ascii.isAlphabetic(name[0]) or name[0] == '_') and
+                        !std.mem.eql(u8, name, "true") and !std.mem.eql(u8, name, "false") and !std.mem.eql(u8, name, "null"))
+                    {
+                        return true;
+                    }
+                }
+            }
+            start = i + 1;
+        }
+    }
+    return false;
+}
+
+/// The relaxed mutation scan for the dominating class, over
+/// [scan_lo, scan_hi). Returns null when the scan passes, or a reason
+/// string when it rejects. Rules (see the header comment):
+///   * store: allowed iff its effective address provably differs from
+///     the bound location. A base derived from the bound base by a
+///     displacement `d` addresses bound_base + (d + offset); it is the
+///     bound location iff d + offset == bound_offset. A base not
+///     derived from the bound base is a load result or an unrelated
+///     register; the no-escape precondition means no load can return
+///     the bound base, so it cannot touch the bound location.
+///   * atomic_rmw / cmpxchg: rejected (their address cannot be ruled
+///     out cheaply).
+///   * call: allowed iff no argument resolves to the bound base or a
+///     pointer derived from it. Without a symbol table the arguments
+///     cannot be checked, so every call rejects (strict fallback).
+///   * a definition of the bound base register rejects.
+///   * a `take` of the bound location rejects.
+/// The no-escape precondition (boundBaseEscapes) is checked first:
+/// if the bound base is stored or borrowed anywhere in the function,
+/// the relaxed scan does not apply at all.
+fn mutationScanDom(
+    allocator: std.mem.Allocator,
+    insts: []const Inst,
+    func_start: usize,
+    func_end: usize,
+    scan_lo: usize,
+    scan_hi: usize,
+    bound_base: u32,
+    bound_offset: u64,
+    symbols: ?*const SymbolTable,
+) !?[]const u8 {
+    if (boundBaseEscapes(insts, func_start, func_end, bound_base)) {
+        return "bound base escapes the function (stored as a value or borrowed)";
+    }
+    const derived = try derivedPointerSet(allocator, insts, func_start, func_end, bound_base);
+    defer allocator.free(derived);
+    var s = scan_lo;
+    while (s < scan_hi and s < insts.len) : (s += 1) {
+        const inst = insts[s];
+        const k = inst.kind;
+        if (k == .store or k == .atomic_store) {
+            const st = storeOperands(inst) orelse return "store with an unrecognized address form on the path from the fact to the check";
+            if (displacementFrom(insts, func_start, s, st.base, bound_base, 0)) |d| {
+                const eff: i128 = @as(i128, d) + @as(i128, @intCast(st.offset));
+                if (eff == @as(i128, @intCast(bound_offset))) {
+                    return "store writes the bound location on the path from the fact to the check";
+                }
+            }
+            // Otherwise the store's address is a different pointer (a
+            // load result or an unrelated register, or a different
+            // offset of the same base): it cannot touch the bound.
+            continue;
+        }
+        if (k == .atomic_rmw or k == .cmpxchg) {
+            return "atomic read-modify-write on the path from the fact to the check";
+        }
+        if (isCall(k)) {
+            const syms = symbols orelse return "call on the path from the fact to the check (no symbol table to check its arguments)";
+            const body = callBodyText(inst) orelse return "call with an unrecognized body on the path from the fact to the check";
+            if (callPassesBoundPointer(body, syms, derived)) {
+                return "call receives the bound base (or a pointer derived from it) on the path from the fact to the check";
+            }
+            continue;
+        }
+        if (definesReg(inst)) |d| {
+            if (d == bound_base) {
+                return "bound base register redefined on the path from the fact to the check";
+            }
+        }
+        if (k == .take) {
+            if (loadLikeOperands(inst)) |ld| {
+                if (ld.base == bound_base and ld.offset == bound_offset) {
+                    return "bound location taken on the path from the fact to the check";
+                }
+            }
+        }
+    }
+    return null;
+}
+
 // ---------------------------------------------------------------- analysis
 
 const LoopHead = struct {
@@ -400,12 +806,27 @@ const LoopHead = struct {
 /// reporting absolute br indices). `func_name` is used in reports.
 /// The caller provides an arena allocator; all obligations and
 /// certificates are allocated from it.
+/// `symbols` is the module symbol table (for resolving call argument
+/// names in the dominating class's relaxed mutation scan); null means
+/// no table is available, in which case every call rejects there.
+/// The no-table wrapper keeps the unit tests (which build instructions
+/// by hand, with no symbol table) working unchanged.
 pub fn analyzeFunction(
     allocator: std.mem.Allocator,
     insts: []const Inst,
     base: usize,
     func_name: []const u8,
-) !struct { obligations: []Obligation, stats: ProofStats } {
+) !AnalyzeResult {
+    return analyzeFunctionWithSymbols(allocator, insts, base, func_name, null);
+}
+
+pub fn analyzeFunctionWithSymbols(
+    allocator: std.mem.Allocator,
+    insts: []const Inst,
+    base: usize,
+    func_name: []const u8,
+    symbols: ?*const SymbolTable,
+) !AnalyzeResult {
     var stats = ProofStats{ .functions_scanned = 1 };
     var obligations = std.array_list.Managed(Obligation).init(allocator);
 
@@ -439,6 +860,10 @@ pub fn analyzeFunction(
         const header_idx = findLabelDef(insts, target) orelse continue;
         const head = parseLoopHead(insts, header_idx, body_end) orelse continue;
         stats.loops_found += 1;
+        // Entry facts for the dominating class: every comparison on the
+        // OK-chain from the header to the body entry.
+        const entry_facts = try collectEntryFacts(allocator, insts, header_idx, body_end);
+        defer allocator.free(entry_facts);
 
         // --- find checks in the body range [header_idx, body_end].
         var i = header_idx;
@@ -458,6 +883,8 @@ pub fn analyzeFunction(
                 base,
                 func_name,
                 &head,
+                entry_facts,
+                symbols,
                 i,
                 cond_reg,
                 ok_label,
@@ -561,6 +988,8 @@ fn analyzeCheck(
     base: usize,
     func_name: []const u8,
     head: *const LoopHead,
+    entry_facts: []const DomFact,
+    symbols: ?*const SymbolTable,
     br_idx: usize,
     cond_reg: u32,
     ok_label: u32,
@@ -662,73 +1091,170 @@ fn analyzeCheck(
         return make_ob(.not_target_class, "check comparison is not an unsigned comparison", zero, zero, null, br_idx, base, ok_label, oob_label, func_name, insts);
     };
 
-    // Target-class gates (each refusal is a classification, not a failure).
-    if (idx_reg != head.iv_reg) {
-        return make_ob(.not_target_class, "check index is not the loop induction variable", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
-    }
-    if (versionAt(insts, func_start, head.cmp_idx, head.iv_reg) != versionAt(insts, func_start, cmp_idx, idx_reg)) {
-        return make_ob(.not_target_class, "induction variable redefined between head and check", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
-    }
-    if (bound_offset != head.bound_offset) {
-        return make_ob(.not_target_class, "check bound loads a different offset than the head bound", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
-    }
-    // The bound base is usually a fresh register per load: the plugin
-    // recomputes the base address (e.g. s[e][a]) for every access. The
-    // bases are the same location when their defining chains compute
-    // the same value; the head chain's earliest instruction extends
-    // the no-store scan below. When the registers are already the
-    // same, the chain starts at the head bound load (as before).
-    var head_chain_start = head.bound_load_idx;
-    if (bound_base != head.bound_base) {
-        if (!sameValue(insts, func_start, head.bound_base, head.bound_load_idx, bound_base, bound_load_idx, 0, &head_chain_start)) {
-            return make_ob(.not_target_class, "check bound base holds a different value than the head bound base", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+    // --- IV class attempt. Each gate failure is a classification, not
+    // a failure: it records the reason and falls through to the
+    // dominating class. A prover failure likewise falls through (a
+    // different entry fact may still prove the goal).
+    var iv_reason: []const u8 = "";
+    var iv_unproven = false;
+    iv_attempt: {
+        // Target-class gates (each refusal is a classification).
+        if (idx_reg != head.iv_reg) {
+            iv_reason = "check index is not the loop induction variable";
+            break :iv_attempt;
         }
-    }
-    if (versionAt(insts, func_start, head.bound_load_idx, head.bound_base) != versionAt(insts, func_start, bound_load_idx, bound_base)) {
-        return make_ob(.not_target_class, "bound base register redefined between head and check", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
-    }
-    if (findIVIncrement(insts, head.header_label_idx, head.body_end, head.iv_reg) == null) {
-        return make_ob(.not_target_class, "no positive-constant increment of the induction variable in the loop body", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
-    }
-    // Strict mutation scan on [head base chain start, check bound load].
-    // The head chain's loads must read the same memory the check chain's
-    // loads read; with no store/call anywhere between the two chains,
-    // and no leaf redefinition (checked in sameValue), the recomputed
-    // base holds the same value. The base-redefinition and take checks
-    // apply only from the head bound load onward; the head base chain
-    // itself defines the base before that point.
-    var s = head_chain_start;
-    while (s < bound_load_idx and s < insts.len) : (s += 1) {
-        const k = insts[s].kind;
-        if (isMemoryWrite(k) or isCall(k)) {
-            return make_ob(.not_target_class, "store or call on the path from head load to check load", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+        if (versionAt(insts, func_start, head.cmp_idx, head.iv_reg) != versionAt(insts, func_start, cmp_idx, idx_reg)) {
+            iv_reason = "induction variable redefined between head and check";
+            break :iv_attempt;
         }
-        if (s >= head.bound_load_idx) {
-            if (definesReg(insts[s])) |d| {
-                if (d == head.bound_base) {
-                    return make_ob(.not_target_class, "bound base register redefined on the path from head load to check load", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
-                }
+        if (bound_offset != head.bound_offset) {
+            iv_reason = "check bound loads a different offset than the head bound";
+            break :iv_attempt;
+        }
+        // The bound base is usually a fresh register per load: the plugin
+        // recomputes the base address (e.g. s[e][a]) for every access. The
+        // bases are the same location when their defining chains compute
+        // the same value; the head chain's earliest instruction extends
+        // the no-store scan below. When the registers are already the
+        // same, the chain starts at the head bound load (as before).
+        var head_chain_start = head.bound_load_idx;
+        if (bound_base != head.bound_base) {
+            if (!sameValue(insts, func_start, head.bound_base, head.bound_load_idx, bound_base, bound_load_idx, 0, &head_chain_start)) {
+                iv_reason = "check bound base holds a different value than the head bound base";
+                break :iv_attempt;
             }
-            if (k == .take) {
-                if (loadOperands(insts[s])) |ld| {
-                    if (ld.base == head.bound_base and ld.offset == head.bound_offset) {
-                        return make_ob(.not_target_class, "bound location taken on the path from head load to check load", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+        }
+        if (versionAt(insts, func_start, head.bound_load_idx, head.bound_base) != versionAt(insts, func_start, bound_load_idx, bound_base)) {
+            iv_reason = "bound base register redefined between head and check";
+            break :iv_attempt;
+        }
+        if (findIVIncrement(insts, head.header_label_idx, head.body_end, head.iv_reg) == null) {
+            iv_reason = "no positive-constant increment of the induction variable in the loop body";
+            break :iv_attempt;
+        }
+        // Strict mutation scan on [head base chain start, check bound load].
+        // The head chain's loads must read the same memory the check chain's
+        // loads read; with no store/call anywhere between the two chains,
+        // and no leaf redefinition (checked in sameValue), the recomputed
+        // base holds the same value. The base-redefinition and take checks
+        // apply only from the head bound load onward; the head base chain
+        // itself defines the base before that point.
+        var scan_failed: ?[]const u8 = null;
+        var s = head_chain_start;
+        while (s < bound_load_idx and s < insts.len) : (s += 1) {
+            const k = insts[s].kind;
+            if (isMemoryWrite(k) or isCall(k)) {
+                scan_failed = "store or call on the path from head load to check load";
+                break;
+            }
+            if (s >= head.bound_load_idx) {
+                if (definesReg(insts[s])) |d| {
+                    if (d == head.bound_base) {
+                        scan_failed = "bound base register redefined on the path from head load to check load";
+                        break;
+                    }
+                }
+                if (k == .take) {
+                    if (loadOperands(insts[s])) |ld| {
+                        if (ld.base == head.bound_base and ld.offset == head.bound_offset) {
+                            scan_failed = "bound location taken on the path from head load to check load";
+                            break;
+                        }
                     }
                 }
             }
         }
+        if (scan_failed) |r| {
+            iv_reason = r;
+            break :iv_attempt;
+        }
+
+        // In the target class: prove the goal from the head fact.
+        const facts = [_]linear.Ineq{head_fact};
+        const cert = (try fm.prove(allocator, &facts, goal)) orelse {
+            iv_unproven = true;
+            iv_reason = "prover could not prove the goal from the head fact";
+            break :iv_attempt;
+        };
+        if (!linear.checkCertificate(&facts, goal, cert)) {
+            allocator.free(cert.weights);
+            iv_unproven = true;
+            iv_reason = "prover certificate failed the trusted checker (prover bug)";
+            break :iv_attempt;
+        }
+        return make_ob(.proven, "proved from the head condition and verified by the Farkas checker", head_fact, goal, cert, br_idx, base, ok_label, oob_label, func_name, insts);
     }
 
-    // In the target class: prove the goal from the head fact.
-    const facts = [_]linear.Ineq{head_fact};
-    const cert = (try fm.prove(allocator, &facts, goal)) orelse {
-        return make_ob(.unproven, "prover could not prove the goal from the head fact", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
-    };
-    if (!linear.checkCertificate(&facts, goal, cert)) {
-        allocator.free(cert.weights);
-        return make_ob(.unproven, "prover certificate failed the trusted checker (prover bug)", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+    // --- Dominating-check class attempt (round 3). Each entry fact is
+    // tried in OK-chain order; the first that proves the goal wins. A
+    // fact is skipped when it is the check itself (a check cannot prove
+    // itself), when it has no load bound, or when any gate fails.
+    var dom_unproven = false;
+    var dom_reason: []const u8 = "";
+    for (entry_facts) |fact| {
+        if (fact.cmp_idx == cmp_idx) continue;
+        if (!fact.has_bound) continue;
+        const fact_ineq = normalizeCmp(fact.cmp_kind, regOf(insts[fact.cmp_idx].operands[1]).?, regOf(insts[fact.cmp_idx].operands[2]).?, fact.idx_reg, fact.bound_reg) orelse continue;
+        // Gate D1: the index matches (same register, or the same value
+        // through a pure defining chain).
+        if (idx_reg != fact.idx_reg) {
+            var idx_chain_start: usize = fact.bound_load_idx;
+            if (!sameValue(insts, func_start, fact.idx_reg, fact.cmp_idx, idx_reg, cmp_idx, 0, &idx_chain_start)) continue;
+        }
+        // Gate D2: the index is not redefined between fact and check.
+        if (versionAt(insts, func_start, fact.cmp_idx, fact.idx_reg) != versionAt(insts, func_start, cmp_idx, idx_reg)) continue;
+        // Gate D3: the bound offset matches.
+        if (bound_offset != fact.bound_offset) continue;
+        // Gate D4: the bound base holds the same value. When the
+        // registers differ, sameValue also yields the fact chain's
+        // earliest instruction, which extends the scan below. (With a
+        // leaf fact base, sameValue only passes for the same register.)
+        var fact_chain_start = fact.bound_load_idx;
+        if (bound_base != fact.bound_base) {
+            if (!sameValue(insts, func_start, fact.bound_base, fact.bound_load_idx, bound_base, bound_load_idx, 0, &fact_chain_start)) continue;
+        }
+        // Gate D5: the bound base is not redefined between fact and check.
+        if (versionAt(insts, func_start, fact.bound_load_idx, fact.bound_base) != versionAt(insts, func_start, bound_load_idx, bound_base)) continue;
+        // Gate D6: the fact's bound base is a leaf register (a function
+        // parameter). A base loaded from memory could be reached through
+        // a containing struct passed to a call, which the scan below
+        // cannot rule out; such facts are out of scope for this class.
+        if (findDef(insts, 0, fact.bound_load_idx, fact.bound_base) != null) continue;
+        // Gate D7: the relaxed mutation scan on [fact chain start,
+        // check bound load).
+        const scan_reason = try mutationScanDom(allocator, insts, 0, insts.len, fact_chain_start, bound_load_idx, fact.bound_base, fact.bound_offset, symbols);
+        if (scan_reason) |r| {
+            dom_reason = r;
+            continue;
+        }
+        // Prove the goal from this entry fact.
+        const facts = [_]linear.Ineq{fact_ineq};
+        const cert = (try fm.prove(allocator, &facts, goal)) orelse {
+            dom_unproven = true;
+            dom_reason = "prover could not prove the goal from the dominating fact";
+            continue;
+        };
+        if (!linear.checkCertificate(&facts, goal, cert)) {
+            allocator.free(cert.weights);
+            dom_unproven = true;
+            dom_reason = "prover certificate failed the trusted checker (prover bug)";
+            continue;
+        }
+        return make_ob(.proven, "proved from a dominating loop-entry check and verified by the Farkas checker", fact_ineq, goal, cert, br_idx, base, ok_label, oob_label, func_name, insts);
     }
-    return make_ob(.proven, "proved from the head condition and verified by the Farkas checker", head_fact, goal, cert, br_idx, base, ok_label, oob_label, func_name, insts);
+
+    // --- Final status. A check whose gates passed in either class but
+    // whose goal the prover could not prove is unproven; otherwise it
+    // is not in either target class, keeping the IV gate's reason so
+    // existing reports keep their wording.
+    if (iv_unproven) {
+        return make_ob(.unproven, iv_reason, head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+    }
+    if (dom_unproven) {
+        return make_ob(.unproven, dom_reason, head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+    }
+    if (iv_reason.len == 0) iv_reason = "no dominating entry fact matches this check";
+    return make_ob(.not_target_class, iv_reason, head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
 }
 
 // ---------------------------------------------------------------- tests
@@ -1380,4 +1906,321 @@ test "obligation finds no loop head when the OK-chain ends without a br" {
     try std.testing.expectEqual(@as(u32, 0), result.stats.loops_found);
     try std.testing.expectEqual(@as(u32, 0), result.stats.checks_found);
     try std.testing.expectEqual(@as(u32, 0), result.obligations.len);
+}
+
+// ---------------------------------------------------------------- dominating-check tests (round 3)
+//
+// The dominating-check loop: the header first checks `i < len(conns)`
+// (a bounds check on the loop condition's own indexing), then the real
+// condition `i < len(other)`. The index `i` is a loop-invariant
+// parameter (never incremented), so the IV class cannot prove the
+// body's `i < len(conns)` check; the dominating class must prove it
+// from the header's entry fact. `conns` and `other` are distinct
+// parameter Vecs, so the IV class's bound-base gate fails (different
+// leaves).
+
+const D_CONNS: u32 = 1;
+const D_I: u32 = 2;
+const D_OTHER: u32 = 3;
+const D_TOTAL: u32 = 4;
+const D_E_LEN: u32 = 10;
+const D_E_COND: u32 = 11;
+const D_H_LEN: u32 = 12;
+const D_H_COND: u32 = 13;
+const D_C_LEN: u32 = 14;
+const D_C_COND: u32 = 15;
+const D_ONE: u32 = 16;
+const D_INC: u32 = 17;
+const D_VAL: u32 = 18;
+
+const D_L_ENTRY: u32 = 200;
+const D_L_HEAD: u32 = 201;
+const D_L_OKE: u32 = 202;
+const D_L_OOB_E: u32 = 203;
+const D_L_BODY: u32 = 204;
+const D_L_FALSE: u32 = 205;
+const D_L_EXIT: u32 = 206;
+const D_L_OK1: u32 = 207;
+const D_L_OOB1: u32 = 208;
+
+const DomStore = enum { none, harmless, to_bound };
+
+fn mkStore(base: u32, offset: u64, val: u32, line: u32) Inst {
+    var inst = mk(.store, line);
+    inst.operands[0] = .{ .reg = base };
+    inst.operands[1] = .{ .imm_u64 = offset };
+    inst.operands[2] = .{ .reg = val };
+    inst.operands[3] = .{ .ty = 0 };
+    return inst;
+}
+
+fn buildDomLoop(allocator: std.mem.Allocator, store_variant: DomStore) ![]Inst {
+    var list = std.array_list.Managed(Inst).init(allocator);
+    var line: u32 = 1;
+    try list.append(mk(.func_decl, line));
+    line += 1;
+    try list.append(mkLabel(D_L_ENTRY, line));
+    line += 1;
+    var a = mk(.assign, line);
+    a.operands[0] = .{ .reg = D_TOTAL };
+    a.operands[1] = .{ .imm_i64 = 0 };
+    try list.append(a);
+    line += 1;
+    a = mk(.assign, line);
+    a.operands[0] = .{ .reg = D_ONE };
+    a.operands[1] = .{ .imm_i64 = 1 };
+    try list.append(a);
+    line += 1;
+    a = mk(.assign, line);
+    a.operands[0] = .{ .reg = D_VAL };
+    a.operands[1] = .{ .imm_i64 = 42 };
+    try list.append(a);
+    line += 1;
+    try list.append(mkJmp(D_L_HEAD, line));
+    line += 1;
+    // Header: `i < len(conns)` bounds check (the dominating fact).
+    try list.append(mkLabel(D_L_HEAD, line));
+    line += 1;
+    try list.append(mkLoad(D_E_LEN, D_CONNS, 8, line));
+    line += 1;
+    try list.append(mkOp(D_E_COND, .ult, .{ .reg = D_I }, .{ .reg = D_E_LEN }, line));
+    line += 1;
+    try list.append(mkBr(D_E_COND, D_L_OKE, D_L_OOB_E, line));
+    line += 1;
+    try list.append(mkLabel(D_L_OOB_E, line));
+    line += 1;
+    var p = mk(.panic, line);
+    p.operands[0] = .{ .text = "32" };
+    try list.append(p);
+    line += 1;
+    // Real condition: `i < len(other)`.
+    try list.append(mkLabel(D_L_OKE, line));
+    line += 1;
+    try list.append(mkLoad(D_H_LEN, D_OTHER, 8, line));
+    line += 1;
+    try list.append(mkOp(D_H_COND, .ult, .{ .reg = D_I }, .{ .reg = D_H_LEN }, line));
+    line += 1;
+    try list.append(mkBr(D_H_COND, D_L_BODY, D_L_FALSE, line));
+    line += 1;
+    // Body: optional store, then the `i < len(conns)` check.
+    try list.append(mkLabel(D_L_BODY, line));
+    line += 1;
+    switch (store_variant) {
+        .none => {},
+        .harmless => {
+            // A different field of the same base: cannot touch len.
+            try list.append(mkStore(D_CONNS, 0, D_VAL, line));
+            line += 1;
+        },
+        .to_bound => {
+            // The bound location itself: must refuse.
+            try list.append(mkStore(D_CONNS, 8, D_VAL, line));
+            line += 1;
+        },
+    }
+    try list.append(mkLoad(D_C_LEN, D_CONNS, 8, line));
+    line += 1;
+    try list.append(mkOp(D_C_COND, .ult, .{ .reg = D_I }, .{ .reg = D_C_LEN }, line));
+    line += 1;
+    try list.append(mkBr(D_C_COND, D_L_OK1, D_L_OOB1, line));
+    line += 1;
+    try list.append(mkLabel(D_L_OOB1, line));
+    line += 1;
+    p = mk(.panic, line);
+    p.operands[0] = .{ .text = "32" };
+    try list.append(p);
+    line += 1;
+    // Increment the counter (not `i`), back edge.
+    try list.append(mkLabel(D_L_OK1, line));
+    line += 1;
+    try list.append(mkOp(D_INC, .add, .{ .reg = D_TOTAL }, .{ .reg = D_ONE }, line));
+    line += 1;
+    try list.append(mkOp(D_TOTAL, .add, .{ .reg = D_INC }, .{ .imm_i64 = 0 }, line));
+    line += 1;
+    try list.append(mkJmp(D_L_HEAD, line));
+    line += 1;
+    // Exit.
+    try list.append(mkLabel(D_L_FALSE, line));
+    line += 1;
+    try list.append(mkJmp(D_L_EXIT, line));
+    line += 1;
+    try list.append(mkLabel(D_L_EXIT, line));
+    line += 1;
+    var ret = mk(.return_, line);
+    ret.operands[0] = .{ .reg = D_TOTAL };
+    try list.append(ret);
+    return list.toOwnedSlice();
+}
+
+test "obligation proves a loop-invariant index check from a dominating entry fact" {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const insts = try buildDomLoop(arena.allocator(), .none);
+    const result = try analyzeFunction(arena.allocator(), insts, 0, "dom_pos");
+    // 2 checks: the header's own `i < len(conns)` check plus the body's.
+    try std.testing.expectEqual(@as(u32, 1), result.stats.loops_found);
+    try std.testing.expectEqual(@as(u32, 2), result.stats.checks_found);
+    try std.testing.expectEqual(@as(u32, 1), result.stats.target_class);
+    try std.testing.expectEqual(@as(u32, 1), result.stats.proven);
+    try std.testing.expectEqual(@as(u32, 0), result.stats.unproven);
+    try std.testing.expectEqual(@as(u32, 1), result.stats.not_target_class);
+    try std.testing.expectEqual(@as(u32, 2), result.obligations.len);
+    // The header check cannot prove itself; the body check is proven
+    // from the header's entry fact.
+    try std.testing.expect(result.obligations[0].status == .not_target_class);
+    try std.testing.expectEqualStrings("check bound base holds a different value than the head bound base", result.obligations[0].reason);
+    try std.testing.expect(result.obligations[1].status == .proven);
+    try std.testing.expectEqualStrings("proved from a dominating loop-entry check and verified by the Farkas checker", result.obligations[1].reason);
+}
+
+test "obligation proves a dominating check past a store to a different field" {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const insts = try buildDomLoop(arena.allocator(), .harmless);
+    const result = try analyzeFunction(arena.allocator(), insts, 0, "dom_harmless_store");
+    try std.testing.expectEqual(@as(u32, 1), result.stats.proven);
+    try std.testing.expectEqual(@as(u32, 0), result.stats.unproven);
+    try std.testing.expect(result.obligations[1].status == .proven);
+}
+
+test "obligation refuses a dominating check when a store writes the bound location" {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const insts = try buildDomLoop(arena.allocator(), .to_bound);
+    const result = try analyzeFunction(arena.allocator(), insts, 0, "dom_to_bound_store");
+    try std.testing.expectEqual(@as(u32, 0), result.stats.proven);
+    try std.testing.expectEqual(@as(u32, 0), result.stats.unproven);
+    try std.testing.expectEqual(@as(u32, 2), result.stats.not_target_class);
+    try std.testing.expect(result.obligations[1].status == .not_target_class);
+}
+
+/// The dominating loop with a call in the body, built with a real
+/// symbol table so the call's argument names resolve to register ids.
+/// `pass_conns` selects whether the call receives the bound base.
+fn buildDomLoopCall(allocator: std.mem.Allocator, symbols: *SymbolTable, pass_conns: bool) ![]Inst {
+    const C_CONNS = try symbols.intern("conns");
+    const C_OTHER = try symbols.intern("other");
+    const C_I = try symbols.intern("i");
+    const C_TOTAL = try symbols.intern("total");
+    const C_E_LEN = try symbols.intern("e_len");
+    const C_E_COND = try symbols.intern("e_cond");
+    const C_H_LEN = try symbols.intern("h_len");
+    const C_H_COND = try symbols.intern("h_cond");
+    const C_C_LEN = try symbols.intern("c_len");
+    const C_C_COND = try symbols.intern("c_cond");
+    const C_ONE = try symbols.intern("one");
+    const C_INC = try symbols.intern("inc");
+    const C_RES = try symbols.intern("res");
+    var list = std.array_list.Managed(Inst).init(allocator);
+    var line: u32 = 1;
+    try list.append(mk(.func_decl, line));
+    line += 1;
+    try list.append(mkLabel(D_L_ENTRY, line));
+    line += 1;
+    var a = mk(.assign, line);
+    a.operands[0] = .{ .reg = C_TOTAL };
+    a.operands[1] = .{ .imm_i64 = 0 };
+    try list.append(a);
+    line += 1;
+    a = mk(.assign, line);
+    a.operands[0] = .{ .reg = C_ONE };
+    a.operands[1] = .{ .imm_i64 = 1 };
+    try list.append(a);
+    line += 1;
+    try list.append(mkJmp(D_L_HEAD, line));
+    line += 1;
+    try list.append(mkLabel(D_L_HEAD, line));
+    line += 1;
+    try list.append(mkLoad(C_E_LEN, C_CONNS, 8, line));
+    line += 1;
+    try list.append(mkOp(C_E_COND, .ult, .{ .reg = C_I }, .{ .reg = C_E_LEN }, line));
+    line += 1;
+    try list.append(mkBr(C_E_COND, D_L_OKE, D_L_OOB_E, line));
+    line += 1;
+    try list.append(mkLabel(D_L_OOB_E, line));
+    line += 1;
+    var p = mk(.panic, line);
+    p.operands[0] = .{ .text = "32" };
+    try list.append(p);
+    line += 1;
+    try list.append(mkLabel(D_L_OKE, line));
+    line += 1;
+    try list.append(mkLoad(C_H_LEN, C_OTHER, 8, line));
+    line += 1;
+    try list.append(mkOp(C_H_COND, .ult, .{ .reg = C_I }, .{ .reg = C_H_LEN }, line));
+    line += 1;
+    try list.append(mkBr(C_H_COND, D_L_BODY, D_L_FALSE, line));
+    line += 1;
+    try list.append(mkLabel(D_L_BODY, line));
+    line += 1;
+    // A call in the body, before the check.
+    var call = mk(.call, line);
+    call.operands[0] = .{ .reg = C_RES };
+    if (pass_conns) {
+        call.operands[1] = .{ .text = "@f(^conns)" };
+    } else {
+        call.operands[1] = .{ .text = "@f(&other)" };
+    }
+    try list.append(call);
+    line += 1;
+    try list.append(mkLoad(C_C_LEN, C_CONNS, 8, line));
+    line += 1;
+    try list.append(mkOp(C_C_COND, .ult, .{ .reg = C_I }, .{ .reg = C_C_LEN }, line));
+    line += 1;
+    try list.append(mkBr(C_C_COND, D_L_OK1, D_L_OOB1, line));
+    line += 1;
+    try list.append(mkLabel(D_L_OOB1, line));
+    line += 1;
+    p = mk(.panic, line);
+    p.operands[0] = .{ .text = "32" };
+    try list.append(p);
+    line += 1;
+    try list.append(mkLabel(D_L_OK1, line));
+    line += 1;
+    try list.append(mkOp(C_INC, .add, .{ .reg = C_TOTAL }, .{ .reg = C_ONE }, line));
+    line += 1;
+    try list.append(mkOp(C_TOTAL, .add, .{ .reg = C_INC }, .{ .imm_i64 = 0 }, line));
+    line += 1;
+    try list.append(mkJmp(D_L_HEAD, line));
+    line += 1;
+    try list.append(mkLabel(D_L_FALSE, line));
+    line += 1;
+    try list.append(mkJmp(D_L_EXIT, line));
+    line += 1;
+    try list.append(mkLabel(D_L_EXIT, line));
+    line += 1;
+    var ret = mk(.return_, line);
+    ret.operands[0] = .{ .reg = C_TOTAL };
+    try list.append(ret);
+    return list.toOwnedSlice();
+}
+
+test "obligation refuses a dominating check when a call receives the bound base" {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    var symbols = SymbolTable.init(arena.allocator());
+    defer symbols.deinit();
+    const insts = try buildDomLoopCall(arena.allocator(), &symbols, true);
+    const result = try analyzeFunctionWithSymbols(arena.allocator(), insts, 0, "dom_call_base", &symbols);
+    try std.testing.expectEqual(@as(u32, 0), result.stats.proven);
+    try std.testing.expectEqual(@as(u32, 0), result.stats.unproven);
+    try std.testing.expectEqual(@as(u32, 2), result.stats.not_target_class);
+    try std.testing.expect(result.obligations[1].status == .not_target_class);
+}
+
+test "obligation proves a dominating check past a call that does not receive the bound base" {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    var symbols = SymbolTable.init(arena.allocator());
+    defer symbols.deinit();
+    const insts = try buildDomLoopCall(arena.allocator(), &symbols, false);
+    const result = try analyzeFunctionWithSymbols(arena.allocator(), insts, 0, "dom_call_other", &symbols);
+    try std.testing.expectEqual(@as(u32, 1), result.stats.proven);
+    try std.testing.expectEqual(@as(u32, 0), result.stats.unproven);
+    try std.testing.expect(result.obligations[1].status == .proven);
 }

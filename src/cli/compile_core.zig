@@ -201,7 +201,7 @@ pub fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, opti
     // switch: PROOF_ELIM=0. PROOF_ELIM_REPORT=<path> writes a
     // per-function report. The .sab path is out of scope.
     if (proof_elim.isEnabled(allocator)) {
-        const elim_report = try proof_elim.runProofElim(allocator, flat.instructions, flat.function_sigs, flat.test_sigs);
+        const elim_report = try proof_elim.runProofElim(allocator, flat.instructions, flat.function_sigs, flat.test_sigs, &flat.symbols);
         defer allocator.free(elim_report.funcs);
         if (elim_report.removed > 0) {
             const elim_writer = options.diagnostic_writer orelse &null_discarding.writer;

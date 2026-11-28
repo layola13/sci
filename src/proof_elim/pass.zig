@@ -66,11 +66,16 @@ pub fn isEnabled(allocator: std.mem.Allocator) bool {
 /// used so test functions are covered too. The report is allocated from
 /// `allocator` (the caller's allocator, not an arena: it outlives the
 /// analysis). The instructions are rewritten in place.
+/// `symbols` is the module symbol table (for resolving call argument
+/// names in the dominating class's relaxed mutation scan); null means
+/// no table is available, in which case every call rejects there.
+/// The compiler passes `&flat.symbols`.
 pub fn runProofElim(
     allocator: std.mem.Allocator,
     instructions: []Inst,
     function_sigs: []const FunctionSig,
     test_sigs: []const FunctionSig,
+    symbols: ?*const obligation.SymbolTable,
 ) !ProofElimReport {
     var report = ProofElimReport{};
     var funcs = std.array_list.Managed(FuncReport).init(allocator);
@@ -98,7 +103,7 @@ pub fn runProofElim(
         if (end <= start) continue;
         // Skip duplicate entries (same function listed twice).
         if (ei > 0 and entries.items[ei - 1].idx == start) continue;
-        const result = try obligation.analyzeFunction(tmp, instructions[start..end], start, entry.name);
+        const result = try obligation.analyzeFunctionWithSymbols(tmp, instructions[start..end], start, entry.name, symbols);
         var fr = FuncReport{ .name = entry.name };
         fr.loops = result.stats.loops_found;
         fr.checks = result.stats.checks_found;
