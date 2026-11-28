@@ -8,6 +8,13 @@
 //     comparison), and
 //   * the loop header compares an induction variable `iv` against a bound
 //     loaded from (base, field-offset), and
+//   * the header may be reached through a chain of bounds checks on
+//     the condition's own indices (the condition's Vec indexing emits
+//     its checks first); the real condition is found by following the
+//     OK-chain past leading bounds-check `br`s, and
+//   * the check's bound base may be a fresh register recomputing the
+//     same address; two bases are the same location when their
+//     defining chains compute the same value (see sameValue), and
 //   * the check compares the same `iv` (same register, no redefinition
 //     between head and check) against a load of the same (base, offset),
 //     and
@@ -295,6 +302,82 @@ fn constValue(insts: []const Inst, lo: usize, hi: usize, op: Operand) ?i64 {
     return immI64Of(def.operands[1]);
 }
 
+/// Do two operands denote the same value? Immediates compare by value;
+/// registers compare through `sameValue`. Used to compare the operands
+/// of two defining instructions while checking base equivalence.
+fn sameOperand(insts: []const Inst, func_start: usize, o1: Operand, pos1: usize, o2: Operand, pos2: usize, depth: u32, min_head: *usize) bool {
+    if (immI64Of(o1)) |v1| {
+        if (immI64Of(o2)) |v2| return v1 == v2;
+        return false;
+    }
+    if (immI64Of(o2) != null) return false;
+    const r1 = regOf(o1) orelse return false;
+    const r2 = regOf(o2) orelse return false;
+    return sameValue(insts, func_start, r1, pos1, r2, pos2, depth, min_head);
+}
+
+/// Do two registers hold the same value, where `r1` is used at `pos1`
+/// and `r2` at `pos2`? The defining instruction chains must be
+/// structurally identical over the pure kinds the plugin uses to
+/// compute an address (load / ptr_add / add-mul / borrow / assign):
+/// same kinds, same op kinds, same constants, same leaf registers.
+/// A leaf is a register with no definition in [func_start, use) —
+/// typically a function parameter; two leaves are the same value when
+/// they are the same register and it is not redefined between the two
+/// uses. `min_head` records the earliest head-side (first-argument)
+/// definition visited, so the caller can extend its no-store scan over
+/// the head chain. A load's value also depends on memory; the caller
+/// must guarantee no store/call between the two chains (the mutation
+/// scan in analyzeCheck does this over [head chain start, check bound
+/// load)). Anything unrecognized returns false: the safe direction is
+/// to lose a proof, never to claim a false equivalence.
+fn sameValue(insts: []const Inst, func_start: usize, r1: u32, pos1: usize, r2: u32, pos2: usize, depth: u32, min_head: *usize) bool {
+    if (depth > 16) return false;
+    if (r1 == r2) {
+        const lo = @min(pos1, pos2);
+        const hi = @max(pos1, pos2);
+        return versionAt(insts, lo, hi, r1) == 0;
+    }
+    const d1 = findDef(insts, func_start, pos1, r1) orelse return false;
+    const d2 = findDef(insts, func_start, pos2, r2) orelse return false;
+    if (d1 < min_head.*) min_head.* = d1;
+    const x1 = insts[d1];
+    const x2 = insts[d2];
+    if (x1.kind != x2.kind) return false;
+    switch (x1.kind) {
+        .load => {
+            if (!sameOperand(insts, func_start, x1.operands[2], d1, x2.operands[2], d2, depth + 1, min_head)) return false;
+            const b1 = regOf(x1.operands[1]) orelse return false;
+            const b2 = regOf(x2.operands[1]) orelse return false;
+            return sameValue(insts, func_start, b1, d1, b2, d2, depth + 1, min_head);
+        },
+        .ptr_add => {
+            return sameOperand(insts, func_start, x1.operands[1], d1, x2.operands[1], d2, depth + 1, min_head) and
+                sameOperand(insts, func_start, x1.operands[2], d1, x2.operands[2], d2, depth + 1, min_head);
+        },
+        .op => {
+            if (x1.op_kind != x2.op_kind) return false;
+            const k = x1.op_kind orelse return false;
+            if (k != .add and k != .mul) return false;
+            // add/mul commute: try both operand orders.
+            const fwd = sameOperand(insts, func_start, x1.operands[1], d1, x2.operands[1], d2, depth + 1, min_head) and
+                sameOperand(insts, func_start, x1.operands[2], d1, x2.operands[2], d2, depth + 1, min_head);
+            if (fwd) return true;
+            return sameOperand(insts, func_start, x1.operands[1], d1, x2.operands[2], d2, depth + 1, min_head) and
+                sameOperand(insts, func_start, x1.operands[2], d1, x2.operands[1], d2, depth + 1, min_head);
+        },
+        .borrow => {
+            const a1 = regOf(x1.operands[1]) orelse return false;
+            const a2 = regOf(x2.operands[1]) orelse return false;
+            return sameValue(insts, func_start, a1, d1, a2, d2, depth + 1, min_head);
+        },
+        .assign => {
+            return sameOperand(insts, func_start, x1.operands[1], d1, x2.operands[1], d2, depth + 1, min_head);
+        },
+        else => return false,
+    }
+}
+
 // ---------------------------------------------------------------- analysis
 
 const LoopHead = struct {
@@ -392,15 +475,16 @@ pub fn analyzeFunction(
     return .{ .obligations = try obligations.toOwnedSlice(), .stats = stats };
 }
 
-/// Parse a loop header: the header block must end in a `br` whose
-/// condition is defined in the header by an unsigned comparison of an
+/// Parse a loop header: the header block's OK-chain must reach a `br`
+/// whose condition is defined by an unsigned comparison of an
 /// induction-variable register against a register loaded from
-/// (base, offset). Returns null when the shape does not match.
+/// (base, offset). The header block itself may end in a bounds-check
+/// `br` (the loop condition's own Vec indexing emits its checks
+/// first); `findLoopCondBr` follows the OK-chain past those to the
+/// real condition. Returns null when the shape does not match.
 fn parseLoopHead(insts: []const Inst, header_idx: usize, body_end: usize) ?LoopHead {
-    const header_end = blockEnd(insts, header_idx);
-    if (header_end == 0 or header_end > insts.len) return null;
-    const br_idx = header_end - 1;
-    if (insts[br_idx].kind != .br) return null;
+    const cond = findLoopCondBr(insts, header_idx, body_end) orelse return null;
+    const br_idx = cond.br_idx;
     const cond_reg = regOf(insts[br_idx].operands[0]) orelse return null;
     const cmp_idx = findDef(insts, header_idx, br_idx, cond_reg) orelse return null;
     const cmp = insts[cmp_idx];
@@ -410,7 +494,7 @@ fn parseLoopHead(insts: []const Inst, header_idx: usize, body_end: usize) ?LoopH
     const lhs = regOf(cmp.operands[1]) orelse return null;
     const rhs = regOf(cmp.operands[2]) orelse return null;
     // One side is the IV, the other is the bound register (a load).
-    // Try both assignments; the bound side must be a load in the header.
+    // Try both assignments; the bound side must be a load.
     const candidates = [_]struct { iv: u32, bound: u32 }{
         .{ .iv = lhs, .bound = rhs },
         .{ .iv = rhs, .bound = lhs },
@@ -420,7 +504,7 @@ fn parseLoopHead(insts: []const Inst, header_idx: usize, body_end: usize) ?LoopH
         const load = loadOperands(insts[load_idx]) orelse continue;
         return .{
             .header_label_idx = header_idx,
-            .header_end = header_end,
+            .header_end = blockEnd(insts, cond.block_start),
             .br_idx = br_idx,
             .cond_reg = cond_reg,
             .cmp_idx = cmp_idx,
@@ -432,6 +516,40 @@ fn parseLoopHead(insts: []const Inst, header_idx: usize, body_end: usize) ?LoopH
             .bound_load_idx = load_idx,
             .body_end = body_end,
         };
+    }
+    return null;
+}
+
+/// Walk the OK-chain from the header block to the real loop-condition
+/// `br`. The header block may end in a bounds-check `br` when the loop
+/// condition itself indexes a Vec (midx_eq_pos: the condition `i <
+/// len(s[e][a])` is preceded by `e < len(s)` and `a < len(s[e])`
+/// checks, each ending its block with a `br` to a lone-panic OOB
+/// block). A bounds-check `br` is recognized exactly as the check
+/// scanner recognizes one: its false target holds exactly one `panic`.
+/// Following each such check's OK (true) target reaches the block
+/// whose last `br` is the loop condition (true -> body, false ->
+/// exit). Returns the condition block's start and `br` index, or null
+/// when the chain leaves the loop, ends without a `br`, or runs too
+/// long. The safe direction is null: the loop is skipped, no proof
+/// is claimed.
+fn findLoopCondBr(insts: []const Inst, header_idx: usize, body_end: usize) ?struct { block_start: usize, br_idx: usize } {
+    var cur = header_idx;
+    var steps: usize = 0;
+    while (steps < 32) : (steps += 1) {
+        const end = blockEnd(insts, cur);
+        if (end == 0 or end > insts.len) return null;
+        const br_idx = end - 1;
+        if (insts[br_idx].kind != .br) return null;
+        const false_label = labelOf(insts[br_idx].operands[3]) orelse return null;
+        const false_def = findLabelDef(insts, false_label) orelse return null;
+        if (lonePanicBlock(insts, false_def) == null) {
+            return .{ .block_start = cur, .br_idx = br_idx };
+        }
+        const true_label = labelOf(insts[br_idx].operands[1]) orelse return null;
+        const next = findLabelDef(insts, true_label) orelse return null;
+        if (next <= cur or next > body_end) return null;
+        cur = next;
     }
     return null;
 }
@@ -551,8 +669,20 @@ fn analyzeCheck(
     if (versionAt(insts, func_start, head.cmp_idx, head.iv_reg) != versionAt(insts, func_start, cmp_idx, idx_reg)) {
         return make_ob(.not_target_class, "induction variable redefined between head and check", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
     }
-    if (bound_base != head.bound_base or bound_offset != head.bound_offset) {
-        return make_ob(.not_target_class, "check bound loads a different location than the head bound", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+    if (bound_offset != head.bound_offset) {
+        return make_ob(.not_target_class, "check bound loads a different offset than the head bound", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+    }
+    // The bound base is usually a fresh register per load: the plugin
+    // recomputes the base address (e.g. s[e][a]) for every access. The
+    // bases are the same location when their defining chains compute
+    // the same value; the head chain's earliest instruction extends
+    // the no-store scan below. When the registers are already the
+    // same, the chain starts at the head bound load (as before).
+    var head_chain_start = head.bound_load_idx;
+    if (bound_base != head.bound_base) {
+        if (!sameValue(insts, func_start, head.bound_base, head.bound_load_idx, bound_base, bound_load_idx, 0, &head_chain_start)) {
+            return make_ob(.not_target_class, "check bound base holds a different value than the head bound base", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+        }
     }
     if (versionAt(insts, func_start, head.bound_load_idx, head.bound_base) != versionAt(insts, func_start, bound_load_idx, bound_base)) {
         return make_ob(.not_target_class, "bound base register redefined between head and check", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
@@ -560,22 +690,30 @@ fn analyzeCheck(
     if (findIVIncrement(insts, head.header_label_idx, head.body_end, head.iv_reg) == null) {
         return make_ob(.not_target_class, "no positive-constant increment of the induction variable in the loop body", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
     }
-    // Strict mutation scan on [head bound load, check bound load].
-    var s = head.bound_load_idx;
+    // Strict mutation scan on [head base chain start, check bound load].
+    // The head chain's loads must read the same memory the check chain's
+    // loads read; with no store/call anywhere between the two chains,
+    // and no leaf redefinition (checked in sameValue), the recomputed
+    // base holds the same value. The base-redefinition and take checks
+    // apply only from the head bound load onward; the head base chain
+    // itself defines the base before that point.
+    var s = head_chain_start;
     while (s < bound_load_idx and s < insts.len) : (s += 1) {
         const k = insts[s].kind;
         if (isMemoryWrite(k) or isCall(k)) {
             return make_ob(.not_target_class, "store or call on the path from head load to check load", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
         }
-        if (definesReg(insts[s])) |d| {
-            if (d == head.bound_base) {
-                return make_ob(.not_target_class, "bound base register redefined on the path from head load to check load", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+        if (s >= head.bound_load_idx) {
+            if (definesReg(insts[s])) |d| {
+                if (d == head.bound_base) {
+                    return make_ob(.not_target_class, "bound base register redefined on the path from head load to check load", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+                }
             }
-        }
-        if (k == .take) {
-            if (loadOperands(insts[s])) |ld| {
-                if (ld.base == head.bound_base and ld.offset == head.bound_offset) {
-                    return make_ob(.not_target_class, "bound location taken on the path from head load to check load", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+            if (k == .take) {
+                if (loadOperands(insts[s])) |ld| {
+                    if (ld.base == head.bound_base and ld.offset == head.bound_offset) {
+                        return make_ob(.not_target_class, "bound location taken on the path from head load to check load", head_fact, goal, null, br_idx, base, ok_label, oob_label, func_name, insts);
+                    }
                 }
             }
         }
@@ -897,4 +1035,349 @@ test "obligation ignores a vpush-shaped branch (false target is a call block)" {
     // Only the real VEC_INDEX check is counted; the VPUSH branch is not.
     try std.testing.expectEqual(@as(u32, 1), result.stats.checks_found);
     try std.testing.expectEqual(@as(u32, 1), result.stats.proven);
+}
+
+// ---------------------------------------------------------------- midx-shape tests
+//
+// A loop whose condition indexes a Vec: the header block ends in a
+// bounds check on the condition's own index, and the real condition
+// (`ult i, len`) lives two OK-chain steps later. The body checks the
+// same bound through a recomputed base address (fresh registers,
+// structurally identical chain). Mirrors midx_eq_pos loop 1
+// (L_WHILE_HEAD_1874), reduced to one index level.
+
+const M_S: u32 = 30; // the Vec (parameter)
+const M_E: u32 = 31; // index e (parameter)
+const M_A: u32 = 32; // index a (parameter)
+const M_I: u32 = 33; // induction variable
+const M_TOTAL: u32 = 34;
+
+const M_H_PTR: u32 = 40;
+const M_H_MUL: u32 = 41;
+const M_H_ADDR: u32 = 42;
+const M_H_BASE: u32 = 43;
+const M_H_LEN: u32 = 44;
+const M_H_COND: u32 = 45;
+const M_C_PTR: u32 = 46;
+const M_C_MUL: u32 = 47;
+const M_C_ADDR: u32 = 48;
+const M_C_BASE: u32 = 49;
+const M_C_LEN: u32 = 50;
+const M_C_COND: u32 = 51;
+const M_D_PTR: u32 = 52;
+const M_D_MUL: u32 = 53;
+const M_D_ADDR: u32 = 54;
+const M_D_BASE: u32 = 55;
+const M_D_LEN: u32 = 56;
+const M_D_COND: u32 = 57;
+const M_F_PTR: u32 = 58;
+const M_F_MUL: u32 = 59;
+const M_F_ADDR: u32 = 60;
+const M_F_BASE: u32 = 61;
+const M_F_LEN: u32 = 62;
+const M_F_COND: u32 = 63;
+const M_E_LEN: u32 = 64;
+const M_E_COND: u32 = 65;
+const M_A_LEN: u32 = 66;
+const M_A_COND: u32 = 67;
+const M_ONE: u32 = 68;
+const M_INC: u32 = 69;
+
+const M_L_ENTRY: u32 = 299;
+const M_L_HEAD: u32 = 300;
+const M_L_OKE: u32 = 301;
+const M_L_CONDBLK: u32 = 302;
+const M_L_BODY: u32 = 303;
+const M_L_FALSE: u32 = 304;
+const M_L_EXIT: u32 = 305;
+const M_L_OOB_E: u32 = 306;
+const M_L_OOB_A: u32 = 307;
+const M_L_OK1: u32 = 308;
+const M_L_OOB1: u32 = 309;
+const M_L_OK2: u32 = 310;
+const M_L_OOB2: u32 = 311;
+const M_L_OK3: u32 = 312;
+const M_L_OOB3: u32 = 313;
+
+fn mkPtrAdd(dst: u32, base: u32, off: u32, line: u32) Inst {
+    var inst = mk(.ptr_add, line);
+    inst.operands[0] = .{ .reg = dst };
+    inst.operands[1] = .{ .reg = base };
+    inst.operands[2] = .{ .reg = off };
+    return inst;
+}
+
+/// The midx-shaped loop: header ends in an `e` bounds check, the next
+/// block in an `a` bounds check, the third block holds the real
+/// condition `ult i, len(s[e])`. The body has three `i` checks against
+/// len(s[e]): one through a recomputed base (must prove), one through
+/// a base indexed by `a` instead of `e` (must refuse), one through a
+/// base with a different stride (must refuse).
+fn buildMidxLoop(allocator: std.mem.Allocator) ![]Inst {
+    var list = std.array_list.Managed(Inst).init(allocator);
+    var line: u32 = 1;
+    try list.append(mk(.func_decl, line));
+    line += 1;
+    try list.append(mkLabel(M_L_ENTRY, line));
+    line += 1;
+    var a = mk(.assign, line);
+    a.operands[0] = .{ .reg = M_TOTAL };
+    a.operands[1] = .{ .imm_i64 = 0 };
+    try list.append(a);
+    line += 1;
+    a = mk(.assign, line);
+    a.operands[0] = .{ .reg = M_I };
+    a.operands[1] = .{ .imm_i64 = 0 };
+    try list.append(a);
+    line += 1;
+    try list.append(mkJmp(M_L_HEAD, line));
+    line += 1;
+    // Header: `e < len(s)` bounds check.
+    try list.append(mkLabel(M_L_HEAD, line));
+    line += 1;
+    try list.append(mkLoad(M_E_LEN, M_S, 8, line));
+    line += 1;
+    try list.append(mkOp(M_E_COND, .ult, .{ .reg = M_E }, .{ .reg = M_E_LEN }, line));
+    line += 1;
+    try list.append(mkBr(M_E_COND, M_L_OKE, M_L_OOB_E, line));
+    line += 1;
+    try list.append(mkLabel(M_L_OOB_E, line));
+    line += 1;
+    var p = mk(.panic, line);
+    p.operands[0] = .{ .text = "32" };
+    try list.append(p);
+    line += 1;
+    // Next: `a < len(s)` bounds check.
+    try list.append(mkLabel(M_L_OKE, line));
+    line += 1;
+    try list.append(mkLoad(M_A_LEN, M_S, 8, line));
+    line += 1;
+    try list.append(mkOp(M_A_COND, .ult, .{ .reg = M_A }, .{ .reg = M_A_LEN }, line));
+    line += 1;
+    try list.append(mkBr(M_A_COND, M_L_CONDBLK, M_L_OOB_A, line));
+    line += 1;
+    try list.append(mkLabel(M_L_OOB_A, line));
+    line += 1;
+    p = mk(.panic, line);
+    p.operands[0] = .{ .text = "32" };
+    try list.append(p);
+    line += 1;
+    // Real condition block: base = s[e], `ult i, len(s[e])`.
+    try list.append(mkLabel(M_L_CONDBLK, line));
+    line += 1;
+    try list.append(mkLoad(M_H_PTR, M_S, 0, line));
+    line += 1;
+    try list.append(mkOp(M_H_MUL, .mul, .{ .reg = M_E }, .{ .imm_i64 = 8 }, line));
+    line += 1;
+    try list.append(mkPtrAdd(M_H_ADDR, M_H_PTR, M_H_MUL, line));
+    line += 1;
+    try list.append(mkLoad(M_H_BASE, M_H_ADDR, 0, line));
+    line += 1;
+    try list.append(mkLoad(M_H_LEN, M_H_BASE, 8, line));
+    line += 1;
+    try list.append(mkOp(M_H_COND, .ult, .{ .reg = M_I }, .{ .reg = M_H_LEN }, line));
+    line += 1;
+    try list.append(mkBr(M_H_COND, M_L_BODY, M_L_FALSE, line));
+    line += 1;
+    // Body check 1: same bound, recomputed base (must prove).
+    try list.append(mkLabel(M_L_BODY, line));
+    line += 1;
+    try list.append(mkLoad(M_C_PTR, M_S, 0, line));
+    line += 1;
+    try list.append(mkOp(M_C_MUL, .mul, .{ .reg = M_E }, .{ .imm_i64 = 8 }, line));
+    line += 1;
+    try list.append(mkPtrAdd(M_C_ADDR, M_C_PTR, M_C_MUL, line));
+    line += 1;
+    try list.append(mkLoad(M_C_BASE, M_C_ADDR, 0, line));
+    line += 1;
+    try list.append(mkLoad(M_C_LEN, M_C_BASE, 8, line));
+    line += 1;
+    try list.append(mkOp(M_C_COND, .ult, .{ .reg = M_I }, .{ .reg = M_C_LEN }, line));
+    line += 1;
+    try list.append(mkBr(M_C_COND, M_L_OK1, M_L_OOB1, line));
+    line += 1;
+    try list.append(mkLabel(M_L_OOB1, line));
+    line += 1;
+    p = mk(.panic, line);
+    p.operands[0] = .{ .text = "32" };
+    try list.append(p);
+    line += 1;
+    // Body check 2: base indexed by `a` instead of `e` (must refuse).
+    try list.append(mkLabel(M_L_OK1, line));
+    line += 1;
+    try list.append(mkLoad(M_D_PTR, M_S, 0, line));
+    line += 1;
+    try list.append(mkOp(M_D_MUL, .mul, .{ .reg = M_A }, .{ .imm_i64 = 8 }, line));
+    line += 1;
+    try list.append(mkPtrAdd(M_D_ADDR, M_D_PTR, M_D_MUL, line));
+    line += 1;
+    try list.append(mkLoad(M_D_BASE, M_D_ADDR, 0, line));
+    line += 1;
+    try list.append(mkLoad(M_D_LEN, M_D_BASE, 8, line));
+    line += 1;
+    try list.append(mkOp(M_D_COND, .ult, .{ .reg = M_I }, .{ .reg = M_D_LEN }, line));
+    line += 1;
+    try list.append(mkBr(M_D_COND, M_L_OK2, M_L_OOB2, line));
+    line += 1;
+    try list.append(mkLabel(M_L_OOB2, line));
+    line += 1;
+    p = mk(.panic, line);
+    p.operands[0] = .{ .text = "32" };
+    try list.append(p);
+    line += 1;
+    // Body check 3: base with a different stride, `e * 16` (must refuse).
+    try list.append(mkLabel(M_L_OK2, line));
+    line += 1;
+    try list.append(mkLoad(M_F_PTR, M_S, 0, line));
+    line += 1;
+    try list.append(mkOp(M_F_MUL, .mul, .{ .reg = M_E }, .{ .imm_i64 = 16 }, line));
+    line += 1;
+    try list.append(mkPtrAdd(M_F_ADDR, M_F_PTR, M_F_MUL, line));
+    line += 1;
+    try list.append(mkLoad(M_F_BASE, M_F_ADDR, 0, line));
+    line += 1;
+    try list.append(mkLoad(M_F_LEN, M_F_BASE, 8, line));
+    line += 1;
+    try list.append(mkOp(M_F_COND, .ult, .{ .reg = M_I }, .{ .reg = M_F_LEN }, line));
+    line += 1;
+    try list.append(mkBr(M_F_COND, M_L_OK3, M_L_OOB3, line));
+    line += 1;
+    try list.append(mkLabel(M_L_OOB3, line));
+    line += 1;
+    p = mk(.panic, line);
+    p.operands[0] = .{ .text = "32" };
+    try list.append(p);
+    line += 1;
+    // Increment (copy form) and back edge.
+    try list.append(mkLabel(M_L_OK3, line));
+    line += 1;
+    a = mk(.assign, line);
+    a.operands[0] = .{ .reg = M_ONE };
+    a.operands[1] = .{ .imm_i64 = 1 };
+    try list.append(a);
+    line += 1;
+    try list.append(mkOp(M_INC, .add, .{ .reg = M_I }, .{ .reg = M_ONE }, line));
+    line += 1;
+    try list.append(mkOp(M_I, .add, .{ .reg = M_INC }, .{ .imm_i64 = 0 }, line));
+    line += 1;
+    try list.append(mkJmp(M_L_HEAD, line));
+    line += 1;
+    // Exit.
+    try list.append(mkLabel(M_L_FALSE, line));
+    line += 1;
+    try list.append(mkJmp(M_L_EXIT, line));
+    line += 1;
+    try list.append(mkLabel(M_L_EXIT, line));
+    line += 1;
+    var ret = mk(.return_, line);
+    ret.operands[0] = .{ .reg = M_TOTAL };
+    try list.append(ret);
+    return list.toOwnedSlice();
+}
+
+test "obligation follows the OK-chain and proves the recomputed-base check" {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const insts = try buildMidxLoop(arena.allocator());
+    const result = try analyzeFunction(arena.allocator(), insts, 0, "midx_eq_pos");
+    // 5 checks: the `e` and `a` header checks plus the 3 body `i` checks.
+    try std.testing.expectEqual(@as(u32, 1), result.stats.loops_found);
+    try std.testing.expectEqual(@as(u32, 5), result.stats.checks_found);
+    try std.testing.expectEqual(@as(u32, 1), result.stats.target_class);
+    try std.testing.expectEqual(@as(u32, 1), result.stats.proven);
+    try std.testing.expectEqual(@as(u32, 0), result.stats.unproven);
+    try std.testing.expectEqual(@as(u32, 4), result.stats.not_target_class);
+    try std.testing.expectEqual(@as(u32, 5), result.obligations.len);
+    // Scan order: e-check, a-check, recomputed-base i-check, a-indexed
+    // i-check, stride-16 i-check.
+    try std.testing.expect(result.obligations[0].status == .not_target_class);
+    try std.testing.expectEqualStrings("check index is not the loop induction variable", result.obligations[0].reason);
+    try std.testing.expect(result.obligations[1].status == .not_target_class);
+    try std.testing.expectEqualStrings("check index is not the loop induction variable", result.obligations[1].reason);
+    try std.testing.expect(result.obligations[2].status == .proven);
+    try std.testing.expect(result.obligations[3].status == .not_target_class);
+    try std.testing.expectEqualStrings("check bound base holds a different value than the head bound base", result.obligations[3].reason);
+    try std.testing.expect(result.obligations[4].status == .not_target_class);
+    try std.testing.expectEqualStrings("check bound base holds a different value than the head bound base", result.obligations[4].reason);
+}
+
+test "obligation finds no loop head when the OK-chain ends without a br" {
+    const alloc = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    // Canonical loop shape, but the header block ends in a bounds check
+    // whose OK target jumps straight to the body: no block on the chain
+    // ends in a loop-condition `br`, so parseLoopHead must return null
+    // and the loop is skipped (not misparsed as iv = e).
+    var list = std.array_list.Managed(Inst).init(arena.allocator());
+    var line: u32 = 1;
+    try list.append(mk(.func_decl, line));
+    line += 1;
+    try list.append(mkLabel(M_L_ENTRY, line));
+    line += 1;
+    var a = mk(.assign, line);
+    a.operands[0] = .{ .reg = M_I };
+    a.operands[1] = .{ .imm_i64 = 0 };
+    try list.append(a);
+    line += 1;
+    try list.append(mkJmp(M_L_HEAD, line));
+    line += 1;
+    try list.append(mkLabel(M_L_HEAD, line));
+    line += 1;
+    try list.append(mkLoad(M_E_LEN, M_S, 8, line));
+    line += 1;
+    try list.append(mkOp(M_E_COND, .ult, .{ .reg = M_E }, .{ .reg = M_E_LEN }, line));
+    line += 1;
+    try list.append(mkBr(M_E_COND, M_L_OKE, M_L_OOB_E, line));
+    line += 1;
+    try list.append(mkLabel(M_L_OOB_E, line));
+    line += 1;
+    var p = mk(.panic, line);
+    p.operands[0] = .{ .text = "32" };
+    try list.append(p);
+    line += 1;
+    // OK target ends in an unconditional jump: the chain dies here.
+    try list.append(mkLabel(M_L_OKE, line));
+    line += 1;
+    try list.append(mkJmp(M_L_BODY, line));
+    line += 1;
+    // Body: one `i` check, increment, back edge.
+    try list.append(mkLabel(M_L_BODY, line));
+    line += 1;
+    try list.append(mkLoad(M_C_LEN, M_S, 8, line));
+    line += 1;
+    try list.append(mkOp(M_C_COND, .ult, .{ .reg = M_I }, .{ .reg = M_C_LEN }, line));
+    line += 1;
+    try list.append(mkBr(M_C_COND, M_L_OK1, M_L_OOB1, line));
+    line += 1;
+    try list.append(mkLabel(M_L_OOB1, line));
+    line += 1;
+    p = mk(.panic, line);
+    p.operands[0] = .{ .text = "32" };
+    try list.append(p);
+    line += 1;
+    try list.append(mkLabel(M_L_OK1, line));
+    line += 1;
+    a = mk(.assign, line);
+    a.operands[0] = .{ .reg = M_ONE };
+    a.operands[1] = .{ .imm_i64 = 1 };
+    try list.append(a);
+    line += 1;
+    try list.append(mkOp(M_INC, .add, .{ .reg = M_I }, .{ .reg = M_ONE }, line));
+    line += 1;
+    try list.append(mkOp(M_I, .add, .{ .reg = M_INC }, .{ .imm_i64 = 0 }, line));
+    line += 1;
+    try list.append(mkJmp(M_L_HEAD, line));
+    line += 1;
+    try list.append(mkLabel(M_L_EXIT, line));
+    line += 1;
+    var ret = mk(.return_, line);
+    ret.operands[0] = .{ .reg = M_TOTAL };
+    try list.append(ret);
+    const insts2 = try list.toOwnedSlice();
+    const result = try analyzeFunction(arena.allocator(), insts2, 0, "dead_chain");
+    try std.testing.expectEqual(@as(u32, 0), result.stats.loops_found);
+    try std.testing.expectEqual(@as(u32, 0), result.stats.checks_found);
+    try std.testing.expectEqual(@as(u32, 0), result.obligations.len);
 }
