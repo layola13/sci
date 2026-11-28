@@ -30,6 +30,7 @@ const reportPluginImportDiagnostic = @import("compile.zig").reportPluginImportDi
 const reportVerifierMemoryStage = @import("compile.zig").reportVerifierMemoryStage;
 const resolveProjectFromSourcePath = @import("compile.zig").resolveProjectFromSourcePath;
 const trustedSabVerifyOk = @import("compile.zig").trustedSabVerifyOk;
+const proof_elim = @import("../proof_elim/pass.zig");
 const verifyModeByte = @import("compile.zig").verifyModeByte;
 const writeMemoryStageSampleForOptions = @import("compile.zig").writeMemoryStageSampleForOptions;
 
@@ -194,6 +195,34 @@ pub fn compileSource(allocator: std.mem.Allocator, source_path: []const u8, opti
         null;
 
     const verify_start = if (options.profile) std.Io.Clock.awake.now(sio.io()) else null;
+    // Proof elimination (jihoo 01 prototype): remove bounds checks proved
+    // from loop-head conditions. Runs after flattening and before the
+    // content hash and verification, so the referee backstops it. Kill
+    // switch: PROOF_ELIM=0. PROOF_ELIM_REPORT=<path> writes a
+    // per-function report. The .sab path is out of scope.
+    if (proof_elim.isEnabled(allocator)) {
+        const elim_report = try proof_elim.runProofElim(allocator, flat.instructions, flat.function_sigs, flat.test_sigs);
+        defer allocator.free(elim_report.funcs);
+        if (elim_report.removed > 0) {
+            const elim_writer = options.diagnostic_writer orelse &null_discarding.writer;
+            elim_writer.print("proof-elim: removed {d} bounds checks ({d} proven of {d} target-class, {d} checks in {d} functions)\n", .{ elim_report.removed, elim_report.proven, elim_report.target, elim_report.checks, elim_report.functions }) catch {};
+        }
+        if (sio.getEnvVarOwned(allocator, "PROOF_ELIM_REPORT") catch null) |report_path| {
+            defer allocator.free(report_path);
+            if (report_path.len > 0) {
+                const text = proof_elim.reportText(allocator, &elim_report) catch null;
+                if (text) |t| {
+                    defer allocator.free(t);
+                    const f = sio.cwd().createFile(report_path, .{ .truncate = true }) catch null;
+                    if (f) |file| {
+                        defer file.close();
+                        file.writeAll(t) catch {};
+                    }
+                }
+            }
+        }
+    }
+
     const content_hash = incr_verify.hashInstructionsMode(flat.instructions, verifyModeByte(options.default_immutable));
     // Phase B-B hybrid: on verdict hit rebuild a trusted annotated shell from the
     // current FlattenResult (no dangling VerifyOk reuse). Misses run the referee.
